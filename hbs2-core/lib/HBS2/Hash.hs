@@ -48,8 +48,8 @@ instance Binary (Hash HbSync)
 
 newtype Internal a = Internal a
 
-class Hashed a where
-  hashObject :: a -> Hash HbSync
+class Hashed t a where
+  hashObject :: a -> Hash t
 
 alphabet :: Alphabet
 alphabet = bitcoinAlphabet
@@ -58,12 +58,12 @@ getAlphabet :: [Char]
 getAlphabet = BS8.unpack (unAlphabet alphabet)
 
 
-instance Hashed ByteString where
+instance Hashed HbSync ByteString where
   hashObject s = HbSyncHash $ force $ SB.toShort $ BA.convert digest
     where
       digest = hash s :: Digest (HashType HbSync)
 
-instance Hashed LBS.ByteString where
+instance Hashed HbSync LBS.ByteString where
   hashObject s = HbSyncHash $ force $ SB.toShort $ BA.convert digest
     where
       digest = hashlazy s :: Digest (HashType HbSync)

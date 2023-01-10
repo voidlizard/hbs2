@@ -1,10 +1,18 @@
 module Main where
 
+import Test.Tasty
+import Test.Tasty.HUnit
+
+import TestSimpleStorage
+
 import HBS2.Storage
 
+main :: IO ()
+main = defaultMain $
+          testGroup "root" [ testCase "testSimpleStorageInit" testSimpleStorageInit
+                           ]
 
 
-main = do
-  error "oops"
+
 
 
