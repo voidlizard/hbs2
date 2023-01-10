@@ -5,24 +5,31 @@ import Control.Concurrent.Async
 import Control.Exception (try,tryJust)
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
 import Data.Foldable
 import Data.List qualified as L
 import Lens.Micro.Platform
 import Prettyprinter
 import System.Directory
 import System.FilePath.Posix
+import System.IO
 import System.IO.Error
 
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TBQueue qualified as TBQ
 import Control.Concurrent.STM.TBQueue (TBQueue)
+import Control.Concurrent.STM.TVar (TVar)
+import Control.Concurrent.STM.TVar qualified as TV
 
+import HBS2.Clock
 import HBS2.Hash
-import HBS2.Storage
 import HBS2.Prelude
 import HBS2.Prelude.Plated
+import HBS2.Storage
 
 -- NOTE:  random accessing files in a git-like storage
 --        causes to file handles exhaust.
@@ -50,8 +57,9 @@ newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
 
 data SimpleStorage a =
   SimpleStorage
-  { _storageDir    :: FilePath
-  , _storageOpQ :: TBQueue ( IO () )
+  { _storageDir     :: FilePath
+  , _storageOpQ     :: TBQueue ( IO () )
+  , _storageHandles :: Cache (Key (Raw LBS.ByteString)) Handle
   }
 
 makeLenses ''SimpleStorage
@@ -65,16 +73,21 @@ storageBlocks = to f
 simpleStorageInit :: (MonadIO m, Data opts) => opts -> m (SimpleStorage h)
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 10 opts :: StorageQueueSize
+  let qSize  = uniLastDef 100 opts :: StorageQueueSize
 
   pdir <- canonicalizePath (fromPrefix prefix)
 
   tbq <- TBQ.newTBQueueIO (fromIntegral (fromQueueSize qSize))
 
+  hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 10)) -- FIXME: real setting
+
   let stor = SimpleStorage
              { _storageDir = pdir
              , _storageOpQ = tbq
+             , _storageHandles = hcache
              }
+
+  -- print ("STORAGE", stor ^. storageDir, stor ^. storageBlocks )
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
 
@@ -94,8 +107,17 @@ simpleStorageWorker ss = do
   writeOps <- async $ forever $ do
     join $ atomically $ TBQ.readTBQueue ( ss ^. storageOpQ )
 
-  void $ waitAnyCatchCancel [readOps,writeOps]
+  killer <- async $ forever $ do
+    pause ( 1 :: Timeout 'Minutes ) -- FIXME: setting
+    Cache.purgeExpired ( ss ^. storageHandles )
 
+  void $ waitAnyCatchCancel [readOps,writeOps,killer]
+
+simpleGetHandle :: SimpleStorage h -> Key (Raw LBS.ByteString) -> IO Handle
+simpleGetHandle s k = do
+  let cache = s ^. storageHandles
+  let fn = simpleBlockFileName s k
+  Cache.fetchWithCache cache k $ const $ openFile fn ReadMode
 
 simpleBlockFileName :: SimpleStorage h -> Hash HbSync -> FilePath
 simpleBlockFileName ss h = path
@@ -115,10 +137,10 @@ simpleBlockFileName ss h = path
 --
 simpleGetBlockLazy ::  SimpleStorage h
                     -> Key (Raw LBS.ByteString)
-                    -> IO (Maybe (Raw LBS.ByteString))
+                    -> IO (Maybe LBS.ByteString)
 
 simpleGetBlockLazy s key = do
-  resQ <- TBQ.newTBQueueIO 1 :: IO (TBQueue (Maybe (Raw LBS.ByteString)))
+  resQ <- TBQ.newTBQueueIO 1 :: IO (TBQueue (Maybe LBS.ByteString))
   let fn = simpleBlockFileName s key
   let action = do
 
@@ -126,7 +148,7 @@ simpleGetBlockLazy s key = do
                      (BS.readFile fn <&> LBS.fromStrict)
 
         result <- case r of
-                    Right bytes -> pure (Just (Raw bytes))
+                    Right bytes -> pure (Just bytes)
                     Left _      -> pure Nothing
 
         void $ atomically $ TBQ.writeTBQueue resQ result
@@ -136,8 +158,35 @@ simpleGetBlockLazy s key = do
 
   atomically $ TBQ.readTBQueue resQ
 
--- non-blocking version, always returns Just hash
--- maybe it's not good
+simpleGetChunkLazy :: SimpleStorage h
+                   -> Key (Raw LBS.ByteString)
+                   -> Offset
+                   -> Size
+                   -> IO (Maybe LBS.ByteString)
+
+simpleGetChunkLazy s key off size = do
+  resQ <- TBQ.newTBQueueIO 1 :: IO (TBQueue (Maybe LBS.ByteString))
+  let action = do
+
+       r <- tryJust (guard . isDoesNotExistError)
+                    (simpleGetHandle s key)
+
+       chunk <- runMaybeT $ do
+
+                  handle <- MaybeT $ case r of
+                              Right  h -> pure (Just h)
+                              Left _   -> pure Nothing
+
+                  liftIO $ do
+                    hSeek handle AbsoluteSeek ( fromIntegral off )
+                    LBS.hGet handle (fromIntegral size)
+
+       void $ atomically $ TBQ.writeTBQueue resQ chunk
+
+
+  void $ atomically $ TBQ.writeTBQueue ( s ^. storageOpQ ) action
+  atomically $ TBQ.readTBQueue resQ
+
 simplePutBlockLazy :: SimpleStorage h
                    -> LBS.ByteString
                    -> IO (Maybe (Key (Raw LBS.ByteString)))
@@ -147,10 +196,15 @@ simplePutBlockLazy  s lbs = do
   let hash = hashObject lbs :: Key (Raw LBS.ByteString)
   let fn = simpleBlockFileName s hash
 
+  wait <- TBQ.newTBQueueIO 1 :: IO (TBQueue ())
+
   let action = do
         LBS.writeFile fn lbs
+        atomically $ TBQ.writeTBQueue wait ()
 
   atomically $ TBQ.writeTBQueue (s ^. storageOpQ) action
+
+  void $ atomically $ TBQ.readTBQueue wait
 
   pure (Just hash)
 
@@ -166,9 +220,9 @@ instance (MonadIO m, (Hashed hash (Raw LBS.ByteString)))
 
   putBlock s lbs = liftIO $ simplePutBlockLazy s lbs
 
-  getBlock s key = liftIO $ simpleGetBlockLazy s key <&> fmap fromRaw
+  getBlock s key = liftIO $ simpleGetBlockLazy s key
 
-
+  getChunk s k off size = liftIO $ simpleGetChunkLazy s k off size
 
 
 

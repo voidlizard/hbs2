@@ -64,6 +64,7 @@ library
 
     exposed-modules:
                       HBS2.Hash
+                    , HBS2.Clock
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
@@ -78,6 +79,7 @@ library
                      , binary
                      , bytestring
                      , cborg
+                     , clock
                      , containers
                      , cryptonite
                      , deepseq

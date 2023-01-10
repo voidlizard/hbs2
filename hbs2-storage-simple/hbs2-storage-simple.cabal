@@ -63,12 +63,14 @@ library
     build-depends:    base ^>=4.15.1.0, hbs2-core
                     , async
                     , bytestring
+                    , cache
                     , containers
                     , directory
                     , filepath
                     , microlens-platform
                     , prettyprinter
                     , stm
+                    , transformers
                     , uniplate
 
 
@@ -96,16 +98,18 @@ test-suite test
         , cborg
         , containers
         , directory
+        , filepath
         , hashable
         , microlens-platform
         , mtl
         , prettyprinter
+        , QuickCheck
         , random
         , safe
         , serialise
         , tasty
         , tasty-hunit
-        , transformers
+        , temporary
         , uniplate
         , vector
 
