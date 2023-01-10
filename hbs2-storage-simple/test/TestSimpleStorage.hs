@@ -17,13 +17,46 @@ import Test.QuickCheck
 import Test.Tasty.HUnit
 
 import HBS2.Hash
+import HBS2.Clock
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Simple
 
 
-testSimpleStorageInit :: IO ()
-testSimpleStorageInit = do
+
+testSimpleStorageNoKeys :: IO ()
+testSimpleStorageNoKeys = do
+  withSystemTempDirectory "simpleStorageTest" $ \dir -> do
+
+    let opts = [ StoragePrefix (dir </> ".storage")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    worker <- async  (simpleStorageWorker storage)
+
+    let pieces = take 1000 $ shrink [0x00 .. 0xFF] :: [[Word8]]
+
+    results' <- forConcurrently pieces $ \p -> do
+                  let hash = hashObject (LBS.pack p)
+                  s <- getBlock storage hash
+                  pure (LBS.length <$> s)
+
+    let results = catMaybes results'
+
+    print ("results", length results)
+
+    assertBool "no-results" (null results)
+
+    pause ( 0.05 :: Timeout 'Seconds )
+
+    cancel worker
+
+    pure ()
+
+
+testSimpleStorageRandomReadWrite :: IO ()
+testSimpleStorageRandomReadWrite = do
 
   withSystemTempDirectory "simpleStorageTest" $ \dir -> do
 

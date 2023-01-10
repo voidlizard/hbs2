@@ -8,9 +8,10 @@ import TestSimpleStorage
 import HBS2.Storage
 
 main :: IO ()
-main = defaultMain $
-          testGroup "root" [ testCase "testSimpleStorageInit" testSimpleStorageInit
-                           ]
+main =
+  defaultMain $
+    testGroup "root" [ testCase "testSimpleStorageRandomReadWrite" testSimpleStorageRandomReadWrite
+                     ]
 
 
 
