@@ -74,7 +74,7 @@ testSimpleStorageRandomReadWrite = do
     let pieces = shrink [0x00 .. 0xFF] :: [[Word8]]
 
     forConcurrently_ (take 1000 pieces) $ \piece -> do
-    -- for_ (take 1000 pieces) $ \piece -> do
+    -- for_ (take 10 pieces) $ \piece -> do
 
       let str = LBS.pack piece
 
