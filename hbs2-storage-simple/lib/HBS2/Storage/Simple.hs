@@ -83,8 +83,6 @@ simpleStorageInit opts = liftIO $ do
 
   pdir <- canonicalizePath (fromPrefix prefix)
 
-  print (pretty pdir)
-
   tbq <- TBMQ.newTBMQueueIO (fromIntegral (fromQueueSize qSize))
 
   tstop <- TV.newTVarIO False

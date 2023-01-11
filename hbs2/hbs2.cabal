@@ -83,6 +83,7 @@ executable hbs2
                     , serialise
                     , streaming
                     , text
+                    , transformers
                     , uniplate
 
 

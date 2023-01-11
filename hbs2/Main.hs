@@ -11,6 +11,7 @@ import Data.Functor
 import Options.Applicative
 import Prettyprinter
 import System.Directory
+import Control.Monad.Trans.Maybe
 -- import System.FilePath.Posix
 import System.IO
 
@@ -35,11 +36,22 @@ newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
                        deriving stock (Data)
 
-newtype Opts =
-  Opts {
-    optInputFile :: Maybe OptInputFile
+newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
+                     deriving newtype (Eq,Ord,IsString,Pretty)
+                     deriving stock (Data,Generic)
+
+newtype StoreOpts =
+  StoreOpts {
+    storeInputFile :: Maybe OptInputFile
   }
   deriving stock (Data)
+
+newtype CatOpts =
+  CatOpts {
+    catMerkleHash :: Maybe MerkleHash
+  }
+  deriving stock (Data)
+
 
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
@@ -51,7 +63,23 @@ readChunked handle size = fuu
       S.yield chunk
       next
 
-runStore :: Opts -> SimpleStorage HbSync -> IO ()
+
+runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
+runCat opts ss = do
+
+  void $ runMaybeT $ do
+
+    mhash <- MaybeT $ pure $ uniLastMay @MerkleHash opts <&> fromMerkleHash
+
+    liftIO $ walkMerkle mhash (getBlock ss) $ \(hr :: [HashRef]) -> do
+               forM_ hr $ \(HashRef h) -> do
+                 mblk <- getBlock ss h
+                 case mblk of
+                   Nothing  -> error $ show $ "missed block: " <+> pretty h
+                   Just blk -> LBS.putStr blk
+
+
+runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
@@ -60,8 +88,7 @@ runStore opts ss = do
 
   hashes <- readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
                 & S.mapM (\blk -> enqueueBlock ss (LBS.fromStrict blk) >> pure blk)
-                & S.map hashObject
-                & S.map HashRef
+                & S.map (HashRef . hashObject)
                 & S.toList_
 
   let pt = toPTree (MaxSize 8192) (MaxNum 8192) hashes -- FIXME: settings
@@ -97,6 +124,7 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "store"  (info pStore (progDesc "store block"))
+                        <> command "cat"    (info pCat (progDesc "cat block"))
                         )
 
     common = do
@@ -105,6 +133,10 @@ main = join . customExecParser (prefs showHelpOnError) $
     pStore = do
       o <- common
       file <- optional $ strArgument ( metavar "FILE" )
-      pure $ withStore o (runStore ( Opts file ))
+      pure $ withStore o (runStore ( StoreOpts file ))
 
+    pCat = do
+      o <- common
+      hash <- optional $ strArgument ( metavar "HASH" )
+      pure $ withStore o (runCat ( CatOpts hash ))
 
