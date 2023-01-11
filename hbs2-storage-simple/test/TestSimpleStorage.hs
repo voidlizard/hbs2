@@ -96,7 +96,7 @@ testSimpleStorageNoKeys = do
     let pieces = take 1000 $ shrink [0x00 .. 0xFF] :: [[Word8]]
 
     results' <- forConcurrently pieces $ \p -> do
-                  let hash = hashObject (LBS.pack p)
+                  let hash = hashObject @HbSync (LBS.pack p)
                   s <- getBlock storage hash
                   pure (LBS.length <$> s)
 

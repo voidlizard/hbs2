@@ -65,6 +65,7 @@ data SimpleStorage a =
   { _storageDir     :: FilePath
   , _storageOpQ     :: TBMQueue ( IO () )
   , _storageChunksCache :: Cache (FilePath, Offset, Size) ByteString
+  , _storageStopWriting :: TVar Bool
   }
 
 makeLenses ''SimpleStorage
@@ -86,12 +87,15 @@ simpleStorageInit opts = liftIO $ do
 
   tbq <- TBMQ.newTBMQueueIO (fromIntegral (fromQueueSize qSize))
 
+  tstop <- TV.newTVarIO False
+
   hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 1)) -- FIXME: real setting
 
   let stor = SimpleStorage
              { _storageDir = pdir
              , _storageOpQ = tbq
              , _storageChunksCache = hcache
+             , _storageStopWriting = tstop
              }
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
@@ -109,6 +113,16 @@ catchAny = Control.Exception.catch
 simpleAddTask :: SimpleStorage h -> IO () -> IO ()
 simpleAddTask s task = do
   atomically $ TBMQ.writeTBMQueue (s ^. storageOpQ) task
+
+simpleStorageStop :: SimpleStorage h -> IO ()
+simpleStorageStop ss = do
+  atomically $ TV.writeTVar ( ss ^. storageStopWriting ) True
+  fix \next -> do
+    mt <- atomically $ TBMQ.isEmptyTBMQueue ( ss ^. storageOpQ )
+    if mt then
+      pure ()
+    else
+      pause ( 0.01 :: Timeout 'Seconds ) >> next
 
 simpleStorageWorker :: SimpleStorage h -> IO ()
 simpleStorageWorker ss = do
@@ -259,19 +273,26 @@ simplePutBlockLazy  s lbs = do
   let hash = hashObject lbs :: Key (Raw LBS.ByteString)
   let fn = simpleBlockFileName s hash
 
-  waits <- TBQ.newTBQueueIO 1 :: IO (TBQueue Bool)
+  stop <- atomically $ TV.readTVar ( s ^. storageStopWriting )
 
-  let action = do
-        catch (LBS.writeFile fn lbs)
-              (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
+  if stop then do
+    pure Nothing
 
-        atomically $ TBQ.writeTBQueue waits True
+  else do
 
-  simpleAddTask s action
+    waits <- TBQ.newTBQueueIO 1 :: IO (TBQueue Bool)
 
-  ok <- atomically $ TBQ.readTBQueue waits
+    let action = do
+          catch (LBS.writeFile fn lbs)
+                (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
 
-  pure $! if ok then Just hash else Nothing
+          atomically $ TBQ.writeTBQueue waits True
+
+    simpleAddTask s action
+
+    ok <- atomically $ TBQ.readTBQueue waits
+
+    pure $! if ok then Just hash else Nothing
 
 
 simpleBlockExists :: SimpleStorage h

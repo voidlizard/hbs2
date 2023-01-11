@@ -72,6 +72,8 @@ executable hbs2
                     , containers
                     , cryptonite
                     , deepseq
+                    , directory
+                    , filepath
                     , hashable
                     , interpolatedstring-perl6
                     , memory
@@ -82,7 +84,6 @@ executable hbs2
                     , streaming
                     , text
                     , uniplate
-
 
 
     hs-source-dirs:   .

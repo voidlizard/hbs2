@@ -2,18 +2,20 @@ module Main where
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Concurrent.Async
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as LBS
 import Data.Function
 import Data.Functor
 import Options.Applicative
 import Prettyprinter
 import System.Directory
-import System.FilePath.Posix
+-- import System.FilePath.Posix
 import System.IO
 
 import Streaming.Prelude qualified as S
-import Streaming qualified as S
+-- import Streaming qualified as S
 
 import HBS2.Storage
 import HBS2.Storage.Simple
@@ -48,14 +50,15 @@ readChunked handle size = fuu
       next
 
 runStore :: Opts -> SimpleStorage HbSync -> IO ()
-runStore opts _ = do
+runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
   hashes <- readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
-                & S.map (hashObject . B.copy)
+                & S.mapM (\blk -> putBlock ss (LBS.fromStrict blk) >> pure blk)
+                & S.map hashObject
                 & S.map HashRef
                 & S.toList_
 
@@ -68,11 +71,20 @@ runStore opts _ = do
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
-  xdg <- getXdgDirectory XdgData "hbs2" <&> (</> defStorePath)
+  xdg <- getXdgDirectory XdgData defStorePath <&> fromString
 
-  let pref = uniLastDef defStorePath opts :: StoragePrefix
-  simpleStorageInit (Just pref) >>= f
+  let pref = uniLastDef xdg opts :: StoragePrefix
+  s <- simpleStorageInit (Just pref)
 
+  storage <- async $ simpleStorageWorker s
+
+  f s
+
+  simpleStorageStop s
+
+  _ <-  waitAnyCatch [storage]
+
+  pure ()
 
 main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $
