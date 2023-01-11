@@ -40,15 +40,21 @@ newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
                      deriving newtype (Eq,Ord,IsString,Pretty)
                      deriving stock (Data,Generic)
 
+
+newtype CatHashesOnly = CatHashesOnly Bool
+                        deriving newtype (Eq,Ord,Pretty)
+                        deriving stock (Data,Generic)
+
 newtype StoreOpts =
   StoreOpts {
     storeInputFile :: Maybe OptInputFile
   }
   deriving stock (Data)
 
-newtype CatOpts =
-  CatOpts {
-    catMerkleHash :: Maybe MerkleHash
+data CatOpts =
+  CatOpts
+  { catMerkleHash :: Maybe MerkleHash
+  , catHashesOnly :: Maybe CatHashesOnly
   }
   deriving stock (Data)
 
@@ -67,16 +73,21 @@ readChunked handle size = fuu
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runCat opts ss = do
 
+  let honly = or [ x | CatHashesOnly x <- universeBi opts  ]
+
   void $ runMaybeT $ do
 
     mhash <- MaybeT $ pure $ uniLastMay @MerkleHash opts <&> fromMerkleHash
 
     liftIO $ walkMerkle mhash (getBlock ss) $ \(hr :: [HashRef]) -> do
                forM_ hr $ \(HashRef h) -> do
-                 mblk <- getBlock ss h
-                 case mblk of
-                   Nothing  -> error $ show $ "missed block: " <+> pretty h
-                   Just blk -> LBS.putStr blk
+                 if honly then do
+                   print $ pretty h
+                 else do
+                   mblk <- getBlock ss h
+                   case mblk of
+                     Nothing  -> error $ show $ "missed block: " <+> pretty h
+                     Just blk -> LBS.putStr blk
 
 
 runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()
@@ -137,6 +148,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pCat = do
       o <- common
-      hash <- optional $ strArgument ( metavar "HASH" )
-      pure $ withStore o (runCat ( CatOpts hash ))
+      hash  <- optional $ strArgument ( metavar "HASH" )
+      onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
+      pure $ withStore o $ runCat $ CatOpts hash (CatHashesOnly <$> onlyh)
 
