@@ -5,6 +5,11 @@ import Data.Kind
 import Data.Hashable hiding (Hashed)
 
 import HBS2.Hash
+import HBS2.Prelude.Plated
+
+newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
+                        deriving stock (Data,Show)
+                        deriving newtype (IsString)
 
 type family Block block :: Type
 type family Key block   :: Type

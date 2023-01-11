@@ -5,8 +5,11 @@ import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Data.Function
+import Data.Functor
 import Options.Applicative
 import Prettyprinter
+import System.Directory
+import System.FilePath.Posix
 import System.IO
 
 import Streaming.Prelude qualified as S
@@ -18,6 +21,7 @@ import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Merkle
 import HBS2.Hash
+import HBS2.Defaults
 
 newtype HashRef = HashRef (Hash HbSync)
                   deriving newtype (Eq,Ord,IsString,Pretty)
@@ -43,8 +47,8 @@ readChunked handle size = fuu
       S.yield chunk
       next
 
-runStore :: Opts -> IO ()
-runStore opts  = do
+runStore :: Opts -> SimpleStorage HbSync -> IO ()
+runStore opts _ = do
 
   let fname = uniLastMay @OptInputFile opts
 
@@ -57,7 +61,17 @@ runStore opts  = do
 
   let pt = toPTree (MaxSize 2048) (MaxNum 2048) hashes
 
-  mapM_ (print . pretty) hashes
+  -- mapM_ (print . pretty) hashes
+
+  pure ()
+
+
+withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
+withStore opts f = do
+  xdg <- getXdgDirectory XdgData "hbs2" <&> (</> defStorePath)
+
+  let pref = uniLastDef defStorePath opts :: StoragePrefix
+  simpleStorageInit (Just pref) >>= f
 
 
 main :: IO ()
@@ -76,8 +90,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure ()
 
     pStore = do
-      _ <- common
+      o <- common
       file <- optional $ strArgument ( metavar "FILE" )
-      pure $ runStore ( Opts file )
+      pure $ withStore o (runStore ( Opts file ))
 
 

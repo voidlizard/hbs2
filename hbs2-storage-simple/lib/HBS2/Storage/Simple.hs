@@ -54,9 +54,6 @@ newtype Raw a = Raw { fromRaw :: a }
 type instance Block (Raw LBS.ByteString) = LBS.ByteString
 type instance Key (Raw LBS.ByteString) = Hash HbSync
 
-newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
-                        deriving stock (Data,Show)
-                        deriving newtype (IsString)
 
 newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
                            deriving stock   (Data,Show)
@@ -85,6 +82,8 @@ simpleStorageInit opts = liftIO $ do
 
   pdir <- canonicalizePath (fromPrefix prefix)
 
+  print (pretty pdir)
+
   tbq <- TBMQ.newTBMQueueIO (fromIntegral (fromQueueSize qSize))
 
   hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 1)) -- FIXME: real setting
@@ -94,8 +93,6 @@ simpleStorageInit opts = liftIO $ do
              , _storageOpQ = tbq
              , _storageChunksCache = hcache
              }
-
-  -- print ("STORAGE", stor ^. storageDir, stor ^. storageBlocks )
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
 
