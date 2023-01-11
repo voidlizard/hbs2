@@ -1,5 +1,6 @@
 module TestSimpleStorage where
 
+import Control.Monad.Except
 import Control.Monad
 import Data.Traversable
 import Data.Foldable
@@ -14,6 +15,7 @@ import System.Directory
 import System.FilePath.Posix
 import System.IO.Temp
 import Test.QuickCheck
+import System.TimeIt
 
 import Test.Tasty.HUnit
 
@@ -24,9 +26,58 @@ import HBS2.Storage
 import HBS2.Storage.Simple
 
 
+-- CASE:
+-- Current result:
+-- *** Exception: thread blocked indefinitely in an STM transaction
+--
+-- Expected result:  survives this situation with honor
 testSimpleStorageErrors :: IO ()
 testSimpleStorageErrors = do
-  undefined
+
+  withSystemTempDirectory "simpleStorageTest" $ \dir -> do
+
+    let opts = [ StoragePrefix (dir </> ".storage")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    r <- runExceptT $ liftIO $ do
+
+            worker <- async  (simpleStorageWorker storage)
+
+            let blocks = storage ^. storageBlocks
+
+            p <- getPermissions blocks
+
+            setPermissions blocks (p { readable = False
+                                     , searchable = False
+                                     , writable = False
+                                     })
+
+            let str = "AAAAA" :: LBS.ByteString
+            let strKey = hashObject @HbSync str
+
+            key <- putBlock storage str
+
+            assertBool "nothing written" (isNothing key)
+
+            here <- hasBlock storage strKey
+
+            assertBool "nothing written, again" (not here)
+
+            val <- getBlock storage strKey
+
+            assertBool "nothing read" (isNothing val)
+
+            setPermissions blocks p
+
+            mapM_ cancel [worker]
+
+            snd <$> waitAnyCatch [worker]
+
+    case r of
+      Left err -> error "oopsie!"
+      _        -> pure ()
 
 
 testSimpleStorageNoKeys :: IO ()
@@ -39,6 +90,8 @@ testSimpleStorageNoKeys = do
     storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
     worker <- async  (simpleStorageWorker storage)
+
+    link worker
 
     let pieces = take 1000 $ shrink [0x00 .. 0xFF] :: [[Word8]]
 

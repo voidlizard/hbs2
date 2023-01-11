@@ -71,6 +71,7 @@ library
                     , mtl
                     , prettyprinter
                     , stm
+                    , stm-chans
                     , transformers
                     , uniplate
 
