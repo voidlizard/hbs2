@@ -79,7 +79,7 @@ storageBlocks = to f
 simpleStorageInit :: (MonadIO m, Data opts) => opts -> m (SimpleStorage h)
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 100 opts :: StorageQueueSize
+  let qSize  = uniLastDef 500 opts :: StorageQueueSize
 
   pdir <- canonicalizePath (fromPrefix prefix)
 
@@ -119,7 +119,8 @@ simpleStorageStop ss = do
   atomically $ TV.writeTVar ( ss ^. storageStopWriting ) True
   fix \next -> do
     mt <- atomically $ TBMQ.isEmptyTBMQueue ( ss ^. storageOpQ )
-    if mt then
+    if mt then do
+      atomically $ TBMQ.closeTBMQueue ( ss ^. storageOpQ )
       pure ()
     else
       pause ( 0.01 :: Timeout 'Seconds ) >> next
@@ -127,12 +128,11 @@ simpleStorageStop ss = do
 simpleStorageWorker :: SimpleStorage h -> IO ()
 simpleStorageWorker ss = do
 
-  ops <- async $ forever $ do
-
+  ops <- async $ fix \next -> do
     s <- atomically $ do TBMQ.readTBMQueue ( ss ^. storageOpQ )
     case s of
       Nothing -> pure ()
-      Just a  -> a
+      Just a  -> a >> next
 
   killer <- async $ forever $ do
     pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting

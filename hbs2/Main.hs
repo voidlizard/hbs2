@@ -27,7 +27,9 @@ import HBS2.Defaults
 
 newtype HashRef = HashRef (Hash HbSync)
                   deriving newtype (Eq,Ord,IsString,Pretty)
-                  deriving stock (Data)
+                  deriving stock (Data,Generic)
+
+instance Serialise HashRef
 
 newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
@@ -64,10 +66,9 @@ runStore opts ss = do
 
   let pt = toPTree (MaxSize 2048) (MaxNum 2048) hashes
 
-  -- mapM_ (print . pretty) hashes
+  root <- makeMerkle 0 pt $ \(h,_,bs) -> void $ putBlock ss bs
 
-  pure ()
-
+  print $ "merkle-root: " <+> pretty root
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
@@ -76,13 +77,13 @@ withStore opts f = do
   let pref = uniLastDef xdg opts :: StoragePrefix
   s <- simpleStorageInit (Just pref)
 
-  storage <- async $ simpleStorageWorker s
+  w <- replicateM 4 $ async $ simpleStorageWorker s
 
   f s
 
   simpleStorageStop s
 
-  _ <-  waitAnyCatch [storage]
+  _ <-  waitAnyCatch w
 
   pure ()
 
