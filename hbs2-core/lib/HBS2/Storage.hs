@@ -31,6 +31,8 @@ class ( Monad m
 
   putBlock :: a -> Block block -> m (Maybe (Key block))
 
+  enqueueBlock :: a -> Block block -> m (Maybe (Key block))
+
   getBlock :: a -> Key block -> m (Maybe (Block block))
 
   getChunk :: a -> Key block -> Offset -> Size -> m (Maybe (Block block))

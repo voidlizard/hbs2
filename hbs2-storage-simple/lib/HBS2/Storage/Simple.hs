@@ -264,11 +264,12 @@ simpleGetChunkLazy s key off size = do
 
   atomically $ TBMQ.readTBMQueue resQ >>= maybe (pure Nothing) pure
 
-simplePutBlockLazy :: SimpleStorage h
+simplePutBlockLazy :: Bool -- | wait
+                   -> SimpleStorage h
                    -> LBS.ByteString
                    -> IO (Maybe (Key (Raw LBS.ByteString)))
 
-simplePutBlockLazy  s lbs = do
+simplePutBlockLazy doWait s lbs = do
 
   let hash = hashObject lbs :: Key (Raw LBS.ByteString)
   let fn = simpleBlockFileName s hash
@@ -290,9 +291,11 @@ simplePutBlockLazy  s lbs = do
 
     simpleAddTask s action
 
-    ok <- atomically $ TBQ.readTBQueue waits
-
-    pure $! if ok then Just hash else Nothing
+    if doWait then do
+      ok <- atomically $ TBQ.readTBQueue waits
+      pure $! if ok then Just hash else Nothing
+    else
+      pure $ Just hash
 
 
 simpleBlockExists :: SimpleStorage h
@@ -309,7 +312,9 @@ instance (MonadIO m, (Hashed hash (Raw LBS.ByteString)))
 
   type instance StorageHash (SimpleStorage hash) (Raw LBS.ByteString) = hash
 
-  putBlock s lbs = liftIO $ simplePutBlockLazy s lbs
+  putBlock s lbs = liftIO $ simplePutBlockLazy True s lbs
+
+  enqueueBlock s lbs = liftIO $ simplePutBlockLazy False s  lbs
 
   getBlock s key = liftIO $ simpleGetBlockLazy s key
 

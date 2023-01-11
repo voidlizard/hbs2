@@ -59,12 +59,12 @@ runStore opts ss = do
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
   hashes <- readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
-                & S.mapM (\blk -> putBlock ss (LBS.fromStrict blk) >> pure blk)
+                & S.mapM (\blk -> enqueueBlock ss (LBS.fromStrict blk) >> pure blk)
                 & S.map hashObject
                 & S.map HashRef
                 & S.toList_
 
-  let pt = toPTree (MaxSize 2048) (MaxNum 2048) hashes
+  let pt = toPTree (MaxSize 2048) (MaxNum 2048) hashes -- FIXME: settings
 
   root <- makeMerkle 0 pt $ \(h,_,bs) -> void $ putBlock ss bs
 
