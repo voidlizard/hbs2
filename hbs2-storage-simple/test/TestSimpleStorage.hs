@@ -1,5 +1,6 @@
 module TestSimpleStorage where
 
+import Control.Monad
 import Data.Traversable
 import Data.Foldable
 import Control.Concurrent.Async
@@ -22,6 +23,10 @@ import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Simple
 
+
+testSimpleStorageErrors :: IO ()
+testSimpleStorageErrors = do
+  undefined
 
 
 testSimpleStorageNoKeys :: IO ()
@@ -69,7 +74,7 @@ testSimpleStorageRandomReadWrite = do
 
     assertBool "blocks directory exists" exists
 
-    worker <- async  (simpleStorageWorker storage)
+    workers <- replicateM 2 $ async  (simpleStorageWorker storage)
 
     let pieces = shrink [0x00 .. 0xFF] :: [[Word8]]
 
@@ -99,7 +104,7 @@ testSimpleStorageRandomReadWrite = do
 
       assertEqual "written data == read data" str result
 
-      let chuSize = 4
+      let chuSize = 16
 
       let chNum =
             let (n,r) = length piece `divMod` chuSize
@@ -116,7 +121,7 @@ testSimpleStorageRandomReadWrite = do
 
       pure ()
 
-    cancel worker
+    mapM_ cancel workers
 
 
 
