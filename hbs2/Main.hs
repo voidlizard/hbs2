@@ -64,7 +64,7 @@ runStore opts ss = do
                 & S.map HashRef
                 & S.toList_
 
-  let pt = toPTree (MaxSize 2048) (MaxNum 2048) hashes -- FIXME: settings
+  let pt = toPTree (MaxSize 8192) (MaxNum 8192) hashes -- FIXME: settings
 
   root <- makeMerkle 0 pt $ \(h,_,bs) -> void $ putBlock ss bs
 
