@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               hbs2-core
+name:               hbs2
 version:            0.1.0.0
 -- synopsis:
 -- description:
@@ -13,8 +13,6 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
-common warnings
-    ghc-options: -Wall
 
 common shared-properties
   ghc-options:
@@ -24,9 +22,9 @@ common shared-properties
         -- -Werror=missing-methods
         -- -Werror=incomplete-patterns
         -- -fno-warn-unused-binds
-        -- -threaded
-        -- -rtsopts
-        -- "-with-rtsopts=-N4 -A64m -AL256m -I0"
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
 
 
   default-language:    Haskell2010
@@ -58,42 +56,37 @@ common shared-properties
                      , TypeFamilies
 
 
-
-library
+executable hbs2
     import:           shared-properties
-
-    exposed-modules:
-                    , HBS2.Defaults
-                    , HBS2.Hash
-                    , HBS2.Merkle
-                    , HBS2.Clock
-                    , HBS2.Prelude
-                    , HBS2.Prelude.Plated
-                    , HBS2.Storage
-
-
+    main-is:          Main.hs
     -- other-modules:
     -- other-extensions:
-    build-depends:    base ^>=4.15.1.0
-                     , aeson
-                     , async
-                     , base58-bytestring
-                     , binary
-                     , bytestring
-                     , cborg
-                     , clock
-                     , containers
-                     , cryptonite
-                     , deepseq
-                     , hashable
-                     , interpolatedstring-perl6
-                     , memory
-                     , microlens-platform
-                     , prettyprinter
-                     , safe
-                     , serialise
-                     , text
-                     , uniplate
+    build-depends:    base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+                    , aeson
+                    , async
+                    , base58-bytestring
+                    , binary
+                    , bytestring
+                    , cborg
+                    , clock
+                    , containers
+                    , cryptonite
+                    , deepseq
+                    , hashable
+                    , interpolatedstring-perl6
+                    , memory
+                    , optparse-applicative
+                    , prettyprinter
+                    , safe
+                    , serialise
+                    , streaming
+                    , text
+                    , uniplate
 
-    hs-source-dirs:   lib
+
+
+    hs-source-dirs:   .
     default-language: Haskell2010
+
+
+
