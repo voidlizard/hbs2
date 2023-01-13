@@ -64,6 +64,7 @@ library
 
     exposed-modules:
                     , HBS2.Defaults
+                    , HBS2.Data.Types
                     , HBS2.Hash
                     , HBS2.Merkle
                     , HBS2.Clock

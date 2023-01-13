@@ -23,14 +23,9 @@ import HBS2.Storage.Simple
 import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Merkle
-import HBS2.Hash
+import HBS2.Data.Types
 import HBS2.Defaults
 
-newtype HashRef = HashRef (Hash HbSync)
-                  deriving newtype (Eq,Ord,IsString,Pretty)
-                  deriving stock (Data,Generic)
-
-instance Serialise HashRef
 
 newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
