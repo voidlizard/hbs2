@@ -63,17 +63,18 @@ library
     import:           shared-properties
 
     exposed-modules:
-                    , HBS2.Defaults
-                    , HBS2.Clock
+                      HBS2.Clock
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
+                    , HBS2.Defaults
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Net.Messaging
                     , HBS2.Net.Proto
+                    , HBS2.Net.Proto.Actors.BlockInfo
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
-                    , HBS2.Net.Proto.Actors.BlockInfo
 
 
     -- other-modules:
