@@ -70,6 +70,7 @@ library
                     , HBS2.Hash
                     , HBS2.Merkle
                     , HBS2.Net.Messaging
+                    , HBS2.Net.Messaging.Fake
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Actors.BlockInfo
                     , HBS2.Prelude
@@ -85,6 +86,7 @@ library
                      , base58-bytestring
                      , binary
                      , bytestring
+                     , cache
                      , cborg
                      , clock
                      , containers
@@ -97,6 +99,7 @@ library
                      , prettyprinter
                      , safe
                      , serialise
+                     , stm
                      , text
                      , uniplate
 
