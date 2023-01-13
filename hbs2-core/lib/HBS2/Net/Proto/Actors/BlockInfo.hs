@@ -47,8 +47,14 @@ requestBlockInfo :: forall peer h m . ( MonadIO m
                  -> Hash h
                  -> m  ()
 
-requestBlockInfo b _ h = do
+requestBlockInfo b mp h = do
   addJob (tasks b) do
+    -- peers <- getPeers
+    -- TODO: get given peer or some other peers
+    -- TODO: get cookie from cookie generator
+    -- TODO: set waiting for request
+    -- TODO: send block info request to messaging
+
     liftIO $ print ( "request-info" <+> pretty h)
 
 getBlockInfo :: MonadIO m

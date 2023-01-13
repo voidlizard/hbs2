@@ -5,7 +5,7 @@ import HBS2.Prelude.Plated
 import Data.Kind
 import Data.Hashable
 
-class (Hashable (Peer a), Eq (Peer a)) => IsPeer a where
+class (Hashable (Peer a), Eq (Peer a), Ord (Peer a)) => IsPeer a where
   data family Peer a :: Type
 
 

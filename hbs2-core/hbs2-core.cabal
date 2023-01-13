@@ -73,6 +73,8 @@ library
                     , HBS2.Merkle
                     , HBS2.Net.Messaging
                     , HBS2.Net.Messaging.Fake
+                    , HBS2.Net.PeerLocator
+                    , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Actors.BlockInfo
                     , HBS2.Prelude
