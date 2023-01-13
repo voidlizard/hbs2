@@ -27,7 +27,6 @@ import HBS2.Merkle
 import HBS2.Data.Types
 import HBS2.Defaults
 
-
 newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
                        deriving stock (Data)

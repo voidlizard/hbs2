@@ -48,16 +48,15 @@ import HBS2.Storage
 --        in order to make the disk access in this fashion safe
 
 
+
 newtype Raw a = Raw { fromRaw :: a }
 
 type instance Block (Raw LBS.ByteString) = LBS.ByteString
-type instance Key (Raw LBS.ByteString) = Hash HbSync
 
 
 newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
                            deriving stock   (Data,Show)
                            deriving newtype (Eq,Ord,Enum,Num,Integral,Real)
-
 
 data SimpleStorage a =
   SimpleStorage
@@ -147,8 +146,9 @@ simpleStorageWorker ss = do
   pure ()
 
 
-simpleChunkLookup :: SimpleStorage h
-                  -> Key (Raw LBS.ByteString)
+simpleChunkLookup :: IsKey h
+                  => SimpleStorage h
+                  -> Hash h
                   -> Offset
                   -> Size
                   -> IO (Maybe LBS.ByteString)
@@ -158,8 +158,9 @@ simpleChunkLookup s k off size = do
   let cache  = s ^. storageChunksCache
   Cache.lookup cache (fn, off, size) <&> fmap LBS.fromStrict
 
-simpleChunkCache :: SimpleStorage h
-                 -> Key (Raw LBS.ByteString)
+simpleChunkCache :: IsKey h
+                 => SimpleStorage h
+                 -> Hash h
                  -> Offset
                  -> Size
                  -> LBS.ByteString
@@ -171,12 +172,17 @@ simpleChunkCache s k off size bs = do
   -- print ("caching!", fn, off, size)
   Cache.insert cache (fn, off, size) (LBS.toStrict bs)
 
-simpleBlockFileName :: SimpleStorage h -> Hash HbSync -> FilePath
+simpleBlockFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
 simpleBlockFileName ss h = path
   where
     (pref,suf) = splitAt 1 (show (pretty h))
     path = view storageBlocks ss </> pref </> suf
 
+simpleRefFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
+simpleRefFileName ss h = path
+  where
+    (pref,suf) = splitAt 1 (show (pretty h))
+    path = view storageRefs ss </> pref </> suf
 
 
 -- NOTE: reads a whole file into memory!
@@ -189,8 +195,9 @@ simpleBlockFileName ss h = path
 --
 --       So, the block MUST be small
 --
-simpleGetBlockLazy ::  SimpleStorage h
-                    -> Key (Raw LBS.ByteString)
+simpleGetBlockLazy ::  IsKey h
+                    => SimpleStorage h
+                    -> Hash h
                     -> IO (Maybe LBS.ByteString)
 
 simpleGetBlockLazy s key = do
@@ -213,8 +220,9 @@ simpleGetBlockLazy s key = do
 
   atomically $ TBMQ.readTBMQueue resQ >>= maybe (pure Nothing) pure
 
-simpleGetChunkLazy :: SimpleStorage h
-                   -> Key (Raw LBS.ByteString)
+simpleGetChunkLazy :: IsKey h
+                   => SimpleStorage h
+                   -> Hash h
                    -> Offset
                    -> Size
                    -> IO (Maybe LBS.ByteString)
@@ -268,14 +276,15 @@ simpleGetChunkLazy s key off size = do
 
   atomically $ TBMQ.readTBMQueue resQ >>= maybe (pure Nothing) pure
 
-simplePutBlockLazy :: Bool -- | wait
+simplePutBlockLazy :: (IsKey h, Hashed h LBS.ByteString)
+                   => Bool -- | wait
                    -> SimpleStorage h
-                   -> LBS.ByteString
-                   -> IO (Maybe (Key (Raw LBS.ByteString)))
+                   -> (Raw LBS.ByteString)
+                   -> IO (Maybe (Hash h))
 
-simplePutBlockLazy doWait s lbs = do
+simplePutBlockLazy doWait s (Raw lbs) = do
 
-  let hash = hashObject lbs :: Key (Raw LBS.ByteString)
+  let hash = hashObject lbs
   let fn = simpleBlockFileName s hash
 
   stop <- atomically $ TV.readTVar ( s ^. storageStopWriting )
@@ -302,23 +311,41 @@ simplePutBlockLazy doWait s lbs = do
       pure $ Just hash
 
 
-simpleBlockExists :: SimpleStorage h
-                  -> Key (Raw LBS.ByteString)
+simpleBlockExists :: IsKey h
+                  => SimpleStorage h
+                  -> Hash h
                   -> IO Bool
 
 simpleBlockExists ss hash = doesFileExist $ simpleBlockFileName ss hash
 
-instance Hashed HbSync (Raw LBS.ByteString) where
+
+simpleWriteLinkRaw :: IsKey h
+                   => SimpleStorage h
+                   -> Hash h
+                   -> Raw LBS.ByteString
+                   -> IO ()
+
+simpleWriteLinkRaw ss hash (Raw lbs) = do
+  let fn = simpleRefFileName ss hash
+  simpleAddTask ss $ do
+    LBS.writeFile fn lbs
+
+simpleReadLinkRaw :: SimpleStorage h -> Hash h -> IO (Maybe LBS.ByteString)
+simpleReadLinkRaw s k = undefined
+
+instance Hashed hash LBS.ByteString => Hashed hash (Raw LBS.ByteString) where
   hashObject (Raw s) = hashObject s
 
-instance (MonadIO m, (Hashed hash (Raw LBS.ByteString)))
-  => Storage (SimpleStorage hash) (Raw LBS.ByteString) m where
+instance ( MonadIO m, IsKey hash
+         , Hashed hash (Raw LBS.ByteString)
+         , Hashed hash LBS.ByteString
+         , Key hash ~ Hash hash
+         )
+  => Storage (SimpleStorage hash) hash (Raw LBS.ByteString) m where
 
-  type instance StorageHash (SimpleStorage hash) (Raw LBS.ByteString) = hash
+  putBlock s lbs = liftIO $ simplePutBlockLazy True s (Raw lbs)
 
-  putBlock s lbs = liftIO $ simplePutBlockLazy True s lbs
-
-  enqueueBlock s lbs = liftIO $ simplePutBlockLazy False s  lbs
+  enqueueBlock s lbs = liftIO $ simplePutBlockLazy False s  (Raw lbs)
 
   getBlock s key = liftIO $ simpleGetBlockLazy s key
 
