@@ -1,18 +1,15 @@
 {-# Language FunctionalDependencies #-}
 module HBS2.Net.Messaging where
 
+import HBS2.Net.Proto
+
 import Control.Monad.IO.Class
-import Data.Kind
-import Prettyprinter
 
-newtype From a = From a
-                 deriving newtype (Eq,Show,Pretty)
+newtype From a = From (Peer a)
 
-newtype To a = To a
-               deriving newtype (Eq,Show,Pretty)
+newtype To a = To (Peer a)
 
-
-class Messaging bus addr msg  | bus -> addr, bus -> msg where
+class IsPeer addr => Messaging bus addr msg  | bus -> addr, bus -> msg where
 
   sendTo  :: MonadIO m => bus -> To addr -> From addr -> msg -> m ()
   receive :: MonadIO m => bus -> To addr -> m [msg]

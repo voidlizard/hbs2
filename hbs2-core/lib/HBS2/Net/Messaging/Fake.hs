@@ -12,6 +12,7 @@ import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.List qualified as List
 import Data.Maybe
+import Data.Hashable
 
 import HBS2.Net.Proto
 import HBS2.Net.Messaging
@@ -20,13 +21,13 @@ data FakeP2P peer msg =
   FakeP2P
   {
     blocking :: Bool
-  , fakeP2p  :: Cache peer (TChan msg)
+  , fakeP2p  :: Cache (Peer peer) (TChan msg)
   }
 
 newFakeP2P :: Bool -> IO (FakeP2P peer msg)
 newFakeP2P block = FakeP2P block <$> Cache.newCache Nothing
 
-instance ( IsPeer peer
+instance ( (IsPeer peer, Hashable (Peer peer) )
          ) => Messaging (FakeP2P peer msg) peer msg where
 
   sendTo bus (To whom) _ msg = liftIO do
