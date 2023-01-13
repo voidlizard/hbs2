@@ -1,6 +1,7 @@
 module Main where
 
 import TestFakeMessaging
+import TestActors
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -11,6 +12,7 @@ main =
     testGroup "root"
       [
         testCase "testFakeMessaging1" testFakeMessaging1
+      , testCase "testActorsBasic" testActorsBasic
       ]
 
 

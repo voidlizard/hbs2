@@ -6,9 +6,6 @@ import HBS2.Net.Proto
 import HBS2.Clock
 
 import Data.Function
-import Control.Concurrent.STM.TBMQueue (TBMQueue)
-import Control.Concurrent.STM.TBMQueue qualified as TBMQ
-import Control.Concurrent.STM
 
 -- needs: logger
 -- needs: reader and shit
@@ -18,7 +15,7 @@ import Control.Concurrent.STM
 
 data BlockInfoActor =
   BlockInfoActor
-  { tasks :: TBMQueue (IO ())
+  {
   }
 
 
@@ -30,8 +27,7 @@ data BlockInfoActor =
 
 createBlockInfoActor :: MonadIO m => m BlockInfoActor
 createBlockInfoActor = do
-  qtask <- liftIO $ atomically $ TBMQ.newTBMQueue 500 -- FIXME: settings
-  pure $ BlockInfoActor undefined
+  pure $ BlockInfoActor
 
 runBlockInfoActor :: MonadIO m => BlockInfoActor -> m ()
 runBlockInfoActor _ =

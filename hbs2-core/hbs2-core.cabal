@@ -115,6 +115,7 @@ test-suite test
     default-language: Haskell2010
 
     other-modules:  TestFakeMessaging
+                  , TestActors
 
     -- other-extensions:
 
@@ -123,6 +124,7 @@ test-suite test
     main-is:          Main.hs
     build-depends:
           base ^>=4.15.1.0, hbs2-core
+        , async
         , bytestring
         , containers
         , hashable
@@ -132,6 +134,7 @@ test-suite test
         , random
         , safe
         , serialise
+        , stm
         , tasty
         , tasty-hunit
         , transformers
