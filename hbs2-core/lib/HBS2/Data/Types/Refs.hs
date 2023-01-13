@@ -1,8 +1,11 @@
-module HBS2.Data.Types.Refs where
+module HBS2.Data.Types.Refs
+  ( module HBS2.Data.Types.Refs
+  , serialise
+  ) where
 
 import HBS2.Hash
 
-import Codec.Serialise()
+import Codec.Serialise(serialise)
 import Data.Data
 import Data.String(IsString)
 import GHC.Generics
@@ -36,8 +39,10 @@ data AnnotatedHashRef =
   deriving stock (Data,Generic)
 
 
+instance Serialise AnnotatedHashRef
 instance Serialise HashRef
-instance Serialise HashRefObject
 instance Serialise HashRefMetadata
-
+instance Serialise HashRefObject
+instance Serialise HashRefPrevState
+instance Serialise HashRefType
 

@@ -15,6 +15,10 @@ import Prettyprinter
 import System.Directory
 -- import System.FilePath.Posix
 import System.IO
+import Data.UUID.V4 qualified as UUID
+import Data.UUID qualified as UUID
+
+import Codec.Serialise
 
 import Streaming.Prelude qualified as S
 -- import Streaming qualified as S
@@ -60,6 +64,12 @@ data CatOpts =
   deriving stock (Data)
 
 
+newtype NewRefOpts =
+  NewRefOpts
+  { newRefMerkle :: Bool
+  }
+  deriving stock (Data)
+
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
   where
@@ -80,7 +90,18 @@ runCat opts ss = do
 
     mhash <- MaybeT $ pure $ uniLastMay @MerkleHash opts <&> fromMerkleHash
 
-    liftIO $ walkMerkle mhash (getBlock ss) $ \(hr :: [HashRef]) -> do
+    some <- MaybeT $ getBlock ss mhash
+
+    let mbLink = deserialiseOrFail @AnnotatedHashRef some
+
+    realHash <- MaybeT $ case mbLink of
+      Left _    -> pure $ Just mhash
+      Right lnk -> do
+        pure $ headMay [ h
+                       | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
+                       ]
+
+    liftIO $ walkMerkle realHash (getBlock ss) $ \(hr :: [HashRef]) -> do
                forM_ hr $ \(HashRef h) -> do
                  if honly then do
                    print $ pretty h
@@ -117,6 +138,15 @@ runStore opts ss = do
 
   print $ "merkle-root: " <+> pretty root
 
+runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
+runNewRef opts mhash ss = do
+  uuid <- UUID.nextRandom <&> (hashObject @HbSync . UUID.toASCIIBytes)
+  let href = HashRef (fromMerkleHash mhash)
+  let mref = HashRefMerkle (HashRefObject href Nothing)
+  let ref = AnnotatedHashRef Nothing mref
+  res <- simpleWriteLinkRaw ss uuid (Raw (serialise ref))
+  print (pretty res)
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
@@ -143,12 +173,19 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "store"  (info pStore (progDesc "store block"))
-                        <> command "cat"    (info pCat (progDesc "cat block"))
+    parser = hsubparser (  command "store"   (info pStore (progDesc "store block"))
+                        <> command "new-ref" (info pNewRef (progDesc "creates reference"))
+                        <> command "cat"     (info pCat (progDesc "cat block"))
                         )
 
     common = do
       pure ()
+
+    pNewRef = do
+      o <- common
+      merkle <- flag' True ( long "merkle-tree" <> help "it's a merkle-tree reference" )
+      hash <- strArgument ( metavar "HASH" )
+      pure $ withStore o (runNewRef (NewRefOpts merkle) hash)
 
     pStore = do
       o <- common

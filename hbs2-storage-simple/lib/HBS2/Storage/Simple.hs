@@ -1,4 +1,5 @@
 {-# Language TemplateHaskell #-}
+{-# Language ScopedTypeVariables #-}
 module HBS2.Storage.Simple where
 
 import Control.Concurrent
@@ -319,19 +320,46 @@ simpleBlockExists :: IsKey h
 simpleBlockExists ss hash = doesFileExist $ simpleBlockFileName ss hash
 
 
-simpleWriteLinkRaw :: IsKey h
+spawnAndWait :: SimpleStorage h -> IO a -> IO (Maybe a)
+spawnAndWait s act = do
+  doneQ <- TBMQ.newTBMQueueIO 1
+  simpleAddTask s (act >>= \r -> atomically (TBMQ.writeTBMQueue doneQ r))
+  atomically $ TBMQ.readTBMQueue doneQ
+
+
+
+simpleWriteLinkRaw :: forall h . ( IsKey h
+                                 , Key h ~ Hash h
+                                 , Hashed h LBS.ByteString
+                                 )
                    => SimpleStorage h
                    -> Hash h
                    -> Raw LBS.ByteString
-                   -> IO ()
+                   -> IO (Maybe (Hash h))
 
-simpleWriteLinkRaw ss hash (Raw lbs) = do
+simpleWriteLinkRaw ss h (Raw lbs) = do
+  let fnr = simpleRefFileName ss h
+
+  runMaybeT $ do
+    r <- MaybeT $ putBlock ss lbs
+    MaybeT $ liftIO $ spawnAndWait ss $ do
+      writeFile fnr (show (pretty r))
+      pure h
+
+simpleReadLinkRaw :: IsKey h
+                  => SimpleStorage h
+                  -> Hash h
+                  -> IO (Maybe LBS.ByteString)
+
+simpleReadLinkRaw ss hash = do
   let fn = simpleRefFileName ss hash
-  simpleAddTask ss $ do
-    LBS.writeFile fn lbs
+  rs <- spawnAndWait ss $ do
+    r <- tryJust (guard . isDoesNotExistError) (LBS.readFile fn)
+    case r of
+      Right bs -> pure (Just bs)
+      Left  _  -> pure Nothing
 
-simpleReadLinkRaw :: SimpleStorage h -> Hash h -> IO (Maybe LBS.ByteString)
-simpleReadLinkRaw s k = undefined
+  pure $ fromMaybe Nothing rs
 
 instance Hashed hash LBS.ByteString => Hashed hash (Raw LBS.ByteString) where
   hashObject (Raw s) = hashObject s
