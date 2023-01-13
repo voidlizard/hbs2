@@ -105,3 +105,36 @@ library
 
     hs-source-dirs:   lib
     default-language: Haskell2010
+
+
+test-suite test
+    import:           shared-properties
+    default-language: Haskell2010
+
+    other-modules:  TestFakeMessaging
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+          base ^>=4.15.1.0, hbs2-core
+        , bytestring
+        , containers
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , random
+        , safe
+        , serialise
+        , tasty
+        , tasty-hunit
+        , transformers
+        , uniplate
+        , vector
+
+
+
+
