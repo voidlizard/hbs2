@@ -1,10 +1,11 @@
 module HBS2.Net.Proto.Actors.BlockInfo where
 
-import HBS2.Prelude
-import HBS2.Hash
-import HBS2.Net.Proto
-import HBS2.Clock
 import HBS2.Actors
+import HBS2.Clock
+import HBS2.Hash
+import HBS2.Net.PeerLocator
+import HBS2.Net.Proto
+import HBS2.Prelude
 
 import Data.Function
 import Data.Kind
@@ -19,8 +20,8 @@ import Prettyprinter
 data BlockInfoActor (m :: Type -> Type) =
   BlockInfoActor
   { tasks :: Pipeline m ()
+  , peers :: AnyPeerLocator
   }
-
 
 -- TODO: send block info request
 -- TODO: receive block info request
@@ -28,10 +29,10 @@ data BlockInfoActor (m :: Type -> Type) =
 -- TODO: get block info per peer
 
 
-createBlockInfoActor :: MonadIO m => m (BlockInfoActor m )
-createBlockInfoActor = do
+createBlockInfoActor :: MonadIO m => AnyPeerLocator -> m (BlockInfoActor m )
+createBlockInfoActor l = do
   pip <- newPipeline 200 -- FIXME: to settings!
-  pure $ BlockInfoActor pip
+  pure $ BlockInfoActor pip l
 
 runBlockInfoActor :: MonadIO m => BlockInfoActor m -> m ()
 runBlockInfoActor b = runPipeline (tasks b)
@@ -41,6 +42,7 @@ stopBlockInfoActor b = stopPipeline (tasks b)
 
 requestBlockInfo :: forall peer h m . ( MonadIO m
                                       , Pretty (Hash h)
+                                      , IsPeer peer
                                       )
                  => BlockInfoActor m
                  -> Maybe (Peer peer)
@@ -50,7 +52,11 @@ requestBlockInfo :: forall peer h m . ( MonadIO m
 requestBlockInfo b mp h = do
   addJob (tasks b) do
     -- peers <- getPeers
+    --
     -- TODO: get given peer or some other peers
+    somePeers <- knownPeers @_ @peer (peers b)
+
+
     -- TODO: get cookie from cookie generator
     -- TODO: set waiting for request
     -- TODO: send block info request to messaging

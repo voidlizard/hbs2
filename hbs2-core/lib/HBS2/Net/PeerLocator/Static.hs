@@ -17,8 +17,7 @@ newStaticPeerLocator seeds = do
   tv <- liftIO $ newTVarIO (Set.fromList seeds)
   pure $ StaticPeerLocator tv
 
-instance (MonadIO m, IsPeer p)
-  => PeerLocator  (StaticPeerLocator p) p m where
+instance PeerLocator  (StaticPeerLocator p)  where
 
   knownPeers _ = pure mempty
 
