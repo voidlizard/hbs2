@@ -116,6 +116,7 @@ test-suite test
 
     other-modules:  TestFakeMessaging
                   , TestActors
+                  , TestBlockInfoActor
 
     -- other-extensions:
 
@@ -131,6 +132,7 @@ test-suite test
         , microlens-platform
         , mtl
         , prettyprinter
+        , QuickCheck
         , random
         , safe
         , serialise
