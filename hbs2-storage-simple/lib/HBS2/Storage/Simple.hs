@@ -31,7 +31,6 @@ import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar (TVar)
 import Control.Concurrent.STM.TVar qualified as TV
 
-import Debug.Trace
 
 import HBS2.Clock
 import HBS2.Hash
@@ -76,6 +75,12 @@ storageBlocks = to f
     f b = _storageDir b </> "blocks"
 
 
+storageRefs :: SimpleGetter (SimpleStorage h) FilePath
+storageRefs = to f
+  where
+    f b = _storageDir b </> "refs"
+
+
 simpleStorageInit :: (MonadIO m, Data opts) => opts -> m (SimpleStorage h)
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
@@ -102,6 +107,7 @@ simpleStorageInit opts = liftIO $ do
 
   for_ alph $ \a -> do
     createDirectoryIfMissing True ( (stor ^. storageBlocks) </> L.singleton a )
+    createDirectoryIfMissing True ( (stor ^. storageRefs) </> L.singleton a )
 
   pure stor
 

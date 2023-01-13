@@ -1,17 +1,18 @@
 module Main where
 
+import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Concurrent.Async
+import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as B
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as B
 import Data.Function
 import Data.Functor
+import Data.Maybe
 import Options.Applicative
 import Prettyprinter
 import System.Directory
-import Control.Monad.Trans.Maybe
 -- import System.FilePath.Posix
 import System.IO
 
@@ -40,9 +41,15 @@ newtype CatHashesOnly = CatHashesOnly Bool
                         deriving newtype (Eq,Ord,Pretty)
                         deriving stock (Data,Generic)
 
-newtype StoreOpts =
-  StoreOpts {
-    storeInputFile :: Maybe OptInputFile
+
+newtype OptInit = OptInit { fromOptInit :: Bool }
+                  deriving newtype (Eq,Ord,Pretty)
+                  deriving stock (Data,Generic)
+
+data StoreOpts =
+  StoreOpts
+  {  storeInit      :: Maybe OptInit
+  ,  storeInputFile :: Maybe OptInputFile
   }
   deriving stock (Data)
 
@@ -86,6 +93,14 @@ runCat opts ss = do
 
 
 runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()
+
+runStore opts ss | justInit = do
+  putStrLn "initialized"
+
+  where
+    justInit = maybe False fromOptInit (uniLastMay @OptInit opts)
+
+
 runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
@@ -139,7 +154,8 @@ main = join . customExecParser (prefs showHelpOnError) $
     pStore = do
       o <- common
       file <- optional $ strArgument ( metavar "FILE" )
-      pure $ withStore o (runStore ( StoreOpts file ))
+      init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
+      pure $ withStore o (runStore ( StoreOpts init file ))
 
     pCat = do
       o <- common
