@@ -15,19 +15,6 @@ import Data.Word
 import Data.Set qualified as Set
 import Data.Map qualified as Map
 
--- import Control.Monad.Writer
--- import Data.Hashable
--- import Data.IORef
--- import Data.Map qualified as Map
--- import Data.Set qualified as Set
--- import Data.Tuple
--- import Data.Word
--- import System.Random
-
--- import Data.HbSync.Types
--- import Network.HbSync.Protocol.Messaging
--- import Network.HbSync.Protocol.Messaging.Fake
-
 
 data Fake
 
@@ -41,7 +28,6 @@ testFakeMessaging1 :: IO ()
 testFakeMessaging1 = do
 
   gen <- newIORef (mkStdGen 0x4387ddaA10124)
-
 
   let peers = fmap FakePeer [1..10]
 
