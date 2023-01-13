@@ -90,9 +90,9 @@ runCat opts ss = do
 
     mhash <- MaybeT $ pure $ uniLastMay @MerkleHash opts <&> fromMerkleHash
 
-    some <- MaybeT $ getBlock ss mhash
+    obj <- MaybeT $ getBlock ss mhash
 
-    let mbLink = deserialiseOrFail @AnnotatedHashRef some
+    let mbLink = deserialiseOrFail @AnnotatedHashRef obj
 
     realHash <- MaybeT $ case mbLink of
       Left _    -> pure $ Just mhash
