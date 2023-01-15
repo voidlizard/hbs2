@@ -119,6 +119,7 @@ test-suite test
     other-modules:  TestFakeMessaging
                   , TestActors
                   , TestBlockInfoActor
+                  , TestAbstractDispatch
 
     -- other-extensions:
 
