@@ -1,6 +1,5 @@
 module TestFakeMessaging where
 
-import HBS2.Net.Proto
 import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Fake
 
@@ -8,7 +7,7 @@ import Test.Tasty.HUnit
 
 import Control.Monad
 import Data.Tuple
-import Data.Hashable
+import Data.Functor
 import System.Random
 import Data.IORef
 import Data.Word
@@ -34,7 +33,7 @@ testFakeMessaging1 = do
               pure ( to, Set.singleton m )
 
   received <- forM peers $ \me -> do
-                msg <- replicateM 10 $ receive bus (To me)
+                msg <- replicateM 10 $ receive bus (To me) <&> fmap snd
                 pure ( me, Set.fromList (mconcat msg) )
 
   let s1 = Map.fromListWith (<>) (mconcat sent)

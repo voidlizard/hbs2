@@ -12,8 +12,7 @@ newtype To a = To (Peer a)
 class IsPeer addr => Messaging bus addr msg  | bus -> addr, bus -> msg where
 
   sendTo  :: MonadIO m => bus -> To addr -> From addr -> msg -> m ()
-  receive :: MonadIO m => bus -> To addr -> m [msg]
-
+  receive :: MonadIO m => bus -> To addr -> m [(From addr, msg)]
 
 
 -- data AnyMessaging p m = forall bus . Messaging bus (Peer p)
