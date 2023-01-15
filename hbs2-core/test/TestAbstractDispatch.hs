@@ -6,6 +6,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Messaging
 import HBS2.Clock
 
+import Control.Monad
 import Control.Concurrent.Async
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
@@ -16,7 +17,10 @@ import Data.Hashable
 import Data.Kind
 import Data.Proxy
 import Data.Word
+import Data.Dynamic
 import Prettyprinter
+import System.Random qualified as Random
+import Data.Maybe
 
 import FakeMessaging
 
@@ -33,8 +37,10 @@ class Monad m => HasTimeout msg m where
   timeoutFor :: Proxy msg -> m (Timeout 'Seconds)
 
 -- still okay
+
+type family Encoded  p :: Type
+
 class IsEncoded p msg | msg -> p where
-  data family Encoded  p :: Type
   encode :: msg -> Encoded p
   decode :: Encoded p -> Maybe msg
 
@@ -69,7 +75,7 @@ data Dispatcher p m =
   Dispatcher
   { self     :: Peer p
   , handlers :: Cache (Cookie p) (Handler p m)
-  , fabriq   :: Fabrique p  -- СЮДОЙ ПИХАТЬ СООБЩЕНИЯ
+  , fabriq   :: Fabrique p
   }
 
 newDispatcher :: (MonadIO m, (Messaging bus p (MessageWithCookie p)))
@@ -97,12 +103,13 @@ sendRequest :: forall p msg m. ( MonadIO m
             -> m ()
 
 sendRequest d p mbCoo msg answ = do
+  -- liftIO $ print "sending request!"
   cookie  <- maybe (genCookie p) pure mbCoo
   timeout <- timeoutFor (Proxy @msg) <&> Just . toTimeSpec
-  liftIO $ Cache.insert' (handlers d) timeout cookie answ
+  liftIO $ Cache.insert' (handlers d) Nothing cookie answ
   sendTo (fabriq d) (To p) (From (self d)) (MessageWithCookie cookie (encode msg))
 
-dispatcher :: forall p m . ( MonadIO m, Hashable (Cookie p)
+dispatcher :: forall p m . ( MonadIO m, Hashable (Cookie p), Pretty (Cookie p), Pretty (Peer p)
                            , Messaging (Fabrique p) p (MessageWithCookie p)
                            )
            => Dispatcher p m
@@ -119,17 +126,24 @@ dispatcher d = fix \next -> do
     -- поискали в мапе по куке
     found <- liftIO $ Cache.lookup (handlers d) coo
 
+    when (isNothing found) $ do
+      -- FIXME: это новая сессия, например. И что тут делать?
+      liftIO $ print $ pretty (self d) <+> "NOT FOUND SHIT!!!" <+> pretty coo
+
+    -- liftIO $ print "found some shit!"
+
     case found of
-      Nothing -> pure () -- NO HANDLER FOUND FOR COOKIE CASE
+      Nothing -> liftIO (print "NOT FOUND SHIT") >> pure () -- pure () -- NO HANDLER FOUND FOR COOKIE CASE
     -- декодировали сообщение и пихнули в обработчик
-      Just (Handler dispatch) -> maybe (pure ()) (dispatch (who,coo)) (decode bs)
+      Just (Handler dispatch) -> error "FOUND SHIT!"
+        -- maybe (error "FUCK2") (dispatch (who,coo)) (decode bs)
     --                                 ^^^^^^^^^ CAN NOT DECODE CASE
 
   next
 
 data PingPong p = Ping
                 | Pong
-
+                deriving stock (Typeable)
 
 newtype instance Cookie Fake = CookieFake Word32
                                deriving stock (Eq)
@@ -137,20 +151,22 @@ newtype instance Cookie Fake = CookieFake Word32
 
 
 instance CookieGenerator Fake IO where
-  genCookie _ = pure 0
+  genCookie s = do
+    i <- Random.randomIO :: IO Int
+    pure $ fromIntegral $ hash (i + hash s)
 
-instance IsEncoded Fake (PingPong p) where
-  data instance Encoded Fake = PingPong p
-  encode = undefined -- WHAT
-  decode = undefined -- WHAT
+type instance Encoded Fake = Dynamic
+
+instance Typeable (PingPong p) =>  IsEncoded Fake (PingPong p) where
+  encode = toDyn
+  decode = fromDynamic
 
 instance Messaging (Fabrique Fake) Fake (MessageWithCookie Fake) where
   sendTo (Fabrique bus) = sendTo bus
   receive (Fabrique bus) = receive bus
 
 instance HasTimeout (PingPong Fake) IO where
-  timeoutFor _ = pure 0.1
-
+  timeoutFor _ = pure 1
 
 testAbstractDispatch :: IO ()
 testAbstractDispatch = do
@@ -165,12 +181,18 @@ testAbstractDispatch = do
 
     for_ [ px | px <- peers, px /= p ] $ \pip -> do
 
-      sendRequest disp pip Nothing (Ping @Fake) $ handler $ \(From who, coo) ->
-        \case
-          Pong -> liftIO $ print $ "got pong" <+> brackets (pretty coo)
-          Ping -> do
-            liftIO $ print $ "got ping" <+> pretty who <+> brackets (pretty coo)
-            sendRequest disp who (Just coo) (Pong @Fake) $ handler @PingPong (\_  _ -> pure () )
+      sendRequest disp pip Nothing (Ping @Fake) $ handler @PingPong $ \(From who, coo) wtf -> do
+        error "RECEIVED SOME"
+
+        -- \case
+        --   Ping -> do
+        --     liftIO $ print $ "got ping" <+> pretty who <+> brackets (pretty coo)
+        --     liftIO $ print $ "sending ping to" <+> pretty pip
+        --     sendRequest disp who (Just coo) (Pong @Fake) $ handler @PingPong (\_  _ -> pure () )
+
+        --   _ -> pure ()
+
+    pause ( 2 :: Timeout 'Seconds)
 
     cancel dispThread
 
