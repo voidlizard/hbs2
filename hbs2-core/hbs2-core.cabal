@@ -120,6 +120,7 @@ test-suite test
                   , TestActors
                   , TestBlockInfoActor
                   , TestAbstractDispatch
+                  , FakeMessaging
 
     -- other-extensions:
 
@@ -130,6 +131,7 @@ test-suite test
           base ^>=4.15.1.0, hbs2-core
         , async
         , bytestring
+        , cache
         , containers
         , hashable
         , microlens-platform

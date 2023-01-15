@@ -1,34 +1,45 @@
+{-# Language FunctionalDependencies #-}
 module TestAbstractDispatch where
 
-
 import HBS2.Prelude
--- import HBS2.Net.Messaging
+import HBS2.Net.Proto
+import HBS2.Net.Messaging
+import HBS2.Clock
 
-import Data.Maybe
-import Data.ByteString (ByteString)
--- concrete type or typeclass ?
+import Data.Foldable
+import Data.Functor
+import Data.Function
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
 import Data.Kind
-import Data.Word
-import Data.Map (Map)
-import Data.Map qualified as Map
--- import Data.Proxy
+import Data.Hashable
+import Data.Proxy
 
-newtype Cookie = Cookie Word32
-                 deriving stock (Eq,Ord)
+import FakeMessaging
 
-data MessageWithCookie = MessageWithCookie Cookie ByteString
+-- newtype Cookie = Cookie Word32
+--                  deriving stock (Eq,Ord)
+--                  deriving newtype Hashable
 
-class IsMessageWithCookie msg where
-  encode :: msg -> MessageWithCookie
-  decode :: MessageWithCookie -> Maybe msg
+data family Cookie p :: Type
 
+class Monad m => CookieGenerator p m where
+  genCookie :: Hashable s => s -> m (Cookie p)
+
+class Monad m => HasTimeout msg m where
+  timeoutFor :: Proxy msg -> m (Timeout 'Seconds)
+
+-- still okay
+class IsEncoded p msg | msg -> p where
+  data family Encoded  p :: Type
+  encode :: msg -> Encoded p
+  decode :: Encoded p -> Maybe msg
+
+-- still okay
+data MessageWithCookie p = MessageWithCookie (Cookie p) (Encoded p)
 
 -- ЧТО МЫ ХОТИМ:
--- СООБЩЕНИЯ РАЗНЫХ ТИПОВ, ДОБАВЛЯТЬ НЕЗАВИСИМО
---
--- ЗАЧЕМ: ХУЙ ЗНАЕТ НА САМОМ ДЕЛЕ
--- НО, ДОПУСТИМ, ХОТИМ НЕЗАВИСИМЫЕ ОБРАБОТЧИКИ ДЛЯ
--- КАЖДОГО ТИПА СООБЩЕНИЯ
+-- СООБЩЕНИЯ РАЗНЫХ ТИПОВ. ОБРАБАТЫВАТЬ НЕЗАВИСИМО, В РАЗНЫХ ОБРАБОТЧИКАХ
 --
 -- ПОЧЕМУ МЫ ЭТОГО ХОТИМ:
 --
@@ -37,54 +48,73 @@ class IsMessageWithCookie msg where
 --   НАДО СДЕЛАТЬ, ЧТО БЫ МОЖНО БЫЛО ОТЛАДИТЬ ПО КУСКАМ
 --   ТЕМ БОЛЕЕ, ЧТО ОНИ ДРУГ ОТ ДРУГА НЕ ЗАВИСЯТ
 --
--- КАК-ТО ОБЕСПЕЧИМ УНИКАЛЬНОСТЬ КУКИ ДЛЯ КАЖДОГО ТИПА
---
---
 
+data Handler p m  = forall msg . IsEncoded p msg =>
+  Handler ( msg -> m () )
 
-data Handler  = forall a . Show a => Handler
-                                     { decodeMsg :: ByteString -> Maybe a
-                                     , dispatch  :: a -> ()
-                                     }
+data Fabrique p = forall bus . Messaging bus (Peer p) (MessageWithCookie p)
+  =>  Fabrique bus
 
-newtype Dispatcher = Dispatcher { actions :: Map Cookie Handler }
+data Dispatcher p m =
+  Dispatcher
+  { self     :: Peer p
+  , handlers :: Cache (Cookie p) (Handler p m)
+  , fabriq   :: Fabrique p  -- СЮДОЙ ПИХАТЬ СООБЩЕНИЯ
+  }
 
--- sendRequest :: forall m msg . (MonadIO m, IsEncoded msg, HasCookie msg) => Dispatcher m -> msg  -> m ()
-sendRequest :: forall m msg . (MonadIO m, IsMessageWithCookie msg) => msg -> m ()
-sendRequest msg = do
-  let coockoo = encode msg
-  let wtfmap = mempty :: Map Cookie ()
+newDispatcher :: (MonadIO m, (Messaging bus (Peer p) (MessageWithCookie p)))
+              => Peer p
+              -> bus
+              -> m (Dispatcher p m)
 
-  -- send (serialize coockoo)
+newDispatcher me bus = do
+  let fab = Fabrique bus
+  cache <- liftIO $ Cache.newCache Nothing
+  pure $ Dispatcher me cache fab
 
-  undefined
+sendRequest :: forall p msg m. ( MonadIO m
+                               , IsEncoded p msg
+                               , Messaging (Fabrique p) p (MessageWithCookie p)
+                               , Hashable (Cookie p)
+                               , CookieGenerator p m
+                               , HasTimeout msg m
+                               )
+            => Dispatcher p m
+            -> Peer p
+            -> msg
+            -> Handler p m
+            -> m ()
 
-dispatcher :: MonadIO m => Dispatcher -> m ()
-dispatcher d = do
-  -- получили нечто
-  -- вытащили куку
+sendRequest d p msg answ = do
+  cookie  <- genCookie p
+  timeout <- timeoutFor (Proxy @msg) <&> Just . toTimeSpec
+  liftIO $ Cache.insert' (handlers d) timeout cookie answ
+  sendTo (fabriq d) (To p) (From (self d)) (MessageWithCookie cookie (encode msg))
 
-  -- КАК БЛЯДЬ? МЫ НЕ ЗНАЕМ ТУТ, ЧТО ЭТО ЗА СООБЩЕНИЕ. ЭТО ЧТО - ПОЛУДЕКОДИРОВАННОЕ
-  -- СООБЩЕНИЕ)
-  let (MessageWithCookie coo bs)  = undefined :: MessageWithCookie
+dispatcher :: forall p m . ( MonadIO m, Hashable (Cookie p)
+                           , Messaging (Fabrique p) p (MessageWithCookie p)
+                           )
+           => Dispatcher p m
+           -> m ()
 
-  -- поискали в мапе по куке
-  let found' = Map.lookup coo (actions d)
+dispatcher d = fix \next -> do
 
-  -- нашли обработчик
-  let found = fromJust found'
+  -- FIXME: if receive is non-blocking we'll get a busy loop
+  -- FIXME: if receive is blocking - we'll block here forever
+  received <- receive (fabriq d) (To (self d))
 
-  -- декодировали сообщение и пихнули в обработчик
-  let _ = let (Handler de dispatch) = found in dispatch (fromJust (de bs))
+  for_ received $ \(MessageWithCookie coo bs) -> do
 
-  -- сработало: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  --
+    -- поискали в мапе по куке
+    found <- liftIO $ Cache.lookup (handlers d) coo
 
-  -- мы не знаем конкретный тип сообщения и нам пох. обработчик обрабатывает,
-  -- мы тут обеспечиваем общий механизм диспечеризации: заводим сессии, ждём
-  -- прибиваем сессии, рулим куками
+    case found of
+      Nothing -> pure () -- NO HANDLER FOUND FOR COOKIE CASE
+    -- декодировали сообщение и пихнули в обработчик
+      Just (Handler dispatch) -> maybe (pure ()) dispatch (decode bs)
+    --                                 ^^^^^^^^^ CAN NOT DECODE CASE
 
-  undefined
+  next
 
 
 testAbstractDispatch :: IO ()

@@ -15,13 +15,7 @@ import Data.Word
 import Data.Set qualified as Set
 import Data.Map qualified as Map
 
-
-data Fake
-
-instance IsPeer Fake where
-  newtype instance Peer Fake = FakePeer Int
-                               deriving stock (Eq,Ord,Show)
-                               deriving newtype (Hashable,Num,Enum,Real,Integral)
+import FakeMessaging
 
 
 testFakeMessaging1 :: IO ()

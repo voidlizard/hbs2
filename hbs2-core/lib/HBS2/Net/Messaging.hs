@@ -16,4 +16,5 @@ class IsPeer addr => Messaging bus addr msg  | bus -> addr, bus -> msg where
 
 
 
+-- data AnyMessaging p m = forall bus . Messaging bus (Peer p)
 
