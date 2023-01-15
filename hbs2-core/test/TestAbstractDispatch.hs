@@ -141,12 +141,12 @@ instance CookieGenerator Fake IO where
 
 instance IsEncoded Fake (PingPong p) where
   data instance Encoded Fake = PingPong p
-  encode = undefined
-  decode = undefined
+  encode = undefined -- WHAT
+  decode = undefined -- WHAT
 
 instance Messaging (Fabrique Fake) Fake (MessageWithCookie Fake) where
-  sendTo = undefined
-  receive = undefined
+  sendTo (Fabrique bus) = sendTo bus
+  receive (Fabrique bus) = receive bus
 
 instance HasTimeout (PingPong Fake) IO where
   timeoutFor _ = pure 0.1
