@@ -20,6 +20,7 @@ import Data.Word
 import Data.Dynamic
 import Prettyprinter
 import System.Random qualified as Random
+import GHC.TypeLits
 import Data.Maybe
 
 import FakeMessaging
@@ -36,9 +37,17 @@ class Monad m => CookieGenerator p m where
 class Monad m => HasTimeout msg m where
   timeoutFor :: Proxy msg -> m (Timeout 'Seconds)
 
+class HasCookie p msg | msg -> p where
+  getCookie :: msg -> Maybe (Cookie p)
+
 -- still okay
 
 type family Encoded  p :: Type
+
+type family ProtoId p m :: Nat
+
+class Registered msg where
+  protoId :: Proxy msg -> Nat
 
 class IsEncoded p msg | msg -> p where
   encode :: msg -> Encoded p
@@ -74,7 +83,7 @@ data Fabrique p = forall bus . Messaging bus p (MessageWithCookie p)
 data Dispatcher p m =
   Dispatcher
   { self     :: Peer p
-  , handlers :: Cache (Cookie p) (Handler p m)
+  , handlers :: Cache (Cookie p) (Handler p m) --- FIXME: class + maybe cookie
   , fabriq   :: Fabrique p
   }
 
@@ -140,6 +149,9 @@ dispatcher d = fix \next -> do
     --                                 ^^^^^^^^^ CAN NOT DECODE CASE
 
   next
+
+class DefaultAnswer msg p | msg -> p where
+  defAnswer :: msg
 
 data PingPong p = Ping
                 | Pong
