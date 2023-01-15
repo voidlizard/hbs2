@@ -23,6 +23,8 @@ import System.Random qualified as Random
 import GHC.TypeLits
 import Data.Maybe
 
+import Debug.Trace
+
 import FakeMessaging
 
 -- newtype Cookie = Cookie Word32
@@ -40,14 +42,16 @@ class Monad m => HasTimeout msg m where
 class HasCookie p msg | msg -> p where
   getCookie :: msg -> Maybe (Cookie p)
 
+
+data DefAnswer p = forall msg . (IsEncoded p msg) => DefAnswer msg
+
+class HasDefAnswer p a | p -> a where
+  defAnswer :: a -> DefAnswer p
+
+
 -- still okay
 
 type family Encoded  p :: Type
-
-type family ProtoId p m :: Nat
-
-class Registered msg where
-  protoId :: Proxy msg -> Nat
 
 class IsEncoded p msg | msg -> p where
   encode :: msg -> Encoded p
@@ -120,6 +124,7 @@ sendRequest d p mbCoo msg answ = do
 
 dispatcher :: forall p m . ( MonadIO m, Hashable (Cookie p), Pretty (Cookie p), Pretty (Peer p)
                            , Messaging (Fabrique p) p (MessageWithCookie p)
+                           , HasDefAnswer p (Cookie p)
                            )
            => Dispatcher p m
            -> m ()
@@ -130,28 +135,22 @@ dispatcher d = fix \next -> do
   -- FIXME: if receive is blocking - we'll block here forever
   received <- receive (fabriq d) (To (self d))
 
-  for_ received $ \(who, MessageWithCookie coo bs) -> do
+  for_ received $ \(who@(From peer), MessageWithCookie coo bs) -> do
 
     -- поискали в мапе по куке
     found <- liftIO $ Cache.lookup (handlers d) coo
 
-    when (isNothing found) $ do
-      -- FIXME: это новая сессия, например. И что тут делать?
-      liftIO $ print $ pretty (self d) <+> "NOT FOUND SHIT!!!" <+> pretty coo
-
-    -- liftIO $ print "found some shit!"
-
     case found of
-      Nothing -> liftIO (print "NOT FOUND SHIT") >> pure () -- pure () -- NO HANDLER FOUND FOR COOKIE CASE
-    -- декодировали сообщение и пихнули в обработчик
-      Just (Handler dispatch) -> error "FOUND SHIT!"
-        -- maybe (error "FUCK2") (dispatch (who,coo)) (decode bs)
-    --                                 ^^^^^^^^^ CAN NOT DECODE CASE
+      Nothing -> do
+        case defAnswer @p coo of
+          DefAnswer msg -> do
+            sendTo (fabriq d) (To peer) (From (self d)) (MessageWithCookie coo (encode msg))
+
+      Just (Handler dispatch) -> maybe (pure ()) (dispatch (who,coo)) (decode bs)
+    --                           ^^^^^^^^^^^^^^ CAN NOT DECODE CASE
 
   next
 
-class DefaultAnswer msg p | msg -> p where
-  defAnswer :: msg
 
 data PingPong p = Ping
                 | Pong
@@ -180,6 +179,9 @@ instance Messaging (Fabrique Fake) Fake (MessageWithCookie Fake) where
 instance HasTimeout (PingPong Fake) IO where
   timeoutFor _ = pure 1
 
+instance HasDefAnswer Fake (Cookie Fake) where
+  defAnswer _ = let _ = trace "ATTEMPT TO SEND DEF ANSWER" in DefAnswer (Pong @Fake)
+
 testAbstractDispatch :: IO ()
 testAbstractDispatch = do
 
@@ -187,24 +189,30 @@ testAbstractDispatch = do
 
   bus  <- newFakeP2P @Fake @(MessageWithCookie Fake) True
 
-  for_ peers $ \p -> do
-    disp <- newDispatcher p bus
-    dispThread <- async (dispatcher disp)
+  threads <- forM peers $ \p -> do
+      disp <- newDispatcher p bus
+      dispThread <- async (dispatcher disp)
 
-    for_ [ px | px <- peers, px /= p ] $ \pip -> do
+      for_ [ px | px <- peers, px /= p ] $ \pip -> do
 
-      sendRequest disp pip Nothing (Ping @Fake) $ handler @PingPong $ \(From who, coo) wtf -> do
-        error "RECEIVED SOME"
+        -- liftIO $ print "sending ping"
+        sendRequest disp pip Nothing (Ping @Fake) $ handler @PingPong $ \(From who, coo) ->
+         \case
+            Ping -> pure () -- we do not expect ping here
 
-        -- \case
-        --   Ping -> do
-        --     liftIO $ print $ "got ping" <+> pretty who <+> brackets (pretty coo)
-        --     liftIO $ print $ "sending ping to" <+> pretty pip
-        --     sendRequest disp who (Just coo) (Pong @Fake) $ handler @PingPong (\_  _ -> pure () )
+            Pong -> do
 
-        --   _ -> pure ()
+              liftIO $ print $ "got pong 2" <+> pretty who
+                                            <+> "->"
+                                            <+> pretty (self disp)
+                                            <+> brackets (pretty coo)
 
-    pause ( 2 :: Timeout 'Seconds)
+      pure dispThread
 
-    cancel dispThread
+    -- -- pure dispThread
+  pause ( 1 :: Timeout 'Seconds)
+
+  mapM_ cancel threads
+
+  void $ waitAnyCatchCancel threads
 
