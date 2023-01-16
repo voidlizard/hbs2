@@ -196,8 +196,8 @@ testUniqiProtoId = do
 
   let env = EngineEnv @Fake Nothing (FakePeer 0) fake
 
-  let resp = [ (1, makeResponse pingPongHandler)
-             , (2, makeResponse peekPokeHandler)
+  let resp = [ (protoId @Fake (Proxy @PingPong), makeResponse pingPongHandler)
+             , (protoId @Fake (Proxy @PeekPoke), makeResponse peekPokeHandler)
              ]
 
   let decoders = Map.fromList resp :: Map Integer (AnyProtocol (Encoded Fake) (EngineM Fake IO))
