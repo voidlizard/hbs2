@@ -12,42 +12,46 @@ import Data.Map (Map)
 import Control.Monad.Reader
 
 
-data AnyProtocol m = forall a . ( HasProtocol a
-                                , KnownNat (ProtocolId a)
-                                , Response a m
-                                ) =>
+data AnyProtocol e m = forall p a . ( HasProtocol p a
+                                    , KnownNat (ProtocolId a)
+                                    , Response p a m
+                                    , e ~ Encoded p
+                                    ) =>
   AnyProtocol
   { getProtoId  :: Integer
-  , protoDecode :: Encoded a -> Maybe a
-  , protoEncode :: a -> Encoded a
+  , protoDecode :: Encoded p -> Maybe a
+  , protoEncode :: a -> Encoded p
   , handle      :: a -> m ()
   }
 
 
-data PingPong = Ping Int
-              | Pong Int
+data PingPong  = Ping Int
+               | Pong Int
 
+type family Encoding a :: Type
 
-instance HasProtocol PingPong where
+data Fake
+
+instance HasProtocol Fake PingPong where
   type instance ProtocolId PingPong = 1
-  type instance Encoded PingPong = PingPong
-  type instance Peer PingPong = Int
-  decode = Just
-  encode = id
+  type instance Encoded Fake = String
+  type instance Peer Fake = Int
+  decode = undefined
+  encode = undefined
 
-class Response p (m :: Type -> Type) where
+class Response e p (m :: Type -> Type) where
   response :: p -> m ()
 
-makeProtocol :: forall p t m . ( MonadIO m
-                               , Response p (t m)
-                               , HasProtocol p
-                               , KnownNat (ProtocolId p)
-                               )
-            => (p -> t m ()) -> AnyProtocol (t m)
+makeProtocol :: forall a p t m . ( MonadIO m
+                                 , Response a p (t m)
+                                 , HasProtocol a p
+                                 , KnownNat (ProtocolId p)
+                                 )
+            => (p -> t m ()) -> AnyProtocol (Encoded a) (t m)
 
 makeProtocol h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
-                             , protoDecode = decode @p
-                             , protoEncode = encode @p
+                             , protoDecode = decode @a
+                             , protoEncode = encode @a
                              , handle = h
                              }
 
@@ -57,7 +61,7 @@ newtype EngineM m a = EngineM { fromEngine :: ReaderT () m a }
 runEngineM :: EngineM m a -> m a
 runEngineM f = runReaderT (fromEngine f) ()
 
-instance (Monad m, HasProtocol p) => Response p (EngineM m) where
+instance (Monad m, HasProtocol e p) => Response e p (EngineM m) where
   response _ = do
     -- TODO: get bus
     -- TODO: encode
@@ -67,20 +71,24 @@ instance (Monad m, HasProtocol p) => Response p (EngineM m) where
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
 
-  let decoders = mempty :: Map Integer (AnyProtocol (EngineM IO))
+  let pingpong = makeProtocol @Fake @PingPong @EngineM
+        \case
+          Ping c -> lift (print "effect: PING") >> response (Pong c)
+          Pong _ -> lift (print "effect: PONG")
+
+
+  let decoders = mempty :: Map Integer (AnyProtocol String (EngineM IO))
+  let dec = Map.insert 1 pingpong decoders
 
   -- TODO: GET MESSAGE
   -- TODO: GET RECIPIENT
   -- TODO: GET PROTO-ID FROM MESSAGE
 
-  let pingpong = makeProtocol @PingPong @EngineM
-        \case
-          Ping c -> lift (print "effect: PING") >> response (Pong c)
-          Pong _ -> lift (print "effect: PONG")
+  let message = ""
 
   -- FIXME: dispatcher!
-  case Map.lookup 3 decoders of
-    Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) (runEngineM . h) (decoder undefined)
+  case Map.lookup 1 dec of
+    Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) (runEngineM . h) (decoder message)
     Nothing -> pure ()
 
   pure ()
