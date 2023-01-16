@@ -28,6 +28,8 @@ import Data.List qualified as List
 import Data.Maybe
 import Safe
 
+import Control.Logger.Simple qualified as Log
+
 import Prettyprinter hiding (pipe)
 
 newtype From a = From (Peer a)
@@ -212,6 +214,8 @@ peekPokeHandler =
 
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
+
+  -- setLogLevel
 
   fake <- newFakeP2P True
 

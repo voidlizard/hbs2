@@ -5,11 +5,12 @@ module HasProtocol where
 import Data.Kind
 import Data.Proxy
 import GHC.TypeLits
+import Data.Hashable
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
-class HasPeer e where
+class (Hashable (Peer e), Eq (Peer e)) =>HasPeer e where
   data family (Peer e) :: Type
 
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
