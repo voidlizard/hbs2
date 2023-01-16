@@ -31,10 +31,12 @@ type family Encoding a :: Type
 
 data Fake
 
+instance HasPeer Fake where
+  type instance Peer Fake = Int
+
 instance HasProtocol Fake PingPong where
   type instance ProtocolId PingPong = 1
   type instance Encoded Fake = String
-  type instance Peer Fake = Int
   decode = undefined
   encode = undefined
 
@@ -54,9 +56,9 @@ makeResponse h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
                              , handle = h
                              }
 
-data EngineEnv =
+data EngineEnv = forall p . HasPeer p =>
   EngineEnv
-  {
+  { peer :: Maybe (Peer p)
   }
 
 newtype EngineM m a = EngineM { fromEngine :: ReaderT EngineEnv m a }
@@ -72,18 +74,18 @@ instance (Monad m, HasProtocol e p) => Response e p (EngineM m) where
     -- TODO: sendTo
     undefined
 
+pingPongHandler :: forall a  m . (MonadIO m, Response a PingPong  m) => PingPong -> m ()
+pingPongHandler =
+  \case
+    Ping c -> liftIO (print "effect: PING") >> response @a @PingPong (Pong c)
+    Pong _ -> liftIO (print "effect: PONG")
+
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
 
-  let env = EngineEnv
+  let env = EngineEnv @Fake Nothing
 
-  -- let ssid = 0
-  -- runEngineM env $ request 2 (Ping ssid)
-
-  let pingpong = makeResponse
-        \case
-          Ping c -> lift (print "effect: PING") >> response (Pong c)
-          Pong _ -> lift (print "effect: PONG")
+  let pingpong = makeResponse pingPongHandler
 
   let decoders = mempty :: Map Integer (AnyProtocol String (EngineM IO))
   let dec = Map.insert 1 pingpong decoders
