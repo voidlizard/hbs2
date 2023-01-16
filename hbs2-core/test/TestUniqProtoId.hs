@@ -16,7 +16,6 @@ import Data.Map qualified as Map
 import Data.Map (Map)
 import Control.Monad.Reader
 import Data.ByteString (ByteString)
-import Lens.Micro.Platform
 
 import Data.Foldable
 import Data.List qualified as List
@@ -40,12 +39,12 @@ class HasPeer proto => Messaging bus proto msg  | bus -> proto, bus -> msg where
   receive :: MonadIO m => bus -> To proto -> m [(From proto, msg)]
 
 
-data AnyMessage = AnyMessage Integer String
+data AnyMessage e = AnyMessage Integer (Encoded e)
 
-data EngineEnv p = forall bus . (Messaging bus p AnyMessage)  =>
+data EngineEnv e = forall bus . (Messaging bus e (AnyMessage e))  =>
   EngineEnv
-  { peer   :: Maybe (Peer p)
-  , self   :: Peer p
+  { peer   :: Maybe (Peer e)
+  , self   :: Peer e
   , bus    :: bus
   }
 
@@ -83,12 +82,11 @@ data AnyProtocol e m = forall p a . ( HasProtocol p a
                                     , e ~ Encoded p
                                     ) =>
   AnyProtocol
-  { getProtoId  :: Integer
+  { myProtoId   :: Integer
   , protoDecode :: Encoded p -> Maybe a
   , protoEncode :: a -> Encoded p
   , handle      :: a -> m ()
   }
-
 
 
 class Response e p (m :: Type -> Type) where
@@ -97,13 +95,13 @@ class Response e p (m :: Type -> Type) where
 class Request e p (m :: Type -> Type) where
   request :: Peer e -> p -> m ()
 
-makeResponse :: forall a p t m . ( MonadIO m
-                                 , Response a p (t m)
-                                 , HasProtocol a p
-                                 )
-            => (p -> t m ()) -> AnyProtocol (Encoded a) (t m)
+makeResponse :: forall a p  m . ( MonadIO m
+                                , Response a p m
+                                , HasProtocol a p
+                                )
+            => (p ->  m ()) -> AnyProtocol (Encoded a) m
 
-makeResponse h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
+makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
                              , protoDecode = decode @a
                              , protoEncode = encode @a
                              , handle = h
@@ -123,14 +121,14 @@ runEngineM :: EngineEnv e -> EngineM e m a -> m a
 runEngineM e f = runReaderT (fromEngine f) e
 
 
-instance (MonadIO m, HasProtocol e p, Encoded e ~ String, Show (Peer e)) => Request e p (EngineM e m) where
+instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     ask >>= \case
       EngineEnv { self = s, bus = b} -> do
         liftIO $ sendTo b (To p) (From s) (AnyMessage proto (encode msg))
 
-instance (MonadIO m, HasProtocol e p, Encoded e ~ String, Show (Peer e)) => Response e p (EngineM e m) where
+instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
   response resp = do
     env <- ask
     let proto = protoId @e @p (Proxy @p)
@@ -174,40 +172,83 @@ instance HasProtocol Fake PeekPoke where
   encode = show
 
 
-
 pingPongHandler :: forall a m  . (MonadIO m, Response a PingPong  m, HasProtocol a PingPong) => PingPong -> m ()
 pingPongHandler =
   \case
-    Ping c -> liftIO (print $ "effect: PING" <+> pretty c) >> response @a @PingPong (Pong c)
-    Pong c -> liftIO (print $ "effect: PONG" <+> pretty c) >> response @a @PingPong (Ping (succ c))
-
+    Ping c -> liftIO (print $ "effect: PING" <+> pretty c) >> response @a (Pong c)
+    Pong c -> liftIO (print $ "effect: PONG" <+> pretty c) >> response @a (Ping (succ c))
 
 peekPokeHandler :: forall a m  . (MonadIO m, Response a PeekPoke m, HasProtocol a PeekPoke) => PeekPoke -> m ()
 peekPokeHandler =
   \case
-    Peek c -> liftIO (print $ "effect: Peek" <+> pretty c) >> response @a @PeekPoke(Poke c)
-    Poke c -> liftIO (print $ "effect: Poke" <+> pretty c) >> response @a @PeekPoke Nop
-    Nop    -> liftIO (print $ pretty "effect: Nop") >> response @a @PeekPoke (Peek 1)
+    Peek c -> liftIO (print $ "effect: Peek" <+> pretty c) >> response @a (Poke c)
+    Poke c -> liftIO (print $ "effect: Poke" <+> pretty c) >> response @a Nop
+    Nop    -> liftIO (print $ pretty "effect: Nop") >> response @a (Peek 1)
+
+
+runPeer :: forall e p bus  . (
+                               HasProtocol e p
+                             , Messaging bus e (AnyMessage e)
+                             , Response e p (EngineM e IO)
+                             )
+
+        => Peer e
+        -> bus
+        -> [AnyProtocol e (EngineM e IO)]
+        -> IO ()
+
+
+runPeer peer pipe hh = do
+
+  resp <- forM hh $ \a@(AnyProtocol { myProtoId = pid }) -> do
+    pure (pid, a)
+
+  let disp = Map.fromList resp :: Map Integer (AnyProtocol e (EngineM e IO))
+
+  let env = EngineEnv Nothing peer pipe
+
+  runEngineM env $ do
+
+    forever $ do
+      messages <- receive pipe (To peer)
+
+      for_ messages $ \(From pip, AnyMessage n msg) -> do
+
+        local (\e -> e { peer = Just pip  } ) $ do
+
+          case Map.lookup n disp of
+            Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
+            Nothing -> pure ()
 
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
 
   fake <- newFakeP2P True
 
+  -- runPeer @Fake (FakePeer 0) fake
+  --   [ makeResponse pingPongHandler
+  --   , makeResponse peekPokeHandler
+  --   ]
+
+  -- undefined
+
   let env = EngineEnv @Fake Nothing (FakePeer 0) fake
 
-  let resp = [ (protoId @Fake (Proxy @PingPong), makeResponse pingPongHandler)
-             , (protoId @Fake (Proxy @PeekPoke), makeResponse peekPokeHandler)
-             ]
+  let wtf = [ makeResponse pingPongHandler
+            , makeResponse peekPokeHandler
+            ] :: [AnyProtocol (Encoded Fake) (EngineM Fake IO)]
+
+  resp <- forM wtf $ \a@(AnyProtocol { myProtoId = pid }) -> do
+    pure (pid, a)
 
   let decoders = Map.fromList resp :: Map Integer (AnyProtocol (Encoded Fake) (EngineM Fake IO))
 
-  forever $ do
+  runEngineM env $ do
 
-    runEngineM env $ do
+    request (FakePeer 0) (Ping 0)
+    request (FakePeer 0) (Peek 1)
 
-      request (FakePeer 0) (Ping 0)
-      request (FakePeer 0) (Peek 1)
+    forever $ do
 
       messages <- receive fake (To (FakePeer 0))
 
@@ -215,7 +256,6 @@ testUniqiProtoId = do
 
         local (\e -> e { peer = Just pip  } ) $ do
 
-          -- FIXME: dispatcher!
           case Map.lookup n decoders of
             Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
             Nothing -> pure ()
