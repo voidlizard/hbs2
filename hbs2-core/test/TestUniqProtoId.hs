@@ -11,7 +11,6 @@ import Data.Map qualified as Map
 import Data.Map (Map)
 import Control.Monad.Reader
 
-
 data AnyProtocol e m = forall p a . ( HasProtocol p a
                                     , KnownNat (ProtocolId a)
                                     , Response p a m
@@ -42,24 +41,29 @@ instance HasProtocol Fake PingPong where
 class Response e p (m :: Type -> Type) where
   response :: p -> m ()
 
-makeProtocol :: forall a p t m . ( MonadIO m
+makeResponse :: forall a p t m . ( MonadIO m
                                  , Response a p (t m)
                                  , HasProtocol a p
                                  , KnownNat (ProtocolId p)
                                  )
             => (p -> t m ()) -> AnyProtocol (Encoded a) (t m)
 
-makeProtocol h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
+makeResponse h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
                              , protoDecode = decode @a
                              , protoEncode = encode @a
                              , handle = h
                              }
 
-newtype EngineM m a = EngineM { fromEngine :: ReaderT () m a }
+data EngineEnv =
+  EngineEnv
+  {
+  }
+
+newtype EngineM m a = EngineM { fromEngine :: ReaderT EngineEnv m a }
                       deriving ( Functor, Applicative, Monad, MonadTrans, MonadIO )
 
-runEngineM :: EngineM m a -> m a
-runEngineM f = runReaderT (fromEngine f) ()
+runEngineM :: EngineEnv -> EngineM m a -> m a
+runEngineM e f = runReaderT (fromEngine f) e
 
 instance (Monad m, HasProtocol e p) => Response e p (EngineM m) where
   response _ = do
@@ -71,11 +75,15 @@ instance (Monad m, HasProtocol e p) => Response e p (EngineM m) where
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
 
-  let pingpong = makeProtocol @Fake @PingPong @EngineM
+  let env = EngineEnv
+
+  -- let ssid = 0
+  -- runEngineM env $ request 2 (Ping ssid)
+
+  let pingpong = makeResponse
         \case
           Ping c -> lift (print "effect: PING") >> response (Pong c)
           Pong _ -> lift (print "effect: PONG")
-
 
   let decoders = mempty :: Map Integer (AnyProtocol String (EngineM IO))
   let dec = Map.insert 1 pingpong decoders
@@ -84,11 +92,11 @@ testUniqiProtoId = do
   -- TODO: GET RECIPIENT
   -- TODO: GET PROTO-ID FROM MESSAGE
 
-  let message = ""
+  let message = "" :: Encoded Fake
 
   -- FIXME: dispatcher!
   case Map.lookup 1 dec of
-    Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) (runEngineM . h) (decoder message)
+    Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) (runEngineM env . h) (decoder message)
     Nothing -> pure ()
 
   pure ()
