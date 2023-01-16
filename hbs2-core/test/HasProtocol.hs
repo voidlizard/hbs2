@@ -6,17 +6,20 @@ import Data.Kind
 import Data.Proxy
 import GHC.TypeLits
 
-class HasPeer p where
-  data family (Peer p) :: Type
+-- e -> Transport (like, UDP or TChan)
+-- p -> L4 Protocol (like Ping/Pong)
 
-class (KnownNat (ProtocolId a), HasPeer p) => HasProtocol p a  | a -> p where
-  type family ProtocolId a = (id :: Nat) | id -> a
-  type family Encoded p :: Type
+class HasPeer e where
+  data family (Peer e) :: Type
 
-  protoId :: forall . KnownNat (ProtocolId a) => Proxy a -> Integer
-  protoId _ = natVal (Proxy @(ProtocolId a))
+class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
+  type family ProtocolId p = (id :: Nat) | id -> p
+  type family Encoded e :: Type
 
-  decode :: Encoded p -> Maybe a
-  encode :: a -> Encoded p
+  protoId :: forall . KnownNat (ProtocolId p) => Proxy p -> Integer
+  protoId _ = natVal (Proxy @(ProtocolId p))
+
+  decode :: Encoded e -> Maybe p
+  encode :: p -> Encoded e
 
 

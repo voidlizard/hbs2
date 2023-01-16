@@ -17,17 +17,18 @@ import Data.Map (Map)
 import Control.Monad.Reader
 import Data.ByteString (ByteString)
 
-import Data.Foldable
-import Data.List qualified as List
-import Data.Cache qualified as Cache
-import Data.Cache (Cache)
-import Control.Concurrent.STM.TChan as Chan
+import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.Concurrent.STM.TChan as Chan
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
+import Data.Foldable
 import Data.Hashable
+import Data.List qualified as List
 import Data.Maybe
 import Safe
 
-import Prettyprinter
+import Prettyprinter hiding (pipe)
 
 newtype From a = From (Peer a)
 
@@ -76,16 +77,15 @@ instance ( (HasPeer proto, Hashable (Peer proto))
 
 
 
-data AnyProtocol e m = forall p a . ( HasProtocol p a
-                                    , KnownNat (ProtocolId a)
-                                    , Response p a m
-                                    , e ~ Encoded p
-                                    ) =>
+data AnyProtocol e m = forall p  . ( HasProtocol e p
+                                   , KnownNat (ProtocolId p)
+                                   , Response e p m
+                                   ) =>
   AnyProtocol
   { myProtoId   :: Integer
-  , protoDecode :: Encoded p -> Maybe a
-  , protoEncode :: a -> Encoded p
-  , handle      :: a -> m ()
+  , protoDecode :: Encoded e -> Maybe p
+  , protoEncode :: p -> Encoded e
+  , handle      :: p -> m ()
   }
 
 
@@ -95,15 +95,15 @@ class Response e p (m :: Type -> Type) where
 class Request e p (m :: Type -> Type) where
   request :: Peer e -> p -> m ()
 
-makeResponse :: forall a p  m . ( MonadIO m
-                                , Response a p m
-                                , HasProtocol a p
+makeResponse :: forall e p  m . ( MonadIO m
+                                , Response e p m
+                                , HasProtocol e p
                                 )
-            => (p ->  m ()) -> AnyProtocol (Encoded a) m
+            => (p ->  m ()) -> AnyProtocol e m
 
 makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
-                             , protoDecode = decode @a
-                             , protoEncode = encode @a
+                             , protoDecode = decode
+                             , protoEncode = encode
                              , handle = h
                              }
 
@@ -141,10 +141,40 @@ instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
       _ -> pure ()
 
 
+
+
+newEnv :: forall e bus m . (Monad m, Messaging bus e (AnyMessage e)) => Peer e -> bus -> m (EngineEnv e)
+newEnv p pipe = pure $ EngineEnv Nothing p pipe
+
+
+runPeer :: MonadIO m => EngineEnv e -> [AnyProtocol e (EngineM e m)] -> m a
+runPeer env@(EngineEnv {self = me, bus = pipe}) hh = do
+
+  let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
+
+  let disp = Map.fromList resp
+
+  runEngineM env $ do
+
+    forever $ do
+      messages <- receive pipe (To me)
+
+      for_ messages $ \(From pip, AnyMessage n msg) -> do
+
+        local (\e -> e { peer = Just pip  } ) $ do
+
+          case Map.lookup n disp of
+            Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
+            Nothing -> pure ()
+
 data PingPong  = Ping Int
                | Pong Int
                deriving stock (Show,Read)
 
+data PeekPoke  = Peek Int
+               | Poke Int
+               | Nop
+               deriving stock (Show,Read)
 
 data Fake
 
@@ -158,12 +188,6 @@ instance HasProtocol Fake PingPong where
   type instance Encoded Fake = String
   decode = readMay
   encode = show
-
-data PeekPoke  = Peek Int
-               | Poke Int
-               | Nop
-               deriving stock (Show,Read)
-
 
 instance HasProtocol Fake PeekPoke where
   type instance ProtocolId PeekPoke = 2
@@ -186,79 +210,35 @@ peekPokeHandler =
     Nop    -> liftIO (print $ pretty "effect: Nop") >> response @a (Peek 1)
 
 
-runPeer :: forall e p bus  . (
-                               HasProtocol e p
-                             , Messaging bus e (AnyMessage e)
-                             , Response e p (EngineM e IO)
-                             )
-
-        => Peer e
-        -> bus
-        -> [AnyProtocol (Encoded e) (EngineM e IO)]
-        -> IO ()
-
-
-runPeer peer pipe hh = do
-
-  resp <- forM hh $ \a@(AnyProtocol { myProtoId = pid }) -> do
-    pure (pid, a)
-
-  let disp = Map.fromList resp :: Map Integer (AnyProtocol (Encoded e) (EngineM e IO))
-
-  let env = EngineEnv Nothing peer pipe
-
-  runEngineM env $ do
-
-    forever $ do
-      messages <- receive pipe (To peer)
-
-      for_ messages $ \(From pip, AnyMessage n msg) -> do
-
-        local (\e -> e { peer = Just pip  } ) $ do
-
-          case Map.lookup n disp of
-            Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
-            Nothing -> pure ()
-
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
 
   fake <- newFakeP2P True
 
-  -- runPeer @Fake (FakePeer 0) fake
-  --   [ makeResponse pingPongHandler
-  --   , makeResponse peekPokeHandler
-  --   ]
+  let peer0 = FakePeer 0
+  let peer1 = FakePeer 1
 
-  -- undefined
+  env0 <- newEnv peer0 fake
+  env1 <- newEnv peer1 fake
 
-  let env = EngineEnv @Fake Nothing (FakePeer 0) fake
+  runEngineM env0 $ do
+    request peer1 (Ping 0)
 
-  let wtf = [ makeResponse pingPongHandler
-            , makeResponse peekPokeHandler
-            ] :: [AnyProtocol (Encoded Fake) (EngineM Fake IO)]
+  runEngineM env1 $ do
+    request peer0 (Peek 0)
 
-  resp <- forM wtf $ \a@(AnyProtocol { myProtoId = pid }) -> do
-    pure (pid, a)
+  pip1 <- async $
+    runPeer env0
+      [ makeResponse pingPongHandler
+      , makeResponse peekPokeHandler
+      ]
 
-  let decoders = Map.fromList resp :: Map Integer (AnyProtocol (Encoded Fake) (EngineM Fake IO))
+  pip2 <- async $
+    runPeer env1
+      [ makeResponse pingPongHandler
+      , makeResponse peekPokeHandler
+      ]
 
-  runEngineM env $ do
+  void $ waitAnyCatchCancel [pip1, pip2]
 
-    request (FakePeer 0) (Ping 0)
-    request (FakePeer 0) (Peek 1)
-
-    forever $ do
-
-      messages <- receive fake (To (FakePeer 0))
-
-      for_ messages $ \(From pip, AnyMessage n msg) -> do
-
-        local (\e -> e { peer = Just pip  } ) $ do
-
-          case Map.lookup n decoders of
-            Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
-            Nothing -> pure ()
-
-      pause ( 0.25 :: Timeout 'Seconds)
 
