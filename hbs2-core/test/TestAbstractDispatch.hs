@@ -20,8 +20,8 @@ import Data.Word
 import Data.Dynamic
 import Prettyprinter
 import System.Random qualified as Random
-import GHC.TypeLits
-import Data.Maybe
+-- import GHC.TypeLits
+-- import Data.Maybe
 
 import Debug.Trace
 
@@ -30,6 +30,8 @@ import FakeMessaging
 -- newtype Cookie = Cookie Word32
 --                  deriving stock (Eq,Ord)
 --                  deriving newtype Hashable
+
+data family SessionType p :: Type
 
 data family Cookie p :: Type
 
@@ -41,7 +43,6 @@ class Monad m => HasTimeout msg m where
 
 class HasCookie p msg | msg -> p where
   getCookie :: msg -> Maybe (Cookie p)
-
 
 data DefAnswer p = forall msg . (IsEncoded p msg) => DefAnswer msg
 
@@ -156,6 +157,10 @@ data PingPong p = Ping
                 | Pong
                 deriving stock (Typeable)
 
+data instance SessionType Fake =
+  PingPongSession
+  deriving stock (Eq,Ord,Enum)
+
 newtype instance Cookie Fake = CookieFake Word32
                                deriving stock (Eq)
                                deriving newtype (Hashable,Num,Pretty)
@@ -180,7 +185,7 @@ instance HasTimeout (PingPong Fake) IO where
   timeoutFor _ = pure 1
 
 instance HasDefAnswer Fake (Cookie Fake) where
-  defAnswer _ = let _ = trace "ATTEMPT TO SEND DEF ANSWER" in DefAnswer (Pong @Fake)
+  defAnswer _ = DefAnswer (Pong @Fake)
 
 testAbstractDispatch :: IO ()
 testAbstractDispatch = do

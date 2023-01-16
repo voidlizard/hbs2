@@ -120,7 +120,9 @@ test-suite test
                   , TestActors
                   , TestBlockInfoActor
                   , TestAbstractDispatch
+                  , TestUniqProtoId
                   , FakeMessaging
+                  , HasProtocol
 
     -- other-extensions:
 
