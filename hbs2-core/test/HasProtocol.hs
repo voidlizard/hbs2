@@ -9,7 +9,7 @@ import GHC.TypeLits
 class HasPeer p where
   data family (Peer p) :: Type
 
-class HasPeer p => HasProtocol p a  | a -> p where
+class (KnownNat (ProtocolId a), HasPeer p) => HasProtocol p a  | a -> p where
   type family ProtocolId a = (id :: Nat) | id -> a
   type family Encoded p :: Type
 
