@@ -1,7 +1,7 @@
 module HBS2.Net.Messaging.Fake
   ( FakeP2P
   , newFakeP2P
-  , Messaging(..)
+  -- , Messaging(..)
   ) where
 
 import Control.Concurrent.STM (atomically) -- as STM
@@ -17,11 +17,11 @@ import Data.Hashable
 import HBS2.Net.Proto
 import HBS2.Net.Messaging
 
-data FakeP2P peer msg =
+data FakeP2P proto msg =
   FakeP2P
   {
     blocking :: Bool
-  , fakeP2p  :: Cache (Peer peer) (TChan (From peer,msg))
+  , fakeP2p  :: Cache (Peer proto) (TChan (From proto,msg))
   }
 
 newFakeP2P :: Bool -> IO (FakeP2P peer msg)

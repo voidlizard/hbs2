@@ -7,7 +7,7 @@ import Data.Proxy
 import GHC.TypeLits
 
 class HasPeer p where
-  type family (Peer p) :: Type
+  data family (Peer p) :: Type
 
 class HasPeer p => HasProtocol p a  | a -> p where
   type family ProtocolId a = (id :: Nat) | id -> a
