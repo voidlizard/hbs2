@@ -12,25 +12,6 @@ import Data.Map (Map)
 import Control.Monad.Reader
 import Control.Monad.Identity
 
-data ProtocolA = ProtocolA
-
-data ProtocolB = ProtocolB
-
-instance HasProtocol ProtocolA where
-  type instance ProtocolId ProtocolA = 1
-  type instance Encoded ProtocolA = String
-  decode = undefined
-  encode = undefined
-
-
-instance HasProtocol ProtocolB where
-  type instance ProtocolId ProtocolB = 2
-  type instance Encoded ProtocolB = String
-  decode = undefined
-  encode = undefined
-
--- class Response p (m :: Type -> Type) where
---   answer :: p -> m ()
 
 data AnyProtocol m = forall a . ( HasProtocol a
                                 , KnownNat (ProtocolId a)
@@ -49,7 +30,7 @@ data PingPong = Ping Int
 
 
 instance HasProtocol PingPong where
-  type instance ProtocolId PingPong = 3
+  type instance ProtocolId PingPong = 1
   type instance Encoded PingPong = PingPong
   decode = undefined
   encode = undefined
@@ -58,19 +39,18 @@ instance HasProtocol PingPong where
 class Response p (m :: Type -> Type) where
   answer :: p -> m ()
 
-anyProtocol :: forall p  m   . ( MonadIO m
-                               , Response p m
+makeProtocol :: forall p  m  . ( MonadIO m
+                               , Response p (EngineM m)
                                , HasProtocol p
                                , KnownNat (ProtocolId p)
                                )
-            => (p -> m ()) -> AnyProtocol m
+            => (p -> EngineM m ()) -> AnyProtocol (EngineM m)
 
-anyProtocol h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
-                            , protoDecode = decode @p
-                            , protoEncode = encode @p
-                            , handle = h
-                            }
-
+makeProtocol h = AnyProtocol { getProtoId  = natVal (Proxy @(ProtocolId p))
+                             , protoDecode = decode @p
+                             , protoEncode = encode @p
+                             , handle = h
+                             }
 
 newtype EngineM m a = EngineM { fromEngine :: ReaderT () m a }
                       deriving ( Functor, Applicative, Monad, MonadTrans, MonadIO )
@@ -78,9 +58,12 @@ newtype EngineM m a = EngineM { fromEngine :: ReaderT () m a }
 runEngineM :: EngineM m a -> m a
 runEngineM f = runReaderT (fromEngine f) ()
 
-instance (Monad m, HasProtocol p) => Response p m where
-  answer = undefined
-
+instance (Monad m, HasProtocol p) => Response p (EngineM m) where
+  answer _ = do
+    -- TODO: get bus
+    -- TODO: encode
+    -- TODO: sendTo
+    undefined
 
 testUniqiProtoId :: IO ()
 testUniqiProtoId = do
@@ -91,18 +74,15 @@ testUniqiProtoId = do
   -- TODO: GET RECIPIENT
   -- TODO: GET PROTO-ID FROM MESSAGE
 
-  let pingpong = anyProtocol @PingPong @(EngineM IO)
+  let pingpong = makeProtocol @PingPong @IO
         \case
           Ping c -> lift (print "effect: PING") >> answer (Pong c)
           Pong _ -> lift (print "effect: PONG")
-
 
   -- FIXME: dispatcher!
   case Map.lookup 3 decoders of
     Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) (runEngineM . h) (decoder "AAA")
     Nothing -> pure ()
-
-  -- let qq = natVal (Proxy @(ProtocolId ProtocolA))
 
   pure ()
 
