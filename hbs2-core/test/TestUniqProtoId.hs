@@ -194,7 +194,7 @@ runPeer :: forall e p bus  . (
 
         => Peer e
         -> bus
-        -> [AnyProtocol e (EngineM e IO)]
+        -> [AnyProtocol (Encoded e) (EngineM e IO)]
         -> IO ()
 
 
@@ -203,7 +203,7 @@ runPeer peer pipe hh = do
   resp <- forM hh $ \a@(AnyProtocol { myProtoId = pid }) -> do
     pure (pid, a)
 
-  let disp = Map.fromList resp :: Map Integer (AnyProtocol e (EngineM e IO))
+  let disp = Map.fromList resp :: Map Integer (AnyProtocol (Encoded e) (EngineM e IO))
 
   let env = EngineEnv Nothing peer pipe
 
