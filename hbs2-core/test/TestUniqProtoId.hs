@@ -1,13 +1,12 @@
 {-# Language TypeFamilyDependencies  #-}
 {-# Language FunctionalDependencies #-}
 {-# Language AllowAmbiguousTypes  #-}
--- {-# Language #-}
--- {-# Language QuantifiedConstraints #-}
 module TestUniqProtoId where
 
 import HBS2.Clock
 
 import HasProtocol
+import FakeMessaging
 
 import Data.Kind
 import GHC.TypeLits
@@ -32,15 +31,6 @@ import Control.Logger.Simple qualified as Log
 
 import Prettyprinter hiding (pipe)
 
-newtype From a = From (Peer a)
-
-newtype To a = To (Peer a)
-
-class HasPeer proto => Messaging bus proto msg  | bus -> proto, bus -> msg where
-
-  sendTo  :: MonadIO m => bus -> To proto -> From proto -> msg -> m ()
-  receive :: MonadIO m => bus -> To proto -> m [(From proto, msg)]
-
 
 data AnyMessage e = AnyMessage Integer (Encoded e)
 
@@ -53,29 +43,6 @@ data EngineEnv e = forall bus . (Messaging bus e (AnyMessage e))  =>
 
 -- makeLenses 'EngineEnv
 
-data FakeP2P proto msg =
-  FakeP2P
-  {
-    blocking :: Bool
-  , fakeP2p  :: Cache (Peer proto) (TChan (From proto,msg))
-  }
-
-newFakeP2P :: Bool -> IO (FakeP2P peer msg)
-newFakeP2P block = FakeP2P block <$> Cache.newCache Nothing
-
-instance ( (HasPeer proto, Hashable (Peer proto))
-         ) => Messaging (FakeP2P proto msg) proto msg where
-
-  sendTo bus (To whom) who msg = liftIO do
-    chan <- Cache.fetchWithCache (fakeP2p bus) whom $ const newTChanIO
-    atomically $ Chan.writeTChan chan (who, msg)
-
-  receive bus (To me) = liftIO do
-    readChan =<< Cache.fetchWithCache (fakeP2p bus) me (const newTChanIO)
-
-    where
-      readChan | blocking bus = atomically . (List.singleton <$>) . Chan.readTChan
-               | otherwise    = atomically . (maybeToList <$>) . Chan.tryReadTChan
 
 
 
@@ -178,12 +145,6 @@ data PeekPoke  = Peek Int
                | Nop
                deriving stock (Show,Read)
 
-data Fake
-
-instance HasPeer Fake where
-  newtype instance Peer Fake = FakePeer Int
-                               deriving newtype (Hashable)
-                               deriving stock (Eq,Show)
 
 instance HasProtocol Fake PingPong where
   type instance ProtocolId PingPong = 1

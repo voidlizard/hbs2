@@ -1,13 +1,11 @@
 module HBS2.Net.Proto.Actors.BlockInfo where
 
 import HBS2.Actors
-import HBS2.Clock
 import HBS2.Hash
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Prelude
 
-import Data.Function
 import Data.Kind
 import Prettyprinter
 
@@ -42,7 +40,7 @@ stopBlockInfoActor b = stopPipeline (tasks b)
 
 requestBlockInfo :: forall peer h m . ( MonadIO m
                                       , Pretty (Hash h)
-                                      , IsPeer peer
+                                      , HasPeer peer
                                       )
                  => BlockInfoActor m
                  -> Maybe (Peer peer)

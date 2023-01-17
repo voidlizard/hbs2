@@ -12,7 +12,7 @@ newtype StaticPeerLocator p =
   StaticPeerLocator (TVar (Set (Peer p)))
 
 
-newStaticPeerLocator :: (IsPeer p, MonadIO m) => [Peer p] -> m (StaticPeerLocator p)
+newStaticPeerLocator :: (Ord (Peer p), HasPeer p, MonadIO m) => [Peer p] -> m (StaticPeerLocator p)
 newStaticPeerLocator seeds = do
   tv <- liftIO $ newTVarIO (Set.fromList seeds)
   pure $ StaticPeerLocator tv

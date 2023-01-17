@@ -76,6 +76,7 @@ library
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
+                    , HBS2.Net.Proto.Types
                     , HBS2.Net.Proto.Actors.BlockInfo
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated

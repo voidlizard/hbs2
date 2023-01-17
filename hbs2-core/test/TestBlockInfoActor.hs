@@ -7,6 +7,8 @@ import HBS2.Net.Proto.Actors.BlockInfo
 import HBS2.Net.PeerLocator
 import HBS2.Net.PeerLocator.Static
 
+import FakeMessaging
+
 import Test.Tasty.HUnit
 
 import Test.QuickCheck
@@ -16,12 +18,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Control.Concurrent.Async
 
-data Fake
-
-instance IsPeer Fake where
-  newtype instance Peer Fake = FakePeer Int
-                               deriving stock (Eq,Ord,Show)
-                               deriving newtype (Hashable,Num,Enum,Real,Integral)
 
 testBlockInfoActor :: IO ()
 testBlockInfoActor = do

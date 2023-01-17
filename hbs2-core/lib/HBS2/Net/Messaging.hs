@@ -9,11 +9,8 @@ newtype From a = From (Peer a)
 
 newtype To a = To (Peer a)
 
-class IsPeer addr => Messaging bus addr msg  | bus -> addr, bus -> msg where
+class HasPeer proto => Messaging bus proto msg  | bus -> proto, bus -> msg where
 
-  sendTo  :: MonadIO m => bus -> To addr -> From addr -> msg -> m ()
-  receive :: MonadIO m => bus -> To addr -> m [(From addr, msg)]
-
-
--- data AnyMessaging p m = forall bus . Messaging bus (Peer p)
+  sendTo  :: MonadIO m => bus -> To proto -> From proto -> msg -> m ()
+  receive :: MonadIO m => bus -> To proto -> m [(From proto, msg)]
 

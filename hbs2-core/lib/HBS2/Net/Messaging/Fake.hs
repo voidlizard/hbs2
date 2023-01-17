@@ -27,8 +27,8 @@ data FakeP2P proto msg =
 newFakeP2P :: Bool -> IO (FakeP2P peer msg)
 newFakeP2P block = FakeP2P block <$> Cache.newCache Nothing
 
-instance ( (IsPeer peer, Hashable (Peer peer) )
-         ) => Messaging (FakeP2P peer msg) peer msg where
+instance ( (HasPeer proto, Hashable (Peer proto))
+         ) => Messaging (FakeP2P proto msg) proto msg where
 
   sendTo bus (To whom) who msg = liftIO do
     chan <- Cache.fetchWithCache (fakeP2p bus) whom $ const newTChanIO
@@ -40,4 +40,3 @@ instance ( (IsPeer peer, Hashable (Peer peer) )
     where
       readChan | blocking bus = atomically . (List.singleton <$>) . Chan.readTChan
                | otherwise    = atomically . (maybeToList <$>) . Chan.tryReadTChan
-
