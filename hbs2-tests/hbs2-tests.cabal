@@ -76,6 +76,8 @@ test-suite test
         , bytestring
         , cache
         , containers
+        , directory
+        , filepath
         , hashable
         , microlens-platform
         , mtl

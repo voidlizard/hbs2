@@ -1,13 +1,14 @@
 {-# Language TemplateHaskell #-}
 {-# Language ScopedTypeVariables #-}
-module HBS2.Storage.Simple where
+module HBS2.Storage.Simple
+  ( module HBS2.Storage.Simple
+  , module HBS2.Storage
+  ) where
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
 import Control.Monad.Except
-import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
@@ -26,16 +27,13 @@ import System.IO.Error
 
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TBQueue qualified as TBQ
-import Control.Concurrent.STM.TBQueue (TBQueue)
 import Control.Concurrent.STM.TBMQueue qualified as TBMQ
 import Control.Concurrent.STM.TBMQueue (TBMQueue)
-import Control.Concurrent.STM.TVar (TVar)
 import Control.Concurrent.STM.TVar qualified as TV
 
 
 import HBS2.Clock
 import HBS2.Hash
-import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Storage
 
