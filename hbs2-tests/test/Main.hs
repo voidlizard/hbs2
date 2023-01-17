@@ -16,13 +16,15 @@ import Prettyprinter
 import System.Directory
 import System.FilePath.Posix
 import System.IO
+import Data.Char
+import Data.ByteString.Lazy.Char8 qualified as B8
 
 
 data Fake
 
 instance HasPeer Fake where
   newtype instance Peer Fake = FakePeer Word8
-                               deriving newtype (Hashable,Num,Enum)
+                               deriving newtype (Hashable,Num,Enum,Real,Integral)
                                deriving stock (Eq,Ord,Show)
 
 
@@ -60,13 +62,18 @@ runFakePeer p = do
 
   storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
+  let size = 1024*1024
+
+  let blk = B8.concat [ fromString (show x) | x <- replicate size (fromIntegral p :: Int) ]
+
+  debug $ pretty $ show (B8.take 10 blk)
 
   pure ()
 
 test1 :: IO ()
 test1 = do
 
-  let peers = [0..3] :: [Peer Fake]
+  let peers = [0..2] :: [Peer Fake]
 
   peerz <- mapM (async . runFakePeer) peers
 
