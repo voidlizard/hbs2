@@ -1,3 +1,4 @@
+{-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Peer where
 
@@ -5,20 +6,25 @@ import HBS2.Prelude
 import HBS2.Net.Proto
 import HBS2.Net.Messaging
 
+import Lens.Micro.Platform
+import Data.ByteString.Lazy ( ByteString )
 import Data.Foldable
 import Control.Monad.Reader
 import Data.Map qualified as Map
 import Data.Proxy
 import GHC.TypeLits
+import Codec.Serialise qualified as S
 
 data AnyMessage e = AnyMessage Integer (Encoded e)
 
 data EngineEnv e = forall bus . (Messaging bus e (AnyMessage e))  =>
   EngineEnv
-  { peer   :: Maybe (Peer e)
-  , self   :: Peer e
+  { _peer   :: Maybe (Peer e)
+  , _self   :: Peer e
   , bus    :: bus
   }
+
+makeLenses 'EngineEnv
 
 data AnyProtocol e m = forall p  . ( HasProtocol e p
                                    , Response e p m
@@ -59,7 +65,7 @@ instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     ask >>= \case
-      EngineEnv { self = s, bus = b} -> do
+      EngineEnv { _self = s, bus = b} -> do
         liftIO $ sendTo b (To p) (From s) (AnyMessage proto (encode msg))
 
 instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
@@ -67,20 +73,28 @@ instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
     env <- ask
     let proto = protoId @e @p (Proxy @p)
     case env of
-      (EngineEnv { peer = Just p
+      (EngineEnv { _peer = Just p
+                 , _self = s
                  , bus = b
-                 , self = s
                  } ) -> do
                   liftIO $ sendTo b (To p) (From s) (AnyMessage proto (encode resp))
       _ -> pure ()
 
 
-newEnv :: forall e bus m . (Monad m, Messaging bus e (AnyMessage e)) => Peer e -> bus -> m (EngineEnv e)
+newEnv :: forall e bus m . ( Monad m
+                           , Messaging bus e (AnyMessage e)
+                           )
+       => Peer e
+       -> bus
+       -> m (EngineEnv e)
+
 newEnv p pipe = pure $ EngineEnv Nothing p pipe
 
 
 runPeer :: MonadIO m => EngineEnv e -> [AnyProtocol e (EngineM e m)] -> m a
-runPeer env@(EngineEnv {self = me, bus = pipe}) hh = do
+runPeer env@(EngineEnv {bus = pipe}) hh = do
+
+  let me = env ^. self
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -91,11 +105,12 @@ runPeer env@(EngineEnv {self = me, bus = pipe}) hh = do
     forever $ do
       messages <- receive pipe (To me)
 
-      for_ messages $ \(From pip, AnyMessage n msg) -> do
+      for_ messages $ \(From pip, AnyMessage n msg) -> local (set peer (Just pip))  do
 
-        local (\e -> e { peer = Just pip  } ) $ do
+        case Map.lookup n disp of
+          Nothing -> pure ()
 
-          case Map.lookup n disp of
-            Just (AnyProtocol {protoDecode = decoder, handle = h}) -> maybe (pure ()) h (decoder msg)
-            Nothing -> pure ()
+          Just (AnyProtocol { protoDecode = decoder
+                            , handle = h
+                            }) -> maybe (pure ()) h (decoder msg)
 
