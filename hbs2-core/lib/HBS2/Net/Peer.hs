@@ -26,20 +26,21 @@ data AnyMessage e = AnyMessage Integer (Encoded e)
 
 instance Serialise (Encoded e) => Serialise (AnyMessage e)
 
-newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e) m a }
-                        deriving ( Functor
-                                 , Applicative
-                                 , Monad
-                                 , MonadIO
-                                 , MonadReader (EngineEnv e)
-                                 , MonadTrans
-                                )
+newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e m) m a }
+                        deriving newtype ( Functor
+                                         , Applicative
+                                         , Monad
+                                         , MonadIO
+                                         , MonadReader (EngineEnv e m)
+                                         )
 
+instance MonadTrans (EngineM (EngineEnv e m)) where
+  lift = lift
 
-data EngineEnv e  = forall bus m . ( Messaging bus e ByteString
-                                  , Serialise (Encoded e)
-                                  , MonadIO m
-                                  )  =>
+data EngineEnv e m  = forall bus  . ( Messaging bus e ByteString
+                                    , Serialise (Encoded e)
+                                    , MonadIO m
+                                    )  =>
   EngineEnv
   { _peer   :: Maybe (Peer e)
   , _self   :: Peer e
@@ -72,7 +73,7 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
                              }
 
 
-runEngineM :: EngineEnv e -> EngineM e m a -> m a
+runEngineM :: EngineEnv e m -> EngineM e m a -> m a
 runEngineM e f = runReaderT (fromEngine f) e
 
 
@@ -88,9 +89,7 @@ instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
 
   deferred _ m = do
     e@(EngineEnv { defer = d }) <- ask
-    lift $ runEngineM e m
-    pure ()
-    -- lift $ addJob d (lift $ runEngineM e m)
+    addJob d (runEngineM e m)
 
   response resp = do
     env <- ask
@@ -112,15 +111,15 @@ newEnv :: forall e bus m . ( Monad m
                            )
        => Peer e
        -> bus
-       -> m (EngineEnv e)
+       -> m (EngineEnv e m)
 
 newEnv p pipe = do
-  de <- liftIO $ newPipeline defPipelineSize
+  de <- newPipeline defPipelineSize
   pure $ EngineEnv Nothing p pipe de
 
 runPeer :: forall e m a . ( MonadIO m
                           )
-        => EngineEnv e
+        => EngineEnv e m
         -> [AnyProtocol e (EngineM e m)]
         -> m a
 
@@ -131,6 +130,8 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
   let disp = Map.fromList resp
+
+  let q = runPipeline d
 
   -- let q = liftIO $ runPipeline d
 
