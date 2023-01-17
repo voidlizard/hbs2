@@ -85,7 +85,7 @@ runFakePeer p = do
 test1 :: IO ()
 test1 = do
 
-  let peers = [0..0] :: [Peer Fake]
+  let peers = [0..2] :: [Peer Fake]
 
   peerz <- mapM (async . runFakePeer) peers
 
