@@ -13,6 +13,14 @@ import Data.Hashable
 class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
+
+class Response e p (m :: Type -> Type) | p -> e where
+  response :: p -> m ()
+
+class Request e p (m :: Type -> Type) | p -> e where
+  request :: Peer e -> p -> m ()
+
+
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
   type family Encoded e :: Type
