@@ -41,7 +41,7 @@ class ( Monad m
 
   getChunk :: a -> Key h -> Offset -> Size -> m (Maybe (Block block))
 
-  hasBlock :: a -> Key h -> m Bool
+  hasBlock :: a -> Key h -> m (Maybe Integer)
 
   -- listBlocks :: a -> ( Key block -> m () ) -> m ()
 

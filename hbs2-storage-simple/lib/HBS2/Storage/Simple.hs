@@ -311,21 +311,23 @@ simplePutBlockLazy doWait s (Raw lbs) = do
     else
       pure $ Just hash
 
-
+-- TODO: should be async as well?
 simpleBlockExists :: IsKey h
                   => SimpleStorage h
                   -> Hash h
-                  -> IO Bool
+                  -> IO (Maybe Integer)
 
-simpleBlockExists ss hash = doesFileExist $ simpleBlockFileName ss hash
-
+simpleBlockExists ss hash = runMaybeT $ do
+  let fn = simpleBlockFileName ss hash
+  exists <- liftIO $ doesFileExist fn
+  unless exists mzero
+  liftIO $ getFileSize fn
 
 spawnAndWait :: SimpleStorage h -> IO a -> IO (Maybe a)
 spawnAndWait s act = do
   doneQ <- TBMQ.newTBMQueueIO 1
   simpleAddTask s (act >>= \r -> atomically (TBMQ.writeTBMQueue doneQ r))
   atomically $ TBMQ.readTBMQueue doneQ
-
 
 
 simpleWriteLinkRaw :: forall h . ( IsKey h

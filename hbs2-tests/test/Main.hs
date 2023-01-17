@@ -1,16 +1,20 @@
 module Main where
 
+import HBS2.Prelude.Plated
 import HBS2.Clock
 import HBS2.Hash
-import HBS2.Net.Messaging
+-- import HBS2.Net.Messaging
 import HBS2.Net.Proto
-import HBS2.Prelude
+import HBS2.Net.Messaging.Fake
+import HBS2.Net.Peer
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 
-import Test.Tasty hiding (Timeout)
-import Test.Tasty.HUnit hiding (Timeout)
+-- import Test.Tasty hiding (Timeout)
+-- import Test.Tasty.HUnit hiding (Timeout)
 
+import Lens.Micro.Platform
+import Data.Traversable
 import Control.Concurrent.Async
 import Data.Hashable
 import Data.Word
@@ -18,8 +22,9 @@ import Prettyprinter
 import System.Directory
 import System.FilePath.Posix
 import System.IO
-import Data.Char
 import Data.ByteString.Lazy.Char8 qualified as B8
+import Data.ByteString.Lazy (ByteString)
+import Codec.Serialise
 
 
 data Fake
@@ -37,23 +42,62 @@ debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
 
 
+data BlockSize e = GetBlockSize (Hash HbSync)
+                 | NoBlock (Hash HbSync)
+                 | BlockSize (Hash HbSync) Integer
+                 deriving stock (Eq,Generic,Show)
+
+
+instance Serialise (BlockSize e)
+
+instance HasProtocol Fake (BlockSize Fake) where
+  type instance ProtocolId (BlockSize Fake) = 1
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+
+
+blockSizeHandler :: forall e m s . ( MonadIO m
+                                   , Response e (BlockSize e) m
+                                   , HasProtocol e (BlockSize e)
+                                   , s ~ SimpleStorage HbSync
+                                   )
+                => s
+                -> BlockSize e
+                -> m ()
+
+blockSizeHandler s =
+  \case
+    GetBlockSize h -> do
+      debug $ "GetBlockSize" <+> pretty h
+
+      -- TODO: STORAGE: seek for block
+      -- TODO: defer answer (?)
+      hasBlock s h >>= \case
+        Just size -> response (BlockSize @e h size)
+        Nothing   -> response (NoBlock @e h)
+
+    NoBlock h       -> debug $ "NoBlock" <+> pretty h
+
+    BlockSize h sz  -> debug $ "BlockSize" <+> pretty h <+> pretty sz
+
 main :: IO ()
 main = do
   hSetBuffering stderr LineBuffering
+  test1
 
-  defaultMain $
-    testGroup "root"
-      [
-        testCase "test1" test1
-      ]
+  -- defaultMain $
+  --   testGroup "root"
+  --     [
+  --       testCase "test1" test1
+  --     ]
 
 
-runFakePeer :: Peer Fake -> IO ()
-runFakePeer p = do
+runFakePeer :: EngineEnv Fake -> IO ()
+runFakePeer env = do
 
-  let pid = fromIntegral (hash p) :: Word8
-
-  debug $ "I'm" <+> pretty p <+> pretty pid
+  let pid = fromIntegral (hash (env ^. self)) :: Word8
 
   dir <- canonicalizePath ( ".peers" </> show pid)
 
@@ -68,27 +112,50 @@ runFakePeer p = do
 
   let size = 1024*1024
 
-  let blk = B8.concat [ fromString (show x) | x <- replicate size (fromIntegral p :: Int) ]
-
-  debug $ pretty $ B8.length blk
+  let blk = B8.concat [ fromString (take 1 $ show x)
+                      | x <- replicate size (fromIntegral pid :: Int)
+                      ]
 
   root <- putAsMerkle storage blk
 
-  pause ( 0.1 :: Timeout 'Seconds)
+  debug $ "I'm" <+> pretty pid <+> pretty root
 
   simpleStorageStop storage
 
-  debug $ pretty root
+  runPeer env
+    [ makeResponse (blockSizeHandler storage)
+    ]
+
+  cancel w
 
   pure ()
+
 
 test1 :: IO ()
 test1 = do
 
-  let peers = [0..2] :: [Peer Fake]
+  hSetBuffering stderr LineBuffering
 
-  peerz <- mapM (async . runFakePeer) peers
+  fake <- newFakeP2P True
 
-  void $ waitAnyCatchCancel peerz
+  let peers@[p0,p1] = [0..1] :: [Peer Fake]
+
+  envs@[e0,e1] <- forM peers $ \p ->  newEnv p fake
+
+  void $ race (pause (2 :: Timeout 'Seconds)) $ do
+
+    peerz <- mapM (async . runFakePeer) envs
+
+    runEngineM e0 $ do
+      request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
+      request p1 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+
+    pause ( 0.1 :: Timeout 'Seconds)
+
+    mapM_ wait peerz
+
+    void $ waitAnyCatchCancel peerz
+
+  debug "we're done"
 
 
