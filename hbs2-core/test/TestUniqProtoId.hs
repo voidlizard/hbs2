@@ -3,36 +3,43 @@
 module TestUniqProtoId where
 
 import HBS2.Prelude
+import HBS2.Prelude.Plated
 
 import HasProtocol
 import FakeMessaging
 
+import Data.ByteString.Lazy (ByteString)
 import Control.Concurrent.Async
+import Codec.Serialise hiding (encode,decode)
 
 import Prettyprinter hiding (pipe)
 
 
 data PingPong e = Ping Int
                 | Pong Int
-                deriving stock (Show,Read)
+                deriving stock (Generic,Show,Read)
 
 data PeekPoke e = Peek Int
                 | Poke Int
                 | Nop
-                deriving stock (Show,Read)
+                deriving stock (Generic,Show,Read)
 
+
+instance Serialise (PingPong e)
+
+instance Serialise (PeekPoke e)
 
 instance HasProtocol Fake (PingPong Fake) where
   type instance ProtocolId (PingPong Fake) = 1
-  type instance Encoded Fake = String
-  decode = readMay
-  encode = show
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 instance HasProtocol Fake (PeekPoke Fake) where
   type instance ProtocolId (PeekPoke Fake)  = 2
-  type instance Encoded Fake = String
-  decode = readMay
-  encode = show
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 pingPongHandler :: forall e m  . ( MonadIO m
                                  , Response e (PingPong e) m
