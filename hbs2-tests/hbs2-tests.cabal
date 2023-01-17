@@ -1,0 +1,97 @@
+cabal-version:      3.0
+name:               hbs2-tests
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+-- author:
+-- maintainer:
+-- copyright:
+category:           Network
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -fno-warn-type-defaults
+        -- -fno-warn-unused-matches
+        -- -fno-warn-unused-do-bind
+        -- -Werror=missing-methods
+        -- -Werror=incomplete-patterns
+        -- -fno-warn-unused-binds
+        -- -threaded
+        -- -rtsopts
+        -- "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+
+  default-language:    Haskell2010
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+
+test-suite test
+    import:           shared-properties
+    default-language: Haskell2010
+
+    other-modules:
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+          base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+        , async
+        , bytestring
+        , cache
+        , containers
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , transformers
+        , uniplate
+        , vector
+
+
+
+
