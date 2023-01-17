@@ -365,7 +365,6 @@ instance Hashed hash LBS.ByteString => Hashed hash (Raw LBS.ByteString) where
   hashObject (Raw s) = hashObject s
 
 instance ( MonadIO m, IsKey hash
-         , Hashed hash (Raw LBS.ByteString)
          , Hashed hash LBS.ByteString
          , Key hash ~ Hash hash
          )

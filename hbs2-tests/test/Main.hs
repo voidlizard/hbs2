@@ -1,13 +1,15 @@
 module Main where
 
-import HBS2.Prelude
+import HBS2.Clock
 import HBS2.Hash
-import HBS2.Net.Proto
 import HBS2.Net.Messaging
+import HBS2.Net.Proto
+import HBS2.Prelude
 import HBS2.Storage.Simple
+import HBS2.Storage.Simple.Extra
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Tasty hiding (Timeout)
+import Test.Tasty.HUnit hiding (Timeout)
 
 import Control.Concurrent.Async
 import Data.Hashable
@@ -62,18 +64,28 @@ runFakePeer p = do
 
   storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
+  w <- async $ simpleStorageWorker storage
+
   let size = 1024*1024
 
   let blk = B8.concat [ fromString (show x) | x <- replicate size (fromIntegral p :: Int) ]
 
-  debug $ pretty $ show (B8.take 10 blk)
+  debug $ pretty $ B8.length blk
+
+  root <- putAsMerkle storage blk
+
+  pause ( 0.1 :: Timeout 'Seconds)
+
+  simpleStorageStop storage
+
+  debug $ pretty root
 
   pure ()
 
 test1 :: IO ()
 test1 = do
 
-  let peers = [0..2] :: [Peer Fake]
+  let peers = [0..0] :: [Peer Fake]
 
   peerz <- mapM (async . runFakePeer) peers
 
