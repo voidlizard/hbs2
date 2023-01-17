@@ -12,8 +12,12 @@ import Data.ByteString.Lazy (ByteString)
 import Control.Concurrent.Async
 import Codec.Serialise hiding (encode,decode)
 
+import System.IO
+
 import Prettyprinter hiding (pipe)
 
+debug :: (MonadIO m) => Doc ann -> m ()
+debug p = liftIO $ hPrint stderr p
 
 data PingPong e = Ping Int
                 | Pong Int
@@ -50,8 +54,8 @@ pingPongHandler :: forall e m  . ( MonadIO m
 
 pingPongHandler  =
   \case
-    Ping c -> liftIO (print $ "effect: PING" <+> pretty c) >> response (Pong @e c)
-    Pong c -> liftIO (print $ "effect: PONG" <+> pretty c) >> response (Ping @e (succ c))
+    Ping c -> debug ("effect: PING" <+> pretty c) >> response (Pong @e c)
+    Pong c -> debug ( "effect: PONG" <+> pretty c) >> response (Ping @e (succ c))
 
 peekPokeHandler :: forall e m  . ( MonadIO m
                                  , Response e (PeekPoke e) m
@@ -62,13 +66,15 @@ peekPokeHandler :: forall e m  . ( MonadIO m
 
 peekPokeHandler =
   \case
-    Peek c -> liftIO (print $ "effect: Peek" <+> pretty c) >> response (Poke @e c)
-    Poke c -> liftIO (print $ "effect: Poke" <+> pretty c) >> response (Nop @e)
-    Nop    -> liftIO (print $ pretty "effect: Nop") >> response (Peek @e 1)
+    Peek c -> debug ("effect: Peek" <+> pretty c) >> response (Poke @e c)
+    Poke c -> debug ("effect: Poke" <+> pretty c) >> response (Nop @e)
+    Nop    -> debug "effect: Nop" >> response (Peek @e 1)
 
 
 testUniqProtoId :: IO ()
 testUniqProtoId = do
+
+  hSetBuffering stderr LineBuffering
 
   fake <- newFakeP2P True
 
