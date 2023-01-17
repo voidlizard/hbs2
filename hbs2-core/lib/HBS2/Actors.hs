@@ -16,6 +16,7 @@ import Control.Concurrent.STM.TVar qualified as TVar
 import Control.Monad
 import Data.Function
 import Data.Functor
+import Data.Kind
 
 data Pipeline m a =
   Pipeline
@@ -23,7 +24,7 @@ data Pipeline m a =
   , toQueue    :: TBMQueue ( m a )
   }
 
-newPipeline :: forall a m . MonadIO m => Int -> m (Pipeline m a)
+newPipeline :: forall a (m :: Type -> Type) . MonadIO m => Int -> m (Pipeline m a)
 newPipeline size = do
   tv <- liftIO $ TVar.newTVarIO False
   liftIO $ TBMQ.newTBMQueueIO size <&> Pipeline tv
@@ -47,7 +48,7 @@ stopPipeline pip = liftIO $ do
     else do
       pause ( 0.01 :: Timeout 'Seconds) >> next
 
-addJob :: forall a m . MonadIO m => Pipeline m a -> m a -> m ()
+addJob :: forall a m m1 . (MonadIO m, MonadIO m1) => Pipeline m a -> m a -> m1 ()
 addJob pip act = liftIO $ do
   doWrite <- atomically $ TVar.readTVar ( stopAdding pip )
   unless doWrite $ do

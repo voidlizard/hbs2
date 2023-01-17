@@ -9,6 +9,7 @@ import HBS2.Net.Messaging.Fake
 import HBS2.Net.Peer
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
+import HBS2.Actors
 
 -- import Test.Tasty hiding (Timeout)
 -- import Test.Tasty.HUnit hiding (Timeout)
@@ -74,10 +75,13 @@ blockSizeHandler s =
 
       -- TODO: STORAGE: seek for block
       -- TODO: defer answer (?)
-      hasBlock s h >>= \case
-        Just size -> response (BlockSize @e h size)
-        Nothing   -> response (NoBlock @e h)
+      -- TODO: does it really work?
+      deferred (Proxy @(BlockSize e))$ do
+        hasBlock s h >>= \case
+          Just size -> response (BlockSize @e h size)
+          Nothing   -> response (NoBlock @e h)
 
+      -- deferred (Proxy @(BlockSize e)) $ do
     NoBlock h       -> debug $ "NoBlock" <+> pretty h
 
     BlockSize h sz  -> debug $ "BlockSize" <+> pretty h <+> pretty sz
@@ -154,7 +158,9 @@ test1 = do
 
     mapM_ wait peerz
 
-    void $ waitAnyCatchCancel peerz
+    (_, e) <- waitAnyCatchCancel peerz
+
+    debug (pretty $ show e)
 
   debug "we're done"
 

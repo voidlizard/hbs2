@@ -8,6 +8,7 @@ import Data.Kind
 import GHC.TypeLits
 import Data.Proxy
 import Data.Hashable
+import Control.Monad.IO.Class
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -16,8 +17,9 @@ class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
 
-class Response e p (m :: Type -> Type) | p -> e where
+class MonadIO m => Response e p (m :: Type -> Type) | p -> e where
   response :: p -> m ()
+  deferred :: Proxy p -> m () -> m ()
 
 class Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()

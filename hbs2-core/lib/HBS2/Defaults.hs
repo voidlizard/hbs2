@@ -11,3 +11,7 @@ defBlockSize = 256 * 1024
 defStorePath :: IsString a => a
 defStorePath = "hbs2"
 
+defPipelineSize :: Int
+defPipelineSize = 100
+
+

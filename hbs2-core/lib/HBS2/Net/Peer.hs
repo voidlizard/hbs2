@@ -7,6 +7,8 @@ import HBS2.Prelude.Plated
 import HBS2.Net.Proto
 import HBS2.Net.Messaging
 import HBS2.Clock
+import HBS2.Actors
+import HBS2.Defaults
 
 import Lens.Micro.Platform
 import Data.ByteString.Lazy ( ByteString )
@@ -15,6 +17,7 @@ import Control.Monad.Reader
 import Data.Map qualified as Map
 import GHC.TypeLits
 import Control.Monad.Trans.Maybe
+import Control.Concurrent.Async
 
 import Codec.Serialise hiding (encode,decode)
 
@@ -23,13 +26,25 @@ data AnyMessage e = AnyMessage Integer (Encoded e)
 
 instance Serialise (Encoded e) => Serialise (AnyMessage e)
 
-data EngineEnv e = forall bus . ( Messaging bus e ByteString
-                                , Serialise (Encoded e)
-                                )  =>
+newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e) m a }
+                        deriving ( Functor
+                                 , Applicative
+                                 , Monad
+                                 , MonadIO
+                                 , MonadReader (EngineEnv e)
+                                 , MonadTrans
+                                )
+
+
+data EngineEnv e  = forall bus m . ( Messaging bus e ByteString
+                                  , Serialise (Encoded e)
+                                  , MonadIO m
+                                  )  =>
   EngineEnv
   { _peer   :: Maybe (Peer e)
   , _self   :: Peer e
   , bus     :: bus
+  , defer   :: Pipeline m ()
   }
 
 makeLenses 'EngineEnv
@@ -57,14 +72,6 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
                              }
 
 
-newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e) m a }
-                        deriving ( Functor
-                                 , Applicative
-                                 , Monad
-                                 , MonadIO
-                                 , MonadReader (EngineEnv e)
-                                )
-
 runEngineM :: EngineEnv e -> EngineM e m a -> m a
 runEngineM e f = runReaderT (fromEngine f) e
 
@@ -78,6 +85,13 @@ instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
         liftIO $ sendTo b (To p) (From s) bs
 
 instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
+
+  deferred _ m = do
+    e@(EngineEnv { defer = d }) <- ask
+    lift $ runEngineM e m
+    pure ()
+    -- lift $ addJob d (lift $ runEngineM e m)
+
   response resp = do
     env <- ask
     let proto = protoId @e @p (Proxy @p)
@@ -92,6 +106,7 @@ instance (MonadIO m, HasProtocol e p) => Response e p (EngineM e m) where
 
 
 newEnv :: forall e bus m . ( Monad m
+                           , MonadIO m
                            , Messaging bus e ByteString
                            , Serialise (Encoded e)
                            )
@@ -99,8 +114,9 @@ newEnv :: forall e bus m . ( Monad m
        -> bus
        -> m (EngineEnv e)
 
-newEnv p pipe = pure $ EngineEnv Nothing p pipe
-
+newEnv p pipe = do
+  de <- liftIO $ newPipeline defPipelineSize
+  pure $ EngineEnv Nothing p pipe de
 
 runPeer :: forall e m a . ( MonadIO m
                           )
@@ -108,7 +124,7 @@ runPeer :: forall e m a . ( MonadIO m
         -> [AnyProtocol e (EngineM e m)]
         -> m a
 
-runPeer env@(EngineEnv {bus = pipe}) hh = do
+runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
 
   let me = env ^. self
 
@@ -116,7 +132,11 @@ runPeer env@(EngineEnv {bus = pipe}) hh = do
 
   let disp = Map.fromList resp
 
+  -- let q = liftIO $ runPipeline d
+
   runEngineM env $ do
+
+    -- void $ liftIO $ runPipeline d
 
     forever $ do
       messages <- receive pipe (To me)
