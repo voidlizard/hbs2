@@ -1,7 +1,7 @@
 module HBS2.Net.PeerLocator where
 
 -- import HBS2.Prelude
-import HBS2.Net.Proto
+import HBS2.Net.Proto.Types
 
 class PeerLocator l where
   knownPeers :: (HasPeer p, Monad m) => l -> m [Peer p]

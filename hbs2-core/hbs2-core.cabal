@@ -75,6 +75,7 @@ library
                     , HBS2.Net.Messaging.Fake
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
+                    , HBS2.Net.Peer
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Types
                     , HBS2.Net.Proto.Actors.BlockInfo
@@ -101,6 +102,7 @@ library
                      , interpolatedstring-perl6
                      , memory
                      , microlens-platform
+                     , mtl
                      , prettyprinter
                      , safe
                      , serialise

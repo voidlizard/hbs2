@@ -1,6 +1,8 @@
 {-# Language TypeFamilyDependencies #-}
 {-# Language FunctionalDependencies #-}
-module HBS2.Net.Proto.Types where
+module HBS2.Net.Proto.Types
+  ( module HBS2.Net.Proto.Types
+  ) where
 
 import Data.Kind
 import GHC.TypeLits
