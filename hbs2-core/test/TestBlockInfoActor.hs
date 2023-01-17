@@ -8,13 +8,12 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.PeerLocator.Static
 
 import FakeMessaging
+import HasProtocol
 
 import Test.Tasty.HUnit
 
 import Test.QuickCheck
 import Data.Word
-import Data.Hashable (Hashable)
-import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Control.Concurrent.Async
 

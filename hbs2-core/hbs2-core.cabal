@@ -147,6 +147,7 @@ test-suite test
         , safe
         , serialise
         , stm
+        , streaming
         , tasty
         , tasty-hunit
         , transformers
