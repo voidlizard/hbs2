@@ -98,7 +98,7 @@ main = do
   --     ]
 
 
-runFakePeer :: EngineEnv Fake IO -> IO ()
+runFakePeer :: EngineEnv Fake -> IO ()
 runFakePeer env = do
 
   let pid = fromIntegral (hash (env ^. self)) :: Word8
