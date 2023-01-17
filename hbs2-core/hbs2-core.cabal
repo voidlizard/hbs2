@@ -109,6 +109,7 @@ library
                      , stm
                      , stm-chans
                      , text
+                     , transformers
                      , uniplate
 
     hs-source-dirs:   lib

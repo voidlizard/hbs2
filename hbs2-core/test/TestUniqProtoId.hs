@@ -34,7 +34,6 @@ instance HasProtocol Fake (PeekPoke Fake) where
   decode = readMay
   encode = show
 
-
 pingPongHandler :: forall e m  . ( MonadIO m
                                  , Response e (PingPong e) m
                                  , HasProtocol e (PingPong e)
@@ -90,6 +89,8 @@ testUniqProtoId = do
       , makeResponse peekPokeHandler
       ]
 
-  void $ waitAnyCatchCancel [pip1, pip2]
+  (_, e) <- waitAnyCatchCancel [pip1, pip2]
+
+  print e
 
 
