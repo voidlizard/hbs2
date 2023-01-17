@@ -4,12 +4,9 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
-import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString qualified as B
 import Data.Function
 import Data.Functor
-import Data.Maybe
 import Options.Applicative
 import Prettyprinter
 import System.Directory
@@ -25,6 +22,7 @@ import Streaming.Prelude qualified as S
 
 import HBS2.Storage
 import HBS2.Storage.Simple
+import HBS2.Storage.Simple.Extra
 import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Merkle
@@ -34,11 +32,6 @@ import HBS2.Defaults
 newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
                        deriving stock (Data)
-
-newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
-                     deriving newtype (Eq,Ord,IsString,Pretty)
-                     deriving stock (Data,Generic)
-
 
 newtype CatHashesOnly = CatHashesOnly Bool
                         deriving newtype (Eq,Ord,Pretty)
@@ -69,16 +62,6 @@ newtype NewRefOpts =
   { newRefMerkle :: Bool
   }
   deriving stock (Data)
-
-readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
-readChunked handle size = fuu
-  where
-  fuu = fix \next -> do
-    chunk <- liftIO do
-      B.hGet handle size
-    unless (B.null chunk) do
-      S.yield chunk
-      next
 
 
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
@@ -128,7 +111,7 @@ runStore opts ss = do
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
   hashes <- readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
-                & S.mapM (\blk -> enqueueBlock ss (LBS.fromStrict blk) >> pure blk)
+                & S.mapM (\blk -> enqueueBlock ss blk >> pure blk)
                 & S.map (HashRef . hashObject)
                 & S.toList_
 

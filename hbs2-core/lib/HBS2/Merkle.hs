@@ -2,6 +2,9 @@
 {-# Language  DeriveFunctor #-}
 module HBS2.Merkle where
 
+import HBS2.Prelude
+import HBS2.Hash
+
 import Codec.Serialise
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -9,11 +12,13 @@ import Data.ByteString qualified as BS
 import Data.Data
 import Data.Foldable (traverse_)
 import Data.List qualified as List
-import Lens.Micro.Platform
-import Safe
 import GHC.Generics
+import Lens.Micro.Platform
+import Prettyprinter
 
-import HBS2.Hash
+newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
+                     deriving newtype (Eq,Ord,IsString,Pretty)
+                     deriving stock (Data,Generic)
 
 class Foldable t => Chunks t a where
   chunks :: Int -> a -> t a

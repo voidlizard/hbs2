@@ -58,6 +58,7 @@ common shared-properties
 library
     import:           shared-properties
     exposed-modules:  HBS2.Storage.Simple
+                    , HBS2.Storage.Simple.Extra
     -- other-modules:
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0, hbs2-core
@@ -72,6 +73,7 @@ library
                     , prettyprinter
                     , stm
                     , stm-chans
+                    , streaming
                     , transformers
                     , uniplate
 

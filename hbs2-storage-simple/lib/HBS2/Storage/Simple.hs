@@ -109,6 +109,8 @@ simpleStorageInit opts = liftIO $ do
 
   pure stor
 
+
+
 catchAny :: IO a -> (SomeException -> IO a) -> IO a
 catchAny = Control.Exception.catch
 
@@ -378,4 +380,7 @@ instance ( MonadIO m, IsKey hash
   getChunk s k off size = liftIO $ simpleGetChunkLazy s k off size
 
   hasBlock s k = liftIO $ simpleBlockExists s k
+
+
+
 
