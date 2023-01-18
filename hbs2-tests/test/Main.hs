@@ -1,3 +1,5 @@
+{-# Language FunctionalDependencies #-}
+{-# Language RankNTypes #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -8,26 +10,107 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.Peer
+import HBS2.Defaults
+
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 
 -- import Test.Tasty hiding (Timeout)
-import Test.Tasty.HUnit hiding (Timeout)
+import Test.Tasty.HUnit
 
-import Lens.Micro.Platform
-import Data.Traversable
+import Codec.Serialise
 import Control.Concurrent.Async
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy.Char8 qualified as B8
+import Data.Foldable
 import Data.Hashable
+import Data.Maybe
+import Data.Traversable
 import Data.Word
+import Lens.Micro.Platform
 import Prettyprinter
 import System.Directory
+import System.Exit
 import System.FilePath.Posix
 import System.IO
-import Data.ByteString.Lazy.Char8 qualified as B8
-import Data.ByteString.Lazy (ByteString)
-import Codec.Serialise
-import System.Exit
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
 
+debug :: (MonadIO m) => Doc ann -> m ()
+debug p = liftIO $ hPrint stderr p
+
+newtype ChunkSize = ChunkSize Word16
+                    deriving newtype (Num,Enum,Real,Integral)
+                    deriving stock (Eq,Ord,Show,Data,Generic)
+
+
+newtype ChunkNum = ChunkNum Word16
+                   deriving newtype (Num,Enum,Real,Integral)
+                   deriving stock (Eq,Ord,Show,Data,Generic)
+
+
+
+type GetBlockChunk h = forall m . MonadIO m => Hash h -> Offset -> Size -> m (Maybe ByteString)
+
+type MyCookie e = Cookie (BlockChunks e)
+
+data BlockChunksI e m =
+  BlockChunksI
+  { blkSize         :: GetBlockSize HbSync m
+  , blkChunk        :: GetBlockChunk HbSync
+  , blkGetHash      :: MyCookie e -> m (Maybe (Hash HbSync))
+  , blkAcceptChunk  :: (Hash HbSync, ChunkNum, ByteString) -> m ()
+  }
+
+data BlockChunks e = BlockGetAllChunks (MyCookie e) (Hash HbSync) ChunkSize
+                   | BlockNoChunks     (MyCookie e)
+                   | BlockChunk        (MyCookie e) ChunkNum ByteString
+                   | BlockLost         (MyCookie e)
+                   deriving stock (Generic)
+
+
+instance HasCookie (BlockChunks e) where
+  type instance Cookie (BlockChunks e) = Word32
+
+instance Serialise ChunkSize
+instance Serialise ChunkNum
+instance Serialise (BlockChunks e)
+
+blockChunksProto :: forall e m  . ( MonadIO m
+                                  , Response e (BlockChunks e) m
+                                  )
+                 => BlockChunksI e m
+                 -> BlockChunks e
+                 -> m ()
+
+blockChunksProto adapter =
+  \case
+    BlockGetAllChunks c h size -> deferred proto do
+      bsz <- blkSize adapter h
+
+      let offsets' = calcChunks (fromJust bsz) (fromIntegral size) :: [(Offset, Size)]
+      let offsets = zip offsets' [0..]
+
+      for_ offsets $ \((o,sz),i) -> do
+        chunk <- blkChunk adapter h o sz
+        maybe (pure ()) (response . BlockChunk @e c i) chunk
+
+    BlockChunk c n bs -> do
+      -- TODO: getHashByCookie c
+      h <- blkGetHash adapter c
+
+      maybe1 h (response (BlockLost @e c)) $ \hh -> do
+        blkAcceptChunk adapter (hh, n, bs)
+
+    BlockNoChunks {} -> do
+      -- TODO: notification
+      pure ()
+
+    BlockLost{} -> do
+      pure ()
+
+  where
+    proto = Proxy @(BlockChunks e)
 
 data Fake
 
@@ -40,8 +123,6 @@ instance HasPeer Fake where
 instance Pretty (Peer Fake) where
   pretty (FakePeer n) = parens ("peer" <+> pretty n)
 
-debug :: (MonadIO m) => Doc ann -> m ()
-debug p = liftIO $ hPrint stderr p
 
 instance HasProtocol Fake (BlockSize Fake) where
   type instance ProtocolId (BlockSize Fake) = 1
@@ -49,10 +130,11 @@ instance HasProtocol Fake (BlockSize Fake) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-
-
-dontHandle :: Applicative f => a -> f ()
-dontHandle = const $ pure ()
+instance HasProtocol Fake (BlockChunks Fake) where
+  type instance ProtocolId (BlockChunks Fake) = 2
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 main :: IO ()
 main = do
@@ -66,7 +148,7 @@ main = do
   --     ]
 
 
-runFakePeer :: EngineEnv Fake -> IO ()
+runFakePeer :: forall e . e ~ Fake => EngineEnv e -> IO ()
 runFakePeer env = do
 
   let pid = fromIntegral (hash (env ^. self)) :: Word8
@@ -97,8 +179,19 @@ runFakePeer env = do
   let handleBlockInfo (p, h, sz) = do
        debug $ pretty p <+> "has block" <+> pretty h <+> pretty sz
 
+  blkCookies <- Cache.newCache @(Cookie (BlockChunks e)) @(Hash HbSync) (Just defCookieTimeout)
+
+  let adapter =
+        BlockChunksI
+        { blkSize        = hasBlock storage
+        , blkChunk       = getChunk storage
+        , blkGetHash     = liftIO . Cache.lookup blkCookies
+        , blkAcceptChunk = dontHandle
+        }
+
   runPeer env
     [ makeResponse (blockSizeProto (hasBlock storage) handleBlockInfo)
+    , makeResponse (blockChunksProto adapter)
     ]
 
   cancel w
@@ -128,6 +221,22 @@ test1 = do
       request p0 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
       request p0 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
+      -- request p1 (BlockGetAllChunks @Fake 0 (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+
+      -- Я ЗАПРОСИЛ БЛОК
+      -- У МЕНЯ НЕТ КУКИ
+      -- МНЕ ПРИШЛИ ЧАНКИ
+      -- КУКИ НЕТ -> ГОВОРЮ "БЛОК ЛОСТ"
+      -- Q1: ЧТО ДЕЛАТЬ
+      -- Q1.1: КАК КУКА ПОПАДЁТ в то, где работает "adapter"
+      -- Q2: КАК ДЕЛАТЬ ЗАПРОСЫ
+      --
+      -- ОТСЮДА СЛЕДУЕТ: Cookie должны жить в Engine и быть там доступны
+      -- В монаде Response тоже должна быть кука
+      --
+      -- Как быть с тем, что кука может не поддерживаться подпортоколом?
+      -- Требовать HasCookie у всех?
+
     pause ( 0.5 :: Timeout 'Seconds)
 
     mapM_ cancel peerz
@@ -136,7 +245,7 @@ test1 = do
 
     debug (pretty $ show e)
     debug "we're done"
-    assertBool "sucess" True
+    assertBool "success" True
     exitSuccess
 
   assertBool "failed" False

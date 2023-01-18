@@ -135,7 +135,7 @@ newEnv :: forall e bus m . ( Monad m
        -> m (EngineEnv e)
 
 newEnv p pipe = do
-  de <- liftIO $ newPipeline defPipelineSize
+  de <- liftIO $ newPipeline defProtoPipelineSize
   pure $ EngineEnv Nothing p pipe de
 
 runPeer :: forall e m a . ( MonadIO m

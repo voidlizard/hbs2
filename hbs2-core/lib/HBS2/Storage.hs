@@ -1,12 +1,14 @@
 {-# Language FunctionalDependencies #-}
 module HBS2.Storage where
 
-import Data.Kind
-import Data.Hashable hiding (Hashed)
-import Prettyprinter
-
 import HBS2.Hash
 import HBS2.Prelude.Plated
+
+import Data.Kind
+import Data.Hashable hiding (Hashed)
+import Lens.Micro.Platform
+import Prettyprinter
+
 
 class Pretty (Hash h) => IsKey h where
   type Key h :: Type
@@ -46,4 +48,13 @@ class ( Monad m
   -- listBlocks :: a -> ( Key block -> m () ) -> m ()
 
 
+
+calcChunks :: forall a b . (Integral a, Integral b)
+           => Integer  -- | block size
+           -> Integer  -- | chunk size
+           -> [(a, b)]
+
+calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
+  where
+    chu = fmap (,s2) (takeWhile (<s1) $ iterate (+s2) 0)
 

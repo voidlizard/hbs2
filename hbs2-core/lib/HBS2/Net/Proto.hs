@@ -4,11 +4,12 @@ module HBS2.Net.Proto
   ) where
 
 import HBS2.Prelude.Plated
+import HBS2.Hash
 import HBS2.Net.Proto.Types
 
 
+dontHandle :: Applicative f => a -> f ()
+dontHandle = const $ pure ()
 
-newtype BlockInfo = BlockInfo Integer
-                    deriving stock (Eq, Data)
-
+type GetBlockSize h m = Hash h -> m (Maybe Integer)
 

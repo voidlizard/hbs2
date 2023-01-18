@@ -13,7 +13,6 @@ data BlockSize e = GetBlockSize (Hash HbSync)
 
 type HasBlockEvent h e m = (Peer e, Hash h, Maybe Integer) -> m ()
 
-type GetBlockSize h m = Hash h -> m (Maybe Integer)
 
 instance Serialise (BlockSize e)
 
