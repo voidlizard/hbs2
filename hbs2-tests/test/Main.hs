@@ -77,8 +77,6 @@ blockSizeProto :: forall e m  . ( MonadIO m
 blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do
-      debug $ "GetBlockSize" <+> pretty h
-
       -- TODO: STORAGE: seek for block
       -- TODO: defer answer (?)
       -- TODO: does it really work?
