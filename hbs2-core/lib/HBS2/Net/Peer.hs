@@ -18,6 +18,7 @@ import Data.Map qualified as Map
 import GHC.TypeLits
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
+import Data.Kind
 
 import Codec.Serialise hiding (encode,decode)
 
@@ -26,17 +27,6 @@ data AnyMessage e = AnyMessage Integer (Encoded e)
 
 instance Serialise (Encoded e) => Serialise (AnyMessage e)
 
-newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e) m a }
-                        deriving newtype ( Functor
-                                         , Applicative
-                                         , Monad
-                                         , MonadIO
-                                         , MonadReader (EngineEnv e)
-                                         , MonadTrans
-                                         )
-
--- instance MonadTrans (EngineM (EngineEnv e)) where
---   lift = lift
 
 data EngineEnv e  = forall bus  . ( Messaging bus e ByteString
                                   , Serialise (Encoded e)
@@ -48,7 +38,35 @@ data EngineEnv e  = forall bus  . ( Messaging bus e ByteString
   , defer   :: Pipeline IO ()
   }
 
+
+newtype EngineM e m a = EngineM { fromEngine :: ReaderT (EngineEnv e) m a }
+                        deriving newtype ( Functor
+                                         , Applicative
+                                         , Monad
+                                         , MonadIO
+                                         , MonadReader (EngineEnv e)
+                                         , MonadTrans
+                                         )
+
+data ResponseEnv e =
+  ResponseEnv
+  { _engine   :: EngineEnv e
+  , _respPeer :: Peer e
+  }
+
+newtype ResponseM e m a = ResponseM { fromResponse :: ReaderT (ResponseEnv e) m a }
+                          deriving newtype ( Functor
+                                           , Applicative
+                                           , Monad
+                                           , MonadIO
+                                           , MonadReader (ResponseEnv e)
+                                           , MonadTrans
+                                           )
+
+
 makeLenses 'EngineEnv
+
+makeLenses 'ResponseEnv
 
 data AnyProtocol e m = forall p  . ( HasProtocol e p
                                    , Response e p m
@@ -76,6 +94,8 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 runEngineM :: EngineEnv e -> EngineM e m a -> m a
 runEngineM e f = runReaderT (fromEngine f) e
 
+runResponseM :: Monad m => EngineEnv e -> Peer e -> ResponseM e m a -> EngineM e m a
+runResponseM eng p f = lift $ runReaderT (fromResponse f) (ResponseEnv eng p)
 
 instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
   request p msg = do
@@ -85,24 +105,25 @@ instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
         let bs = serialise (AnyMessage @e proto (encode msg))
         liftIO $ sendTo b (To p) (From s) bs
 
-instance (HasProtocol e p) => Response e p (EngineM e IO) where
+instance (HasProtocol e p, Serialise (Encoded e)) => Response e p (ResponseM e IO) where
+
+  thatPeer _ = asks (view respPeer)
 
   deferred _ m = do
-    e@(EngineEnv { defer = d }) <- ask
-    addJob d (runEngineM e m)
+    e@(EngineEnv { defer = d }) <- asks (view engine)
+    p <- asks (view respPeer)
+    addJob d (runEngineM e (runResponseM e p m))
 
   response resp = do
     env <- ask
+    let p = env ^. respPeer
+    let s   = env ^. (engine . self)
     let proto = protoId @e @p (Proxy @p)
-    case env of
-      (EngineEnv { _peer = Just p
-                 , _self = s
-                 , bus = b
-                 } ) -> do
-                  let bs = serialise (AnyMessage @e proto (encode resp))
-                  liftIO $ sendTo b (To p) (From s) bs
-      _ -> pure ()
+    let bs = serialise (AnyMessage @e proto (encode resp))
 
+    -- TODO: wrap somehow
+    case env ^. engine of
+      EngineEnv { bus = b } -> liftIO $ sendTo b (To p) (From s) bs
 
 newEnv :: forall e bus m . ( Monad m
                            , MonadIO m
@@ -120,7 +141,7 @@ newEnv p pipe = do
 runPeer :: forall e m a . ( MonadIO m
                           )
         => EngineEnv e
-        -> [AnyProtocol e (EngineM e m)]
+        -> [AnyProtocol e (ResponseM e m)]
         -> m a
 
 runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
@@ -134,8 +155,6 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
   void $ liftIO $ async $ runPipeline d
 
   runEngineM env $ do
-
-    -- void $ liftIO $ runPipeline d
 
     forever $ do
       messages <- receive pipe (To me)
@@ -155,5 +174,5 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
 
                 Just (AnyProtocol { protoDecode = decoder
                                   , handle = h
-                                  }) -> maybe (pure ()) h (decoder msg)
+                                  }) -> maybe (pure ()) (runResponseM env pip . h) (decoder msg)
 

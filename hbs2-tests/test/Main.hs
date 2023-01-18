@@ -89,12 +89,12 @@ blockSizeProto getBlockSize evHasBlock =
 
       -- deferred (Proxy @(BlockSize e)) $ do
     NoBlock h       -> do
-      evHasBlock ( undefined, h, Nothing )
-      debug $ "NoBlock" <+> pretty h
+      that <- thatPeer (Proxy @(BlockSize e))
+      evHasBlock ( that, h, Nothing )
 
     BlockSize h sz  -> do
-      evHasBlock ( undefined, h, Just sz )
-      debug $ "BlockSize" <+> pretty h <+> pretty sz
+      that <- thatPeer (Proxy @(BlockSize e))
+      evHasBlock ( that, h, Just sz )
 
 main :: IO ()
 main = do
@@ -136,8 +136,11 @@ runFakePeer env = do
 
   simpleStorageStop storage
 
+  let handleBlockInfo (p, h, sz) = do
+       debug $ pretty p <+> "has block" <+> pretty h <+> pretty sz
+
   runPeer env
-    [ makeResponse (blockSizeProto (hasBlock storage) dontHandle)
+    [ makeResponse (blockSizeProto (hasBlock storage) handleBlockInfo)
     ]
 
   cancel w
@@ -163,6 +166,9 @@ test1 = do
     runEngineM e0 $ do
       request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
       request p1 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+
+      request p0 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
+      request p0 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
     pause ( 0.5 :: Timeout 'Seconds)
 
