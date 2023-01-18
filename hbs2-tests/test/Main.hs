@@ -67,8 +67,8 @@ dontHandle :: Applicative f => a -> f ()
 dontHandle = const $ pure ()
 
 blockSizeProto :: forall e m  . ( MonadIO m
-                                  , Response e (BlockSize e) m
-                                  )
+                                , Response e (BlockSize e) m
+                                )
                => GetBlockSize  HbSync m
                -> HasBlockEvent HbSync e m
                -> BlockSize e
