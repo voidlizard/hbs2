@@ -65,6 +65,7 @@ library
 
     exposed-modules:
                       HBS2.Actors
+                    , HBS2.Actors.ChunkWriter
                     , HBS2.Clock
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
@@ -98,6 +99,8 @@ library
                      , containers
                      , cryptonite
                      , deepseq
+                     , directory
+                     , filepath
                      , hashable
                      , interpolatedstring-perl6
                      , memory

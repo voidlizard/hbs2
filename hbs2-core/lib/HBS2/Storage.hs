@@ -23,11 +23,11 @@ newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
 type family Block block :: Type
 
 newtype Offset = Offset Integer
-                 deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable)
+                 deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty)
                  deriving stock (Show)
 
 newtype Size = Size Integer
-               deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable)
+               deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty)
                deriving stock (Show)
 
 class ( Monad m
