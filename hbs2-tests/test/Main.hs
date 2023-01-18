@@ -1,6 +1,5 @@
-{-# Language FunctionalDependencies #-}
 {-# Language RankNTypes #-}
-{-# Language PatternSynonyms #-}
+{-# Language TemplateHaskell #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -50,6 +49,12 @@ newtype ChunkNum = ChunkNum Word16
                    deriving stock (Eq,Ord,Show,Data,Generic)
 
 
+newtype Sessions e =
+  Sessions
+  { _sBlockHash :: Cache (Cookie e) (Hash HbSync)
+  }
+
+makeLenses 'Sessions
 
 type GetBlockChunk h = forall m . MonadIO m => Hash h -> Offset -> Size -> m (Maybe ByteString)
 
@@ -65,24 +70,22 @@ data BlockChunksI e m =
 
 instance HasCookie e (BlockChunks e) where
   type instance Cookie e = Word32
+  getCookie (BlockChunks c _) = Just c
 
-pattern BlockGetAllChunks h s <- BlockGetAllChunks_ _ h s
-pattern BlockNoChunks         <- BlockNoChunks_ _
-pattern BlockChunk n bs       <- BlockChunk_ _ n bs
-pattern BlockLost             <- BlockLost_ _
+data BlockChunks e = BlockChunks (Cookie e) (BlockChunksProto e)
+                     deriving stock (Generic)
 
-data BlockChunks e = BlockGetAllChunks_ (Cookie e) (Hash HbSync) ChunkSize
-                   | BlockNoChunks_     (Cookie e)
-                   | BlockChunk_        (Cookie e) ChunkNum ByteString
-                   | BlockLost_         (Cookie e)
-                   deriving stock (Generic)
+data BlockChunksProto e = BlockGetAllChunks (Hash HbSync) ChunkSize
+                        | BlockNoChunks
+                        | BlockChunk ChunkNum ByteString
+                        | BlockLost
+                        deriving stock (Generic)
 
 
 instance Serialise ChunkSize
 instance Serialise ChunkNum
+instance Serialise (BlockChunksProto e)
 instance Serialise (BlockChunks e)
--- instance Serialise (MyCookie e)
--- instance Serialise (Cookie e (BlockChunks e))
 
 
 blockChunksProto :: forall e m  . ( MonadIO m
@@ -92,8 +95,8 @@ blockChunksProto :: forall e m  . ( MonadIO m
                  -> BlockChunks e
                  -> m ()
 
-blockChunksProto adapter =
-  \case
+blockChunksProto adapter (BlockChunks c p) =
+  case p of
     BlockGetAllChunks h size -> deferred proto do
       bsz <- blkSize adapter h
 
@@ -102,13 +105,12 @@ blockChunksProto adapter =
 
       for_ offsets $ \((o,sz),i) -> do
         chunk <- blkChunk adapter h o sz
-        maybe (pure ()) (response . BlockChunk_ @e c i) chunk
+        maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
     BlockChunk n bs -> do
-      -- TODO: getHashByCookie c
       h <- blkGetHash adapter c
 
-      maybe1 h (response (BlockLost_ @e c)) $ \hh -> do
+      maybe1 h (response_ (BlockLost @e)) $ \hh -> do
         blkAcceptChunk adapter (hh, n, bs)
 
     BlockNoChunks {} -> do
@@ -120,6 +122,7 @@ blockChunksProto adapter =
 
   where
     proto = Proxy @(BlockChunks e)
+    response_ pt = response (BlockChunks c pt)
 
 data Fake
 
@@ -157,8 +160,29 @@ main = do
   --     ]
 
 
-runFakePeer :: forall e . e ~ Fake => EngineEnv e -> IO ()
-runFakePeer env = do
+emptySessions :: IO (Sessions e)
+emptySessions = do
+
+  bh <- Cache.newCache (Just defCookieTimeout)
+
+  pure $
+    Sessions
+    { _sBlockHash = bh
+    }
+
+newSession :: (Eq k, Hashable k)
+           => s
+           -> Getting (Cache k v) s (Cache k v)
+           -> k
+           -> v
+           -> IO ()
+
+newSession se l x = do
+  let cache = view l se
+  Cache.insert cache x
+
+runFakePeer :: forall e . e ~ Fake => Sessions e -> EngineEnv e -> IO ()
+runFakePeer se env = do
 
   let pid = fromIntegral (hash (env ^. self)) :: Word8
 
@@ -194,7 +218,7 @@ runFakePeer env = do
         BlockChunksI
         { blkSize        = hasBlock storage
         , blkChunk       = getChunk storage
-        , blkGetHash     = liftIO . Cache.lookup blkCookies
+        , blkGetHash     = liftIO . Cache.lookup (se ^. sBlockHash)
         , blkAcceptChunk = dontHandle
         }
 
@@ -219,9 +243,12 @@ test1 = do
 
   envs@[e0,e1] <- forM peers $ \p ->  newEnv p fake
 
+  mtS <- emptySessions @Fake
+  let ee = zip (repeat mtS) envs
+
   void $ race (pause (2 :: Timeout 'Seconds)) $ do
 
-    peerz <- mapM (async . runFakePeer) envs
+    peerz <- mapM (async . uncurry runFakePeer) ee
 
     runEngineM e0 $ do
       request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
@@ -230,18 +257,35 @@ test1 = do
       request p0 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
       request p0 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
-      -- request p1 (BlockGetAllChunks @Fake 0 (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+      let h = fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+
+      let cookie = 0
+      let s0 = (fst . head) ee
+      liftIO $ newSession s0 sBlockHash cookie h
+      request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h defChunkSize))
+
+
+      pure ()
+
+      -- cache <- insert кука mempty
+      -- request ...
 
       -- Я ЗАПРОСИЛ БЛОК
       -- У МЕНЯ НЕТ КУКИ
       -- МНЕ ПРИШЛИ ЧАНКИ
       -- КУКИ НЕТ -> ГОВОРЮ "БЛОК ЛОСТ"
+      -- НО ХЗ ГДЕ ДЕРЖАТЬ САМ КЭШ для конкретного подпротокола
+      -- request p1 (BlockGetAllChunks @Fake 0 (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+
       -- Q1: ЧТО ДЕЛАТЬ
       -- Q1.1: КАК КУКА ПОПАДЁТ в то, где работает "adapter"
       -- Q2: КАК ДЕЛАТЬ ЗАПРОСЫ
       --
       -- ОТСЮДА СЛЕДУЕТ: Cookie должны жить в Engine и быть там доступны
       -- В монаде Response тоже должна быть кука
+      --
+      -- НУ есть кука и чо? какие данные с ней ассоциированы?
+      -- какого блеать типа?
       --
       -- Как быть с тем, что кука может не поддерживаться подпротоколом?
       -- Требовать HasCookie у всех?
