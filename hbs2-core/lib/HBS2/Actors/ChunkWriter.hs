@@ -1,5 +1,3 @@
-{-# Language RankNTypes #-}
-{-# Language TemplateHaskell #-}
 module HBS2.Actors.ChunkWriter
   ( ChunkWriter
   , ChunkId
@@ -26,7 +24,6 @@ import Data.ByteString.Lazy qualified as B
 import Data.Hashable (hash)
 import Data.Maybe
 import Data.Word
-import Lens.Micro.Platform
 import Prettyprinter
 import System.Directory
 import System.FilePath
@@ -42,40 +39,46 @@ newtype ChunkId = ChunkId FilePath
                   deriving newtype (IsString)
                   deriving stock (Eq,Ord,Show)
 
-data ChunkWriter h m =
+data ChunkWriter h m = forall a . (Storage a h ByteString m) =>
   ChunkWriter
-  { _pipeline :: Pipeline IO ()
-  , _dir      :: FilePath
-  ,  storage  :: forall a . (Key h ~ Hash h, Storage a h ByteString m) => a
+  { pipeline :: Pipeline IO ()
+  , dir      :: FilePath
+  , storage  :: a
   }
 
-makeLenses 'ChunkWriter
+
 
 runChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
 runChunkWriter w = do
-  liftIO $ createDirectoryIfMissing True ( w ^. dir )
-  liftIO $ runPipeline ( w ^. pipeline)
+  liftIO $ createDirectoryIfMissing True ( dir w )
+  liftIO $ runPipeline (pipeline w)
 
 stopChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
-stopChunkWriter w = liftIO $ stopPipeline ( w ^. pipeline )
+stopChunkWriter w = liftIO $ stopPipeline ( pipeline w )
 
-newChunkWriterIO :: Maybe FilePath -> IO (ChunkWriter h m)
-newChunkWriterIO  tmp = do
+newChunkWriterIO :: forall h a m . ( Key h ~ Hash h
+                                   , Storage a h ByteString m
+                                   , Monad m
+                                   )
+                 => a
+                 -> Maybe FilePath
+                 -> IO (ChunkWriter h m)
+
+newChunkWriterIO s tmp = do
   pip <- newPipeline defChunkWriterQ
 
   def  <- getXdgDirectory XdgData (defStorePath  </> "temp-chunks")
-
   let d  = fromMaybe def tmp
 
   pure $
     ChunkWriter
-    { _pipeline = pip
-    , _dir = d
-    ,  storage  = undefined
+    { pipeline = pip
+    , dir = d
+    ,  storage  = s
     }
 
 makeFileName :: (Hashable salt, Pretty (Hash h)) => ChunkWriter h m -> salt -> Hash h -> FilePath
-makeFileName w salt h = (w ^. dir) </> suff
+makeFileName w salt h = dir w </> suff
   where
     suff = show $ pretty (fromIntegral (hash salt) :: Word32) <> "@" <> pretty h
 
@@ -109,7 +112,7 @@ writeChunk :: (Hashable salt, MonadIO m, Pretty (Hash h))
            -> Offset
            -> ByteString -> m ()
 
-writeChunk w salt h o bs = addJob (w ^. pipeline) $ liftIO do
+writeChunk w salt h o bs = addJob (pipeline w) $ liftIO do
   withBinaryFile fn ReadWriteMode $ \fh -> do
     hSeek fh AbsoluteSeek (fromIntegral o)
     B.hPutStr fh bs
@@ -137,7 +140,7 @@ getHash w salt h = liftIO do
 
   q <- Q.newTBQueueIO 1
 
-  addJob (w ^. pipeline) do
+  addJob (pipeline w) do
     h1 <- hashObject @h <$> B.readFile fn
     atomically $ Q.writeTBQueue q h1
 

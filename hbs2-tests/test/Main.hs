@@ -225,7 +225,7 @@ runFakePeer se env = do
 
   w <- async $ simpleStorageWorker storage
 
-  cww <- newChunkWriterIO (Just chDir)
+  cww <- newChunkWriterIO storage (Just chDir)
 
   cw <- async $ runChunkWriter cww
 
@@ -291,7 +291,7 @@ runFakePeer se env = do
                 h1 <- liftIO $ getHash cww chuKey h
 
                 when ( h1 == h ) $ do
-                  debug $ "THIS BLOCK IS DEFINETLY DONE" <+> pretty h1
+                  debug $ "THIS BLOCK IS DEFINITLY DONE" <+> pretty h1
 
               -- ПОСЧИТАТЬ ХЭШ
               -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
@@ -302,9 +302,6 @@ runFakePeer se env = do
               -- ТАК НЕ ПОЙДЕТ
               -- ТАК ЧТО ТУТ ЖДЁМ, ДОПУСТИМ 2*mbSize  и отваливаемся
 
-            -- ОТКУДА УЗНАТЬ РАЗМЕР БЛОКА?
-            -- ДОПУСТИМ, ОТ БЛОКИНФО?
-            -- ЕСЛИ НИЧЕГО НЕТ? => BLOCK_LOST
             debug $ "got chunk" <+> pretty p
                                 <+> pretty h
                                 <+> pretty n

@@ -120,7 +120,7 @@ runNewRef opts mhash ss = do
   let href = HashRef (fromMerkleHash mhash)
   let mref = HashRefMerkle (HashRefObject href Nothing)
   let ref = AnnotatedHashRef Nothing mref
-  res <- simpleWriteLinkRaw ss uuid (Raw (serialise ref))
+  res <- simpleWriteLinkRaw ss uuid (serialise ref)
   print (pretty res)
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()

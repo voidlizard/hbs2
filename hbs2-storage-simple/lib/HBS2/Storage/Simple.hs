@@ -48,9 +48,8 @@ import HBS2.Storage
 
 
 
-newtype Raw a = Raw { fromRaw :: a }
 
-type instance Block (Raw LBS.ByteString) = LBS.ByteString
+type instance Block LBS.ByteString = LBS.ByteString
 
 
 newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
@@ -283,10 +282,10 @@ simpleGetChunkLazy s key off size = do
 simplePutBlockLazy :: (IsKey h, Hashed h LBS.ByteString)
                    => Bool -- | wait
                    -> SimpleStorage h
-                   -> (Raw LBS.ByteString)
+                   -> LBS.ByteString
                    -> IO (Maybe (Hash h))
 
-simplePutBlockLazy doWait s (Raw lbs) = do
+simplePutBlockLazy doWait s lbs = do
 
   let hash = hashObject lbs
   let fn = simpleBlockFileName s hash
@@ -339,10 +338,10 @@ simpleWriteLinkRaw :: forall h . ( IsKey h
                                  )
                    => SimpleStorage h
                    -> Hash h
-                   -> Raw LBS.ByteString
+                   -> LBS.ByteString
                    -> IO (Maybe (Hash h))
 
-simpleWriteLinkRaw ss h (Raw lbs) = do
+simpleWriteLinkRaw ss h lbs = do
   let fnr = simpleRefFileName ss h
 
   runMaybeT $ do
@@ -366,18 +365,18 @@ simpleReadLinkRaw ss hash = do
 
   pure $ fromMaybe Nothing rs
 
-instance Hashed hash LBS.ByteString => Hashed hash (Raw LBS.ByteString) where
-  hashObject (Raw s) = hashObject s
+-- instance Hashed hash LBS.ByteString => Hashed hash LBS.ByteString where
+--   hashObject s = hashObject s
 
 instance ( MonadIO m, IsKey hash
          , Hashed hash LBS.ByteString
          , Key hash ~ Hash hash
          )
-  => Storage (SimpleStorage hash) hash (Raw LBS.ByteString) m where
+  => Storage (SimpleStorage hash) hash LBS.ByteString m where
 
-  putBlock s lbs = liftIO $ simplePutBlockLazy True s (Raw lbs)
+  putBlock s lbs = liftIO $ simplePutBlockLazy True s lbs
 
-  enqueueBlock s lbs = liftIO $ simplePutBlockLazy False s  (Raw lbs)
+  enqueueBlock s lbs = liftIO $ simplePutBlockLazy False s  lbs
 
   getBlock s key = liftIO $ simpleGetBlockLazy s key
 
