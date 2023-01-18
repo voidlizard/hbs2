@@ -78,7 +78,7 @@ library
                     , HBS2.Net.Peer
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Types
-                    , HBS2.Net.Proto.Actors.BlockInfo
+                    , HBS2.Net.Proto.BlockInfo
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
@@ -122,7 +122,6 @@ test-suite test
 
     other-modules:  TestFakeMessaging
                   , TestActors
-                  , TestBlockInfoActor
                   , TestUniqProtoId
                   , FakeMessaging
                   , HasProtocol

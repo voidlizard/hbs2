@@ -77,15 +77,11 @@ blockSizeProto :: forall e m  . ( MonadIO m
 blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do
-      -- TODO: STORAGE: seek for block
-      -- TODO: defer answer (?)
-      -- TODO: does it really work?
       deferred (Proxy @(BlockSize e))$ do
         getBlockSize h >>= \case
           Just size -> response (BlockSize @e h size)
           Nothing   -> response (NoBlock @e h)
 
-      -- deferred (Proxy @(BlockSize e)) $ do
     NoBlock h       -> do
       that <- thatPeer (Proxy @(BlockSize e))
       evHasBlock ( that, h, Nothing )

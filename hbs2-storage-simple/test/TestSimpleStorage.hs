@@ -61,7 +61,7 @@ testSimpleStorageErrors = do
 
             assertBool "nothing written" (isNothing key)
 
-            here <- hasBlock storage strKey
+            here <- hasBlock storage strKey <&> isJust
 
             assertBool "nothing written, again" (not here)
 
