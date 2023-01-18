@@ -13,8 +13,13 @@ import Control.Monad.IO.Class
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
-class HasCookie p  where
-  type family Cookie p :: Type
+
+class HasCookie e p | p -> e where
+  type family Cookie e :: Type
+  getCookie :: p -> Maybe (Cookie e)
+  getCookie = const Nothing
+
+data WithCookie e p = WithCookie (Cookie e) p
 
 class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type

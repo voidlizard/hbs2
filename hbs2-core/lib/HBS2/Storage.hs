@@ -11,7 +11,7 @@ import Prettyprinter
 
 
 class Pretty (Hash h) => IsKey h where
-  type Key h :: Type
+  type family Key h :: Type
 
 instance Key HbSync ~ Hash HbSync => IsKey HbSync where
   type instance Key HbSync = Hash HbSync

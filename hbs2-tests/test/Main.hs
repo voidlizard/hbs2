@@ -52,29 +52,32 @@ newtype ChunkNum = ChunkNum Word16
 
 type GetBlockChunk h = forall m . MonadIO m => Hash h -> Offset -> Size -> m (Maybe ByteString)
 
-type MyCookie e = Cookie (BlockChunks e)
 
 data BlockChunksI e m =
   BlockChunksI
   { blkSize         :: GetBlockSize HbSync m
   , blkChunk        :: GetBlockChunk HbSync
-  , blkGetHash      :: MyCookie e -> m (Maybe (Hash HbSync))
+  , blkGetHash      :: Cookie e -> m (Maybe (Hash HbSync))
   , blkAcceptChunk  :: (Hash HbSync, ChunkNum, ByteString) -> m ()
   }
 
-data BlockChunks e = BlockGetAllChunks (MyCookie e) (Hash HbSync) ChunkSize
-                   | BlockNoChunks     (MyCookie e)
-                   | BlockChunk        (MyCookie e) ChunkNum ByteString
-                   | BlockLost         (MyCookie e)
+
+instance HasCookie e (BlockChunks e) where
+  type instance Cookie e = Word32
+
+data BlockChunks e = BlockGetAllChunks (Cookie e) (Hash HbSync) ChunkSize
+                   | BlockNoChunks     (Cookie e)
+                   | BlockChunk        (Cookie e) ChunkNum ByteString
+                   | BlockLost         (Cookie e)
                    deriving stock (Generic)
 
-
-instance HasCookie (BlockChunks e) where
-  type instance Cookie (BlockChunks e) = Word32
 
 instance Serialise ChunkSize
 instance Serialise ChunkNum
 instance Serialise (BlockChunks e)
+-- instance Serialise (MyCookie e)
+-- instance Serialise (Cookie e (BlockChunks e))
+
 
 blockChunksProto :: forall e m  . ( MonadIO m
                                   , Response e (BlockChunks e) m
@@ -179,7 +182,7 @@ runFakePeer env = do
   let handleBlockInfo (p, h, sz) = do
        debug $ pretty p <+> "has block" <+> pretty h <+> pretty sz
 
-  blkCookies <- Cache.newCache @(Cookie (BlockChunks e)) @(Hash HbSync) (Just defCookieTimeout)
+  blkCookies <- Cache.newCache @(Cookie e) @(Hash HbSync) (Just defCookieTimeout)
 
   let adapter =
         BlockChunksI
@@ -234,7 +237,7 @@ test1 = do
       -- ОТСЮДА СЛЕДУЕТ: Cookie должны жить в Engine и быть там доступны
       -- В монаде Response тоже должна быть кука
       --
-      -- Как быть с тем, что кука может не поддерживаться подпортоколом?
+      -- Как быть с тем, что кука может не поддерживаться подпротоколом?
       -- Требовать HasCookie у всех?
 
     pause ( 0.5 :: Timeout 'Seconds)

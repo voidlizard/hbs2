@@ -3,7 +3,8 @@ module HBS2.Defaults where
 import HBS2.Clock
 import Data.String
 
-defChunkSize :: Integer
+-- defChunkSize :: Integer
+defChunkSize :: Integral a => a
 defChunkSize = 500
 
 defBlockSize :: Integer
