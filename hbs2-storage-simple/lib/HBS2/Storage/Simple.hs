@@ -196,12 +196,15 @@ simpleRefFileName ss h = path
 --
 --       So, the block MUST be small
 --
-simpleGetBlockLazy ::  IsKey h
+simpleGetBlockLazy ::  (IsKey h, Pretty (Key h))
                     => SimpleStorage h
                     -> Hash h
                     -> IO (Maybe LBS.ByteString)
 
 simpleGetBlockLazy s key = do
+
+  liftIO $ print $ "simpleGetBlockLazy" <+> pretty key
+
   resQ <- TBMQ.newTBMQueueIO 1 :: IO (TBMQueue (Maybe LBS.ByteString))
   let fn = simpleBlockFileName s key
   let action = do

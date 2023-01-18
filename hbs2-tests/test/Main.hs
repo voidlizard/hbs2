@@ -40,12 +40,12 @@ debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
 
 newtype ChunkSize = ChunkSize Word16
-                    deriving newtype (Num,Enum,Real,Integral)
+                    deriving newtype (Num,Enum,Real,Integral,Pretty)
                     deriving stock (Eq,Ord,Show,Data,Generic)
 
 
 newtype ChunkNum = ChunkNum Word16
-                   deriving newtype (Num,Enum,Real,Integral)
+                   deriving newtype (Num,Enum,Real,Integral,Pretty)
                    deriving stock (Eq,Ord,Show,Data,Generic)
 
 
@@ -56,13 +56,13 @@ newtype Sessions e =
 
 makeLenses 'Sessions
 
-type GetBlockChunk h = forall m . MonadIO m => Hash h -> Offset -> Size -> m (Maybe ByteString)
+type GetBlockChunk h m = Hash h -> Offset -> Size -> m (Maybe ByteString)
 
 
 data BlockChunksI e m =
   BlockChunksI
   { blkSize         :: GetBlockSize HbSync m
-  , blkChunk        :: GetBlockChunk HbSync
+  , blkChunk        :: GetBlockChunk HbSync m
   , blkGetHash      :: Cookie e -> m (Maybe (Hash HbSync))
   , blkAcceptChunk  :: (Hash HbSync, ChunkNum, ByteString) -> m ()
   }
@@ -90,6 +90,7 @@ instance Serialise (BlockChunks e)
 
 blockChunksProto :: forall e m  . ( MonadIO m
                                   , Response e (BlockChunks e) m
+                                  , Pretty (Peer e)
                                   )
                  => BlockChunksI e m
                  -> BlockChunks e
@@ -100,10 +101,13 @@ blockChunksProto adapter (BlockChunks c p) =
     BlockGetAllChunks h size -> deferred proto do
       bsz <- blkSize adapter h
 
+      debug $ "bzs" <+> pretty bsz
+
       let offsets' = calcChunks (fromJust bsz) (fromIntegral size) :: [(Offset, Size)]
       let offsets = zip offsets' [0..]
 
       for_ offsets $ \((o,sz),i) -> do
+        p <- thatPeer proto
         chunk <- blkChunk adapter h o sz
         maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
@@ -170,16 +174,22 @@ emptySessions = do
     { _sBlockHash = bh
     }
 
-newSession :: (Eq k, Hashable k)
+newSession :: (Eq k, Hashable k,MonadIO m)
            => s
            -> Getting (Cache k v) s (Cache k v)
            -> k
            -> v
-           -> IO ()
+           -> m ()
 
-newSession se l x = do
+newSession se l k v = do
   let cache = view l se
-  Cache.insert cache x
+  liftIO $ Cache.insert cache k v
+
+withNewSession se l k v m = newSession se l k v >> m
+
+getSession se l k = do
+  let cache = view l se
+  liftIO $ Cache.lookup cache k
 
 runFakePeer :: forall e . e ~ Fake => Sessions e -> EngineEnv e -> IO ()
 runFakePeer se env = do
@@ -207,8 +217,6 @@ runFakePeer se env = do
 
   debug $ "I'm" <+> pretty pid <+> pretty root
 
-  simpleStorageStop storage
-
   let handleBlockInfo (p, h, sz) = do
        debug $ pretty p <+> "has block" <+> pretty h <+> pretty sz
 
@@ -218,8 +226,10 @@ runFakePeer se env = do
         BlockChunksI
         { blkSize        = hasBlock storage
         , blkChunk       = getChunk storage
-        , blkGetHash     = liftIO . Cache.lookup (se ^. sBlockHash)
-        , blkAcceptChunk = dontHandle
+        , blkGetHash     = getSession se sBlockHash
+        , blkAcceptChunk = \(h,n,bs) -> debug $ "got chunk" <+> pretty h
+                                                            <+> pretty n
+                                                            <+> pretty (B8.length bs)
         }
 
   runPeer env
@@ -228,6 +238,8 @@ runFakePeer se env = do
     ]
 
   cancel w
+
+  simpleStorageStop storage
 
   pure ()
 
@@ -261,9 +273,9 @@ test1 = do
 
       let cookie = 0
       let s0 = (fst . head) ee
-      liftIO $ newSession s0 sBlockHash cookie h
-      request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h defChunkSize))
 
+      withNewSession s0 sBlockHash cookie h $ do
+        request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h defChunkSize))
 
       pure ()
 
@@ -290,7 +302,7 @@ test1 = do
       -- Как быть с тем, что кука может не поддерживаться подпротоколом?
       -- Требовать HasCookie у всех?
 
-    pause ( 0.5 :: Timeout 'Seconds)
+    pause ( 1 :: Timeout 'Seconds)
 
     mapM_ cancel peerz
 
