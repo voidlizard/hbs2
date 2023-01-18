@@ -292,6 +292,7 @@ runFakePeer se env = do
 
                 when ( h1 == h ) $ do
                   debug $ "THIS BLOCK IS DEFINITLY DONE" <+> pretty h1
+                  commitChunk cw chuKey h
 
               -- ПОСЧИТАТЬ ХЭШ
               -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
