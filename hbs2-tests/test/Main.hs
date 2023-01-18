@@ -1,5 +1,6 @@
 {-# Language FunctionalDependencies #-}
 {-# Language RankNTypes #-}
+{-# Language PatternSynonyms #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -65,10 +66,15 @@ data BlockChunksI e m =
 instance HasCookie e (BlockChunks e) where
   type instance Cookie e = Word32
 
-data BlockChunks e = BlockGetAllChunks (Cookie e) (Hash HbSync) ChunkSize
-                   | BlockNoChunks     (Cookie e)
-                   | BlockChunk        (Cookie e) ChunkNum ByteString
-                   | BlockLost         (Cookie e)
+pattern BlockGetAllChunks h s <- BlockGetAllChunks_ _ h s
+pattern BlockNoChunks         <- BlockNoChunks_ _
+pattern BlockChunk n bs       <- BlockChunk_ _ n bs
+pattern BlockLost             <- BlockLost_ _
+
+data BlockChunks e = BlockGetAllChunks_ (Cookie e) (Hash HbSync) ChunkSize
+                   | BlockNoChunks_     (Cookie e)
+                   | BlockChunk_        (Cookie e) ChunkNum ByteString
+                   | BlockLost_         (Cookie e)
                    deriving stock (Generic)
 
 
@@ -88,7 +94,7 @@ blockChunksProto :: forall e m  . ( MonadIO m
 
 blockChunksProto adapter =
   \case
-    BlockGetAllChunks c h size -> deferred proto do
+    BlockGetAllChunks h size -> deferred proto do
       bsz <- blkSize adapter h
 
       let offsets' = calcChunks (fromJust bsz) (fromIntegral size) :: [(Offset, Size)]
@@ -96,13 +102,13 @@ blockChunksProto adapter =
 
       for_ offsets $ \((o,sz),i) -> do
         chunk <- blkChunk adapter h o sz
-        maybe (pure ()) (response . BlockChunk @e c i) chunk
+        maybe (pure ()) (response . BlockChunk_ @e c i) chunk
 
-    BlockChunk c n bs -> do
+    BlockChunk n bs -> do
       -- TODO: getHashByCookie c
       h <- blkGetHash adapter c
 
-      maybe1 h (response (BlockLost @e c)) $ \hh -> do
+      maybe1 h (response (BlockLost_ @e c)) $ \hh -> do
         blkAcceptChunk adapter (hh, n, bs)
 
     BlockNoChunks {} -> do
