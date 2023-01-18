@@ -253,8 +253,6 @@ runFakePeer se env = do
         , blkChunk       = getChunk storage
         , blkGetHash     = getSession se sBlockHash
 
-        -- И ЧТО ТУТ ДЕЛАТЬ.
-        -- ЗАПИСАТЬ ЧАНК В ФАЙЛ КУДА-ТО НА TMP (КУДА?
         -- КАК ТОЛЬКО ПРИНЯЛИ ВСЕ ЧАНКИ (ПРИШЁЛ ПОСЛЕДНИЙ ЧАНК):
         --   СЧИТАЕМ ХЭШ ТОГО, ЧТО ПОЛУЧИЛОСЬ
         --   ЕСЛИ ПОЛУЧИЛОСЬ ХОРОШО --- ТО:
@@ -302,14 +300,6 @@ runFakePeer se env = do
               -- ЧАНКИ, ПО МНОГУ РАЗ. А МЫ БУДЕМ ХЭШИ СЧИТАТЬ.
               -- ТАК НЕ ПОЙДЕТ
               -- ТАК ЧТО ТУТ ЖДЁМ, ДОПУСТИМ 2*mbSize  и отваливаемся
-
-            debug $ "got chunk" <+> pretty p
-                                <+> pretty h
-                                <+> pretty n
-                                <+> parens ("off:" <+> pretty offset)
-                                <+> pretty (B8.length bs)
-                                -- <+> parens (pretty mbSize)
-                                -- <+> braces ("chunkSize:" <+> pretty mbChSize)
         }
 
   runPeer env
@@ -340,7 +330,7 @@ test1 = do
   mtS <- emptySessions @Fake
   let ee = zip (repeat mtS) envs
 
-  void $ race (pause (5 :: Timeout 'Seconds)) $ do
+  void $ race (pause (2 :: Timeout 'Seconds)) $ do
 
     peerz <- mapM (async . uncurry runFakePeer) ee
 
@@ -367,7 +357,7 @@ test1 = do
       pure ()
 
 
-    pause ( 2 :: Timeout 'Seconds)
+    pause ( 1 :: Timeout 'Seconds)
 
     mapM_ cancel peerz
 
