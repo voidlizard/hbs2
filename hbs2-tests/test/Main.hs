@@ -353,7 +353,6 @@ test1 = do
 
       let h = fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
 
-
       -- TODO: generate unique cookie!!
       let cookie = 0
       let s0 = (fst . head) ee
@@ -366,16 +365,6 @@ test1 = do
         request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h chsz))
 
       pure ()
-
-      -- cache <- insert кука mempty
-      -- request ...
-
-      -- Я ЗАПРОСИЛ БЛОК
-      -- У МЕНЯ НЕТ КУКИ
-      -- МНЕ ПРИШЛИ ЧАНКИ
-      -- КУКИ НЕТ -> ГОВОРЮ "БЛОК ЛОСТ"
-      -- НО ХЗ ГДЕ ДЕРЖАТЬ САМ КЭШ для конкретного подпротокола
-      -- request p1 (BlockGetAllChunks @Fake 0 (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
 
     pause ( 2 :: Timeout 'Seconds)
