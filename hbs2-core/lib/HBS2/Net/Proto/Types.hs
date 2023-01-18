@@ -17,7 +17,7 @@ class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
 
-class MonadIO m => Response e p (m :: Type -> Type) | p -> e where
+class (MonadIO m, HasProtocol e p) => Response e p m | p -> e where
   response :: p -> m ()
   deferred :: Proxy p -> m () -> m ()
 

@@ -61,7 +61,6 @@ instance HasProtocol Fake (BlockSize Fake) where
 
 blockSizeHandler :: forall e m s . ( MonadIO m
                                    , Response e (BlockSize e) m
-                                   , HasProtocol e (BlockSize e)
                                    , s ~ SimpleStorage HbSync
                                    )
                 => s
