@@ -12,7 +12,7 @@ import HBS2.Storage.Simple.Extra
 import HBS2.Actors
 
 -- import Test.Tasty hiding (Timeout)
--- import Test.Tasty.HUnit hiding (Timeout)
+import Test.Tasty.HUnit hiding (Timeout)
 
 import Lens.Micro.Platform
 import Data.Traversable
@@ -26,6 +26,7 @@ import System.IO
 import Data.ByteString.Lazy.Char8 qualified as B8
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
+import System.Exit
 
 
 data Fake
@@ -57,17 +58,23 @@ instance HasProtocol Fake (BlockSize Fake) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+type HasBlockEvent h e m = (Peer e, Hash h, Maybe Integer) -> m ()
+
+type GetBlockSize h m = Hash h -> m (Maybe Integer)
 
 
-blockSizeHandler :: forall e m s . ( MonadIO m
-                                   , Response e (BlockSize e) m
-                                   , s ~ SimpleStorage HbSync
-                                   )
-                => s
-                -> BlockSize e
-                -> m ()
+dontHandle :: Applicative f => a -> f ()
+dontHandle = const $ pure ()
 
-blockSizeHandler s =
+blockSizeProto :: forall e m  . ( MonadIO m
+                                  , Response e (BlockSize e) m
+                                  )
+               => GetBlockSize  HbSync m
+               -> HasBlockEvent HbSync e m
+               -> BlockSize e
+               -> m ()
+
+blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do
       debug $ "GetBlockSize" <+> pretty h
@@ -76,14 +83,18 @@ blockSizeHandler s =
       -- TODO: defer answer (?)
       -- TODO: does it really work?
       deferred (Proxy @(BlockSize e))$ do
-        hasBlock s h >>= \case
+        getBlockSize h >>= \case
           Just size -> response (BlockSize @e h size)
           Nothing   -> response (NoBlock @e h)
 
       -- deferred (Proxy @(BlockSize e)) $ do
-    NoBlock h       -> debug $ "NoBlock" <+> pretty h
+    NoBlock h       -> do
+      evHasBlock ( undefined, h, Nothing )
+      debug $ "NoBlock" <+> pretty h
 
-    BlockSize h sz  -> debug $ "BlockSize" <+> pretty h <+> pretty sz
+    BlockSize h sz  -> do
+      evHasBlock ( undefined, h, Just sz )
+      debug $ "BlockSize" <+> pretty h <+> pretty sz
 
 main :: IO ()
 main = do
@@ -126,7 +137,7 @@ runFakePeer env = do
   simpleStorageStop storage
 
   runPeer env
-    [ makeResponse (blockSizeHandler storage)
+    [ makeResponse (blockSizeProto (hasBlock storage) dontHandle)
     ]
 
   cancel w
@@ -153,14 +164,16 @@ test1 = do
       request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
       request p1 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
-    pause ( 0.1 :: Timeout 'Seconds)
+    pause ( 0.5 :: Timeout 'Seconds)
 
-    mapM_ wait peerz
+    mapM_ cancel peerz
 
     (_, e) <- waitAnyCatchCancel peerz
 
     debug (pretty $ show e)
+    debug "we're done"
+    assertBool "sucess" True
+    exitSuccess
 
-  debug "we're done"
-
+  assertBool "failed" False
 
