@@ -53,10 +53,15 @@ newtype ChunkNum = ChunkNum Word16
                    deriving stock (Eq,Ord,Show,Data,Generic)
 
 
+-- FIXME: peer should be a part of the key
+--        therefore, key is ( p | cookie )
+--        but client's cookie in protocol should be just ( cookie :: Word32 )
 data Sessions e =
   Sessions
   { _sBlockHash      :: Cache (Cookie e) (Hash HbSync)
   , _sBlockChunkSize :: Cache (Cookie e) ChunkSize
+  , _sBlockOffset    :: Cache (Cookie e) Offset
+  , _sBlockWritten   :: Cache (Cookie e) Size
   , _sBlockSizes     :: Cache (Hash HbSync) (Map (Peer e) Size)
   , _sBlockSize      :: Cache (Hash HbSync) Size
   }
@@ -107,8 +112,6 @@ blockChunksProto adapter (BlockChunks c p) =
   case p of
     BlockGetAllChunks h size -> deferred proto do
       bsz <- blkSize adapter h
-
-      debug $ "bzs" <+> pretty bsz
 
       let offsets' = calcChunks (fromJust bsz) (fromIntegral size) :: [(Offset, Size)]
       let offsets = zip offsets' [0..]
@@ -174,6 +177,8 @@ main = do
 emptySessions :: IO (Sessions e)
 emptySessions =
   Sessions <$> Cache.newCache (Just defCookieTimeout)
+           <*> Cache.newCache (Just defBlockInfoTimeout)
+           <*> Cache.newCache (Just defBlockInfoTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
@@ -258,15 +263,44 @@ runFakePeer se env = do
         --     УДАЛЯЕМ КУКУ?
         , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
 
+            let chuKey = (p,c)
+
+            let bslen = fromIntegral $ B8.length bs
             -- TODO: log this situation
             mbSize   <- MaybeT $ getSession' se sBlockSizes h (Map.lookup p) <&> fromMaybe Nothing
-            mbChSize <- MaybeT $ getSession se sBlockChunkSize c
+            mbChSize <- MaybeT $ getSession  se sBlockChunkSize c
 
             let offset = fromIntegral n * fromIntegral mbChSize :: Offset
 
+            updSession se offset sBlockOffset c (max offset)
+
             liftIO $ do
               -- newBlock cww (p,c) h mbSize
-              writeChunk cww (p,c) h offset bs
+              writeChunk cww chuKey h offset bs
+              updSession se 0 sBlockWritten c (+bslen)
+
+            maxOff <- MaybeT  $ getSession se sBlockOffset c
+            written <- MaybeT $ getSession se sBlockWritten c
+
+            let mbDone = (maxOff + fromIntegral mbChSize) > fromIntegral mbSize
+                       && written >= mbSize
+
+            when mbDone $ lift do
+              deferred (Proxy @(BlockChunks e)) $ do
+                debug "THIS BLOCK MAYBE DONE"
+                h1 <- liftIO $ getHash cww chuKey h
+
+                when ( h1 == h ) $ do
+                  debug $ "THIS BLOCK IS DEFINETLY DONE" <+> pretty h1
+
+              -- ПОСЧИТАТЬ ХЭШ
+              -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
+              -- ЕСЛИ НЕ СОШЁЛСЯ - ТО ПОДОЖДАТЬ ЕЩЕ
+              -- ЕСЛИ ТУТ ВИСЕТЬ ДОЛГО, ТО НАС МОЖНО ДИДОСИТЬ,
+              -- ПОСЫЛАЯ НЕ ВСЕ БЛОКИ ЧАНКА ИЛИ ПОСЫЛАЯ ОТДЕЛЬНЫЕ
+              -- ЧАНКИ, ПО МНОГУ РАЗ. А МЫ БУДЕМ ХЭШИ СЧИТАТЬ.
+              -- ТАК НЕ ПОЙДЕТ
+              -- ТАК ЧТО ТУТ ЖДЁМ, ДОПУСТИМ 2*mbSize  и отваливаемся
 
             -- ОТКУДА УЗНАТЬ РАЗМЕР БЛОКА?
             -- ДОПУСТИМ, ОТ БЛОКИНФО?
