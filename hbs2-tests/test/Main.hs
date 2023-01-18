@@ -5,11 +5,11 @@ import HBS2.Clock
 import HBS2.Hash
 -- import HBS2.Net.Messaging
 import HBS2.Net.Proto
+import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.Peer
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
-import HBS2.Actors
 
 -- import Test.Tasty hiding (Timeout)
 import Test.Tasty.HUnit hiding (Timeout)
@@ -43,52 +43,16 @@ instance Pretty (Peer Fake) where
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
 
-
-data BlockSize e = GetBlockSize (Hash HbSync)
-                 | NoBlock (Hash HbSync)
-                 | BlockSize (Hash HbSync) Integer
-                 deriving stock (Eq,Generic,Show)
-
-
-instance Serialise (BlockSize e)
-
 instance HasProtocol Fake (BlockSize Fake) where
   type instance ProtocolId (BlockSize Fake) = 1
   type instance Encoded Fake = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-type HasBlockEvent h e m = (Peer e, Hash h, Maybe Integer) -> m ()
-
-type GetBlockSize h m = Hash h -> m (Maybe Integer)
 
 
 dontHandle :: Applicative f => a -> f ()
 dontHandle = const $ pure ()
-
-blockSizeProto :: forall e m  . ( MonadIO m
-                                , Response e (BlockSize e) m
-                                )
-               => GetBlockSize  HbSync m
-               -> HasBlockEvent HbSync e m
-               -> BlockSize e
-               -> m ()
-
-blockSizeProto getBlockSize evHasBlock =
-  \case
-    GetBlockSize h -> do
-      deferred (Proxy @(BlockSize e))$ do
-        getBlockSize h >>= \case
-          Just size -> response (BlockSize @e h size)
-          Nothing   -> response (NoBlock @e h)
-
-    NoBlock h       -> do
-      that <- thatPeer (Proxy @(BlockSize e))
-      evHasBlock ( that, h, Nothing )
-
-    BlockSize h sz  -> do
-      that <- thatPeer (Proxy @(BlockSize e))
-      evHasBlock ( that, h, Just sz )
 
 main :: IO ()
 main = do
