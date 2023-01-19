@@ -83,12 +83,17 @@ newBlockDownload h = BlockDownload h 0 0 0
 type GetBlockChunk h m = Hash h -> Offset -> Size -> m (Maybe ByteString)
 
 
+type AcceptChunk h e m = Response e (BlockChunks e) m
+                       => ( Cookie e, Peer e, Hash HbSync, ChunkNum, ByteString ) -> m ()
+
+type GetBlockHash h e m = (Peer e, Cookie e) -> m (Maybe (Hash h))
+
 data BlockChunksI e m =
   BlockChunksI
   { blkSize         :: GetBlockSize HbSync m
   , blkChunk        :: GetBlockChunk HbSync m
-  , blkGetHash      :: (Peer e, Cookie e) -> m (Maybe (Hash HbSync))
-  , blkAcceptChunk  :: Response e (BlockChunks e) m => (Cookie e, Peer e, Hash HbSync, ChunkNum, ByteString) -> m ()
+  , blkGetHash      :: GetBlockHash HbSync e m
+  , blkAcceptChunk  :: AcceptChunk HbSync e m
   }
 
 
@@ -137,7 +142,7 @@ blockChunksProto adapter (BlockChunks c p) =
       h <- blkGetHash adapter (who, c)
 
       maybe1 h (response_ (BlockLost @e)) $ \hh -> do
-        blkAcceptChunk adapter (c, who, hh, n, bs)
+        void $ blkAcceptChunk adapter (c, who, hh, n, bs)
 
     BlockNoChunks {} -> do
       -- TODO: notification
@@ -308,6 +313,9 @@ runFakePeer se env = do
                 when ( h1 == h ) $ do
                   debug $ "THIS BLOCK IS DEFINITELY DONE" <+> pretty h1
                   liftIO $ commitBlock cww cKey h
+                  delSession se sBlockDownload cKey
+                  -- TODO: #ASAP
+                  -- NOTIFY BLOCK IS DONE
 
             when (written > mbSize * defBlockDownloadThreshold) $ do
               debug $ "SESSION DELETED BECAUSE THAT PEER IS JERK:" <+> pretty p
@@ -360,7 +368,7 @@ test1 = do
 
       let h = fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
 
-      -- TODO: generate unique cookie!!
+      -- TODO: #ASAP generate unique cookie!!
       --
       -- FIXME: withAllCrap $ do ...
       let s0 = (fst . head) ee
