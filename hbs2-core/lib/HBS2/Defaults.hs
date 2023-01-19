@@ -19,6 +19,9 @@ defPipelineSize = 100
 defChunkWriterQ :: Integral a => a
 defChunkWriterQ = 100
 
+defBlockDownloadThreshold :: Integral a => a
+defBlockDownloadThreshold = 2
+
 -- typical block hash 530+ chunks * parallel wip blocks amount
 defProtoPipelineSize :: Int
 defProtoPipelineSize = 65536
@@ -28,4 +31,6 @@ defCookieTimeout = toTimeSpec ( 10  :: Timeout 'Minutes)
 
 defBlockInfoTimeout :: TimeSpec
 defBlockInfoTimeout = toTimeSpec ( 10  :: Timeout 'Minutes)
+
+
 
