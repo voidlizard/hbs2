@@ -186,8 +186,8 @@ main = do
   --     ]
 
 
-emptySessions :: IO (Sessions e)
-emptySessions =
+emptySessions :: forall e m . MonadIO m => m (Sessions e)
+emptySessions = liftIO $
   Sessions <$> Cache.newCache (Just defCookieTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
@@ -216,6 +216,9 @@ updSession se def  l k fn = liftIO do
 
 delSession se l k = liftIO do
   Cache.delete (view l se) k
+
+expireSession se l = liftIO do
+  Cache.purgeExpired (view l se)
 
 runFakePeer :: forall e . e ~ Fake => Sessions e -> EngineEnv e -> IO ()
 runFakePeer se env = do
@@ -263,7 +266,7 @@ runFakePeer se env = do
         BlockChunksI
         { blkSize        = hasBlock storage
         , blkChunk       = getChunk storage
-        , blkGetHash     = \c -> getSession' se sBlockDownload c (view sBlockHash) --(\BlockDownload{} -> error "AAA")
+        , blkGetHash     = \c -> getSession' se sBlockDownload c (view sBlockHash)
 
         -- КАК ТОЛЬКО ПРИНЯЛИ ВСЕ ЧАНКИ (ПРИШЁЛ ПОСЛЕДНИЙ ЧАНК):
         --   СЧИТАЕМ ХЭШ ТОГО, ЧТО ПОЛУЧИЛОСЬ
@@ -365,6 +368,8 @@ test1 = do
       let chsz = defChunkSize
       let def = newBlockDownload h
       updSession s0 def sBlockDownload cKey (set sBlockChunkSize chsz)
+
+      -- TODO: #ASAP block ready notification
 
       request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h chsz))
 
