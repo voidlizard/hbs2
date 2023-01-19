@@ -1,5 +1,6 @@
 {-# Language RankNTypes #-}
 {-# Language TemplateHaskell #-}
+{-# Language AllowAmbiguousTypes #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -9,7 +10,7 @@ import HBS2.Hash
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Messaging.Fake
-import HBS2.Net.Peer
+import HBS2.Actors.Peer
 import HBS2.Defaults
 
 import HBS2.Storage.Simple
@@ -373,14 +374,19 @@ test1 = do
 
     runEngineM e0 $ do
 
-      let h = fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+      let h = fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
 
       -- TODO: #ASAP generate unique cookie!!
       --
       -- FIXME: withAllCrap $ do ...
       let s0 = (fst . head) ee
-      let cKey@(_, cookie) = (p1, 0) -- <<~~~ FIXME: generate a good session id!
+
+      newCookie <- genCookie @Fake (p1, h) -- <<~~~ FIXME: generate a good session id!
+
+      let cKey@(_, cookie) = (p1, newCookie)
       let chsz = defChunkSize
+
+      debug $ "new cookie:" <+> pretty cookie
 
       qblk <- liftIO Q.newTQueueIO
 
@@ -398,7 +404,6 @@ test1 = do
       request p0 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
       request p0 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
 
-
       -- TODO: #ASAP block ready notification
 
       debug $ "REQUEST BLOCK:" <+> pretty h <+> "from" <+> pretty p1
@@ -408,6 +413,14 @@ test1 = do
       blk <- liftIO $ atomically $ Q.readTQueue qblk
 
       debug $ "BLOCK READY:" <+> pretty blk
+
+      -- TODO: смотрим, что за блок
+      --       если Merkle - то качаем рекурсивно
+      --       если ссылка - то смотрим, что за ссылка
+      --       проверяем пруфы
+      --       качаем рекурсивно
+
+      -- let mbLink = deserialiseOrFail @Merkle obj
 
       pure ()
 

@@ -1,6 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Peer where
+module HBS2.Actors.Peer where
 
 import HBS2.Prelude
 import HBS2.Prelude.Plated
@@ -10,15 +10,19 @@ import HBS2.Clock
 import HBS2.Actors
 import HBS2.Defaults
 
-import Lens.Micro.Platform
-import Data.ByteString.Lazy ( ByteString )
-import Data.Foldable
+
+import Control.Concurrent.Async
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
+import Data.ByteString.Lazy ( ByteString )
+import Data.Digest.Murmur32
+import Data.Foldable
+import Data.Hashable
+import Data.Kind
 import Data.Map qualified as Map
 import GHC.TypeLits
-import Control.Monad.Trans.Maybe
-import Control.Concurrent.Async
-import Data.Kind
+import Lens.Micro.Platform
+import System.Random qualified as Random
 
 import Codec.Serialise hiding (encode,decode)
 
@@ -175,4 +179,11 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
                 Just (AnyProtocol { protoDecode = decoder
                                   , handle = h
                                   }) -> maybe (pure ()) (runResponseM env pip . h) (decoder msg)
+
+-- FIXME: slow and dumb
+instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e (EngineM e m) where
+  genCookie salt = do
+    r <- liftIO $ Random.randomIO @Int
+    pure $ fromInteger $ fromIntegral $ asWord32 $ hash32 (hash salt + r)
+
 

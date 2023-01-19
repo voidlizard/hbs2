@@ -1,5 +1,6 @@
 {-# Language TypeFamilyDependencies #-}
 {-# Language FunctionalDependencies #-}
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where
@@ -13,6 +14,8 @@ import Control.Monad.IO.Class
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
+class Monad m => GenCookie e m where
+  genCookie :: Hashable salt => salt -> m (Cookie e)
 
 class HasCookie e p | p -> e where
   type family Cookie e :: Type

@@ -66,6 +66,7 @@ library
     exposed-modules:
                       HBS2.Actors
                     , HBS2.Actors.ChunkWriter
+                    , HBS2.Actors.Peer
                     , HBS2.Clock
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
@@ -76,7 +77,6 @@ library
                     , HBS2.Net.Messaging.Fake
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
-                    , HBS2.Net.Peer
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Types
                     , HBS2.Net.Proto.BlockInfo
@@ -106,7 +106,9 @@ library
                      , memory
                      , microlens-platform
                      , mtl
+                     , murmur-hash
                      , prettyprinter
+                     , random
                      , safe
                      , serialise
                      , stm
