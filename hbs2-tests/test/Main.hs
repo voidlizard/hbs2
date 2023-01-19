@@ -56,17 +56,24 @@ newtype ChunkNum = ChunkNum Word16
 -- FIXME: peer should be a part of the key
 --        therefore, key is ( p | cookie )
 --        but client's cookie in protocol should be just ( cookie :: Word32 )
+
+data BlockDownload =
+  BlockDownload
+  { _sBlockHash      :: Hash HbSync
+  , _sBlockChunkSize :: ChunkSize
+  , _sBlockOffset    :: Offset
+  , _sBlockWritten   :: Size
+  }
+
 data Sessions e =
   Sessions
-  { _sBlockHash      :: Cache (Cookie e) (Hash HbSync)
-  , _sBlockChunkSize :: Cache (Cookie e) ChunkSize
-  , _sBlockOffset    :: Cache (Cookie e) Offset
-  , _sBlockWritten   :: Cache (Cookie e) Size
+  { _sBlockDownload  :: Cache (Cookie e) BlockDownload
   , _sBlockSizes     :: Cache (Hash HbSync) (Map (Peer e) Size)
   , _sBlockSize      :: Cache (Hash HbSync) Size
   }
 
 makeLenses 'Sessions
+makeLenses 'BlockDownload
 
 type GetBlockChunk h m = Hash h -> Offset -> Size -> m (Maybe ByteString)
 
@@ -179,9 +186,6 @@ emptySessions =
   Sessions <$> Cache.newCache (Just defCookieTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
-           <*> Cache.newCache (Just defBlockInfoTimeout)
-           <*> Cache.newCache (Just defBlockInfoTimeout)
-           <*> Cache.newCache (Just defBlockInfoTimeout)
 
 newSession :: (Eq k, Hashable k,MonadIO m)
            => s
@@ -251,7 +255,7 @@ runFakePeer se env = do
         BlockChunksI
         { blkSize        = hasBlock storage
         , blkChunk       = getChunk storage
-        , blkGetHash     = getSession se sBlockHash
+        , blkGetHash     = \c -> getSession' se sBlockDownload c (view sBlockHash) --(\BlockDownload{} -> error "AAA")
 
         -- КАК ТОЛЬКО ПРИНЯЛИ ВСЕ ЧАНКИ (ПРИШЁЛ ПОСЛЕДНИЙ ЧАНК):
         --   СЧИТАЕМ ХЭШ ТОГО, ЧТО ПОЛУЧИЛОСЬ
@@ -261,24 +265,26 @@ runFakePeer se env = do
         --     УДАЛЯЕМ КУКУ?
         , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
 
+            let def = BlockDownload h 0 0 0  -- FIXME: ASAP
+
             let chuKey = (p,c)
 
             let bslen = fromIntegral $ B8.length bs
             -- TODO: log this situation
             mbSize   <- MaybeT $ getSession' se sBlockSizes h (Map.lookup p) <&> fromMaybe Nothing
-            mbChSize <- MaybeT $ getSession  se sBlockChunkSize c
+            mbChSize <- MaybeT $ getSession' se sBlockDownload c (view sBlockChunkSize)
 
             let offset = fromIntegral n * fromIntegral mbChSize :: Offset
 
-            updSession se offset sBlockOffset c (max offset)
+            updSession se def sBlockDownload c (over sBlockOffset (max offset))
 
             liftIO $ do
               -- newBlock cww (p,c) h mbSize
               writeChunk cww chuKey h offset bs
-              updSession se 0 sBlockWritten c (+bslen)
+              updSession se def sBlockDownload c (over sBlockWritten (+bslen))
 
-            maxOff <- MaybeT  $ getSession se sBlockOffset c
-            written <- MaybeT $ getSession se sBlockWritten c
+            maxOff <- MaybeT  $ getSession' se sBlockDownload c (view sBlockOffset)
+            written <- MaybeT $ getSession' se sBlockDownload c (view sBlockWritten)
 
             let mbDone = (maxOff + fromIntegral mbChSize) > fromIntegral mbSize
                        && written >= mbSize
@@ -347,12 +353,10 @@ test1 = do
       let cookie = 0
       let s0 = (fst . head) ee
 
-      -- getSession' se sBlockSizes h ???
-
-      withNewSession s0 sBlockHash cookie h $ do
-        let chsz = defChunkSize
-        updSession s0 chsz sBlockChunkSize cookie (const chsz)
-        request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h chsz))
+      let chsz = defChunkSize
+      let def = BlockDownload h 0 0 0 -- FIXME: ASAP!!
+      updSession s0 def sBlockDownload cookie (set sBlockChunkSize chsz)
+      request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h chsz))
 
       pure ()
 
