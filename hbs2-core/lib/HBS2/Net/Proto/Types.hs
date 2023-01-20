@@ -37,6 +37,24 @@ class Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()
 
 
+data family SessionKey  p :: Type
+data family SessionData p :: Type
+
+class ( Monad m
+      , HasProtocol e p
+      , Eq (SessionKey p)
+      ) => Sessions e p m | p -> e where
+
+  fetch  :: SessionData p          -- ^ default value in case it's not found
+         -> SessionKey p           -- ^ session key
+         -> (SessionData p -> a )  -- ^ modification function, i.e. lens
+         -> m a
+
+  update :: SessionKey p                      -- ^ session key
+         -> (SessionData p -> SessionData p)  -- ^ modification function, i.e. lens
+         -> m ()
+
+
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
   type family Encoded e :: Type

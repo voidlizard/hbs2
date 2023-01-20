@@ -67,7 +67,7 @@ data BlockDownload m =
   , _sOnBlockReady   :: OnBlockReady HbSync m
   }
 
-data Sessions e m =
+data MySessions e m =
   Sessions
   { _sBlockDownload  :: Cache (Peer e, Cookie e) (BlockDownload m)
   , _sBlockSizes     :: Cache (Hash HbSync) (Map (Peer e) Size)
@@ -123,7 +123,7 @@ main = do
   --     ]
 
 
-emptySessions :: forall e m . MonadIO m => m (Sessions e m)
+emptySessions :: forall e m . MonadIO m => m (MySessions e m)
 emptySessions = liftIO $
   Sessions <$> Cache.newCache (Just defCookieTimeout)
            <*> Cache.newCache (Just defBlockInfoTimeout)
@@ -316,6 +316,8 @@ test1 = do
 
         let h = fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
 
+        -- updateSession cookie (id)
+        -- se <- getSession cookie (lens)
         -- cookie <- newSession ???
 
         -- newCookie <- genCookie @Fake (p1, h) -- <<~~~ FIXME: generate a good session id!
