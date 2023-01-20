@@ -40,7 +40,7 @@ data EngineEnv e  = forall bus  . ( Messaging bus e ByteString
   EngineEnv
   { _peer      :: Maybe (Peer e)
   , _self      :: Peer e
-  , _sessions  :: Cache (SessionKey e) (SessionData e)
+  , _sessions  :: ()
   , bus        :: bus
   , defer      :: Pipeline IO ()
   }
@@ -114,24 +114,23 @@ instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
 
 
 instance ( MonadIO m
-         , Eq (SessionKey e)
-         , Hashable (SessionKey e)
-         ) => Sessions e (EngineM e m) where
+         , HasProtocol e p
+         ) => Sessions e p (EngineM e m) where
 
-  fetch upd def k fn  = do
-    se <- asks (view sessions)
-    w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
-    when upd (liftIO $ Cache.insert se k def)
-    pure (fn w)
+  fetch upd def k fn  = undefined
+    -- se <- asks (view sessions)
+    -- w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
+    -- when upd (liftIO $ Cache.insert se k def)
+    -- pure (fn w)
 
-  update def k f = do
-    se <- asks (view sessions)
-    w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
-    liftIO $ Cache.insert se k (f w)
+  update def k f = undefined
+    -- se <- asks (view sessions)
+    -- w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
+    -- liftIO $ Cache.insert se k (f w)
 
-  expire k = do
-    se <- asks (view sessions)
-    liftIO $ Cache.delete se k
+  expire k = undefined
+    -- se <- asks (view sessions)
+    -- liftIO $ Cache.delete se k
 
 instance (HasProtocol e p, Serialise (Encoded e)) => Response e p (ResponseM e IO) where
 
@@ -164,7 +163,8 @@ newEnv :: forall e bus m . ( Monad m
 
 newEnv p pipe = do
   de <- liftIO $ newPipeline defProtoPipelineSize
-  se <- liftIO $ Cache.newCache (Just defCookieTimeout) -- FIXME: some more clever for timeout, i.e. typeclass
+  let se = ()
+  -- se <- liftIO $ Cache.newCache (Just defCookieTimeout) -- FIXME: some more clever for timeout, i.e. typeclass
   pure $ EngineEnv Nothing p se pipe de
 
 runPeer :: forall e m a . ( MonadIO m

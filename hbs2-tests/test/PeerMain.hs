@@ -160,16 +160,6 @@ expireSession se l = liftIO do
 -- A questionable FIX to avoid "orphans" complains
 data Adapted e = Adapted
 
-data instance SessionKey (Adapted e) =
-    PeerKeyBlock  (Hash HbSync)
-  | PeerKeyCookie (Cookie e)
-  deriving stock (Eq,Generic)
-
-
-data instance SessionData (Adapted e) = PeerSession
-
-instance Hashable (SessionKey (Adapted e))
-
 
 -- newtype FullPeerM m a = RealPeerM { fromRealPeerM :: ReaderT }
 

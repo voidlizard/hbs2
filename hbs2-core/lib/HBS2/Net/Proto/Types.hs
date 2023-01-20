@@ -48,32 +48,33 @@ class Request e p (m :: Type -> Type) | p -> e where
 --
 -- So it is that it is.
 
-data family SessionKey  e :: Type
-data family SessionData e :: Type
+data family SessionKey  e p :: Type
+data family SessionData e p :: Type
 
 class ( Monad m
-      , Eq (SessionKey e)
-      ) => Sessions e m  where
+      , HasProtocol e p
+      ) => Sessions e p m  | p -> e where
+
 
   -- | Session fetch function.
   -- | It will insert a new session, if default value is Just something.
 
-  fetch  :: Bool                   -- ^ do add new session if not exists
-         -> SessionData e          -- ^ default value in case it's not found
-         -> SessionKey e           -- ^ session key
-         -> (SessionData e -> a )  -- ^ modification function, i.e. lens
+  fetch  :: Bool                     -- ^ do add new session if not exists
+         -> SessionData e p          -- ^ default value in case it's not found
+         -> SessionKey e p           -- ^ session key
+         -> (SessionData e p -> a )  -- ^ modification function, i.e. lens
          -> m a
 
   -- | Session update function
   -- | If will create a new session if it does not exist.
   -- | A modified value (or default) value will we saved.
 
-  update :: SessionData e                    -- ^ default value in case it's not found
-         -> SessionKey e                     -- ^ session key
-         -> (SessionData e -> SessionData e) -- ^ modification function, i.e. lens
+  update :: SessionData e p                      -- ^ default value in case it's not found
+         -> SessionKey e p                       -- ^ session key
+         -> (SessionData e p -> SessionData e p) -- ^ modification function, i.e. lens
          -> m ()
 
-  expire :: SessionKey e -> m ()
+  expire :: SessionKey e p -> m ()
 
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
