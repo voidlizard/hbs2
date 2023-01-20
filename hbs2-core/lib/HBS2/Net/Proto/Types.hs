@@ -10,6 +10,7 @@ import GHC.TypeLits
 import Data.Proxy
 import Data.Hashable
 import Control.Monad.IO.Class
+import Data.Typeable
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -49,10 +50,16 @@ class Request e p (m :: Type -> Type) | p -> e where
 -- So it is that it is.
 
 data family SessionKey  e p :: Type
-data family SessionData e p :: Type
+type family SessionData e p :: Type
+
 
 class ( Monad m
       , HasProtocol e p
+      , Eq (SessionKey e p)
+      , Hashable (SessionKey e p)
+      , Typeable (SessionData e p)
+      -- , Typeable e
+      -- , Typeable p
       ) => Sessions e p m  | p -> e where
 
 

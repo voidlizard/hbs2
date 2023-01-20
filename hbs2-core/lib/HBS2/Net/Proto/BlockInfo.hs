@@ -41,3 +41,8 @@ blockSizeProto getBlockSize evHasBlock =
       evHasBlock ( that, h, Just sz )
 
 
+newtype instance SessionKey e (BlockSize e) =
+  BlockSizeKey (Hash HbSync)
+  deriving stock (Typeable,Eq,Show)
+  deriving newtype (Hashable,IsString)
+

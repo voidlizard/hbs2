@@ -25,8 +25,31 @@ import Lens.Micro.Platform
 import System.Random qualified as Random
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
+import Data.Dynamic
+import Data.Maybe
 
 import Codec.Serialise hiding (encode,decode)
+
+
+data SKey = forall a . (Unkey a, Eq a, Hashable a) => SKey (Proxy a) Dynamic
+
+class Typeable a => Unkey a where
+  unfuck :: Proxy a -> Dynamic -> Maybe a
+
+instance Typeable a => Unkey a where
+  unfuck _ = fromDynamic @a
+
+newSKey :: forall a . (Eq a, Typeable a, Unkey a, Hashable a, Show a) => a -> SKey
+newSKey s = SKey (Proxy @a) (toDyn s)
+
+
+instance Hashable SKey where
+  hashWithSalt s (SKey p d) = hashWithSalt s (unfuck p d)
+
+
+instance Eq SKey where
+  (==) (SKey p1 a) (SKey p2 b) = unfuck p1 a == unfuck p1 b
+
 
 data AnyMessage e = AnyMessage Integer (Encoded e)
                     deriving stock (Generic)
@@ -40,7 +63,7 @@ data EngineEnv e  = forall bus  . ( Messaging bus e ByteString
   EngineEnv
   { _peer      :: Maybe (Peer e)
   , _self      :: Peer e
-  , _sessions  :: ()
+  , _sessions  :: Cache SKey Dynamic
   , bus        :: bus
   , defer      :: Pipeline IO ()
   }
@@ -113,24 +136,61 @@ instance (MonadIO m, HasProtocol e p) => Request e p (EngineM e m) where
         liftIO $ sendTo b (To p) (From s) bs
 
 
+
 instance ( MonadIO m
          , HasProtocol e p
+         , Eq (SessionKey e p)
+         , Typeable (SessionKey e p)
+         , Typeable (SessionData e p)
+         , Hashable (SessionKey e p)
+         , Show (SessionData e p)
+         , Show (SessionKey e p)
+         ) => Sessions e p (ResponseM e m) where
+
+  fetch i d k f = flip runEngineM (fetch i d k f) =<< asks (view engine)
+
+  update d k f = flip runEngineM (update d k f) =<< asks (view engine)
+
+  expire k = flip runEngineM (expire k) =<< asks (view engine)
+
+
+instance ( MonadIO m
+         , HasProtocol e p
+         , Eq (SessionKey e p)
+         , Typeable (SessionKey e p)
+         , Typeable (SessionData e p)
+         , Hashable (SessionKey e p)
+         , Show (SessionData e p)
+         , Show (SessionKey e p)
          ) => Sessions e p (EngineM e m) where
 
-  fetch upd def k fn  = undefined
-    -- se <- asks (view sessions)
-    -- w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
-    -- when upd (liftIO $ Cache.insert se k def)
-    -- pure (fn w)
 
-  update def k f = undefined
-    -- se <- asks (view sessions)
-    -- w <- liftIO $ Cache.fetchWithCache se k (const $ pure def)
-    -- liftIO $ Cache.insert se k (f w)
+  fetch upd def k fn  = do
+    se <- asks (view sessions)
+    let sk = newSKey @(SessionKey e p) k
+    let ddef = toDyn def
 
-  expire k = undefined
-    -- se <- asks (view sessions)
-    -- liftIO $ Cache.delete se k
+    liftIO $ print ("fetch!", show k)
+
+    r <- liftIO $ Cache.lookup se sk
+
+    case r of
+     Just v  -> pure $ fn $ fromMaybe def (fromDynamic @(SessionData e p) v )
+     Nothing -> do
+       when upd $ liftIO $ Cache.insert se sk ddef
+       pure (fn def)
+
+  update def k f = do
+    se <- asks (view sessions)
+    val <- fetch @e @p True def k id
+    liftIO $ print "UPDATE !!!!"
+    liftIO $ Cache.insert se (newSKey @(SessionKey e p) k) (toDyn (f val))
+    z <- liftIO $ Cache.lookup se (newSKey k)
+    liftIO $ print $ ("INSERTED SHIT", z)
+
+  expire k = do
+    se <- asks (view sessions)
+    liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
 instance (HasProtocol e p, Serialise (Encoded e)) => Response e p (ResponseM e IO) where
 
@@ -163,8 +223,7 @@ newEnv :: forall e bus m . ( Monad m
 
 newEnv p pipe = do
   de <- liftIO $ newPipeline defProtoPipelineSize
-  let se = ()
-  -- se <- liftIO $ Cache.newCache (Just defCookieTimeout) -- FIXME: some more clever for timeout, i.e. typeclass
+  se <- liftIO $ Cache.newCache (Just defCookieTimeout) -- FIXME: some more clever for timeout, i.e. typeclass
   pure $ EngineEnv Nothing p se pipe de
 
 runPeer :: forall e m a . ( MonadIO m
@@ -198,12 +257,14 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
 
             local (set peer (Just pip))  do
 
+              ee <- ask
+
               case Map.lookup n disp of
                 Nothing -> pure ()
 
                 Just (AnyProtocol { protoDecode = decoder
                                   , handle = h
-                                  }) -> maybe (pure ()) (runResponseM env pip . h) (decoder msg)
+                                  }) -> maybe (pure ()) (runResponseM ee pip . h) (decoder msg)
 
 -- FIXME: slow and dumb
 instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e (EngineM e m) where

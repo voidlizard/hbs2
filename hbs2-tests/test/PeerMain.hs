@@ -1,6 +1,7 @@
 {-# Language RankNTypes #-}
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -44,6 +45,9 @@ import System.Exit
 import System.FilePath.Posix
 import System.IO
 import Control.Concurrent
+import Data.Default
+import Control.Monad.Reader
+import Data.Dynamic
 
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue qualified as Q
@@ -111,6 +115,22 @@ instance HasProtocol Fake (BlockChunks Fake) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+
+type instance SessionData Fake (BlockSize Fake) = BlockSizeSession Fake
+
+newtype BlockSizeSession e =
+  BlockSizeSession
+  { _bsBlockSizes :: Map (Peer e) Size
+  }
+
+makeLenses 'BlockSizeSession
+
+instance Ord (Peer e) => Default (BlockSizeSession e) where
+  def = BlockSizeSession mempty
+
+deriving stock instance Show (BlockSizeSession Fake)
+
+
 main :: IO ()
 main = do
   hSetBuffering stderr LineBuffering
@@ -174,9 +194,9 @@ runFakePeer :: forall e  b . ( e ~ Fake
             -> b
             -> EngineM e IO ()
             -> IO ()
-runFakePeer p bus work = do
+runFakePeer p0 bus work = do
 
-  env <- newEnv p bus
+  env <- newEnv p0 bus
 
   se <- emptySessions @e
 
@@ -191,7 +211,7 @@ runFakePeer p bus work = do
   let opts = [ StoragePrefix dir
              ]
 
-  storage <- simpleStorageInit opts -- :: IO (SimpleStorage HbSync)
+  storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
   w <- liftIO $ async $ simpleStorageWorker storage
 
@@ -213,11 +233,19 @@ runFakePeer p bus work = do
        maybe1 sz' (pure ()) $ \sz -> do
         let bsz = fromIntegral sz
 
+        z <- fetch @e False def (BlockSizeKey h) id
+        liftIO $ print ("QQQQQ", pretty p0, pretty p, z)
+
+        update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
+
         -- here we cache block size information
         updSession se mempty sBlockSizes h (Map.insert p  bsz)
         updSession se bsz sBlockSize h (const bsz)
 
        debug $ pretty p <+> "has block" <+> pretty h <+> pretty sz'
+
+       z <- fetch @e False def (BlockSizeKey h) id
+       liftIO $ print ("BEBEBE", pretty p0, pretty p, z)
 
   let adapter =
         BlockChunksI
@@ -305,7 +333,7 @@ test1 = do
 
   fake <- newFakeP2P True
 
-  void $ race (pause (2 :: Timeout 'Seconds)) $ do
+  void $ race (pause (10 :: Timeout 'Seconds)) $ do
 
       let p0 = 0 :: Peer Fake
       let p1 = 1 :: Peer Fake
@@ -314,10 +342,26 @@ test1 = do
 
       p0Thread <- async $ runFakePeer p0 fake $ do
 
-        request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
-        request p1 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
+        let h1 = "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+        let h0 = "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
 
-        let h = fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+        -- fetch @Fake @(BlockSize Fake) True def h id
+        -- update @Fake @(BlockSize Fake) def (fromString h1) (over bsBlockSizes (Map.insert p1 111))
+        update @Fake @(BlockSize Fake) def (BlockSizeKey (fromString h0)) (over bsBlockSizes (Map.insert p0 100))
+
+        -- request p1 (GetBlockSize @Fake (fromString h1))
+        request p0 (GetBlockSize @Fake (fromString h0))
+
+        se1 <- fetch @Fake @(BlockSize Fake) False def (BlockSizeKey (fromString h0)) id
+        -- se2 <- fetch @Fake @(BlockSize Fake) False def (fromString h1) id
+
+        jopa <- asks (view sessions)
+
+        wtf <- liftIO $ Cache.lookup jopa (newSKey @(SessionKey Fake (BlockSize Fake)) (BlockSizeKey (fromString h0)))
+
+        pause ( 2 :: Timeout 'Seconds)
+
+        liftIO $ print $ (p0, "AAAAAA", se1, fromDynamic @(SessionData Fake (BlockSize Fake)) (fromJust wtf))
 
         -- updateSession cookie (id)
         -- se <- getSession cookie (lens)
@@ -382,6 +426,8 @@ test1 = do
     --  -- let mbLink = deserialiseOrFail @Merkle obj
 
     --  pure ()
+
+      pause ( 5 :: Timeout 'Seconds)
 
       mapM_ cancel peerz
 

@@ -40,6 +40,7 @@ common common-deps
         , transformers
         , uniplate
         , vector
+        , data-default
 
 common shared-properties
   ghc-options:
@@ -98,6 +99,20 @@ test-suite test-peer
     main-is:          PeerMain.hs
 
 
+test-suite test-hmap
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
 
+    other-modules:
+
+    build-depends: HMap
+                 , data-default
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          HmapMain.hs
 
 

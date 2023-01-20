@@ -370,6 +370,7 @@ simpleReadLinkRaw ss hash = do
 instance ( MonadIO m, IsKey hash
          , Hashed hash LBS.ByteString
          , Key hash ~ Hash hash
+         , Block LBS.ByteString ~ LBS.ByteString
          )
   => Storage (SimpleStorage hash) hash LBS.ByteString m where
 
