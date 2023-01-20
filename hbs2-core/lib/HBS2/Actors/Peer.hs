@@ -39,7 +39,7 @@ class Typeable a => Unkey a where
 instance Typeable a => Unkey a where
   unfuck _ = fromDynamic @a
 
-newSKey :: forall a . (Eq a, Typeable a, Unkey a, Hashable a, Show a) => a -> SKey
+newSKey :: forall a . (Eq a, Typeable a, Unkey a, Hashable a) => a -> SKey
 newSKey s = SKey (Proxy @a) (toDyn s)
 
 
@@ -143,8 +143,6 @@ instance ( MonadIO m
          , Typeable (SessionKey e p)
          , Typeable (SessionData e p)
          , Hashable (SessionKey e p)
-         , Show (SessionData e p)
-         , Show (SessionKey e p)
          ) => Sessions e p (ResponseM e m) where
 
   fetch i d k f = flip runEngineM (fetch i d k f) =<< asks (view engine)
@@ -160,8 +158,6 @@ instance ( MonadIO m
          , Typeable (SessionKey e p)
          , Typeable (SessionData e p)
          , Hashable (SessionKey e p)
-         , Show (SessionData e p)
-         , Show (SessionKey e p)
          ) => Sessions e p (EngineM e m) where
 
 
@@ -169,8 +165,6 @@ instance ( MonadIO m
     se <- asks (view sessions)
     let sk = newSKey @(SessionKey e p) k
     let ddef = toDyn def
-
-    liftIO $ print ("fetch!", show k)
 
     r <- liftIO $ Cache.lookup se sk
 
@@ -183,10 +177,7 @@ instance ( MonadIO m
   update def k f = do
     se <- asks (view sessions)
     val <- fetch @e @p True def k id
-    liftIO $ print "UPDATE !!!!"
     liftIO $ Cache.insert se (newSKey @(SessionKey e p) k) (toDyn (f val))
-    z <- liftIO $ Cache.lookup se (newSKey k)
-    liftIO $ print $ ("INSERTED SHIT", z)
 
   expire k = do
     se <- asks (view sessions)
@@ -266,10 +257,5 @@ runPeer env@(EngineEnv {bus = pipe, defer = d}) hh = do
                                   , handle = h
                                   }) -> maybe (pure ()) (runResponseM ee pip . h) (decoder msg)
 
--- FIXME: slow and dumb
-instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e (EngineM e m) where
-  genCookie salt = do
-    r <- liftIO $ Random.randomIO @Int
-    pure $ fromInteger $ fromIntegral $ asWord32 $ hash32 (hash salt + r)
 
 

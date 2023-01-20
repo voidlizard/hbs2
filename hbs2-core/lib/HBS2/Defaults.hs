@@ -19,6 +19,9 @@ defPipelineSize = 100
 defChunkWriterQ :: Integral a => a
 defChunkWriterQ = 100
 
+defBlockDownloadQ :: Integral a => a
+defBlockDownloadQ = 100
+
 defBlockDownloadThreshold :: Integral a => a
 defBlockDownloadThreshold = 2
 

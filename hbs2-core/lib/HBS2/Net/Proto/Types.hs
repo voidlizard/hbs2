@@ -1,6 +1,7 @@
 {-# Language TypeFamilyDependencies #-}
 {-# Language FunctionalDependencies #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where
@@ -11,6 +12,8 @@ import Data.Proxy
 import Data.Hashable
 import Control.Monad.IO.Class
 import Data.Typeable
+import System.Random qualified as Random
+import Data.Digest.Murmur32
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -92,4 +95,11 @@ class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
 
   decode :: Encoded e -> Maybe p
   encode :: p -> Encoded e
+
+
+-- FIXME: slow and dumb
+instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e m where
+  genCookie salt = do
+    r <- liftIO $ Random.randomIO @Int
+    pure $ fromInteger $ fromIntegral $ asWord32 $ hash32 (hash salt + r)
 

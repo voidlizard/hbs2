@@ -24,7 +24,7 @@ data Pipeline m a =
   , toQueue    :: TBMQueue ( m a )
   }
 
-newPipeline :: forall a (m :: Type -> Type) . MonadIO m => Int -> m (Pipeline m a)
+newPipeline :: forall a (m1 :: Type -> Type)  (m :: Type -> Type) . (MonadIO m, MonadIO m1)  => Int -> m (Pipeline m1 a)
 newPipeline size = do
   tv <- liftIO $ TVar.newTVarIO False
   liftIO $ TBMQ.newTBMQueueIO size <&> Pipeline tv
