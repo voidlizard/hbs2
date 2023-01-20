@@ -16,7 +16,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy ( ByteString )
 import Data.Digest.Murmur32
-import Data.Foldable
+import Data.Foldable hiding (find)
 import Data.Hashable
 import Data.Kind
 import Data.Map qualified as Map
@@ -145,6 +145,8 @@ instance ( MonadIO m
          , Hashable (SessionKey e p)
          ) => Sessions e p (ResponseM e m) where
 
+  find k f = flip runEngineM (find k f) =<< asks (view engine)
+
   fetch i d k f = flip runEngineM (fetch i d k f) =<< asks (view engine)
 
   update d k f = flip runEngineM (update d k f) =<< asks (view engine)
@@ -160,6 +162,14 @@ instance ( MonadIO m
          , Hashable (SessionKey e p)
          ) => Sessions e p (EngineM e m) where
 
+
+  find k f = do
+    se <- asks (view sessions)
+    let sk = newSKey @(SessionKey e p) k
+    r <- liftIO $ Cache.lookup se sk
+    case fromDynamic @(SessionData e p) <$> r of
+      Just v  -> pure $ f <$> v
+      Nothing -> pure Nothing
 
   fetch upd def k fn  = do
     se <- asks (view sessions)

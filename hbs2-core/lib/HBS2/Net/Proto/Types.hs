@@ -66,6 +66,14 @@ class ( Monad m
       ) => Sessions e p m  | p -> e where
 
 
+
+  -- | Session fetch function.
+  -- | It will insert a new session, if default value is Just something.
+
+  find :: SessionKey e p           -- ^ session key
+       -> (SessionData e p -> a)  -- ^ modification function, i.e. lens
+       -> m (Maybe a)
+
   -- | Session fetch function.
   -- | It will insert a new session, if default value is Just something.
 
