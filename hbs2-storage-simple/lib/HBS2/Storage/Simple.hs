@@ -2,7 +2,6 @@
 {-# Language ScopedTypeVariables #-}
 module HBS2.Storage.Simple
   ( module HBS2.Storage.Simple
-  , module HBS2.Storage
   ) where
 
 import Control.Concurrent.Async

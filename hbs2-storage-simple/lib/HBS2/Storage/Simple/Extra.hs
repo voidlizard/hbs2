@@ -4,6 +4,7 @@ module HBS2.Storage.Simple.Extra where
 import HBS2.Merkle
 import HBS2.Hash
 import HBS2.Prelude
+import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Data.Types.Refs
 import HBS2.Defaults

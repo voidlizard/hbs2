@@ -80,6 +80,7 @@ library
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.Types
                     , HBS2.Net.Proto.BlockInfo
+                    , HBS2.Net.Proto.BlockChunks
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
