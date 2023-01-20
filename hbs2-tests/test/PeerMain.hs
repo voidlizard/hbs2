@@ -138,6 +138,9 @@ main = do
   --     ]
 
 
+-- TODO: абстрактные нотификации, т.к это всё типизируется
+--       по ключу-значению
+
 data PeerEvents e (m :: Type -> Type) =
   PeerEvents
   { onBlockSize  :: TVar (Map (Hash HbSync) [HasBlockEvent HbSync e m])
@@ -341,10 +344,33 @@ test1 = do
       let p0 = 0 :: Peer Fake
       let p1 = 1 :: Peer Fake
 
-      ev1 <- newPeerEventsIO @_ @(EngineM Fake IO)
-      ev0 <- newPeerEventsIO @_ @(EngineM Fake IO)
+      ev1 <- newPeerEventsIO
+      ev0 <- newPeerEventsIO
 
       p1Thread <- async $ runFakePeer ev1 p1 fake $ forever $ liftIO yield
+
+      -- TODO: замутить мап/кэш со статистикой по блоку:
+      --       сколько блок там маринуется и т.п.
+      --       Если блок в этом кэше и еще не скачан, то
+      --       ... пробуем качать повторно?
+      --       ... увеличиваем время
+      --       ... если не появилось новых пиров
+      --       ... запоминать, у какого пира уже спрашивали и стараться
+      --       ... спрашивать у других?
+      --       ... для каждого блока - вести список, у кого лучше спрашивать?
+      --       ... и там whilelist, blacklist
+      --       ... не дохрена ли это будет занимать?
+      --
+      --       ... и тут, короче, еще кэш WiP
+      --       ... и еще один поток, который это всё хэндлит, например:
+      --       ... берём статистику блоков, берём wip
+      --       ... если блок не wip и до сих пор в мапе --- то то добавляем
+      --       ... в очередь.
+      --
+      --       ... блоку пишем, у каких пиров уже спрашивали (Set)
+      --       ... блоку пишем, когда стартовал процесс
+      --
+      --
 
       let ini = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
                 , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
@@ -358,6 +384,11 @@ test1 = do
       p0Thread <- async $ runFakePeer ev0 p0 fake $ do
 
         -- TODO: random shuffle and take X
+        -- подтягиваем новых пиров откуда можем
+        -- для каждого блока решаем, откуда брать:
+        --  shuffle (white-list) <> shuffle (black-list)
+        --
+        --
         let knownPeers = [p1]
 
         fix \next -> do
@@ -367,8 +398,29 @@ test1 = do
           -- TODO: check is this block is already here
           --       maybe emit event to continue -> parse/seek for content
 
+          -- TODO: убивать нотификации, если блок скачан или что-то с ним еще
+          --       приключилось
+          --
+          --       добавляем сюда экшоны на почистить:
+          --       добавили нотификацию --- экшон на
+          --       почистить нотификацию
+          --
+          --       добавили еще какую парашу -- экшон на
+          --       её очистку
+          --
+          --       у каждого экшона - дедлайн
+          --       и там процесс, который берёт тех, у кого дедлайн
+          --       истёк и вызывает их
+          --       ?
+
           addBlockReadyEventNotify ev0 blkHash $ \h -> do
             debug $ "DOWNLOADED BLOCK" <+> pretty h <+> "NOW WHAT?"
+
+          --  -- TODO: смотрим, что за блок
+          --  --       если Merkle - то качаем рекурсивно
+          --  --       если ссылка - то смотрим, что за ссылка
+          --  --       проверяем пруфы
+          --  --       качаем рекурсивно
 
           -- TODO: надо трекать, может блок-то и найден
           --       либо по всем пирам спросить
@@ -401,48 +453,6 @@ test1 = do
 
       let peerz = p0Thread : [p1Thread]
 
-    -- peerz <- mapM (async . uncurry runFakePeer) ee
-
-    --runEngineM e0 $ do
-
-
-    --  -- TODO: #ASAP generate unique cookie!!
-    --  --
-    --  -- FIXME: withAllCrap $ do ...
-    --  let s0 = (fst . head) ee
-
-    --  newCookie <- genCookie @Fake (p1, h) -- <<~~~ FIXME: generate a good session id!
-
-    --  let cKey@(_, cookie) = (p1, newCookie)
-    --  let chsz = defChunkSize
-
-    --  debug $ "new cookie:" <+> pretty cookie
-
-    --  qblk <- liftIO Q.newTQueueIO
-
-    --  let onBlockReady bh = do
-    --        liftIO $ atomically $ Q.writeTQueue qblk bh
-
-    --  let def = newBlockDownload h onBlockReady
-
-    --  -- create sessions before sequesting anything
-    --  updSession s0 def sBlockDownload cKey (set sBlockChunkSize chsz)
-
-    --  request p1 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
-    --  request p1 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
-
-    --  request p0 (GetBlockSize @Fake (fromString "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"))
-    --  request p0 (GetBlockSize @Fake (fromString "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"))
-
-    --  -- TODO: #ASAP block ready notification
-
-    --  debug $ "REQUEST BLOCK:" <+> pretty h <+> "from" <+> pretty p1
-
-    --  request p1 (BlockChunks @Fake cookie (BlockGetAllChunks h chsz))
-
-    --  blk <- liftIO $ atomically $ Q.readTQueue qblk
-
-    --  debug $ "BLOCK READY:" <+> pretty blk
 
     --  -- TODO: смотрим, что за блок
     --  --       если Merkle - то качаем рекурсивно
