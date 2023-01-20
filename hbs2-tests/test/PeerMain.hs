@@ -154,11 +154,11 @@ addBlockSizeEventNotify :: forall e m . (MonadIO m)
 addBlockSizeEventNotify pe h e = do
   void $ liftIO $ atomically $ modifyTVar' (onBlockSize pe) (Map.insertWith (<>) h [e])
 
-emitBlockSizeEvent :: MonadIO m
+emitBlockSizeEvent :: forall e m . MonadIO m
                    => PeerEvents e m
                    -> Hash HbSync
                    -> (Peer e, Hash HbSync, Maybe Integer)
-                   -> m ()
+                   -> m  ()
 
 emitBlockSizeEvent pe h event = do
   ev <- liftIO $ atomically $ stateTVar (onBlockSize pe) alter
@@ -171,16 +171,18 @@ emitBlockSizeEvent pe h event = do
 
 
 runFakePeer :: forall e  b m . ( e ~ Fake
-                               , MonadIO m
+                               -- , MonadIO m
                                , Messaging b e ByteString
+                               -- , Sessions Fake (BlockSize Fake)
+                               -- , m ~ ResponseM Fake IO
                                -- , MonadIO m
                                -- , Response e p m
                                -- , EngineM e m
                                )
-            => PeerEvents e m
+            => PeerEvents e (EngineM e IO)
             -> Peer e
             -> b
-            -> EngineM e m ()
+            -> EngineM e IO ()
             -> IO  ()
 
 runFakePeer ev p0 bus work = do
@@ -221,7 +223,7 @@ runFakePeer ev p0 bus work = do
         let bsz = fromIntegral sz
 
         update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
-        emitBlockSizeEvent ev h (p, h, Just sz)
+        lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
 
   let adapter =
         BlockChunksI
@@ -317,10 +319,10 @@ test1 = do
       let p0 = 0 :: Peer Fake
       let p1 = 1 :: Peer Fake
 
-      ev1 <- liftIO newPeerEventsIO
-      ev0 <- liftIO newPeerEventsIO
+      ev1 <- newPeerEventsIO @_ @(EngineM Fake IO)
+      ev0 <- newPeerEventsIO @_ @(EngineM Fake IO)
 
-      p1Thread <- async $ runFakePeer ev1 p1 fake (liftIO $ forever yield)
+      p1Thread <- async $ runFakePeer ev1 p1 fake $ forever $ liftIO yield
 
       let ini = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
                 , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
@@ -330,6 +332,7 @@ test1 = do
         b <- newTBQueueIO defBlockDownloadQ
         traverse_ (atomically . TBQ.writeTBQueue b) ini
         pure b
+
 
       p0Thread <- async $ runFakePeer ev0 p0 fake $ do
 
@@ -348,16 +351,12 @@ test1 = do
 
           addBlockSizeEventNotify ev0 blkHash $ \case
             (p, h, Just _) -> do
-              -- coo <- genCookie (p,blkHash)
-              -- let key = DownloadSessionKey (p, coo)
-              -- let new = newBlockDownload blkHash
-              -- update @Fake new key id
-              -- (over bsBlockSizes (Map.insert p bsz))
+              coo <- genCookie (p,blkHash)
+              let key = DownloadSessionKey (p, coo)
+              let new = newBlockDownload blkHash
+              update @Fake new key id
               request p (GetBlockSize @Fake blkHash)
-              -- liftIO $ print $ "DAVAI BLOCK!" <+> pretty h
-              -- update
-              -- let q = pure ()
-              pure ()
+              liftIO $ print $ "DAVAI BLOCK!" <+> pretty h
 
             _ -> pure ()
 
