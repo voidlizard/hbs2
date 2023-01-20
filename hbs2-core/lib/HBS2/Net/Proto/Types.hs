@@ -37,23 +37,43 @@ class Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()
 
 
-data family SessionKey  p :: Type
-data family SessionData p :: Type
+-- we probably can not separate sessions
+-- by sub-protocol types without
+-- really crazy types.
+--
+-- And if we really need this, it may be done
+-- by injecting a protocol type into 'e' or
+-- introducing a common ADT for all session types
+-- for common 'e' i.e. 'engine' or 'transport'
+--
+-- So it is that it is.
+
+data family SessionKey  e :: Type
+data family SessionData e :: Type
 
 class ( Monad m
-      , HasProtocol e p
-      , Eq (SessionKey p)
-      ) => Sessions e p m | p -> e where
+      , Eq (SessionKey e)
+      ) => Sessions e m  where
 
-  fetch  :: SessionData p          -- ^ default value in case it's not found
-         -> SessionKey p           -- ^ session key
-         -> (SessionData p -> a )  -- ^ modification function, i.e. lens
+  -- | Session fetch function.
+  -- | It will insert a new session, if default value is Just something.
+
+  fetch  :: Bool                   -- ^ do add new session if not exists
+         -> SessionData e          -- ^ default value in case it's not found
+         -> SessionKey e           -- ^ session key
+         -> (SessionData e -> a )  -- ^ modification function, i.e. lens
          -> m a
 
-  update :: SessionKey p                      -- ^ session key
-         -> (SessionData p -> SessionData p)  -- ^ modification function, i.e. lens
+  -- | Session update function
+  -- | If will create a new session if it does not exist.
+  -- | A modified value (or default) value will we saved.
+
+  update :: SessionData e                    -- ^ default value in case it's not found
+         -> SessionKey e                     -- ^ session key
+         -> (SessionData e -> SessionData e) -- ^ modification function, i.e. lens
          -> m ()
 
+  expire :: SessionKey e -> m ()
 
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
