@@ -4,13 +4,10 @@
 {-# Language AllowAmbiguousTypes #-}
 module Main where
 
-import HBS2.Actors
 import HBS2.Actors.ChunkWriter
 import HBS2.Actors.Peer
 import HBS2.Clock
-import HBS2.Defaults
 import HBS2.Hash
-import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
@@ -28,16 +25,10 @@ import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as B8
-import Data.Cache (Cache)
-import Data.Cache qualified as Cache
 import Data.Default
-import Data.Dynamic
-import Data.Foldable hiding (find)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe
 import Data.Word
-import GHC.TypeLits
 import Lens.Micro.Platform
 import Prettyprinter hiding (pipe)
 import System.Directory
