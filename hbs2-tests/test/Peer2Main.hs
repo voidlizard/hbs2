@@ -25,6 +25,7 @@ import Data.Map qualified as Map
 import Data.Word
 import GHC.TypeLits
 import Lens.Micro.Platform
+import Control.Concurrent.Async
 
 import Prettyprinter hiding (pipe)
 
@@ -88,6 +89,19 @@ deriving stock instance Show (BlockSizeSession Fake)
 
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
+
+
+data AnyStorage = forall s . Storage s HbSync ByteString IO => AnyStorage s
+
+instance Storage s HbSync ByteString IO
+  => Storage AnyStorage HbSync ByteString IO where
+
+  putBlock (AnyStorage s) = putBlock s
+  enqueueBlock (AnyStorage s) = enqueueBlock s
+  getBlock (AnyStorage s) = getBlock s
+  getChunk (AnyStorage s) = getChunk s
+  hasBlock (AnyStorage s) = hasBlock s
+
 
 data Fabriq e = forall bus . Messaging bus e ByteString => Fabriq bus
 
@@ -174,11 +188,14 @@ instance Monad m => HasOwnPeer e (PeerM e m) where
 instance Monad m => HasFabriq e (PeerM e m) where
   getFabriq = asks (view envFab)
 
-runPeerM :: MonadIO m => Peer e -> Fabriq e -> PeerM e m a -> m a
+runPeerM :: MonadIO m => Peer e -> Fabriq e -> PeerM e m a -> m ()
 runPeerM p bus f = do
   env <- PeerEnv p bus <$> newPipeline defProtoPipelineSize
-  runReaderT (fromPeerM f) env
-
+  let de = view envDeferred env
+  as <- liftIO $ async $ runPipeline de
+  void $ runReaderT (fromPeerM f) env
+  void $ liftIO $ stopPipeline de
+  liftIO $ cancel as
 
 runProto :: forall e m  . ( MonadIO m
                           , HasOwnPeer e m
@@ -218,7 +235,6 @@ runProto hh = do
                               , handle = h
                               }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
-
 instance ( HasProtocol e p
          , Serialise (Encoded e)
          , MonadTrans (ResponseM e)
@@ -249,7 +265,7 @@ main = do
   runPeerM (FakePeer 0) (Fabriq fake) $ do
     runProto @Fake
       [ makeResponse (blockSizeProto undefined undefined)
-      , makeResponse (blockChunksProto undefined)
+      -- , makeResponse (blockChunksProto undefined)
       ]
 
   pure ()
