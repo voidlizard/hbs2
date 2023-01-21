@@ -128,8 +128,9 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 
 data PeerEnv e =
   PeerEnv
-  { _envSelf :: Peer e
-  , _envFab  :: Fabriq e
+  { _envSelf     :: Peer e
+  , _envFab      :: Fabriq e
+  , _envDeferred :: Pipeline IO ()
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -173,9 +174,9 @@ instance Monad m => HasOwnPeer e (PeerM e m) where
 instance Monad m => HasFabriq e (PeerM e m) where
   getFabriq = asks (view envFab)
 
-runPeerM :: Peer e -> Fabriq e -> PeerM e m a -> m a
+runPeerM :: MonadIO m => Peer e -> Fabriq e -> PeerM e m a -> m a
 runPeerM p bus f = do
-  let env = PeerEnv p bus
+  env <- PeerEnv p bus <$> newPipeline defProtoPipelineSize
   runReaderT (fromPeerM f) env
 
 
@@ -218,20 +219,18 @@ runProto hh = do
                               }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
 
-instance ( MonadIO m
-         , HasProtocol e p
-         , HasFabriq e m
-         , HasOwnPeer e m
+instance ( HasProtocol e p
          , Serialise (Encoded e)
          , MonadTrans (ResponseM e)
-         ) => Response e p (ResponseM e m) where
+         ) => Response e p (ResponseM e (PeerM e IO)) where
 
   thatPeer _ = asks (view answTo)
 
   deferred _ action = do
-    -- d <- asks (view defer)
-    undefined
-    -- addJob d _
+    who <- asks (view answTo)
+    fab <- lift $ getFabriq @e
+    pip <- lift $ asks (view envDeferred)
+    liftIO $ addJob pip $ runPeerM who fab (runResponseM who action)
 
   response msg = do
     let proto = protoId @e @p (Proxy @p)
