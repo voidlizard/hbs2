@@ -1,6 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Actors.Peer where
+module HBS2.Actors.OldPeer where
 
 import HBS2.Prelude
 import HBS2.Prelude.Plated

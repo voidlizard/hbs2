@@ -58,3 +58,5 @@ calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
   where
     chu = fmap (,s2) (takeWhile (<s1) $ iterate (+s2) 0)
 
+
+

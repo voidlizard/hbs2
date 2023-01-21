@@ -1,6 +1,2 @@
-packages:
-  hbs2/hbs2.cabal
-  hbs2-core/hbs2-core.cabal
-  hbs2-storage-simple/hbs2-storage-simple.cabal
-
+packages: **/*.cabal
 
