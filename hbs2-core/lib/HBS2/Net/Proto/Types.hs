@@ -11,7 +11,6 @@ import GHC.TypeLits
 import Data.Proxy
 import Data.Hashable
 import Control.Monad.IO.Class
-import Data.Typeable
 import System.Random qualified as Random
 import Data.Digest.Murmur32
 
@@ -41,58 +40,6 @@ class Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()
 
 
--- we probably can not separate sessions
--- by sub-protocol types without
--- really crazy types.
---
--- And if we really need this, it may be done
--- by injecting a protocol type into 'e' or
--- introducing a common ADT for all session types
--- for common 'e' i.e. 'engine' or 'transport'
---
--- So it is that it is.
-
-data family SessionKey  e p :: Type
-type family SessionData e p :: Type
-
-
-class ( Monad m
-      , HasProtocol e p
-      , Eq (SessionKey e p)
-      , Hashable (SessionKey e p)
-      , Typeable (SessionData e p)
-      -- , Typeable e
-      -- , Typeable p
-      ) => Sessions e p m  | p -> e where
-
-
-
-  -- | Session fetch function.
-  -- | It will insert a new session, if default value is Just something.
-
-  find :: SessionKey e p           -- ^ session key
-       -> (SessionData e p -> a)  -- ^ modification function, i.e. lens
-       -> m (Maybe a)
-
-  -- | Session fetch function.
-  -- | It will insert a new session, if default value is Just something.
-
-  fetch  :: Bool                     -- ^ do add new session if not exists
-         -> SessionData e p          -- ^ default value in case it's not found
-         -> SessionKey e p           -- ^ session key
-         -> (SessionData e p -> a )  -- ^ modification function, i.e. lens
-         -> m a
-
-  -- | Session update function
-  -- | If will create a new session if it does not exist.
-  -- | A modified value (or default) value will we saved.
-
-  update :: SessionData e p                      -- ^ default value in case it's not found
-         -> SessionKey e p                       -- ^ session key
-         -> (SessionData e p -> SessionData e p) -- ^ modification function, i.e. lens
-         -> m ()
-
-  expire :: SessionKey e p -> m ()
 
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p

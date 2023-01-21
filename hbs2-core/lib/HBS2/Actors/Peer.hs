@@ -31,25 +31,6 @@ import Data.Maybe
 import Codec.Serialise hiding (encode,decode)
 
 
-data SKey = forall a . (Unkey a, Eq a, Hashable a) => SKey (Proxy a) Dynamic
-
-class Typeable a => Unkey a where
-  unfuck :: Proxy a -> Dynamic -> Maybe a
-
-instance Typeable a => Unkey a where
-  unfuck _ = fromDynamic @a
-
-newSKey :: forall a . (Eq a, Typeable a, Unkey a, Hashable a) => a -> SKey
-newSKey s = SKey (Proxy @a) (toDyn s)
-
-
-instance Hashable SKey where
-  hashWithSalt s (SKey p d) = hashWithSalt s (unfuck p d)
-
-
-instance Eq SKey where
-  (==) (SKey p1 a) (SKey p2 b) = unfuck p1 a == unfuck p1 b
-
 
 data AnyMessage e = AnyMessage Integer (Encoded e)
                     deriving stock (Generic)

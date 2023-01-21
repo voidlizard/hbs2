@@ -12,6 +12,7 @@ import HBS2.Hash
 import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Prelude.Plated
@@ -26,10 +27,14 @@ import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as B8
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
 import Data.Default
-import Data.Foldable
+import Data.Dynamic
+import Data.Foldable hiding (find)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe
 import Data.Word
 import GHC.TypeLits
 import Lens.Micro.Platform
@@ -79,7 +84,7 @@ instance HasProtocol Fake (BlockChunks Fake) where
   encode = serialise
 
 
-type instance SessionData Fake (BlockSize Fake) = BlockSizeSession Fake
+type instance SessionData e (BlockSize e) = BlockSizeSession e
 type instance SessionData Fake (BlockChunks Fake) = BlockDownload
 
 newtype instance SessionKey Fake (BlockChunks Fake) =
@@ -160,6 +165,7 @@ data PeerEnv e =
   , _envFab      :: Fabriq e
   , _envStorage  :: AnyStorage
   , _envDeferred :: Pipeline IO ()
+  , _envSessions :: Cache SKey Dynamic
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -206,9 +212,56 @@ instance Monad m => HasFabriq e (PeerM e m) where
 instance Monad m => HasStorage (PeerM e m) where
   getStorage = asks (view envStorage)
 
+
+instance ( MonadIO m
+         , HasProtocol e p
+         , Eq (SessionKey e p)
+         , Typeable (SessionKey e p)
+         , Typeable (SessionData e p)
+         , Hashable (SessionKey e p)
+         ) => Sessions e p (PeerM e m) where
+
+
+  find k f = do
+    se <- asks (view envSessions)
+    let sk = newSKey @(SessionKey e p) k
+    r <- liftIO $ Cache.lookup se sk
+    case fromDynamic @(SessionData e p) <$> r of
+      Just v  -> pure $ f <$> v
+      Nothing -> pure Nothing
+
+  fetch upd de k fn  = do
+    se <- asks (view envSessions)
+    let sk = newSKey @(SessionKey e p) k
+    let ddef = toDyn de
+
+    r <- liftIO $ Cache.lookup se sk
+
+    case r of
+     Just v  -> pure $ fn $ fromMaybe de (fromDynamic @(SessionData e p) v )
+     Nothing -> do
+       when upd $ liftIO $ Cache.insert se sk ddef
+       pure (fn de)
+
+  update de k f = do
+    se <- asks (view envSessions)
+    val <- fetch @e @p True de k id
+    liftIO $ Cache.insert se (newSKey @(SessionKey e p) k) (toDyn (f val))
+
+  expire k = do
+    se <- asks (view envSessions)
+    liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
+
+
+
+
+
 runPeerM :: MonadIO m => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
+
   env <- PeerEnv p bus s <$> newPipeline defProtoPipelineSize
+                         <*> liftIO (Cache.newCache (Just defCookieTimeout))
+
   let de = view envDeferred env
   as <- liftIO $ async $ runPipeline de
   void $ runReaderT (fromPeerM f) env
@@ -277,6 +330,25 @@ instance ( HasProtocol e p
     sendTo fab (To who) (From self) bs
 
 
+
+instance ( MonadIO m
+         , HasProtocol e p
+         , Sessions e p m
+         , Eq (SessionKey e p)
+         , Typeable (SessionKey e p)
+         , Typeable (SessionData e p)
+         , Hashable (SessionKey e p)
+         ) => Sessions e p (ResponseM e m) where
+
+  find k f = lift (find k f)
+
+  fetch i d k f = lift (fetch i d k f)
+
+  update d k f = lift (update d k f)
+
+  expire k = lift (expire  k)
+
+
 runTestPeer :: Peer Fake
             -> (SimpleStorage HbSync -> IO ())
             -> IO ()
@@ -304,7 +376,21 @@ runTestPeer p zu = do
   mapM_ cancel [sw,cw]
 
 
+handleBlockInfo :: forall e m . ( Monad m
+                                , Sessions e (BlockSize e) m
+                                , Default (SessionData e (BlockSize e))
+                                , Ord (Peer e)
+                                )
 
+                => (Peer e, Hash HbSync, Maybe Integer)
+                -> m ()
+
+handleBlockInfo (p, h, sz') = do
+   maybe1 sz' (pure ()) $ \sz -> do
+    let bsz = fromIntegral sz
+    update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
+    -- FIXME: turn back on event notification
+    -- lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
 
 main :: IO ()
 main = do
@@ -340,7 +426,7 @@ main = do
                 let blk = hasBlock s
                 runPeerM (AnyStorage s) fake p0 $ do
                   runProto @Fake
-                    [ makeResponse (blockSizeProto blk dontHandle)
+                    [ makeResponse (blockSizeProto blk handleBlockInfo)
                     -- , makeResponse (blockChunksProto undefined)
                     ]
 

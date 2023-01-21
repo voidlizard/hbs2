@@ -2,6 +2,7 @@ module HBS2.Net.Proto.BlockInfo where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Sessions
 import HBS2.Hash
 
 import Codec.Serialise ()
