@@ -122,7 +122,7 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync) => Storage AnyStorage HbSync B
 class HasStorage m where
   getStorage :: m AnyStorage
 
-data Fabriq e = forall bus . Messaging bus e ByteString => Fabriq bus
+data Fabriq e = forall bus . (Serialise (Encoded e), Messaging bus e ByteString) => Fabriq bus
 
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
@@ -253,8 +253,17 @@ instance ( MonadIO m
     liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
 
-
-
+instance ( MonadIO m
+         , HasProtocol e p
+         , HasFabriq e (PeerM e m)
+         , Serialise (Encoded e)
+         ) => Request e p (PeerM e m) where
+  request p msg = do
+    let proto = protoId @e @p (Proxy @p)
+    pipe <- getFabriq @e
+    me <- ownPeer @e
+    let bs = serialise (AnyMessage @e proto (encode msg))
+    sendTo pipe (To p) (From me) bs
 
 runPeerM :: MonadIO m => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
@@ -267,6 +276,9 @@ runPeerM s bus p f  = do
   void $ runReaderT (fromPeerM f) env
   void $ liftIO $ stopPipeline de
   liftIO $ cancel as
+
+withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m ()
+withPeerM env action = void $ runReaderT (fromPeerM action) env
 
 runProto :: forall e m  . ( MonadIO m
                           , HasOwnPeer e m
@@ -376,10 +388,11 @@ runTestPeer p zu = do
   mapM_ cancel [sw,cw]
 
 
-handleBlockInfo :: forall e m . ( Monad m
+handleBlockInfo :: forall e m . ( MonadIO m
                                 , Sessions e (BlockSize e) m
                                 , Default (SessionData e (BlockSize e))
                                 , Ord (Peer e)
+                                , Pretty (Peer e)
                                 )
 
                 => (Peer e, Hash HbSync, Maybe Integer)
@@ -389,8 +402,27 @@ handleBlockInfo (p, h, sz') = do
    maybe1 sz' (pure ()) $ \sz -> do
     let bsz = fromIntegral sz
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
+    liftIO $ debug $ "got block:" <+> pretty (p, h, sz)
     -- FIXME: turn back on event notification
     -- lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
+
+
+blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
+                                , Request e (BlockSize e) (PeerM e IO)
+                                , Num (Peer e)
+                                ) =>  PeerM e IO ()
+blockDownloadLoop = do
+
+  -- w <- subscribe ???
+
+  request 1 (GetBlockSize @e "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt")
+  request 1 (GetBlockSize @e "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ")
+
+  fix \next -> do
+    liftIO $ print "piu!"
+
+    pause ( 0.85 :: Timeout 'Seconds )
+    next
 
 main :: IO ()
 main = do
@@ -425,10 +457,16 @@ main = do
     our <- async $ runTestPeer p0 $ \s  -> do
                 let blk = hasBlock s
                 runPeerM (AnyStorage s) fake p0 $ do
+                  env <- ask
+
+                  as <- liftIO $ async $ withPeerM env blockDownloadLoop
+
                   runProto @Fake
                     [ makeResponse (blockSizeProto blk handleBlockInfo)
                     -- , makeResponse (blockChunksProto undefined)
                     ]
+
+                  liftIO $ cancel as
 
     pause ( 5 :: Timeout 'Seconds)
 
