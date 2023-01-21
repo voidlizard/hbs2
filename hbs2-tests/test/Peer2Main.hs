@@ -5,17 +5,18 @@
 module Main where
 
 import HBS2.Prelude.Plated
+import HBS2.Actors
 import HBS2.Hash
-import HBS2.Storage
+import HBS2.Net.Messaging
+import HBS2.Net.Messaging.Fake
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
-import HBS2.Net.Messaging
-import HBS2.Net.Messaging.Fake
+import HBS2.Storage
+import HBS2.Defaults
 
 import Control.Monad.Reader
 import Data.Foldable
-import Control.Monad
 import Codec.Serialise hiding (encode,decode)
 import Data.ByteString.Lazy (ByteString)
 import Data.Default
@@ -24,7 +25,8 @@ import Data.Map qualified as Map
 import Data.Word
 import GHC.TypeLits
 import Lens.Micro.Platform
-import Prettyprinter
+
+import Prettyprinter hiding (pipe)
 
 data Fake
 
@@ -124,14 +126,57 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
                              , handle = h
                              }
 
-class IsResponse e m where
-  responseTo :: m (Peer e)
+data PeerEnv e =
+  PeerEnv
+  { _envSelf :: Peer e
+  , _envFab  :: Fabriq e
+  }
+
+newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
+                      deriving newtype ( Functor
+                                       , Applicative
+                                       , Monad
+                                       , MonadReader (PeerEnv e)
+                                       , MonadIO
+                                       )
 
 
-type ResponseM e = ReaderT (Peer e)
+newtype  ResponseM e m a = ResponseM { fromResponse :: ReaderT (ResponseEnv e) m a }
+                           deriving newtype ( Functor
+                                            , Applicative
+                                            , Monad
+                                            , MonadReader (ResponseEnv e)
+                                            , MonadIO
+                                            , MonadTrans
+                                            )
 
-runResponseM :: forall e m . Monad m => Peer e -> ResponseM e m () -> m ()
-runResponseM peer f = runReaderT f peer
+newtype ResponseEnv e =
+  ResponseEnv
+  {  _answTo :: Peer e
+  }
+
+makeLenses 'PeerEnv
+
+makeLenses 'ResponseEnv
+
+
+runResponseM :: forall e m . (Monad m)
+             => Peer e
+             -> ResponseM e m ()
+             -> m ()
+
+runResponseM peer f = runReaderT (fromResponse f) (ResponseEnv peer)
+
+instance Monad m => HasOwnPeer e (PeerM e m) where
+  ownPeer = asks (view envSelf)
+
+instance Monad m => HasFabriq e (PeerM e m) where
+  getFabriq = asks (view envFab)
+
+runPeerM :: Peer e -> Fabriq e -> PeerM e m a -> m a
+runPeerM p bus f = do
+  let env = PeerEnv p bus
+  runReaderT (fromPeerM f) env
 
 
 runProto :: forall e m  . ( MonadIO m
@@ -146,6 +191,8 @@ runProto :: forall e m  . ( MonadIO m
 runProto hh = do
   me       <- ownPeer @e @m
   pipe     <- getFabriq
+
+  -- defer <- newPipeline @(ResponseM e m ()) @m defProtoPipelineSize
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -171,47 +218,24 @@ runProto hh = do
                               }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
 
-data PeerEnv e =
-  PeerEnv
-  { _envSelf :: Peer e
-  , _envFab  :: Fabriq e
-  }
-
-makeLenses 'PeerEnv
-
-newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
-                      deriving newtype ( Functor
-                                       , Applicative
-                                       , Monad
-                                       , MonadReader (PeerEnv e)
-                                       , MonadIO
-                                       )
-
-
-instance Monad m => HasOwnPeer e (PeerM e m) where
-  ownPeer = asks (view envSelf)
-
-instance Monad m => HasFabriq e (PeerM e m) where
-  getFabriq = asks (view envFab)
-
-runPeerM :: Peer e -> Fabriq e -> PeerM e m a -> m a
-runPeerM p bus f = do
-  let env = PeerEnv p bus
-  runReaderT (fromPeerM f) env
-
 instance ( MonadIO m
          , HasProtocol e p
-         , HasFabriq e (PeerM e m)
-         , HasOwnPeer e (PeerM e m)
+         , HasFabriq e m
+         , HasOwnPeer e m
          , Serialise (Encoded e)
-         ) => Response e p (ResponseM e (PeerM e m)) where
-  thatPeer _ = ask
+         , MonadTrans (ResponseM e)
+         ) => Response e p (ResponseM e m) where
 
-  deferred = undefined
+  thatPeer _ = asks (view answTo)
+
+  deferred _ action = do
+    -- d <- asks (view defer)
+    undefined
+    -- addJob d _
 
   response msg = do
     let proto = protoId @e @p (Proxy @p)
-    who <- ask
+    who <- asks (view answTo)
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
     let bs = serialise (AnyMessage @e proto (encode msg))
