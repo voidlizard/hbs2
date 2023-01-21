@@ -40,7 +40,10 @@ newtype ChunkId = ChunkId FilePath
                   deriving newtype (IsString)
                   deriving stock (Eq,Ord,Show)
 
-data ChunkWriter h m = forall a . (MonadIO m, Storage a h ByteString m, Block ByteString ~ ByteString) =>
+data ChunkWriter h m = forall a . ( MonadIO m
+                                  , Storage a h ByteString m
+                                  , Block ByteString ~ ByteString
+                                  ) =>
   ChunkWriter
   { pipeline :: Pipeline m ()
   , dir      :: FilePath
@@ -57,7 +60,7 @@ runChunkWriter w = do
 stopChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
 stopChunkWriter w = stopPipeline ( pipeline w )
 
-newChunkWriterIO :: forall h a m . ( Key h ~ Hash h
+newChunkWriterIO :: forall h a m . ( Key h ~ Hash h, h ~ HbSync
                                    , Storage a h ByteString m
                                    , Block ByteString ~ ByteString
                                    , MonadIO m
@@ -155,6 +158,7 @@ getHash w salt h = liftIO do
 commitBlock :: forall salt h m .
                ( Hashable salt
                , Hashed h ByteString
+               , Block ByteString ~ ByteString
                , MonadIO m
                , Pretty (Hash h)
                )

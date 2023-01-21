@@ -161,11 +161,11 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 
 data PeerEnv e =
   PeerEnv
-  { _envSelf     :: Peer e
-  , _envFab      :: Fabriq e
-  , _envStorage  :: AnyStorage
-  , _envDeferred :: Pipeline IO ()
-  , _envSessions :: Cache SKey Dynamic
+  { _envSelf        :: Peer e
+  , _envFab         :: Fabriq e
+  , _envStorage     :: AnyStorage
+  , _envDeferred    :: Pipeline IO ()
+  , _envSessions    :: Cache SKey Dynamic
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -374,8 +374,8 @@ runTestPeer p zu = do
   let opts = [ StoragePrefix dir
              ]
 
-  stor <- simpleStorageInit @_ @_ @HbSync opts
-  cww  <- newChunkWriterIO stor (Just chDir)
+  stor <- simpleStorageInit opts
+  cww  <- newChunkWriterIO  stor (Just chDir)
 
   sw <- liftIO $ async $ simpleStorageWorker stor
   cw <- liftIO $ async $ runChunkWriter cww
