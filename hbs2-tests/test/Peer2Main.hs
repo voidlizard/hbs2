@@ -194,12 +194,28 @@ instance Monad m => HasOwnPeer e (PeerM e m) where
 instance Monad m => HasFabriq e (PeerM e m) where
   getFabriq = asks (view envFab)
 
+runPeerM :: Peer e -> Fabriq e -> PeerM e m a -> m a
 runPeerM p bus f = do
   let env = PeerEnv p bus
   runReaderT (fromPeerM f) env
 
+instance ( MonadIO m
+         , HasProtocol e p
+         , HasFabriq e (PeerM e m)
+         , HasOwnPeer e (PeerM e m)
+         , Serialise (Encoded e)
+         ) => Response e p (ResponseM e (PeerM e m)) where
+  thatPeer _ = ask
 
-instance (MonadIO m, HasProtocol e p) => Response e p (ResponseM e (PeerM e m))
+  deferred = undefined
+
+  response msg = do
+    let proto = protoId @e @p (Proxy @p)
+    who <- ask
+    self <- lift $ ownPeer @e
+    fab  <- lift $ getFabriq @e
+    let bs = serialise (AnyMessage @e proto (encode msg))
+    sendTo fab (To who) (From self) bs
 
 main :: IO ()
 main = do
