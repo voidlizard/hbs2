@@ -11,6 +11,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Messaging
+import HBS2.Net.Messaging.Fake
 
 import Control.Monad.Reader
 import Data.Foldable
@@ -82,18 +83,18 @@ instance Ord (Peer e) => Default (BlockSizeSession e) where
 
 deriving stock instance Show (BlockSizeSession Fake)
 
-data Env e = forall bus  . ( Messaging bus e ByteString ) =>
-  Env
-  { envSelf  :: Peer e
-  , envBus   :: bus
-  }
 
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
 
-class Messaging bus e msg => HasMessaging e msg bus m where
-  getMessaging :: m bus
+data Fabriq e = forall bus . Messaging bus e ByteString => Fabriq bus
 
+class HasFabriq e m where
+  getFabriq :: m (Fabriq e)
+
+instance HasPeer e => Messaging (Fabriq e) e ByteString where
+  sendTo (Fabriq bus) = sendTo bus
+  receive (Fabriq bus) = receive bus
 
 data AnyMessage e = AnyMessage Integer (Encoded e)
                     deriving stock (Generic)
@@ -132,19 +133,19 @@ type ResponseM e = ReaderT (Peer e)
 runResponseM :: forall e m . Monad m => Peer e -> ResponseM e m () -> m ()
 runResponseM peer f = runReaderT f peer
 
-runPeer :: forall e bus m p  . ( MonadIO m
-                               , HasOwnPeer e m
-                               , HasMessaging e ByteString bus m
-                               , Response e p m
-                               , HasProtocol e p
-                               , Serialise (Encoded e)
-                               )
+
+runProto :: forall e m  . ( MonadIO m
+                          , HasOwnPeer e m
+                          , HasFabriq e m
+                          , HasPeer e
+                          , Serialise (Encoded e)
+                          )
         => [AnyProtocol e (ResponseM e m)]
         -> m ()
 
-runPeer hh = do
+runProto hh = do
   me       <- ownPeer @e @m
-  pipe     <- getMessaging @e @ByteString @bus
+  pipe     <- getFabriq
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -169,9 +170,49 @@ runPeer hh = do
                               , handle = h
                               }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
+
+data PeerEnv e =
+  PeerEnv
+  { _envSelf :: Peer e
+  , _envFab  :: Fabriq e
+  }
+
+makeLenses 'PeerEnv
+
+newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
+                      deriving newtype ( Functor
+                                       , Applicative
+                                       , Monad
+                                       , MonadReader (PeerEnv e)
+                                       , MonadIO
+                                       )
+
+
+instance Monad m => HasOwnPeer e (PeerM e m) where
+  ownPeer = asks (view envSelf)
+
+instance Monad m => HasFabriq e (PeerM e m) where
+  getFabriq = asks (view envFab)
+
+runPeerM p bus f = do
+  let env = PeerEnv p bus
+  runReaderT (fromPeerM f) env
+
+
+instance (MonadIO m, HasProtocol e p) => Response e p (ResponseM e (PeerM e m))
+
 main :: IO ()
 main = do
   print "preved"
+
+  fake <- newFakeP2P True
+
+  runPeerM (FakePeer 0) (Fabriq fake) $ do
+    runProto @Fake
+      [ makeResponse (blockSizeProto undefined undefined)
+      , makeResponse (blockChunksProto undefined)
+      ]
+
   pure ()
 
 
