@@ -201,9 +201,34 @@ emitBlockReadyEvent pe h = do
       in (mconcat (maybeToList ev), Map.delete h m)
 
 
-runFakePeer :: forall e  b . ( e ~ Fake
+-- Бежал ридер по ридеру, видит ридер сидит на ридере
+-- ридер. Схватил ридер ридера за хуй да и выкинул нахуй.
+--
+newtype PeerM e m a = PeerM { fromPeerM :: ReaderT () (EngineM e m) a }
+                      deriving newtype ( Functor
+                                       , Applicative
+                                       , Monad
+                                       , MonadIO
+                                       , MonadReader ()
+                                       )
+
+-- instance MonadTrans (PeerM e) where
+--   lift = lift . lift
+
+
+runPeerM p0 bus f = do
+  env <- newEnv p0 bus
+  runEngineM env (runReaderT (fromPeerM f) ())
+
+
+instance Request Fake (BlockSize Fake) (PeerM e IO) where
+  request p proto  = undefined
+
+
+runFakePeer :: forall e  b   . ( e ~ Fake
                              -- , MonadIO m
                              , Messaging b e ByteString
+                             -- , Monad m
                              -- , Sessions Fake (BlockSize Fake)
                              -- , m ~ ResponseM Fake IO
                              -- , MonadIO m
@@ -213,7 +238,7 @@ runFakePeer :: forall e  b . ( e ~ Fake
             => PeerEvents e (EngineM e IO)
             -> Peer e
             -> b
-            -> EngineM e IO ()
+            -> PeerM e IO ()
             -> IO  ()
 
 runFakePeer ev p0 bus work = do
@@ -324,7 +349,7 @@ runFakePeer ev p0 bus work = do
             , makeResponse (blockChunksProto adapter)
             ]
 
-  runEngineM env work
+  runPeerM p0 bus work
 
   simpleStorageStop storage
 
@@ -357,7 +382,18 @@ runFakePeer ev p0 bus work = do
 --
 
 
-blockDownloadLoop ev0 p1 = do
+blockDownloadLoop :: forall e . PeerM e IO ()
+blockDownloadLoop = do
+
+  let who = FakePeer 1
+  let blkHash = ""
+  request who (GetBlockSize @Fake blkHash)
+
+  pure ()
+
+
+-- blockDownloadLoop :: PeerEvents Fake m -> Peer e -> PeerM () m ()
+blockDownloadLoop1 ev0 p1 = do
 
 
   let ini = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
@@ -469,8 +505,9 @@ test1 = do
       p1Thread <- async $ runFakePeer ev1 p1 fake $ forever $ liftIO yield
 
       p0Thread <- async $ runFakePeer ev0 p0 fake $ do
+        blockDownloadLoop
 
-        blockDownloadLoop ev0 p1
+        -- blockDownloadLoop ev0 p1
 
       let peerz = p0Thread : [p1Thread]
 

@@ -96,7 +96,7 @@ test-suite test-peer
 
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
-    main-is:          PeerMain.hs
+    main-is:          Peer2Main.hs
 
 
 test-suite test-hmap

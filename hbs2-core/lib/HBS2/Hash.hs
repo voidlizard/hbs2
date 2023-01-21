@@ -1,6 +1,6 @@
 {-# Language RankNTypes #-}
 module HBS2.Hash
-  ( Serialise(..)
+  ( Serialise
   , module HBS2.Hash
   )
   where
