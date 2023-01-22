@@ -35,9 +35,9 @@ import Data.Hashable (hash)
 
 import Prettyprinter hiding (pipe)
 
-data AnyStorage = forall zu . Storage zu HbSync ByteString IO => AnyStorage zu
+data AnyStorage = forall zu . (Block ByteString ~ ByteString, Storage zu HbSync ByteString IO) => AnyStorage zu
 
-instance (IsKey HbSync, Key HbSync ~ Hash HbSync) => Storage AnyStorage HbSync ByteString IO where
+instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString) => Storage AnyStorage HbSync ByteString IO where
 
   putBlock (AnyStorage s) = putBlock s
   enqueueBlock (AnyStorage s) = enqueueBlock s

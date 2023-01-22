@@ -10,8 +10,6 @@ import HBS2.Data.Types.Refs
 import HBS2.Defaults
 
 import Data.Bifunctor
-import Data.Functor
-import Control.Monad
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as B
 import Data.Function
@@ -19,14 +17,13 @@ import Data.Function
 import Streaming.Prelude qualified as S
 import Streaming qualified as S
 
-import Prettyprinter
 import System.IO
 
 pieces :: Integral a => a
 pieces = 8192
 
 class SimpleStorageExtra a  where
-  putAsMerkle :: forall h . (IsKey h, Hash h ~ Key h, Hashed h ByteString,Block ByteString~ByteString) => SimpleStorage h -> a -> IO MerkleHash
+  putAsMerkle :: forall h . (IsKey h, Hash h ~ Key h, Hashed h ByteString, Block ByteString ~ ByteString) => SimpleStorage h -> a -> IO MerkleHash
 
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
@@ -52,7 +49,7 @@ instance SimpleStorageExtra Handle where
 
     pure (MerkleHash root)
 
-instance SimpleStorageExtra ByteString where
+instance Block ByteString ~ ByteString => SimpleStorageExtra ByteString where
   putAsMerkle ss bs = do
 
     hashes <- S.each (B.unpack bs)

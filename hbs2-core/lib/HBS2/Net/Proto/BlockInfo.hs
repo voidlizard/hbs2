@@ -20,6 +20,7 @@ instance Serialise (BlockSize e)
 
 blockSizeProto :: forall e m  . ( MonadIO m
                                 , Response e (BlockSize e) m
+                                , EventEmitter e (BlockSize e) m
                                 )
                => GetBlockSize  HbSync m
                -> HasBlockEvent HbSync e m
@@ -40,8 +41,8 @@ blockSizeProto getBlockSize evHasBlock =
 
     BlockSize h sz  -> do
       that <- thatPeer (Proxy @(BlockSize e))
+      emit @e (BlockSizeEventKey h) (BlockSizeEvent (that, h, sz))
       evHasBlock ( that, h, Just sz )
-
 
 newtype instance SessionKey e (BlockSize e) =
   BlockSizeKey (Hash HbSync)
@@ -54,7 +55,8 @@ newtype instance EventKey e (BlockSize e) =
   deriving stock (Typeable, Eq)
   deriving newtype (Hashable)
 
-data instance Event e (BlockSize e) =
-  BlockSizeEvent
+newtype instance Event e (BlockSize e) =
+  BlockSizeEvent (Peer e, Hash HbSync, Integer)
   deriving stock (Typeable)
+
 
