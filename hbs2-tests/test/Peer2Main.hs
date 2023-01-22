@@ -93,7 +93,6 @@ type instance SessionData e (BlockChunks e) = BlockDownload
 newtype instance SessionKey e (BlockChunks e) =
   DownloadSessionKey (Peer e, Cookie e)
   deriving stock (Generic,Typeable)
-  deriving newtype (Hashable)
 
 newtype BlockSizeSession e =
   BlockSizeSession
@@ -259,6 +258,7 @@ mkAdapter cww = do
             when ( h1 == h ) $ do
               liftIO $ commitBlock cww cKey h
               expire cKey
+              debug $ "BLOCK IS READY" <+> pretty h
               -- FIXME: return this event!
               -- lift $ runEngineM env $ emitBlockReadyEvent ev h -- TODO: fix this crazy shit
 
