@@ -27,6 +27,8 @@ import Test.Tasty.HUnit
 
 import Codec.Serialise hiding (encode,decode)
 import Control.Concurrent.Async
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TBQueue qualified as Q
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
@@ -35,6 +37,7 @@ import Data.Default
 import Data.Foldable hiding (find)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
 import Prettyprinter hiding (pipe)
@@ -42,8 +45,6 @@ import System.Directory
 import System.Exit
 import System.FilePath.Posix
 import System.IO
-import Control.Concurrent.STM
-import Control.Concurrent.STM.TBQueue qualified as Q
 
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
@@ -170,27 +171,28 @@ handleBlockInfo (p, h, sz') = do
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
-                                   , HasProtocol e (BlockInfo e)
-                                   , HasProtocol e (BlockChunks e)
                                    , Request e (BlockInfo e) m
                                    , Request e (BlockChunks e) m
                                    , EventListener e (BlockInfo e) m
                                    , EventListener e (BlockChunks e) m
                                    , EventListener e (BlockAnnounce e) m
-                                   , EventEmitter e (BlockChunks e) m
-                                   , EventEmitter e (BlockInfo e) m
+                                   -- , EventEmitter e (BlockChunks e) m
+                                   -- , EventEmitter e (BlockInfo e) m
                                    , Sessions e (BlockInfo e) m
                                    , Sessions e (BlockChunks e) m
+                                   , HasStorage m
                                    , Num (Peer e)
                                    , Pretty (Peer e)
-                                   ) =>  PeerM e IO ()
+                                   -- , Key HbSync ~ Hash HbSync
+                                   ) =>  m ()
 blockDownloadLoop = do
 
-  let blks = []
-  -- let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
-  --            , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
-  --            , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-  --            ]
+  stor <- getStorage
+
+  let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+             , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+             , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+             ]
 
   blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
   for_ blks $ \b -> liftIO $ atomically $ Q.writeTBQueue blq b
@@ -198,6 +200,7 @@ blockDownloadLoop = do
   subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p ann) -> do
     let h = view biHash ann
     let s = view biSize ann
+
     debug $ "BLOCK ANNOUNCE!" <+> pretty p
                               <+> pretty h
                               <+> pretty (view biSize ann)
@@ -208,35 +211,51 @@ blockDownloadLoop = do
 
     h <- liftIO $ atomically $ Q.readTBQueue blq
 
-    subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
-      initDownload p h s
+    here <- liftIO $ hasBlock stor h <&> isJust
 
-    peers <- getPeerLocator @e >>= knownPeers @e
+    unless here $ do
 
-    for_ peers $ \p -> do
-      debug $ "requesting block" <+> pretty h <+> "from" <+> pretty p
-      request p (GetBlockSize @e h)
+      subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
+        initDownload p h s
+
+      peers <- getPeerLocator @e >>= knownPeers @e
+
+      for_ peers $ \p -> do
+        debug $ "requesting block" <+> pretty h <+> "from" <+> pretty p
+        request p (GetBlockSize @e h)
 
     liftIO $ print "piu!"
 
     next
 
   where
+
     initDownload p h s = do
-      coo <- genCookie (p,h)
-      let key = DownloadSessionKey (p, coo)
-      let chusz = defChunkSize
-      let new =   set sBlockChunkSize chusz
-                . set sBlockSize (fromIntegral s)
-                  $ newBlockDownload h
+      sto <- getStorage
+      here <- liftIO $ hasBlock sto h <&> isJust
 
-      update @e new key id
+      if not here then do
 
-      subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
-        debug $ "GOT BLOCK!" <+> pretty h
-        pure ()
+        coo <- genCookie (p,h)
+        let key = DownloadSessionKey (p, coo)
+        let chusz = defChunkSize
+        let new =   set sBlockChunkSize chusz
+                  . set sBlockSize (fromIntegral s)
+                    $ newBlockDownload h
 
-      request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
+        update @e new key id
+
+        subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
+          processBlock h
+
+        request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
+
+        else do
+          processBlock h
+
+    processBlock h = do
+      debug $ "GOT BLOCK!" <+> pretty h
+
 
 
 -- NOTE: this is an adapter for a ResponseM monad

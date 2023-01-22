@@ -1,6 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-{-# Language AllowAmbiguousTypes #-}
+-- {-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer where
 
 import HBS2.Actors
