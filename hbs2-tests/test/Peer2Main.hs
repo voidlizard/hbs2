@@ -254,6 +254,7 @@ blockDownloadLoop = do
           processBlock h
 
     processBlock h = do
+      sto <- getStorage
       debug $ "GOT BLOCK!" <+> pretty h
 
 

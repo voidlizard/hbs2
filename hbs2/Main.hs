@@ -1,25 +1,5 @@
 module Main where
 
-import Control.Concurrent.Async
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Maybe
-import Data.ByteString.Lazy qualified as LBS
-import Data.Function
-import Data.Functor
-import Options.Applicative
-import Prettyprinter
-import System.Directory
--- import System.FilePath.Posix
-import System.IO
-import Data.UUID.V4 qualified as UUID
-import Data.UUID qualified as UUID
-
-import Codec.Serialise
-
-import Streaming.Prelude qualified as S
--- import Streaming qualified as S
-
 import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
@@ -28,6 +8,37 @@ import HBS2.Prelude.Plated
 import HBS2.Merkle
 import HBS2.Data.Types
 import HBS2.Defaults
+
+
+import Control.Concurrent.Async
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Maybe
+import Data.ByteString.Lazy qualified as LBS
+import Data.Either
+import Data.Function
+import Data.Functor
+import Data.UUID qualified as UUID
+import Data.UUID.V4 qualified as UUID
+import Options.Applicative
+import Prettyprinter
+import System.Directory
+import Data.Maybe
+-- import System.FilePath.Posix
+import System.IO
+import System.Exit
+
+import Codec.Serialise
+
+import Streaming.Prelude qualified as S
+-- import Streaming qualified as S
+
+
+newtype CommonOpts =
+  CommonOpts
+  { _coPref :: Maybe StoragePrefix
+  }
+ deriving stock (Data)
 
 newtype OptInputFile = OptInputFile { unOptFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
@@ -63,6 +74,10 @@ newtype NewRefOpts =
   }
   deriving stock (Data)
 
+data BlobType =  Merkle (Hash HbSync)
+               | AnnRef (Hash HbSync)
+               | Blob (Hash HbSync)
+               deriving (Show,Data)
 
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runCat opts ss = do
@@ -75,24 +90,59 @@ runCat opts ss = do
 
     obj <- MaybeT $ getBlock ss mhash
 
-    let mbLink = deserialiseOrFail @AnnotatedHashRef obj
+    let mbLink   = deserialiseOrFail @AnnotatedHashRef obj >> pure (AnnRef mhash)
+    let mbMerkle = deserialiseOrFail @(MTree [HashRef]) obj >> pure (Merkle mhash)
+    let orBlob   = Blob mhash
 
-    realHash <- MaybeT $ case mbLink of
-      Left _    -> pure $ Just mhash
-      Right lnk -> do
-        pure $ headMay [ h
-                       | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
-                       ]
+    let q = rights [mbLink, mbMerkle] & headDef orBlob
 
-    liftIO $ walkMerkle realHash (getBlock ss) $ \(hr :: [HashRef]) -> do
-               forM_ hr $ \(HashRef h) -> do
-                 if honly then do
-                   print $ pretty h
-                 else do
-                   mblk <- getBlock ss h
-                   case mblk of
-                     Nothing  -> error $ show $ "missed block: " <+> pretty h
-                     Just blk -> LBS.putStr blk
+    liftIO $ do
+
+      let walk h = walkMerkle h (getBlock ss) $ \(hr :: [HashRef]) -> do
+           forM_ hr $ \(HashRef h) -> do
+             if honly then do
+               print $ pretty h
+             else do
+               mblk <- getBlock ss h
+               case mblk of
+                 Nothing  -> die $ show $ "missed block: " <+> pretty h
+                 Just blk -> LBS.putStr blk
+
+
+      case q of
+        Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
+        Merkle h -> walk h
+        AnnRef h -> do
+          let lnk = deserialise @AnnotatedHashRef obj
+          let mbHead =  headMay [ h
+                                | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
+                                ]
+          maybe (error "empty ref") walk mbHead
+
+
+    -- case q of
+    --   Merkle h -> liftIO do
+    --      walkMerkle h (getBlock ss) $ \(hr :: [HashRef]) -> do
+    --        forM_ hr $ \(HashRef h) -> do
+    --          if honly then do
+    --            print $ pretty h
+    --          else do
+    --            mblk <- getBlock ss h
+    --            case mblk of
+    --              Nothing  -> error $ show $ "missed block: " <+> pretty h
+    --              Just blk -> LBS.putStr blk
+
+
+    -- case q of
+
+    -- realHash <- MaybeT $ case mbLink of
+    --   Left _    -> pure $ Just mhash
+    --   Right lnk -> do
+    --     pure $ headMay [ h
+    --                    | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
+    --                    ]
+
+    -- -- FIXME: if merkle?
 
 
 runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()
@@ -155,7 +205,8 @@ main = join . customExecParser (prefs showHelpOnError) $
                         )
 
     common = do
-      pure ()
+      pref <- optional $ strOption ( short 'p' <> long "prefix" <> help "storage prefix" )
+      pure $ CommonOpts pref
 
     pNewRef = do
       o <- common

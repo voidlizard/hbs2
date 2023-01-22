@@ -17,25 +17,25 @@ newtype HashRef = HashRef (Hash HbSync)
 
 
 data HashRefObject = HashRefObject HashRef (Maybe HashRefMetadata)
-  deriving stock (Data,Generic)
+  deriving stock (Data,Show,Generic)
 
 newtype HashRefMetadata =
   HashRefMetadata HashRef
   deriving newtype (Eq,Ord,Pretty)
-  deriving stock (Data,Generic)
+  deriving stock (Data,Show,Generic)
 
 newtype HashRefPrevState = HashRefPrevState HashRef
   deriving newtype (Eq,Ord,Pretty,IsString)
-  deriving stock (Data,Generic)
+  deriving stock (Data,Show,Generic)
 
 data HashRefType =
     HashRefMerkle HashRefObject
   | HashRefBlob   HashRefObject
-  deriving stock (Data,Generic)
+  deriving stock (Data,Show,Generic)
 
 data AnnotatedHashRef =
   AnnotatedHashRef (Maybe HashRefPrevState) HashRefType
-  deriving stock (Data,Generic)
+  deriving stock (Data,Show,Generic)
 
 
 instance Serialise AnnotatedHashRef
