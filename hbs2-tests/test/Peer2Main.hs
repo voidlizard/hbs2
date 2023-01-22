@@ -80,6 +80,9 @@ instance HasProtocol Fake (BlockSize Fake) where
 instance Expires (EventKey Fake (BlockSize Fake)) where
   expiresIn _  = 3
 
+instance Expires (EventKey Fake (BlockChunks Fake)) where
+  expiresIn _ = 10
+
 instance HasProtocol Fake (BlockChunks Fake) where
   type instance ProtocolId (BlockChunks Fake) = 2
   type instance Encoded Fake = ByteString
@@ -157,6 +160,7 @@ blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 , Request e (BlockSize e) (PeerM e IO)
                                 , Request e (BlockChunks e) (PeerM e IO)
                                 , EventListener e (BlockSize e) (PeerM e IO)
+                                , EventListener e (BlockChunks e) (PeerM e IO)
                                 , Sessions e (BlockSize e) (PeerM e IO)
                                 , Sessions e (BlockChunks e) (PeerM e IO)
                                 , Num (Peer e)
@@ -172,6 +176,10 @@ blockDownloadLoop = do
   for_ blks $ \h -> do
 
     debug $ "subscribing to" <+> pretty h
+
+    subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
+      debug $ "GOT BLOCK!" <+> pretty h
+      pure ()
 
     subscribe @e @(BlockSize e) (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
       debug $  "can't believe this shit works" <+> pretty h
@@ -260,6 +268,7 @@ mkAdapter cww = do
               liftIO $ commitBlock cww cKey h
               expire cKey
               debug $ "BLOCK IS READY" <+> pretty h
+              emit @e (BlockChunksEventKey h) (BlockReady h)
               -- FIXME: return this event!
               -- lift $ runEngineM env $ emitBlockReadyEvent ev h -- TODO: fix this crazy shit
 
