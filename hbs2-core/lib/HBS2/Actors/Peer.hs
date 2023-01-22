@@ -50,6 +50,9 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
 
+class Monad m => HasPeerLocator e m where
+  getPeerLocator ::  m (AnyPeerLocator e)
+
 class HasStorage m where
   getStorage :: m AnyStorage
 
@@ -140,6 +143,9 @@ runResponseM peer f = runReaderT (fromResponse f) (ResponseEnv peer)
 
 instance Monad m => HasOwnPeer e (PeerM e m) where
   ownPeer = asks (view envSelf)
+
+instance Monad m => HasPeerLocator e (PeerM e m) where
+  getPeerLocator = asks (view envPeerLocator)
 
 instance Monad m => HasFabriq e (PeerM e m) where
   getFabriq = asks (view envFab)

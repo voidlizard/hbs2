@@ -1,3 +1,4 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Net.PeerLocator where
 
 import HBS2.Prelude
@@ -12,4 +13,5 @@ data AnyPeerLocator e = forall a . PeerLocator e a => AnyPeerLocator a
 instance HasPeer e => PeerLocator e (AnyPeerLocator e) where
   knownPeers (AnyPeerLocator l) = knownPeers  l
   addPeers (AnyPeerLocator l) = addPeers l
+
 

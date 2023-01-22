@@ -157,18 +157,19 @@ handleBlockInfo (p, h, sz') = do
     let bsz = fromIntegral sz
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
 
-blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
-                                , HasProtocol e (BlockChunks e)
-                                , Request e (BlockSize e) (PeerM e IO)
-                                , Request e (BlockChunks e) (PeerM e IO)
-                                , EventListener e (BlockSize e) (PeerM e IO)
-                                , EventListener e (BlockChunks e) (PeerM e IO)
-                                , EventEmitter e (BlockChunks e) (PeerM e IO)
-                                , Sessions e (BlockSize e) (PeerM e IO)
-                                , Sessions e (BlockChunks e) (PeerM e IO)
-                                , Num (Peer e)
-                                -- , Ord (Peer e)
-                                ) =>  PeerM e IO ()
+blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
+                                   , HasProtocol e (BlockSize e)
+                                   , HasProtocol e (BlockChunks e)
+                                   , Request e (BlockSize e) m
+                                   , Request e (BlockChunks e) m
+                                   , EventListener e (BlockSize e) m
+                                   , EventListener e (BlockChunks e) m
+                                   , EventEmitter e (BlockChunks e) m
+                                   , Sessions e (BlockSize e) m
+                                   , Sessions e (BlockChunks e) m
+                                   , Num (Peer e)
+                                   , Pretty (Peer e)
+                                   ) =>  PeerM e IO ()
 blockDownloadLoop = do
 
   let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
@@ -185,7 +186,6 @@ blockDownloadLoop = do
       pure ()
 
     subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
-      debug $  "can't believe this shit works" <+> pretty h
       coo <- genCookie (p,h)
       let key = DownloadSessionKey (p, coo)
       let chusz = defChunkSize
@@ -196,7 +196,11 @@ blockDownloadLoop = do
       update @e new key id
       request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 
-    request 1 (GetBlockSize @e h)
+    peers <- getPeerLocator @e >>= knownPeers @e
+
+    for_ peers $ \p -> do
+      debug $ "WTF?" <+> pretty p
+      request p (GetBlockSize @e h)
 
   fix \next -> do
     liftIO $ print "piu!"
@@ -321,9 +325,9 @@ main = do
                   adapter <- mkAdapter cw
                   env <- ask
 
-                  npl <- newStaticPeerLocator ps
+                  pl <- getPeerLocator @Fake
 
-                  addPeers npl ps
+                  addPeers @Fake pl ps
 
                   as <- liftIO $ async $ withPeerM env blockDownloadLoop
 
