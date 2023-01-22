@@ -1,9 +1,10 @@
 {-# Language RankNTypes #-}
 module HBS2.Net.Proto.BlockChunks where
 
-import HBS2.Prelude.Plated
+import HBS2.Events
 import HBS2.Hash
 import HBS2.Net.Proto
+import HBS2.Prelude.Plated
 import HBS2.Storage
 
 import Data.Word
@@ -60,6 +61,15 @@ instance Serialise ChunkNum
 instance Serialise (BlockChunksProto e)
 instance Serialise (BlockChunks e)
 
+
+newtype instance EventKey e (BlockChunks e) =
+  BlockChunksEventKey (Hash HbSync)
+  deriving stock (Typeable, Eq)
+  deriving newtype (Hashable)
+
+newtype instance Event e (BlockChunks e) =
+  BlockReady (Hash HbSync)
+  deriving stock (Typeable)
 
 blockChunksProto :: forall e m  . ( MonadIO m
                                   , Response e (BlockChunks e) m

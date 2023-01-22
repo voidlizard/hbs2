@@ -93,6 +93,7 @@ type instance SessionData e (BlockChunks e) = BlockDownload
 newtype instance SessionKey e (BlockChunks e) =
   DownloadSessionKey (Peer e, Cookie e)
   deriving stock (Generic,Typeable)
+  deriving newtype (Hashable)
 
 newtype BlockSizeSession e =
   BlockSizeSession
@@ -110,7 +111,7 @@ deriving newtype instance Hashable (SessionKey Fake (BlockChunks Fake))
 deriving stock instance Eq (SessionKey Fake (BlockChunks Fake))
 
 runTestPeer :: Peer Fake
-            -> (SimpleStorage HbSync -> IO ())
+            -> (SimpleStorage HbSync -> ChunkWriter HbSync IO  -> IO ())
             -> IO ()
 
 runTestPeer p zu = do
@@ -128,7 +129,7 @@ runTestPeer p zu = do
   sw <- liftIO $ async $ simpleStorageWorker stor
   cw <- liftIO $ async $ runChunkWriter cww
 
-  zu stor
+  zu stor cww
 
   simpleStorageStop stor
   stopChunkWriter cww
@@ -158,9 +159,7 @@ blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 , Request e (BlockChunks e) (PeerM e IO)
                                 , EventListener e (BlockSize e) (PeerM e IO)
                                 , Sessions e (BlockSize e) (PeerM e IO)
-                                , Hashable (SessionKey e (BlockChunks e))
-                                , Typeable (SessionKey e (BlockChunks e))
-                                , Eq (SessionKey e (BlockChunks e))
+                                , Sessions e (BlockChunks e) (PeerM e IO)
                                 , Num (Peer e)
                                 -- , Ord (Peer e)
                                 ) =>  PeerM e IO ()
@@ -195,17 +194,25 @@ blockDownloadLoop = do
     pause ( 0.85 :: Timeout 'Seconds )
     next
 
+-- NOTE: this is an adapter for a ResponseM monad
+--       because response is working in ResponseM monad (ha!)
+--       So don't be confused with types
+--
 mkAdapter :: forall e m . ( m ~  PeerM e IO
                           , HasProtocol e (BlockChunks e)
-                          )  => m (BlockChunksI e (ResponseM e m ))
-mkAdapter = do
-  -- storage <- asks (view _envS
+                          , Hashable (SessionKey e (BlockChunks e))
+                          , Sessions e (BlockChunks e) (ResponseM e m)
+                          , EventEmitter e (BlockChunks e) m
+                          , Pretty (Peer e)
+                          )
+          => ChunkWriter HbSync IO -> m (BlockChunksI e (ResponseM e m ))
+mkAdapter cww = do
   storage <- getStorage
   pure $
     BlockChunksI
-    { blkSize     = hasBlock storage
-    , blkChunk    = getChunk storage
-    , blkGetHash  = \c -> find (DownloadSessionKey c) (view sBlockHash)
+    { blkSize     = liftIO . hasBlock storage
+    , blkChunk    = \h o s -> liftIO (getChunk storage h o s)
+    , blkGetHash  = \c -> find (DownloadSessionKey @e c) (view sBlockHash)
 
     -- КАК ТОЛЬКО ПРИНЯЛИ ВСЕ ЧАНКИ (ПРИШЁЛ ПОСЛЕДНИЙ ЧАНК):
     --   СЧИТАЕМ ХЭШ ТОГО, ЧТО ПОЛУЧИЛОСЬ
@@ -277,7 +284,7 @@ main = do
     let (p0:ps) = [0..1] :: [Peer Fake]
 
     -- others
-    others <- forM ps $ \p -> async $ runTestPeer p $ \s  -> do
+    others <- forM ps $ \p -> async $ runTestPeer p $ \s cw  -> do
                 let findBlk = hasBlock s
 
                 let size = 1024*1024
@@ -291,16 +298,16 @@ main = do
                 debug $ "I'm" <+> pretty p <+> pretty root
 
                 runPeerM (AnyStorage s) fake p $ do
-                  adapter <- mkAdapter
+                  adapter <- mkAdapter cw
                   runProto @Fake
                     [ makeResponse (blockSizeProto findBlk dontHandle)
                     , makeResponse (blockChunksProto adapter)
                     ]
 
-    our <- async $ runTestPeer p0 $ \s  -> do
+    our <- async $ runTestPeer p0 $ \s cw -> do
                 let blk = hasBlock s
                 runPeerM (AnyStorage s) fake p0 $ do
-                  adapter <- mkAdapter
+                  adapter <- mkAdapter cw
                   env <- ask
                   as <- liftIO $ async $ withPeerM env blockDownloadLoop
 
