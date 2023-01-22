@@ -6,6 +6,7 @@ import HBS2.Hash
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.Actors.Peer
 
 import Data.Word
 import Prettyprinter
@@ -74,6 +75,7 @@ newtype instance Event e (BlockChunks e) =
 
 blockChunksProto :: forall e m  . ( MonadIO m
                                   , Response e (BlockChunks e) m
+                                  , HasOwnPeer e m
                                   , Pretty (Peer e)
                                   )
                  => BlockChunksI e m
@@ -83,6 +85,10 @@ blockChunksProto :: forall e m  . ( MonadIO m
 blockChunksProto adapter (BlockChunks c p) =
   case p of
     BlockGetAllChunks h size -> deferred proto do
+
+      me <- ownPeer @e
+      who <- thatPeer proto
+
       bsz' <- blkSize adapter h
 
       maybe1 bsz' (pure ()) $ \bsz -> do
@@ -96,6 +102,7 @@ blockChunksProto adapter (BlockChunks c p) =
 
     BlockChunk n bs -> do
       who <- thatPeer proto
+      me <- ownPeer @e
       h <- blkGetHash adapter (who, c)
 
       maybe1 h (response_ (BlockLost @e)) $ \hh -> do

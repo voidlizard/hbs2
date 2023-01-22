@@ -81,6 +81,7 @@ library
                     , HBS2.Net.Proto
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
+                    , HBS2.Net.Proto.BlockAnnounce
                     , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.Types
                     , HBS2.Prelude

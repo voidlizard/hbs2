@@ -225,12 +225,12 @@ instance ( HasProtocol e p
       liftIO $ print $ "sweep smth with key" <+> pretty (hash sk)
       liftIO $ atomically $ modifyTVar' ev (HashMap.delete sk)
 
-addSweeper :: forall e . Timeout 'Seconds -> SKey -> PeerM e IO () -> PeerM e IO ()
+addSweeper :: forall e . Maybe (Timeout 'Seconds) -> SKey -> PeerM e IO () -> PeerM e IO ()
 addSweeper t k sweeper = do
   liftIO $ print $ "adding sweeper for key" <+> pretty (hash k)
   ex <- asks (view envExpireTimes)
   sw <- asks (view envSweepers)
-  liftIO $ Cache.insert' ex (Just (toTimeSpec t)) k ()
+  liftIO $ Cache.insert' ex (toTimeSpec <$> t) k ()
   liftIO $ atomically $ modifyTVar' sw (HashMap.insertWith (<>) k [sweeper])
 
 sweep :: PeerM e IO ()
@@ -258,20 +258,26 @@ instance ( HasProtocol e p
          , Hashable (EventKey e p)
          , Eq (EventKey e p)
          , Typeable (EventHandler e p (PeerM e IO))
+         , EventType (Event e p)
          , Pretty (Peer e)
          ) => EventEmitter e p (PeerM e IO) where
 
   emit k d = do
-    me <- ownPeer @e
     se <- asks (view envEvents)
     let sk = newSKey @(EventKey e p) k
 
     void $ runMaybeT $ do
       subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
       void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
-      for_ subs $ \r -> do
-        ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
-        lift $ ev d
+      pers <- forM subs $ \r -> do
+                ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
+                lift $ ev d
+                if isPersistent @(Event e p) then
+                  pure [r]
+                else
+                  pure []
+
+      void $ liftIO $ atomically $ modifyTVar' se (HashMap.insert sk (mconcat pers))
 
 runPeerM :: forall e m . (MonadIO m, HasPeer e, Ord (Peer e), Pretty (Peer e))
          => AnyStorage
@@ -393,4 +399,6 @@ instance ( MonadIO m
   emit k d = lift $ emit k d
 
 
+instance (Monad m, HasOwnPeer e m) => HasOwnPeer e (ResponseM e m) where
+  ownPeer = lift ownPeer
 

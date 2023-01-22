@@ -7,20 +7,21 @@ module Main where
 import HBS2.Actors.ChunkWriter
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Merkle
 import HBS2.Net.Messaging.Fake
+import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Sessions
+import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
-import HBS2.Net.PeerLocator
-import HBS2.Net.PeerLocator.Static
+import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
-import HBS2.Defaults
 
 import Test.Tasty.HUnit
 
@@ -41,6 +42,8 @@ import System.Directory
 import System.Exit
 import System.FilePath.Posix
 import System.IO
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TBQueue qualified as Q
 
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
@@ -72,18 +75,21 @@ instance Pretty (Peer Fake) where
   pretty (FakePeer n) = parens ("peer" <+> pretty n)
 
 
-instance HasProtocol Fake (BlockSize Fake) where
-  type instance ProtocolId (BlockSize Fake) = 1
+instance HasProtocol Fake (BlockInfo Fake) where
+  type instance ProtocolId (BlockInfo Fake) = 1
   type instance Encoded Fake = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
 -- FIXME: 3 is for debug only!
-instance Expires (EventKey Fake (BlockSize Fake)) where
-  expiresIn _  = 3
+instance Expires (EventKey Fake (BlockInfo Fake)) where
+  expiresIn _  = Just 3
 
 instance Expires (EventKey Fake (BlockChunks Fake)) where
-  expiresIn _ = 10
+  expiresIn _ = Just 10
+
+instance Expires (EventKey Fake (BlockAnnounce Fake)) where
+  expiresIn _ = Nothing
 
 instance HasProtocol Fake (BlockChunks Fake) where
   type instance ProtocolId (BlockChunks Fake) = 2
@@ -91,8 +97,14 @@ instance HasProtocol Fake (BlockChunks Fake) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol Fake (BlockAnnounce Fake) where
+  type instance ProtocolId (BlockAnnounce Fake) = 3
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
-type instance SessionData e (BlockSize e) = BlockSizeSession e
+
+type instance SessionData e (BlockInfo e) = BlockSizeSession e
 type instance SessionData e (BlockChunks e) = BlockDownload
 
 newtype instance SessionKey e (BlockChunks e) =
@@ -120,7 +132,7 @@ runTestPeer :: Peer Fake
 
 runTestPeer p zu = do
 
-  dir <- liftIO $ canonicalizePath ( ".peers" </> show p)
+  dir <- liftIO $ canonicalizePath ( ".peers" </> show (fromIntegral p :: Int))
   let chDir = dir </> "tmp-chunks"
   liftIO $ createDirectoryIfMissing True dir
 
@@ -142,8 +154,8 @@ runTestPeer p zu = do
 
 
 handleBlockInfo :: forall e m . ( MonadIO m
-                                , Sessions e (BlockSize e) m
-                                , Default (SessionData e (BlockSize e))
+                                , Sessions e (BlockInfo e) m
+                                , Default (SessionData e (BlockInfo e))
                                 , Ord (Peer e)
                                 , Pretty (Peer e)
                                 -- , EventEmitter e (BlockSize e) m
@@ -158,34 +170,59 @@ handleBlockInfo (p, h, sz') = do
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
-                                   , HasProtocol e (BlockSize e)
+                                   , HasProtocol e (BlockInfo e)
                                    , HasProtocol e (BlockChunks e)
-                                   , Request e (BlockSize e) m
+                                   , Request e (BlockInfo e) m
                                    , Request e (BlockChunks e) m
-                                   , EventListener e (BlockSize e) m
+                                   , EventListener e (BlockInfo e) m
                                    , EventListener e (BlockChunks e) m
+                                   , EventListener e (BlockAnnounce e) m
                                    , EventEmitter e (BlockChunks e) m
-                                   , Sessions e (BlockSize e) m
+                                   , EventEmitter e (BlockInfo e) m
+                                   , Sessions e (BlockInfo e) m
                                    , Sessions e (BlockChunks e) m
                                    , Num (Peer e)
                                    , Pretty (Peer e)
                                    ) =>  PeerM e IO ()
 blockDownloadLoop = do
 
-  let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
-             , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
-             , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-             ]
+  let blks = []
+  -- let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+  --            , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+  --            , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  --            ]
 
-  for_ blks $ \h -> do
+  blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
+  for_ blks $ \b -> liftIO $ atomically $ Q.writeTBQueue blq b
 
-    debug $ "subscribing to" <+> pretty h
+  subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p ann) -> do
+    let h = view biHash ann
+    let s = view biSize ann
+    debug $ "BLOCK ANNOUNCE!" <+> pretty p
+                              <+> pretty h
+                              <+> pretty (view biSize ann)
 
-    subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
-      debug $ "GOT BLOCK!" <+> pretty h
-      pure ()
+    initDownload p h s -- FIXME: don't trust everybody
+
+  fix \next -> do
+
+    h <- liftIO $ atomically $ Q.readTBQueue blq
 
     subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
+      initDownload p h s
+
+    peers <- getPeerLocator @e >>= knownPeers @e
+
+    for_ peers $ \p -> do
+      debug $ "requesting block" <+> pretty h <+> "from" <+> pretty p
+      request p (GetBlockSize @e h)
+
+    liftIO $ print "piu!"
+
+    next
+
+  where
+    initDownload p h s = do
       coo <- genCookie (p,h)
       let key = DownloadSessionKey (p, coo)
       let chusz = defChunkSize
@@ -194,19 +231,13 @@ blockDownloadLoop = do
                   $ newBlockDownload h
 
       update @e new key id
+
+      subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
+        debug $ "GOT BLOCK!" <+> pretty h
+        pure ()
+
       request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 
-    peers <- getPeerLocator @e >>= knownPeers @e
-
-    for_ peers $ \p -> do
-      debug $ "WTF?" <+> pretty p
-      request p (GetBlockSize @e h)
-
-  fix \next -> do
-    liftIO $ print "piu!"
-
-    pause ( 0.85 :: Timeout 'Seconds )
-    next
 
 -- NOTE: this is an adapter for a ResponseM monad
 --       because response is working in ResponseM monad (ha!)
@@ -296,7 +327,7 @@ main = do
 
     fake <- newFakeP2P True <&> Fabriq
 
-    let (p0:ps) = [0..1] :: [Peer Fake]
+    let (p0:ps) = [0..4] :: [Peer Fake]
 
     -- others
     others <- forM ps $ \p -> async $ runTestPeer p $ \s cw  -> do
@@ -310,13 +341,25 @@ main = do
 
                 root <- putAsMerkle s blk
 
+                rootSz <- hasBlock s (fromMerkleHash root)
+
                 debug $ "I'm" <+> pretty p <+> pretty root
 
                 runPeerM (AnyStorage s) fake p $ do
                   adapter <- mkAdapter cw
+
+                  env <- ask
+                  liftIO $ async $ withPeerM env $ do
+                      maybe1 rootSz (pure ()) $ \rsz -> do
+                        pause ( 0.01 :: Timeout 'Seconds )
+                        let info = BlockAnnounceInfo 0 NoBlockInfoMeta rsz (fromMerkleHash root)
+                        let ann = BlockAnnounce @Fake info
+                        request @Fake p0 ann
+
                   runProto @Fake
                     [ makeResponse (blockSizeProto findBlk dontHandle)
                     , makeResponse (blockChunksProto adapter)
+                    , makeResponse blockAnnounceProto
                     ]
 
     our <- async $ runTestPeer p0 $ \s cw -> do
@@ -334,6 +377,7 @@ main = do
                   runProto @Fake
                     [ makeResponse (blockSizeProto blk handleBlockInfo)
                     , makeResponse (blockChunksProto adapter)
+                    , makeResponse blockAnnounceProto
                     ]
 
                   liftIO $ cancel as

@@ -1,4 +1,5 @@
 {-# Language FunctionalDependencies #-}
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Events where
 
 import Data.Kind
@@ -38,5 +39,10 @@ class Monad m => EventListener e a m | a -> e where
 class Monad m => EventEmitter e a m | a -> e where
   emit  :: EventKey e a -> Event e a ->  m ()
 
+class EventType a  where
+  isPersistent :: Bool
+  isPersistent = False
 
+instance {-# OVERLAPPABLE #-} EventType any where
+  isPersistent = False
 

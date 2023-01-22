@@ -16,7 +16,6 @@ newtype HashRef = HashRef (Hash HbSync)
                   deriving stock (Data,Generic,Show)
 
 
-
 data HashRefObject = HashRefObject HashRef (Maybe HashRefMetadata)
   deriving stock (Data,Generic)
 

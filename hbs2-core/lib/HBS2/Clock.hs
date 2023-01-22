@@ -66,6 +66,6 @@ instance IsTimeout 'Minutes where
   toNanoSeconds (TimeoutMin x) = round (x * 60 * 1e9)
 
 class Expires a where
-  expiresIn :: Proxy a -> Timeout 'Seconds
+  expiresIn :: Proxy a -> Maybe (Timeout 'Seconds)
 
 
