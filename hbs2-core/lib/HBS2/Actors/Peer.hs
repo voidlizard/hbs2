@@ -249,21 +249,23 @@ instance ( HasProtocol e p
          , Hashable (EventKey e p)
          , Eq (EventKey e p)
          , Typeable (EventHandler e p (PeerM e IO))
+         , Pretty (Peer e)
          ) => EventEmitter e p (PeerM e IO) where
 
   emit k d = do
+    me <- ownPeer @e
     se <- asks (view envEvents)
     let sk = newSKey @(EventKey e p) k
 
     void $ runMaybeT $ do
-      liftIO $ print "GOOD"
+      liftIO $ print $ "GOOD" <+> pretty me <+> pretty (hash sk)
       subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
-      liftIO $ print "VERY GOOD"
+      liftIO $ print $ "VERY GOOD"  <+> pretty me
       void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
       for_ subs $ \r -> do
         ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
         lift $ ev d
-      liftIO $ print "FINE"
+      liftIO $ print $ "FINE" <+> pretty me
 
 runPeerM :: (MonadIO m, Pretty (Peer e)) => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
@@ -377,7 +379,6 @@ instance ( MonadIO m
          ) => EventEmitter e p (ResponseM e  m) where
 
   emit k d = lift $ emit k d
-
 
 
 

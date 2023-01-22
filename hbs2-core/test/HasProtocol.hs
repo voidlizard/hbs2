@@ -2,12 +2,10 @@ module HasProtocol
   ( module HBS2.Net.Proto.Types
   , module HBS2.Net.Messaging
   , module HBS2.Net.Messaging.Fake
-  , module HBS2.Net.Peer
   ) where
 
 import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Fake
-import HBS2.Net.Peer
 import HBS2.Net.Proto.Types
 
 

@@ -52,8 +52,9 @@ newtype instance SessionKey e (BlockSize e) =
 
 newtype instance EventKey e (BlockSize e) =
   BlockSizeEventKey (Hash HbSync)
-  deriving stock (Typeable, Eq)
-  deriving newtype (Hashable)
+  deriving stock (Typeable, Eq,Generic)
+
+deriving  instance Hashable (EventKey e (BlockSize e))
 
 newtype instance Event e (BlockSize e) =
   BlockSizeEvent (Peer e, Hash HbSync, Integer)

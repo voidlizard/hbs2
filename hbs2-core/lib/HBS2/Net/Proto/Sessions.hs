@@ -6,9 +6,10 @@ import HBS2.Net.Proto.Types
 import Data.Typeable
 import Data.Dynamic
 import Data.Hashable
+import Type.Reflection
 import Data.Kind
 
-data SKey = forall a . (Unkey a, Eq a, Hashable a) => SKey (Proxy a) Dynamic
+data SKey = forall a . (Unkey a, Eq a, Hashable a) => SKey (Proxy a) SomeTypeRep Dynamic
 
 class Typeable a => Unkey a where
   unKey :: Proxy a -> Dynamic -> Maybe a
@@ -17,15 +18,18 @@ instance Typeable a => Unkey a where
   unKey _ = fromDynamic @a
 
 newSKey :: forall a . (Eq a, Typeable a, Unkey a, Hashable a) => a -> SKey
-newSKey s = SKey (Proxy @a) (toDyn s)
+newSKey s = SKey (Proxy @a) (someTypeRep (Proxy @a)) (toDyn s)
 
 
 instance Hashable SKey where
-  hashWithSalt s (SKey p d) = hashWithSalt s (unKey p d)
+  hashWithSalt s (SKey p t d) = hashWithSalt s (p, t, unKey p d)
 
 
 instance Eq SKey where
-  (==) (SKey p1 a) (SKey p2 b) = unKey p1 a == unKey p1 b
+  (==) (SKey p1 ty1 a) (SKey p2 ty2 b) =
+       ty1 == ty2
+    && unKey p1 a == unKey p1 b
+    && unKey p2 a == unKey p2 b
 
 
 data family SessionKey  e p :: Type

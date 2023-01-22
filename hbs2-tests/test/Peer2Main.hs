@@ -161,6 +161,7 @@ blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 , Request e (BlockChunks e) (PeerM e IO)
                                 , EventListener e (BlockSize e) (PeerM e IO)
                                 , EventListener e (BlockChunks e) (PeerM e IO)
+                                , EventEmitter e (BlockChunks e) (PeerM e IO)
                                 , Sessions e (BlockSize e) (PeerM e IO)
                                 , Sessions e (BlockChunks e) (PeerM e IO)
                                 , Num (Peer e)
@@ -169,19 +170,23 @@ blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
 blockDownloadLoop = do
 
   let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
-             , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
-             , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+             -- , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+             -- , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
              ]
 
   for_ blks $ \h -> do
 
     debug $ "subscribing to" <+> pretty h
 
+    -- let wtf1 = newSKey (BlockChunksEventKey h)
+
+    -- emit @e (BlockChunksEventKey (head blks)) (BlockReady (head blks))
+
     subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
       debug $ "GOT BLOCK!" <+> pretty h
       pure ()
 
-    subscribe @e @(BlockSize e) (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
+    subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
       debug $  "can't believe this shit works" <+> pretty h
       coo <- genCookie (p,h)
       let key = DownloadSessionKey (p, coo)
@@ -197,6 +202,8 @@ blockDownloadLoop = do
 
   fix \next -> do
     liftIO $ print "piu!"
+
+    -- emit @e (BlockChunksEventKey (head blks)) (BlockReady (head blks))
 
     pause ( 0.85 :: Timeout 'Seconds )
     next
@@ -258,6 +265,16 @@ mkAdapter cww = do
                    && written >= mbSize
 
         when mbDone $ lift do
+          emit @e @(BlockChunks e) (BlockChunksEventKey h) (BlockReady h)
+
+          -- ВОТ ЖЕ БЛЯДЬ! СЧИТАТЬ ХЭШ ДОЛГО.
+          -- ЗАМОРОЗИМСЯ ЗДЕСЬ.
+          --
+          -- ЕСЛИ СОБЫТИЕ ПОШЛЁМ РАНЬЕ -- ОНО ПРИШЛО,
+          -- А БЛОКА НЕТ
+          --
+          -- А ПОШЛЁМ ИЗ DEFERRED - ТИП БУДЕТ ДРУГОЙ
+          -- СУКА!
           deferred (Proxy @(BlockChunks e)) $ do
             h1 <- liftIO $ getHash cww cKey h
 
@@ -267,10 +284,11 @@ mkAdapter cww = do
             when ( h1 == h ) $ do
               liftIO $ commitBlock cww cKey h
               expire cKey
-              debug $ "BLOCK IS READY" <+> pretty h
-              emit @e (BlockChunksEventKey h) (BlockReady h)
-              -- FIXME: return this event!
-              -- lift $ runEngineM env $ emitBlockReadyEvent ev h -- TODO: fix this crazy shit
+              -- WTF!! THIS IS A DIFFERENT MONAD FROM OUTSIDE,
+              --       SO EVENTS EMITTED HERE WILL HAVE ANOTHER
+              --       TYPE SIGNATURES AND WILL NOT BE DECODED
+              --       WHEREVER THEIR ARE LISTENED
+              --       HOLY SHIT
 
         when (written > mbSize * defBlockDownloadThreshold) $ do
           debug $ "SESSION DELETED BECAUSE THAT PEER IS JERK:" <+> pretty p
