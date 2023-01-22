@@ -7,6 +7,7 @@ import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Merkle
 import HBS2.Data.Types
+import HBS2.Data.Detect
 import HBS2.Defaults
 
 
@@ -74,11 +75,6 @@ newtype NewRefOpts =
   }
   deriving stock (Data)
 
-data BlobType =  Merkle (Hash HbSync)
-               | AnnRef (Hash HbSync)
-               | Blob (Hash HbSync)
-               deriving (Show,Data)
-
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runCat opts ss = do
 
@@ -90,11 +86,7 @@ runCat opts ss = do
 
     obj <- MaybeT $ getBlock ss mhash
 
-    let mbLink   = deserialiseOrFail @AnnotatedHashRef obj >> pure (AnnRef mhash)
-    let mbMerkle = deserialiseOrFail @(MTree [HashRef]) obj >> pure (Merkle mhash)
-    let orBlob   = Blob mhash
-
-    let q = rights [mbLink, mbMerkle] & headDef orBlob
+    let q = tryDetect mhash obj
 
     liftIO $ do
 
@@ -118,31 +110,6 @@ runCat opts ss = do
                                 | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
                                 ]
           maybe (error "empty ref") walk mbHead
-
-
-    -- case q of
-    --   Merkle h -> liftIO do
-    --      walkMerkle h (getBlock ss) $ \(hr :: [HashRef]) -> do
-    --        forM_ hr $ \(HashRef h) -> do
-    --          if honly then do
-    --            print $ pretty h
-    --          else do
-    --            mblk <- getBlock ss h
-    --            case mblk of
-    --              Nothing  -> error $ show $ "missed block: " <+> pretty h
-    --              Just blk -> LBS.putStr blk
-
-
-    -- case q of
-
-    -- realHash <- MaybeT $ case mbLink of
-    --   Left _    -> pure $ Just mhash
-    --   Right lnk -> do
-    --     pure $ headMay [ h
-    --                    | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
-    --                    ]
-
-    -- -- FIXME: if merkle?
 
 
 runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()

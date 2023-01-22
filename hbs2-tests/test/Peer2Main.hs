@@ -371,7 +371,7 @@ main = do
                   env <- ask
                   liftIO $ async $ withPeerM env $ do
                       maybe1 rootSz (pure ()) $ \rsz -> do
-                        pause ( 0.01 :: Timeout 'Seconds )
+                        pause ( 0.001 :: Timeout 'Seconds )
                         let info = BlockAnnounceInfo 0 NoBlockInfoMeta rsz (fromMerkleHash root)
                         let ann = BlockAnnounce @Fake info
                         request @Fake p0 ann

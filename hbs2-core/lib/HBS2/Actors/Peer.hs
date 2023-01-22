@@ -263,21 +263,25 @@ instance ( HasProtocol e p
          ) => EventEmitter e p (PeerM e IO) where
 
   emit k d = do
-    se <- asks (view envEvents)
-    let sk = newSKey @(EventKey e p) k
+    pip <- asks (view envDeferred)
+    env <- ask
+    liftIO $ addJob pip $ withPeerM env $ do
 
-    void $ runMaybeT $ do
-      subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
-      void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
-      pers <- forM subs $ \r -> do
-                ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
-                lift $ ev d
-                if isPersistent @(Event e p) then
-                  pure [r]
-                else
-                  pure []
+      se <- asks (view envEvents)
+      let sk = newSKey @(EventKey e p) k
 
-      void $ liftIO $ atomically $ modifyTVar' se (HashMap.insert sk (mconcat pers))
+      void $ runMaybeT $ do
+        subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
+        void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
+        pers <- forM subs $ \r -> do
+                  ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
+                  lift $ ev d
+                  if isPersistent @(Event e p) then
+                    pure [r]
+                  else
+                    pure []
+
+        void $ liftIO $ atomically $ modifyTVar' se (HashMap.insert sk (mconcat pers))
 
 runPeerM :: forall e m . (MonadIO m, HasPeer e, Ord (Peer e), Pretty (Peer e))
          => AnyStorage

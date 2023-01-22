@@ -68,6 +68,7 @@ library
                     , HBS2.Actors.ChunkWriter
                     , HBS2.Actors.Peer
                     , HBS2.Clock
+                    , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
                     , HBS2.Defaults
