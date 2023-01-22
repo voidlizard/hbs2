@@ -14,6 +14,8 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
+import HBS2.Net.PeerLocator
+import HBS2.Net.PeerLocator.Static
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Simple
@@ -318,6 +320,11 @@ main = do
                 runPeerM (AnyStorage s) fake p0 $ do
                   adapter <- mkAdapter cw
                   env <- ask
+
+                  npl <- newStaticPeerLocator ps
+
+                  addPeers npl ps
+
                   as <- liftIO $ async $ withPeerM env blockDownloadLoop
 
                   runProto @Fake

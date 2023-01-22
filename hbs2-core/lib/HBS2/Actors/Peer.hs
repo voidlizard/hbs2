@@ -3,16 +3,18 @@
 {-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer where
 
-import HBS2.Prelude.Plated
-import HBS2.Hash
-import HBS2.Clock
 import HBS2.Actors
-import HBS2.Storage
-import HBS2.Net.Proto
-import HBS2.Net.Messaging
-import HBS2.Net.Proto.Sessions
+import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
+import HBS2.Hash
+import HBS2.Net.Messaging
+import HBS2.Net.PeerLocator
+import HBS2.Net.PeerLocator.Static
+import HBS2.Net.Proto
+import HBS2.Net.Proto.Sessions
+import HBS2.Prelude.Plated
+import HBS2.Storage
 
 import Control.Monad.Trans.Maybe
 import Codec.Serialise hiding (encode,decode)
@@ -93,6 +95,7 @@ data PeerEnv e =
   { _envSelf         :: Peer e
   , _envFab          :: Fabriq e
   , _envStorage      :: AnyStorage
+  , _envPeerLocator  :: AnyPeerLocator e
   , _envDeferred     :: Pipeline IO ()
   , _envSessions     :: Cache SKey Dynamic
   , _envEvents       :: TVar (HashMap SKey [Dynamic])
@@ -264,14 +267,22 @@ instance ( HasProtocol e p
         ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
         lift $ ev d
 
-runPeerM :: (MonadIO m, Pretty (Peer e)) => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
+runPeerM :: forall e m . (MonadIO m, HasPeer e, Ord (Peer e), Pretty (Peer e))
+         => AnyStorage
+         -> Fabriq e
+         -> Peer e
+         -> PeerM e m ()
+         -> m ()
+
 runPeerM s bus p f  = do
 
-  env <- PeerEnv p bus s <$> newPipeline defProtoPipelineSize
-                         <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                         <*> liftIO (newTVarIO mempty)
-                         <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                         <*> liftIO (newTVarIO mempty)
+  pl <- AnyPeerLocator <$> newStaticPeerLocator @e mempty
+
+  env <- PeerEnv p bus s pl <$> newPipeline defProtoPipelineSize
+                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                            <*> liftIO (newTVarIO mempty)
+                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                            <*> liftIO (newTVarIO mempty)
 
   let de = view envDeferred env
   as <- liftIO $ async $ runPipeline de

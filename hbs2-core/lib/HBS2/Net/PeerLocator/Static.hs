@@ -4,12 +4,12 @@ import HBS2.Prelude
 import HBS2.Net.Proto
 import HBS2.Net.PeerLocator
 
-import Control.Concurrent.STM.TVar
+import Control.Concurrent.STM
 import Data.Set (Set)
 import Data.Set qualified as Set
 
-newtype StaticPeerLocator p =
-  StaticPeerLocator (TVar (Set (Peer p)))
+newtype StaticPeerLocator e =
+  StaticPeerLocator (TVar (Set (Peer e)))
 
 
 newStaticPeerLocator :: (Ord (Peer p), HasPeer p, MonadIO m) => [Peer p] -> m (StaticPeerLocator p)
@@ -17,7 +17,14 @@ newStaticPeerLocator seeds = do
   tv <- liftIO $ newTVarIO (Set.fromList seeds)
   pure $ StaticPeerLocator tv
 
-instance PeerLocator  (StaticPeerLocator p)  where
+instance Ord (Peer e) => PeerLocator  e (StaticPeerLocator e)  where
 
-  knownPeers _ = pure mempty
+  knownPeers (StaticPeerLocator peers) = do
+    ps <- liftIO $ readTVarIO  peers
+    pure $ Set.toList ps
+
+  addPeers (StaticPeerLocator peers) new = do
+    liftIO $ atomically $ modifyTVar' peers (<> Set.fromList new)
+
+
 

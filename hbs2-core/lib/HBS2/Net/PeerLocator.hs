@@ -1,15 +1,15 @@
 module HBS2.Net.PeerLocator where
 
--- import HBS2.Prelude
+import HBS2.Prelude
 import HBS2.Net.Proto.Types
 
-class PeerLocator l where
-  knownPeers :: (HasPeer p, Monad m) => l -> m [Peer p]
+class PeerLocator e l where
+  knownPeers :: forall m . (HasPeer e, MonadIO m) => l -> m [Peer e]
+  addPeers   :: forall m . (HasPeer e, MonadIO m) => l -> [Peer e] -> m ()
 
-data AnyPeerLocator = forall a . PeerLocator a => AnyPeerLocator a
+data AnyPeerLocator e = forall a . PeerLocator e a => AnyPeerLocator a
 
-instance PeerLocator AnyPeerLocator where
+instance HasPeer e => PeerLocator e (AnyPeerLocator e) where
   knownPeers (AnyPeerLocator l) = knownPeers  l
-
-
+  addPeers (AnyPeerLocator l) = addPeers l
 
