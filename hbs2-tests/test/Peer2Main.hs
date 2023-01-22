@@ -203,6 +203,7 @@ mkAdapter :: forall e m . ( m ~  PeerM e IO
                           , Sessions e (BlockChunks e) (ResponseM e m)
                           , EventEmitter e (BlockChunks e) m
                           , Pretty (Peer e)
+                          , Block ByteString ~ ByteString
                           )
           => ChunkWriter HbSync IO -> m (BlockChunksI e (ResponseM e m ))
 mkAdapter cww = do
