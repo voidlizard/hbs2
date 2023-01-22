@@ -256,11 +256,14 @@ instance ( HasProtocol e p
     let sk = newSKey @(EventKey e p) k
 
     void $ runMaybeT $ do
+      liftIO $ print "GOOD"
       subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
+      liftIO $ print "VERY GOOD"
       void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
       for_ subs $ \r -> do
         ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
         lift $ ev d
+      liftIO $ print "FINE"
 
 runPeerM :: (MonadIO m, Pretty (Peer e)) => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
