@@ -134,6 +134,7 @@ getHash :: forall salt h m .
            ( Hashable salt
            , Hashed h ByteString
            , MonadIO m
+           , Block ByteString ~ ByteString
            , Pretty (Hash h)
            )
          => ChunkWriter h m

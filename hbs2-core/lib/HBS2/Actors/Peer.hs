@@ -338,12 +338,10 @@ instance ( HasProtocol e p
   thatPeer _ = asks (view answTo)
 
   deferred _ action = do
-    me <- lift $ ownPeer @e
     who <- asks (view answTo)
-    fab <- lift $ getFabriq @e
     pip <- lift $ asks (view envDeferred)
-    ss  <- lift getStorage
-    liftIO $ addJob pip $ runPeerM ss fab me (runResponseM who action)
+    env <- lift ask
+    liftIO $ addJob pip $ withPeerM env (runResponseM who action)
 
   response msg = do
     let proto = protoId @e @p (Proxy @p)

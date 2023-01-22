@@ -178,10 +178,6 @@ blockDownloadLoop = do
 
     debug $ "subscribing to" <+> pretty h
 
-    -- let wtf1 = newSKey (BlockChunksEventKey h)
-
-    -- emit @e (BlockChunksEventKey (head blks)) (BlockReady (head blks))
-
     subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
       debug $ "GOT BLOCK!" <+> pretty h
       pure ()
@@ -202,8 +198,6 @@ blockDownloadLoop = do
 
   fix \next -> do
     liftIO $ print "piu!"
-
-    -- emit @e (BlockChunksEventKey (head blks)) (BlockReady (head blks))
 
     pause ( 0.85 :: Timeout 'Seconds )
     next
@@ -265,16 +259,7 @@ mkAdapter cww = do
                    && written >= mbSize
 
         when mbDone $ lift do
-          emit @e @(BlockChunks e) (BlockChunksEventKey h) (BlockReady h)
 
-          -- ВОТ ЖЕ БЛЯДЬ! СЧИТАТЬ ХЭШ ДОЛГО.
-          -- ЗАМОРОЗИМСЯ ЗДЕСЬ.
-          --
-          -- ЕСЛИ СОБЫТИЕ ПОШЛЁМ РАНЬЕ -- ОНО ПРИШЛО,
-          -- А БЛОКА НЕТ
-          --
-          -- А ПОШЛЁМ ИЗ DEFERRED - ТИП БУДЕТ ДРУГОЙ
-          -- СУКА!
           deferred (Proxy @(BlockChunks e)) $ do
             h1 <- liftIO $ getHash cww cKey h
 
@@ -284,11 +269,7 @@ mkAdapter cww = do
             when ( h1 == h ) $ do
               liftIO $ commitBlock cww cKey h
               expire cKey
-              -- WTF!! THIS IS A DIFFERENT MONAD FROM OUTSIDE,
-              --       SO EVENTS EMITTED HERE WILL HAVE ANOTHER
-              --       TYPE SIGNATURES AND WILL NOT BE DECODED
-              --       WHEREVER THEIR ARE LISTENED
-              --       HOLY SHIT
+              emit @e (BlockChunksEventKey h) (BlockReady h)
 
         when (written > mbSize * defBlockDownloadThreshold) $ do
           debug $ "SESSION DELETED BECAUSE THAT PEER IS JERK:" <+> pretty p
