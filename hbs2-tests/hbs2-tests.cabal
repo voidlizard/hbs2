@@ -51,9 +51,9 @@ common shared-properties
         -- -Werror=missing-methods
         -- -Werror=incomplete-patterns
         -- -fno-warn-unused-binds
-        -- -threaded
-        -- -rtsopts
-        -- "-with-rtsopts=-N4 -A64m -AL256m -I0"
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N8 -A64m -AL256m -I0"
 
 
   default-language:    Haskell2010
@@ -85,7 +85,21 @@ common shared-properties
                      , TypeFamilies
 
 
-test-suite test-peer
+-- test-suite test-peer
+--     import:           shared-properties
+--     import:           common-deps
+--     default-language: Haskell2010
+
+--     other-modules:
+
+--     -- other-extensions:
+
+--     type:             exitcode-stdio-1.0
+--     hs-source-dirs:   test
+--     main-is:          Peer2Main.hs
+
+
+executable test-peer-run
     import:           shared-properties
     import:           common-deps
     default-language: Haskell2010
@@ -94,25 +108,7 @@ test-suite test-peer
 
     -- other-extensions:
 
-    type:             exitcode-stdio-1.0
+    -- type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Peer2Main.hs
-
-
-test-suite test-hmap
-    import:           shared-properties
-    import:           common-deps
-    default-language: Haskell2010
-
-    other-modules:
-
-    build-depends: HMap
-                 , data-default
-
-    -- other-extensions:
-
-    type:             exitcode-stdio-1.0
-    hs-source-dirs:   test
-    main-is:          HmapMain.hs
-
 

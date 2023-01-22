@@ -301,7 +301,7 @@ runPeerM s bus p f  = do
                             <*> liftIO (newTVarIO mempty)
 
   let de = view envDeferred env
-  as <- liftIO $ async $ runPipeline de
+  as <- liftIO $ replicateM 1 $ async $ runPipeline de
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
           pause defSweepTimeout
@@ -311,7 +311,7 @@ runPeerM s bus p f  = do
 
   void $ runReaderT (fromPeerM f) env
   void $ liftIO $ stopPipeline de
-  liftIO $ cancel as
+  liftIO $ mapM_ cancel as
 
 withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m ()
 withPeerM env action = void $ runReaderT (fromPeerM action) env

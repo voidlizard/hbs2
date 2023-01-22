@@ -11,7 +11,7 @@ import Data.String(IsString)
 import GHC.Generics
 import Prettyprinter
 
-newtype HashRef = HashRef (Hash HbSync)
+newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty)
                   deriving stock (Data,Generic,Show)
 

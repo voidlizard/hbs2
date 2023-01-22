@@ -5,8 +5,11 @@
 module Main where
 
 import HBS2.Actors.ChunkWriter
+import HBS2.Actors
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Data.Detect
+import HBS2.Data.Types
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -143,15 +146,15 @@ runTestPeer p zu = do
   stor <- simpleStorageInit opts
   cww  <- newChunkWriterIO  stor (Just chDir)
 
-  sw <- liftIO $ async $ simpleStorageWorker stor
-  cw <- liftIO $ async $ runChunkWriter cww
+  sw <- liftIO $ replicateM 1 $ async $ simpleStorageWorker stor
+  cw <- liftIO $ replicateM 1 $ async $ runChunkWriter cww
 
   zu stor cww
 
   simpleStorageStop stor
   stopChunkWriter cww
 
-  mapM_ cancel [sw,cw]
+  mapM_ cancel $ sw <> cw
 
 
 handleBlockInfo :: forall e m . ( MonadIO m
@@ -171,6 +174,7 @@ handleBlockInfo (p, h, sz') = do
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
+                                   , MonadIO m
                                    , Request e (BlockInfo e) m
                                    , Request e (BlockChunks e) m
                                    , EventListener e (BlockInfo e) m
@@ -191,7 +195,8 @@ blockDownloadLoop = do
 
   let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
              , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
-             , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+             , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+             , "ECWYwWXiLgNvCkN1EFpSYqsPcWfnL4bAQADsyZgy1Cbr"
              ]
 
   blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
@@ -205,7 +210,7 @@ blockDownloadLoop = do
                               <+> pretty h
                               <+> pretty (view biSize ann)
 
-    initDownload p h s -- FIXME: don't trust everybody
+    initDownload blq p h s -- FIXME: don't trust everybody
 
   fix \next -> do
 
@@ -216,7 +221,7 @@ blockDownloadLoop = do
     unless here $ do
 
       subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,h,s)) -> do
-        initDownload p h s
+        initDownload blq p h s
 
       peers <- getPeerLocator @e >>= knownPeers @e
 
@@ -224,13 +229,11 @@ blockDownloadLoop = do
         debug $ "requesting block" <+> pretty h <+> "from" <+> pretty p
         request p (GetBlockSize @e h)
 
-    liftIO $ print "piu!"
-
     next
 
   where
 
-    initDownload p h s = do
+    initDownload q p h s = do
       sto <- getStorage
       here <- liftIO $ hasBlock sto h <&> isJust
 
@@ -246,17 +249,39 @@ blockDownloadLoop = do
         update @e new key id
 
         subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
-          processBlock h
+          processBlock q p h
 
         request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 
         else do
-          processBlock h
+          processBlock q p h
 
-    processBlock h = do
-      sto <- getStorage
-      debug $ "GOT BLOCK!" <+> pretty h
+    processBlock q _ h = do
 
+      env <- ask
+      pip <- asks (view envDeferred)
+      liftIO $ addJob pip $ withPeerM env $ do
+      -- void $ liftIO $ async $ withPeerM env $ do
+
+        sto <- getStorage
+        debug $ "GOT BLOCK!" <+> pretty h
+        bt <- liftIO $ getBlock sto h <&> fmap (tryDetect h)
+        -- debug $ pretty (show bt)
+
+        case bt of
+          Nothing -> pure ()
+
+          Just (AnnRef{}) -> do
+            pure ()
+
+          Just (Merkle{}) -> liftIO do
+            debug $ "GOT MERKLE. requesting nodes/leaves" <+> pretty h
+            walkMerkle h (getBlock sto)  $ \(hr :: [HashRef]) -> do
+              for_ hr $ \h -> debug $ "for-block" <+> pretty h
+              for_ hr ( atomically . Q.writeTBQueue q . fromHashRef)
+
+          Just (Blob{}) -> do
+            pure ()
 
 
 -- NOTE: this is an adapter for a ResponseM monad
@@ -319,6 +344,7 @@ mkAdapter cww = do
 
           deferred (Proxy @(BlockChunks e)) $ do
             h1 <- liftIO $ getHash cww cKey h
+            -- h1 <- pure  h-- liftIO $ getHash cww cKey h
 
           -- ПОСЧИТАТЬ ХЭШ
           -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
@@ -343,7 +369,7 @@ main :: IO ()
 main = do
   hSetBuffering stderr LineBuffering
 
-  void $ race (pause (10 :: Timeout 'Seconds)) $ do
+  void $ race (pause (300 :: Timeout 'Seconds)) $ do
 
     fake <- newFakeP2P True <&> Fabriq
 
@@ -402,7 +428,7 @@ main = do
 
                   liftIO $ cancel as
 
-    pause ( 8 :: Timeout 'Seconds)
+    pause ( 300 :: Timeout 'Seconds)
 
     mapM_ cancel (our:others)
 

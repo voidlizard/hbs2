@@ -100,7 +100,7 @@ blockChunksProto adapter (BlockChunks c p) =
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
-    BlockChunk n bs -> do
+    BlockChunk n bs -> deferred proto do
       who <- thatPeer proto
       me <- ownPeer @e
       h <- blkGetHash adapter (who, c)
