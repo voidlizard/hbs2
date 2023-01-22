@@ -3,6 +3,7 @@ module HBS2.Net.Proto.BlockInfo where
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
+import HBS2.Events
 import HBS2.Hash
 
 import Codec.Serialise ()
@@ -46,4 +47,14 @@ newtype instance SessionKey e (BlockSize e) =
   BlockSizeKey (Hash HbSync)
   deriving stock (Typeable,Eq,Show)
   deriving newtype (Hashable,IsString)
+
+
+newtype instance EventKey e (BlockSize e) =
+  BlockSizeEventKey ()
+  deriving stock (Typeable, Eq)
+  deriving newtype (Hashable)
+
+data instance Event e (BlockSize e) =
+  BlockSizeEvent
+  deriving stock (Typeable)
 

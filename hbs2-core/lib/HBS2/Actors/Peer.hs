@@ -1,5 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer where
 
 import HBS2.Prelude.Plated
@@ -10,7 +11,9 @@ import HBS2.Net.Proto
 import HBS2.Net.Messaging
 import HBS2.Net.Proto.Sessions
 import HBS2.Defaults
+import HBS2.Events
 
+import Control.Monad.Trans.Maybe
 import Codec.Serialise hiding (encode,decode)
 import Control.Concurrent.Async
 import Control.Monad.Reader
@@ -84,6 +87,7 @@ data PeerEnv e =
   , _envStorage     :: AnyStorage
   , _envDeferred    :: Pipeline IO ()
   , _envSessions    :: Cache SKey Dynamic
+  , _envEvents      :: Cache SKey Dynamic
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -183,10 +187,44 @@ instance ( MonadIO m
     let bs = serialise (AnyMessage @e proto (encode msg))
     sendTo pipe (To p) (From me) bs
 
+
+
+instance ( HasProtocol e p
+         , Typeable (EventHandler e p (PeerM e IO))
+         , Typeable (EventKey e p)
+         , Typeable (Event e p)
+         , Hashable (EventKey e p)
+         , Eq (EventKey e p)
+         ) => EventListener e p (PeerM e IO) where
+
+  subscribe k h = do
+    ev <- asks (view envEvents)
+    liftIO $ Cache.insert ev (newSKey @(EventKey e p) k) (toDyn h)
+    pure ()
+
+instance ( HasProtocol e p
+         , Typeable (EventKey e p)
+         , Typeable (Event e p)
+         , Hashable (EventKey e p)
+         , Eq (EventKey e p)
+         , Typeable (EventHandler e p (PeerM e IO))
+         ) => EventEmitter e p (PeerM e IO) where
+
+  emit k d = do
+    se <- asks (view envEvents)
+    let sk = newSKey @(EventKey e p) k
+
+    void $ runMaybeT $ do
+      r  <- MaybeT $ liftIO $ Cache.lookup se sk
+      ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
+      lift $ ev d
+
+
 runPeerM :: MonadIO m => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
 
   env <- PeerEnv p bus s <$> newPipeline defProtoPipelineSize
+                         <*> liftIO (Cache.newCache (Just defCookieTimeout))
                          <*> liftIO (Cache.newCache (Just defCookieTimeout))
 
   let de = view envDeferred env
@@ -210,8 +248,6 @@ runProto :: forall e m  . ( MonadIO m
 runProto hh = do
   me       <- ownPeer @e @m
   pipe     <- getFabriq
-
-  -- defer <- newPipeline @(ResponseM e m ()) @m defProtoPipelineSize
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -277,4 +313,15 @@ instance ( MonadIO m
   update d k f = lift (update d k f)
 
   expire k = lift (expire  k)
+
+
+instance ( MonadIO m
+         , Hashable (EventKey e p)
+         , EventEmitter e p m
+         ) => EventEmitter e p (ResponseM e  m) where
+
+  emit k d = lift $ emit k d
+
+
+
 

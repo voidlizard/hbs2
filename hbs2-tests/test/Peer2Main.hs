@@ -131,6 +131,7 @@ handleBlockInfo :: forall e m . ( MonadIO m
                                 , Default (SessionData e (BlockSize e))
                                 , Ord (Peer e)
                                 , Pretty (Peer e)
+                                , EventEmitter e (BlockSize e) m
                                 )
 
                 => (Peer e, Hash HbSync, Maybe Integer)
@@ -141,28 +142,20 @@ handleBlockInfo (p, h, sz') = do
     let bsz = fromIntegral sz
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
     liftIO $ debug $ "got block:" <+> pretty (p, h, sz)
+    emit @e (BlockSizeEventKey ()) BlockSizeEvent
     -- FIXME: turn back on event notification
     -- lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
 
 
-instance HasEvents Fake (BlockSize Fake) (PeerM Fake IO) where
-  data instance EventKey Fake (BlockSize Fake) = BlockSizeEvent ()
-  type instance Event Fake (BlockSize Fake) = ()
-
-  subscribe = undefined
-
 blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 , Request e (BlockSize e) (PeerM e IO)
-                                , HasEvents e (BlockSize e) (PeerM e IO)
+                                , EventListener e (BlockSize e) (PeerM e IO)
                                 , Num (Peer e)
                                 ) =>  PeerM e IO ()
 blockDownloadLoop = do
 
-  -- w <- subscribe ???
-  --
-
-  -- subscribe @(GetBlockSize e) $ \(p,h,i) -> do
-  --   debug "WE GOT BLOCK!"
+  w <- subscribe @e @(BlockSize e) (BlockSizeEventKey ()) $ \_ -> do
+        debug "can't believe this shit works"
 
   request 1 (GetBlockSize @e "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt")
   request 1 (GetBlockSize @e "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ")
