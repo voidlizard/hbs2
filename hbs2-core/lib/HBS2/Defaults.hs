@@ -35,5 +35,8 @@ defCookieTimeout = toTimeSpec ( 10  :: Timeout 'Minutes)
 defBlockInfoTimeout :: TimeSpec
 defBlockInfoTimeout = toTimeSpec ( 10  :: Timeout 'Minutes)
 
+defSweepTimeout :: Timeout 'Seconds
+defSweepTimeout = 5 -- FIXME: only for debug!
+
 
 

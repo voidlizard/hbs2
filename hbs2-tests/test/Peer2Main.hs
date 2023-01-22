@@ -27,6 +27,7 @@ import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as B8
 import Data.Default
+import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Word
@@ -69,6 +70,10 @@ instance HasProtocol Fake (BlockSize Fake) where
   type instance Encoded Fake = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
+
+-- FIXME: 3 is for debug only!
+instance Expires (EventKey Fake (BlockSize Fake)) where
+  expiresIn _  = 3
 
 instance HasProtocol Fake (BlockChunks Fake) where
   type instance ProtocolId (BlockChunks Fake) = 2
@@ -142,7 +147,7 @@ handleBlockInfo (p, h, sz') = do
     let bsz = fromIntegral sz
     update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
     liftIO $ debug $ "got block:" <+> pretty (p, h, sz)
-    emit @e (BlockSizeEventKey ()) BlockSizeEvent
+    emit @e (BlockSizeEventKey h) BlockSizeEvent
     -- FIXME: turn back on event notification
     -- lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
 
@@ -154,11 +159,19 @@ blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 ) =>  PeerM e IO ()
 blockDownloadLoop = do
 
-  w <- subscribe @e @(BlockSize e) (BlockSizeEventKey ()) $ \_ -> do
-        debug "can't believe this shit works"
+  let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
+             , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
+             , "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+             ]
 
-  request 1 (GetBlockSize @e "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt")
-  request 1 (GetBlockSize @e "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ")
+  for_ blks $ \h -> do
+
+    debug $ "subscribing to" <+> pretty h
+
+    subscribe @e @(BlockSize e) (BlockSizeEventKey h) $ \_ -> do
+      debug $  "can't believe this shit works" <+> pretty h
+
+    request 1 (GetBlockSize @e h)
 
   fix \next -> do
     liftIO $ print "piu!"
@@ -210,7 +223,7 @@ main = do
 
                   liftIO $ cancel as
 
-    pause ( 5 :: Timeout 'Seconds)
+    pause ( 8 :: Timeout 'Seconds)
 
     mapM_ cancel (our:others)
 

@@ -5,6 +5,7 @@ module HBS2.Actors.Peer where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
+import HBS2.Clock
 import HBS2.Actors
 import HBS2.Storage
 import HBS2.Net.Proto
@@ -26,6 +27,13 @@ import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
 import Lens.Micro.Platform
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Control.Concurrent.STM.TVar
+import Control.Concurrent.STM
+import Data.Hashable (hash)
+
+import Prettyprinter hiding (pipe)
 
 data AnyStorage = forall zu . Storage zu HbSync ByteString IO => AnyStorage zu
 
@@ -82,12 +90,14 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 
 data PeerEnv e =
   PeerEnv
-  { _envSelf        :: Peer e
-  , _envFab         :: Fabriq e
-  , _envStorage     :: AnyStorage
-  , _envDeferred    :: Pipeline IO ()
-  , _envSessions    :: Cache SKey Dynamic
-  , _envEvents      :: Cache SKey Dynamic
+  { _envSelf         :: Peer e
+  , _envFab          :: Fabriq e
+  , _envStorage      :: AnyStorage
+  , _envDeferred     :: Pipeline IO ()
+  , _envSessions     :: Cache SKey Dynamic
+  , _envEvents       :: TVar (HashMap SKey [Dynamic])
+  , _envExpireTimes  :: Cache SKey ()
+  , _envSweepers     :: TVar (HashMap SKey [PeerM e IO ()])
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -187,20 +197,51 @@ instance ( MonadIO m
     let bs = serialise (AnyMessage @e proto (encode msg))
     sendTo pipe (To p) (From me) bs
 
-
-
 instance ( HasProtocol e p
          , Typeable (EventHandler e p (PeerM e IO))
          , Typeable (EventKey e p)
          , Typeable (Event e p)
          , Hashable (EventKey e p)
+         , Expires  (EventKey e p)
          , Eq (EventKey e p)
          ) => EventListener e p (PeerM e IO) where
 
   subscribe k h = do
     ev <- asks (view envEvents)
-    liftIO $ Cache.insert ev (newSKey @(EventKey e p) k) (toDyn h)
-    pure ()
+    let sk = newSKey @(EventKey e p) k
+    let dyn = toDyn h
+    liftIO $ atomically $ modifyTVar' ev (HashMap.insertWith (<>) sk [dyn])
+    -- FIXME: add a sweeping routine or else everything  will be fucked!
+    addSweeper (expiresIn (Proxy @(EventKey e p))) sk $ do
+      liftIO $ print $ "sweep smth with key" <+> pretty (hash sk)
+      liftIO $ atomically $ modifyTVar' ev (HashMap.delete sk)
+
+addSweeper :: forall e . Timeout 'Seconds -> SKey -> PeerM e IO () -> PeerM e IO ()
+addSweeper t k sweeper = do
+  liftIO $ print $ "adding sweeper for key" <+> pretty (hash k)
+  ex <- asks (view envExpireTimes)
+  sw <- asks (view envSweepers)
+  liftIO $ Cache.insert' ex (Just (toTimeSpec t)) k ()
+  liftIO $ atomically $ modifyTVar' sw (HashMap.insertWith (<>) k [sweeper])
+
+sweep :: PeerM e IO ()
+sweep = do
+  ex <- asks (view envExpireTimes)
+  sw <- asks (view envSweepers)
+
+  liftIO $ Cache.purgeExpired ex
+  toSweep <- HashMap.toList <$> liftIO (readTVarIO sw)
+
+  alive <- forM toSweep $ \(s, actions) -> do
+             here <- liftIO $ Cache.lookup' ex s <&> isJust
+
+             if here then
+                pure [(s, actions)]
+             else do
+                sequence_ actions
+                pure []
+
+  liftIO $ atomically $ modifyTVar' sw (<> HashMap.fromList (mconcat alive))
 
 instance ( HasProtocol e p
          , Typeable (EventKey e p)
@@ -215,20 +256,30 @@ instance ( HasProtocol e p
     let sk = newSKey @(EventKey e p) k
 
     void $ runMaybeT $ do
-      r  <- MaybeT $ liftIO $ Cache.lookup se sk
-      ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
-      lift $ ev d
+      subs <- MaybeT $ liftIO $ atomically $ readTVar se <&> HashMap.lookup sk
+      void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
+      for_ subs $ \r -> do
+        ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
+        lift $ ev d
 
-
-runPeerM :: MonadIO m => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
+runPeerM :: (MonadIO m, Pretty (Peer e)) => AnyStorage -> Fabriq e -> Peer e  -> PeerM e m a -> m ()
 runPeerM s bus p f  = do
 
   env <- PeerEnv p bus s <$> newPipeline defProtoPipelineSize
                          <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                         <*> liftIO (newTVarIO mempty)
                          <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                         <*> liftIO (newTVarIO mempty)
 
   let de = view envDeferred env
   as <- liftIO $ async $ runPipeline de
+
+  sw <- liftIO $ async $ forever $ withPeerM env $ do
+          pause defSweepTimeout
+          se <- asks (view envSessions)
+          liftIO $ Cache.purgeExpired se
+          sweep
+
   void $ runReaderT (fromPeerM f) env
   void $ liftIO $ stopPipeline de
   liftIO $ cancel as
@@ -276,6 +327,7 @@ instance ( HasProtocol e p
          , Serialise (Encoded e)
          , MonadTrans (ResponseM e)
          , HasStorage (PeerM e IO)
+         , Pretty (Peer e)
          ) => Response e p (ResponseM e (PeerM e IO)) where
 
   thatPeer _ = asks (view answTo)

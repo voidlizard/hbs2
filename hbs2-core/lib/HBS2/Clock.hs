@@ -1,14 +1,16 @@
+{-# Language FunctionalDependencies #-}
 module HBS2.Clock
   ( module HBS2.Clock
   , module System.Clock
   )where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
 import Data.Fixed
 import Data.Int (Int64)
+import Data.Proxy
 import Prettyprinter
 import System.Clock
-import Control.Concurrent (threadDelay)
 
 data TimeoutKind = MilliSeconds | Seconds | Minutes
 
@@ -62,4 +64,8 @@ instance IsTimeout 'Seconds where
 
 instance IsTimeout 'Minutes where
   toNanoSeconds (TimeoutMin x) = round (x * 60 * 1e9)
+
+class Expires a where
+  expiresIn :: Proxy a -> Timeout 'Seconds
+
 

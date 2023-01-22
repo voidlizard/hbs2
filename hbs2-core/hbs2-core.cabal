@@ -119,6 +119,7 @@ library
                      , text
                      , transformers
                      , uniplate
+                     , unordered-containers
 
     hs-source-dirs:   lib
     default-language: Haskell2010
