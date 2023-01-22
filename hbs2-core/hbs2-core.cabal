@@ -71,6 +71,7 @@ library
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
                     , HBS2.Defaults
+                    , HBS2.Events
                     , HBS2.Hash
                     , HBS2.Merkle
                     , HBS2.Net.Messaging

@@ -28,17 +28,6 @@ instance Eq SKey where
   (==) (SKey p1 a) (SKey p2 b) = unKey p1 a == unKey p1 b
 
 
--- we probably can not separate sessions
--- by sub-protocol types without
--- really crazy types.
---
--- And if we really need this, it may be done
--- by injecting a protocol type into 'e' or
--- introducing a common ADT for all session types
--- for common 'e' i.e. 'engine' or 'transport'
---
--- So it is that it is.
-
 data family SessionKey  e p :: Type
 type family SessionData e p :: Type
 
@@ -52,8 +41,9 @@ class ( Monad m
 
 
 
-  -- | Session fetch function.
-  -- | It will insert a new session, if default value is Just something.
+  -- | Session find function.
+  -- | It is useful when we want to check if session even
+  -- | exists and it will not start a new session.
 
   find :: SessionKey e p           -- ^ session key
        -> (SessionData e p -> a)  -- ^ modification function, i.e. lens

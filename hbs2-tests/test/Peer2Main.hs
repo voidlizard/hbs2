@@ -7,6 +7,7 @@ module Main where
 import HBS2.Actors.ChunkWriter
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Events
 import HBS2.Hash
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.Proto
@@ -144,13 +145,24 @@ handleBlockInfo (p, h, sz') = do
     -- lift $ runEngineM env $ emitBlockSizeEvent ev h (p, h, Just sz) -- TODO: fix this crazy shit
 
 
+instance HasEvents Fake (BlockSize Fake) (PeerM Fake IO) where
+  data instance EventKey Fake (BlockSize Fake) = BlockSizeEvent ()
+  type instance Event Fake (BlockSize Fake) = ()
+
+  subscribe = undefined
+
 blockDownloadLoop :: forall e . ( HasProtocol e (BlockSize e)
                                 , Request e (BlockSize e) (PeerM e IO)
+                                , HasEvents e (BlockSize e) (PeerM e IO)
                                 , Num (Peer e)
                                 ) =>  PeerM e IO ()
 blockDownloadLoop = do
 
   -- w <- subscribe ???
+  --
+
+  -- subscribe @(GetBlockSize e) $ \(p,h,i) -> do
+  --   debug "WE GOT BLOCK!"
 
   request 1 (GetBlockSize @e "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt")
   request 1 (GetBlockSize @e "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ")
