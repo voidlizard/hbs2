@@ -147,7 +147,7 @@ runTestPeer p zu = do
   cww  <- newChunkWriterIO  stor (Just chDir)
 
   sw <- liftIO $ replicateM 8 $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 1 $ async $ runChunkWriter cww
+  cw <- liftIO $ replicateM 16 $ async $ runChunkWriter cww
 
   zu stor cww
 
@@ -260,7 +260,7 @@ blockDownloadLoop = do
 
       env <- ask
       pip <- asks (view envDeferred)
-      debug "process block!"
+      -- debug "process block!"
       liftIO $ addJob pip $ withPeerM env $ do
       -- void $ liftIO $ async $ withPeerM env $ do
 
@@ -353,6 +353,7 @@ mkAdapter cww = do
             when ( h1 == h ) $ do
               liftIO $ commitBlock cww cKey h
               expire cKey
+              -- debug "hash matched!"
               emit @e (BlockChunksEventKey h) (BlockReady h)
 
         when (written > mbSize * defBlockDownloadThreshold) $ do
