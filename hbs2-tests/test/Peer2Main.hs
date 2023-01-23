@@ -146,7 +146,7 @@ runTestPeer p zu = do
   stor <- simpleStorageInit opts
   cww  <- newChunkWriterIO  stor (Just chDir)
 
-  sw <- liftIO $ replicateM 1 $ async $ simpleStorageWorker stor
+  sw <- liftIO $ replicateM 8 $ async $ simpleStorageWorker stor
   cw <- liftIO $ replicateM 1 $ async $ runChunkWriter cww
 
   zu stor cww
@@ -196,7 +196,7 @@ blockDownloadLoop = do
   let blks = [ "5KP4vM6RuEX6RA1ywthBMqZV5UJDLANC17UrF6zuWdRt"
              , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
              , "81JeD7LNR6Q7RYfyWBxfjJn1RsWzvegkUXae6FUNgrMZ"
-             , "ECWYwWXiLgNvCkN1EFpSYqsPcWfnL4bAQADsyZgy1Cbr"
+             , "GTtQp6QjK7G9Sh5Aq4koGSpMX398WRWn3DV28NUAYARg"
              ]
 
   blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
@@ -260,11 +260,12 @@ blockDownloadLoop = do
 
       env <- ask
       pip <- asks (view envDeferred)
+      debug "process block!"
       liftIO $ addJob pip $ withPeerM env $ do
       -- void $ liftIO $ async $ withPeerM env $ do
 
         sto <- getStorage
-        debug $ "GOT BLOCK!" <+> pretty h
+        liftIO $ async $ debug $ "GOT BLOCK!" <+> pretty h
         bt <- liftIO $ getBlock sto h <&> fmap (tryDetect h)
         -- debug $ pretty (show bt)
 

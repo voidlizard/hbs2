@@ -30,6 +30,9 @@ import System.Directory
 import System.FilePath
 import System.IO.Error
 import System.IO
+import System.IO.Temp
+
+import Control.Concurrent.Async
 
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TBQueue qualified as Q

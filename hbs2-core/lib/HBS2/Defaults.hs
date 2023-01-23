@@ -14,13 +14,13 @@ defStorePath :: IsString a => a
 defStorePath = "hbs2"
 
 defPipelineSize :: Int
-defPipelineSize = 1000
+defPipelineSize = 2000
 
 defChunkWriterQ :: Integral a => a
-defChunkWriterQ = 1000
+defChunkWriterQ = 2000
 
 defBlockDownloadQ :: Integral a => a
-defBlockDownloadQ = 65536*4
+defBlockDownloadQ = 65536*128
 
 defBlockDownloadThreshold :: Integral a => a
 defBlockDownloadThreshold = 2

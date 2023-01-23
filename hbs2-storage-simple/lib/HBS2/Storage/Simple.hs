@@ -80,7 +80,7 @@ storageRefs = to f
 simpleStorageInit :: (MonadIO m, Data opts) => opts -> m (SimpleStorage h)
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 500 opts :: StorageQueueSize
+  let qSize  = uniLastDef 20000 opts :: StorageQueueSize
 
   pdir <- canonicalizePath (fromPrefix prefix)
 
@@ -88,7 +88,7 @@ simpleStorageInit opts = liftIO $ do
 
   tstop <- TV.newTVarIO False
 
-  hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 1)) -- FIXME: real setting
+  hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 30)) -- FIXME: real setting
 
   let stor = SimpleStorage
              { _storageDir = pdir

@@ -120,6 +120,7 @@ library
                      , stm-chans
                      , text
                      , transformers
+                     , temporary
                      , uniplate
                      , unordered-containers
 
