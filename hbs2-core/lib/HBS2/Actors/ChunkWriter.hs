@@ -122,8 +122,8 @@ runChunkWriter2 w = do
       amount <- for ks $ \k -> flush w k
 
       if (sum amount == 0) then do
-        pure ()
-        -- pause ( 0.5 :: Timeout 'Seconds )
+        -- pure ()
+        pause ( 0.1 :: Timeout 'Seconds )
       else do
         liftIO $ print ("flushed:" <+> pretty (sum amount))
 
