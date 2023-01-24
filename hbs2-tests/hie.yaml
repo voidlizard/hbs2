@@ -1,0 +1,10 @@
+cradle:
+  cabal:
+    - path: "test/Peer2Main.hs"
+      component: "hbs2-tests:exe:test-peer-run"
+
+    - path: "test/TestSKey"
+      component: "hbs2-tests:test:test-skey"
+
+
+
