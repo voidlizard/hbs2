@@ -109,10 +109,12 @@ runChunkWriter2 w = do
     -- yield
     -- next
 
+    -- liftIO $ print "runChunkWriter2"
+
     stop <- liftIO $ readTVarIO (stopped w)
 
     if stop then do
-      ks <- liftIO $ take 100  <$> Cache.keys cache
+      ks <- liftIO $ Cache.keys cache
       liftIO $ for_ ks $ \k -> flush w k
     else do
       ks <- liftIO $ Cache.keys cache
@@ -120,7 +122,8 @@ runChunkWriter2 w = do
       amount <- for ks $ \k -> flush w k
 
       if (sum amount == 0) then do
-        pause ( 0.5 :: Timeout 'Seconds )
+        pure ()
+        -- pause ( 0.5 :: Timeout 'Seconds )
       else do
         liftIO $ print ("flushed:" <+> pretty (sum amount))
 
@@ -315,10 +318,13 @@ flush w fn = do
   let cache = perBlock w
   let scache = semFlush w
   liftIO $ do
-    q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
-    s <- Cache.fetchWithCache scache fn $ const (atomically $ Sem.newTSem 2)
 
-    atomically $ Sem.waitTSem  s
+    print "flush"
+
+    q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
+    s <- Cache.fetchWithCache scache fn $ const (atomically $ Sem.newTSem 100)
+
+    -- atomically $ Sem.waitTSem  s
 
     Cache.delete cache fn
 
@@ -330,7 +336,7 @@ flush w fn = do
       withFile fn ReadWriteMode $ \fh -> do
           for_ flushed $ \f -> f fh
 
-    atomically $ Sem.signalTSem s
+    -- atomically $ Sem.signalTSem s
 
     pure (length flushed)
 

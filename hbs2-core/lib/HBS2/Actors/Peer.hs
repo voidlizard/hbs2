@@ -303,7 +303,7 @@ runPeerM s bus p f  = do
                             <*> liftIO (newTVarIO mempty)
 
   let de = view envDeferred env
-  as <- liftIO $ replicateM 1 $ async $ runPipeline de
+  as <- liftIO $ replicateM 2 $ async $ runPipeline de
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
           pause defSweepTimeout
@@ -313,7 +313,7 @@ runPeerM s bus p f  = do
 
   void $ runReaderT (fromPeerM f) env
   void $ liftIO $ stopPipeline de
-  liftIO $ mapM_ cancel as
+  liftIO $ mapM_ cancel (as <> [sw])
 
 withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m ()
 withPeerM env action = void $ runReaderT (fromPeerM action) env
@@ -376,7 +376,6 @@ instance ( HasProtocol e p
     fab  <- lift $ getFabriq @e
     let bs = serialise (AnyMessage @e proto (encode msg))
     sendTo fab (To who) (From self) bs
-
 
 
 instance ( MonadIO m

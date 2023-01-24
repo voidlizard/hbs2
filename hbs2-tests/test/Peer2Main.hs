@@ -151,7 +151,7 @@ runTestPeer p zu = do
   cww  <- newChunkWriterIO  stor (Just chDir)
 
   sw <- liftIO $ replicateM 4  $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 4 $ async $ runChunkWriter cww
+  cw <- liftIO $ replicateM 8 $ async $ runChunkWriter cww
 
   zu stor cww
 
@@ -230,7 +230,7 @@ blockDownloadLoop cw = do
     wip <- liftIO $ blocksInProcess cw
 
 
-    if wip > 10 then do
+    if wip > 200 then do
       pause ( 1 :: Timeout 'Seconds )
     else do
       case job of
@@ -254,6 +254,9 @@ blockDownloadLoop cw = do
   where
 
     initDownload anyway q p h s = do
+
+      debug $ "initDownload" <+> pretty h <+> pretty p <+> pretty s
+
       sto <- getStorage
       here <- liftIO $ hasBlock sto h <&> isJust
 
@@ -352,12 +355,23 @@ mkAdapter cww = do
         -- check if there is a session
         -- FIXME:
         -- TODO: log situation when no session
+
+        ddd <- lift $ find cKey id
+
+        when (isNothing ddd) $ do
+          debug "SESSION NOT FOUND!"
+
+
         dwnld <- MaybeT $ find cKey id
+
+        -- dwnld <- maybe1 dwnld' (debug "AAAA") $ pure
+
+        -- debug "session found!"
 
         let bslen = fromIntegral $ B8.length bs
 
-        let mbSize   = view sBlockSize dwnld
         let mbChSize = view sBlockChunkSize dwnld
+        let mbSize   = view sBlockSize dwnld
 
         let offset0 = fromIntegral n * fromIntegral mbChSize :: Offset
 
@@ -367,12 +381,47 @@ mkAdapter cww = do
         let written = view sBlockWritten dwnld + bslen
         let maxOff  = max offset0 (view sBlockOffset dwnld)
 
-        lift $ update dwnld cKey ( set sBlockOffset maxOff
-                                 . set sBlockWritten written
+        lift $ update dwnld cKey ( over sBlockOffset (max maxOff)
+                                 . over sBlockWritten (+ bslen)
                                  )
 
-        let mbDone = (maxOff + fromIntegral mbChSize) > fromIntegral mbSize
-                   && written >= mbSize
+        -- this is updating concurrently,
+        -- so collect last data from all posible threads
+        writtenLast <- MaybeT $ find cKey (view sBlockWritten)
+        maxOffLast  <- MaybeT $ find cKey (view sBlockOffset)
+
+        -- debug $ "gotShit"     <+> pretty (B8.length bs) <+> pretty (writtenLast) <+> pretty (wr
+        -- debug $ "writtenLast" <+> pretty writtenLast
+
+        -- теперь, что бы нас дидосить -- можно
+        -- после 2/3 пакетов посылать пакеты из этих двух третей
+        -- или вообще мусор, а мы тут будем считать хэши.
+        --
+        -- кстати, если посылать мусор - то мы еще и на диск
+        -- его будем бесконечно писать.
+        --
+        -- допустим, пришло 4 события.  в обработчике каждого ---
+        -- мы не знаем, что там еще 3 события.
+        --
+        -- таким образом, ни про какое событие нельзя понять,
+        -- что оно последнее
+        --
+        -- как же нам узнать, что пришёл последний блок и можно
+        -- его коммитить?
+        --
+
+        let mbDone = (maxOffLast + fromIntegral mbChSize) > fromIntegral mbSize
+                   && writtenLast >= ( (mbSize * 2) `div` 3 )
+
+        debug $ "blkAcceptChunk" <+> pretty (p,c)
+                                 <+> pretty maxOffLast
+        --                          <+> pretty n
+        --                          <+> pretty (B8.length bs)
+        --                          <+> pretty
+
+
+        -- debug $  "written:" <+> pretty written <+> "/" <+> pretty mbSize
+
 
         when mbDone $ lift do
 
@@ -414,7 +463,8 @@ main = do
     others <- forM ps $ \p -> async $ runTestPeer p $ \s cw  -> do
                 let findBlk = hasBlock s
 
-                let size = 1024*1024*1
+                -- let size = 1024*1024*1
+                let size = 256*1024
                 g <- initialize $ U.fromList [fromIntegral p, fromIntegral size]
 
                 bytes <- replicateM size $ uniformM g :: IO [Char]
@@ -462,11 +512,14 @@ main = do
 
                   as <- liftIO $ async $ withPeerM env (blockDownloadLoop cw)
 
-                  runProto @Fake
-                    [ makeResponse (blockSizeProto blk handleBlockInfo)
-                    , makeResponse (blockChunksProto adapter)
-                    , makeResponse blockAnnounceProto
-                    ]
+                  me <- liftIO $ replicateM 1 $ async $ liftIO $ withPeerM env $ do
+                    runProto @Fake
+                      [ makeResponse (blockSizeProto blk handleBlockInfo)
+                      , makeResponse (blockChunksProto adapter)
+                      , makeResponse blockAnnounceProto
+                      ]
+
+                  liftIO $ mapM_ wait me
 
                   liftIO $ cancel as
 

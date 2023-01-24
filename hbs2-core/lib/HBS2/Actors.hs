@@ -18,6 +18,7 @@ import Control.Concurrent.Async
 import Data.Function
 import Data.Functor
 import Data.Kind
+import Control.Concurrent
 
 data Pipeline m a =
   Pipeline
@@ -37,7 +38,7 @@ runPipeline pip = fix \next -> do
 
   case mbJob of
     Nothing  -> pure ()
-    Just job -> void job >> next
+    Just job -> void (liftIO yield >> job) >> next
 
 stopPipeline :: MonadIO m => Pipeline m a -> m ()
 stopPipeline pip = liftIO $ do
