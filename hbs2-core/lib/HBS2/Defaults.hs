@@ -30,10 +30,10 @@ defProtoPipelineSize :: Int
 defProtoPipelineSize = 65536*4
 
 defCookieTimeout :: TimeSpec
-defCookieTimeout = toTimeSpec ( 1  :: Timeout 'Minutes)
+defCookieTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
 
 defBlockInfoTimeout :: TimeSpec
-defBlockInfoTimeout = toTimeSpec ( 1  :: Timeout 'Minutes)
+defBlockInfoTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 5 -- FIXME: only for debug!

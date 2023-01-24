@@ -113,3 +113,28 @@ executable test-peer-run
     hs-source-dirs:   test
     main-is:          Peer2Main.hs
 
+    build-depends:
+          base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+        , async
+        , bytestring
+        , cache
+        , containers
+        , directory
+        , filepath
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , transformers
+        , uniplate
+        , vector
+        , data-default
+        , mwc-random
