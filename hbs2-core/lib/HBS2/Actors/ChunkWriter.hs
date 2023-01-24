@@ -319,8 +319,6 @@ flush w fn = do
   let scache = semFlush w
   liftIO $ do
 
-    print "flush"
-
     q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
     s <- Cache.fetchWithCache scache fn $ const (atomically $ Sem.newTSem 100)
 

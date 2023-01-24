@@ -35,6 +35,13 @@ defCookieTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
 defBlockInfoTimeout :: TimeSpec
 defBlockInfoTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
 
+-- how much time wait for block from peer?
+defBlockWaitMax :: Timeout 'Seconds
+defBlockWaitMax = 10  :: Timeout 'Seconds
+
+defBlockWaitSleep :: Timeout 'Seconds
+defBlockWaitSleep = 0.01  :: Timeout 'Seconds
+
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 5 -- FIXME: only for debug!
 

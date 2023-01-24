@@ -86,8 +86,6 @@ blockChunksProto adapter (BlockChunks c p) =
   case p of
     BlockGetAllChunks h size -> deferred proto do
 
-      liftIO $ print $ "BlockGetAllChunks" <+> pretty h
-
       me <- ownPeer @e
       who <- thatPeer proto
 
