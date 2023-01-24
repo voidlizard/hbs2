@@ -9,6 +9,7 @@ module HBS2.Actors.ChunkWriter
   , commitBlock
   , writeChunk
   , getHash
+  , blocksInProcess
   ) where
 
 import HBS2.Prelude
@@ -69,6 +70,11 @@ data ChunkWriter h m = forall a . ( MonadIO m
   , semFlush :: Cache FilePath TSem
   }
 
+
+blocksInProcess :: MonadIO m => ChunkWriter h m -> m Int
+blocksInProcess cw = liftIO $ Cache.purgeExpired cache >> Cache.size cache
+  where
+   cache = perBlock cw
 
 runChunkWriter :: forall h m . ( Eq (Hash h)
                                 , Hashable (Hash h)
