@@ -107,7 +107,7 @@ runChunkWriter2 w = do
 
     if stop then do
       ks <- liftIO $ take 20 <$> Cache.keys cache
-      for_ ks $ \k -> flush w k
+      liftIO $ for_ ks $ \k -> flush w k
     else do
       ks <- liftIO $ Cache.keys cache
 

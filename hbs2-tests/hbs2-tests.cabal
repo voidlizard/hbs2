@@ -41,6 +41,7 @@ common common-deps
         , uniplate
         , vector
         , data-default
+        , mwc-random
 
 common shared-properties
   ghc-options:
