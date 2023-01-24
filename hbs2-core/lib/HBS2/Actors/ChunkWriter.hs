@@ -112,7 +112,7 @@ runChunkWriter2 w = do
     stop <- liftIO $ readTVarIO (stopped w)
 
     if stop then do
-      ks <- liftIO $ take 20 <$> Cache.keys cache
+      ks <- liftIO $ take 100  <$> Cache.keys cache
       liftIO $ for_ ks $ \k -> flush w k
     else do
       ks <- liftIO $ Cache.keys cache

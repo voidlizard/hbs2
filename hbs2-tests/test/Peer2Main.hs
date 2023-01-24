@@ -224,10 +224,11 @@ blockDownloadLoop cw = do
 
   fix \next -> do
 
+    -- debug $ "WIP:" <+> pretty wip
+
     job <- liftIO $ atomically $ Q.readTBQueue blq
     wip <- liftIO $ blocksInProcess cw
 
-    debug $ "WIP:" <+> pretty wip
 
     if wip > 10 then do
       pause ( 1 :: Timeout 'Seconds )
@@ -445,6 +446,12 @@ main = do
 
     our <- async $ runTestPeer p0 $ \s cw -> do
                 let blk = hasBlock s
+
+                void $ async $ forever $ do
+                  pause ( 1 :: Timeout 'Seconds )
+                  wip <- blocksInProcess cw
+                  debug $ "blocks wip:" <+> pretty wip
+
                 runPeerM (AnyStorage s) fake p0 $ do
                   adapter <- mkAdapter cw
                   env <- ask

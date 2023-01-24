@@ -1,0 +1,4 @@
+cradle:
+  cabal:
+    - path: "test/Peer2Main.hs"
+      component: "hbs2-tests:exe:test-peer-run"
