@@ -151,8 +151,8 @@ runTestPeer p zu = do
   stor <- simpleStorageInit opts
   cww  <- newChunkWriterIO  stor (Just chDir)
 
-  sw <- liftIO $ replicateM 8 $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 16 $ async $ runChunkWriter cww
+  sw <- liftIO $ replicateM 4  $ async $ simpleStorageWorker stor
+  cw <- liftIO $ replicateM 32 $ async $ runChunkWriter cww
 
   zu stor cww
 
@@ -225,7 +225,7 @@ blockDownloadLoop = do
 
     here <- liftIO $ hasBlock stor h <&> isJust
 
-    unless here $ do
+    if not here then do
 
       subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (p,hx,s)) -> do
         initDownload True blq p hx s
@@ -235,6 +235,9 @@ blockDownloadLoop = do
       for_ peers $ \p -> do
         debug $ "requesting block" <+> pretty h <+> "from" <+> pretty p
         request p (GetBlockSize @e h)
+
+    else do
+      processBlock blq h
 
     next
 
@@ -256,17 +259,17 @@ blockDownloadLoop = do
           update @e new key id
 
           subscribe @e (BlockChunksEventKey h) $ \(BlockReady _) -> do
-            processBlock q p h
+            processBlock q h
 
           request p (BlockChunks coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 
-         | anyway -> processBlock q p h
+         | anyway -> processBlock q h
 
          | otherwise -> do
             debug $ "already got " <+> pretty h <+> " so relax"
             pure ()
 
-    processBlock q _ h = do
+    processBlock q h = do
 
       env <- ask
       pip <- asks (view envDeferred)
@@ -294,7 +297,7 @@ blockDownloadLoop = do
 
                 if here then do
                   debug $ "block" <+> pretty blk <+> "is already here"
-                  pure () -- we don't need to recurse, cause walkMerkle will recurse
+                  pure () -- we don't need to recurse, cause walkMerkle is recursing for us
 
                 else do
                   -- if block is missed, then
