@@ -222,12 +222,12 @@ instance ( HasProtocol e p
     liftIO $ atomically $ modifyTVar' ev (HashMap.insertWith (<>) sk [dyn])
     -- FIXME: add a sweeping routine or else everything  will be fucked!
     addSweeper (expiresIn (Proxy @(EventKey e p))) sk $ do
-      liftIO $ print $ "sweep smth with key" <+> pretty (hash sk)
+      -- liftIO $ print $ "sweep smth with key" <+> pretty (hash sk)
       liftIO $ atomically $ modifyTVar' ev (HashMap.delete sk)
 
 addSweeper :: forall e . Maybe (Timeout 'Seconds) -> SKey -> PeerM e IO () -> PeerM e IO ()
 addSweeper t k sweeper = do
-  liftIO $ print $ "adding sweeper for key" <+> pretty (hash k)
+  -- liftIO $ print $ "adding sweeper for key" <+> pretty (hash k)
   ex <- asks (view envExpireTimes)
   sw <- asks (view envSweepers)
   liftIO $ Cache.insert' ex (toTimeSpec <$> t) k ()
@@ -237,6 +237,8 @@ sweep :: PeerM e IO ()
 sweep = do
   ex <- asks (view envExpireTimes)
   sw <- asks (view envSweepers)
+
+  liftIO $ print "sweep"
 
   liftIO $ Cache.purgeExpired ex
   toSweep <- HashMap.toList <$> liftIO (readTVarIO sw)
