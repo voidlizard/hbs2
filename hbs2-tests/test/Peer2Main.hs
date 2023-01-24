@@ -395,7 +395,7 @@ main = do
 
     fake <- newFakeP2P True <&> Fabriq
 
-    let (p0:ps) = [0..4] :: [Peer Fake]
+    let (p0:ps) = [0..1] :: [Peer Fake]
 
     -- others
     others <- forM ps $ \p -> async $ runTestPeer p $ \s cw  -> do
