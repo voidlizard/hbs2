@@ -67,7 +67,6 @@ data ChunkWriter h m = forall a . ( MonadIO m
   , dir      :: FilePath
   , storage  :: a
   , perBlock :: Cache FilePath (TQueue (Handle -> IO ()))
-  , semFlush :: Cache FilePath TSem
   }
 
 
@@ -153,7 +152,6 @@ newChunkWriterIO s tmp = do
   let d  = fromMaybe def tmp
 
   mt <- liftIO $ Cache.newCache Nothing
-  sem <- liftIO $ Cache.newCache Nothing
 
   running <- liftIO $ newTVarIO False
 
@@ -164,7 +162,6 @@ newChunkWriterIO s tmp = do
     , dir = d
     , storage  = s
     , perBlock = mt
-    , semFlush = sem
     }
 
 makeFileName :: (Hashable salt, Pretty (Hash h)) => ChunkWriter h m -> salt -> Hash h -> FilePath
@@ -316,11 +313,9 @@ getHash1 w salt h = liftIO do
 
 flush w fn = do
   let cache = perBlock w
-  let scache = semFlush w
   liftIO $ do
 
     q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
-    s <- Cache.fetchWithCache scache fn $ const (atomically $ Sem.newTSem 100)
 
     -- atomically $ Sem.waitTSem  s
 
@@ -408,13 +403,11 @@ commitBlock2 :: forall salt h m .
 
 commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
   let cache = perBlock w
-  let scache = semFlush w
   flush w fn
   s <- liftIO $ B.readFile fn
   void $ putBlock stor s
   delBlock w salt h
   liftIO $ Cache.delete cache fn
-  liftIO $ Cache.delete scache fn
 
   where
     fn = makeFileName w salt h
