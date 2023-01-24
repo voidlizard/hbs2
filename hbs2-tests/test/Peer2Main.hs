@@ -385,10 +385,6 @@ mkAdapter cww = do
                                  . over sBlockWritten (+ bslen)
                                  )
 
-        -- this is updating concurrently,
-        -- so collect last data from all posible threads
-        writtenLast <- MaybeT $ find cKey (view sBlockWritten)
-        maxOffLast  <- MaybeT $ find cKey (view sBlockOffset)
 
         -- debug $ "gotShit"     <+> pretty (B8.length bs) <+> pretty (writtenLast) <+> pretty (wr
         -- debug $ "writtenLast" <+> pretty writtenLast
@@ -417,6 +413,11 @@ mkAdapter cww = do
         -- Монитор может быть протухающим.
         -- Как это сделать?
 
+        -- this is updating concurrently,
+        -- so collect last data from all posible threads
+        writtenLast <- MaybeT $ find cKey (view sBlockWritten)
+        maxOffLast  <- MaybeT $ find cKey (view sBlockOffset)
+
         let mbDone = (maxOffLast + fromIntegral mbChSize) > fromIntegral mbSize
                    && writtenLast >= ( (mbSize * 2) `div` 3 )
 
@@ -425,10 +426,7 @@ mkAdapter cww = do
         --                          <+> pretty n
         --                          <+> pretty (B8.length bs)
         --                          <+> pretty
-
-
         -- debug $  "written:" <+> pretty written <+> "/" <+> pretty mbSize
-
 
         when mbDone $ lift do
 
