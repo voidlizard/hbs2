@@ -50,10 +50,11 @@ main = do
 
       w2 <- replicateM 1 $ async $ runChunkWriter cw
 
-      -- psz' <- shuffleM psz
-      psz' <- pure psz
+      psz' <- shuffleM psz
+      -- psz' <- pure psz
 
-      forConcurrently_ psz' $ \(o,s) -> do
+      -- forConcurrently_ psz' $ \(o,s) -> do
+      forM_ psz' $ \(o,s) -> do
         let t = B8.take s $ B8.drop o bytes
         writeChunk cw 1 hash (fromIntegral o) t
 

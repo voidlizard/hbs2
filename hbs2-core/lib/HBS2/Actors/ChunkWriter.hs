@@ -67,7 +67,7 @@ data ChunkWriter h m = forall a . ( MonadIO m
   , pipeline    :: Pipeline m ()
   , dir         :: FilePath
   , storage     :: a
-  , perBlock    :: Cache FilePath (TQueue (Handle -> IO ()))
+  , perBlock    :: Cache FilePath (TQueue (IO ()))
   , perBlockSem :: Cache FilePath TSem
   }
 
@@ -276,8 +276,8 @@ writeChunk2  w salt h o bs = do
 
   liftIO $ do
     q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
-    atomically $ Q0.writeTQueue q $ \fh -> do
-      -- withBinaryFile fn ReadWriteMode $ \fh -> do
+    atomically $ Q0.writeTQueue q $ do
+      withBinaryFile fn ReadWriteMode $ \fh -> do
         hSeek fh AbsoluteSeek (fromIntegral o)
         B.hPutStr fh bs
         -- hFlush fh
@@ -334,8 +334,8 @@ flush w fn = do
     liftIO $ do
 
       -- withBinaryFile fn ReadWriteMode $ \fh -> do
-      withBinaryFile fn ReadWriteMode $ \fh -> do
-          for_ flushed $ \f -> f fh
+      -- withBinaryFile fn ReadWriteMode $ \fh -> do
+      for_ flushed id
 
     atomically $ Sem.signalTSem s
 
