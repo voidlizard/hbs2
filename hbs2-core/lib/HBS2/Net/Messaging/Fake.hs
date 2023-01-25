@@ -4,6 +4,9 @@ module HBS2.Net.Messaging.Fake
   -- , Messaging(..)
   ) where
 
+import HBS2.Net.Proto
+import HBS2.Net.Messaging
+
 import Control.Concurrent.STM (atomically) -- as STM
 import Control.Concurrent.STM.TChan qualified as Chan
 import Control.Concurrent.STM.TChan (TChan,newTChanIO)
@@ -14,8 +17,6 @@ import Data.List qualified as List
 import Data.Maybe
 import Data.Hashable
 
-import HBS2.Net.Proto
-import HBS2.Net.Messaging
 
 data FakeP2P proto msg =
   FakeP2P
@@ -25,7 +26,8 @@ data FakeP2P proto msg =
   }
 
 newFakeP2P :: Bool -> IO (FakeP2P peer msg)
-newFakeP2P block = FakeP2P block <$> Cache.newCache Nothing
+newFakeP2P block =
+  FakeP2P block <$> Cache.newCache Nothing
 
 instance ( (HasPeer proto, Hashable (Peer proto))
          ) => Messaging (FakeP2P proto msg) proto msg where
