@@ -37,6 +37,7 @@ import System.FilePath
 import System.IO.Error
 import System.IO
 import System.IO.Temp
+import System.FileLock
 
 import Control.Concurrent.Async
 
@@ -62,11 +63,12 @@ data ChunkWriter h m = forall a . ( MonadIO m
                                   , Block ByteString ~ ByteString
                                   ) =>
   ChunkWriter
-  { stopped  :: TVar Bool
-  , pipeline :: Pipeline m ()
-  , dir      :: FilePath
-  , storage  :: a
-  , perBlock :: Cache FilePath (TQueue (Handle -> IO ()))
+  { stopped     :: TVar Bool
+  , pipeline    :: Pipeline m ()
+  , dir         :: FilePath
+  , storage     :: a
+  , perBlock    :: Cache FilePath (TQueue (Handle -> IO ()))
+  , perBlockSem :: Cache FilePath TSem
   }
 
 
@@ -152,6 +154,7 @@ newChunkWriterIO s tmp = do
   let d  = fromMaybe def tmp
 
   mt <- liftIO $ Cache.newCache Nothing
+  mts <- liftIO $ Cache.newCache Nothing
 
   running <- liftIO $ newTVarIO False
 
@@ -162,6 +165,7 @@ newChunkWriterIO s tmp = do
     , dir = d
     , storage  = s
     , perBlock = mt
+    , perBlockSem = mts
     }
 
 makeFileName :: (Hashable salt, Pretty (Hash h)) => ChunkWriter h m -> salt -> Hash h -> FilePath
@@ -268,6 +272,8 @@ writeChunk2  w salt h o bs = do
 
   let cache = perBlock w
 
+  -- liftIO $ print $ "writeChunk" <+> pretty o <+> pretty (B.length bs) <+> pretty h
+
   liftIO $ do
     q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
     atomically $ Q0.writeTQueue q $ \fh -> do
@@ -313,11 +319,13 @@ getHash1 w salt h = liftIO do
 
 flush w fn = do
   let cache = perBlock w
+  let scache = perBlockSem w
   liftIO $ do
 
     q <- Cache.fetchWithCache cache fn $ const Q0.newTQueueIO
+    s <- Cache.fetchWithCache scache fn $ const $ atomically $ Sem.newTSem 1
 
-    -- atomically $ Sem.waitTSem  s
+    atomically $ Sem.waitTSem  s
 
     Cache.delete cache fn
 
@@ -326,10 +334,10 @@ flush w fn = do
     liftIO $ do
 
       -- withBinaryFile fn ReadWriteMode $ \fh -> do
-      withFile fn ReadWriteMode $ \fh -> do
+      withBinaryFile fn ReadWriteMode $ \fh -> do
           for_ flushed $ \f -> f fh
 
-    -- atomically $ Sem.signalTSem s
+    atomically $ Sem.signalTSem s
 
     pure (length flushed)
 

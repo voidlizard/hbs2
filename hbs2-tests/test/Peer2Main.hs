@@ -159,7 +159,7 @@ runTestPeer p zu = do
   cww  <- newChunkWriterIO  stor (Just chDir)
 
   sw <- liftIO $ replicateM 4 $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 4 $ async $ runChunkWriter cww
+  cw <- liftIO $ replicateM 8 $ async $ runChunkWriter cww
 
   zu stor cww
 
@@ -396,7 +396,7 @@ blockDownloadLoop cw = do
                           wrt <- liftIO $ readTVarIO z
 
                           if fromIntegral wrt >= thisBkSize then do
-                            debug $ "THE BLOCK IS ABOUT TO BE READY" <+> pretty h
+                            -- debug $ "THE BLOCK IS ABOUT TO BE READY" <+> pretty h
                             h1 <- liftIO $ getHash cw key h
                             if h1 == h then do
                               liftIO $ commitBlock cw key h
@@ -537,7 +537,7 @@ mkAdapter cww = do
           -- ПОСЧИТАТЬ ХЭШ
           -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
           -- ЕСЛИ НЕ СОШЁЛСЯ - ТО ПОДОЖДАТЬ ЕЩЕ
-            when ( h1 == h ) $ do
+            if ( h1 == h ) then do
               liftIO $ commitBlock cww cKey h
 
               updateStats @e False 1
@@ -545,6 +545,8 @@ mkAdapter cww = do
               expire cKey
               -- debug "hash matched!"
               emit @e (BlockChunksEventKey h) (BlockReady h)
+            else do
+              debug $ "FUCK FUCK!" <+> pretty h
 
         when (written > mbSize * defBlockDownloadThreshold) $ do
           debug $ "SESSION DELETED BECAUSE THAT PEER IS JERK:" <+> pretty p
@@ -572,7 +574,7 @@ main = do
                 let findBlk = hasBlock s
 
                 -- let size = 1024*1024*1
-                let size = 1024*1024*10
+                let size = 1024*1024*30
                 g <- initialize $ U.fromList [fromIntegral p, fromIntegral size]
 
                 bytes <- replicateM size $ uniformM g :: IO [Char]

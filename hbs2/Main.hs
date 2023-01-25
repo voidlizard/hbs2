@@ -68,12 +68,22 @@ data CatOpts =
   }
   deriving stock (Data)
 
+newtype HashOpts =
+ HashOpts
+  { hashFp  :: FilePath
+  }
+  deriving stock (Data)
 
 newtype NewRefOpts =
   NewRefOpts
   { newRefMerkle :: Bool
   }
   deriving stock (Data)
+
+
+runHash :: HashOpts -> SimpleStorage HbSync -> IO ()
+runHash opts ss = do
+  pure ()
 
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runCat opts ss = do
@@ -112,7 +122,7 @@ runCat opts ss = do
           maybe (error "empty ref") walk mbHead
 
 
-runStore :: Data opts => opts -> SimpleStorage HbSync -> IO ()
+runStore ::(Data opts, Block ByteString ~ ByteString) => opts -> SimpleStorage HbSync -> IO ()
 
 runStore opts ss | justInit = do
   putStrLn "initialized"
@@ -169,6 +179,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser = hsubparser (  command "store"   (info pStore (progDesc "store block"))
                         <> command "new-ref" (info pNewRef (progDesc "creates reference"))
                         <> command "cat"     (info pCat (progDesc "cat block"))
+                        <> command "hash"    (info pHash (progDesc "calculates hash"))
                         )
 
     common = do
@@ -192,4 +203,10 @@ main = join . customExecParser (prefs showHelpOnError) $
       hash  <- optional $ strArgument ( metavar "HASH" )
       onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
       pure $ withStore o $ runCat $ CatOpts hash (CatHashesOnly <$> onlyh)
+
+    pHash = do
+      o <- common
+      hash  <- strArgument ( metavar "HASH" )
+      pure $ withStore o $ runHash $ HashOpts hash
+
 

@@ -23,27 +23,29 @@ common common-deps
         , bytestring
         , cache
         , containers
+        , data-default
         , directory
         , filepath
         , hashable
         , microlens-platform
         , mtl
+        , mwc-random
         , prettyprinter
         , QuickCheck
         , random
+        , random-shuffle
         , safe
         , serialise
         , stm
         , streaming
         , tasty
         , tasty-hunit
+        , temporary
+        , timeit
         , transformers
         , uniplate
-        , vector
-        , data-default
-        , mwc-random
-        , timeit
         , unordered-containers
+        , vector
 
 common shared-properties
   ghc-options:
@@ -100,6 +102,20 @@ test-suite test-skey
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          TestSKey.hs
+
+
+test-suite test-cw
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+
+    other-modules:
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestChunkWriter.hs
 
 
 executable test-peer-run

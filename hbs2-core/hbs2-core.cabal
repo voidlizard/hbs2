@@ -106,6 +106,7 @@ library
                      , deepseq
                      , directory
                      , filepath
+                     , filelock
                      , hashable
                      , interpolatedstring-perl6
                      , memory
