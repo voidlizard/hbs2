@@ -8,16 +8,16 @@ defChunkSize :: Integral a => a
 defChunkSize = 500
 
 defBlockSize :: Integer
-defBlockSize = 1024 * 1024
+defBlockSize = 256 * 1024
 
 defStorePath :: IsString a => a
 defStorePath = "hbs2"
 
 defPipelineSize :: Int
-defPipelineSize = 2000
+defPipelineSize = 16000*4
 
 defChunkWriterQ :: Integral a => a
-defChunkWriterQ = 2000
+defChunkWriterQ = 32000
 
 defBlockDownloadQ :: Integral a => a
 defBlockDownloadQ = 65536*128
