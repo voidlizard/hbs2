@@ -8,7 +8,7 @@ defChunkSize :: Integral a => a
 defChunkSize = 500
 
 defBlockSize :: Integer
-defBlockSize = 256 * 1024
+defBlockSize = 1024 * 1024
 
 defStorePath :: IsString a => a
 defStorePath = "hbs2"

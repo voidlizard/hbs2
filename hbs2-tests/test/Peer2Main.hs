@@ -293,6 +293,8 @@ blockDownloadLoop cw = do
   stats0 <- newStatsIO
 
   let blks = [ "GTtQp6QjK7G9Sh5Aq4koGSpMX398WRWn3DV28NUAYARg"
+             , "5LoU2EVq7JSpiT9FmLEakVHxpsE989XnX6jE4gaUcLFA"
+             , "CotHSTLrg8T5NrYxyhG1AeJrdz1s4A5PdtA95Fh96JX8"
              ]
 
   blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
