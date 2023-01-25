@@ -84,7 +84,7 @@ blockChunksProto :: forall e m  . ( MonadIO m
 
 blockChunksProto adapter (BlockChunks c p) =
   case p of
-    BlockGetAllChunks h size -> deferred proto do
+    BlockGetAllChunks h size -> do
 
       me <- ownPeer @e
       who <- thatPeer proto
@@ -96,7 +96,7 @@ blockChunksProto adapter (BlockChunks c p) =
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = zip offsets' [0..]
 
-        for_ offsets $ \((o,sz),i) -> do
+        for_ offsets $ \((o,sz),i) -> deferred proto do
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
