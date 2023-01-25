@@ -120,12 +120,15 @@ executable test-peer-run
         , async
         , bytestring
         , cache
+        , clock
         , containers
+        , data-default
         , directory
         , filepath
         , hashable
         , microlens-platform
         , mtl
+        , mwc-random
         , prettyprinter
         , QuickCheck
         , random
@@ -138,5 +141,4 @@ executable test-peer-run
         , transformers
         , uniplate
         , vector
-        , data-default
-        , mwc-random
+

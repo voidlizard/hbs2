@@ -238,8 +238,6 @@ sweep = do
   ex <- asks (view envExpireTimes)
   sw <- asks (view envSweepers)
 
-  liftIO $ print $ pretty "sweep"
-
   liftIO $ Cache.purgeExpired ex
   toSweep <- HashMap.toList <$> liftIO (readTVarIO sw)
 

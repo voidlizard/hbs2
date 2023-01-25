@@ -41,7 +41,7 @@ class ( Monad m
       , Eq (SessionKey e p)
       , Hashable (SessionKey e p)
       , Typeable (SessionData e p)
-      ) => Sessions e p m  | p -> e where
+      ) => Sessions e p m  where
 
 
 
