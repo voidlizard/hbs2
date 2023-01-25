@@ -53,8 +53,8 @@ main = do
       psz' <- shuffleM psz
       -- psz' <- pure psz
 
-      -- forConcurrently_ psz' $ \(o,s) -> do
-      forM_ psz' $ \(o,s) -> do
+      forConcurrently_ psz' $ \(o,s) -> do
+      -- forM_ psz' $ \(o,s) -> do
         let t = B8.take s $ B8.drop o bytes
         writeChunk cw 1 hash (fromIntegral o) t
 
