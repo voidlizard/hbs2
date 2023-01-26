@@ -98,6 +98,7 @@ blockChunksProto adapter (BlockChunks c p) =
 
         for_ offsets $ \((o,sz),i) -> deferred proto do
           chunk <- blkChunk adapter h o sz
+          -- liftIO $ print $ "sending chunk for block" <+> pretty h
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
     BlockChunk n bs -> deferred proto do

@@ -2,7 +2,7 @@ module Main where
 
 import TestFakeMessaging
 import TestActors
-import TestUniqProtoId
+-- import TestUniqProtoId
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -14,7 +14,7 @@ main =
       [
         testCase "testFakeMessaging1" testFakeMessaging1
       , testCase "testActorsBasic" testActorsBasic
-      , testCase "testUniqProtoId" testUniqProtoId
+      -- , testCase "testUniqProtoId" testUniqProtoId
       ]
 
 

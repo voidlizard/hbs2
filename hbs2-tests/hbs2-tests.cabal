@@ -124,6 +124,10 @@ executable test-peer-run
     import:           common-deps
     default-language: Haskell2010
 
+    ghc-options:
+      -- -prof
+      -- -fprof-auto
+
     other-modules:
 
     -- other-extensions:

@@ -15,28 +15,32 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
  haskell-flake-utils.lib.simpleCabalProject2flake {
    inherit self nixpkgs;
    systems = [ "x86_64-linux" ];
-   name = "hbs2-core";
+   name = "hbs2";
 
    packageNames = [
+     "hbs2"
      "hbs2-core"
      "hbs2-storage-simple"
+     "hbs2-tests"
    ];
 
    packageDirs = {
+     "hbs2" = "./hbs2";
+     "hbs2-tests" = "./hbs2-tests";
      "hbs2-core" = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
    };
 
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
-    disableExecutableProfiling
+    enableExecutableProfiling
     disableLibraryProfiling
     dontBenchmark
     dontCoverage
     dontDistribute
     dontHaddock
     dontHyperlinkSource
-    doStrip
+    # doStrip
     enableDeadCodeElimination
     justStaticExecutables
 

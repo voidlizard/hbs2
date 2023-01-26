@@ -11,6 +11,7 @@ import HBS2.Data.Detect
 import HBS2.Defaults
 
 
+import Data.ByteString.Lazy (ByteString)
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
