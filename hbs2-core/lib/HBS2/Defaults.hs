@@ -37,10 +37,10 @@ defBlockInfoTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 120 :: Timeout 'Seconds
+defBlockWaitMax = 20 :: Timeout 'Seconds
 
 defBlockWaitSleep :: Timeout 'Seconds
-defBlockWaitSleep = 0.1  :: Timeout 'Seconds
+defBlockWaitSleep = 1  :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 5 -- FIXME: only for debug!

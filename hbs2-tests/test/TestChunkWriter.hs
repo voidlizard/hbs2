@@ -42,7 +42,7 @@ main = do
 
     w1 <- replicateM 2 $ async (simpleStorageWorker storage)
 
-    cw <- newChunkWriterIO storage (Just (dir </> ".qqq"))
+    cw <- newChunkWriterIO @HbSync storage (Just (dir </> ".qqq"))
 
     w2 <- replicateM 2 $ async $ runChunkWriter cw
 
@@ -69,10 +69,18 @@ main = do
 
           h2 <- getHash cw 1 hash
 
-          if hash /= h2 then do
+          -- commitBlock cw 1 hash
+          -- commitBlock cw 1 hash
+          print "JOPA"
+          commitBlock cw 1 hash
+          print "KITA"
+
+          if Just hash /= h2 then do
             pure [1]
           else do
+            print "YAY!"
             commitBlock cw 1 hash
+            print "QQQ!"
             pure mempty
 
       mapM_ cancel $ w1 <> w2

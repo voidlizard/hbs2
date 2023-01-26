@@ -18,6 +18,7 @@ import HBS2.Storage
 import HBS2.Defaults
 import HBS2.Clock
 
+import Control.Monad.Trans.Maybe
 import Data.List qualified as L
 import Data.Functor
 import Data.Function
@@ -41,6 +42,7 @@ import System.FileLock
 
 import Control.Concurrent.Async
 
+import Control.Monad
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Control.Concurrent.STM
@@ -186,7 +188,7 @@ getHash :: forall salt h m .
          => ChunkWriter h m
          -> salt
          -> Hash h
-         -> m (Hash h)
+         -> m (Maybe (Hash h))
 
 getHash = getHash2
 
@@ -231,7 +233,6 @@ writeChunk2  w salt h o bs = do
 flush :: ChunkWriter h IO -> FilePath -> IO ()
 flush w fn = do
   let cache = perBlock w
-  let sems = perBlockSem w
   let pip = pipeline w
 
   liftIO $ do
@@ -268,11 +269,16 @@ getHash2 :: forall salt h m .
          => ChunkWriter h IO
          -> salt
          -> Hash h
-         -> m (Hash h)
+         -> m (Maybe (Hash h))
 
 getHash2 w salt h = do
   flush w fn
-  liftIO $ hashObject @h <$> B.readFile fn
+
+  runMaybeT $ do
+    res <- liftIO $ tryJust (guard . isDoesNotExistError)
+                            ( B.readFile fn  >>= \s -> pure $ hashObject @h s )
+
+    MaybeT $ pure $ either (const Nothing) Just res
 
   where
     fn = makeFileName w salt h
@@ -292,10 +298,21 @@ commitBlock2 :: forall salt h m .
             -> m ()
 
 commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
+
+  print "FLUSHING"
+
   flush w fn
-  s <- liftIO $ B.readFile fn
-  void $! putBlock stor s
-  delBlock w salt h
+
+  print "FLUSHED"
+
+  res <- liftIO $ tryJust (guard . isDoesNotExistError)
+                          ( B.readFile fn )
+
+  case res of
+    Left _ -> pure ()
+    Right s -> do
+      void $ putBlock stor s
+      delBlock w salt h
 
   where
     fn = makeFileName w salt h

@@ -383,28 +383,33 @@ blockDownloadLoop cw = do
           subscribe @e (BlockChunksEventKey (coo,h)) $ \(BlockReady _) -> do
             processBlock q h
 
-          -- let blockWtf = do
-          --       debug $ "WTF!" <+> pretty (p,coo) <+> pretty h
+          let blockWtf = do
+                debug $ "WTF!" <+> pretty (p,coo) <+> pretty h
 
-          -- liftIO $ async $ do
-          --   -- FIXME: block is not downloaded, return it to the Q
-          --   void $ race (pause defBlockWaitMax >> blockWtf)
-          --           $ withPeerM env $ fix \next -> do
-          --               w <- find @e key (view sBlockWrittenT)
+          liftIO $ async $ do
+            -- FIXME: block is not downloaded, return it to the Q
+            void $ race (pause defBlockWaitMax >> blockWtf)
+                    $ withPeerM env $ fix \next -> do
+                        w <- find @e key (view sBlockWrittenT)
 
-          --               maybe1 w (pure ()) $ \z -> do
-          --                 wrt <- liftIO $ readTVarIO z
+                        maybe1 w (pure ()) $ \z -> do
+                          wrt <- liftIO $ readTVarIO z
 
-          --                 if fromIntegral wrt >= thisBkSize then do
-          --                   -- debug $ "THE BLOCK IS ABOUT TO BE READY" <+> pretty h
-          --                   h1 <- liftIO $ getHash cw key h
-          --                   if h1 == h then do
-          --                     liftIO $ commitBlock cw key h
-          --                     -- expire @e key
-          --                   else pause defBlockWaitSleep >> next
-          --                 else do
-          --                   pause defBlockWaitSleep
-          --                   next
+                          if fromIntegral wrt >= thisBkSize then do
+                            h1 <- liftIO $ getHash cw key h
+                            if | h1 == Just h -> do
+                                  liftIO $ commitBlock cw key h
+                                  expire @e key
+
+                               | h1 /= Just h -> do
+                                  debug "block fucked"
+                                  pause defBlockWaitMax --
+
+                               | otherwise -> pure ()
+
+                          else do
+                            pause defBlockWaitSleep
+                            next
 
           request @e p (BlockChunks @e coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 
@@ -538,17 +543,21 @@ mkAdapter cww = do
           -- ПОСЧИТАТЬ ХЭШ
           -- ЕСЛИ СОШЁЛСЯ - ФИНАЛИЗИРОВАТЬ БЛОК
           -- ЕСЛИ НЕ СОШЁЛСЯ - ТО ПОДОЖДАТЬ ЕЩЕ
-            if ( h1 == h ) then do
-              liftIO $ commitBlock cww cKey h
-              -- debug "GOT BLOCK!"
+            if | h1 == Just h -> do
+                  liftIO $ commitBlock cww cKey h
 
-              updateStats @e False 1
+                  updateStats @e False 1
 
-              expire cKey
-              -- debug "hash matched!"
-              emit @e (BlockChunksEventKey (c,h)) (BlockReady h)
-            else do
-              debug $ "FUCK FUCK!" <+> pretty h
+                  expire cKey
+                  -- debug "hash matched!"
+                  emit @e (BlockChunksEventKey (c,h)) (BlockReady h)
+
+               | h1 /= Just h -> do
+                  debug "chunk receiving failed"
+
+               | otherwise -> pure ()
+
+
 
         when (written > mbSize * defBlockDownloadThreshold) $ do
           debug $ "SESSION DELETED BECAUSE THAT PEER IS JERK:" <+> pretty p
