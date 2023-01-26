@@ -26,8 +26,8 @@ main :: IO ()
 main = do
 
   -- let size = 1024*1024*1
-  let size = 1024*1024
-  let chu = 500
+  let size = 1024*1024*4
+  let chu = 256*1024
 
   g <- initialize $ U.fromList [0xFAFA, 0xBEBE, 0xC0C0]
 

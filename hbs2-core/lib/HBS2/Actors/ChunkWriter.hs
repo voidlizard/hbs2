@@ -100,9 +100,9 @@ runChunkWriter2 w = do
   liftIO $ createDirectoryIfMissing True ( dir w )
   let tv = perBlock w
   fix \next -> do
-    keys <- liftIO $ readTVarIO tv <&> (L.take 10 . HashMap.keys)
-    for_ keys (flush w)
-    pause ( 0.25 :: Timeout 'Seconds)
+    keys <- liftIO $ readTVarIO tv <&> (L.take 20 . HashMap.keys)
+    liftIO $ forConcurrently_ keys $ \f -> flush w f
+    pause ( 1.00 :: Timeout 'Seconds)
     next
 
 stopChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
@@ -148,7 +148,17 @@ delBlock :: (Hashable salt, MonadIO m, Pretty (Hash h))
          => ChunkWriter h m -> salt -> Hash h -> m ()
 
 delBlock w salt h = liftIO do
+
+  let cache = perBlock w
+  let se   = perBlockSem w
+
+  liftIO $ flush w fn
+
+  liftIO $ atomically $ TV.modifyTVar' cache $ HashMap.delete fn
+  liftIO $ atomically $ TV.modifyTVar' se $ HashMap.delete fn
+
   void $ tryJust (guard . isDoesNotExistError) (removeFile fn)
+
   where
     fn = makeFileName w salt h
 
@@ -226,18 +236,22 @@ flush w fn = do
   liftIO $ do
 
     nsem <- atomically $ Sem.newTSem 1
-    sem <- atomically $ stateTVar sems $ \hm -> let found = HashMap.lookup fn hm
-                                                in case found of
-                                                     Nothing -> (nsem, HashMap.insert fn nsem hm)
-                                                     Just s  -> (s, hm)
-    atomically $ Sem.waitTSem sem
 
     actions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
 
-    withBinaryFile fn ReadWriteMode $ \h -> do
-      mapM_ (\f -> f h) (fromMaybe mempty actions)
 
-    atomically $ Sem.signalTSem sem
+    -- sem <- atomically $ stateTVar sems $ \hm -> let found = HashMap.lookup fn hm
+    --                                             in case found of
+    --                                                  Nothing -> (nsem, HashMap.insert fn nsem hm)
+    --                                                  Just s  -> (s, hm)
+
+    -- atomically $ Sem.waitTSem sem
+    as <- asyncBound $ do
+      withBinaryFile fn ReadWriteMode $ \h -> do
+        withFileLock fn Exclusive $ \_ -> do
+            for_ (fromMaybe mempty actions) $ \f -> f h
+    wait as
+    -- atomically $ Sem.signalTSem sem
 
 -- Blocking!
 -- we need to write last chunk before this will happen
@@ -278,15 +292,10 @@ commitBlock2 :: forall salt h m .
             -> m ()
 
 commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
-  let cache = perBlock w
-  let se   = perBlockSem w
   flush w fn
   s <- liftIO $ B.readFile fn
-  void $ putBlock stor s
+  void $! putBlock stor s
   delBlock w salt h
-
-  liftIO $ atomically $ TV.modifyTVar' cache $ HashMap.delete fn
-  liftIO $ atomically $ TV.modifyTVar' se $ HashMap.delete fn
 
   where
     fn = makeFileName w salt h
