@@ -31,6 +31,17 @@ main = do
 
   withSystemTempDirectory "cww-test" $ \dir -> do
 
+    let opts = [ StoragePrefix (dir </> ".test-cww")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    w1 <- replicateM 1 $ async (simpleStorageWorker storage)
+
+    cw <- newChunkWriterIO storage (Just (dir </> ".qqq"))
+
+    w2 <- replicateM 1 $ async $ runChunkWriter cw
+
     failed <- replicateM 100 $ do
 
       bytes <- B8.pack <$> (replicateM size $ uniformM g)
@@ -39,34 +50,23 @@ main = do
 
       let psz = calcChunks (fromIntegral size) (fromIntegral chu)
 
-      let opts = [ StoragePrefix (dir </> ".test-cww")
-                 ]
-
-      storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
-
-      w1 <- replicateM 1 $ async (simpleStorageWorker storage)
-
-      cw <- newChunkWriterIO storage (Just (dir </> ".qqq"))
-
-      w2 <- replicateM 1 $ async $ runChunkWriter cw
-
       psz' <- shuffleM psz
       -- psz' <- pure psz
 
+      -- forConcurrently_ psz' $ \(o,s) -> do
       forConcurrently_ psz' $ \(o,s) -> do
-      -- forM_ psz' $ \(o,s) -> do
         let t = B8.take s $ B8.drop o bytes
         writeChunk cw 1 hash (fromIntegral o) t
 
       h2 <- getHash cw 1 hash
-      -- h3 <- getHash cw 1 hash
-
-      mapM_ cancel $ w1 <> w2
 
       if hash /= h2 then do
         pure [1]
-      else
+      else do
+        commitBlock cw 1 hash
         pure mempty
+
+    mapM_ cancel $ w1 <> w2
 
     print $ "failed" <+> pretty (sum (mconcat failed))
 
