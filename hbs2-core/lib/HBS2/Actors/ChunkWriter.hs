@@ -69,7 +69,7 @@ data ChunkWriter h m = forall a . ( MonadIO m
                                   ) =>
   ChunkWriter
   { stopped     :: TVar Bool
-  , pipeline    :: Pipeline m ()
+  , pipeline    :: Pipeline IO ()
   , dir         :: FilePath
   , storage     :: a
   , perBlock    :: TVar (HashMap FilePath [Handle -> IO ()])
@@ -78,15 +78,13 @@ data ChunkWriter h m = forall a . ( MonadIO m
 
 
 blocksInProcess :: MonadIO m => ChunkWriter h m -> m Int
-blocksInProcess cw = undefined
-  -- liftIO $ Cache.purgeExpired cache >> Cache.size cache
-  -- where
-  --  cache = perBlock cw
+blocksInProcess cw = do
+  liftIO $ readTVarIO (perBlock cw) <&> HashMap.size
 
 runChunkWriter :: forall h m . ( Eq (Hash h)
                                 , Hashable (Hash h)
                                 , MonadIO m )
-                => ChunkWriter h m -> m ()
+                => ChunkWriter h IO -> m ()
 
 runChunkWriter = runChunkWriter2
 
@@ -94,16 +92,17 @@ runChunkWriter = runChunkWriter2
 runChunkWriter2 :: forall h m . ( Eq (Hash h)
                                 , Hashable (Hash h)
                                 , MonadIO m )
-                => ChunkWriter h m -> m ()
+                => ChunkWriter h IO -> m ()
 
 runChunkWriter2 w = do
   liftIO $ createDirectoryIfMissing True ( dir w )
   let tv = perBlock w
-  fix \next -> do
-    keys <- liftIO $ readTVarIO tv <&> (L.take 20 . HashMap.keys)
-    liftIO $ forConcurrently_ keys $ \f -> flush w f
-    pause ( 1.00 :: Timeout 'Seconds)
-    next
+  liftIO $ runPipeline (pipeline w)
+  -- fix \next -> do
+  --   keys <- liftIO $ readTVarIO tv <&> (L.take 20 . HashMap.keys)
+  --   liftIO $ forConcurrently_ keys $ \f -> flush w f
+  --   pause ( 1.00 :: Timeout 'Seconds)
+  --   next
 
 stopChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
 stopChunkWriter w = do
@@ -145,7 +144,7 @@ makeFileName w salt h = dir w </> suff
     suff = show $ pretty (fromIntegral (hash salt) :: Word32) <> "@" <> pretty h
 
 delBlock :: (Hashable salt, MonadIO m, Pretty (Hash h))
-         => ChunkWriter h m -> salt -> Hash h -> m ()
+         => ChunkWriter h IO -> salt -> Hash h -> m ()
 
 delBlock w salt h = liftIO do
 
@@ -179,7 +178,7 @@ writeChunk = writeChunk2
 getHash :: forall salt h m .
            ( Hashable salt
            , Hashed h ByteString
-           , MonadIO m
+           , m ~ IO
            , Block ByteString ~ ByteString
            , Pretty (Hash h)
            , Hashable (Hash h), Eq (Hash h)
@@ -196,7 +195,7 @@ commitBlock :: forall salt h m .
                ( Hashable salt
                , Hashed h ByteString
                , Block ByteString ~ ByteString
-               , MonadIO m
+               , m ~ IO
                , Pretty (Hash h)
                , Hashable (Hash h), Eq (Hash h)
                )
@@ -229,29 +228,30 @@ writeChunk2  w salt h o bs = do
   where
     fn = makeFileName w salt h
 
+flush :: ChunkWriter h IO -> FilePath -> IO ()
 flush w fn = do
   let cache = perBlock w
   let sems = perBlockSem w
+  let pip = pipeline w
 
   liftIO $ do
 
-    nsem <- atomically $ Sem.newTSem 1
-
     actions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
 
+    q <- liftIO $ Q.newTBQueueIO 1
 
-    -- sem <- atomically $ stateTVar sems $ \hm -> let found = HashMap.lookup fn hm
-    --                                             in case found of
-    --                                                  Nothing -> (nsem, HashMap.insert fn nsem hm)
-    --                                                  Just s  -> (s, hm)
+    addJob pip $ do
 
-    -- atomically $ Sem.waitTSem sem
-    as <- asyncBound $ do
-      withBinaryFile fn ReadWriteMode $ \h -> do
-        withFileLock fn Exclusive $ \_ -> do
-            for_ (fromMaybe mempty actions) $ \f -> f h
-    wait as
-    -- atomically $ Sem.signalTSem sem
+      as <- asyncBound $ do
+        withBinaryFile fn ReadWriteMode $ \h -> do
+          withFileLock fn Exclusive $ \_ -> do
+              for_ (fromMaybe mempty actions) $ \f -> f h
+      wait as
+
+      void $ liftIO $ atomically $ Q.writeTBQueue q ()
+
+    liftIO $ atomically $ Q.readTBQueue q
+
 
 -- Blocking!
 -- we need to write last chunk before this will happen
@@ -260,12 +260,12 @@ flush w fn = do
 getHash2 :: forall salt h m .
            ( Hashable salt
            , Hashed h ByteString
-           , MonadIO m
+           , m ~ IO
            , Block ByteString ~ ByteString
            , Pretty (Hash h)
           , Hashable (Hash h), Eq (Hash h)
            )
-         => ChunkWriter h m
+         => ChunkWriter h IO
          -> salt
          -> Hash h
          -> m (Hash h)
@@ -282,7 +282,7 @@ commitBlock2 :: forall salt h m .
                ( Hashable salt
                , Hashed h ByteString
                , Block ByteString ~ ByteString
-               , MonadIO m
+               , m ~ IO
                , Pretty (Hash h)
                , Hashable (Hash h), Eq (Hash h)
                )

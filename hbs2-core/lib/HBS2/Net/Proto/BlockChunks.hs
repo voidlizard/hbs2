@@ -64,7 +64,7 @@ instance Serialise (BlockChunks e)
 
 
 newtype instance EventKey e (BlockChunks e) =
-  BlockChunksEventKey (Hash HbSync)
+  BlockChunksEventKey (Cookie e, Hash HbSync)
   deriving stock (Typeable, Eq, Generic)
 
 deriving instance Hashable (EventKey e (BlockChunks e))

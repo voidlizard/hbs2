@@ -1,6 +1,6 @@
 cradle:
   cabal:
-    - path: "hbs-tests/test/Peer2Main.hs"
+    - path: "hbs2-tests/test/Peer2Main.hs"
       component: "hbs2-tests:exe:test-peer-run"
 
     - path: "hbs2-tests/test/TestSKey"
