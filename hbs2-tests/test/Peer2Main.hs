@@ -385,6 +385,8 @@ blockDownloadLoop cw = do
 
           let blockWtf = do
                 debug $ "WTF!" <+> pretty (p,coo) <+> pretty h
+                liftIO $ atomically $ Q.writeTBQueue q (DownloadTask h Nothing)
+                -- initDownload True q p h thisBkSiz
 
           liftIO $ async $ do
             -- FIXME: block is not downloaded, return it to the Q
