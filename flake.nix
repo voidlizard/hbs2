@@ -33,14 +33,14 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
-    enableExecutableProfiling
+    disableExecutableProfiling
     disableLibraryProfiling
     dontBenchmark
     dontCoverage
     dontDistribute
     dontHaddock
     dontHyperlinkSource
-    # doStrip
+    doStrip
     enableDeadCodeElimination
     justStaticExecutables
 
