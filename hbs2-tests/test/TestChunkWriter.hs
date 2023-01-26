@@ -10,12 +10,14 @@ import Control.Concurrent.Async
 import Control.Monad
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as B8
+import Data.Fixed
 import Data.Functor
 import qualified Data.Vector.Unboxed as U
+import System.FilePath.Posix
 import System.IO.Temp
 import System.Random.MWC
 import System.Random.Shuffle
-import System.FilePath.Posix
+import System.TimeIt
 
 import Data.List qualified as L
 import Prettyprinter
@@ -29,6 +31,8 @@ main = do
 
   g <- initialize $ U.fromList [0xFAFA, 0xBEBE, 0xC0C0]
 
+  bytes <- B8.pack <$> replicateM size (uniformM g)
+
   withSystemTempDirectory "cww-test" $ \dir -> do
 
     let opts = [ StoragePrefix (dir </> ".test-cww")
@@ -36,40 +40,44 @@ main = do
 
     storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
-    w1 <- replicateM 1 $ async (simpleStorageWorker storage)
+    w1 <- replicateM 2 $ async (simpleStorageWorker storage)
 
     cw <- newChunkWriterIO storage (Just (dir </> ".qqq"))
 
-    w2 <- replicateM 1 $ async $ runChunkWriter cw
+    w2 <- replicateM 2 $ async $ runChunkWriter cw
 
-    failed <- replicateM 100 $ do
+    let times = 100
 
-      bytes <- B8.pack <$> (replicateM size $ uniformM g)
+    let info = show $ "writing" <+> pretty (show (realToFrac size / 1024 :: Fixed E2))
+                                <+> "mb"
+                                <+> pretty times <+> "times"
 
-      let hash = hashObject bytes
+    timeItNamed info $ do
 
-      let psz = calcChunks (fromIntegral size) (fromIntegral chu)
+      failed <- replicateM times $ do
 
-      psz' <- shuffleM psz
-      -- psz' <- pure psz
 
-      -- forConcurrently_ psz' $ \(o,s) -> do
-      forConcurrently_ psz' $ \(o,s) -> do
-        let t = B8.take s $ B8.drop o bytes
-        writeChunk cw 1 hash (fromIntegral o) t
+          let hash = hashObject bytes
 
-      h2 <- getHash cw 1 hash
+          let psz = calcChunks (fromIntegral size) (fromIntegral chu)
 
-      if hash /= h2 then do
-        pure [1]
-      else do
-        commitBlock cw 1 hash
-        pure mempty
+          psz' <- shuffleM psz
 
-    mapM_ cancel $ w1 <> w2
+          forConcurrently_ psz' $ \(o,s) -> do
+            let t = B8.take s $ B8.drop o bytes
+            writeChunk cw 1 hash (fromIntegral o) t
 
-    print $ "failed" <+> pretty (sum (mconcat failed))
+          h2 <- getHash cw 1 hash
 
-  pure ()
+          if hash /= h2 then do
+            pure [1]
+          else do
+            commitBlock cw 1 hash
+            pure mempty
+
+      mapM_ cancel $ w1 <> w2
+
+      print $ "failed" <+> pretty (sum (mconcat failed))
+
 
 
