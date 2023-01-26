@@ -51,6 +51,7 @@ common common-deps
 common shared-properties
   ghc-options:
         -Wall
+        -O2
         -fno-warn-type-defaults
         -- -fno-warn-unused-matches
         -- -fno-warn-unused-do-bind
