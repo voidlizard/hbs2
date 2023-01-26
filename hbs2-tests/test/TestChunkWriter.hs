@@ -3,9 +3,12 @@ module Main where
 import HBS2.Prelude
 import HBS2.Actors.ChunkWriter
 import HBS2.Hash
+import HBS2.Clock
 import HBS2.Storage
 import HBS2.Storage.Simple
 
+import Data.Maybe
+import Control.Monad.Except
 import Control.Concurrent.Async
 import Control.Monad
 import Data.ByteString.Lazy (ByteString)
@@ -18,6 +21,9 @@ import System.IO.Temp
 import System.Random.MWC
 import System.Random.Shuffle
 import System.TimeIt
+
+import Control.DeepSeq
+import Control.Exception (evaluate)
 
 import Data.List qualified as L
 import Prettyprinter
@@ -70,17 +76,11 @@ main = do
           h2 <- getHash cw 1 hash
 
           -- commitBlock cw 1 hash
-          -- commitBlock cw 1 hash
-          print "JOPA"
-          commitBlock cw 1 hash
-          print "KITA"
 
           if Just hash /= h2 then do
             pure [1]
           else do
-            print "YAY!"
             commitBlock cw 1 hash
-            print "QQQ!"
             pure mempty
 
       mapM_ cancel $ w1 <> w2

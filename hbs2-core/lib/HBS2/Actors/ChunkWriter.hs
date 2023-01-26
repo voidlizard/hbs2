@@ -25,6 +25,7 @@ import Data.Function
 import Control.Exception
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as B
+import Data.ByteString qualified as BS
 -- import Data.Cache (Cache)
 -- import Data.Cache qualified as Cache
 import Data.Foldable
@@ -42,6 +43,7 @@ import System.FileLock
 
 import Control.Concurrent.Async
 
+import Control.Monad.Except
 import Control.Monad
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
@@ -50,6 +52,8 @@ import Control.Concurrent.STM.TVar as TV
 import Control.Concurrent.STM.TBQueue qualified as Q
 import Control.Concurrent.STM.TSem qualified as Sem
 import Control.Concurrent.STM.TSem (TSem)
+
+import Control.Concurrent.MVar as MVar
 
 import Control.Concurrent.STM.TQueue qualified as Q0
 import Control.Concurrent
@@ -70,12 +74,12 @@ data ChunkWriter h m = forall a . ( MonadIO m
                                   , Block ByteString ~ ByteString
                                   ) =>
   ChunkWriter
-  { stopped     :: TVar Bool
-  , pipeline    :: Pipeline IO ()
-  , dir         :: FilePath
-  , storage     :: a
-  , perBlock    :: TVar (HashMap FilePath [Handle -> IO ()])
-  , perBlockSem :: TVar (HashMap FilePath TSem)
+  { stopped      :: TVar Bool
+  , pipeline     :: Pipeline IO ()
+  , dir          :: FilePath
+  , storage      :: a
+  , perBlock     :: !(TVar (HashMap FilePath [Handle -> IO ()]))
+  , perBlockLock :: !(TVar (HashMap FilePath TSem))
   }
 
 
@@ -137,7 +141,7 @@ newChunkWriterIO s tmp = do
     , dir = d
     , storage  = s
     , perBlock = mt
-    , perBlockSem = mts
+    , perBlockLock = mts
     }
 
 makeFileName :: (Hashable salt, Pretty (Hash h)) => ChunkWriter h m -> salt -> Hash h -> FilePath
@@ -151,14 +155,20 @@ delBlock :: (Hashable salt, MonadIO m, Pretty (Hash h))
 delBlock w salt h = liftIO do
 
   let cache = perBlock w
-  let se   = perBlockSem w
+  let se   = perBlockLock w
 
-  liftIO $ flush w fn
+  -- lock <- getLock w fn
+
+  flush w fn
+
+  -- atomically $ Sem.waitTSem lock
+
+  void $ runExceptT $ liftIO $ removeFile fn
 
   liftIO $ atomically $ TV.modifyTVar' cache $ HashMap.delete fn
   liftIO $ atomically $ TV.modifyTVar' se $ HashMap.delete fn
 
-  void $ tryJust (guard . isDoesNotExistError) (removeFile fn)
+  -- atomically $ Sem.signalTSem lock
 
   where
     fn = makeFileName w salt h
@@ -215,14 +225,15 @@ writeChunk2 :: (Hashable salt, MonadIO m, Pretty (Hash h), Hashable (Hash h), Eq
             -> Offset
             -> ByteString -> m ()
 
-writeChunk2  w salt h o bs = do
+writeChunk2  w salt h o !bs = do
 
   let cache = perBlock w
 
   let action fh = do
-        -- withBinaryFile fn ReadWriteMode $ \fh -> do
-        hSeek fh AbsoluteSeek (fromIntegral o)
-        B.hPutStr fh bs
+        void $ runExceptT $ liftIO $ do
+          hSeek fh AbsoluteSeek (fromIntegral o)
+          B.hPutStr fh bs -- (BS.copy (B.toStrict bs))
+          hFlush fh
 
   liftIO $ do
     atomically $ modifyTVar cache (HashMap.insertWith (<>) fn [action])
@@ -230,28 +241,39 @@ writeChunk2  w salt h o bs = do
   where
     fn = makeFileName w salt h
 
+getLock w fn = do
+  _lock <- atomically $ Sem.newTSem 1
+  let locks = perBlockLock w
+  atomically $ stateTVar locks $ \x ->
+    case HashMap.lookup fn x of
+      Nothing -> (_lock, HashMap.insert fn _lock x)
+      Just s  -> (s, x)
+
 flush :: ChunkWriter h IO -> FilePath -> IO ()
 flush w fn = do
   let cache = perBlock w
+
   let pip = pipeline w
 
-  liftIO $ do
 
-    actions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
+  q <- liftIO $ Q.newTBQueueIO 1
 
-    q <- liftIO $ Q.newTBQueueIO 1
+  -- addJob pip $ do
 
-    addJob pip $ do
+  lock <- getLock w fn
 
-      as <- asyncBound $ do
+  race (pause (2 :: Timeout 'Seconds)) $ do
+    void $ runExceptT $ liftIO $ do
+      atomically $ Sem.waitTSem lock
+      mbactions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
+      maybe1 mbactions (pure ()) $ \actions -> do
         withBinaryFile fn ReadWriteMode $ \h -> do
-          withFileLock fn Exclusive $ \_ -> do
-              for_ (fromMaybe mempty actions) $ \f -> f h
-      wait as
+            for_ actions $ \f -> f h
 
-      void $ liftIO $ atomically $ Q.writeTBQueue q ()
+  atomically $ Sem.signalTSem lock
+  void $ liftIO $ atomically $ Q.writeTBQueue q ()
 
-    liftIO $ atomically $ Q.readTBQueue q
+  void $ liftIO $ atomically $ Q.readTBQueue q
 
 
 -- Blocking!
@@ -272,13 +294,14 @@ getHash2 :: forall salt h m .
          -> m (Maybe (Hash h))
 
 getHash2 w salt h = do
+
   flush w fn
 
   runMaybeT $ do
-    res <- liftIO $ tryJust (guard . isDoesNotExistError)
-                            ( B.readFile fn  >>= \s -> pure $ hashObject @h s )
+    res <- liftIO $! runExceptT $ liftIO do
+                     ( B.readFile fn  >>= \s -> pure $ hashObject @h s )
 
-    MaybeT $ pure $ either (const Nothing) Just res
+    MaybeT $! pure $! either (const Nothing) Just res
 
   where
     fn = makeFileName w salt h
@@ -299,20 +322,19 @@ commitBlock2 :: forall salt h m .
 
 commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
 
-  print "FLUSHING"
-
   flush w fn
 
-  print "FLUSHED"
+  exists <- doesFileExist fn
 
-  res <- liftIO $ tryJust (guard . isDoesNotExistError)
-                          ( B.readFile fn )
+  when exists $ do
 
-  case res of
-    Left _ -> pure ()
-    Right s -> do
-      void $ putBlock stor s
-      delBlock w salt h
+    res <- liftIO $ runExceptT $! liftIO ( B.readFile fn )
+
+    case res of
+      Left _ -> pure ()
+      Right s -> do
+        void $ putBlock stor s
+        delBlock w salt h
 
   where
     fn = makeFileName w salt h
