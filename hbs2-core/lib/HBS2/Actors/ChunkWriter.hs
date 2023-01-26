@@ -18,6 +18,7 @@ import HBS2.Storage
 import HBS2.Defaults
 import HBS2.Clock
 
+import Data.List qualified as L
 import Data.Functor
 import Data.Function
 import Control.Exception
@@ -43,6 +44,7 @@ import Control.Concurrent.Async
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Control.Concurrent.STM
+import Control.Concurrent.STM.TVar as TV
 import Control.Concurrent.STM.TBQueue qualified as Q
 import Control.Concurrent.STM.TSem qualified as Sem
 import Control.Concurrent.STM.TSem (TSem)
@@ -96,8 +98,12 @@ runChunkWriter2 :: forall h m . ( Eq (Hash h)
 
 runChunkWriter2 w = do
   liftIO $ createDirectoryIfMissing True ( dir w )
-  fix \next -> pause ( 1 :: Timeout 'Seconds) >> next
-
+  let tv = perBlock w
+  fix \next -> do
+    keys <- liftIO $ readTVarIO tv <&> (L.take 10 . HashMap.keys)
+    for_ keys (flush w)
+    pause ( 0.25 :: Timeout 'Seconds)
+    next
 
 stopChunkWriter :: MonadIO m => ChunkWriter h m -> m ()
 stopChunkWriter w = do
