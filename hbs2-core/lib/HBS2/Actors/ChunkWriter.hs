@@ -73,7 +73,7 @@ data ChunkWriter h m = forall a . ( MonadIO m
   , dir         :: FilePath
   , storage     :: a
   , perBlock    :: TVar (HashMap FilePath [IO ()])
-  , perBlockSem :: Cache FilePath TSem
+  , perBlockSem :: TVar (HashMap FilePath TSem)
   }
 
 
@@ -125,7 +125,7 @@ newChunkWriterIO s tmp = do
   let d  = fromMaybe def tmp
 
   mt <- liftIO $ newTVarIO mempty
-  mts <- liftIO $ Cache.newCache Nothing
+  mts <- liftIO $ newTVarIO mempty
 
   running <- liftIO $ newTVarIO False
 
@@ -219,13 +219,23 @@ writeChunk2  w salt h o bs = do
   where
     fn = makeFileName w salt h
 
-
 flush w fn = do
   let cache = perBlock w
+  let sems = perBlockSem w
 
   liftIO $ do
+
+    nsem <- atomically $ Sem.newTSem 1
+    sem <- atomically $ stateTVar sems $ \hm -> let found = HashMap.lookup fn hm
+                                                in case found of
+                                                     Nothing -> (nsem, HashMap.insert fn nsem hm)
+                                                     Just s  -> (s, hm)
+    atomically $ Sem.waitTSem sem
+
     actions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
     sequence_ (fromMaybe mempty actions)
+
+    atomically $ Sem.signalTSem sem
 
 -- Blocking!
 -- we need to write last chunk before this will happen
@@ -267,10 +277,14 @@ commitBlock2 :: forall salt h m .
 
 commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
   let cache = perBlock w
+  let se   = perBlockSem w
   flush w fn
   s <- liftIO $ B.readFile fn
   void $ putBlock stor s
   delBlock w salt h
+
+  liftIO $ atomically $ TV.modifyTVar' cache $ HashMap.delete fn
+  liftIO $ atomically $ TV.modifyTVar' se $ HashMap.delete fn
 
   where
     fn = makeFileName w salt h
