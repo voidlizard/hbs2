@@ -301,7 +301,7 @@ runPeerM s bus p f  = do
                             <*> liftIO (newTVarIO mempty)
 
   let de = view envDeferred env
-  as <- liftIO $ replicateM 2 $ asyncBound $ runPipeline de
+  as <- liftIO $ replicateM 4 $ async $ runPipeline de
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
           pause defSweepTimeout

@@ -592,11 +592,10 @@ main = do
 
                 bytes <- replicateM size $ uniformM g :: IO [Char]
 
-                -- let blk = B8.pack bytes
+                let blk = B8.pack bytes
 
-                -- root <- putAsMerkle s blk
+                root <- putAsMerkle s blk
 
-                let root = "Efq9DZs2vyY3X4XB7sZUi1AxDuujamLjnJAGzc6odh9z"
                 rootSz <- hasBlock s (fromMerkleHash root)
 
                 debug $ "I'm" <+> pretty p <+> pretty root
