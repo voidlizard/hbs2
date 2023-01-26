@@ -72,7 +72,7 @@ data ChunkWriter h m = forall a . ( MonadIO m
   , pipeline    :: Pipeline m ()
   , dir         :: FilePath
   , storage     :: a
-  , perBlock    :: TVar (HashMap FilePath [IO ()])
+  , perBlock    :: TVar (HashMap FilePath [Handle -> IO ()])
   , perBlockSem :: TVar (HashMap FilePath TSem)
   }
 
@@ -208,10 +208,10 @@ writeChunk2  w salt h o bs = do
 
   let cache = perBlock w
 
-  let action = do
-        withBinaryFile fn ReadWriteMode $ \fh -> do
-          hSeek fh AbsoluteSeek (fromIntegral o)
-          B.hPutStr fh bs
+  let action fh = do
+        -- withBinaryFile fn ReadWriteMode $ \fh -> do
+        hSeek fh AbsoluteSeek (fromIntegral o)
+        B.hPutStr fh bs
 
   liftIO $ do
     atomically $ modifyTVar cache (HashMap.insertWith (<>) fn [action])
@@ -233,7 +233,9 @@ flush w fn = do
     atomically $ Sem.waitTSem sem
 
     actions <- atomically $ stateTVar cache (\v -> (HashMap.lookup fn v, HashMap.delete fn v))
-    sequence_ (fromMaybe mempty actions)
+
+    withBinaryFile fn ReadWriteMode $ \h -> do
+      mapM_ (\f -> f h) (fromMaybe mempty actions)
 
     atomically $ Sem.signalTSem sem
 
