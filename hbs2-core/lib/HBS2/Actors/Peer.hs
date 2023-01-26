@@ -275,7 +275,7 @@ instance ( HasProtocol e p
         void $ liftIO $ atomically $ modifyTVar' se (HashMap.delete sk)
         pers <- forM subs $ \r -> do
                   ev <- MaybeT $ pure $ fromDynamic @(EventHandler e p (PeerM e IO)) r
-                  lift $ ev d
+                  liftIO $ withPeerM env $  ev d
                   if isPersistent @(Event e p) then
                     pure [r]
                   else
