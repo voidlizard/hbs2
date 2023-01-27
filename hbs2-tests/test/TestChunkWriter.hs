@@ -67,8 +67,7 @@ main = do
 
           let psz = calcChunks (fromIntegral size) (fromIntegral chu)
 
-          psz' <- pure psz
-          -- psz' <- shuffleM psz
+          psz' <- shuffleM psz
 
           forM_ psz' $ \(o,s) -> do
             let t = B8.take s $ B8.drop o bytes
