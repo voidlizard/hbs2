@@ -52,7 +52,7 @@ main = do
 
     storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
-    w1 <- replicateM 1 $ async (simpleStorageWorker storage)
+    w1 <- replicateM 128 $ async (simpleStorageWorker storage)
 
     cw <- newChunkWriterIO @HbSync storage (Just (dir </> ".qqq"))
 
