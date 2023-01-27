@@ -32,8 +32,8 @@ main :: IO ()
 main = do
 
   -- let size = 1024*1024*1
-  let size = 1024*1024*4
-  let chu = 256*1024
+  let size = 256*1024
+  let chu = 500
 
   g <- initialize $ U.fromList [0xFAFA, 0xBEBE, 0xC0C0]
 
@@ -52,9 +52,9 @@ main = do
 
     w2 <- replicateM 8 $ async $ runChunkWriter cw
 
-    let times = 100
+    let times = 500
 
-    let info = show $ "writing" <+> pretty (show (realToFrac size / 1024 :: Fixed E2))
+    let info = show $ "writing" <+> pretty (show (realToFrac size / (1024*1024) :: Fixed E2))
                                 <+> "mb"
                                 <+> pretty times <+> "times"
 
