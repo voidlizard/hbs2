@@ -438,7 +438,10 @@ blockDownloadLoop cw = do
         -- debug $ pretty (show bt)
 
         case bt of
-          Nothing -> pure ()
+          Nothing -> do
+            liftIO $ atomically $ Q.writeTBQueue q (DownloadTask h Nothing)
+            -- debug $ "NO FUCKING BLOCK FOUND!"
+            pure ()
 
           Just (AnnRef{}) -> do
             pure ()

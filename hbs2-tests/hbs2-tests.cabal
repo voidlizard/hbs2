@@ -60,7 +60,7 @@ common shared-properties
         -- -fno-warn-unused-binds
         -threaded
         -rtsopts
-        "-with-rtsopts=-N8 -A64m -AL256m -I0"
+        "-with-rtsopts=-N4 -A256m -AL256m -I0"
 
 
   default-language:    Haskell2010
