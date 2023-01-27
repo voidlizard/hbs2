@@ -63,6 +63,9 @@ import Control.Concurrent
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 
+import Data.IntMap qualified as IntMap
+import Data.IntMap (IntMap)
+
 
 class ( Eq salt
       , Eq (Hash h)
@@ -83,12 +86,12 @@ instance ( Hashable salt
          ) => ChunkKey salt h
 
 
-data Chunk h = P [(Offset, ByteString)]
+data Chunk h = P (IntMap ByteString)
              | S (Hash h) ByteString
 
 
 instance Hashed h ByteString => Monoid (Chunk h) where
-  mempty = P []
+  mempty = P mempty
 
 instance Hashed h ByteString => Semigroup (Chunk h) where
   (<>) (P a) (P b) = P ( a <> b )
@@ -111,13 +114,13 @@ instance Hashed h ByteString => Semigroup (Chunk h) where
       h3 = hashObject s3
 
 mkP :: Offset -> ByteString -> Chunk h
-mkP o b = P [(o,b)]
+mkP o b = P (IntMap.singleton (fromIntegral o) b)
 
 toS :: Hashed h ByteString => Chunk h -> Chunk h
 toS s@(S{}) = s
 toS (P xs) = S h s
   where
-    s = foldMap snd $ L.sortBy (compare `on` fst) xs
+    s = mconcat $ IntMap.elems xs
     h = hashObject s
 
 data ChunkWriter h m = forall a . ( MonadIO m
@@ -255,11 +258,6 @@ writeChunk2  w salt h o !bs = do
   let k = newSKey (salt, h)
   liftIO $ do
     atomically $ modifyTVar cache (HashMap.insertWith (<>) k (mkP o bs) )
-
-flush :: Hashed h ByteString => ChunkWriter h IO -> SKey -> IO ()
-flush w k = do
-  let cache = perBlock w
-  void $ atomically $ modifyTVar cache (HashMap.adjust toS k)
 
 getHash2 :: forall salt h m .
            ( ChunkKey salt h
