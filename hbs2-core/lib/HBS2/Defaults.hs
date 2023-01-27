@@ -30,14 +30,14 @@ defProtoPipelineSize :: Int
 defProtoPipelineSize = 65536*4
 
 defCookieTimeout :: TimeSpec
-defCookieTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
+defCookieTimeout = toTimeSpec ( 300  :: Timeout 'Minutes)
 
 defBlockInfoTimeout :: TimeSpec
-defBlockInfoTimeout = toTimeSpec ( 60  :: Timeout 'Minutes)
+defBlockInfoTimeout = toTimeSpec ( 300  :: Timeout 'Minutes)
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 60 :: Timeout 'Seconds
+defBlockWaitMax = 300 :: Timeout 'Seconds
 
 defBlockWaitSleep :: Timeout 'Seconds
 defBlockWaitSleep = 1  :: Timeout 'Seconds
