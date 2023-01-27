@@ -585,7 +585,7 @@ main = do
     let (p0:ps) = [0..1] :: [Peer Fake]
 
     -- others
-    others <- forM ps $ \p -> async $ runTestPeer p $ \s cw  -> do
+    others <- forM ps $ \p -> asyncBound $ runTestPeer p $ \s cw  -> do
                 let findBlk = hasBlock s
 
                 -- let size = 1024*1024*1
