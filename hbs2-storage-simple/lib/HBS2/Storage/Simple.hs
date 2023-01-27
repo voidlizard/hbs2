@@ -59,7 +59,6 @@ data SimpleStorage a =
   SimpleStorage
   { _storageDir     :: FilePath
   , _storageOpQ     :: TBMQueue ( IO () )
-  , _storageChunksCache :: Cache (FilePath, Offset, Size) ByteString
   , _storageStopWriting :: TVar Bool
   }
 
@@ -88,12 +87,9 @@ simpleStorageInit opts = liftIO $ do
 
   tstop <- TV.newTVarIO False
 
-  hcache <- Cache.newCache (Just (toTimeSpec @'Seconds 30)) -- FIXME: real setting
-
   let stor = SimpleStorage
              { _storageDir = pdir
              , _storageOpQ = tbq
-             , _storageChunksCache = hcache
              , _storageStopWriting = tstop
              }
 
@@ -138,38 +134,10 @@ simpleStorageWorker ss = do
 
   killer <- async $ forever $ do
     pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
-    Cache.purgeExpired ( ss ^. storageChunksCache )
 
   (_, e) <- waitAnyCatchCancel [ops,killer]
 
   pure ()
-
-
-simpleChunkLookup :: IsKey h
-                  => SimpleStorage h
-                  -> Hash h
-                  -> Offset
-                  -> Size
-                  -> IO (Maybe LBS.ByteString)
-
-simpleChunkLookup s k off size = do
-  let fn = simpleBlockFileName s k
-  let cache  = s ^. storageChunksCache
-  Cache.lookup cache (fn, off, size) <&> fmap LBS.fromStrict
-
-simpleChunkCache :: IsKey h
-                 => SimpleStorage h
-                 -> Hash h
-                 -> Offset
-                 -> Size
-                 -> LBS.ByteString
-                 -> IO ()
-
-simpleChunkCache s k off size bs = do
-  let fn = simpleBlockFileName s k
-  let cache  = s ^. storageChunksCache
-  -- print ("caching!", fn, off, size)
-  Cache.insert cache (fn, off, size) (LBS.toStrict bs)
 
 simpleBlockFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
 simpleBlockFileName ss h = path
@@ -231,43 +199,16 @@ simpleGetChunkLazy s key off size = do
   let action = do
        let fn = simpleBlockFileName s key
 
-       cached <- simpleChunkLookup s key off size
+       r <- tryJust (guard . isDoesNotExistError)
+             $ withBinaryFile fn ReadMode $ \ha -> do
+                  hSeek ha AbsoluteSeek ( fromIntegral off )
+                  LBS.hGet ha ( fromIntegral size )
 
-       case cached of
-        Just chunk -> do
-           void $ atomically $ TBMQ.writeTBMQueue resQ (Just chunk)
+       result <- case r of
+                   Right bytes -> pure (Just bytes)
+                   Left _      -> pure Nothing
 
-        Nothing -> do
-           r <- tryJust (guard . isDoesNotExistError)
-                 $ withBinaryFile fn ReadMode $ \handle -> do
-                      hSeek handle AbsoluteSeek ( fromIntegral off )
-                      bytes <- LBS.hGet handle ( fromIntegral size )
-
-                      let ahead = 16
-                      let bnum = off `div` fromIntegral size
-                      let doCache =
-                                 ahead > 0
-                              && size > 0
-                              && size < 4096
-                              && (bnum `mod` ahead) == 0
-
-                      when doCache do -- FIXME:! setting
-                        chunks <- forM [ size .. size * fromIntegral ahead ] $ \i -> do
-                                    let o = fromIntegral off + fromIntegral (i * size)
-                                    hSeek handle AbsoluteSeek o
-                                    fwd <- LBS.hGet handle (fromIntegral size)
-                                    pure (fwd, fromIntegral o)
-
-                        let chunks' = takeWhile (not . LBS.null . fst) chunks
-                        mapM_ (\(c,o) -> simpleChunkCache s key o size c) chunks'
-
-                      pure bytes
-
-           result <- case r of
-                       Right bytes -> pure (Just bytes)
-                       Left _      -> pure Nothing
-
-           void $ atomically $ TBMQ.writeTBMQueue resQ result
+       void $ atomically $ TBMQ.writeTBMQueue resQ result
 
   let onFail (_ :: IOError)=  void $ atomically $ TBMQ.writeTBMQueue resQ Nothing
 

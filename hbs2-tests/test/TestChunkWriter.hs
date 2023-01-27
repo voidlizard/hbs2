@@ -52,7 +52,7 @@ main = do
 
     storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
 
-    w1 <- replicateM 128 $ async (simpleStorageWorker storage)
+    w1 <- replicateM 16 $ async (simpleStorageWorker storage)
 
     cw <- newChunkWriterIO @HbSync storage (Just (dir </> ".qqq"))
 
@@ -67,7 +67,6 @@ main = do
     timeItNamed info $ do
 
       failed <- replicateM times $ do
-
 
           forConcurrently_ psz' $ \(o,s) -> do
             let t = B8.take s $ B8.drop o bytes

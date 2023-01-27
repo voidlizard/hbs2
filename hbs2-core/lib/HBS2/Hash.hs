@@ -38,7 +38,7 @@ type family HashType ( a :: Type) where
   HashType HbSync = Blake2b_256
 
 newtype instance Hash HbSync =
-  HbSyncHash ShortByteString
+  HbSyncHash ByteString
   deriving stock (Eq,Ord,Data,Generic)
   deriving newtype (Hashable,Show)
 
@@ -59,22 +59,22 @@ getAlphabet = BS8.unpack (unAlphabet alphabet)
 
 
 instance Hashed HbSync ByteString where
-  hashObject s = HbSyncHash $ force $ SB.toShort $ BA.convert digest
+  hashObject s = HbSyncHash $! BA.convert digest
     where
       digest = hash s :: Digest (HashType HbSync)
 
 instance Hashed HbSync LBS.ByteString where
-  hashObject s = HbSyncHash $ force $ SB.toShort $ BA.convert digest
+  hashObject s = HbSyncHash $! BA.convert digest
     where
       digest = hashlazy s :: Digest (HashType HbSync)
 
 instance IsString (Hash HbSync) where
   fromString s = maybe (error ("invalid base58: " <> show s)) HbSyncHash doDecode
     where
-      doDecode = SB.toShort <$> decodeBase58 alphabet (BS8.pack s)
+      doDecode = decodeBase58 alphabet (BS8.pack s)
 
 instance Pretty (Hash HbSync) where
-  pretty (HbSyncHash s) = pretty @String [qc|{encodeBase58 bitcoinAlphabet (SB.fromShort s)}|]
+  pretty (HbSyncHash s) = pretty @String [qc|{encodeBase58 bitcoinAlphabet s}|]
 
 
 instance FromJSON (Hash HbSync) where
