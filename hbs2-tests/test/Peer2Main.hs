@@ -55,6 +55,8 @@ import Data.Hashable
 import Type.Reflection
 import Data.Fixed
 
+import Data.Dynamic
+
 import System.Random.MWC
 import qualified Data.Vector.Unboxed as U
 
@@ -93,9 +95,9 @@ instance Pretty (Peer Fake) where
 
 instance HasProtocol Fake (BlockInfo Fake) where
   type instance ProtocolId (BlockInfo Fake) = 1
-  type instance Encoded Fake = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
+  type instance Encoded Fake = Dynamic
+  decode = fromDynamic
+  encode = toDyn
 
 -- FIXME: 3 is for debug only!
 instance Expires (EventKey Fake (BlockInfo Fake)) where
@@ -109,16 +111,15 @@ instance Expires (EventKey Fake (BlockAnnounce Fake)) where
 
 instance HasProtocol Fake (BlockChunks Fake) where
   type instance ProtocolId (BlockChunks Fake) = 2
-  type instance Encoded Fake = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
+  type instance Encoded Fake = Dynamic
+  decode = fromDynamic
+  encode = toDyn
 
 instance HasProtocol Fake (BlockAnnounce Fake) where
   type instance ProtocolId (BlockAnnounce Fake) = 3
-  type instance Encoded Fake = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
-
+  type instance Encoded Fake = Dynamic
+  decode = fromDynamic
+  encode = toDyn
 
 type instance SessionData e (BlockInfo e) = BlockSizeSession e
 type instance SessionData e (BlockChunks e) = BlockDownload
@@ -223,9 +224,9 @@ instance Typeable (SessionKey e (Stats e)) => Hashable (SessionKey e (Stats e)) 
 
 instance HasProtocol Fake (Stats Fake) where
   type instance ProtocolId (Stats Fake) = 0xFFFFFFFE
-  type instance Encoded Fake = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
+  type instance Encoded Fake = Dynamic
+  decode = fromDynamic
+  encode = toDyn
 
 newtype Speed = Speed (Fixed E1)
                 deriving newtype (Ord, Eq, Num, Real, Fractional, Show)
@@ -265,7 +266,7 @@ updateStats updTime blknum = do
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                  -- , e ~ Fake
-                                 , Serialise (Encoded e)
+                                 -- , Serialise (Encoded e)
                                  , MonadIO m
                                  , Request e (BlockInfo e) m
                                  , Request e (BlockAnnounce e) m
@@ -283,6 +284,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                  , Num (Peer e)
                                  , Pretty (Peer e)
                                  , Block ByteString ~ ByteString
+                                 -- , Encoded e ~ ByteString
                                  -- , Key HbSync ~ Hash HbSync
                                  )
                   =>  ChunkWriter HbSync IO -> m ()

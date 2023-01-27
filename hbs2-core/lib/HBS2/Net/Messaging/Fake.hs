@@ -52,7 +52,7 @@ instance ( (HasPeer proto, Hashable (Peer proto))
     atomically $ Chan.writeTChan chan (who, msg)
 
   receive bus (To me) = liftIO do
-    readChan =<< getChan bus me -- Cache.fetchWithCache (fakeP2p bus) me (const newTChanIO)
+    readChan =<< getChan bus me
 
     where
       readChan | blocking bus = atomically . (List.singleton <$>) . Chan.readTChan

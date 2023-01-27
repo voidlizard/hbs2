@@ -17,7 +17,6 @@ import HBS2.Prelude.Plated
 import HBS2.Storage
 
 import Control.Monad.Trans.Maybe
-import Codec.Serialise hiding (encode,decode)
 import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
@@ -47,6 +46,9 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
   getChunk (AnyStorage s) = getChunk s
   hasBlock (AnyStorage s) = hasBlock s
 
+data AnyMessage e = AnyMessage Integer (Encoded e)
+                    deriving stock (Generic)
+
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
 
@@ -56,19 +58,14 @@ class Monad m => HasPeerLocator e m where
 class HasStorage m where
   getStorage :: m AnyStorage
 
-data Fabriq e = forall bus . (Serialise (Encoded e), Messaging bus e ByteString) => Fabriq bus
+data Fabriq e = forall bus . (Messaging bus e (AnyMessage e)) => Fabriq bus
 
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
-instance HasPeer e => Messaging (Fabriq e) e ByteString where
+instance (HasPeer e) => Messaging (Fabriq e) e (AnyMessage e) where
   sendTo (Fabriq bus) = sendTo bus
   receive (Fabriq bus) = receive bus
-
-data AnyMessage e = AnyMessage Integer (Encoded e)
-                    deriving stock (Generic)
-
-instance Serialise (Encoded e) => Serialise (AnyMessage e)
 
 
 data AnyProtocol e m = forall p  . ( HasProtocol e p
@@ -197,14 +194,13 @@ instance ( MonadIO m
 instance ( MonadIO m
          , HasProtocol e p
          , HasFabriq e (PeerM e m)
-         , Serialise (Encoded e)
          ) => Request e p (PeerM e m) where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     pipe <- getFabriq @e
     me <- ownPeer @e
-    let bs = serialise (AnyMessage @e proto (encode msg))
-    sendTo pipe (To p) (From me) bs
+    sendTo pipe (To p) (From me) (AnyMessage @e proto (encode msg))
+
 
 instance ( HasProtocol e p
          , Typeable (EventHandler e p (PeerM e IO))
@@ -320,7 +316,6 @@ runProto :: forall e m  . ( MonadIO m
                           , HasOwnPeer e m
                           , HasFabriq e m
                           , HasPeer e
-                          , Serialise (Encoded e)
                           )
         => [AnyProtocol e (ResponseM e m)]
         -> m ()
@@ -337,23 +332,16 @@ runProto hh = do
 
     messages <- receive pipe (To me)
 
-    for_ messages $ \(From pip, bs) -> do
+    for_ messages $ \(From pip, AnyMessage n msg) -> do
 
-      case deserialiseOrFail @(AnyMessage e) bs of
+      case Map.lookup n disp of
+        Nothing -> pure ()
 
-        Left _-> pure ()
-
-        Right (AnyMessage n msg) -> do
-
-          case Map.lookup n disp of
-            Nothing -> pure ()
-
-            Just (AnyProtocol { protoDecode = decoder
-                              , handle = h
-                              }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
+        Just (AnyProtocol { protoDecode = decoder
+                          , handle = h
+                          }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
 instance ( HasProtocol e p
-         , Serialise (Encoded e)
          , MonadTrans (ResponseM e)
          , HasStorage (PeerM e IO)
          , Pretty (Peer e)
@@ -372,9 +360,7 @@ instance ( HasProtocol e p
     who <- asks (view answTo)
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
-    let bs = serialise (AnyMessage @e proto (encode msg))
-    sendTo fab (To who) (From self) bs
-
+    sendTo fab (To who) (From self) (AnyMessage @e proto (encode msg))
 
 instance ( MonadIO m
          , HasProtocol e p
