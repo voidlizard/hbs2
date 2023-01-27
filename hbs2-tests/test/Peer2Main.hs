@@ -280,6 +280,8 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                  , Sessions e (BlockInfo e) m
                                  , Sessions e (BlockChunks e) m
                                  , Sessions e (Stats e) m
+                                 , Typeable (SessionKey e (BlockChunks e))
+                                 , Typeable (SessionKey e (BlockInfo e))
                                  , HasStorage m
                                  , Num (Peer e)
                                  , Pretty (Peer e)
@@ -471,6 +473,7 @@ mkAdapter :: forall e m . ( m ~  PeerM e IO
                           , Hashable (SessionKey e (BlockChunks e))
                           , Sessions e (BlockChunks e) (ResponseM e m)
                           , Sessions e (Stats e) (ResponseM e m)
+                          , Typeable (SessionKey e (BlockChunks e))
                           , Default (SessionData e (Stats e))
                           , EventEmitter e (BlockChunks e) m
                           , Pretty (Peer e)

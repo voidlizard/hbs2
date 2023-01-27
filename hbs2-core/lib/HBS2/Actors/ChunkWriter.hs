@@ -16,49 +16,16 @@ import HBS2.Actors
 import HBS2.Hash
 import HBS2.Storage
 import HBS2.Defaults
-import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 
-import Control.Monad.Trans.Maybe
-import Data.List qualified as L
 import Data.Functor
-import Data.Function
-import Control.Exception
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString.Lazy qualified as B
-import Data.ByteString qualified as BS
--- import Data.Cache (Cache)
--- import Data.Cache qualified as Cache
-import Data.Foldable
-import Data.Traversable
-import Data.Hashable (hash)
-import Data.Maybe
-import Data.Word
 import Prettyprinter
-import System.Directory
-import System.FilePath
-import System.IO.Error
-import System.IO
-import System.IO.Temp
-import System.FileLock
 
-import Control.Concurrent.Async
-
-import Control.Monad.Except
-import Control.Monad
-import Data.Cache (Cache)
-import Data.Cache qualified as Cache
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TVar as TV
-import Control.Concurrent.STM.TBQueue qualified as Q
-import Control.Concurrent.STM.TSem qualified as Sem
-import Control.Concurrent.STM.TSem (TSem)
 
 import Data.Typeable
-import Control.Concurrent.MVar as MVar
-
-import Control.Concurrent.STM.TQueue qualified as Q0
-import Control.Concurrent
 
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -85,10 +52,8 @@ instance ( Hashable salt
          , Hashed h ByteString
          ) => ChunkKey salt h
 
-
 data Chunk h = P (IntMap ByteString)
-             | S (Hash h) ByteString
-
+             | S ByteString
 
 instance Hashed h ByteString => Monoid (Chunk h) where
   mempty = P mempty
@@ -96,32 +61,28 @@ instance Hashed h ByteString => Monoid (Chunk h) where
 instance Hashed h ByteString => Semigroup (Chunk h) where
   (<>) (P a) (P b) = P ( a <> b )
 
-  (<>) (S _ s1) (S _ s2) = S h3 s3
+  (<>) (S s1) (S s2) = S s3
     where
       s3 = s1 <> s2
-      h3 = hashObject s3
 
-  (<>) p@(P{}) (S _ s) = S h3 s3
+  (<>) p@(P{}) (S s) = S s3
     where
-      (S _ s1)  = toS p
+      (S s1)  = toS p
       s3 = s1 <> s
-      h3 = hashObject s3
 
-  (<>) (S _ s) p@(P{}) = S h3 s3
+  (<>) (S s) p@(P{}) = S s3
     where
-      (S _ s1)  = toS p
+      (S s1)  = toS p
       s3 = s <> s1
-      h3 = hashObject s3
 
 mkP :: Offset -> ByteString -> Chunk h
 mkP o b = P (IntMap.singleton (fromIntegral o) b)
 
 toS :: Hashed h ByteString => Chunk h -> Chunk h
 toS s@(S{}) = s
-toS (P xs) = S h s
+toS (P xs) = S s
   where
     s = mconcat $ IntMap.elems xs
-    h = hashObject s
 
 data ChunkWriter h m = forall a . ( MonadIO m
                                   , Storage a h ByteString m
@@ -130,7 +91,6 @@ data ChunkWriter h m = forall a . ( MonadIO m
   ChunkWriter
   { stopped      :: TVar Bool
   , pipeline     :: Pipeline IO ()
-  , dir          :: FilePath
   , storage      :: a
   , perBlock     :: !(TVar (HashMap SKey (Chunk h)))
   }
@@ -154,7 +114,7 @@ runChunkWriter2 :: forall h m . ( Eq (Hash h)
                 => ChunkWriter h IO -> m ()
 
 runChunkWriter2 w = do
-  liftIO $ createDirectoryIfMissing True ( dir w )
+  -- liftIO $ createDirectoryIfMissing True ( dir w )
   let tv = perBlock w
   liftIO $ runPipeline (pipeline w)
   -- fix \next -> do
@@ -176,11 +136,8 @@ newChunkWriterIO :: forall h a m . ( Key h ~ Hash h, h ~ HbSync
                  -> Maybe FilePath
                  -> m (ChunkWriter h m)
 
-newChunkWriterIO s tmp = do
+newChunkWriterIO s _ = do
   pip <- newPipeline defChunkWriterQ
-
-  def  <- liftIO $ getXdgDirectory XdgData (defStorePath  </> "temp-chunks")
-  let d  = fromMaybe def tmp
 
   mt <- liftIO $ newTVarIO mempty
 
@@ -190,7 +147,6 @@ newChunkWriterIO s tmp = do
     ChunkWriter
     { stopped = running
     , pipeline = pip
-    , dir = d
     , storage  = s
     , perBlock = mt
     }
@@ -276,8 +232,8 @@ getHash2 w salt h = do
   let k = newSKey (salt, h)
   chunk <- readTVarIO (perBlock w) <&> fmap toS . HashMap.lookup k
   case chunk of
-    Just (S h1 _) -> pure (Just h1)
-    _             -> pure Nothing
+    Just (S s) -> pure (Just (hashObject s))
+    _          -> pure Nothing
 
 
 commitBlock2 :: forall salt h m .
@@ -297,7 +253,7 @@ commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
   chunk <- readTVarIO (perBlock w) <&> fmap toS . HashMap.lookup k
 
   case chunk of
-    Just (S _ s) -> void $ putBlock stor s >> delBlock w k
-    _            -> pure () -- FIXME: error
+    Just (S s) -> void $ putBlock stor s >> delBlock w k
+    _          -> pure () -- FIXME: error
 
 
