@@ -39,6 +39,12 @@ main = do
 
   bytes <- B8.pack <$> replicateM size (uniformM g)
 
+  let hash = hashObject bytes
+
+  let psz = calcChunks (fromIntegral size) (fromIntegral chu)
+
+  psz' <- shuffleM psz
+
   withSystemTempDirectory "cww-test" $ \dir -> do
 
     let opts = [ StoragePrefix (dir </> ".test-cww")
@@ -63,19 +69,11 @@ main = do
       failed <- replicateM times $ do
 
 
-          let hash = hashObject bytes
-
-          let psz = calcChunks (fromIntegral size) (fromIntegral chu)
-
-          psz' <- shuffleM psz
-
-          forM_ psz' $ \(o,s) -> do
+          forConcurrently_ psz' $ \(o,s) -> do
             let t = B8.take s $ B8.drop o bytes
             writeChunk cw 1 hash (fromIntegral o) t
 
           h2 <- getHash cw 1 hash
-
-          -- commitBlock cw 1 hash
 
           if Just hash /= h2 then do
             pure [1]
