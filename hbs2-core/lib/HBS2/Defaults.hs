@@ -5,7 +5,7 @@ import Data.String
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
-defChunkSize = 1024
+defChunkSize = 500
 
 defBlockSize :: Integer
 defBlockSize = 256 * 1024

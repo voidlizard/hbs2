@@ -159,8 +159,8 @@ runTestPeer p zu = do
   stor <- simpleStorageInit opts
   cww  <- newChunkWriterIO  stor (Just chDir)
 
-  sw <- liftIO $ replicateM 32 $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM  8 $ async $ runChunkWriter cww
+  sw <- liftIO $ replicateM 8  $ async $ simpleStorageWorker stor
+  cw <- liftIO $ replicateM 16 $ async $ runChunkWriter cww
 
   zu stor cww
 
