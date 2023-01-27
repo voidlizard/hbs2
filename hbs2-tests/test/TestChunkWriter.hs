@@ -52,7 +52,7 @@ main = do
 
     w2 <- replicateM 8 $ async $ runChunkWriter cw
 
-    let times = 500
+    let times = 1000
 
     let info = show $ "writing" <+> pretty (show (realToFrac size / (1024*1024) :: Fixed E2))
                                 <+> "mb"
@@ -67,9 +67,10 @@ main = do
 
           let psz = calcChunks (fromIntegral size) (fromIntegral chu)
 
-          psz' <- shuffleM psz
+          psz' <- pure psz
+          -- psz' <- shuffleM psz
 
-          forConcurrently_ psz' $ \(o,s) -> do
+          forM_ psz' $ \(o,s) -> do
             let t = B8.take s $ B8.drop o bytes
             writeChunk cw 1 hash (fromIntegral o) t
 
