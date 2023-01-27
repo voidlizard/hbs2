@@ -159,8 +159,8 @@ runTestPeer p zu = do
   stor <- simpleStorageInit opts
   cww  <- newChunkWriterIO  stor (Just chDir)
 
-  sw <- liftIO $ replicateM 4 $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 4 $ async $ runChunkWriter cww
+  sw <- liftIO $ replicateM 32 $ async $ simpleStorageWorker stor
+  cw <- liftIO $ replicateM  8 $ async $ runChunkWriter cww
 
   zu stor cww
 
@@ -404,8 +404,9 @@ blockDownloadLoop cw = do
                           if fromIntegral wrt >= thisBkSize then do
                             h1 <- liftIO $ getHash cw key h
                             if | h1 == Just h -> do
-                                  liftIO $ commitBlock cw key h
-                                  expire @e key
+                                pure ()
+                                  -- liftIO $ commitBlock cw key h
+                                  -- expire @e key
 
                                | h1 /= Just h -> do
                                   debug "block fucked"
