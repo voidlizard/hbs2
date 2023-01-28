@@ -153,7 +153,7 @@ simpleStorageWorker ss = do
       Just a  -> a >> next
 
   killer <- async $ forever $ do
-    pause ( 20 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
 
     atomically $ do
 
@@ -232,7 +232,7 @@ simpleGetChunkLazy s key off size = do
   let action = do
        let fn = simpleBlockFileName s key
 
-       bs <- (Just <$> touchForRead s key) `catchAny` const (pure Nothing)  -- FIXME: log this situation (file not found)
+       bs <- (Just <$> touchForRead s key) `catchAny` \e -> liftIO (print "CANT MMAP") >> (pure Nothing)  -- FIXME: log this situation (file not found)
 
        let result = BS.take (fromIntegral size) . BS.drop (fromIntegral off) <$> bs
 

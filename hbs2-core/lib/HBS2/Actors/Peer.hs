@@ -34,6 +34,8 @@ import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
 import Data.Hashable (hash)
 
+import Codec.Serialise (serialise, deserialiseOrFail)
+
 import Prettyprinter hiding (pipe)
 
 data AnyStorage = forall zu . (Block ByteString ~ ByteString, Storage zu HbSync ByteString IO) => AnyStorage zu
@@ -46,7 +48,7 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
   getChunk (AnyStorage s) = getChunk s
   hasBlock (AnyStorage s) = hasBlock s
 
-data AnyMessage enc e = AnyMessage Integer (Encoded e)
+data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)
 
 class Monad m => HasOwnPeer e m where
@@ -70,9 +72,16 @@ instance Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
 
 
 instance (HasPeer e, Encoded e ~ ByteString) => Messaging (Fabriq e) e (AnyMessage ByteString e) where
-  sendTo (Fabriq bus) = undefined -- sendTo bus
-  receive (Fabriq bus) = undefined -- receive bus
+  sendTo (Fabriq bus) t f (AnyMessage n bs) = sendTo bus t f (serialise (n, bs))
 
+  receive (Fabriq bus) t = do
+    recv <- receive @_ @e @ByteString bus t
+    r <- forM recv $ \(f, msg) ->
+          case deserialiseOrFail msg of
+            Right (n,bs) -> pure $ Just (f, AnyMessage n bs)
+            Left _       -> liftIO (print "FUCK!") >> pure Nothing -- FIXME what to do with undecoded messages?
+
+    pure $ catMaybes r
 
 data AnyProtocol e m = forall p  . ( HasProtocol e p
                                    , Response e p m
