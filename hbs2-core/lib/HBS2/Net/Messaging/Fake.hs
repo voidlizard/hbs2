@@ -12,13 +12,11 @@ import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TChan qualified as Chan
 import Control.Concurrent.STM.TChan (TChan,newTChanIO)
 import Control.Monad.IO.Class
-import Data.Cache (Cache)
-import Data.Cache qualified as Cache
 import Data.List qualified as List
 import Data.Maybe
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 
 
 

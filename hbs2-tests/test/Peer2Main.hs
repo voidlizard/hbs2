@@ -13,7 +13,6 @@ import HBS2.Data.Detect
 import HBS2.Data.Types
 import HBS2.Defaults
 import HBS2.Events
-import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.PeerLocator
@@ -25,7 +24,6 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Simple
-import HBS2.Storage.Simple.Extra
 
 import Test.Tasty.HUnit
 
@@ -49,16 +47,11 @@ import System.Directory
 import System.Exit
 import System.FilePath.Posix
 import System.IO
-import System.Clock
-import Safe
 import Data.Hashable
 import Type.Reflection
 import Data.Fixed
 
 import Data.Dynamic
-
-import System.Random.MWC
-import qualified Data.Vector.Unboxed as U
 
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
@@ -95,9 +88,9 @@ instance Pretty (Peer Fake) where
 
 instance HasProtocol Fake (BlockInfo Fake) where
   type instance ProtocolId (BlockInfo Fake) = 1
-  type instance Encoded Fake = Dynamic
-  decode = fromDynamic
-  encode = toDyn
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 -- FIXME: 3 is for debug only!
 instance Expires (EventKey Fake (BlockInfo Fake)) where
@@ -111,15 +104,15 @@ instance Expires (EventKey Fake (BlockAnnounce Fake)) where
 
 instance HasProtocol Fake (BlockChunks Fake) where
   type instance ProtocolId (BlockChunks Fake) = 2
-  type instance Encoded Fake = Dynamic
-  decode = fromDynamic
-  encode = toDyn
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 instance HasProtocol Fake (BlockAnnounce Fake) where
   type instance ProtocolId (BlockAnnounce Fake) = 3
-  type instance Encoded Fake = Dynamic
-  decode = fromDynamic
-  encode = toDyn
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 type instance SessionData e (BlockInfo e) = BlockSizeSession e
 type instance SessionData e (BlockChunks e) = BlockDownload
@@ -224,9 +217,9 @@ instance Typeable (SessionKey e (Stats e)) => Hashable (SessionKey e (Stats e)) 
 
 instance HasProtocol Fake (Stats Fake) where
   type instance ProtocolId (Stats Fake) = 0xFFFFFFFE
-  type instance Encoded Fake = Dynamic
-  decode = fromDynamic
-  encode = toDyn
+  type instance Encoded Fake = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 newtype Speed = Speed (Fixed E1)
                 deriving newtype (Ord, Eq, Num, Real, Fractional, Show)
@@ -388,36 +381,19 @@ blockDownloadLoop cw = do
           subscribe @e (BlockChunksEventKey (coo,h)) $ \(BlockReady _) -> do
             processBlock q h
 
-          let blockWtf = do
-                debug $ "WTF!" <+> pretty (p,coo) <+> pretty h
-                liftIO $ atomically $ Q.writeTBQueue q (DownloadTask h Nothing)
-                -- initDownload True q p h thisBkSiz
-
           liftIO $ async $ do
-            -- FIXME: block is not downloaded, return it to the Q
-            void $ race (pause defBlockWaitMax >> blockWtf)
-                    $ withPeerM env $ fix \next -> do
-                        w <- find @e key (view sBlockWrittenT)
-
-                        maybe1 w (pure ()) $ \z -> do
-                          wrt <- liftIO $ readTVarIO z
-
-                          if fromIntegral wrt >= thisBkSize then do
-                            h1 <- liftIO $ getHash cw key h
-                            if | h1 == Just h -> do
-                                pure ()
-                                  -- liftIO $ commitBlock cw key h
-                                  -- expire @e key
-
-                               | h1 /= Just h -> do
-                                  debug "block fucked"
-                                  pause defBlockWaitMax --
-
-                               | otherwise -> pure ()
-
-                          else do
-                            pause defBlockWaitSleep
-                            next
+          --   -- FIXME: block is not downloaded, return it to the Q
+            void $  withPeerM env $ do
+                      pause defBlockWaitMax
+                      w <- find @e key (view sBlockWrittenT)
+                      maybe1 w (pure ()) \_ -> do
+                        h1 <- liftIO $ getHash cw key h
+                        if h1 == Just h then do
+                          liftIO $ commitBlock cw key h
+                          expire @e key
+                        else do
+                          debug $ "Block lost" <+> pretty (p,coo) <+> pretty h
+                          liftIO $ atomically $ Q.writeTBQueue q (DownloadTask h Nothing)
 
           request @e p (BlockChunks @e coo (BlockGetAllChunks @e h chusz)) -- FIXME: nicer construction
 

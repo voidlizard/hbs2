@@ -153,7 +153,7 @@ simpleStorageWorker ss = do
       Just a  -> a >> next
 
   killer <- async $ forever $ do
-    pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 20 :: Timeout 'Seconds ) -- FIXME: setting
 
     atomically $ do
 
@@ -165,7 +165,7 @@ simpleStorageWorker ss = do
       writeTVar ( ss ^. storageMMaped ) survived
 
   killerLRU <- async $ forever $ do
-    pause ( 2 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 5 :: Timeout 'Seconds ) -- FIXME: setting
     atomically $ writeTVar ( ss ^. storageMMapedLRU ) mempty
 
   (_, e) <- waitAnyCatchCancel [ops,killer, killerLRU]
