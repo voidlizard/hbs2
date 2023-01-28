@@ -300,6 +300,7 @@ blockDownloadLoop cw = do
              , "5LoU2EVq7JSpiT9FmLEakVHxpsE989XnX6jE4gaUcLFA"
              , "CotHSTLrg8T5NrYxyhG1AeJrdz1s4A5PdtA95Fh96JX8"
              , "ANHxB2dUcSFDB7W7JuuqkSjAUXWyekVKdQLqNBhFKGgj"
+             , "ECWYwWXiLgNvCkN1EFpSYqsPcWfnL4bAQADsyZgy1Cbr"
              ]
 
   blq  <- liftIO $ Q.newTBQueueIO defBlockDownloadQ
