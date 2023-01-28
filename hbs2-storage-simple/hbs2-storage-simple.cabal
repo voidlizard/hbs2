@@ -54,7 +54,6 @@ common shared-properties
                      , TypeFamilies
 
 
-
 library
     import:           shared-properties
     exposed-modules:  HBS2.Storage.Simple
@@ -64,6 +63,7 @@ library
     build-depends:    base ^>=4.15.1.0, hbs2-core
                     , async
                     , bytestring
+                    , bytestring-mmap
                     , cache
                     , containers
                     , directory
@@ -76,6 +76,7 @@ library
                     , streaming
                     , transformers
                     , uniplate
+                    , unordered-containers
 
 
     hs-source-dirs:   lib

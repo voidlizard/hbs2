@@ -23,7 +23,7 @@ pieces :: Integral a => a
 pieces = 8192
 
 class SimpleStorageExtra a  where
-  putAsMerkle :: forall h . (IsKey h, Hash h ~ Key h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
+  putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
 
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
