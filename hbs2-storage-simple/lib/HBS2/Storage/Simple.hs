@@ -85,22 +85,19 @@ storageRefs = to f
 touchForRead :: (MonadIO m, IsSimpleStorageKey h) => SimpleStorage h -> Key h -> m ByteString
 touchForRead ss k  = liftIO $ do
 
-  bsmm <- unsafeMMapFile (simpleBlockFileName ss k)
-  tick <- getTime MonotonicCoarse
+  mbs <- readTVarIO mmaped <&> HashMap.lookup k
 
-  atomically $ do
+  case mbs of
+    Just bs -> pure bs
+    Nothing -> do
 
-    mbs <- readTVar mmaped <&> HashMap.lookup k
+      bsmm <- unsafeMMapFile (simpleBlockFileName ss k)
+      tick <- getTime MonotonicCoarse
 
-    r <- case mbs of
-           Just bs -> pure bs
-           Nothing -> do
-            modifyTVar' mmaped (HashMap.insert k bsmm)
-            pure bsmm
-
-    modifyTVar' (ss ^. storageMMapedLRU) (HashMap.insert k tick)
-
-    pure r
+      atomically $ do
+        modifyTVar' mmaped (HashMap.insert k bsmm)
+        modifyTVar' (ss ^. storageMMapedLRU) (HashMap.insert k tick)
+        pure bsmm
 
   where
     mmaped = ss ^. storageMMaped
@@ -109,7 +106,7 @@ touchForRead ss k  = liftIO $ do
 simpleStorageInit :: (MonadIO m, Data opts, IsSimpleStorageKey h) => opts -> m (SimpleStorage h)
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 20000 opts :: StorageQueueSize
+  let qSize  = uniLastDef 2000 opts :: StorageQueueSize
 
   stor <- SimpleStorage
                 <$> canonicalizePath (fromPrefix prefix)
@@ -155,8 +152,8 @@ simpleStorageWorker ss = do
       Nothing -> pure ()
       Just a  -> a >> next
 
-  killer30 <- async $ forever $ do
-    pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
+  killer <- async $ forever $ do
+    pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
 
     atomically $ do
 
@@ -167,11 +164,11 @@ simpleStorageWorker ss = do
 
       writeTVar ( ss ^. storageMMaped ) survived
 
-  killer5 <- async $ forever $ do
-    pause ( 5 :: Timeout 'Seconds ) -- FIXME: setting
+  killerLRU <- async $ forever $ do
+    pause ( 2 :: Timeout 'Seconds ) -- FIXME: setting
     atomically $ writeTVar ( ss ^. storageMMapedLRU ) mempty
 
-  (_, e) <- waitAnyCatchCancel [ops,killer30, killer5]
+  (_, e) <- waitAnyCatchCancel [ops,killer, killerLRU]
 
   pure ()
 

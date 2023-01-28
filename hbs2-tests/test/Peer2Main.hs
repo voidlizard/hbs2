@@ -597,29 +597,28 @@ main = do
                 let findBlk = hasBlock s
 
                 -- let size = 1024*1024*1
-                let size = 1024*1024*30
-                g <- initialize $ U.fromList [fromIntegral p, fromIntegral size]
+                -- let size = 1024*1024*30
+                -- g <- initialize $ U.fromList [fromIntegral p, fromIntegral size]
 
-                bytes <- replicateM size $ uniformM g :: IO [Char]
+                -- bytes <- replicateM size $ uniformM g :: IO [Char]
 
-                let blk = B8.pack bytes
+                -- let blk = B8.pack bytes
 
-                root <- putAsMerkle s blk
+                -- root <- putAsMerkle s blk
 
-                rootSz <- hasBlock s (fromMerkleHash root)
+                -- rootSz <- hasBlock s (fromMerkleHash root)
 
-                debug $ "I'm" <+> pretty p <+> pretty root
+                -- debug $ "I'm" <+> pretty p <+> pretty root
 
                 runPeerM (AnyStorage s) fake p $ do
                   adapter <- mkAdapter cw
-
-                  env <- ask
-                  liftIO $ async $ withPeerM env $ do
-                      maybe1 rootSz (pure ()) $ \rsz -> do
-                        pause ( 0.001 :: Timeout 'Seconds )
-                        let info = BlockAnnounceInfo 0 NoBlockInfoMeta rsz (fromMerkleHash root)
-                        let ann = BlockAnnounce @Fake info
-                        request @Fake p0 ann
+                  -- env <- ask
+                  -- liftIO $ async $ withPeerM env $ do
+                      -- maybe1 rootSz (pure ()) $ \rsz -> do
+                      --   pause ( 0.001 :: Timeout 'Seconds )
+                      --   let info = BlockAnnounceInfo 0 NoBlockInfoMeta rsz (fromMerkleHash root)
+                      --   let ann = BlockAnnounce @Fake info
+                      --   request @Fake p0 ann
 
                   runProto @Fake
                     [ makeResponse (blockSizeProto findBlk dontHandle)

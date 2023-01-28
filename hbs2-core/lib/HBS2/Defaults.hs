@@ -14,26 +14,26 @@ defStorePath :: IsString a => a
 defStorePath = "hbs2"
 
 defPipelineSize :: Int
-defPipelineSize = 16000*4
+defPipelineSize = 16000
 
 defChunkWriterQ :: Integral a => a
-defChunkWriterQ = 32000
+defChunkWriterQ = 16000
 
 defBlockDownloadQ :: Integral a => a
-defBlockDownloadQ = 65536*128
+defBlockDownloadQ = 2000
 
 defBlockDownloadThreshold :: Integral a => a
 defBlockDownloadThreshold = 2
 
 -- typical block hash 530+ chunks * parallel wip blocks amount
 defProtoPipelineSize :: Int
-defProtoPipelineSize = 65536*4
+defProtoPipelineSize = 2000
 
 defCookieTimeout :: TimeSpec
-defCookieTimeout = toTimeSpec ( 300  :: Timeout 'Minutes)
+defCookieTimeout = toTimeSpec ( 120  :: Timeout 'Minutes)
 
 defBlockInfoTimeout :: TimeSpec
-defBlockInfoTimeout = toTimeSpec ( 300  :: Timeout 'Minutes)
+defBlockInfoTimeout = toTimeSpec ( 120  :: Timeout 'Minutes)
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
