@@ -258,30 +258,24 @@ updateStats updTime blknum = do
 
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
-                                 -- , e ~ Fake
-                                 -- , Serialise (Encoded e)
-                                 , MonadIO m
-                                 , Request e (BlockInfo e) m
-                                 , Request e (BlockAnnounce e) m
-                                 , HasProtocol e (BlockInfo e)
-                                 , HasProtocol e (BlockAnnounce e)
-                                 , EventListener e (BlockInfo e) m
-                                 , EventListener e (BlockChunks e) m
-                                 , EventListener e (BlockAnnounce e) m
-                                 -- , EventEmitter e (BlockChunks e) m
-                                 -- , EventEmitter e (BlockInfo e) m
-                                 , Sessions e (BlockInfo e) m
-                                 , Sessions e (BlockChunks e) m
-                                 , Sessions e (Stats e) m
-                                 , Typeable (SessionKey e (BlockChunks e))
-                                 , Typeable (SessionKey e (BlockInfo e))
-                                 , HasStorage m
-                                 , Num (Peer e)
-                                 , Pretty (Peer e)
-                                 , Block ByteString ~ ByteString
-                                 -- , Encoded e ~ ByteString
-                                 -- , Key HbSync ~ Hash HbSync
-                                 )
+                                   , MonadIO m
+                                   , Request e (BlockInfo e) m
+                                   , Request e (BlockAnnounce e) m
+                                   , HasProtocol e (BlockInfo e)
+                                   , HasProtocol e (BlockAnnounce e)
+                                   , EventListener e (BlockInfo e) m
+                                   , EventListener e (BlockChunks e) m
+                                   , EventListener e (BlockAnnounce e) m
+                                   , Sessions e (BlockInfo e) m
+                                   , Sessions e (BlockChunks e) m
+                                   , Sessions e (Stats e) m
+                                   , Typeable (SessionKey e (BlockChunks e))
+                                   , Typeable (SessionKey e (BlockInfo e))
+                                   , HasStorage m
+                                   , Num (Peer e)
+                                   , Pretty (Peer e)
+                                   , Block ByteString ~ ByteString
+                                   )
                   =>  ChunkWriter HbSync IO -> m ()
 blockDownloadLoop cw = do
 
