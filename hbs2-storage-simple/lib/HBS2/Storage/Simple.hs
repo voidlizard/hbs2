@@ -153,19 +153,20 @@ simpleStorageWorker ss = do
       Just a  -> a >> next
 
   killer <- async $ forever $ do
-    pause ( 20 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
+    simpleAddTask ss $ do
 
-    atomically $ do
+      atomically $ do
 
-      alive  <- readTVar ( ss ^. storageMMapedLRU )
-      mmaped <- readTVar ( ss ^. storageMMaped )
+        alive  <- readTVar ( ss ^. storageMMapedLRU )
+        mmaped <- readTVar ( ss ^. storageMMaped )
 
-      let survived = mmaped `HashMap.intersection` alive
+        let survived = mmaped `HashMap.intersection` alive
 
-      writeTVar ( ss ^. storageMMaped ) survived
+        writeTVar ( ss ^. storageMMaped ) survived
 
   killerLRU <- async $ forever $ do
-    pause ( 5 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
     atomically $ writeTVar ( ss ^. storageMMapedLRU ) mempty
 
   (_, e) <- waitAnyCatchCancel [ops,killer, killerLRU]
