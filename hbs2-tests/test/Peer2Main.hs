@@ -17,6 +17,7 @@ import HBS2.Merkle
 import HBS2.Net.Messaging.Fake
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
+import HBS2.Net.Messaging
 import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
@@ -275,6 +276,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , Num (Peer e)
                                    , Pretty (Peer e)
                                    , Block ByteString ~ ByteString
+                                   , PeerMessaging e
                                    )
                   =>  ChunkWriter HbSync IO -> m ()
 blockDownloadLoop cw = do

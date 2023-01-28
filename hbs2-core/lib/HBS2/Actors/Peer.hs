@@ -46,8 +46,8 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
   getChunk (AnyStorage s) = getChunk s
   hasBlock (AnyStorage s) = hasBlock s
 
-data AnyMessage e = AnyMessage Integer (Encoded e)
-                    deriving stock (Generic)
+data AnyMessage enc e = AnyMessage Integer (Encoded e)
+                       deriving stock (Generic)
 
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
@@ -58,18 +58,25 @@ class Monad m => HasPeerLocator e m where
 class HasStorage m where
   getStorage :: m AnyStorage
 
-data Fabriq e = forall bus . (Messaging bus e (AnyMessage e)) => Fabriq bus
+data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
-instance (HasPeer e) => Messaging (Fabriq e) e (AnyMessage e) where
-  sendTo (Fabriq bus) = sendTo bus
-  receive (Fabriq bus) = receive bus
+
+class Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
+
+instance Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
+
+
+instance (HasPeer e, Encoded e ~ ByteString) => Messaging (Fabriq e) e (AnyMessage ByteString e) where
+  sendTo (Fabriq bus) = undefined -- sendTo bus
+  receive (Fabriq bus) = undefined -- receive bus
 
 
 data AnyProtocol e m = forall p  . ( HasProtocol e p
                                    , Response e p m
+                                   , Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
                                    ) =>
   AnyProtocol
   { myProtoId   :: Integer
@@ -81,6 +88,7 @@ data AnyProtocol e m = forall p  . ( HasProtocol e p
 makeResponse :: forall e p  m . ( MonadIO m
                                 , Response e p m
                                 , HasProtocol e p
+                                , Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
                                 )
             => (p ->  m ()) -> AnyProtocol e m
 
@@ -194,12 +202,13 @@ instance ( MonadIO m
 instance ( MonadIO m
          , HasProtocol e p
          , HasFabriq e (PeerM e m)
+         , Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
          ) => Request e p (PeerM e m) where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     pipe <- getFabriq @e
     me <- ownPeer @e
-    sendTo pipe (To p) (From me) (AnyMessage @e proto (encode msg))
+    sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 
 instance ( HasProtocol e p
@@ -316,13 +325,14 @@ runProto :: forall e m  . ( MonadIO m
                           , HasOwnPeer e m
                           , HasFabriq e m
                           , HasPeer e
+                          , PeerMessaging e
                           )
         => [AnyProtocol e (ResponseM e m)]
         -> m ()
 
 runProto hh = do
   me       <- ownPeer @e @m
-  pipe     <- getFabriq
+  pipe     <- getFabriq @e
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -332,7 +342,7 @@ runProto hh = do
 
     messages <- receive pipe (To me)
 
-    for_ messages $ \(From pip, AnyMessage n msg) -> do
+    for_ messages $ \(From pip, AnyMessage n msg :: AnyMessage (Encoded e) e) -> do
 
       case Map.lookup n disp of
         Nothing -> pure ()
@@ -345,6 +355,7 @@ instance ( HasProtocol e p
          , MonadTrans (ResponseM e)
          , HasStorage (PeerM e IO)
          , Pretty (Peer e)
+         , PeerMessaging e
          ) => Response e p (ResponseM e (PeerM e IO)) where
 
   thatPeer _ = asks (view answTo)
@@ -360,7 +371,7 @@ instance ( HasProtocol e p
     who <- asks (view answTo)
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
-    sendTo fab (To who) (From self) (AnyMessage @e proto (encode msg))
+    sendTo fab (To who) (From self) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 instance ( MonadIO m
          , HasProtocol e p
