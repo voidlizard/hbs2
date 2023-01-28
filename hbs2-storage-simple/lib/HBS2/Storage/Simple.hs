@@ -153,7 +153,7 @@ simpleStorageWorker ss = do
       Just a  -> a >> next
 
   killer <- async $ forever $ do
-    pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
+    pause ( 20 :: Timeout 'Seconds ) -- FIXME: setting
 
     atomically $ do
 
