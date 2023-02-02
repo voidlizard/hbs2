@@ -29,13 +29,14 @@ import Control.Exception as Exception
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Text (Text)
 import Lens.Micro.Platform
+import Network.Socket
 import Options.Applicative
 import Prettyprinter
 import System.Directory
 import System.Exit
 import System.IO
-import Network.Socket
 
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
@@ -53,8 +54,9 @@ defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
 data RPCCommand =
-    PING
+    POKE
   | ANNOUNCE (Hash HbSync)
+  | PING (PeerAddr UDP)
 
 data PeerOpts =
   PeerOpts
@@ -80,8 +82,9 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "run"       (info pRun  (progDesc "run peer"))
-                        <> command "ping"      (info pPing (progDesc "ping peer via rpc"))
+                        <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
+                        <> command "ping"      (info pPing (progDesc "ping another peer"))
                         )
 
     common = do
@@ -112,15 +115,19 @@ main = join . customExecParser (prefs showHelpOnError) $
                    <> value defRpcUDP
                 )
 
-    pPing = do
+    pPoke = do
       rpc <- pRpcCommon
-      pure $ runRpcCommand rpc PING
+      pure $ runRpcCommand rpc POKE
 
     pAnnounce = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (ANNOUNCE h)
 
+    pPing = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "ADDR" )
+      pure $ runRpcCommand rpc (PING h)
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -223,7 +230,12 @@ runPeer opts = Exception.handle myException $ do
               rpc <- liftIO $ async $ withPeerM env $ forever $ do
                         cmd <- liftIO $ atomically $ readTQueue rpcQ
                         case cmd of
-                          PING        -> debug "got ping"
+                          POKE -> debug "on poke: alive and kicking!"
+
+                          PING s -> do
+                            debug $ "ping" <> pretty s
+                            -- pip <- parseAddr s
+                            pure ()
 
                           ANNOUNCE h  -> do
                             debug $ "got announce rpc" <+> pretty h
@@ -248,15 +260,19 @@ runPeer opts = Exception.handle myException $ do
 
               void $ liftIO $ waitAnyCatchCancel [me,poo,as]
 
-  let pingAction _ = do
-        liftIO $ atomically $ writeTQueue rpcQ PING
+  let pokeAction _ = do
+        liftIO $ atomically $ writeTQueue rpcQ POKE
 
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
 
-  let arpc = RpcAdapter pingAction
+  let pingAction pa = do
+        liftIO $ atomically $ writeTQueue rpcQ (PING pa)
+
+  let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
+                        pingAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @UDP
@@ -312,11 +328,13 @@ withRPC saddr cmd = do
 
   where
     adapter = RpcAdapter dontHandle
-                         (const $ debug "pong" >> liftIO exitSuccess)
+                         (const $ debug "alive-and-kicking" >> liftIO exitSuccess)
                          (const $ liftIO exitSuccess)
+                         (const $ debug "wat?")
 
 runRpcCommand :: String -> RPCCommand -> IO ()
 runRpcCommand saddr = \case
-  PING -> withRPC saddr (RPCPing @UDP)
+  POKE -> withRPC saddr (RPCPoke @UDP)
+  PING s -> withRPC saddr (RPCPing s)
   ANNOUNCE h -> withRPC saddr (RPCAnnounce @UDP h)
 

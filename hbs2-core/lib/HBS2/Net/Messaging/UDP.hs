@@ -1,7 +1,6 @@
 {-# Language TemplateHaskell #-}
 module HBS2.Net.Messaging.UDP where
 
-import HBS2.Prelude
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Net.IP.Addr
@@ -31,10 +30,14 @@ import Lens.Micro.Platform
 import Network.Socket
 import Network.Socket.ByteString
 import Network.Multicast
+import Data.IP
+import Data.Word
 import Prettyprinter
+import Codec.Serialise (Serialise(..))
 
 data UDP
 
+-- FIXME: #ASAP change SockAddr to PeerAddr !!!
 instance HasPeer UDP where
   newtype instance Peer UDP =
     PeerUDP
@@ -52,6 +55,15 @@ instance Pretty (Peer UDP) where
   pretty p = pretty (_sockAddr p)
 
 makeLenses 'PeerUDP
+
+
+instance MonadIO m => IsPeerAddr UDP m where
+  type instance PeerAddr UDP = IPAddrPort UDP
+  toPeerAddr p = pure $ fromString $ show $ pretty p
+
+  fromPeerAddr iap = do
+    ai <- liftIO $ parseAddr $ fromString (show (pretty iap))
+    pure $ PeerUDP $ addrAddress (head ai) -- FIXME: errors?!
 
 -- One address - one peer - one messaging
 data MessagingUDP =

@@ -1,7 +1,14 @@
-module HBS2.Net.IP.Addr (parseAddr, getHostPort, Pretty) where
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+module HBS2.Net.IP.Addr
+  ( parseAddr
+  , getHostPort
+  , Pretty
+  , IPAddrPort(..)
+  ) where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 
+import Codec.Serialise (Serialise(..))
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Maybe
@@ -9,15 +16,39 @@ import Data.Attoparsec.Text as Atto
 import Data.Char
 import Data.Function
 import Data.Functor
+import Data.IP
 import Data.Maybe
 import Data.Text qualified as Text
 import Data.Text (Text)
-import Network.Socket
 import Network.SockAddr
+import Network.Socket
+import Data.Word (Word16)
 import Prettyprinter
 
 instance Pretty SockAddr where
   pretty sa = pretty (show sa)
+
+instance Serialise IP
+instance Serialise IPv4
+instance Serialise IPv6
+
+newtype IPAddrPort e =
+  IPAddrPort (IP, Word16)
+  deriving (Generic)
+
+instance Serialise (IPAddrPort e)
+
+instance Pretty (IPAddrPort e) where
+  pretty (IPAddrPort (ip,p)) = pretty (show pip) <> colon <> pretty p
+    where
+      pip = case ip of
+              i4@(IPv4{}) -> pretty (show i4)
+              i6@(IPv6{}) -> brackets $ pretty (show i6)
+
+instance IsString (IPAddrPort e) where
+  fromString s = IPAddrPort (read h, fromIntegral p)
+    where
+      (h,p) = fromMaybe (error "no parse IPAddrPort") (getHostPort (Text.pack s))
 
 getHostPort :: Text -> Maybe (String, PortNumber)
 getHostPort s =  parseOnly p s & either (const Nothing) Just

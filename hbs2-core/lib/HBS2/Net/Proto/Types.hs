@@ -62,11 +62,18 @@ data WithCookie e p = WithCookie (Cookie e) p
 class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
+class Monad m => IsPeerAddr e m where
+  type family PeerAddr e :: Type
+
+  toPeerAddr   :: Peer e -> m (PeerAddr e)
+  fromPeerAddr :: PeerAddr e -> m (Peer e)
+
 class (Monad m, HasProtocol e p) => HasThatPeer e p (m :: Type -> Type) where
   thatPeer :: Proxy p -> m (Peer e)
 
 class (MonadIO m, HasProtocol e p) => HasDeferred e p m | p -> e where
   deferred :: Proxy p -> m () -> m ()
+
 
 class ( MonadIO m
       , HasProtocol e p

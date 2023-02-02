@@ -1,4 +1,5 @@
 {-# Language TemplateHaskell #-}
+{-# Language UndecidableInstances #-}
 module RPC where
 
 
@@ -17,17 +18,19 @@ import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise (serialise, deserialiseOrFail,Serialise)
 import Lens.Micro.Platform
+import Data.Text (Text)
 
 import Prettyprinter
 
 data RPC e =
-    RPCPing
-  | RPCPong
+    RPCPoke
+  | RPCPing (PeerAddr e)
+  | RPCPokeAnswer
   | RPCAnnounce (Hash HbSync)
-  deriving stock (Eq,Generic,Show)
+  deriving stock (Generic)
 
 
-instance Serialise (RPC e)
+instance Serialise (PeerAddr e) => Serialise (RPC e)
 
 instance HasProtocol UDP (RPC UDP) where
   type instance ProtocolId (RPC UDP) = 0xFFFFFFE0
@@ -46,9 +49,10 @@ makeLenses 'RPCEnv
 
 data RpcAdapter e m =
   RpcAdapter
-  { rpcOnPing     :: RPC e -> m ()
-  , rpcOnPong     :: RPC e -> m ()
-  , rpcOnAnnounce :: Hash HbSync -> m ()
+  { rpcOnPoke        :: RPC e -> m ()
+  , rpcOnPokeAnswer  :: RPC e -> m ()
+  , rpcOnAnnounce    :: Hash HbSync -> m ()
+  , rpcOnPing        :: PeerAddr e -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -81,12 +85,13 @@ instance Monad m => HasOwnPeer UDP (RpcM m) where
 rpcHandler :: forall e m  . ( MonadIO m
                             , Response e (RPC e) m
                             , HasProtocol e (RPC e)
+                            , IsPeerAddr e m
                             )
            => RpcAdapter e m -> RPC e -> m ()
 
 rpcHandler adapter = \case
-    p@RPCPing{}     -> rpcOnPing adapter p >> response (RPCPong @e)
-    p@RPCPong{}     -> rpcOnPong adapter p
-    (RPCAnnounce h) -> rpcOnAnnounce adapter h
-
+    p@RPCPoke{}       -> rpcOnPoke adapter p >> response (RPCPokeAnswer @e)
+    p@RPCPokeAnswer{} -> rpcOnPokeAnswer adapter p
+    (RPCAnnounce h)   -> rpcOnAnnounce adapter h
+    (RPCPing pa)      -> rpcOnPing adapter pa
 
