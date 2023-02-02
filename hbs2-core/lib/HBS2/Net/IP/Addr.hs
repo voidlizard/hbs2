@@ -4,6 +4,7 @@ module HBS2.Net.IP.Addr
   , getHostPort
   , Pretty
   , IPAddrPort(..)
+  , AddrPriority(..)
   ) where
 
 import HBS2.Prelude.Plated
@@ -24,6 +25,15 @@ import Network.SockAddr
 import Network.Socket
 import Data.Word (Word16)
 import Prettyprinter
+
+class AddrPriority a where
+  addrPriority :: a -> Int
+
+instance AddrPriority SockAddr where
+  addrPriority = \case
+    SockAddrInet{}  -> 1
+    SockAddrInet6{} -> 2
+    SockAddrUnix{}  -> 3
 
 instance Pretty SockAddr where
   pretty sa = pretty (show sa)

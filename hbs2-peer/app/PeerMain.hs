@@ -1,13 +1,16 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
 module Main where
 
 import HBS2.Actors.Peer
+import HBS2.Base58
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.PeerLocator
@@ -18,17 +21,18 @@ import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
-import HBS2.Net.Auth.Credentials
 
 import RPC
 import BlockDownload
 
+import Data.Function
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.List qualified  as L
 import Data.Text (Text)
 import Lens.Micro.Platform
 import Network.Socket
@@ -160,11 +164,27 @@ instance (Sessions e p m ) => Sessions e p (CredentialsM e m)  where
   update d k f = lift (update d k f)
   expire k = lift (expire  k)
 
+-- instance (Monad m, HasProtocol e p, HasThatPeer e p m) => Response e p (CredentialsM e m) where
+
 instance Monad m => HasCredentials e (CredentialsM e m) where
   getCredentials = ask
 
 instance Monad m => HasCredentials e (ResponseM e (CredentialsM e m)) where
   getCredentials = lift getCredentials
+
+instance (Monad m, HasThatPeer e p m) => HasThatPeer e p (CredentialsM e m) where
+  thatPeer = lift . thatPeer
+
+instance ( EventEmitter e p m
+         ) => EventEmitter e p (CredentialsM e m) where
+
+  emit k d = lift $ emit k d
+
+instance ( Monad m
+         , Response e p m
+         ) => Response e p (CredentialsM e m) where
+
+  response = lift . response
 
 runPeer :: () =>  PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
@@ -225,6 +245,11 @@ runPeer opts = Exception.handle myException $ do
 
               addPeers @UDP pl ps
 
+              subscribe @UDP KnownPeerEventKey $ \(KnownPeerEvent p d) -> do
+                addPeers pl [p]
+                debug $ "Got authorized peer!" <+> pretty p
+                                               <+> pretty (AsBase58 (view peerSignKey d))
+
               as <- liftIO $ async $ withPeerM env blockDownloadLoop
 
               rpc <- liftIO $ async $ withPeerM env $ forever $ do
@@ -233,9 +258,9 @@ runPeer opts = Exception.handle myException $ do
                           POKE -> debug "on poke: alive and kicking!"
 
                           PING s -> do
-                            debug $ "ping" <> pretty s
-                            -- pip <- parseAddr s
-                            pure ()
+                            debug $ "ping" <+> pretty s
+                            pip <- fromPeerAddr @UDP s
+                            sendPing pip
 
                           ANNOUNCE h  -> do
                             debug $ "got announce rpc" <+> pretty h
@@ -251,14 +276,10 @@ runPeer opts = Exception.handle myException $ do
                   [ makeResponse (blockSizeProto blk dontHandle)
                   , makeResponse (blockChunksProto adapter)
                   , makeResponse blockAnnounceProto
+                  , makeResponse (withCredentials pc . peerHandShakeProto)
                   ]
 
-              poo <- liftIO $ async $ withPeerM env $ withCredentials pc $ do
-                runProto @UDP
-                  [ makeResponse peerHandShakeProto
-                  ]
-
-              void $ liftIO $ waitAnyCatchCancel [me,poo,as]
+              void $ liftIO $ waitAnyCatchCancel [me,as]
 
   let pokeAction _ = do
         liftIO $ atomically $ writeTQueue rpcQ POKE
@@ -300,7 +321,8 @@ runPeer opts = Exception.handle myException $ do
 withRPC :: String -> RPC UDP -> IO ()
 withRPC saddr cmd = do
 
-  rpc' <- headMay <$> parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
+  as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
+  let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
 
   rpc <- pure rpc' `orDie` "Can't parse RPC endpoing"
 
@@ -319,6 +341,8 @@ withRPC saddr cmd = do
 
                     case cmd of
                       RPCAnnounce{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
+                      RPCPing{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
                       _ -> pure ()
 

@@ -30,10 +30,7 @@ import Lens.Micro.Platform
 import Network.Socket
 import Network.Socket.ByteString
 import Network.Multicast
-import Data.IP
-import Data.Word
 import Prettyprinter
-import Codec.Serialise (Serialise(..))
 
 data UDP
 
@@ -44,6 +41,10 @@ instance HasPeer UDP where
     { _sockAddr :: SockAddr
     }
     deriving stock (Eq,Ord,Show,Generic)
+
+
+instance AddrPriority (Peer UDP) where
+  addrPriority (PeerUDP sa) = addrPriority sa
 
 instance Hashable (Peer UDP) where
   hashWithSalt salt p = case _sockAddr p of

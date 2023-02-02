@@ -18,7 +18,6 @@ import Data.Function
 import Data.List.Split (chunksOf)
 import Prettyprinter
 
-newtype AsBase58 a = AsBase58 a
 
 newtype AsCredFile a = AsCredFile a
 

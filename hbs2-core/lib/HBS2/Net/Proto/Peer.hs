@@ -2,15 +2,24 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.Peer where
 
+import HBS2.Base58
 import HBS2.Data.Types
+import HBS2.Events
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
+import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 
+import Codec.Serialise()
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
+import Data.Hashable
 import Lens.Micro.Platform
-import Codec.Serialise()
+import Type.Reflection (someTypeRep)
+
+import Prettyprinter
 
 type PingSign  e = Signature e
 type PingNonce = BS.ByteString
@@ -28,7 +37,7 @@ newtype PeerAnnounce e =  PeerAnnounce (PeerData e)
 
 data PeerHandshake e =
     PeerPing  PingNonce
-  | PeerPong  (PeerData e) (Signature e)
+  | PeerPong  (Signature e) (PeerData e)
   deriving stock (Generic)
 
 newtype KnownPeer e = KnownPeer (PeerData e)
@@ -44,15 +53,35 @@ newtype instance SessionKey e (PeerHandshake e) =
   PeerHandshakeKey (Peer e)
   deriving stock (Generic, Typeable)
 
-type instance SessionData e (PeerHandshake e) = (PingNonce, PeerData e)
+type instance SessionData e (PeerHandshake e) = PingNonce
+
+
+
+sendPing :: forall e m . ( MonadIO m
+                         , Request e (PeerHandshake e) m
+                         , Sessions e (PeerHandshake e) m
+                         , HasNonces (PeerHandshake e) m
+                         , Nonce (PeerHandshake e) ~ PingNonce
+                         , Pretty (Peer e)
+                         )
+         => Peer e -> m ()
+
+sendPing pip = do
+  nonce <- newNonce @(PeerHandshake e)
+  update nonce (PeerHandshakeKey pip) id
+  liftIO $ print $ "sendPing" <+>  pretty pip <+> pretty (AsBase58 nonce)
+  request pip (PeerPing @e nonce)
 
 peerHandShakeProto :: forall e m . ( MonadIO m
                                    , Response e (PeerHandshake e) m
                                    , Sessions e (PeerHandshake e) m
+                                   , Sessions e (KnownPeer e) m
                                    , HasNonces (PeerHandshake e) m
                                    , Nonce (PeerHandshake e) ~ PingNonce
                                    , Signatures e
+                                   , Pretty (Peer e)
                                    , HasCredentials e m
+                                   , EventEmitter e (PeerHandshake e) m
                                    )
                    => PeerHandshake e -> m ()
 
@@ -61,33 +90,59 @@ peerHandShakeProto =
     PeerPing nonce  -> do
       pip <- thatPeer proto
       -- TODO: взять свои ключи
+      creds <- getCredentials @e
+      liftIO $ print $ "PING" <+> pretty pip <+> pretty (AsBase58 nonce)
+
       -- TODO: подписать нонс
+      let sign = makeSign @e (view peerSignSk creds) nonce
+
       -- TODO: отправить обратно вместе с публичным ключом
-      --
-      pure ()
-      -- TODO: sign nonce
-      -- se <- find @e (PeerHandshakeKey pip) id
-      -- let signed = undefined
-      -- TODO: answer
-      -- response (PeerPong @e signed)
+      response (PeerPong @e sign (PeerData (view peerSignPk creds)))
 
-    PeerPong d sign -> do
-      pure ()
+    PeerPong sign d -> do
+      pip <- thatPeer proto
 
-      -- se' <- find @e (PeerHandshakeKey pip) id
-      -- maybe1 se' (pure ()) $ \se -> do
+      se' <- find @e (PeerHandshakeKey pip) id
 
-      -- TODO: get peer data
-      -- TODO: check signature
+      maybe1 se' (pure ()) $ \nonce -> do
+        liftIO $ print $ pretty "PONG" <+> pretty (AsBase58 nonce)
 
-      -- ok <- undefined signed
+        let pk = view peerSignKey d
 
-      -- when ok $ do
-        -- TODO: add peer to authorized peers
-        -- pure ()
+        let signed = verifySign @e pk sign nonce
+
+        liftIO $ print $ "SIGNED: " <+> pretty signed
+
+        expire (PeerHandshakeKey pip)
+
+        update (KnownPeer d) (KnownPeerKey pip) id
+
+        emit KnownPeerEventKey (KnownPeerEvent pip d)
 
   where
     proto = Proxy @(PeerHandshake e)
+
+
+data instance EventKey e (PeerHandshake e) =
+  KnownPeerEventKey
+  deriving stock (Typeable, Eq,Generic)
+
+data instance Event e (PeerHandshake e) =
+  KnownPeerEvent (Peer e) (PeerData e)
+  deriving stock (Typeable)
+
+instance Typeable (KnownPeer e) => Hashable (EventKey e (KnownPeer e)) where
+  hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
+    where
+      p = Proxy @(KnownPeer e)
+
+instance EventType ( Event e ( PeerHandshake e) ) where
+  isPersistent = True
+
+instance Expires (EventKey e (PeerHandshake e)) where
+  expiresIn _ = Nothing
+
+instance Hashable (Peer e) => Hashable (EventKey e (PeerHandshake e))
 
 deriving instance Eq (Peer e) => Eq (SessionKey e (KnownPeer e))
 instance Hashable (Peer e) => Hashable (SessionKey e (KnownPeer e))

@@ -1,17 +1,17 @@
 module Main where
 
-import HBS2.Storage.Simple
-import HBS2.Storage.Simple.Extra
-import HBS2.Prelude
-import HBS2.Prelude.Plated
-import HBS2.Merkle
-import HBS2.Data.Types
+import HBS2.Base58
 import HBS2.Data.Detect
+import HBS2.Data.Types
 import HBS2.Defaults
+import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Types
+import HBS2.Prelude.Plated
+import HBS2.Storage.Simple
+import HBS2.Storage.Simple.Extra
 
 
 import Data.ByteString.Lazy (ByteString)
