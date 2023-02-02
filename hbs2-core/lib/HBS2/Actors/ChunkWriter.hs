@@ -96,6 +96,7 @@ data ChunkWriter h m = forall a . ( MonadIO m
   }
 
 
+-- FIXME: delete lost blocks!
 blocksInProcess :: MonadIO m => ChunkWriter h m -> m Int
 blocksInProcess cw = do
   liftIO $ readTVarIO (perBlock cw) <&> HashMap.size
@@ -152,10 +153,14 @@ newChunkWriterIO s _ = do
     }
 
 
-delBlock :: (MonadIO m, Pretty (Hash h))
-         => ChunkWriter h IO -> SKey -> m ()
+delBlock :: (MonadIO m, ChunkKey salt h, Pretty (Hash h))
+         => ChunkWriter h IO
+         -> salt
+         -> Hash h
+         -> m ()
 
-delBlock w  k = liftIO do
+delBlock w  salt h = liftIO do
+  let k = newSKey (salt, h)
   let cache = perBlock w
   liftIO $ atomically $ TV.modifyTVar' cache $ HashMap.delete k
 
@@ -253,7 +258,7 @@ commitBlock2 w@(ChunkWriter {storage = stor}) salt h = do
   chunk <- readTVarIO (perBlock w) <&> fmap toS . HashMap.lookup k
 
   case chunk of
-    Just (S s) -> void $ putBlock stor s >> delBlock w k
+    Just (S s) -> void $ putBlock stor s >> delBlock w salt h
     _          -> pure () -- FIXME: error
 
 

@@ -35,7 +35,7 @@ type family SessionData e p :: Type
 
 
 class ( Monad m
-      , HasProtocol e p
+      -- , HasProtocol e p
       , Eq (SessionKey e p)
       , Hashable (SessionKey e p)
       , Typeable (SessionData e p)

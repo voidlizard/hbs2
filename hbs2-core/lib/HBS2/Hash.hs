@@ -5,12 +5,13 @@ module HBS2.Hash
   )
   where
 
+import HBS2.Base58
+
 import Codec.Serialise
 import Crypto.Hash hiding (SHA1)
 import Data.Aeson(FromJSON(..),ToJSON(..),Value(..))
 import Data.Binary (Binary(..))
 import Data.ByteArray qualified as BA
-import Data.ByteString.Base58 (encodeBase58, bitcoinAlphabet, decodeBase58,Alphabet(..))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
@@ -51,11 +52,6 @@ newtype Internal a = Internal a
 class Hashed t a where
   hashObject :: a -> Hash t
 
-alphabet :: Alphabet
-alphabet = bitcoinAlphabet
-
-getAlphabet :: [Char]
-getAlphabet = BS8.unpack (unAlphabet alphabet)
 
 
 instance Hashed HbSync ByteString where
@@ -71,10 +67,10 @@ instance Hashed HbSync LBS.ByteString where
 instance IsString (Hash HbSync) where
   fromString s = maybe (error ("invalid base58: " <> show s)) HbSyncHash doDecode
     where
-      doDecode = decodeBase58 alphabet (BS8.pack s)
+      doDecode = fromBase58 (BS8.pack s)
 
 instance Pretty (Hash HbSync) where
-  pretty (HbSyncHash s) = pretty @String [qc|{encodeBase58 bitcoinAlphabet s}|]
+  pretty (HbSyncHash s) = pretty @String [qc|{toBase58 s}|]
 
 
 instance FromJSON (Hash HbSync) where

@@ -1,0 +1,92 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+module HBS2.Net.Proto.Definition
+  ( module HBS2.Net.Proto.BlockAnnounce
+  , module HBS2.Net.Proto.BlockChunks
+  , module HBS2.Net.Proto.BlockInfo
+  )
+  where
+
+import HBS2.Prelude
+import HBS2.Clock
+import HBS2.Net.Messaging.UDP
+import HBS2.Net.Proto
+import HBS2.Net.Proto.BlockAnnounce
+import HBS2.Net.Proto.BlockChunks
+import HBS2.Net.Proto.BlockInfo
+import HBS2.Net.Proto.Peer
+import HBS2.Defaults
+
+import Data.Functor
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString qualified as BS
+import Codec.Serialise (deserialiseOrFail,serialise,Serialise(..))
+
+import Crypto.Saltine.Core.Box qualified as Crypto
+import Crypto.Saltine.Class qualified as Crypto
+import Crypto.Saltine.Core.Sign qualified as Sign
+
+type instance PubKey  'Sign e = Sign.PublicKey
+type instance PrivKey 'Sign e = Sign.SecretKey
+
+instance Serialise Sign.PublicKey
+
+instance HasProtocol UDP (BlockInfo UDP) where
+  type instance ProtocolId (BlockInfo UDP) = 1
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+instance HasProtocol UDP (BlockChunks UDP) where
+  type instance ProtocolId (BlockChunks UDP) = 2
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+instance Expires (SessionKey UDP (BlockChunks UDP)) where
+  expiresIn _ = Just defCookieTimeoutSec
+
+instance HasProtocol UDP (BlockAnnounce UDP) where
+  type instance ProtocolId (BlockAnnounce UDP) = 3
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+instance HasProtocol UDP (PeerHandshake UDP) where
+  type instance ProtocolId (PeerHandshake UDP) = 4
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+instance Expires (SessionKey UDP (BlockInfo UDP)) where
+  expiresIn _ = Just defCookieTimeoutSec
+
+instance Expires (EventKey UDP (BlockInfo UDP)) where
+  expiresIn _  = Just 600
+
+instance Expires (EventKey UDP (BlockChunks UDP)) where
+  expiresIn _ = Just 600
+
+instance Expires (EventKey UDP (BlockAnnounce UDP)) where
+  expiresIn _ = Nothing
+
+instance Expires (SessionKey UDP (KnownPeer UDP)) where
+  expiresIn _ = Just 3600
+
+instance Expires (SessionKey UDP (PeerHandshake UDP)) where
+  expiresIn _ = Just 10
+
+instance MonadIO m => HasNonces (PeerHandshake UDP) m where
+  type instance Nonce (PeerHandshake UDP) = BS.ByteString
+  newNonce = do
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+    pure $ BS.take 32 n
+
+
+instance Serialise Sign.Signature
+
+instance Signatures UDP where
+  type Signature UDP = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
+
+

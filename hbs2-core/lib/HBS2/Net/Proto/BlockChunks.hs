@@ -3,6 +3,7 @@ module HBS2.Net.Proto.BlockChunks where
 
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 import HBS2.Storage
@@ -12,6 +13,8 @@ import Data.Word
 import Prettyprinter
 import Data.ByteString.Lazy (ByteString)
 import Data.Foldable
+
+import System.Random.Shuffle
 
 newtype ChunkSize = ChunkSize Word16
                     deriving newtype (Num,Enum,Real,Integral,Pretty)
@@ -47,6 +50,7 @@ data BlockChunks e = BlockChunks (Cookie e) (BlockChunksProto e)
                      deriving stock (Generic)
 
 data BlockChunksProto e = BlockGetAllChunks (Hash HbSync) ChunkSize
+                        | BlockGetChunks (Hash HbSync) ChunkSize Word32 Word32
                         | BlockNoChunks
                         | BlockChunk ChunkNum ByteString
                         | BlockLost
@@ -69,12 +73,14 @@ newtype instance EventKey e (BlockChunks e) =
 
 deriving instance Hashable (EventKey e (BlockChunks e))
 
-newtype instance Event e (BlockChunks e) =
-  BlockReady (Hash HbSync)
+data instance Event e (BlockChunks e) =
+    BlockReady      (Hash HbSync)
+  | BlockChunksLost (Hash HbSync)
   deriving stock (Typeable)
 
 blockChunksProto :: forall e m  . ( MonadIO m
                                   , Response e (BlockChunks e) m
+                                  , HasDeferred e (BlockChunks e) m
                                   , HasOwnPeer e m
                                   , Pretty (Peer e)
                                   )
@@ -84,6 +90,26 @@ blockChunksProto :: forall e m  . ( MonadIO m
 
 blockChunksProto adapter (BlockChunks c p) =
   case p of
+
+    BlockGetChunks h size n1 num -> do
+
+      bsz' <- blkSize adapter h
+
+      maybe1 bsz' (pure ()) $ \bsz -> do
+
+        let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
+        let offsets = take (fromIntegral num) $ drop (fromIntegral n1) $ zip offsets' [0..]
+
+        -- liftIO $ print $ "sending " <+> pretty (length offsets)
+        --                             <+> "chunks for block"
+        --                             <+> pretty h
+
+        -- for_ offsets $ \((o,sz),i) -> deferred proto do
+        for_ offsets $ \((o,sz),i) -> deferred proto do
+          -- liftIO $ print $ "send chunk " <+> pretty i <+> pretty sz
+          chunk <- blkChunk adapter h o sz
+          maybe (pure ()) (response_ . BlockChunk @e i) chunk
+
     BlockGetAllChunks h size -> do
 
       me <- ownPeer @e
@@ -96,9 +122,12 @@ blockChunksProto adapter (BlockChunks c p) =
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = zip offsets' [0..]
 
+        -- liftIO $ print $ "sending " <+> pretty (length offsets)
+        --                             <+> "chunks for block"
+        --                             <+> pretty h
+
         for_ offsets $ \((o,sz),i) -> deferred proto do
           chunk <- blkChunk adapter h o sz
-          -- liftIO $ print $ "sending chunk for block" <+> pretty h
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
     BlockChunk n bs -> deferred proto do
@@ -114,11 +143,11 @@ blockChunksProto adapter (BlockChunks c p) =
       pure ()
 
     BlockLost{} -> do
+      liftIO $ print "GOT BLOCK LOST MESSAGE - means IO ERROR"
       pure ()
 
   where
     proto = Proxy @(BlockChunks e)
     response_ pt = response (BlockChunks c pt)
-
 
 

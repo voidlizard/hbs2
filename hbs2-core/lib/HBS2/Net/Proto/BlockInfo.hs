@@ -19,6 +19,7 @@ instance Serialise (BlockInfo e)
 
 blockSizeProto :: forall e m  . ( MonadIO m
                                 , Response e (BlockInfo e) m
+                                , HasDeferred e (BlockInfo e) m
                                 , EventEmitter e (BlockInfo e) m
                                 )
                => GetBlockSize  HbSync m

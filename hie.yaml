@@ -1,17 +1,2 @@
 cradle:
   cabal:
-    - path: "hbs2-tests/test/Peer2Main.hs"
-      component: "hbs2-tests:exe:test-peer-run"
-
-    - path: "hbs2-tests/test/TestSKey"
-      component: "hbs2-tests:test:test-skey"
-
-    - path: "hbs2-tests/test/TestChunkWriter"
-      component: "hbs2-tests:test:test-cw"
-
-    - path: "hbs2-core/lib"
-      component: "hbs2-core:lib:hbs2-core"
-
-    - path: "hbs2-storage-simple/lib"
-      component: "hbs2-storage-simple:lib:hbs2-storage-simple"
-

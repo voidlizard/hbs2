@@ -67,24 +67,32 @@ library
                       HBS2.Actors
                     , HBS2.Actors.ChunkWriter
                     , HBS2.Actors.Peer
+                    , HBS2.Base58
                     , HBS2.Clock
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Refs
+                    , HBS2.Data.Types.Crypto
                     , HBS2.Defaults
                     , HBS2.Events
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Net.Auth.Credentials
+                    , HBS2.Net.IP.Addr
                     , HBS2.Net.Messaging
                     , HBS2.Net.Messaging.Fake
+                    , HBS2.Net.Messaging.UDP
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
+                    , HBS2.Net.Proto.BlockAnnounce
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
-                    , HBS2.Net.Proto.BlockAnnounce
+                    , HBS2.Net.Proto.Definition
                     , HBS2.Net.Proto.Sessions
+                    , HBS2.Net.Proto.Peer
                     , HBS2.Net.Proto.Types
+                    , HBS2.OrDie
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
@@ -93,37 +101,45 @@ library
     -- other-modules:
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0
-                     , aeson
-                     , async
-                     , base58-bytestring
-                     , binary
-                     , bytestring
-                     , cache
-                     , cborg
-                     , clock
-                     , containers
-                     , cryptonite
-                     , deepseq
-                     , directory
-                     , filepath
-                     , filelock
-                     , hashable
-                     , interpolatedstring-perl6
-                     , memory
-                     , microlens-platform
-                     , mtl
-                     , murmur-hash
-                     , prettyprinter
-                     , random
-                     , safe
-                     , serialise
-                     , stm
-                     , stm-chans
-                     , text
-                     , transformers
-                     , temporary
-                     , uniplate
-                     , unordered-containers
+                    , aeson
+                    , async
+                    , attoparsec
+                    , base58-bytestring
+                    , binary
+                    , bytestring
+                    , cache
+                    , cborg
+                    , clock
+                    , containers
+                    , cryptonite
+                    , deepseq
+                    , directory
+                    , filelock
+                    , filepath
+                    , hashable
+                    , interpolatedstring-perl6
+                    , memory
+                    , microlens-platform
+                    , mtl
+                    , murmur-hash
+                    , network
+                    , network-multicast
+                    , prettyprinter
+                    , random
+                    , random-shuffle
+                    , safe
+                    , saltine ^>=0.2.0.1
+                    , serialise
+                    , sockaddr
+                    , split
+                    , stm
+                    , stm-chans
+                    , temporary
+                    , text
+                    , transformers
+                    , uniplate
+                    , unordered-containers
+
 
     hs-source-dirs:   lib
     default-language: Haskell2010

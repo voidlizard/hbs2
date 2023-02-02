@@ -1,73 +1,41 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-{-# Language RankNTypes #-}
-{-# Language AllowAmbiguousTypes #-}
-{-# LANGUAGE MultiWayIf #-}
-module Main where
+module BlockDownload where
 
-import HBS2.Prelude
-import HBS2.Hash
-import HBS2.Actors
-import HBS2.Actors.ChunkWriter
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Data.Detect
-import HBS2.Data.Types
+import HBS2.Data.Types.Refs
 import HBS2.Defaults
 import HBS2.Events
+import HBS2.Hash
 import HBS2.Merkle
-import HBS2.Net.Messaging.UDP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
-import HBS2.Net.Proto.BlockAnnounce
-import HBS2.Net.Proto.BlockChunks
-import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Sessions
-import HBS2.OrDie
 import HBS2.Prelude.Plated
 import HBS2.Storage
-import HBS2.Storage.Simple
 
-import Test.Tasty.HUnit
+import PeerInfo
+import Logger
 
-import System.Random.Shuffle
-import Codec.Serialise hiding (encode,decode)
+import Data.Foldable hiding (find)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TBQueue qualified as Q
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString.Lazy.Char8 qualified as B8
-import Data.Default
-import Data.Foldable hiding (find)
-import Data.Map (Map)
-import Data.Map qualified as Map
-import Data.Maybe
-import Data.Word
-import Lens.Micro.Platform
-import Prettyprinter hiding (pipe)
-import System.Directory
-import System.Exit
-import System.FilePath.Posix
-import System.IO
-import Data.Hashable
-import Type.Reflection
-import Data.Fixed
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Data.List qualified as List
-import Data.List.Split (chunksOf)
-
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Data.IntSet qualified as IntSet
-
-import Data.Dynamic
-
-debug :: (MonadIO m) => Doc ann -> m ()
-debug p = liftIO $ hPrint stderr p
+import Data.Maybe
+import Lens.Micro.Platform
+import Prettyprinter
+import System.Random.Shuffle
 
 
 calcBursts :: forall a . Integral a => a -> [a] -> [(a,a)]
@@ -82,32 +50,6 @@ calcBursts bu pieces = go seed
     go [x] = [x]
     go [] = []
 
-type Fake = UDP
-
-newtype PeerInfo e =
-  PeerInfo
-  { _peerBurst :: TVar Int
-  }
-  deriving stock (Generic,Typeable)
-
-makeLenses 'PeerInfo
-
-
-newPeerInfo :: MonadIO m => m (PeerInfo e)
-newPeerInfo = liftIO do
-  PeerInfo <$> newTVarIO defBurst
-
-
-type instance SessionData e (PeerInfo e) = PeerInfo e
-
-newtype instance SessionKey e  (PeerInfo e) =
-  PeerInfoKey (Peer e)
-
-deriving newtype instance Hashable (SessionKey Fake (PeerInfo Fake))
-deriving stock instance Eq (SessionKey Fake (PeerInfo Fake))
-
-instance Expires (SessionKey Fake (PeerInfo Fake)) where
-  expiresIn = const (Just 600)
 
 data BlockDownload =
   BlockDownload
@@ -125,139 +67,13 @@ newBlockDownload h = do
   BlockDownload h 0 0 <$> liftIO newTQueueIO
 
 
-type instance SessionData e (BlockInfo e) = BlockSizeSession e
 type instance SessionData e (BlockChunks e) = BlockDownload
 
 newtype instance SessionKey e (BlockChunks e) =
   DownloadSessionKey (Peer e, Cookie e)
   deriving stock (Generic,Typeable)
 
-newtype BlockSizeSession e =
-  BlockSizeSession
-  { _bsBlockSizes :: Map (Peer e) Size
-  }
 
-makeLenses 'BlockSizeSession
-
-instance Ord (Peer e) => Default (BlockSizeSession e) where
-  def = BlockSizeSession mempty
-
-deriving stock instance Show (BlockSizeSession Fake)
-
-deriving newtype instance Hashable (SessionKey Fake (BlockChunks Fake))
-deriving stock instance Eq (SessionKey Fake (BlockChunks Fake))
-
-runTestPeer :: (Key HbSync ~ Hash HbSync, Storage (SimpleStorage HbSync) HbSync ByteString (ResponseM Fake (PeerM Fake IO)))
-            => MessagingUDP
-            -> Peer Fake
-            -> (SimpleStorage HbSync -> ChunkWriter HbSync IO  -> IO ())
-            -> IO ()
-
-runTestPeer mess p zu = do
-
-  dir <- liftIO $ canonicalizePath ( ".peers" </> show (pretty (AsFileName p)))
-  let chDir = dir </> "tmp-chunks"
-  liftIO $ createDirectoryIfMissing True dir
-
-  let opts = [ StoragePrefix dir
-             ]
-
-  udp  <- async $ runMessagingUDP mess
-  stor <- simpleStorageInit opts
-  cww  <- newChunkWriterIO  stor (Just chDir)
-
-  sw <- liftIO $ replicateM 8  $ async $ simpleStorageWorker stor
-  cw <- liftIO $ replicateM 8 $ async $ runChunkWriter cww
-
-  zu stor cww
-
-  simpleStorageStop stor
-  stopChunkWriter cww
-
-  mapM_ cancel $ sw <> cw <> [udp]
-
-
-handleBlockInfo :: forall e m . ( MonadIO m
-                                , Sessions e (BlockInfo e) m
-                                , Default (SessionData e (BlockInfo e))
-                                , Ord (Peer e)
-                                , Pretty (Peer e)
-                                -- , EventEmitter e (BlockSize e) m
-                                )
-
-                => (Peer e, Hash HbSync, Maybe Integer)
-                -> m ()
-
-handleBlockInfo (p, h, sz') = do
-   maybe1 sz' (pure ()) $ \sz -> do
-    let bsz = fromIntegral sz
-    update @e def (BlockSizeKey h) (over bsBlockSizes (Map.insert p bsz))
-
-
-data Stats e =
-  Stats
-  { _blkNum       :: !Int
-  , _blkNumLast   :: !Int
-  , _timeLast     :: !TimeSpec
-  }
-  deriving stock (Typeable,Generic)
-
-makeLenses 'Stats
-
-instance Default (Stats e) where
-  def = Stats 0 0 0
-
-newStatsIO :: MonadIO m => m (Stats e)
-newStatsIO = pure $ Stats 0 0 0
-
-type instance SessionData e (Stats e) = Stats e
-
-instance Serialise TimeSpec
-instance Serialise (Stats e)
-
-data instance SessionKey e (Stats e) = StatsKey
-  deriving stock (Typeable,Eq)
-
-instance Typeable (SessionKey e (Stats e)) => Hashable (SessionKey e (Stats e)) where
-  hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
-    where
-      p = Proxy @(SessionKey e (Stats e))
-
-
-newtype Speed = Speed (Fixed E1)
-                deriving newtype (Ord, Eq, Num, Real, Fractional, Show)
-
-instance Pretty Speed where
-  pretty (Speed n) = pretty (show n)
-
-
-updateStats :: forall e m . (MonadIO m, Sessions e (Stats e) m)
-            => Bool -> Int -> m (Stats e)
-
-updateStats updTime blknum = do
-  de <- newStatsIO
-  stats <- fetch @e True de StatsKey id
-
-  t <- if updTime then do
-            liftIO $ getTime Monotonic
-         else
-            pure (view timeLast stats)
-
-  let blkNumNew = view blkNum stats + blknum
-
-  let blast = if updTime then
-                blkNumNew
-              else
-                view blkNumLast stats
-
-  let newStats = set blkNum blkNumNew
-               . set timeLast t
-               . set blkNumLast blast
-               $ stats
-
-  update @e de StatsKey (const newStats)
-
-  pure newStats
 
 data DownloadEnv e =
   DownloadEnv
@@ -518,12 +334,11 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , EventListener e (BlockChunks e) m
                                    , EventListener e (BlockAnnounce e) m
                                    , EventEmitter e (BlockChunks e) m
-                                   , Sessions e (BlockInfo e) m
                                    , Sessions e (BlockChunks e) m
                                    , Sessions e (PeerInfo e) m
                                    , PeerSessionKey e (PeerInfo e)
-                                   , Typeable (SessionKey e (BlockChunks e))
-                                   , Typeable (SessionKey e (BlockInfo e))
+                                   -- , Typeable (SessionKey e (BlockChunks e))
+                                   -- , Typeable (SessionKey e (BlockInfo e))
                                    , HasStorage m
                                    , Pretty (Peer e)
                                    , Block ByteString ~ ByteString
@@ -535,9 +350,7 @@ blockDownloadLoop = do
   e    <- ask
   stor <- getStorage
 
-  let blks = [ "GTtQp6QjK7G9Sh5Aq4koGSpMX398WRWn3DV28NUAYARg"
-             , "ECWYwWXiLgNvCkN1EFpSYqsPcWfnL4bAQADsyZgy1Cbr"
-             ]
+  let blks = mempty
 
   pl <- getPeerLocator @e
 
@@ -592,7 +405,6 @@ mkAdapter :: forall e m . ( m ~  PeerM e IO
                           , Hashable (SessionKey e (BlockChunks e))
                           , Sessions e (BlockChunks e) (ResponseM e m)
                           , Typeable (SessionKey e (BlockChunks e))
-                          , Default (SessionData e (Stats e))
                           , EventEmitter e (BlockChunks e) m
                           , Pretty (Peer e)
                           , Block ByteString ~ ByteString
@@ -607,93 +419,9 @@ mkAdapter = do
     , blkGetHash  = \c -> find (DownloadSessionKey @e c) (view sBlockHash)
 
     , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
-
-        -- debug "AAAA!"
-
         let cKey = DownloadSessionKey (p,c)
-
-        -- check if there is a session
-        -- FIXME:
-        -- TODO: log situation when no session
-
-        ddd <- lift $ find cKey id
-
-        when (isNothing ddd) $ do
-          debug "SESSION NOT FOUND!"
-
         dwnld <- MaybeT $ find cKey (view sBlockChunks)
-
         liftIO $ atomically $ writeTQueue dwnld (n, bs)
     }
-
-
-
-main :: IO ()
-main = do
-  hSetBuffering stderr LineBuffering
-
-  void $ race (pause (600 :: Timeout 'Seconds)) $ do
-
-    -- fake <- newFakeP2P True <&> Fabriq
-
-    udp0 <- newMessagingUDP False (Just "127.0.0.1:10001") `orDie` "Can't start listener on 10001"
-    udp1 <- newMessagingUDP False (Just "127.0.0.1:10002") `orDie` "Can't start listener on 10002"
-
-    let (p0:ps) = [getOwnPeer udp0, getOwnPeer udp1]
-
-    -- others
-    others <- forM ps $ \p -> async $ runTestPeer udp1 p $ \s cw  -> do
-                let findBlk = hasBlock s
-
-                runPeerM (AnyStorage s) (Fabriq udp1) p $ do
-                  adapter <- mkAdapter
-
-                  runProto @Fake
-                    [ makeResponse (blockSizeProto findBlk dontHandle)
-                    , makeResponse (blockChunksProto adapter)
-                    , makeResponse blockAnnounceProto
-                    ]
-
-    our <- async $ runTestPeer udp0 p0 $ \s cw -> do
-                let blk = hasBlock s
-
-                -- void $ async $ forever $ do
-                  -- pause ( 1 :: Timeout 'Seconds )
-                  -- wip <- blocksInProcess cw
-                  -- debug $ "blocks wip:" <+> pretty wip
-
-                runPeerM (AnyStorage s) (Fabriq udp0) p0 $ do
-                  adapter <- mkAdapter
-                  env <- ask
-
-                  pl <- getPeerLocator @Fake
-
-                  addPeers @Fake pl ps
-
-                  as <- liftIO $ async $ withPeerM env blockDownloadLoop
-
-                  me <- liftIO $ replicateM 1 $ async $ liftIO $ withPeerM env $ do
-                    runProto @Fake
-                      [ makeResponse (blockSizeProto blk handleBlockInfo)
-                      , makeResponse (blockChunksProto adapter)
-                      , makeResponse blockAnnounceProto
-                      ]
-
-                  liftIO $ mapM_ wait me
-
-                  liftIO $ cancel as
-
-    pause ( 599.9 :: Timeout 'Seconds )
-
-    mapM_ cancel (our:others)
-
-    (_, e) <- waitAnyCatchCancel (our:others)
-
-    debug (pretty $ show e)
-    debug "we're done"
-    assertBool "success" True
-    exitSuccess
-
-  assertBool "failed" False
 
 

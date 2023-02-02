@@ -1,6 +1,5 @@
 module Main where
 
-import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.Prelude
@@ -9,6 +8,10 @@ import HBS2.Merkle
 import HBS2.Data.Types
 import HBS2.Data.Detect
 import HBS2.Defaults
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Messaging.UDP (UDP)
+import HBS2.Net.Proto.Definition()
+import HBS2.Net.Proto.Types
 
 
 import Data.ByteString.Lazy (ByteString)
@@ -17,6 +20,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as BS
 import Data.Either
 import Data.Function
 import Data.Functor
@@ -26,6 +30,7 @@ import Options.Applicative
 import Prettyprinter
 import System.Directory
 import Data.Maybe
+import Lens.Micro.Platform
 -- import System.FilePath.Posix
 import System.IO
 import System.Exit
@@ -84,7 +89,9 @@ newtype NewRefOpts =
 
 runHash :: HashOpts -> SimpleStorage HbSync -> IO ()
 runHash opts ss = do
-  pure ()
+  withBinaryFile (hashFp opts) ReadMode $ \h -> do
+    LBS.hGetContents h >>= print . pretty . hashObject @HbSync
+
 
 runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
 runCat opts ss = do
@@ -123,7 +130,7 @@ runCat opts ss = do
           maybe (error "empty ref") walk mbHead
 
 
-runStore ::(Data opts, Block ByteString ~ ByteString) => opts -> SimpleStorage HbSync -> IO ()
+runStore ::(Data opts) => opts -> SimpleStorage HbSync -> IO ()
 
 runStore opts ss | justInit = do
   putStrLn "initialized"
@@ -151,6 +158,20 @@ runNewRef opts mhash ss = do
   res <- simpleWriteLinkRaw ss uuid (serialise ref)
   print (pretty res)
 
+runNewKey :: IO ()
+runNewKey = do
+  cred <- newCredentials @UDP
+  print $ pretty $ AsCredFile $ AsBase58 cred
+
+runShowPeerKey :: Maybe FilePath -> IO ()
+runShowPeerKey fp = do
+  handle <- maybe (pure stdin) (`openFile` ReadMode) fp
+  bs <- LBS.hGet handle 4096 <&> LBS.toStrict
+  let cred' = parseCredentials @UDP (AsCredFile bs)
+
+  maybe1 cred' exitFailure $ \cred -> do
+    print $ pretty $ AsBase58 (view peerSignPk cred)
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
@@ -177,10 +198,12 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "store"   (info pStore (progDesc "store block"))
-                        <> command "new-ref" (info pNewRef (progDesc "creates reference"))
-                        <> command "cat"     (info pCat (progDesc "cat block"))
-                        <> command "hash"    (info pHash (progDesc "calculates hash"))
+    parser = hsubparser (  command "store"    (info pStore (progDesc "store block"))
+                        <> command "new-ref"  (info pNewRef (progDesc "creates reference"))
+                        <> command "cat"      (info pCat (progDesc "cat block"))
+                        <> command "hash"     (info pHash (progDesc "calculates hash"))
+                        <> command "new-key"  (info pNewKey (progDesc "generates a new keypair"))
+                        <> command "show-peer-key" (info pShowPeerKey (progDesc "show peer key from credential file"))
                         )
 
     common = do
@@ -209,5 +232,12 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- common
       hash  <- strArgument ( metavar "HASH" )
       pure $ withStore o $ runHash $ HashOpts hash
+
+    pNewKey = do
+      pure runNewKey
+
+    pShowPeerKey = do
+      fp <- optional $ strArgument ( metavar "FILE" )
+      pure $ runShowPeerKey fp
 
 

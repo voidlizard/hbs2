@@ -1,0 +1,5 @@
+title: no-retry-stalled-blocks
+status: fixed
+
+При использовании UDP почему-то не запрашиваются повторно
+повисшие блоки.

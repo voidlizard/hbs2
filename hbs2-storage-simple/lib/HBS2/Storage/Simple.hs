@@ -3,7 +3,16 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Storage.Simple
   ( module HBS2.Storage.Simple
+  , StoragePrefix(..)
+  , Storage(..)
+  , Block
   ) where
+
+import HBS2.Clock
+import HBS2.Hash
+import HBS2.Prelude.Plated
+import HBS2.Storage
+import HBS2.Base58
 
 import Control.Concurrent.Async
 import Control.Exception
@@ -35,10 +44,6 @@ import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TV
 
 
-import HBS2.Clock
-import HBS2.Hash
-import HBS2.Prelude.Plated
-import HBS2.Storage
 
 -- NOTE:  random accessing files in a git-like storage
 --        causes to file handles exhaust.
@@ -103,10 +108,12 @@ touchForRead ss k  = liftIO $ do
     mmaped = ss ^. storageMMaped
 
 
-simpleStorageInit :: (MonadIO m, Data opts, IsSimpleStorageKey h) => opts -> m (SimpleStorage h)
+simpleStorageInit :: forall h m opts . (MonadIO m, Data opts, IsSimpleStorageKey h)
+                   => opts -> m (SimpleStorage h)
+
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 2000 opts :: StorageQueueSize
+  let qSize  = uniLastDef 2000 opts :: StorageQueueSize -- FIXME: defaults ?
 
   stor <- SimpleStorage
                 <$> canonicalizePath (fromPrefix prefix)

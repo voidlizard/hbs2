@@ -34,10 +34,10 @@ class IsTimeout a where
   toTimeSpec    :: Timeout a -> TimeSpec
   toTimeSpec x = fromNanoSecs (fromIntegral (toNanoSeconds x))
 
-class IsTimeout a => MonadPause m a where
+class IsTimeout a => MonadPause a m where
   pause :: Timeout a -> m ()
 
-instance (IsTimeout a, MonadIO m) => MonadPause m a where
+instance (IsTimeout a, MonadIO m) => MonadPause a m where
   pause x = liftIO $ threadDelay (toMicroSeconds x)
 
 instance Pretty (Fixed E9) where
@@ -67,5 +67,9 @@ instance IsTimeout 'Minutes where
 
 class Expires a where
   expiresIn :: Proxy a -> Maybe (Timeout 'Seconds)
+
+  -- FIXME: dangerous!
+  expiresIn _ = Nothing
+
 
 

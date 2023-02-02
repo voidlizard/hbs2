@@ -85,4 +85,3 @@ main = do
       print $ "failed" <+> pretty (sum (mconcat failed))
 
 
-

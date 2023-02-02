@@ -6,15 +6,34 @@ module HBS2.Prelude
   , maybe1
   , Hashable
   , lift
+  , AsFileName(..)
+  , Pretty
   ) where
 
 import Data.String (IsString(..))
 import Safe
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad (void,guard,when,unless)
-import Data.Hashable (Hashable)
 import Control.Monad.Trans.Class (lift)
+
+import Data.Function
+import Data.Char qualified as Char
+import Data.Text qualified as Text
+import Data.Hashable
+import Prettyprinter
+import Data.Word
 
 maybe1 :: Maybe a -> b -> (a -> b) -> b
 maybe1 mb n j = maybe n j mb
+
+
+newtype AsFileName a = AsFileName a
+
+
+instance Pretty a => Pretty (AsFileName a) where
+  pretty (AsFileName f) = pretty x <> "@" <> uniq
+    where
+      uniq = pretty (fromIntegral $ hash (show (pretty f)) :: Word16)
+      x = show (pretty f) & Text.pack
+                          & Text.filter (not . Char.isPunctuation)
 

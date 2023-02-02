@@ -1,5 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
+{-# Language FunctionalDependencies #-}
 -- {-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer where
 
@@ -70,6 +71,20 @@ class Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
 
 instance Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
 
+class ( Eq (SessionKey e a)
+      , Hashable (SessionKey e a)
+      , Typeable (SessionData e a)
+      , Typeable (SessionKey e a)
+      , Expires (SessionKey e a)
+      ) => PeerSessionKey e a
+
+instance ( Eq (SessionKey e a)
+         , Hashable (SessionKey e a)
+         , Typeable (SessionData e a)
+         , Typeable (SessionKey e a)
+         , Expires (SessionKey e a)
+         )
+  => PeerSessionKey e a
 
 instance (HasPeer e, Encoded e ~ ByteString) => Messaging (Fabriq e) e (AnyMessage ByteString e) where
   sendTo (Fabriq bus) t f (AnyMessage n bs) = sendTo bus t f (serialise (n, bs))
@@ -79,7 +94,7 @@ instance (HasPeer e, Encoded e ~ ByteString) => Messaging (Fabriq e) e (AnyMessa
     r <- forM recv $ \(f, msg) ->
           case deserialiseOrFail msg of
             Right (n,bs) -> pure $ Just (f, AnyMessage n bs)
-            Left _       -> liftIO (print "FUCK!") >> pure Nothing -- FIXME what to do with undecoded messages?
+            Left _       -> pure Nothing -- FIXME what to do with undecoded messages?
 
     pure $ catMaybes r
 
@@ -167,13 +182,17 @@ instance Monad m => HasFabriq e (PeerM e m) where
 instance Monad m => HasStorage (PeerM e m) where
   getStorage = asks (view envStorage)
 
+-- instance Monad m => HasKeys 'Sign e (PeerM e m) where
+--   getPrivateKey = asks (view (envCred . peerSignSk))
+--   getPublicKey  = asks (view (envCred . peerSignPk))
 
 instance ( MonadIO m
-         , HasProtocol e p
+         -- , HasProtocol e p
          , Eq (SessionKey e p)
          , Typeable (SessionKey e p)
          , Typeable (SessionData e p)
          , Hashable (SessionKey e p)
+         , Expires  (SessionKey e p)
          ) => Sessions e p (PeerM e m) where
 
 
@@ -192,16 +211,19 @@ instance ( MonadIO m
 
     r <- liftIO $ Cache.lookup se sk
 
+    let ts = expiresIn (Proxy @(SessionKey e p)) <&> toTimeSpec
+
     case r of
      Just v  -> pure $ fn $ fromMaybe de (fromDynamic @(SessionData e p) v )
      Nothing -> do
-       when upd $ liftIO $ Cache.insert se sk ddef
+       when upd $ liftIO $ Cache.insert' se ts sk ddef
        pure (fn de)
 
   update de k f = do
     se <- asks (view envSessions)
     val <- fetch @e @p True de k id
-    liftIO $ Cache.insert se (newSKey @(SessionKey e p) k) (toDyn (f val))
+    let ts = expiresIn (Proxy @(SessionKey e p)) <&> toTimeSpec
+    liftIO $ Cache.insert' se ts (newSKey @(SessionKey e p) k) (toDyn (f val))
 
   expire k = do
     se <- asks (view envSessions)
@@ -210,9 +232,10 @@ instance ( MonadIO m
 
 instance ( MonadIO m
          , HasProtocol e p
-         , HasFabriq e (PeerM e m)
-         , Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
-         ) => Request e p (PeerM e m) where
+         , HasFabriq e m -- (PeerM e m)
+         , HasOwnPeer e m
+         , PeerMessaging e
+         ) => Request e p m where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     pipe <- getFabriq @e
@@ -349,41 +372,48 @@ runProto hh = do
 
   forever $ do
 
-    messages <- receive pipe (To me)
+    messages <- receive @_ @e pipe (To me)
 
     for_ messages $ \(From pip, AnyMessage n msg :: AnyMessage (Encoded e) e) -> do
 
       case Map.lookup n disp of
-        Nothing -> pure ()
+        Nothing -> liftIO $ print "SHIT!" >> pure ()
 
         Just (AnyProtocol { protoDecode = decoder
                           , handle = h
                           }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
+
+
+instance (Monad m, HasProtocol e p) => HasThatPeer e p (ResponseM e m) where
+  thatPeer _ = asks (view answTo)
+
+instance HasProtocol e p => HasDeferred e p (ResponseM e (PeerM e IO)) where
+  deferred _ action = do
+    who <- asks (view answTo)
+    pip <- lift $ asks (view envDeferred)
+    env <- lift ask
+    liftIO $ addJob pip $ withPeerM env (runResponseM who action)
+    -- void $ liftIO $ async $ withPeerM env (runResponseM who action)
 
 instance ( HasProtocol e p
          , MonadTrans (ResponseM e)
          , HasStorage (PeerM e IO)
          , Pretty (Peer e)
          , PeerMessaging e
-         ) => Response e p (ResponseM e (PeerM e IO)) where
-
-  thatPeer _ = asks (view answTo)
-
-  deferred _ action = do
-    who <- asks (view answTo)
-    pip <- lift $ asks (view envDeferred)
-    env <- lift ask
-    liftIO $ addJob pip $ withPeerM env (runResponseM who action)
+         , HasOwnPeer e m
+         , HasFabriq e m
+         , MonadIO m
+         ) => Response e p (ResponseM e m) where
 
   response msg = do
     let proto = protoId @e @p (Proxy @p)
-    who <- asks (view answTo)
+    who <-  thatPeer (Proxy @p)
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
     sendTo fab (To who) (From self) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 instance ( MonadIO m
-         , HasProtocol e p
+         -- , HasProtocol e p
          , Sessions e p m
          , Eq (SessionKey e p)
          , Typeable (SessionKey e p)
@@ -406,7 +436,6 @@ instance ( MonadIO m
          ) => EventEmitter e p (ResponseM e  m) where
 
   emit k d = lift $ emit k d
-
 
 instance (Monad m, HasOwnPeer e m) => HasOwnPeer e (ResponseM e m) where
   ownPeer = lift ownPeer

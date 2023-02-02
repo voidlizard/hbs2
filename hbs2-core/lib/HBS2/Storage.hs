@@ -18,7 +18,7 @@ instance Key HbSync ~ Hash HbSync => IsKey HbSync where
 
 newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
                         deriving stock (Data,Show)
-                        deriving newtype (IsString)
+                        deriving newtype (IsString,Pretty)
 
 type family Block block :: Type
 
