@@ -22,7 +22,9 @@ import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
-import HBS2.System.Logger.Simple
+
+import HBS2.System.Logger.Simple hiding (info)
+import HBS2.System.Logger.Simple qualified as Log
 
 import RPC
 import BlockDownload
@@ -79,7 +81,18 @@ deriving newtype instance Hashable (SessionKey UDP (BlockChunks UDP))
 deriving stock instance Eq (SessionKey UDP (BlockChunks UDP))
 
 main :: IO ()
-main = join . customExecParser (prefs showHelpOnError) $
+main = do
+
+  setLogging @DEBUG  asIs
+  -- setLogging @INFO   asIs
+  -- setLogging @ERROR  asIs
+  -- setLogging @WARN   asIs
+  -- setLogging @NOTICE asIs
+
+  withSimpleLogger runCLI
+
+runCLI :: IO ()
+runCLI = join . customExecParser (prefs showHelpOnError) $
   info (helper <*> parser)
   (  fullDesc
   <> header "hbs2-peer daemon"
@@ -197,7 +210,9 @@ instance ( Monad m
 --        Вынести  в сигнатуру.
 
 runPeer :: PeerOpts -> IO ()
-runPeer opts = Exception.handle myException $ withSimpleLogger do
+runPeer opts = Exception.handle myException $ do
+
+  debug "STARTED!"
 
   sodiumInit
 
@@ -393,6 +408,12 @@ emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
 withRPC :: String -> RPC UDP -> IO ()
 withRPC saddr cmd = withSimpleLogger do
+
+  setLogging @DEBUG  asIs
+  setLogging @INFO   asIs
+  setLogging @ERROR  asIs
+  setLogging @WARN   asIs
+  setLogging @NOTICE asIs
 
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as

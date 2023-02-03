@@ -98,6 +98,7 @@ library
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
                     , HBS2.System.Logger.Simple
+                    , HBS2.System.Logger.Simple.Class
 
 
     -- other-modules:

@@ -1,45 +1,95 @@
+{-# Language TemplateHaskell #-}
+{-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
+{-# Language TypeFamilyDependencies #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.System.Logger.Simple
   ( withSimpleLogger
   , debug
+  , log
+  , err
+  , warn
+  , notice
+  , info
+  , setLogging
+  , asIs
+  , loggerTr
+  , module HBS2.System.Logger.Simple.Class
   ) where
 
-import Control.Monad
-import Data.Foldable
+import HBS2.System.Logger.Simple.Class
+
+import Prelude hiding (log)
+import Data.Functor
+import Data.Foldable(for_)
 import Control.Monad.IO.Class
 import System.Log.FastLogger
-import System.Log.FastLogger.LoggerSet
 import Data.IORef
 import System.IO.Unsafe
 import Prettyprinter
+import Data.IntMap (IntMap)
+import Data.IntMap qualified as IntMap
+import Lens.Micro.Platform
 
-loggers :: IORef (Maybe LoggerSet)
-loggers = unsafePerformIO (newIORef Nothing)
+data LoggerEntry =
+  LoggerEntry
+  { _loggerSet  :: !LoggerSet
+  , _loggerTr   :: LogStr -> LogStr
+  }
+
+makeLenses 'LoggerEntry
+
+asIs :: a -> a
+asIs = id
+
+{-# OPTIONS_GHC -fno-cse #-}
 {-# NOINLINE loggers #-}
-
+loggers :: IORef (IntMap LoggerEntry)
+loggers = unsafePerformIO $ newIORef mempty
 
 withSimpleLogger :: IO () -> IO ()
 withSimpleLogger program = do
-  set <- newStdoutLoggerSet 10000
-  void $ atomicModifyIORef' loggers $ \case
-    Nothing -> (Just set, Just set)
-    Just s  -> (Just s, Just s)
-  program
-  withLogger flushLogStr
+  void program
+  lo <- readIORef loggers <&> IntMap.elems
+  for_ lo (flushLogStr . view loggerSet)
 
-withLogger :: MonadIO m => (LoggerSet -> m b) -> m ()
+setLogging :: forall a m . (MonadIO m, HasLogLevel a)
+           => (LoggerEntry -> LoggerEntry)
+           -> m ()
+
+setLogging f = do
+  se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
+  let def = f (LoggerEntry se id)
+  let key = logKey @a
+  void $ liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, ()))
+
+withLogger :: forall a m . (HasLogLevel a, MonadIO m) => (LoggerEntry -> m ()) -> m ()
 withLogger f = do
-  lo <- liftIO $ readIORef loggers
-  forM_ lo f
+  lo <- liftIO $ readIORef loggers <&> IntMap.lookup (logKey @a)
+  maybe (pure ()) f lo
+
+log :: forall a s m . (MonadIO m, HasLogLevel a, ToLogStr s) => s -> m ()
+log s = liftIO $ withLogger @a
+               $ \le -> pushLogStrLn (view loggerSet le)
+                                     (view loggerTr le (toLogStr s))
 
 debug :: (MonadIO m, ToLogStr a) => a -> m ()
-debug s = do
-  liftIO $ withLogger $ \set -> pushLogStrLn set (toLogStr s)
+debug = log @DEBUG
 
+warn :: (MonadIO m, ToLogStr a) => a -> m ()
+warn = log @WARN
 
-instance {-# OVERLAPPABLE #-} Pretty a => ToLogStr a where
-  toLogStr p = toLogStr (show (pretty p))
+err :: (MonadIO m, ToLogStr a) => a -> m ()
+err = log @ERROR
 
+notice :: (MonadIO m, ToLogStr a) => a -> m ()
+notice = log @NOTICE
+
+info :: (MonadIO m, ToLogStr a) => a -> m ()
+info = log @INFO
+
+-- instance {-# OVERLAPPABLE #-} Pretty a => ToLogStr a where
+--   toLogStr p = toLogStr (show (pretty p))
 
 instance {-# OVERLAPPABLE #-} ToLogStr (Doc ann) where
   toLogStr p = toLogStr (show p)

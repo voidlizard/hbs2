@@ -64,7 +64,6 @@ sendPing :: forall e m . ( MonadIO m
 sendPing pip = do
   nonce <- newNonce @(PeerHandshake e)
   update nonce (PeerHandshakeKey pip) id
-  liftIO $ print $ "sendPing" <+>  pretty pip <+> pretty (AsBase58 nonce)
   request pip (PeerPing @e nonce)
 
 peerHandShakeProto :: forall e m . ( MonadIO m
@@ -87,7 +86,6 @@ peerHandShakeProto =
       pip <- thatPeer proto
       -- TODO: взять свои ключи
       creds <- getCredentials @e
-      liftIO $ print $ "PING" <+> pretty pip <+> pretty (AsBase58 nonce)
 
       -- TODO: подписать нонс
       let sign = makeSign @e (view peerSignSk creds) nonce
@@ -108,13 +106,10 @@ peerHandShakeProto =
       se' <- find @e (PeerHandshakeKey pip) id
 
       maybe1 se' (pure ()) $ \nonce -> do
-        liftIO $ print $ pretty "PONG" <+> pretty (AsBase58 nonce)
 
         let pk = view peerSignKey d
 
         let signed = verifySign @e pk sign nonce
-
-        liftIO $ print $ "SIGNED: " <+> pretty signed
 
         expire (PeerHandshakeKey pip)
 
