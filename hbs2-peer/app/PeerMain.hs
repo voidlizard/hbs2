@@ -83,11 +83,13 @@ deriving stock instance Eq (SessionKey UDP (BlockChunks UDP))
 main :: IO ()
 main = do
 
-  setLogging @DEBUG  asIs
-  -- setLogging @INFO   asIs
-  -- setLogging @ERROR  asIs
-  -- setLogging @WARN   asIs
-  -- setLogging @NOTICE asIs
+  sodiumInit
+
+  setLogging @DEBUG  (set loggerTr ("[debug] " <>))
+  setLogging @INFO   asIs
+  setLogging @ERROR  asIs
+  setLogging @WARN   asIs
+  setLogging @NOTICE asIs
 
   withSimpleLogger runCLI
 
@@ -212,9 +214,6 @@ instance ( Monad m
 runPeer :: PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
-  debug "STARTED!"
-
-  sodiumInit
 
   rpcQ <- newTQueueIO @RPCCommand
 
@@ -227,7 +226,7 @@ runPeer opts = Exception.handle myException $ do
 
   pc <- pure pc' `orDie` "can't parse credential file"
 
-  debug $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
+  notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
 
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
 
@@ -243,7 +242,7 @@ runPeer opts = Exception.handle myException $ do
 
                            `orDie` "assertion: localMulticastPeer not set"
 
-  debug $ pretty localMulticast
+  notice $ "multicast:" <+> pretty localMulticast
 
   mess <- newMessagingUDP False (Just (view listenOn opts))
             `orDie` "unable listen on the given addr"
