@@ -1,7 +1,7 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 {-# Language FunctionalDependencies #-}
--- {-# Language AllowAmbiguousTypes #-}
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer where
 
 import HBS2.Actors
@@ -21,6 +21,7 @@ import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString qualified as BS
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
@@ -38,6 +39,7 @@ import Data.Hashable (hash)
 import Codec.Serialise (serialise, deserialiseOrFail)
 
 import Prettyprinter hiding (pipe)
+
 
 data AnyStorage = forall zu . (Block ByteString ~ ByteString, Storage zu HbSync ByteString IO) => AnyStorage zu
 
@@ -66,6 +68,8 @@ data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
+class HasPeerNonce e m where
+  peerNonce :: m PeerNonce
 
 class Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
 
@@ -125,6 +129,7 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 data PeerEnv e =
   PeerEnv
   { _envSelf         :: Peer e
+  , _envPeerNonce    :: PeerNonce
   , _envFab          :: Fabriq e
   , _envStorage      :: AnyStorage
   , _envPeerLocator  :: AnyPeerLocator e
@@ -182,9 +187,8 @@ instance Monad m => HasFabriq e (PeerM e m) where
 instance Monad m => HasStorage (PeerM e m) where
   getStorage = asks (view envStorage)
 
--- instance Monad m => HasKeys 'Sign e (PeerM e m) where
---   getPrivateKey = asks (view (envCred . peerSignSk))
---   getPublicKey  = asks (view (envCred . peerSignPk))
+instance Monad m => HasPeerNonce e (PeerM e m) where
+  peerNonce = asks (view envPeerNonce)
 
 instance ( MonadIO m
          -- , HasProtocol e p
@@ -289,8 +293,7 @@ sweep = do
 
   liftIO $ atomically $ modifyTVar' sw (<> HashMap.fromList (mconcat alive))
 
-instance ( HasProtocol e p
-         , Typeable (EventKey e p)
+instance ( Typeable (EventKey e p)
          , Typeable (Event e p)
          , Hashable (EventKey e p)
          , Eq (EventKey e p)
@@ -320,22 +323,41 @@ instance ( HasProtocol e p
 
         void $ liftIO $ atomically $ modifyTVar' se (HashMap.insert sk (mconcat pers))
 
-runPeerM :: forall e m . (MonadIO m, HasPeer e, Ord (Peer e), Pretty (Peer e))
-         => AnyStorage
-         -> Fabriq e
-         -> Peer e
-         -> PeerM e m ()
-         -> m ()
 
-runPeerM s bus p f  = do
+newPeerEnv :: forall e m . ( MonadIO m
+                           , HasPeer e
+                           , Ord (Peer e)
+                           , Pretty (Peer e)
+                           , HasNonces () m
+                           )
+          => AnyStorage
+          -> Fabriq e
+          -> Peer e
+          -> m (PeerEnv e)
+
+newPeerEnv s bus p = do
 
   pl <- AnyPeerLocator <$> newStaticPeerLocator @e mempty
 
-  env <- PeerEnv p bus s pl <$> newPipeline defProtoPipelineSize
-                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                            <*> liftIO (newTVarIO mempty)
-                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                            <*> liftIO (newTVarIO mempty)
+  nonce <- newNonce @()
+
+  PeerEnv p nonce bus s pl <$> newPipeline defProtoPipelineSize
+                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                           <*> liftIO (newTVarIO mempty)
+                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                           <*> liftIO (newTVarIO mempty)
+
+runPeerM :: forall e m . ( MonadIO m
+                         , HasPeer e
+                         , Ord (Peer e)
+                         , Pretty (Peer e)
+                         , HasNonces () m
+                         )
+         => PeerEnv e
+         -> PeerM e m ()
+         -> m ()
+
+runPeerM env f  = do
 
   let de = view envDeferred env
   as <- liftIO $ replicateM 8 $ async $ runPipeline de
@@ -439,4 +461,9 @@ instance ( MonadIO m
 
 instance (Monad m, HasOwnPeer e m) => HasOwnPeer e (ResponseM e m) where
   ownPeer = lift ownPeer
+
+
+instance (Monad m, HasFabriq e m) => HasFabriq e (ResponseM e m) where
+  getFabriq = lift getFabriq
+
 

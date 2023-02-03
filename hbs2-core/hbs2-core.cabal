@@ -71,8 +71,8 @@ library
                     , HBS2.Clock
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
-                    , HBS2.Data.Types.Refs
                     , HBS2.Data.Types.Crypto
+                    , HBS2.Data.Types.Refs
                     , HBS2.Defaults
                     , HBS2.Events
                     , HBS2.Hash
@@ -89,13 +89,15 @@ library
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
                     , HBS2.Net.Proto.Definition
-                    , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.Peer
+                    , HBS2.Net.Proto.PeerAnnounce
+                    , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.Types
                     , HBS2.OrDie
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
+                    , HBS2.System.Logger.Simple
 
 
     -- other-modules:
@@ -114,6 +116,7 @@ library
                     , cryptonite
                     , deepseq
                     , directory
+                    , fast-logger
                     , filelock
                     , filepath
                     , hashable

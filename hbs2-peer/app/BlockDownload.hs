@@ -17,9 +17,9 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.System.Logger.Simple
 
 import PeerInfo
-import Logger
 
 import Data.Foldable hiding (find)
 import Control.Concurrent.Async
@@ -344,8 +344,8 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , Block ByteString ~ ByteString
                                    , PeerMessaging e
                                    )
-                  => m ()
-blockDownloadLoop = do
+                  => DownloadEnv e -> m ()
+blockDownloadLoop env0 = do
 
   e    <- ask
   stor <- getStorage
@@ -361,19 +361,21 @@ blockDownloadLoop = do
 
     npi <- newPeerInfo
 
+    debug $ "known peers" <+> pretty pee
+
     for_ pee $ \p -> do
       pinfo <- fetch True npi (PeerInfoKey p) id
       burst <- liftIO $ readTVarIO (view peerBurst pinfo)
       debug $ "peer" <+> pretty p <+> "burst: " <+> pretty burst
       pure ()
 
-  runDownloadM @e $ do
+  withDownload env0 do
 
     env <- ask
 
     let again h = do
           debug $ "block fucked: " <+> pretty h
-          withPeerM e $ withDownload env (addDownload h)
+          withPeerM e $ withDownload env (processBlock h)
 
     mapM_ processBlock blks
 
@@ -390,7 +392,7 @@ blockDownloadLoop = do
 
           liftIO $ race ( pause defBlockWaitMax >> again h ) do
             withPeerM e $ withDownload env $ do -- NOTE: really crazy shit
-              withFreePeer p (addDownload h >> pause (0.1 :: Timeout 'Seconds)) do
+              withFreePeer p (processBlock h >> pause (0.1 :: Timeout 'Seconds)) do
                 downloadFromWithPeer p h
 
       next

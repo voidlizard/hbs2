@@ -17,14 +17,18 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
+import HBS2.System.Logger.Simple
 
 import RPC
 import BlockDownload
 
+import Data.Maybe
+import Crypto.Saltine (sodiumInit)
 import Data.Function
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -42,9 +46,6 @@ import System.Directory
 import System.Exit
 import System.IO
 
-debug :: (MonadIO m) => Doc ann -> m ()
-debug p = liftIO $ hPrint stderr p
-
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
 
@@ -61,6 +62,7 @@ data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
   | PING (PeerAddr UDP)
+  | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
 
 data PeerOpts =
   PeerOpts
@@ -186,9 +188,18 @@ instance ( Monad m
 
   response = lift . response
 
-runPeer :: () =>  PeerOpts -> IO ()
-runPeer opts = Exception.handle myException $ do
 
+-- FIXME: Нормальные синхронизированные логи. Можно даже цветные.
+--        Ориентированные на Prettyprinter.
+--        Без лишнего мусора.
+
+-- FIXME: Убрать хардкод UDP отовсюду ниже.
+--        Вынести  в сигнатуру.
+
+runPeer :: PeerOpts -> IO ()
+runPeer opts = Exception.handle myException $ withSimpleLogger do
+
+  sodiumInit
 
   rpcQ <- newTQueueIO @RPCCommand
 
@@ -217,6 +228,8 @@ runPeer opts = Exception.handle myException $ do
 
                            `orDie` "assertion: localMulticastPeer not set"
 
+  debug $ pretty localMulticast
+
   mess <- newMessagingUDP False (Just (view listenOn opts))
             `orDie` "unable listen on the given addr"
 
@@ -235,22 +248,39 @@ runPeer opts = Exception.handle myException $ do
   messMcast <- async $ runMessagingUDP mcast
                  `catch` (\(e::SomeException) -> throwIO e )
 
+  denv <- newDownloadEnv
+
+  penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
+
   loop <- async do
 
-            runPeerM (AnyStorage s) (Fabriq mess) (getOwnPeer mess) $ do
+            runPeerM penv $ do
               adapter <- mkAdapter
               env <- ask
+
+              pnonce <- peerNonce @UDP
 
               pl <- getPeerLocator @UDP
 
               addPeers @UDP pl ps
+
+              subscribe @UDP PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent pip nonce) -> do
+                unless (nonce == pnonce) $ do
+                  debug $ "Got peer announce!" <+> pretty pip
+                  known <- find (KnownPeerKey pip) id <&> isJust
+                  unless known $ sendPing pip
 
               subscribe @UDP KnownPeerEventKey $ \(KnownPeerEvent p d) -> do
                 addPeers pl [p]
                 debug $ "Got authorized peer!" <+> pretty p
                                                <+> pretty (AsBase58 (view peerSignKey d))
 
-              as <- liftIO $ async $ withPeerM env blockDownloadLoop
+              void $ liftIO $ async $ withPeerM env $ forever $ do
+                pause defPeerAnnounceTime -- FIXME: setting!
+                debug "sending local peer announce"
+                request localMulticast (PeerAnnounce @UDP pnonce)
+
+              as <- liftIO $ async $ withPeerM env (blockDownloadLoop denv)
 
               rpc <- liftIO $ async $ withPeerM env $ forever $ do
                         cmd <- liftIO $ atomically $ readTQueue rpcQ
@@ -269,7 +299,32 @@ runPeer opts = Exception.handle myException $ do
 
                             maybe1 mbsize (pure ()) $ \size -> do
                               let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
-                              request localMulticast (BlockAnnounce @UDP ann)
+                              no <- peerNonce @UDP
+                              request localMulticast (BlockAnnounce @UDP no ann)
+
+                          CHECK nonce pa h -> do
+                            pip <- fromPeerAddr @UDP pa
+
+                            n1 <- peerNonce @UDP
+
+                            unless (nonce == n1) do
+
+                              peer <- find @UDP (KnownPeerKey pip) id
+
+                              debug $ "received announce from"
+                                            <+> pretty pip
+                                            <+> pretty h
+
+                              case peer of
+                                Nothing -> sendPing @UDP pip
+                                Just{}  -> do
+                                  debug "announce from a known peer"
+                                  debug "preparing to dowload shit"
+                                  debug "checking policy, blah-blah-blah. tomorrow"
+
+                                  withDownload denv $ do
+                                    processBlock h
+
 
               me <- liftIO $ async $ withPeerM env $ do
                 runProto @UDP
@@ -300,17 +355,24 @@ runPeer opts = Exception.handle myException $ do
                      [ makeResponse (rpcHandler arpc)
                      ]
 
-  ann <- async $ runPeerM (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast) $ do
+  menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
+
+  ann <- async $ runPeerM menv $ do
 
                    self <- ownPeer @UDP
 
-                   subscribe @UDP BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi) -> do
+                   subscribe @UDP BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                     unless (p == self) do
-                      debug $ "announce" <+> pretty p
-                                         <+> pretty (view biHash bi)
+                      pa <- toPeerAddr p
+                      liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
+
+                   subscribe @UDP PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent pip nonce) -> do
+                      -- debug $ "Got peer announce!" <+> pretty pip
+                      emitToPeer penv PeerAnnounceEventKey pe
 
                    runProto @UDP
                      [ makeResponse blockAnnounceProto
+                     , makeResponse peerAnnounceProto
                      ]
 
   void $ waitAnyCatchCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast]
@@ -318,8 +380,19 @@ runPeer opts = Exception.handle myException $ do
   simpleStorageStop s
 
 
+
+emitToPeer :: ( MonadIO m
+              , EventEmitter e a (PeerM e IO)
+              )
+           => PeerEnv e
+           -> EventKey e a
+           -> Event e a
+           -> m ()
+
+emitToPeer env k e = liftIO $ withPeerM env (emit k e)
+
 withRPC :: String -> RPC UDP -> IO ()
-withRPC saddr cmd = do
+withRPC saddr cmd = withSimpleLogger do
 
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
@@ -361,4 +434,6 @@ runRpcCommand saddr = \case
   POKE -> withRPC saddr (RPCPoke @UDP)
   PING s -> withRPC saddr (RPCPing s)
   ANNOUNCE h -> withRPC saddr (RPCAnnounce @UDP h)
+
+  _ -> pure ()
 

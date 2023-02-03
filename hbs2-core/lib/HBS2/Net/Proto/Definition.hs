@@ -14,6 +14,7 @@ import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Defaults
 
 import Data.Functor
@@ -24,6 +25,7 @@ import Codec.Serialise (deserialiseOrFail,serialise,Serialise(..))
 import Crypto.Saltine.Core.Box qualified as Crypto
 import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Sign qualified as Sign
+
 
 type instance PubKey  'Sign e = Sign.PublicKey
 type instance PrivKey 'Sign e = Sign.SecretKey
@@ -57,6 +59,13 @@ instance HasProtocol UDP (PeerHandshake UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (PeerAnnounce UDP) where
+  type instance ProtocolId (PeerAnnounce UDP) = 5
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+
 instance Expires (SessionKey UDP (BlockInfo UDP)) where
   expiresIn _ = Just defCookieTimeoutSec
 
@@ -75,12 +84,21 @@ instance Expires (SessionKey UDP (KnownPeer UDP)) where
 instance Expires (SessionKey UDP (PeerHandshake UDP)) where
   expiresIn _ = Just 10
 
+instance Expires (EventKey UDP (PeerAnnounce UDP)) where
+  expiresIn _ = Nothing
+
+
 instance MonadIO m => HasNonces (PeerHandshake UDP) m where
   type instance Nonce (PeerHandshake UDP) = BS.ByteString
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
+instance MonadIO m => HasNonces () m where
+  type instance Nonce () = BS.ByteString
+  newNonce = do
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+    pure $ BS.take 32 n
 
 instance Serialise Sign.Signature
 

@@ -38,6 +38,7 @@ common common-deps
         , random
         , random-shuffle
         , safe
+        , saltine ^>=0.2.0.1
         , serialise
         , split
         , stm
@@ -102,7 +103,6 @@ executable hbs2-peer
 
     other-modules:    BlockDownload
                     , PeerInfo
-                    , Logger
                     , RPC
 
     -- other-extensions:

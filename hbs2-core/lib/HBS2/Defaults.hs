@@ -13,11 +13,11 @@ defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536
 
 defBurst :: Integral a => a
-defBurst = 64
+defBurst = 16
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
-defChunkSize = 1024
+defChunkSize = 1200
 
 defBlockSize :: Integer
 defBlockSize =  256 * 1024
@@ -42,7 +42,7 @@ defProtoPipelineSize :: Int
 defProtoPipelineSize = 65536*4
 
 defCookieTimeoutSec :: Timeout 'Seconds
-defCookieTimeoutSec = 120
+defCookieTimeoutSec = 1200
 
 defCookieTimeout :: TimeSpec
 defCookieTimeout = toTimeSpec defCookieTimeoutSec
@@ -52,14 +52,17 @@ defBlockInfoTimeout = 2
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 3 :: Timeout 'Seconds
+defBlockWaitMax = 5.0 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 1 :: Timeout 'Seconds
+defChunkWaitMax = 1.0 :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 30 -- FIXME: only for debug!
 
+-- FIXME: debug only!
+defPeerAnnounceTime :: Timeout 'Seconds
+defPeerAnnounceTime = 30
 
 

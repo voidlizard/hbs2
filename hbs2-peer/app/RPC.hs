@@ -2,25 +2,16 @@
 {-# Language UndecidableInstances #-}
 module RPC where
 
-
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
 import HBS2.Hash
-import HBS2.Net.Messaging
 import HBS2.Net.Messaging.UDP
 import HBS2.Actors.Peer
-import HBS2.Defaults
 
-import Logger
-
-import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
-import Codec.Serialise (serialise, deserialiseOrFail,Serialise)
+import Codec.Serialise (serialise,deserialiseOrFail)
 import Lens.Micro.Platform
-import Data.Text (Text)
-
-import Prettyprinter
 
 data RPC e =
     RPCPoke

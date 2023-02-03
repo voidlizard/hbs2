@@ -5,15 +5,13 @@ module HBS2.Net.Proto.Peer where
 import HBS2.Base58
 import HBS2.Data.Types
 import HBS2.Events
-import HBS2.Net.Auth.Credentials
-import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 
+import Data.Maybe
 import Codec.Serialise()
-import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
 import Data.Hashable
 import Lens.Micro.Platform
@@ -31,9 +29,6 @@ newtype PeerData e =
   deriving stock (Typeable,Generic)
 
 makeLenses 'PeerData
-
-newtype PeerAnnounce e =  PeerAnnounce (PeerData e)
-                          deriving stock (Generic)
 
 data PeerHandshake e =
     PeerPing  PingNonce
@@ -74,6 +69,7 @@ sendPing pip = do
 
 peerHandShakeProto :: forall e m . ( MonadIO m
                                    , Response e (PeerHandshake e) m
+                                   , Request e (PeerHandshake e) m
                                    , Sessions e (PeerHandshake e) m
                                    , Sessions e (KnownPeer e) m
                                    , HasNonces (PeerHandshake e) m
@@ -98,6 +94,13 @@ peerHandShakeProto =
 
       -- TODO: отправить обратно вместе с публичным ключом
       response (PeerPong @e sign (PeerData (view peerSignPk creds)))
+
+      -- TODO: да и пингануть того самим
+
+      se <- find (KnownPeerKey pip) id <&> isJust
+
+      unless se $ do
+        sendPing pip
 
     PeerPong sign d -> do
       pip <- thatPeer proto

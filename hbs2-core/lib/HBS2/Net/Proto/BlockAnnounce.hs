@@ -1,4 +1,5 @@
 {-# Language TemplateHaskell #-}
+{-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.BlockAnnounce where
 
 import HBS2.Prelude.Plated
@@ -38,10 +39,10 @@ instance Serialise BlockInfoNonce
 instance Serialise (BlockAnnounceInfo e)
 
 
-newtype BlockAnnounce e = BlockAnnounce (BlockAnnounceInfo e)
-                          deriving stock (Eq,Generic,Show)
+data BlockAnnounce e = BlockAnnounce PeerNonce (BlockAnnounceInfo e)
+                       deriving stock (Generic)
 
-instance Serialise (BlockAnnounce e)
+instance Serialise PeerNonce => Serialise (BlockAnnounce e)
 
 
 makeLenses ''BlockAnnounceInfo
@@ -53,16 +54,16 @@ blockAnnounceProto :: forall e m  . ( MonadIO m
                                     ) => BlockAnnounce e -> m ()
 blockAnnounceProto =
   \case
-    BlockAnnounce info -> do
+    BlockAnnounce n info -> do
       that <- thatPeer (Proxy @(BlockAnnounce e))
-      emit @e BlockAnnounceInfoKey (BlockAnnounceEvent that info)
+      emit @e BlockAnnounceInfoKey (BlockAnnounceEvent that info n)
 
 data instance EventKey e (BlockAnnounce e) =
   BlockAnnounceInfoKey
   deriving stock (Typeable, Eq,Generic)
 
 data instance Event e (BlockAnnounce e) =
-  BlockAnnounceEvent (Peer e) (BlockAnnounceInfo e)
+  BlockAnnounceEvent (Peer e) (BlockAnnounceInfo e) PeerNonce
   deriving stock (Typeable)
 
 instance Typeable (BlockAnnounceInfo e) => Hashable (EventKey e (BlockAnnounce e)) where
@@ -72,6 +73,5 @@ instance Typeable (BlockAnnounceInfo e) => Hashable (EventKey e (BlockAnnounce e
 
 instance EventType ( Event e ( BlockAnnounce e) ) where
   isPersistent = True
-
 
 

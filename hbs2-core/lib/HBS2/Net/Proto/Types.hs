@@ -47,6 +47,7 @@ class HasCookie e p | p -> e where
   getCookie :: p -> Maybe (Cookie e)
   getCookie = const Nothing
 
+type PeerNonce = Nonce ()
 
 data PeerCredentials e =
   PeerCredentials

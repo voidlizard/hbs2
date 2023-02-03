@@ -33,10 +33,10 @@ data family Event e a    :: Type
 
 type EventHandler e a m = Event e a -> m ()
 
-class Monad m => EventListener e a m | a -> e where
+class Monad m => EventListener e a m where
   subscribe  :: EventKey e a -> EventHandler e a m -> m ()
 
-class Monad m => EventEmitter e a m | a -> e where
+class Monad m => EventEmitter e a m where
   emit  :: EventKey e a -> Event e a ->  m ()
 
 class EventType a  where
