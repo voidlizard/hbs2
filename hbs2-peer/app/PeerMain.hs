@@ -88,7 +88,7 @@ main = do
   sodiumInit
 
   setLogging @DEBUG  (set loggerTr ("[debug] " <>))
-  setLogging @INFO   (set loggerTr ("[info] " <>))
+  setLogging @INFO   defLog
   setLogging @ERROR  (set loggerTr ("[error] " <>))
   setLogging @WARN   (set loggerTr ("[warn] " <>))
   setLogging @NOTICE (set loggerTr ("[notice] " <>))
@@ -472,7 +472,7 @@ withRPC saddr cmd = do
                       RPCPing{} -> do
                         void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
                                  pa <- liftIO $ atomically $ readTQueue pingQ
-                                 notice $ "pong from" <+> pretty pa
+                                 Log.info $ "pong from" <+> pretty pa
                                  exitSuccess
 
                       _ -> pure ()
