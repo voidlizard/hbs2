@@ -18,6 +18,7 @@ data RPC e =
   | RPCPing (PeerAddr e)
   | RPCPokeAnswer
   | RPCAnnounce (Hash HbSync)
+  | RPCFetch (Hash HbSync)
   deriving stock (Generic)
 
 
@@ -44,6 +45,7 @@ data RpcAdapter e m =
   , rpcOnPokeAnswer  :: RPC e -> m ()
   , rpcOnAnnounce    :: Hash HbSync -> m ()
   , rpcOnPing        :: PeerAddr e -> m ()
+  , rpcOnFetch       :: Hash HbSync -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -85,4 +87,5 @@ rpcHandler adapter = \case
     p@RPCPokeAnswer{} -> rpcOnPokeAnswer adapter p
     (RPCAnnounce h)   -> rpcOnAnnounce adapter h
     (RPCPing pa)      -> rpcOnPing adapter pa
+    (RPCFetch h)      -> rpcOnFetch adapter h
 

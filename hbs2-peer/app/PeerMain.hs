@@ -65,6 +65,7 @@ data RPCCommand =
   | ANNOUNCE (Hash HbSync)
   | PING (PeerAddr UDP)
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
+  | FETCH (Hash HbSync)
 
 data PeerOpts =
   PeerOpts
@@ -86,10 +87,10 @@ main = do
   sodiumInit
 
   setLogging @DEBUG  (set loggerTr ("[debug] " <>))
-  setLogging @INFO   asIs
-  setLogging @ERROR  asIs
-  setLogging @WARN   asIs
-  setLogging @NOTICE asIs
+  setLogging @INFO   defLog
+  setLogging @ERROR  defLog
+  setLogging @WARN   defLog
+  setLogging @NOTICE defLog
 
   withSimpleLogger runCLI
 
@@ -106,6 +107,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
+                        <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         )
 
     common = do
@@ -144,6 +146,11 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (ANNOUNCE h)
+
+    pFetch = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "HASH" )
+      pure $ runRpcCommand rpc (FETCH h)
 
     pPing = do
       rpc <- pRpcCommon
@@ -289,6 +296,12 @@ runPeer opts = Exception.handle myException $ do
                 debug $ "Got authorized peer!" <+> pretty p
                                                <+> pretty (AsBase58 (view peerSignKey d))
 
+
+              void $ liftIO $ async $ withPeerM env do
+                pause @'Seconds 1
+                debug "sending first peer announce"
+                request localMulticast (PeerAnnounce @UDP pnonce)
+
               void $ liftIO $ async $ withPeerM env $ forever $ do
                 pause defPeerAnnounceTime -- FIXME: setting!
                 debug "sending local peer announce"
@@ -339,6 +352,8 @@ runPeer opts = Exception.handle myException $ do
                                   withDownload denv $ do
                                     processBlock h
 
+                          _ -> pure ()
+
 
               me <- liftIO $ async $ withPeerM env $ do
                 runProto @UDP
@@ -359,10 +374,16 @@ runPeer opts = Exception.handle myException $ do
   let pingAction pa = do
         liftIO $ atomically $ writeTQueue rpcQ (PING pa)
 
+  let fetchAction h = do
+        debug  $ "fetchAction" <+> pretty h
+        liftIO $ withPeerM penv
+               $ withDownload denv (processBlock h)
+
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
                         pingAction
+                        fetchAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @UDP
@@ -408,12 +429,6 @@ emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 withRPC :: String -> RPC UDP -> IO ()
 withRPC saddr cmd = withSimpleLogger do
 
-  setLogging @DEBUG  asIs
-  setLogging @INFO   asIs
-  setLogging @ERROR  asIs
-  setLogging @WARN   asIs
-  setLogging @NOTICE asIs
-
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
 
@@ -437,6 +452,8 @@ withRPC saddr cmd = withSimpleLogger do
 
                       RPCPing{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
+                      RPCFetch{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
@@ -445,15 +462,17 @@ withRPC saddr cmd = withSimpleLogger do
 
   where
     adapter = RpcAdapter dontHandle
-                         (const $ debug "alive-and-kicking" >> liftIO exitSuccess)
+                         (const $ notice "alive-and-kicking" >> liftIO exitSuccess)
                          (const $ liftIO exitSuccess)
                          (const $ debug "wat?")
+                         dontHandle
 
 runRpcCommand :: String -> RPCCommand -> IO ()
 runRpcCommand saddr = \case
   POKE -> withRPC saddr (RPCPoke @UDP)
   PING s -> withRPC saddr (RPCPing s)
   ANNOUNCE h -> withRPC saddr (RPCAnnounce @UDP h)
+  FETCH h  -> withRPC saddr (RPCFetch @UDP h)
 
   _ -> pure ()
 

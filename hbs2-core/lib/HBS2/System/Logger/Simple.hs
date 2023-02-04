@@ -12,7 +12,7 @@ module HBS2.System.Logger.Simple
   , notice
   , info
   , setLogging
-  , asIs
+  , defLog
   , loggerTr
   , module HBS2.System.Logger.Simple.Class
   ) where
@@ -39,8 +39,8 @@ data LoggerEntry =
 
 makeLenses 'LoggerEntry
 
-asIs :: a -> a
-asIs = id
+defLog :: a -> a
+defLog = id
 
 {-# OPTIONS_GHC -fno-cse #-}
 {-# NOINLINE loggers #-}

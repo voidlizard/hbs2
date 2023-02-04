@@ -13,7 +13,10 @@ defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536
 
 defBurst :: Integral a => a
-defBurst = 16
+defBurst = 4
+
+defBurstMax :: Integral a => a
+defBurstMax = 256
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
@@ -46,6 +49,9 @@ defCookieTimeoutSec = 1200
 
 defCookieTimeout :: TimeSpec
 defCookieTimeout = toTimeSpec defCookieTimeoutSec
+
+defBlockWipTimeout :: TimeSpec
+defBlockWipTimeout = toTimeSpec defCookieTimeoutSec
 
 defBlockInfoTimeout :: Timeout 'Seconds
 defBlockInfoTimeout = 2

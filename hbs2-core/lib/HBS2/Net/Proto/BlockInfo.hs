@@ -44,7 +44,6 @@ blockSizeProto getBlockSize evHasBlock =
       emit @e (BlockSizeEventKey h) (BlockSizeEvent (that, h, sz))
       evHasBlock ( that, h, Just sz )
 
-
 newtype instance SessionKey e (BlockInfo e) =
   BlockSizeKey (Hash HbSync)
   deriving stock (Typeable,Eq,Show)
