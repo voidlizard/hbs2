@@ -226,13 +226,7 @@ processBlock h = do
            if here then do
              debug $ "block" <+> pretty blk <+> "is already here"
              processBlock blk -- NOTE: хуже не стало
-             -- FIXME: processBlock h
-             --        может быть, в этом причина того,
-             --        что мы периодически не докачиваем?
-             --
-             --        может быть, нужно рекурсировать, что бы
-             --        посмотреть, что это за блок и что у нас
-             --        из него есть?
+                              -- FIXME:  fugure out if it's really required
 
              pure () -- we don't need to recurse, cause walkMerkle is recursing for us
 
@@ -401,13 +395,12 @@ updatePeerInfo pinfo = do
 
           let bu1 = if down - downLast > 0 then
                       max 1 $ min defBurstMax
-                              $ ceiling
                               $ if eps == 0 then
-                                   realToFrac bu * 1.05 -- FIXME: to defaults
+                                   ceiling $ realToFrac bu * 1.05 -- FIXME: to defaults
                                  else
-                                   realToFrac bu * 0.65
+                                   floor $ realToFrac bu * 0.65
                     else
-                      max defBurst $ ceiling (realToFrac bu * 0.65)
+                      max defBurst $ floor (realToFrac bu * 0.65)
 
           writeTVar (view peerErrorsLast pinfo) errs
           writeTVar (view peerLastWatched pinfo) t1
@@ -527,17 +520,6 @@ blockDownloadLoop env0 = do
             for_ pips $ \pip -> request pip (GetBlockSize @e h)
 
         p  <- knownPeers @e pl >>= liftIO . shuffleM
-
-          -- FIXME: нам не повезло с пиром => сидим ждём defBlockWaitMax и скачивание
-          --        простаивает.
-          --
-          --        Нужно: сначала запросить всех у кого есть блок.
-          --        Потом выбрать победителей и попытаться скачать
-          --        у них, запомнив размер в кэше.
-          --
-          --        Когда находим блоки -- то сразу же асинхронно запрашиваем
-          --        размеры, что бы по приходу сюда они уже были
-
 
         -- debug $ "known peers" <+> pretty p
         -- debug $ "peers/blocks" <+> pretty peers

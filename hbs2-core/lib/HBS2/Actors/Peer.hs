@@ -247,8 +247,7 @@ instance ( MonadIO m
     sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 
-instance ( HasProtocol e p
-         , Typeable (EventHandler e p (PeerM e IO))
+instance ( Typeable (EventHandler e p (PeerM e IO))
          , Typeable (EventKey e p)
          , Typeable (Event e p)
          , Hashable (EventKey e p)

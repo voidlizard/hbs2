@@ -16,6 +16,7 @@ import Lens.Micro.Platform
 data RPC e =
     RPCPoke
   | RPCPing (PeerAddr e)
+  | RPCPong (PeerAddr e)
   | RPCPokeAnswer
   | RPCAnnounce (Hash HbSync)
   | RPCFetch (Hash HbSync)
@@ -45,6 +46,7 @@ data RpcAdapter e m =
   , rpcOnPokeAnswer  :: RPC e -> m ()
   , rpcOnAnnounce    :: Hash HbSync -> m ()
   , rpcOnPing        :: PeerAddr e -> m ()
+  , rpcOnPong        :: PeerAddr e -> m ()
   , rpcOnFetch       :: Hash HbSync -> m ()
   }
 
@@ -86,6 +88,7 @@ rpcHandler adapter = \case
     p@RPCPoke{}       -> rpcOnPoke adapter p >> response (RPCPokeAnswer @e)
     p@RPCPokeAnswer{} -> rpcOnPokeAnswer adapter p
     (RPCAnnounce h)   -> rpcOnAnnounce adapter h
-    (RPCPing pa)      -> rpcOnPing adapter pa
+    (RPCPing pa)    -> rpcOnPing adapter pa
+    (RPCPong pa)      -> rpcOnPong adapter pa
     (RPCFetch h)      -> rpcOnFetch adapter h
 

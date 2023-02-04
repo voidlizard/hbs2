@@ -77,6 +77,7 @@ peerHandShakeProto :: forall e m . ( MonadIO m
                                    , Pretty (Peer e)
                                    , HasCredentials e m
                                    , EventEmitter e (PeerHandshake e) m
+                                   , EventEmitter e (ConcretePeer e) m
                                    )
                    => PeerHandshake e -> m ()
 
@@ -115,14 +116,27 @@ peerHandShakeProto =
 
         update (KnownPeer d) (KnownPeerKey pip) id
 
-        emit KnownPeerEventKey (KnownPeerEvent pip d)
+        emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
+        emit (ConcretePeerKey pip) (ConcretePeerData pip d)
 
   where
     proto = Proxy @(PeerHandshake e)
 
+data ConcretePeer e = ConcretePeer
+
+newtype instance EventKey e (ConcretePeer e) =
+  ConcretePeerKey (Peer e)
+  deriving stock (Generic)
+
+deriving stock instance (Eq (Peer e)) => Eq (EventKey e (ConcretePeer e))
+instance (Hashable (Peer e)) => Hashable (EventKey e (ConcretePeer e))
+
+data instance Event e (ConcretePeer e) =
+  ConcretePeerData (Peer e) (PeerData e)
+  deriving stock (Typeable)
 
 data instance EventKey e (PeerHandshake e) =
-  KnownPeerEventKey
+  AnyKnownPeerEventKey
   deriving stock (Typeable, Eq,Generic)
 
 data instance Event e (PeerHandshake e) =
@@ -139,6 +153,9 @@ instance EventType ( Event e ( PeerHandshake e) ) where
 
 instance Expires (EventKey e (PeerHandshake e)) where
   expiresIn _ = Nothing
+
+instance Expires (EventKey e (ConcretePeer e)) where
+  expiresIn _ = Just 10
 
 instance Hashable (Peer e) => Hashable (EventKey e (PeerHandshake e))
 

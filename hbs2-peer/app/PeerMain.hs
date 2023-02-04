@@ -63,7 +63,7 @@ defLocalMulticast = "239.192.152.145:10153"
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
-  | PING (PeerAddr UDP)
+  | PING (PeerAddr UDP) (Maybe (Peer UDP))
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
 
@@ -155,7 +155,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pPing = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
-      pure $ runRpcCommand rpc (PING h)
+      pure $ runRpcCommand rpc (PING h Nothing)
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -291,7 +291,7 @@ runPeer opts = Exception.handle myException $ do
                   known <- find (KnownPeerKey pip) id <&> isJust
                   unless known $ sendPing pip
 
-              subscribe @UDP KnownPeerEventKey $ \(KnownPeerEvent p d) -> do
+              subscribe @UDP AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
                 addPeers pl [p]
                 debug $ "Got authorized peer!" <+> pretty p
                                                <+> pretty (AsBase58 (view peerSignKey d))
@@ -314,9 +314,15 @@ runPeer opts = Exception.handle myException $ do
                         case cmd of
                           POKE -> debug "on poke: alive and kicking!"
 
-                          PING s -> do
-                            debug $ "ping" <+> pretty s
-                            pip <- fromPeerAddr @UDP s
+                          PING pa r -> do
+                            debug $ "ping" <+> pretty pa
+                            pip <- fromPeerAddr @UDP pa
+                            subscribe (ConcretePeerKey pip) $ \(ConcretePeerData{}) -> do
+
+                              maybe1 r (pure ()) $ \rpcPeer -> do
+                                pinged <- toPeerAddr pip
+                                request rpcPeer (RPCPong @UDP pinged)
+
                             sendPing pip
 
                           ANNOUNCE h  -> do
@@ -372,7 +378,8 @@ runPeer opts = Exception.handle myException $ do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
 
   let pingAction pa = do
-        liftIO $ atomically $ writeTQueue rpcQ (PING pa)
+        that <- thatPeer (Proxy @(RPC UDP))
+        liftIO $ atomically $ writeTQueue rpcQ (PING pa (Just that))
 
   let fetchAction h = do
         debug  $ "fetchAction" <+> pretty h
@@ -383,6 +390,7 @@ runPeer opts = Exception.handle myException $ do
                         dontHandle
                         annAction
                         pingAction
+                        dontHandle
                         fetchAction
 
   rpc <- async $ runRPC udp1 do
@@ -427,7 +435,7 @@ emitToPeer :: ( MonadIO m
 emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
 withRPC :: String -> RPC UDP -> IO ()
-withRPC saddr cmd = withSimpleLogger do
+withRPC saddr cmd = do
 
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
@@ -438,11 +446,13 @@ withRPC saddr cmd = withSimpleLogger do
 
   mrpc <- async $ runMessagingUDP udp1
 
+  pingQ <- newTQueueIO
+
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @UDP
-                        [ makeResponse (rpcHandler adapter)
+                        [ makeResponse (rpcHandler (adapter pingQ))
                         ]
 
                     request rpc cmd
@@ -450,9 +460,13 @@ withRPC saddr cmd = withSimpleLogger do
                     case cmd of
                       RPCAnnounce{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
-                      RPCPing{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
-
                       RPCFetch{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
+                      RPCPing{} -> do
+                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
+                                 pa <- liftIO $ atomically $ readTQueue pingQ
+                                 notice $ "pong from" <+> pretty pa
+                                 exitSuccess
 
                       _ -> pure ()
 
@@ -461,16 +475,17 @@ withRPC saddr cmd = withSimpleLogger do
   void $ waitAnyCatchCancel [mrpc, prpc]
 
   where
-    adapter = RpcAdapter dontHandle
-                         (const $ notice "alive-and-kicking" >> liftIO exitSuccess)
-                         (const $ liftIO exitSuccess)
-                         (const $ debug "wat?")
-                         dontHandle
+    adapter q = RpcAdapter dontHandle
+                          (const $ notice "alive-and-kicking" >> liftIO exitSuccess)
+                          (const $ liftIO exitSuccess)
+                          (const $ notice "ping?")
+                          (liftIO . atomically . writeTQueue q)
+                          dontHandle
 
 runRpcCommand :: String -> RPCCommand -> IO ()
 runRpcCommand saddr = \case
   POKE -> withRPC saddr (RPCPoke @UDP)
-  PING s -> withRPC saddr (RPCPing s)
+  PING s _ -> withRPC saddr (RPCPing s)
   ANNOUNCE h -> withRPC saddr (RPCAnnounce @UDP h)
   FETCH h  -> withRPC saddr (RPCFetch @UDP h)
 
