@@ -8,6 +8,8 @@ import Control.Concurrent.STM
 import Data.Set (Set)
 import Data.Set qualified as Set
 
+import Prettyprinter
+
 newtype StaticPeerLocator e =
   StaticPeerLocator (TVar (Set (Peer e)))
 
@@ -17,7 +19,7 @@ newStaticPeerLocator seeds = do
   tv <- liftIO $ newTVarIO (Set.fromList seeds)
   pure $ StaticPeerLocator tv
 
-instance Ord (Peer e) => PeerLocator  e (StaticPeerLocator e)  where
+instance (Ord (Peer e), Pretty (Peer e)) => PeerLocator  e (StaticPeerLocator e)  where
 
   knownPeers (StaticPeerLocator peers) = do
     ps <- liftIO $ readTVarIO  peers

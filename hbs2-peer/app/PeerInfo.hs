@@ -66,12 +66,13 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , Request e (PeerHandshake e) m
                              , Sessions e (PeerHandshake e) m
                              , Sessions e (PeerInfo e) m
+                             , Sessions e (KnownPeer e) m
                              , Pretty (Peer e)
                              , MonadIO m
                              )
              => m ()
 peerPingLoop = forever do
-  pause @'Minutes 2 -- FIXME: defaults
+  pause @'Seconds 120 -- FIXME: defaults
   debug "peerPingLoop"
 
   pl <- getPeerLocator @e
@@ -90,5 +91,5 @@ peerPingLoop = forever do
       warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
       delPeers pl [p]
       expire (PeerInfoKey p)
-
+      expire (KnownPeerKey p)
 
