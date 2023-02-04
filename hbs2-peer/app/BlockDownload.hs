@@ -321,7 +321,7 @@ downloadFromWithPeer peer thisBkSize h = do
         else do
 
             liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
-            updatePeerInfo pinfo
+            updatePeerInfo True pinfo
 
             newBurst <- liftIO $ readTVarIO burstSizeT
 
@@ -377,8 +377,8 @@ instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
   getPeerLocator = lift getPeerLocator
 
 
-updatePeerInfo :: MonadIO m => PeerInfo e -> m ()
-updatePeerInfo pinfo = do
+updatePeerInfo :: MonadIO m => Bool -> PeerInfo e -> m ()
+updatePeerInfo onError pinfo = do
 
   t1 <- liftIO $ getTime MonotonicCoarse
 
@@ -396,14 +396,14 @@ updatePeerInfo pinfo = do
 
           let eps = floor (dE / dT)
 
-          let bu1 = if down - downLast > 0 then
+          let bu1 = if (down - downLast > 0 || onError) then
                       max 1 $ min defBurstMax
                               $ if eps == 0 then
-                                   ceiling $ realToFrac bu * 1.05 -- FIXME: to defaults
+                                   ceiling $ realToFrac bu * 1.10 -- FIXME: to defaults
                                  else
-                                   floor $ realToFrac bu * 0.65
+                                   floor $ realToFrac bu * 0.70
                     else
-                      max defBurst $ floor (realToFrac bu * 0.65)
+                      max defBurst $ floor (realToFrac bu * 0.75)
 
           writeTVar (view peerErrorsLast pinfo) errs
           writeTVar (view peerLastWatched pinfo) t1
@@ -453,7 +453,7 @@ blockDownloadLoop env0 = do
 
     for_ pee $ \p -> do
       pinfo <- fetch True npi (PeerInfoKey p) id
-      updatePeerInfo pinfo
+      updatePeerInfo False pinfo
 
   -- TODO: peer info loop
   void $ liftIO $ async $ forever $ withPeerM e $ do
