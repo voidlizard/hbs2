@@ -28,6 +28,7 @@ import HBS2.System.Logger.Simple qualified as Log
 
 import RPC
 import BlockDownload
+import PeerInfo
 
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
@@ -87,10 +88,10 @@ main = do
   sodiumInit
 
   setLogging @DEBUG  (set loggerTr ("[debug] " <>))
-  setLogging @INFO   defLog
-  setLogging @ERROR  defLog
-  setLogging @WARN   defLog
-  setLogging @NOTICE defLog
+  setLogging @INFO   (set loggerTr ("[info] " <>))
+  setLogging @ERROR  (set loggerTr ("[error] " <>))
+  setLogging @WARN   (set loggerTr ("[warn] " <>))
+  setLogging @NOTICE (set loggerTr ("[notice] " <>))
 
   withSimpleLogger runCLI
 
@@ -293,9 +294,13 @@ runPeer opts = Exception.handle myException $ do
 
               subscribe @UDP AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
                 addPeers pl [p]
+
+                npi    <- newPeerInfo
+                pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                liftIO $ atomically $ writeTVar pfails 0
+
                 debug $ "Got authorized peer!" <+> pretty p
                                                <+> pretty (AsBase58 (view peerSignKey d))
-
 
               void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1
@@ -306,6 +311,8 @@ runPeer opts = Exception.handle myException $ do
                 pause defPeerAnnounceTime -- FIXME: setting!
                 debug "sending local peer announce"
                 request localMulticast (PeerAnnounce @UDP pnonce)
+
+              as <- liftIO $ async $ withPeerM env (peerPingLoop @UDP)
 
               as <- liftIO $ async $ withPeerM env (blockDownloadLoop denv)
 

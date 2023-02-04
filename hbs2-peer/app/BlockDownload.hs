@@ -314,7 +314,10 @@ downloadFromWithPeer peer thisBkSize h = do
 
                                            )
         if not (null catched) then do
-          liftIO $ atomically $ modifyTVar (view peerDownloaded pinfo) (+chunksN)
+          liftIO $ atomically do
+            modifyTVar (view peerDownloaded pinfo) (+chunksN)
+            writeTVar  (view peerPingFailed pinfo) 0
+
         else do
 
             liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ

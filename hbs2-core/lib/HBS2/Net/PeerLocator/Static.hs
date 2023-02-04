@@ -26,5 +26,7 @@ instance Ord (Peer e) => PeerLocator  e (StaticPeerLocator e)  where
   addPeers (StaticPeerLocator peers) new = do
     liftIO $ atomically $ modifyTVar' peers (<> Set.fromList new)
 
+  delPeers (StaticPeerLocator peers) del = do
+    liftIO $ atomically $ modifyTVar' peers (`Set.difference` Set.fromList del)
 
 
