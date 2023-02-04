@@ -16,7 +16,7 @@ defBurst :: Integral a => a
 defBurst = 4
 
 defBurstMax :: Integral a => a
-defBurstMax = 256
+defBurstMax = 128
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
@@ -58,11 +58,11 @@ defBlockInfoTimeout = 2
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 5.0 :: Timeout 'Seconds
+defBlockWaitMax = 2.5 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 1.0 :: Timeout 'Seconds
+defChunkWaitMax = 0.35 :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 30 -- FIXME: only for debug!

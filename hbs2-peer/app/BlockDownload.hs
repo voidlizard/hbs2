@@ -320,10 +320,11 @@ downloadFromWithPeer peer thisBkSize h = do
 
         else do
 
-            liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
+            -- liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
             updatePeerInfo True pinfo
 
-            newBurst <- liftIO $ readTVarIO burstSizeT
+            newBurst' <- liftIO $ readTVarIO burstSizeT
+            let newBurst = floor (realToFrac newBurst' * 0.5 )
 
             liftIO $ atomically $ modifyTVar (view peerDownloaded pinfo) (+chunksN)
 
@@ -401,7 +402,7 @@ updatePeerInfo onError pinfo = do
                               $ if eps == 0 then
                                    ceiling $ realToFrac bu * 1.10 -- FIXME: to defaults
                                  else
-                                   floor $ realToFrac bu * 0.70
+                                   floor $ realToFrac bu * 0.55
                     else
                       max defBurst $ floor (realToFrac bu * 0.75)
 
@@ -445,7 +446,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 0.5
+    pause @'Seconds 5
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
