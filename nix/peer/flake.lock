@@ -112,11 +112,11 @@
         "saltine": "saltine"
       },
       "locked": {
-        "lastModified": 1675594702,
-        "narHash": "sha256-2kxcZZx31qAwDpbB45bFcIPwO5SWx1VtlHZnmKxZPdc=",
+        "lastModified": 1675599025,
+        "narHash": "sha256-ZVOkBwFMpUHyhsdBg8ubv/h43N7phoLqR1lYbgZEeH0=",
         "owner": "voidlizard",
         "repo": "hbs2",
-        "rev": "0a194b2e7c50f79712b11315383c8b510ae41fc8",
+        "rev": "4ab83f0517c0ab465634a15607d3f0dddeaba3e7",
         "type": "github"
       },
       "original": {

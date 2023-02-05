@@ -44,7 +44,9 @@
               networking.firewall.enable = false;
 
               environment.systemPackages = with pkgs; [
-                 inputs.hbs2.packages.${pkgs.system}.hbs2-peer
+                inputs.hbs2.packages.${pkgs.system}.default
+                screen
+                tshark
               ];
 
               # modules = [
