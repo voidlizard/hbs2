@@ -134,7 +134,7 @@ makeMerkle h0 pt f = fst <$> go h0 pt
 walkMerkle' :: (Serialise (MTree a), Monad m)
            => Hash HbSync
            -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
-           -> ( MTree a -> m () )
+           -> ( Either (Hash HbSync) (MTree a) -> m () )
            -> m ()
 
 walkMerkle' root flookup sink = go root
@@ -142,28 +142,20 @@ walkMerkle' root flookup sink = go root
     go hash = do
       t <- (deserialise <$>) <$> flookup hash
       case t of
-        Just n@(MLeaf _) -> sink n
-        Just n@(MNode _ hashes) -> sink n >> traverse_ go hashes
-        Nothing -> pure ()
+        Just n@(MLeaf _) -> sink (Right n)
+        Just n@(MNode _ hashes) -> sink (Right n) >> traverse_ go hashes
+        Nothing -> sink (Left hash)
 
 walkMerkle :: (Serialise (MTree a), Monad m)
            => Hash HbSync
            -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
-           -> ( a -> m () )
+           -> ( Either (Hash HbSync) a -> m () )
            -> m ()
 
 walkMerkle root flookup sink = walkMerkle' root flookup withTree
   where
     withTree = \case
-        (MLeaf s) -> sink s
-        (MNode _ _) -> pure ()
-
--- walkMerkle root flookup sink = go root
---   where
---     go hash = do
---       t <- (deserialise <$>) <$> flookup hash
---       case t of
---         Nothing -> pure ()
---         Just (MLeaf s) -> sink s
---         Just (MNode _ hashes) -> traverse_ go hashes
+        (Right (MLeaf s))   -> sink (Right s)
+        (Right (MNode _ _)) -> pure ()
+        Left hx             -> sink (Left hx)
 

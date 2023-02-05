@@ -215,23 +215,27 @@ processBlock h = do
 
      Just (Merkle{}) -> do
        debug $ "GOT MERKLE. requesting nodes/leaves" <+> pretty h
-       walkMerkle h (liftIO . getBlock sto)  $ \(hr :: [HashRef]) -> do
+       walkMerkle h (liftIO . getBlock sto)  $ \(hrr :: Either (Hash HbSync) [HashRef]) -> do
 
-         for_ hr $ \(HashRef blk) -> do
+        case hrr of
+          Left hx -> addDownload hx
+          Right hr -> do
 
-           -- debug $ pretty blk
+            for_ hr $ \(HashRef blk) -> do
 
-           here <- liftIO (hasBlock sto blk) <&> isJust
+              -- debug $ pretty blk
 
-           if here then do
-             debug $ "block" <+> pretty blk <+> "is already here"
-             processBlock blk -- NOTE: хуже не стало
-                              -- FIXME:  fugure out if it's really required
+              here <- liftIO (hasBlock sto blk) <&> isJust
 
-             pure () -- we don't need to recurse, cause walkMerkle is recursing for us
+              if here then do
+                -- debug $ "block" <+> pretty blk <+> "is already here"
+                processBlock blk -- NOTE: хуже не стало
+                                 -- FIXME:  fugure out if it's really required
 
-           else do
-              addDownload blk
+                pure () -- we don't need to recurse, cause walkMerkle is recursing for us
+
+              else do
+                 addDownload blk
 
 
      Just (Blob{}) -> do
@@ -446,7 +450,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 5
+    pause @'Seconds 2
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo

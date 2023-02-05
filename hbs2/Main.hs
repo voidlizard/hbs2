@@ -108,16 +108,18 @@ runCat opts ss = do
 
     liftIO $ do
 
-      let walk h = walkMerkle h (getBlock ss) $ \(hr :: [HashRef]) -> do
-           forM_ hr $ \(HashRef h) -> do
-             if honly then do
-               print $ pretty h
-             else do
-               mblk <- getBlock ss h
-               case mblk of
-                 Nothing  -> die $ show $ "missed block: " <+> pretty h
-                 Just blk -> LBS.putStr blk
-
+      let walk h = walkMerkle h (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+            case hr of
+              Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
+              Right (hrr :: [HashRef]) -> do
+                 forM_ hrr $ \(HashRef hx) -> do
+                   if honly then do
+                     print $ pretty hx
+                   else do
+                     mblk <- getBlock ss hx
+                     case mblk of
+                       Nothing  -> die $ show $ "missed block: " <+> pretty hx
+                       Just blk -> LBS.putStr blk
 
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
