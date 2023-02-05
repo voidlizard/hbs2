@@ -228,11 +228,11 @@ processBlock h = do
               here <- liftIO (hasBlock sto blk) <&> isJust
 
               if here then do
+                pure ()
                 -- debug $ "block" <+> pretty blk <+> "is already here"
-                processBlock blk -- NOTE: хуже не стало
-                                 -- FIXME:  fugure out if it's really required
-
-                pure () -- we don't need to recurse, cause walkMerkle is recursing for us
+                -- unless (h == blk) do
+                --   processBlock blk -- NOTE: хуже не стало
+                                   -- FIXME:  fugure out if it's really required
 
               else do
                  addDownload blk
