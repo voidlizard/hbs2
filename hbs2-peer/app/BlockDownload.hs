@@ -648,12 +648,11 @@ blockDownloadLoop env0 = do
                 withDownload env (addBlockInfo p1 hx s)
 
               pips <- knownPeers @e pl
-              for_ pips $ \pip -> request pip (GetBlockSize @e h)
+              for_ pips $ \pip -> do
+                auth <- find (KnownPeerKey pip) id <&> isJust
 
-          p  <- knownPeers @e pl >>= liftIO . shuffleM
-
-          -- debug $ "known peers" <+> pretty p
-          -- debug $ "peers/blocks" <+> pretty peers
+                when auth $ request pip (GetBlockSize @e h) -- FIXME: request only known peers
+                                                            --        move this to peer locator
 
           p0 <- headMay <$> liftIO (shuffleM peers) -- FIXME: random choice to work faster
 

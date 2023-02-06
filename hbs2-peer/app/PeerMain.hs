@@ -18,6 +18,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
+import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
@@ -304,81 +305,89 @@ runPeer opts = Exception.handle myException $ do
                   debug $ "Got authorized peer!" <+> pretty p
                                                  <+> pretty (AsBase58 (view peerSignKey d))
 
+
               void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1
                 debug "sending first peer announce"
                 request localMulticast (PeerAnnounce @UDP pnonce)
 
-              void $ liftIO $ async $ withPeerM env $ forever $ do
-                pause defPeerAnnounceTime -- FIXME: setting!
-                debug "sending local peer announce"
-                request localMulticast (PeerAnnounce @UDP pnonce)
+              let wo = fmap L.singleton
 
-              as <- liftIO $ async $ withPeerM env (peerPingLoop @UDP)
+              workers <- do
 
-              as <- liftIO $ async $ withPeerM env (blockDownloadLoop denv)
+                wo $ liftIO $ async $ withPeerM env $ forever $ do
+                  pause defPeerAnnounceTime -- FIXME: setting!
+                  debug "sending local peer announce"
+                  request localMulticast (PeerAnnounce @UDP pnonce)
 
-              rpc <- liftIO $ async $ withPeerM env $ forever $ do
-                        cmd <- liftIO $ atomically $ readTQueue rpcQ
-                        case cmd of
-                          POKE -> debug "on poke: alive and kicking!"
+                wo $ liftIO $ async $ withPeerM env (peerPingLoop @UDP)
 
-                          PING pa r -> do
-                            debug $ "ping" <+> pretty pa
-                            pip <- fromPeerAddr @UDP pa
-                            subscribe (ConcretePeerKey pip) $ \(ConcretePeerData{}) -> do
+                wo $ liftIO $ async $ withPeerM env (pexLoop @UDP)
 
-                              maybe1 r (pure ()) $ \rpcPeer -> do
-                                pinged <- toPeerAddr pip
-                                request rpcPeer (RPCPong @UDP pinged)
+                wo $ liftIO $ async $ withPeerM env (blockDownloadLoop denv)
 
-                            sendPing pip
+                wo $ liftIO $ async $ withPeerM env $ forever $ do
+                          cmd <- liftIO $ atomically $ readTQueue rpcQ
+                          case cmd of
+                            POKE -> debug "on poke: alive and kicking!"
 
-                          ANNOUNCE h  -> do
-                            debug $ "got announce rpc" <+> pretty h
-                            sto <- getStorage
-                            mbsize <- liftIO $ hasBlock sto h
+                            PING pa r -> do
+                              debug $ "ping" <+> pretty pa
+                              pip <- fromPeerAddr @UDP pa
+                              subscribe (ConcretePeerKey pip) $ \(ConcretePeerData{}) -> do
 
-                            maybe1 mbsize (pure ()) $ \size -> do
-                              let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
-                              no <- peerNonce @UDP
-                              request localMulticast (BlockAnnounce @UDP no ann)
+                                maybe1 r (pure ()) $ \rpcPeer -> do
+                                  pinged <- toPeerAddr pip
+                                  request rpcPeer (RPCPong @UDP pinged)
 
-                          CHECK nonce pa h -> do
-                            pip <- fromPeerAddr @UDP pa
+                              sendPing pip
 
-                            n1 <- peerNonce @UDP
+                            ANNOUNCE h  -> do
+                              debug $ "got announce rpc" <+> pretty h
+                              sto <- getStorage
+                              mbsize <- liftIO $ hasBlock sto h
 
-                            unless (nonce == n1) do
+                              maybe1 mbsize (pure ()) $ \size -> do
+                                let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
+                                no <- peerNonce @UDP
+                                request localMulticast (BlockAnnounce @UDP no ann)
 
-                              peer <- find @UDP (KnownPeerKey pip) id
+                            CHECK nonce pa h -> do
+                              pip <- fromPeerAddr @UDP pa
 
-                              debug $ "received announce from"
-                                            <+> pretty pip
-                                            <+> pretty h
+                              n1 <- peerNonce @UDP
 
-                              case peer of
-                                Nothing -> sendPing @UDP pip
-                                Just{}  -> do
-                                  debug "announce from a known peer"
-                                  debug "preparing to dowload shit"
-                                  debug "checking policy, blah-blah-blah. tomorrow"
+                              unless (nonce == n1) do
 
-                                  withDownload denv $ do
-                                    processBlock h
+                                peer <- find @UDP (KnownPeerKey pip) id
 
-                          _ -> pure ()
+                                debug $ "received announce from"
+                                              <+> pretty pip
+                                              <+> pretty h
+
+                                case peer of
+                                  Nothing -> sendPing @UDP pip
+                                  Just{}  -> do
+                                    debug "announce from a known peer"
+                                    debug "preparing to dowload shit"
+                                    debug "checking policy, blah-blah-blah. tomorrow"
+
+                                    withDownload denv $ do
+                                      processBlock h
+
+                            _ -> pure ()
 
 
-              me <- liftIO $ async $ withPeerM env $ do
-                runProto @UDP
-                  [ makeResponse (blockSizeProto blk dontHandle)
-                  , makeResponse (blockChunksProto adapter)
-                  , makeResponse blockAnnounceProto
-                  , makeResponse (withCredentials pc . peerHandShakeProto)
-                  ]
+                wo $ liftIO $ async $ withPeerM env $ do
+                  runProto @UDP
+                    [ makeResponse (blockSizeProto blk dontHandle)
+                    , makeResponse (blockChunksProto adapter)
+                    , makeResponse blockAnnounceProto
+                    , makeResponse (withCredentials pc . peerHandShakeProto)
+                    , makeResponse peerExchangeProto
+                    ]
 
-              void $ liftIO $ waitAnyCatchCancel [me,as]
+              void $ liftIO $ waitAnyCatchCancel workers
 
   let pokeAction _ = do
         liftIO $ atomically $ writeTQueue rpcQ POKE
