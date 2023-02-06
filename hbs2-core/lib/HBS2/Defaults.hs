@@ -67,7 +67,6 @@ defChunkWaitMax = 0.35 :: Timeout 'Seconds
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 30 -- FIXME: only for debug!
 
--- FIXME: debug only!
 defPeerAnnounceTime :: Timeout 'Seconds
 defPeerAnnounceTime = 120
 
