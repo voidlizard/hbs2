@@ -22,15 +22,16 @@ import HBS2.System.Logger.Simple
 
 import PeerInfo
 
-import Numeric ( showGFloat )
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Control.Concurrent.STM.TSem as Sem
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Foldable hiding (find)
+import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.IntMap (IntMap)
@@ -40,8 +41,10 @@ import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
+import Numeric ( showGFloat )
 import Prettyprinter
 import System.Random.Shuffle
+import Type.Reflection
 
 
 calcBursts :: forall a . Integral a => a -> [a] -> [(a,a)]
@@ -688,17 +691,28 @@ tossPostponed penv = do
 
   waitQ <- liftIO $ newTBQueueIO 1
 
+  busy <- liftIO $ newTVarIO False
+
   cache <- asks (view blockPostponed)
 
   lift $ subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent{}) -> do
-    mt <- liftIO $ atomically $ isEmptyTBQueue waitQ
-    when mt do
-      liftIO $ atomically $ writeTBQueue waitQ ()
+    cant <- liftIO $ readTVarIO busy
+    unless cant $ do
+      debug "AnyKnownPeerEventKey"
+      mt <- liftIO $ atomically $ isEmptyTBQueue waitQ
+      when mt do
+        liftIO $ atomically $ writeTBQueue waitQ ()
 
   forever do
     r <- liftIO $ race ( pause @'Seconds 20 ) ( atomically $ readTBQueue waitQ )
 
     void $ liftIO $ atomically $ flushTBQueue waitQ
+
+    liftIO $ atomically $ writeTVar busy True
+
+    void $ liftIO $ async $ do
+      pause @'Seconds 5
+      atomically $ writeTVar busy False
 
     let allBack = either (const False) (const True) r
 
