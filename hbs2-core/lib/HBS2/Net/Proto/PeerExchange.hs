@@ -39,7 +39,7 @@ sendPeerExchangeGet :: forall e m . ( MonadIO m
 
 sendPeerExchangeGet pip = do
   nonce <- newNonce @(PeerExchange e)
-  update nonce (PeerExchangeKey pip) id
+  update nonce (PeerExchangeKey @e nonce) id
   request pip (PeerExchangeGet @e nonce)
 
 peerExchangeProto :: forall e m . ( MonadIO m
@@ -84,11 +84,12 @@ peerExchangeProto =
 
       pip <- thatPeer proto
 
-      ok <- find (PeerExchangeKey pip) id <&> (== Just nonce)
+      ok <- find (PeerExchangeKey @e nonce) id <&> isJust
 
       when ok do
         sa <- mapM (fromPeerAddr @e) pips
-        expire @e (PeerExchangeKey pip)
+        debug $ "got pex" <+> pretty sa
+        expire @e (PeerExchangeKey nonce)
         emit @e PeerExchangePeersKey (PeerExchangePeersData sa)
 
    where
@@ -96,7 +97,7 @@ peerExchangeProto =
 
 
 newtype instance SessionKey e (PeerExchange e) =
-  PeerExchangeKey (Peer e)
+  PeerExchangeKey (Nonce (PeerExchange e))
   deriving stock (Generic, Typeable)
 
 type instance SessionData e (PeerExchange e) = Nonce (PeerExchange e)
@@ -105,8 +106,8 @@ data instance EventKey e (PeerExchangePeersEv e) =
   PeerExchangePeersKey
   deriving stock (Typeable, Eq,Generic)
 
-deriving instance Eq (Peer e) => Eq (SessionKey e (PeerExchange e))
-instance Hashable (Peer e) => Hashable (SessionKey e (PeerExchange e))
+deriving instance Eq (Nonce (PeerExchange e)) => Eq (SessionKey e (PeerExchange e))
+instance Hashable (Nonce (PeerExchange e)) => Hashable (SessionKey e (PeerExchange e))
 
 instance Expires (SessionKey e (PeerExchange e)) where
   expiresIn _ = Just 10

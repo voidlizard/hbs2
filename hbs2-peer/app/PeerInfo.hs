@@ -78,7 +78,7 @@ pexLoop = do
   pl <- getPeerLocator @e
 
   forever do
-    pause @'Seconds 60 -- FIXME: defaults
+    pause @'Seconds 20 -- FIXME: defaults
 
     pips <- knownPeers @e pl
 
@@ -115,7 +115,7 @@ peerPingLoop = do
   forever do
 
     -- FIXME: defaults
-    void $ liftIO $ race (pause @'Seconds 90)
+    void $ liftIO $ race (pause @'Seconds 20)
                          (atomically $ readTQueue wake)
 
     sas <- liftIO $ atomically $ flushTQueue wake <&> mconcat
