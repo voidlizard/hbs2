@@ -686,17 +686,19 @@ tossPostponed penv = do
 
   env <- ask
 
-  waitQ <- liftIO newTQueueIO
+  waitQ <- liftIO $ newTBQueueIO 1
 
   cache <- asks (view blockPostponed)
 
   lift $ subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent{}) -> do
-    liftIO $ atomically $ writeTQueue waitQ ()
+    mt <- liftIO $ atomically $ isEmptyTBQueue waitQ
+    when mt do
+      liftIO $ atomically $ writeTBQueue waitQ ()
 
   forever do
-    r <- liftIO $ race ( pause @'Seconds 20 ) ( atomically $ readTQueue waitQ )
+    r <- liftIO $ race ( pause @'Seconds 20 ) ( atomically $ readTBQueue waitQ )
 
-    void $ liftIO $ atomically $ flushTQueue waitQ
+    void $ liftIO $ atomically $ flushTBQueue waitQ
 
     let allBack = either (const False) (const True) r
 
