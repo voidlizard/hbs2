@@ -295,6 +295,13 @@ runPeer opts = Exception.handle myException $ do
                   unless known $ sendPing pip
 
               subscribe @UDP AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
+
+                -- FIXME: check if we've got a reference to ourselves
+                when (pnonce == view peerOwnNonce d) $ do
+                  delPeers pl [p]
+                  addExcluded pl [p]
+                  expire (KnownPeerKey p)
+
                 unless (pnonce == view peerOwnNonce d) $ do
                   addPeers pl [p]
 

@@ -5,7 +5,7 @@
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-22.11";
-    hbs2.url = "github:voidlizard/hbs2";
+    hbs2.url = "github:voidlizard/hbs2/wip";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
   };
 
