@@ -117,8 +117,6 @@ peerHandShakeProto =
 
         when signed $ do
 
-          debug "signed!"
-
           expire (PeerHandshakeKey (nonce0,pip))
 
           -- FIXME: check if peer is blacklisted
