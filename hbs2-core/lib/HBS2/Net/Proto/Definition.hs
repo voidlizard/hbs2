@@ -15,6 +15,7 @@ import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
+import HBS2.Net.Proto.PeerExchange
 import HBS2.Defaults
 
 import Data.Functor
@@ -65,6 +66,12 @@ instance HasProtocol UDP (PeerAnnounce UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (PeerExchange UDP) where
+  type instance ProtocolId (PeerExchange UDP) = 6
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
 
 instance Expires (SessionKey UDP (BlockInfo UDP)) where
   expiresIn _ = Just defCookieTimeoutSec
@@ -90,6 +97,12 @@ instance Expires (EventKey UDP (PeerAnnounce UDP)) where
 
 instance MonadIO m => HasNonces (PeerHandshake UDP) m where
   type instance Nonce (PeerHandshake UDP) = BS.ByteString
+  newNonce = do
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+    pure $ BS.take 32 n
+
+instance MonadIO m => HasNonces (PeerExchange UDP) m where
+  type instance Nonce (PeerExchange UDP) = BS.ByteString
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n

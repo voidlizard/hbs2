@@ -112,15 +112,16 @@
         "saltine": "saltine"
       },
       "locked": {
-        "lastModified": 1675599025,
-        "narHash": "sha256-ZVOkBwFMpUHyhsdBg8ubv/h43N7phoLqR1lYbgZEeH0=",
+        "lastModified": 1675665762,
+        "narHash": "sha256-zVfyDqVyPgMXMsj/od1xmOCQz5gkHzi3pTyf83qaqF0=",
         "owner": "voidlizard",
         "repo": "hbs2",
-        "rev": "4ab83f0517c0ab465634a15607d3f0dddeaba3e7",
+        "rev": "85d34209e10016fc243e37e221dca8217af3f7bb",
         "type": "github"
       },
       "original": {
         "owner": "voidlizard",
+        "ref": "wip",
         "repo": "hbs2",
         "type": "github"
       }
@@ -165,11 +166,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1675512093,
-        "narHash": "sha256-u1CY4feK14B57E6T+0Bhkuoj8dpBxCPrWO+SP87UVP8=",
+        "lastModified": 1675600654,
+        "narHash": "sha256-ipsDTkzRq1CAl2g5tYd7ugjVMSKF6KLh9F+5Kso0lT0=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "8e8240194eda25b61449f29bb5131e02b28a5486",
+        "rev": "cff83d5032a21aad4f69bf284e95b5f564f4a54e",
         "type": "github"
       },
       "original": {

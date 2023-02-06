@@ -57,9 +57,6 @@ data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
 
-class Monad m => HasPeerLocator e m where
-  getPeerLocator ::  m (AnyPeerLocator e)
-
 class HasStorage m where
   getStorage :: m AnyStorage
 
@@ -464,4 +461,6 @@ instance (Monad m, HasFabriq e m) => HasFabriq e (ResponseM e m) where
 instance (Monad m, HasPeerNonce e m) => HasPeerNonce e (ResponseM e m) where
   peerNonce = lift $ peerNonce @e
 
+instance (Monad m, HasPeerLocator e m) => HasPeerLocator e (ResponseM e m) where
+  getPeerLocator = lift getPeerLocator
 

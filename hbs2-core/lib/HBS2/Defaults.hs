@@ -70,5 +70,8 @@ defSweepTimeout = 30 -- FIXME: only for debug!
 defPeerAnnounceTime :: Timeout 'Seconds
 defPeerAnnounceTime = 120
 
+defPexMaxPeers :: Int
+defPexMaxPeers = 50
+
 
 

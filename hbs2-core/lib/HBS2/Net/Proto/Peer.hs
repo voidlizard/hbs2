@@ -10,6 +10,8 @@ import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 
+import HBS2.System.Logger.Simple
+
 import Data.Maybe
 import Codec.Serialise()
 import Data.ByteString qualified as BS
@@ -31,7 +33,7 @@ makeLenses 'PeerData
 
 data PeerHandshake e =
     PeerPing  PingNonce
-  | PeerPong  (Signature e) (PeerData e)
+  | PeerPong  PingNonce (Signature e) (PeerData e)
   deriving stock (Generic)
 
 newtype KnownPeer e = KnownPeer (PeerData e)
@@ -41,10 +43,10 @@ newtype instance SessionKey e  (KnownPeer e) =
   KnownPeerKey (Peer e)
   deriving stock (Generic,Typeable)
 
-type instance SessionData e (KnownPeer e) = KnownPeer e
+type instance SessionData e (KnownPeer e) = PeerData e
 
 newtype instance SessionKey e (PeerHandshake e) =
-  PeerHandshakeKey (Peer e)
+  PeerHandshakeKey (PingNonce, Peer e)
   deriving stock (Generic, Typeable)
 
 type instance SessionData e (PeerHandshake e) = PingNonce
@@ -61,7 +63,7 @@ sendPing :: forall e m . ( MonadIO m
 
 sendPing pip = do
   nonce <- newNonce @(PeerHandshake e)
-  update nonce (PeerHandshakeKey pip) id
+  update nonce (PeerHandshakeKey (nonce,pip)) id
   request pip (PeerPing @e nonce)
 
 peerHandShakeProto :: forall e m . ( MonadIO m
@@ -93,7 +95,7 @@ peerHandShakeProto =
       own <- peerNonce @e
 
       -- TODO: отправить обратно вместе с публичным ключом
-      response (PeerPong @e sign (PeerData (view peerSignPk creds) own))
+      response (PeerPong @e nonce sign (PeerData (view peerSignPk creds) own))
 
       -- TODO: да и пингануть того самим
 
@@ -102,10 +104,10 @@ peerHandShakeProto =
       unless se $ do
         sendPing pip
 
-    PeerPong sign d -> do
+    PeerPong nonce0 sign d -> do
       pip <- thatPeer proto
 
-      se' <- find @e (PeerHandshakeKey pip) id
+      se' <- find @e (PeerHandshakeKey (nonce0,pip)) id
 
       maybe1 se' (pure ()) $ \nonce -> do
 
@@ -113,14 +115,16 @@ peerHandShakeProto =
 
         let signed = verifySign @e pk sign nonce
 
-        expire (PeerHandshakeKey pip)
+        when signed $ do
 
-        -- FIXME: check if peer is blacklisted
-        --        right here
-        update (KnownPeer d) (KnownPeerKey pip) id
+          expire (PeerHandshakeKey (nonce0,pip))
 
-        emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
-        emit (ConcretePeerKey pip) (ConcretePeerData pip d)
+          -- FIXME: check if peer is blacklisted
+          --        right here
+          update d (KnownPeerKey pip) id
+
+          emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
+          emit (ConcretePeerKey pip) (ConcretePeerData pip d)
 
   where
     proto = Proxy @(PeerHandshake e)
