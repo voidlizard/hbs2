@@ -189,7 +189,8 @@ instance (Sessions e p m ) => Sessions e p (CredentialsM e m)  where
   update d k f = lift (update d k f)
   expire k = lift (expire  k)
 
--- instance (Monad m, HasProtocol e p, HasThatPeer e p m) => Response e p (CredentialsM e m) where
+instance (Monad m, HasPeerNonce e m) => HasPeerNonce e (CredentialsM e m) where
+  peerNonce = lift $ peerNonce @e
 
 instance Monad m => HasCredentials e (CredentialsM e m) where
   getCredentials = ask
@@ -293,14 +294,15 @@ runPeer opts = Exception.handle myException $ do
                   unless known $ sendPing pip
 
               subscribe @UDP AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
-                addPeers pl [p]
+                unless (pnonce == view peerOwnNonce d) $ do
+                  addPeers pl [p]
 
-                npi    <- newPeerInfo
-                pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                liftIO $ atomically $ writeTVar pfails 0
+                  npi    <- newPeerInfo
+                  pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                  liftIO $ atomically $ writeTVar pfails 0
 
-                debug $ "Got authorized peer!" <+> pretty p
-                                               <+> pretty (AsBase58 (view peerSignKey d))
+                  debug $ "Got authorized peer!" <+> pretty p
+                                                 <+> pretty (AsBase58 (view peerSignKey d))
 
               void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1

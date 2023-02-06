@@ -139,11 +139,11 @@ setBlockState h s = do
   sh <- asks (view blockState)
   liftIO $ atomically $ modifyTVar' sh (HashMap.insert h s)
 
-
+-- FIXME: что-то более обоснованное
 calcWaitTime :: MonadIO m => BlockDownloadM e m Double
 calcWaitTime = do
   wip <- asks (view blockWip) >>= liftIO . Cache.size
-  let wipn = realToFrac wip * 4
+  let wipn = realToFrac wip * 3
   let waiting = 5 + ( (realToFrac (toNanoSeconds defBlockWaitMax) * wipn) / 1e9 )
   pure waiting
 
@@ -218,7 +218,11 @@ removeFromWip h = do
   liftIO $ Cache.delete po h
   liftIO $ atomically $ modifyTVar' st (HashMap.delete h)
 
-withFreePeer :: (MyPeer e, MonadIO m)
+withFreePeer :: forall e m .
+                ( MyPeer e
+                , MonadIO m
+                , Sessions e (KnownPeer e) m
+                )
              => Peer e
              -> BlockDownloadM e m ()
              -> BlockDownloadM e m ()
@@ -226,12 +230,19 @@ withFreePeer :: (MyPeer e, MonadIO m)
 
 withFreePeer p n m = do
   busy <- asks (view peerBusy)
+
   avail <- liftIO $ atomically
                   $ stateTVar busy $
                       \s -> case HashMap.lookup p s of
                               Nothing -> (True, HashMap.insert p () s)
                               Just{}  -> (False, s)
-  if not avail
+
+  auth <- lift $ find (KnownPeerKey p) id <&> isJust
+
+  unless auth do
+    debug $ "peer " <+> pretty p <+> "not authorized (yet?)"
+
+  if not (avail && auth)
     then n
     else do
       r <- m
@@ -240,7 +251,7 @@ withFreePeer p n m = do
 
 -- NOTE: dangerous! if called in
 --       wrong place/wrong time,
---       if may cause a drastical
+--       it may cause a drastical
 --       download speed degradation
 
 dismissPeer  :: (MyPeer e, MonadIO m)
@@ -541,9 +552,8 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , EventEmitter e (BlockChunks e) m
                                    , Sessions e (BlockChunks e) m
                                    , Sessions e (PeerInfo e) m
+                                   , Sessions e (KnownPeer e) m
                                    , PeerSessionKey e (PeerInfo e)
-                                   -- , Typeable (SessionKey e (BlockChunks e))
-                                   -- , Typeable (SessionKey e (BlockInfo e))
                                    , HasStorage m
                                    , Pretty (Peer e)
                                    , Block ByteString ~ ByteString

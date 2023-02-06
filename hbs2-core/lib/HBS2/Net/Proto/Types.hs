@@ -49,6 +49,9 @@ class HasCookie e p | p -> e where
 
 type PeerNonce = Nonce ()
 
+class HasPeerNonce e m where
+  peerNonce :: m PeerNonce
+
 data PeerCredentials e =
   PeerCredentials
   { _peerSignSk :: PrivKey 'Sign e

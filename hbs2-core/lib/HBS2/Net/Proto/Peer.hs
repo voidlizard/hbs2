@@ -17,14 +17,13 @@ import Data.Hashable
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
 
-import Prettyprinter
-
 type PingSign  e = Signature e
 type PingNonce = BS.ByteString
 
-newtype PeerData e =
+data PeerData e =
   PeerData
-  { _peerSignKey :: PubKey 'Sign e
+  { _peerSignKey  :: PubKey 'Sign e
+  , _peerOwnNonce :: PeerNonce -- TODO: to use this field to detect if it's own peer to avoid loops
   }
   deriving stock (Typeable,Generic)
 
@@ -71,6 +70,7 @@ peerHandShakeProto :: forall e m . ( MonadIO m
                                    , Sessions e (PeerHandshake e) m
                                    , Sessions e (KnownPeer e) m
                                    , HasNonces (PeerHandshake e) m
+                                   , HasPeerNonce e m
                                    , Nonce (PeerHandshake e) ~ PingNonce
                                    , Signatures e
                                    , Pretty (Peer e)
@@ -90,8 +90,10 @@ peerHandShakeProto =
       -- TODO: подписать нонс
       let sign = makeSign @e (view peerSignSk creds) nonce
 
+      own <- peerNonce @e
+
       -- TODO: отправить обратно вместе с публичным ключом
-      response (PeerPong @e sign (PeerData (view peerSignPk creds)))
+      response (PeerPong @e sign (PeerData (view peerSignPk creds) own))
 
       -- TODO: да и пингануть того самим
 
@@ -113,6 +115,8 @@ peerHandShakeProto =
 
         expire (PeerHandshakeKey pip)
 
+        -- FIXME: check if peer is blacklisted
+        --        right here
         update (KnownPeer d) (KnownPeerKey pip) id
 
         emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
@@ -165,12 +169,15 @@ deriving instance Eq (Peer e) => Eq (SessionKey e (PeerHandshake e))
 instance Hashable (Peer e) => Hashable (SessionKey e (PeerHandshake e))
 
 instance ( Serialise (PubKey 'Sign e)
-         , Serialise (Signature e) )
+         , Serialise (Signature e)
+         , Serialise PeerNonce
+         )
 
   => Serialise (PeerData e)
 
 instance ( Serialise (PubKey 'Sign e)
          , Serialise (Signature e)
+         , Serialise PeerNonce
          )
 
   => Serialise (PeerHandshake e)

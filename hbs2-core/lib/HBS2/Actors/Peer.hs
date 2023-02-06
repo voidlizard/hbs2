@@ -68,9 +68,6 @@ data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
-class HasPeerNonce e m where
-  peerNonce :: m PeerNonce
-
 class Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
 
 instance Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
@@ -461,8 +458,10 @@ instance ( MonadIO m
 instance (Monad m, HasOwnPeer e m) => HasOwnPeer e (ResponseM e m) where
   ownPeer = lift ownPeer
 
-
 instance (Monad m, HasFabriq e m) => HasFabriq e (ResponseM e m) where
   getFabriq = lift getFabriq
+
+instance (Monad m, HasPeerNonce e m) => HasPeerNonce e (ResponseM e m) where
+  peerNonce = lift $ peerNonce @e
 
 
