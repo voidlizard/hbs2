@@ -108,8 +108,8 @@ peerPingLoop = do
 
   wake <- liftIO newTQueueIO
 
-  subscribe @e PeerExchangePeersKey $ \(PeerExchangePeersData{}) -> do
-    liftIO $ atomically $ writeTQueue wake ()
+  subscribe @e PeerExchangePeersKey $ \(PeerExchangePeersData sas) -> do
+    liftIO $ atomically $ writeTQueue wake sas
     pure ()
 
   forever do
@@ -118,12 +118,12 @@ peerPingLoop = do
     void $ liftIO $ race (pause @'Seconds 90)
                          (atomically $ readTQueue wake)
 
-    void $ liftIO $ atomically $ flushTQueue wake
+    sas <- liftIO $ atomically $ flushTQueue wake <&> mconcat
 
     debug "peerPingLoop"
 
     pl <- getPeerLocator @e
-    pips <- knownPeers @e pl
+    pips <- knownPeers @e pl <&> (<> sas)
 
     for_ pips $ \p -> do
       npi <- newPeerInfo

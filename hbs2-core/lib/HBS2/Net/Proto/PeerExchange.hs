@@ -51,6 +51,7 @@ peerExchangeProto :: forall e m . ( MonadIO m
                                   , Sessions e (KnownPeer e) m
                                   , Sessions e (PeerExchange e) m
                                   , EventEmitter e (PeerExchangePeersEv e) m
+                                  , Eq (Nonce (PeerExchange e))
                                   , Pretty (Peer e)
                                   )
                   => PeerExchange e -> m ()
@@ -80,13 +81,15 @@ peerExchangeProto =
       response (PeerExchangePeers @e n pa)
 
     PeerExchangePeers nonce pips -> do
-      pl <- getPeerLocator @e
-      sa <- mapM (fromPeerAddr @e) pips
+
       pip <- thatPeer proto
 
-      expire @e (PeerExchangeKey pip) -- expire session
-      addPeers pl sa
-      emit @e PeerExchangePeersKey (PeerExchangePeersData sa)
+      ok <- find (PeerExchangeKey pip) id <&> (== Just nonce)
+
+      when ok do
+        sa <- mapM (fromPeerAddr @e) pips
+        expire @e (PeerExchangeKey pip)
+        emit @e PeerExchangePeersKey (PeerExchangePeersData sa)
 
    where
     proto = Proxy @(PeerExchange e)
