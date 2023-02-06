@@ -115,7 +115,7 @@ peerPingLoop = do
   forever do
 
     -- FIXME: defaults
-    void $ liftIO $ race (pause @'Seconds 120)
+    void $ liftIO $ race (pause @'Seconds 90)
                          (atomically $ readTQueue wake)
 
     void $ liftIO $ atomically $ flushTQueue wake
