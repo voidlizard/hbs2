@@ -29,20 +29,17 @@ defStorePath :: IsString a => a
 defStorePath = "hbs2"
 
 defPipelineSize :: Int
-defPipelineSize = 16000*4
-
-defChunkWriterQ :: Integral a => a
-defChunkWriterQ = 16000*4
+defPipelineSize = 16000
 
 defBlockDownloadQ :: Integral a => a
-defBlockDownloadQ = 65536*4
+defBlockDownloadQ = 65536
 
 defBlockDownloadThreshold :: Integral a => a
 defBlockDownloadThreshold = 2
 
 -- typical block hash 530+ chunks * parallel wip blocks amount
 defProtoPipelineSize :: Int
-defProtoPipelineSize = 65536*4
+defProtoPipelineSize = 65536*2
 
 defCookieTimeoutSec :: Timeout 'Seconds
 defCookieTimeoutSec = 1200

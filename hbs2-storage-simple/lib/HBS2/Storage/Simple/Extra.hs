@@ -20,7 +20,7 @@ import Streaming qualified as S
 import System.IO
 
 pieces :: Integral a => a
-pieces = 8192
+pieces = 1024
 
 class SimpleStorageExtra a  where
   putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
