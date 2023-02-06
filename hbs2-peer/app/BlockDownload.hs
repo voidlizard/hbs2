@@ -696,6 +696,8 @@ tossPostponed penv = do
   forever do
     r <- liftIO $ race ( pause @'Seconds 20 ) ( atomically $ readTQueue waitQ )
 
+    void $ liftIO $ atomically $ flushTQueue waitQ
+
     let allBack = either (const False) (const True) r
 
     blks <- liftIO $ Cache.toList cache
