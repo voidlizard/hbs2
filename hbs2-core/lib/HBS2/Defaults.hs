@@ -69,6 +69,7 @@ defSweepTimeout = 30 -- FIXME: only for debug!
 
 -- FIXME: debug only!
 defPeerAnnounceTime :: Timeout 'Seconds
-defPeerAnnounceTime = 30
+defPeerAnnounceTime = 120
+
 
 
