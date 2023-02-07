@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 {-# Language FunctionalDependencies #-}
@@ -132,6 +133,7 @@ data PeerEnv e =
   , _envEvents       :: TVar (HashMap SKey [Dynamic])
   , _envExpireTimes  :: Cache SKey ()
   , _envSweepers     :: TVar (HashMap SKey [PeerM e IO ()])
+  , _envReqLimit     :: Cache (Peer e, Integer) ()
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -227,18 +229,44 @@ instance ( MonadIO m
     se <- asks (view envSessions)
     liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
+class HasProtocol e p => HasTimeLimits e p m where
+  withTimeLimit :: Peer e -> m () -> m ()
+
+instance {-# OVERLAPPABLE #-}
+  (Monad m, HasProtocol e p) => HasTimeLimits e p m where
+  withTimeLimit _ m = m
+
+instance (MonadIO m, HasProtocol e p)
+  => HasTimeLimits e p (PeerM e m) where
+  withTimeLimit peer m = case requestMinPeriod @e @p of
+    Nothing -> m
+    Just lim -> do
+      let proto = protoId @e @p (Proxy @p)
+      ex <- asks (view envReqLimit)
+      here <- liftIO $ Cache.lookup ex (peer, proto) <&> isJust
+      unless here $ do
+        liftIO $ Cache.insert' ex (Just (toTimeSpec lim)) (peer, proto) ()
+        m
 
 instance ( MonadIO m
          , HasProtocol e p
          , HasFabriq e m -- (PeerM e m)
          , HasOwnPeer e m
          , PeerMessaging e
+         , HasTimeLimits e p m
          ) => Request e p m where
   request p msg = do
     let proto = protoId @e @p (Proxy @p)
     pipe <- getFabriq @e
     me <- ownPeer @e
-    sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
+
+    -- TODO: check if a request were sent to peer and timeout is here
+    --       if not here - than send and create a new timeout
+    --
+    -- TODO: where to store the timeout?
+    -- TODO: where the timeout come from?
+    withTimeLimit @e @p p $ do
+      sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 
 instance ( Typeable (EventHandler e p (PeerM e IO))
@@ -339,6 +367,7 @@ newPeerEnv s bus p = do
                            <*> liftIO (newTVarIO mempty)
                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
                            <*> liftIO (newTVarIO mempty)
+                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
 
 runPeerM :: forall e m . ( MonadIO m
                          , HasPeer e
@@ -392,7 +421,7 @@ runProto hh = do
     for_ messages $ \(From pip, AnyMessage n msg :: AnyMessage (Encoded e) e) -> do
 
       case Map.lookup n disp of
-        Nothing -> liftIO $ print "SHIT!" >> pure ()
+        Nothing -> pure () -- FIXME: error counting! and statistics counting feature
 
         Just (AnyProtocol { protoDecode = decoder
                           , handle = h

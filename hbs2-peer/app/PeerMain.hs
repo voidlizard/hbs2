@@ -28,6 +28,7 @@ import HBS2.System.Logger.Simple hiding (info)
 import HBS2.System.Logger.Simple qualified as Log
 
 import RPC
+import PeerTypes
 import BlockDownload
 import PeerInfo
 
@@ -82,8 +83,6 @@ data PeerOpts =
 
 makeLenses 'PeerOpts
 
-deriving newtype instance Hashable (SessionKey UDP (BlockChunks UDP))
-deriving stock instance Eq (SessionKey UDP (BlockChunks UDP))
 
 main :: IO ()
 main = do

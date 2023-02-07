@@ -7,6 +7,8 @@ module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where
 
+import HBS2.Clock
+
 import Data.Kind
 import GHC.TypeLits
 import Data.Proxy
@@ -99,6 +101,8 @@ class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   decode :: Encoded e -> Maybe p
   encode :: p -> Encoded e
 
+  requestMinPeriod :: Maybe (Timeout 'Seconds)
+  requestMinPeriod = Nothing
 
 -- FIXME: slow and dumb
 instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e m where

@@ -103,7 +103,9 @@ executable hbs2-peer
 
     other-modules:    BlockDownload
                     , PeerInfo
+                    , PokePostponed
                     , RPC
+                    , PeerTypes
 
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0

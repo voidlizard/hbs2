@@ -38,6 +38,7 @@ instance HasProtocol UDP (BlockInfo UDP) where
   type instance Encoded UDP = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
+  requestMinPeriod = Just 5
 
 instance HasProtocol UDP (BlockChunks UDP) where
   type instance ProtocolId (BlockChunks UDP) = 2

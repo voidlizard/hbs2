@@ -30,6 +30,7 @@ blockSizeProto :: forall e m  . ( MonadIO m
 blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do
+      -- liftIO $ print "GetBlockSize"
       deferred (Proxy @(BlockInfo e))$ do
         getBlockSize h >>= \case
           Just size -> response (BlockSize @e h size)
