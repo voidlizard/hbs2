@@ -10,7 +10,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Data
-import Data.Foldable (traverse_)
+import Data.Foldable (forM_, traverse_)
 import Data.List qualified as List
 import GHC.Generics
 import Lens.Micro.Platform
@@ -75,6 +75,22 @@ newtype MNodeData =
 makeLenses ''MNodeData
 
 instance Serialise MNodeData
+
+data MWrap a = MWrap
+ { _mwCrypt :: !CryptScheme
+ , _mwTree :: !(MTree a)
+ }
+  deriving stock (Generic,Data,Show)
+
+instance Serialise a => Serialise (MWrap a)
+
+data CryptScheme
+  = NullCrypt
+  | GroupKeyCrypt (Hash HbSync)
+  -- FIXME more crypt schemes
+  deriving stock (Generic,Data,Show)
+
+instance Serialise CryptScheme
 
 data MTree a = MNode MNodeData [Hash HbSync] | MLeaf a
                deriving stock (Generic,Data,Show)
@@ -159,3 +175,13 @@ walkMerkle root flookup sink = walkMerkle' root flookup withTree
         (Right (MNode _ _)) -> pure ()
         Left hx             -> sink (Left hx)
 
+
+walkMerkleTree :: (Serialise (MTree a), Monad m)
+           => MTree a
+           -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
+           -> ( Either (Hash HbSync) a -> m () )
+           -> m ()
+
+walkMerkleTree tree flookup sink = case tree of
+    (MLeaf s)   -> sink (Right s)
+    (MNode _ hashes) -> forM_ hashes \h -> walkMerkle h flookup sink

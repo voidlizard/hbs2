@@ -43,6 +43,21 @@ instance SimpleStorageExtra Handle where
                   & S.map (HashRef . hashObject)
                   & S.toList_
 
+    putAsMerkle ss hashes
+
+instance SimpleStorageExtra (S.Stream (S.Of ByteString) IO ()) where
+  putAsMerkle ss streamChunks = do
+
+    hashes <- streamChunks
+                  & S.mapM (\blk -> enqueueBlock ss blk >> pure blk)
+                  & S.map (HashRef . hashObject)
+                  & S.toList_
+
+    putAsMerkle ss hashes
+
+instance SimpleStorageExtra [HashRef] where
+  putAsMerkle ss hashes = do
+
     let pt = toPTree (MaxSize pieces) (MaxNum pieces) hashes -- FIXME: settings
 
     root <- makeMerkle 0 pt $ \(_,_,bs) -> void $ putBlock ss bs

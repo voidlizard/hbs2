@@ -65,6 +65,7 @@ data StoreOpts =
   StoreOpts
   {  storeInit      :: Maybe OptInit
   ,  storeInputFile :: Maybe OptInputFile
+      -- FIXME store option to encrypt
   }
   deriving stock (Data)
 
@@ -122,9 +123,25 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
+      let walkWrap :: CryptScheme -> MTree [HashRef] -> IO ()
+          walkWrap sch t = walkMerkleTree t (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+            case hr of
+              Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
+              Right (hrr :: [HashRef]) -> do
+                 forM_ hrr $ \(HashRef hx) -> do
+                   if honly then do
+                     print $ pretty hx
+                   else do
+                     mblk <- getBlock ss hx
+                     case mblk of
+                       Nothing  -> die $ show $ "missed block: " <+> pretty hx
+                       -- FIXME apply crypto scheme `sch` to stream of blk's
+                       Just blk -> LBS.putStr blk
+
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
         Merkle h -> walk h
+        MerkleWrap (MWrap sch hs) -> walkWrap sch hs
         AnnRef h -> do
           let lnk = deserialise @AnnotatedHashRef obj
           let mbHead =  headMay [ h
@@ -148,7 +165,12 @@ runStore opts ss = do
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  root <- putAsMerkle ss handle
+  root <- case (undefined opts) of  -- FIXME
+    Nothing -> putAsMerkle ss handle
+    Just encOpts -> do
+        encryptedChunks :: S.Stream (S.Of ByteString) IO ()
+            <- undefined encOpts handle  -- FIXME readChunked then encrypt ?
+        putAsMerkle ss encryptedChunks
 
   print $ "merkle-root: " <+> pretty root
 
@@ -250,6 +272,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- common
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
+      -- FIXME option to encrypt
       pure $ withStore o (runStore ( StoreOpts init file ))
 
     pCat = do

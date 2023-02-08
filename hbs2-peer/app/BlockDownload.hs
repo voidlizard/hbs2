@@ -160,35 +160,44 @@ processBlock h = do
 
    when (isJust bt) (removeFromWip h)
 
+   let handleHrr = \(hrr :: Either (Hash HbSync) [HashRef]) -> do
+
+            case hrr of
+              Left hx -> addDownload hx
+              Right hr -> do
+
+                for_ hr $ \(HashRef blk) -> do
+
+                  -- debug $ pretty blk
+
+                  here <- liftIO (hasBlock sto blk) <&> isJust
+
+                  if here then do
+                    pure ()
+                    -- debug $ "block" <+> pretty blk <+> "is already here"
+                    -- unless (h == blk) do
+                    --   processBlock blk -- NOTE: хуже не стало
+                                      -- FIXME:  fugure out if it's really required
+
+                  else do
+                    addDownload blk
+
    case bt of
      Nothing -> addDownload h
 
      Just (AnnRef{}) -> pure ()
 
+     Just (MerkleWrap (MWrap sch t)) -> do
+       case sch of
+            NullCrypt -> pure ()
+            GroupKeyCrypt hk -> addDownload hk
+
+       debug $ "GOT WRAPPED MERKLE. requesting nodes/leaves" <+> pretty h
+       walkMerkleTree t (liftIO . getBlock sto) handleHrr
+
      Just (Merkle{}) -> do
        debug $ "GOT MERKLE. requesting nodes/leaves" <+> pretty h
-       walkMerkle h (liftIO . getBlock sto)  $ \(hrr :: Either (Hash HbSync) [HashRef]) -> do
-
-        case hrr of
-          Left hx -> addDownload hx
-          Right hr -> do
-
-            for_ hr $ \(HashRef blk) -> do
-
-              -- debug $ pretty blk
-
-              here <- liftIO (hasBlock sto blk) <&> isJust
-
-              if here then do
-                pure ()
-                -- debug $ "block" <+> pretty blk <+> "is already here"
-                -- unless (h == blk) do
-                --   processBlock blk -- NOTE: хуже не стало
-                                   -- FIXME:  fugure out if it's really required
-
-              else do
-                 addDownload blk
-
+       walkMerkle h (liftIO . getBlock sto) handleHrr
 
      Just (Blob{}) -> do
        pure ()
