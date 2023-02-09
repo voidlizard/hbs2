@@ -2,15 +2,16 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.Peer where
 
-import HBS2.Base58
+-- import HBS2.Base58
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Proto
 import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
+import HBS2.Net.Auth.Credentials
 
-import HBS2.System.Logger.Simple
+-- import HBS2.System.Logger.Simple
 
 import Data.Maybe
 import Codec.Serialise()

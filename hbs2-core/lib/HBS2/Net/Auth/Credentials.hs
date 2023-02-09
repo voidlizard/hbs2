@@ -1,10 +1,10 @@
+{-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Auth.Credentials where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
 import HBS2.Base58
-import HBS2.Net.Messaging.UDP (UDP)
 
 import Codec.Serialise
 import Crypto.Saltine.Core.Sign (Keypair(..))
@@ -16,7 +16,29 @@ import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Char8 (ByteString)
 import Data.Function
 import Data.List.Split (chunksOf)
+import Data.Text (Text)
+import Lens.Micro.Platform
 import Prettyprinter
+
+class HasCredentials e m where
+  getCredentials :: m (PeerCredentials e)
+
+data KeyringEntry e =
+  KeyringEntry
+  { _krPk   :: PubKey  'Encrypt e
+  , _krSk   :: PrivKey 'Encrypt e
+  , _krDesc :: Text
+  }
+
+data PeerCredentials e =
+  PeerCredentials
+  { _peerSignSk   :: PrivKey 'Sign e
+  , _peerSignPk   :: PubKey 'Sign e
+  , _peerKeyring  :: [KeyringEntry e]
+  }
+
+makeLenses 'KeyringEntry
+makeLenses 'PeerCredentials
 
 
 newtype AsCredFile a = AsCredFile a
@@ -28,7 +50,7 @@ newCredentials :: forall e m . ( MonadIO m
                                ) => m (PeerCredentials e)
 newCredentials = do
   pair <- liftIO Sign.newKeypair
-  pure $ PeerCredentials @e (secretKey pair) (publicKey pair)
+  pure $ PeerCredentials @e (secretKey pair) (publicKey pair) mempty
 
 
 parseCredentials :: forall e . ( Signatures e
@@ -45,6 +67,7 @@ parseCredentials (AsCredFile bs) = maybe1 b58_1 Nothing fromCbor
 
     fromPair (s1,s2) = PeerCredentials <$> Crypto.decode s1
                                        <*> Crypto.decode s2
+                                       <*> pure mempty
 
     b58_1 = B8.lines bs & dropWhile hdr
                         & filter ( not . B8.null )
@@ -59,7 +82,7 @@ instance ( IsEncoding (PrivKey 'Sign e)
          )
 
   =>  Pretty (AsBase58 (PeerCredentials e)) where
-  pretty (AsBase58 (PeerCredentials s p)) = pretty $ B8.unpack (toBase58 bs)
+  pretty (AsBase58 (PeerCredentials s p _)) = pretty $ B8.unpack (toBase58 bs)
     where
      sk = Crypto.encode s
      pk = Crypto.encode p

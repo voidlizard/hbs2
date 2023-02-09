@@ -18,6 +18,7 @@ import System.Random qualified as Random
 import Data.Digest.Murmur32
 import Data.ByteString (ByteString)
 import Lens.Micro.Platform
+import Data.Text (Text)
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -41,8 +42,6 @@ class Signatures e where
   makeSign   :: PrivKey 'Sign e -> ByteString  -> Signature e
   verifySign :: PubKey 'Sign e  -> Signature e -> ByteString -> Bool
 
-class HasCredentials e m where
-  getCredentials :: m (PeerCredentials e)
 
 class HasCookie e p | p -> e where
   type family Cookie e :: Type
@@ -54,13 +53,6 @@ type PeerNonce = Nonce ()
 class HasPeerNonce e m where
   peerNonce :: m PeerNonce
 
-data PeerCredentials e =
-  PeerCredentials
-  { _peerSignSk :: PrivKey 'Sign e
-  , _peerSignPk :: PubKey 'Sign e
-  }
-
-makeLenses 'PeerCredentials
 
 
 data WithCookie e p = WithCookie (Cookie e) p
