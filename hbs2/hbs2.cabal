@@ -61,7 +61,7 @@ executable hbs2
     main-is:          Main.hs
     -- other-modules:
     -- other-extensions:
-    build-depends:    base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+    build-depends:    base, hbs2-core, hbs2-storage-simple
                     , aeson
                     , async
                     , base58-bytestring

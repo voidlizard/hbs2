@@ -18,7 +18,7 @@ common warnings
 
 common common-deps
     build-depends:
-          base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+          base, hbs2-core, hbs2-storage-simple
         , async
         , bytestring
         , cache
@@ -126,7 +126,7 @@ executable test-udp
     main-is:          TestUDP.hs
 
     build-depends:
-          base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+          base, hbs2-core, hbs2-storage-simple
         , async
         , attoparsec
         , bytestring
@@ -176,7 +176,7 @@ executable test-logger
     main-is:          TestLogger.hs
 
     build-depends:
-          base ^>=4.15.1.0, hbs2-core, hbs2-storage-simple
+          base, hbs2-core, hbs2-storage-simple
         , async
         , attoparsec
         , bytestring

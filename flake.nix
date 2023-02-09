@@ -3,11 +3,14 @@ description = "hbs2";
 
 inputs = {
 
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-22.11";
+    nixpkgs.url = "github:nixos/nixpkgs";
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
     hspup.url = "github:voidlizard/hspup";
     hspup.inputs.nixpkgs.follows = "nixpkgs";
+
+    fixme.url = "github:voidlizard/fixme";
+    # fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
@@ -65,6 +68,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      haskellPackages.haskell-language-server
      pkg-config
      inputs.hspup.packages.${pkgs.system}.default
+     inputs.fixme.packages.${pkgs.system}.default
    ];
 
  };

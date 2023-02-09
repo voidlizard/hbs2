@@ -151,7 +151,9 @@ data instance Event e (PeerHandshake e) =
   KnownPeerEvent (Peer e) (PeerData e)
   deriving stock (Typeable)
 
-instance Typeable (KnownPeer e) => Hashable (EventKey e (KnownPeer e)) where
+instance ( Typeable (KnownPeer e)
+         , Eq (EventKey e (KnownPeer e))
+         ) => Hashable (EventKey e (KnownPeer e)) where
   hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
     where
       p = Proxy @(KnownPeer e)
