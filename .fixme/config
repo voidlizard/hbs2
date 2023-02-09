@@ -1,0 +1,15 @@
+
+
+fixme-comments  --
+
+fixme-prefix     FIXME:     bugs issues
+fixme-prefix     TODO:      bugs issues
+
+fixme-files **/*.hs docs/devlog.md
+
+fixme-files-ignore .direnv/** dist-newstyle/**
+
+fixme-id-show-len 10
+
+fixme-list-full-row-pref ">>> "
+
