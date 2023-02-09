@@ -10,7 +10,7 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
     fixme.url = "github:voidlizard/fixme";
-    # fixme.inputs.nixpkgs.follows = "nixpkgs";
+    fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";

@@ -1,0 +1,6 @@
+PEP: block-encrypting-data-structures
+
+ Here we define a data structures, required for implementing
+ basic encrypted blocks exchange
+
+
