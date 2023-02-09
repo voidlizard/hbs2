@@ -12,6 +12,7 @@ import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
+import HBS2.OrDie
 
 
 import Data.ByteString.Lazy (ByteString)
@@ -165,6 +166,30 @@ runNewKey = do
   cred <- newCredentials @UDP
   print $ pretty $ AsCredFile $ AsBase58 cred
 
+runListKeys :: FilePath -> IO ()
+runListKeys fp = do
+  s <- BS.readFile fp
+  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  print $ pretty (ListKeyringKeys cred)
+
+
+runKeyAdd :: FilePath -> IO ()
+runKeyAdd fp = do
+  hPrint stderr $ "adding a key into keyring" <+> pretty fp
+  s <- BS.readFile fp
+  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  credNew <- addKeyPair Nothing cred
+  print $ pretty $ AsCredFile $ AsBase58 credNew
+
+runKeyDel :: String -> FilePath -> IO ()
+runKeyDel n fp = do
+  hPrint stderr $ "removing key" <+> pretty n <+> "from keyring" <+> pretty fp
+  s <- BS.readFile fp
+  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  credNew <- delKeyPair (AsBase58 n) cred
+  print $ pretty $ AsCredFile $ AsBase58 credNew
+
+
 runShowPeerKey :: Maybe FilePath -> IO ()
 runShowPeerKey fp = do
   handle <- maybe (pure stdin) (`openFile` ReadMode) fp
@@ -200,12 +225,15 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "store"    (info pStore (progDesc "store block"))
-                        <> command "new-ref"  (info pNewRef (progDesc "creates reference"))
-                        <> command "cat"      (info pCat (progDesc "cat block"))
-                        <> command "hash"     (info pHash (progDesc "calculates hash"))
-                        <> command "new-key"  (info pNewKey (progDesc "generates a new keypair"))
-                        <> command "show-peer-key" (info pShowPeerKey (progDesc "show peer key from credential file"))
+    parser = hsubparser (  command "store"            (info pStore (progDesc "store block"))
+                        <> command "new-ref"          (info pNewRef (progDesc "creates reference"))
+                        <> command "cat"              (info pCat (progDesc "cat block"))
+                        <> command "hash"             (info pHash (progDesc "calculates hash"))
+                        <> command "keyring-new"      (info pNewKey (progDesc "generates a new keyring"))
+                        <> command "keyring-list"     (info pKeyList (progDesc "list public keys from keyring"))
+                        <> command "keyring-key-add"  (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
+                        <> command "keyring-key-del"  (info pKeyDel (progDesc "removes a keypair from the keyring"))
+                        <> command "show-peer-key"    (info pShowPeerKey (progDesc "show peer key from credential file"))
                         )
 
     common = do
@@ -242,4 +270,17 @@ main = join . customExecParser (prefs showHelpOnError) $
       fp <- optional $ strArgument ( metavar "FILE" )
       pure $ runShowPeerKey fp
 
+    pKeyList = do
+      f <- strArgument ( metavar "KEYRING-FILE" )
+      pure (runListKeys f)
+
+    pKeyAdd = do
+      f <- strArgument ( metavar "KEYRING-FILE" )
+      pure (runKeyAdd f)
+
+
+    pKeyDel = do
+      s <- strArgument ( metavar "PUB-KEY-BAS58" )
+      f <- strArgument ( metavar "KEYRING-FILE" )
+      pure (runKeyDel s f)
 

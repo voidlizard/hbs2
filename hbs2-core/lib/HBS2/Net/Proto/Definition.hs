@@ -6,8 +6,9 @@ module HBS2.Net.Proto.Definition
   )
   where
 
-import HBS2.Prelude
 import HBS2.Clock
+import HBS2.Defaults
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockAnnounce
@@ -16,7 +17,7 @@ import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
-import HBS2.Defaults
+import HBS2.Prelude
 
 import Data.Functor
 import Data.ByteString.Lazy (ByteString)
@@ -26,12 +27,25 @@ import Codec.Serialise (deserialiseOrFail,serialise,Serialise(..))
 import Crypto.Saltine.Core.Box qualified as Crypto
 import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Sign qualified as Sign
+import Crypto.Saltine.Core.Box qualified as Encrypt
 
 
 type instance PubKey  'Sign e = Sign.PublicKey
 type instance PrivKey 'Sign e = Sign.SecretKey
+type instance PubKey  'Encrypt e = Encrypt.PublicKey
+type instance PrivKey 'Encrypt e = Encrypt.SecretKey
+
+-- FIXME: proper-serialise-for-keys
+--   Возможно, нужно написать ручные инстансы Serialise
+--   использовать encode/decode для каждого инстанса ниже $(c:end + 4)
+--   и это будет более правильная сериализация.
+--   но возможно, будет работать и так, ведь ключи
+--   это же всего лишь байтстроки внутри.
 
 instance Serialise Sign.PublicKey
+instance Serialise Encrypt.PublicKey
+instance Serialise Sign.SecretKey
+instance Serialise Encrypt.SecretKey
 
 instance HasProtocol UDP (BlockInfo UDP) where
   type instance ProtocolId (BlockInfo UDP) = 1

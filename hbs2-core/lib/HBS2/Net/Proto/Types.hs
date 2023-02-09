@@ -26,21 +26,11 @@ import Data.Text (Text)
 class Monad m => GenCookie e m where
   genCookie :: Hashable salt => salt -> m (Cookie e)
 
-type family EncryptPubKey e :: Type
 
 class Monad m => HasNonces p m where
   type family Nonce p :: Type
   newNonce :: m (Nonce p)
 
-data CryptoAction = Sign | Encrypt
-
-type family PubKey  ( a :: CryptoAction) e  :: Type
-type family PrivKey ( a :: CryptoAction) e  :: Type
-
-class Signatures e where
-  type family Signature e :: Type
-  makeSign   :: PrivKey 'Sign e -> ByteString  -> Signature e
-  verifySign :: PubKey 'Sign e  -> Signature e -> ByteString -> Bool
 
 
 class HasCookie e p | p -> e where
