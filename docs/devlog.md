@@ -1,5 +1,22 @@
 
+
 ## 2023-02-09
+
+TODO: MerkleWrap-to-MerkleAnn-or-AnnMerke
+
+ ($context (commit d81038140c795e1cf30cfa05e95630ca1e639427)
+           (file hbs2-core/lib/HBS2/Data/Detect.hs 143) )
+
+ Заменить MerkleWrap на AnnotatedMerkle или MerkleAnn
+
+ Смысл --- Merkle дерево с аннотацией.
+
+ AnnRef, получается, более не нужны. Ссылка всегда
+ ссылается на дерево, наверное, всегда аннотированное.
+
+ У ссылки, в свою очередь, есть ссылка на AccessControlBlock.
+
+
 
 TODO: encryption-keys-into-credentials-file
 
