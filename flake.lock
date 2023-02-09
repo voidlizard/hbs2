@@ -9,11 +9,11 @@
         "suckless-conf": "suckless-conf"
       },
       "locked": {
-        "lastModified": 1675932962,
-        "narHash": "sha256-EmAstwsWB7WQVl4w3a1SaJ6dGw1KH3G/0Q6zgkvwDgs=",
+        "lastModified": 1675950257,
+        "narHash": "sha256-WulcqW4jEdNdrRoiVrOnI+PHySMo7C+TUDM2l+wn2j0=",
         "owner": "voidlizard",
         "repo": "fixme",
-        "rev": "50c9501e7ea8ff9838f1c340c8c97cbb6bcd8736",
+        "rev": "05a804e0584d8a6fb044cbab2f99a531a15d836b",
         "type": "github"
       },
       "original": {
@@ -239,11 +239,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1675928120,
-        "narHash": "sha256-vt5i9Ad0wSWbLvRBDqszUgI5+7zSJlGMcXPANC8rH2Q=",
+        "lastModified": 1675946914,
+        "narHash": "sha256-OE0R9dnB+ZXpf30g1xVSMur68iKUDB53pnyA3K2e788=",
         "owner": "voidlizard",
         "repo": "suckless-conf",
-        "rev": "54377068aac95cbfd8c69177a101c434feecff41",
+        "rev": "995e1cd52cfe2e9aa4e00ea5cd016548f7932e5a",
         "type": "github"
       },
       "original": {
