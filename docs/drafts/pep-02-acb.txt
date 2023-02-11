@@ -29,13 +29,14 @@ Curve25519 (?), т.е ключевую пару асимметричного ш�
 
 -- PubKey 'Sign e ;;; ключ подписи Ed25519
 
-data family ACB e schema :: Type
+data ACBSchema = NaClAsymm
+
+data family ACB e (schema :: ACBSchema) :: Type
 
 data family AccessKey e schema :: Type
 
-data ACBSchema = NaClAsymm
 
-data instance ACB e NaClAsymm  =
+data instance ACB e 'NaClAsymm  =
   ACBNaClAsymm
   { acbParent   :: HashRef              -- указатель на предыдущий ACB
   , acbRoot     :: PubKey 'Sign e       -- корневой владелец
@@ -63,7 +64,7 @@ data instance ACB e NaClAsymm  =
 -- EncryptedBox - обертка вокруг ключа ассиметричного шифрования
 --                (KeyPAir)
 
-newtype instance AccessKey e NaClAsymm =
+newtype instance AccessKey e 'NaClAsymm =
   AccessKeyNaClAsymm
   { permitted :: [(PubKey 'Sign e, EncryptedBox)]
   }
