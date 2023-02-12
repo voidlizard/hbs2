@@ -66,6 +66,23 @@ defRpcUDP = "localhost:13331"
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
+
+data PeerListenKey
+data PeerRpcKey
+data PeerKeyFileKey
+
+instance HasCfgKey PeerListenKey where
+  type instance CfgValue PeerListenKey = String
+  key = "listen"
+
+instance HasCfgKey PeerRpcKey where
+  type instance CfgValue PeerRpcKey = String
+  key = "rpc"
+
+instance HasCfgKey PeerKeyFileKey where
+  type instance CfgValue PeerKeyFileKey = String
+  key = "key"
+
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
@@ -76,9 +93,9 @@ data RPCCommand =
 data PeerOpts =
   PeerOpts
   { _storage       :: Maybe StoragePrefix
-  , _listenOn      :: String
-  , _listenRpc     :: String
-  , _peerCredFile  :: FilePath
+  , _listenOn      :: Maybe String
+  , _listenRpc     :: Maybe String
+  , _peerCredFile  :: Maybe FilePath
   , _peerConfig    :: Maybe FilePath
   }
   deriving stock (Data)
@@ -120,17 +137,14 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       pref <- optional $ strOption ( short 'p' <> long "prefix"
                                                <> help "storage prefix" )
 
-      l    <- strOption ( short 'l' <> long "listen"
-                                    <> help "addr:port"
-                                    <> value defListenUDP )
+      l    <- optional $ strOption ( short 'l' <> long "listen"
+                                    <> help "addr:port" )
 
-      r    <- strOption ( short 'r' <> long "rpc"
-                                    <> help "addr:port"
-                                    <> value defRpcUDP )
+      r    <- optional $ strOption ( short 'r' <> long "rpc"
+                                    <> help "addr:port" )
 
-      k    <- strOption ( short 'k' <> long "key"
-                                    <> help "peer keys file"
-                        )
+      k    <- optional $ strOption ( short 'k' <> long "key"
+                                    <> help "peer keys file" )
 
       c <- optional $ strOption ( long "config"  <> short 'c' <> help "config" )
 
@@ -235,11 +249,25 @@ runPeer opts = Exception.handle myException $ do
 
   conf <- peerConfigRead (view peerConfig opts)
 
+  let (PeerConfig syn) = conf
+
+  print $ pretty syn
+
+  let listenConf = cfgValue @PeerListenKey conf
+  let rpcConf = cfgValue @PeerRpcKey conf
+  let keyConf = cfgValue @PeerKeyFileKey conf
+
+  let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
+  let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
+  credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
+
+  -- putStrLn (fromJust listenConf)
+
   rpcQ <- newTQueueIO @RPCCommand
 
   let ps = mempty
 
-  pc' <- LBS.readFile (view peerCredFile opts)
+  pc' <- LBS.readFile credFile
             <&> parseCredentials @e . AsCredFile
                                     . LBS.toStrict
                                     . LBS.take 4096
@@ -264,13 +292,13 @@ runPeer opts = Exception.handle myException $ do
 
   notice $ "multicast:" <+> pretty localMulticast
 
-  mess <- newMessagingUDP False (Just (view listenOn opts))
+  mess <- newMessagingUDP False listenSa
             `orDie` "unable listen on the given addr"
 
   udp <- async $ runMessagingUDP mess
                    `catch` (\(e::SomeException) -> throwIO e )
 
-  udp1 <- newMessagingUDP False (Just (view listenRpc opts))
+  udp1 <- newMessagingUDP False rpcSa
             `orDie` "Can't start RPC listener"
 
   mrpc <- async $ runMessagingUDP udp1

@@ -1,8 +1,10 @@
 ;; hbs2-peer config file
 
+;; dquotes cause number literals
+;; starts from digit!
 
-listen 0.0.0.0:7351
-rpc    127.0.0.1:13331
-key    ./key
+listen "0.0.0.0:7353"
+rpc    "127.0.0.1:13333"
+key    "./key"
 
 
