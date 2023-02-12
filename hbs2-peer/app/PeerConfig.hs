@@ -18,6 +18,13 @@ import System.Directory
 import System.FilePath
 import Data.Text qualified as Text
 
+class HasCfgKey a b where
+  -- type family CfgValue a :: Type
+  key :: Id
+
+class HasCfgKey a b => HasCfgValue a b where
+  cfgValue :: PeerConfig -> Maybe b
+
 type C = MegaParsec
 
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
@@ -89,18 +96,12 @@ peerConfigRead mbfp = do
 
     pure $ PeerConfig $ fromRight mempty config
 
-class HasCfgKey a where
-  type family CfgValue a :: Type
-  key :: Id
 
-class HasCfgKey a => HasCfgValue a  where
-  cfgValue :: PeerConfig -> Maybe (CfgValue a)
-
-instance {-# OVERLAPPABLE #-} (HasCfgKey a, IsString (CfgValue a)) => HasCfgValue a where
+instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a b) => HasCfgValue a b where
   cfgValue (PeerConfig syn) = val
     where
       val =
         lastMay [ fromString (show $ pretty e)
-                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a
+                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @b
                 ]
 

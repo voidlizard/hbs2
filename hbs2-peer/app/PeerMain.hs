@@ -71,16 +71,13 @@ data PeerListenKey
 data PeerRpcKey
 data PeerKeyFileKey
 
-instance HasCfgKey PeerListenKey where
-  type instance CfgValue PeerListenKey = String
+instance HasCfgKey PeerListenKey String where
   key = "listen"
 
-instance HasCfgKey PeerRpcKey where
-  type instance CfgValue PeerRpcKey = String
+instance HasCfgKey PeerRpcKey String where
   key = "rpc"
 
-instance HasCfgKey PeerKeyFileKey where
-  type instance CfgValue PeerKeyFileKey = String
+instance HasCfgKey PeerKeyFileKey String where
   key = "key"
 
 data RPCCommand =
