@@ -2,3 +2,4 @@ dist-newstyle
 .direnv/
 hbs2.prof
 .fixme/state.db
+result
