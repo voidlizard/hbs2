@@ -1,0 +1,20 @@
+;; hbs2-peer config file
+
+;; dquotes cause number literals
+;; starts from digit!
+
+listen "0.0.0.0:7353"
+rpc    "127.0.0.1:13333"
+key    "./key"
+
+
+storage "./storage"
+
+;; other parameters
+
+blacklist "G4SPdgMAd3Vvu7fHaDuHSDUAB82nAWnovwaRYdxwvwS1"
+
+;; blacklist "AAh9rjcgg2Zfmd9c8xAhVPBEmUCyYM7wHGxjjqYDZYRb"
+
+;; accept-block-announce *
+;; accept-block-announce "AAh9rjcgg2Zfmd9c8xAhVPBEmUCyYM7wHGxjjqYDZYRb"

@@ -39,6 +39,7 @@ common common-deps
         , random-shuffle
         , safe
         , saltine >=0.2.0.1
+        , suckless-conf
         , serialise
         , split
         , stm
@@ -106,6 +107,7 @@ executable hbs2-peer
                     , PokePostponed
                     , RPC
                     , PeerTypes
+                    , PeerConfig
 
     -- other-extensions:
     build-depends:    base

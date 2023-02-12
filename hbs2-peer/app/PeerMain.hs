@@ -2,6 +2,7 @@
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
+{-# Language MultiWayIf #-}
 module Main where
 
 import HBS2.Actors.Peer
@@ -31,7 +32,10 @@ import RPC
 import PeerTypes
 import BlockDownload
 import PeerInfo
+import PeerConfig
 
+import Data.Text qualified as Text
+import Data.Foldable (for_)
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
 import Data.Function
@@ -52,6 +56,7 @@ import Prettyprinter
 import System.Directory
 import System.Exit
 import System.IO
+import Data.Set (Set)
 
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
@@ -65,6 +70,53 @@ defRpcUDP = "localhost:13331"
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
+
+data PeerListenKey
+data PeerRpcKey
+data PeerKeyFileKey
+data PeerBlackListKey
+data PeerStorageKey
+data PeerAcceptAnnounceKey
+
+data AcceptAnnounce = AcceptAnnounceAll
+                    | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
+
+instance Pretty AcceptAnnounce where
+  pretty = \case
+    AcceptAnnounceAll     -> parens ("accept-announce" <+> "*")
+
+    -- FIXME: better-pretty-for-AcceptAnnounceFrom
+    AcceptAnnounceFrom xs -> parens ("accept-announce" <+> pretty (fmap AsBase58 (Set.toList xs)))
+
+instance HasCfgKey PeerListenKey (Maybe String) where
+  key = "listen"
+
+instance HasCfgKey PeerRpcKey (Maybe String) where
+  key = "rpc"
+
+instance HasCfgKey PeerKeyFileKey (Maybe String) where
+  key = "key"
+
+instance HasCfgKey PeerStorageKey (Maybe String) where
+  key = "storage"
+
+instance HasCfgKey PeerBlackListKey (Set String) where
+  key = "blacklist"
+
+instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
+  key = "accept-block-announce"
+
+instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
+  cfgValue (PeerConfig syn) = fromMaybe (AcceptAnnounceFrom lst) fromAll
+    where
+      fromAll = headMay [ AcceptAnnounceAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
+      lst = Set.fromList $
+                catMaybes [ fromStringMay @(PubKey 'Sign UDP) (Text.unpack e)
+                          | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
+                          ]
+      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
+
+
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
@@ -75,9 +127,10 @@ data RPCCommand =
 data PeerOpts =
   PeerOpts
   { _storage       :: Maybe StoragePrefix
-  , _listenOn      :: String
-  , _listenRpc     :: String
-  , _peerCredFile  :: FilePath
+  , _listenOn      :: Maybe String
+  , _listenRpc     :: Maybe String
+  , _peerCredFile  :: Maybe FilePath
+  , _peerConfig    :: Maybe FilePath
   }
   deriving stock (Data)
 
@@ -106,7 +159,8 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "run"       (info pRun  (progDesc "run peer"))
+    parser = hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
+                        <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
@@ -117,20 +171,18 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       pref <- optional $ strOption ( short 'p' <> long "prefix"
                                                <> help "storage prefix" )
 
-      l    <- strOption ( short 'l' <> long "listen"
-                                    <> help "addr:port"
-                                    <> value defListenUDP )
+      l    <- optional $ strOption ( short 'l' <> long "listen"
+                                    <> help "addr:port" )
 
-      r    <- strOption ( short 'r' <> long "rpc"
-                                    <> help "addr:port"
-                                    <> value defRpcUDP )
+      r    <- optional $ strOption ( short 'r' <> long "rpc"
+                                    <> help "addr:port" )
 
-      k    <- strOption ( short 'k' <> long "key"
-                                    <> help "peer keys file"
-                        )
+      k    <- optional $ strOption ( short 'k' <> long "key"
+                                    <> help "peer keys file" )
 
+      c <- optional $ strOption ( long "config"  <> short 'c' <> help "config" )
 
-      pure $ PeerOpts pref l r k
+      pure $ PeerOpts pref l r k c
 
     pRun = do
       runPeer <$> common
@@ -159,6 +211,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
       pure $ runRpcCommand rpc (PING h Nothing)
+
+    pInit = do
+      pref <- optional $ strArgument ( metavar "DIR" )
+      pure $ peerConfigInit pref
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -225,12 +281,51 @@ instance ( Monad m
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
+  xdg <- getXdgDirectory XdgData defStorePath <&> fromString
+
+  conf <- peerConfigRead (view peerConfig opts)
+
+  -- let (PeerConfig syn) = conf
+  -- print $ pretty syn
+
+  let listenConf = cfgValue @PeerListenKey conf
+  let rpcConf = cfgValue @PeerRpcKey conf
+  let keyConf = cfgValue @PeerKeyFileKey conf
+  let storConf = cfgValue @PeerStorageKey conf <&> StoragePrefix
+
+  let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
+  let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
+  credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
+
+  let pref = view storage opts <|> storConf <|> Just xdg
+
+  debug $ "storage prefix:" <+> pretty pref
+
+  let bls = cfgValue @PeerBlackListKey conf :: Set String
+
+  let blkeys = Set.fromList
+                    $ catMaybes [ fromStringMay x | x <- Set.toList bls
+                                ] :: Set (PubKey 'Sign UDP)
+
+  let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
+
+  print $ pretty accptAnn
+
+  -- FIXME: move-peerBanned-somewhere
+  let peerBanned p d = do
+        let k = view peerSignKey d
+        pure $ k `Set.member` blkeys
+
+  let acceptAnnounce p d = do
+        case accptAnn of
+          AcceptAnnounceAll    -> pure True
+          AcceptAnnounceFrom s -> pure $ view peerSignKey d `Set.member` s
 
   rpcQ <- newTQueueIO @RPCCommand
 
   let ps = mempty
 
-  pc' <- LBS.readFile (view peerCredFile opts)
+  pc' <- LBS.readFile credFile
             <&> parseCredentials @e . AsCredFile
                                     . LBS.toStrict
                                     . LBS.take 4096
@@ -239,9 +334,7 @@ runPeer opts = Exception.handle myException $ do
 
   notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
 
-  xdg <- getXdgDirectory XdgData defStorePath <&> fromString
 
-  let pref = uniLastDef xdg (view storage opts) :: StoragePrefix
 
   s <- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
@@ -255,13 +348,13 @@ runPeer opts = Exception.handle myException $ do
 
   notice $ "multicast:" <+> pretty localMulticast
 
-  mess <- newMessagingUDP False (Just (view listenOn opts))
+  mess <- newMessagingUDP False listenSa
             `orDie` "unable listen on the given addr"
 
   udp <- async $ runMessagingUDP mess
                    `catch` (\(e::SomeException) -> throwIO e )
 
-  udp1 <- newMessagingUDP False (Just (view listenRpc opts))
+  udp1 <- newMessagingUDP False rpcSa
             `orDie` "Can't start RPC listener"
 
   mrpc <- async $ runMessagingUDP udp1
@@ -292,20 +385,27 @@ runPeer opts = Exception.handle myException $ do
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                 unless (nonce == pnonce) $ do
                   debug $ "Got peer announce!" <+> pretty pip
-                  known <- find (KnownPeerKey pip) id <&> isJust
+                  pd <- find (KnownPeerKey pip) id -- <&> isJust
+                  banned <- maybe (pure False) (peerBanned pip) pd
+                  let known = isJust pd && not banned
                   unless known $ sendPing pip
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
 
                 let thatNonce = view peerOwnNonce d
 
-                -- FIXME: check if we've got a reference to ourselves
-                if pnonce == thatNonce then  do
-                  delPeers pl [p]
-                  addExcluded pl [p]
-                  expire (KnownPeerKey p)
+                banned <- peerBanned p d
 
-                else do
+                -- FIXME: check if we've got a reference to ourselves
+                if | pnonce == thatNonce -> do
+                    delPeers pl [p]
+                    addExcluded pl [p]
+                    expire (KnownPeerKey p)
+
+                   | banned -> do
+                       notice $ pretty p <+> "banned"
+
+                   | otherwise -> do
 
                     pd' <- knownPeers @e pl >>=
                               \peers -> forM peers $ \pip -> do
@@ -387,14 +487,31 @@ runPeer opts = Exception.handle myException $ do
                                               <+> pretty h
 
                                 case peer of
-                                  Nothing -> sendPing @e pip
-                                  Just{}  -> do
-                                    debug "announce from a known peer"
-                                    debug "preparing to dowload shit"
-                                    debug "checking policy, blah-blah-blah. tomorrow"
+                                  Nothing -> do
+                                    sendPing @e pip
+                                    -- TODO: enqueue-announce-from-unknown-peer?
 
-                                    withDownload denv $ do
-                                      processBlock h
+                                  Just pd  -> do
+
+                                    banned <- peerBanned pip pd
+
+                                    notAccepted <- acceptAnnounce pip pd <&> not
+
+                                    if | banned -> do
+
+                                          notice $ pretty pip <+> "banned"
+
+                                       | notAccepted -> do
+
+                                          debug $ pretty pip <+> "announce-not-accepted"
+
+                                       | otherwise -> do
+
+                                          debug "announce from a known peer"
+                                          debug "preparing to dowload shit"
+
+                                          withDownload denv $ do
+                                            processBlock h
 
                             _ -> pure ()
 

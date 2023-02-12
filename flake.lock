@@ -82,6 +82,21 @@
         "type": "github"
       }
     },
+    "flake-utils_5": {
+      "locked": {
+        "lastModified": 1644229661,
+        "narHash": "sha256-1YdnJAsNy69bpcjuoKdOYQX0YxZBiCYZo4Twxerqv7k=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "3cecb5b042f7f209c56ffd8371b2711a290ec797",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "haskell-flake-utils": {
       "inputs": {
         "flake-utils": "flake-utils"
@@ -156,6 +171,24 @@
         "type": "github"
       }
     },
+    "haskell-flake-utils_5": {
+      "inputs": {
+        "flake-utils": "flake-utils_5"
+      },
+      "locked": {
+        "lastModified": 1672412555,
+        "narHash": "sha256-Kaa8F7nQFR3KuS6Y9WRUxeJeZlp6CCubyrRfmiEsW4k=",
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "rev": "896219e5bde6efac72198550454e9dd9b5ed9ac9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "type": "github"
+      }
+    },
     "hspup": {
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils_4",
@@ -213,7 +246,8 @@
         "haskell-flake-utils": "haskell-flake-utils_3",
         "hspup": "hspup",
         "nixpkgs": "nixpkgs_2",
-        "saltine": "saltine"
+        "saltine": "saltine",
+        "suckless-conf": "suckless-conf_2"
       }
     },
     "saltine": {
@@ -237,6 +271,27 @@
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils_2",
         "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1675946914,
+        "narHash": "sha256-OE0R9dnB+ZXpf30g1xVSMur68iKUDB53pnyA3K2e788=",
+        "owner": "voidlizard",
+        "repo": "suckless-conf",
+        "rev": "995e1cd52cfe2e9aa4e00ea5cd016548f7932e5a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "voidlizard",
+        "repo": "suckless-conf",
+        "type": "github"
+      }
+    },
+    "suckless-conf_2": {
+      "inputs": {
+        "haskell-flake-utils": "haskell-flake-utils_5",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1675946914,

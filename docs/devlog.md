@@ -1,6 +1,15 @@
 
 ## 2023-02-12
 
+FIXME: busyloop-postponed
+
+  Когда остаются одни posponed блоки в очереди,
+  которых ни у кого нет --- возникает busyloop
+  и флуд GetBlockSize
+
+  Кажется, надо в ключ HasTimeLimits добавить
+  хэш пингуемого блока.
+
 TODO: introduce-peer-config
 
   1. На одном хосте может быть несколько пиров.
@@ -15,7 +24,6 @@ TODO: introduce-peer-config
 
 
 TODO: introduce-peer-black-list
-
 
 
 TODO: peer-accept-block-announce-feature

@@ -8,6 +8,7 @@ module HBS2.Prelude
   , lift
   , AsFileName(..)
   , Pretty
+  , FromStringMaybe(..)
   ) where
 
 import Data.String (IsString(..))
@@ -36,4 +37,8 @@ instance Pretty a => Pretty (AsFileName a) where
       uniq = pretty (fromIntegral $ hash (show (pretty f)) :: Word16)
       x = show (pretty f) & Text.pack
                           & Text.filter (not . Char.isPunctuation)
+
+class FromStringMaybe a where
+  fromStringMay :: String -> Maybe a
+
 
