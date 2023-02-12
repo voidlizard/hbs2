@@ -1,0 +1,8 @@
+;; hbs2-peer config file
+
+
+listen 0.0.0.0:7351
+rpc    127.0.0.1:13331
+key    ./key
+
+
