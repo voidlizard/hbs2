@@ -2,6 +2,7 @@
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
+{-# Language MultiWayIf #-}
 module Main where
 
 import HBS2.Actors.Peer
@@ -265,9 +266,12 @@ runPeer opts = Exception.handle myException $ do
 
   let bls = cfgValue @PeerBlackListKey conf :: Set String
 
-  let blkeys = [ fromStringMay x | x <- Set.toList bls ] :: [Maybe (PubKey 'Sign UDP)]
+  let blkeys = Set.fromList
+                    $ catMaybes [ fromStringMay x | x <- Set.toList bls
+                                ] :: Set (PubKey 'Sign UDP)
 
-  mapM_ (print.pretty.AsBase58) (catMaybes blkeys)
+
+  let peerBanned p d = pure False
 
   rpcQ <- newTQueueIO @RPCCommand
 
@@ -336,19 +340,25 @@ runPeer opts = Exception.handle myException $ do
                 unless (nonce == pnonce) $ do
                   debug $ "Got peer announce!" <+> pretty pip
                   known <- find (KnownPeerKey pip) id <&> isJust
+                  debug "If not banned, then ping"
                   unless known $ sendPing pip
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
 
                 let thatNonce = view peerOwnNonce d
 
-                -- FIXME: check if we've got a reference to ourselves
-                if pnonce == thatNonce then  do
-                  delPeers pl [p]
-                  addExcluded pl [p]
-                  expire (KnownPeerKey p)
+                banned <- peerBanned p d
 
-                else do
+                -- FIXME: check if we've got a reference to ourselves
+                if | pnonce == thatNonce -> do
+                    delPeers pl [p]
+                    addExcluded pl [p]
+                    expire (KnownPeerKey p)
+
+                   | banned -> do
+                       notice $ pretty p <+> "banned"
+
+                   | otherwise -> do
 
                     pd' <- knownPeers @e pl >>=
                               \peers -> forM peers $ \pip -> do
@@ -430,14 +440,26 @@ runPeer opts = Exception.handle myException $ do
                                               <+> pretty h
 
                                 case peer of
-                                  Nothing -> sendPing @e pip
-                                  Just{}  -> do
-                                    debug "announce from a known peer"
-                                    debug "preparing to dowload shit"
-                                    debug "checking policy, blah-blah-blah. tomorrow"
+                                  Nothing -> do
+                                    sendPing @e pip
+                                    -- TODO: enqueue-announce-from-unknown-peer?
 
-                                    withDownload denv $ do
-                                      processBlock h
+                                  Just pd  -> do
+
+                                    banned <- peerBanned pip pd
+
+                                    if banned then do
+
+                                      notice $ pretty pip <+> "banned"
+
+                                    else do
+
+                                      debug "announce from a known peer"
+                                      debug "preparing to dowload shit"
+                                      debug "checking policy, blah-blah-blah. tomorrow"
+
+                                      withDownload denv $ do
+                                        processBlock h
 
                             _ -> pure ()
 
