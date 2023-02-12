@@ -249,9 +249,8 @@ runPeer opts = Exception.handle myException $ do
 
   conf <- peerConfigRead (view peerConfig opts)
 
-  let (PeerConfig syn) = conf
-
-  print $ pretty syn
+  -- let (PeerConfig syn) = conf
+  -- print $ pretty syn
 
   let listenConf = cfgValue @PeerListenKey conf
   let rpcConf = cfgValue @PeerRpcKey conf
