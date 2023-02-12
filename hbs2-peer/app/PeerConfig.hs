@@ -5,6 +5,7 @@ module PeerConfig where
 
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
+import HBS2.Base58
 
 import Data.Config.Suckless
 
@@ -16,6 +17,8 @@ import Data.Maybe
 import Prettyprinter
 import System.Directory
 import System.FilePath
+import Data.Set qualified as Set
+import Data.Set (Set)
 import Data.Text qualified as Text
 
 class HasCfgKey a b where
@@ -23,7 +26,7 @@ class HasCfgKey a b where
   key :: Id
 
 class HasCfgKey a b => HasCfgValue a b where
-  cfgValue :: PeerConfig -> Maybe b
+  cfgValue :: PeerConfig -> b
 
 type C = MegaParsec
 
@@ -97,11 +100,26 @@ peerConfigRead mbfp = do
     pure $ PeerConfig $ fromRight mempty config
 
 
-instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a b) => HasCfgValue a b where
+instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
   cfgValue (PeerConfig syn) = val
     where
       val =
         lastMay [ fromString (show $ pretty e)
-                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @b
+                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
                 ]
+
+
+instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a [b]) => HasCfgValue a [b] where
+  cfgValue (PeerConfig syn) = val
+    where
+      val = [ fromString (show $ pretty e)
+            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @[b]
+            ]
+
+instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Set b)) => HasCfgValue a (Set b) where
+  cfgValue (PeerConfig syn) = Set.fromList val
+    where
+      val = [ fromString (show $ pretty e)
+            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Set b)
+            ]
 

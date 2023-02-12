@@ -33,6 +33,7 @@ import BlockDownload
 import PeerInfo
 import PeerConfig
 
+import Data.Foldable (for_)
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
 import Data.Function
@@ -53,6 +54,7 @@ import Prettyprinter
 import System.Directory
 import System.Exit
 import System.IO
+import Data.Set (Set)
 
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
@@ -70,15 +72,19 @@ defLocalMulticast = "239.192.152.145:10153"
 data PeerListenKey
 data PeerRpcKey
 data PeerKeyFileKey
+data PeerBlackListKey
 
-instance HasCfgKey PeerListenKey String where
+instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
 
-instance HasCfgKey PeerRpcKey String where
+instance HasCfgKey PeerRpcKey (Maybe String) where
   key = "rpc"
 
-instance HasCfgKey PeerKeyFileKey String where
+instance HasCfgKey PeerKeyFileKey (Maybe String) where
   key = "key"
+
+instance HasCfgKey PeerBlackListKey (Set String) where
+  key = "blacklist"
 
 data RPCCommand =
     POKE
@@ -257,7 +263,11 @@ runPeer opts = Exception.handle myException $ do
   let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
 
-  -- putStrLn (fromJust listenConf)
+  let bls = cfgValue @PeerBlackListKey conf :: Set String
+
+  let blkeys = [ fromStringMay x | x <- Set.toList bls ] :: [Maybe (PubKey 'Sign UDP)]
+
+  mapM_ (print.pretty.AsBase58) (catMaybes blkeys)
 
   rpcQ <- newTQueueIO @RPCCommand
 
