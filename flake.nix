@@ -12,6 +12,9 @@ inputs = {
     fixme.url = "github:voidlizard/fixme";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
+    suckless-conf.url = "github:voidlizard/suckless-conf";
+    suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
+
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
       flake = false;
@@ -27,6 +30,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    name = "hbs2";
 
    haskellFlakes = with inputs; [
+     suckless-conf
    ];
 
    packageNames = [

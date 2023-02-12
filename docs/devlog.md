@@ -17,7 +17,6 @@ TODO: introduce-peer-config
 TODO: introduce-peer-black-list
 
 
-
 TODO: peer-accept-block-announce-feature
 
   Смотреть, если пир в чёрном списке --- от отвергать от него

@@ -31,6 +31,7 @@ import RPC
 import PeerTypes
 import BlockDownload
 import PeerInfo
+import PeerConfig
 
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
@@ -78,6 +79,7 @@ data PeerOpts =
   , _listenOn      :: String
   , _listenRpc     :: String
   , _peerCredFile  :: FilePath
+  , _peerConfig    :: Maybe FilePath
   }
   deriving stock (Data)
 
@@ -106,7 +108,8 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "run"       (info pRun  (progDesc "run peer"))
+    parser = hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
+                        <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
@@ -129,8 +132,9 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                                     <> help "peer keys file"
                         )
 
+      c <- optional $ strOption ( long "config"  <> short 'c' <> help "config" )
 
-      pure $ PeerOpts pref l r k
+      pure $ PeerOpts pref l r k c
 
     pRun = do
       runPeer <$> common
@@ -159,6 +163,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
       pure $ runRpcCommand rpc (PING h Nothing)
+
+    pInit = do
+      pref <- optional $ strArgument ( metavar "DIR" )
+      pure $ peerConfigInit pref
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -225,6 +233,7 @@ instance ( Monad m
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
+  conf <- peerConfigRead (view peerConfig opts)
 
   rpcQ <- newTQueueIO @RPCCommand
 
