@@ -76,21 +76,24 @@ makeLenses ''MNodeData
 
 instance Serialise MNodeData
 
-data MWrap a = MWrap
- { _mwCrypt :: !CryptScheme
- , _mwTree :: !(MTree a)
+data MTreeAnn a = MTreeAnn
+ { _mtaAnn :: !Ann
+ , _mtaTree :: !(MTree a)
  }
   deriving stock (Generic,Data,Show)
 
-instance Serialise a => Serialise (MWrap a)
+instance Serialise a => Serialise (MTreeAnn a)
 
-data CryptScheme
-  = NullCrypt
+data MerkleEncryptionType
+  deriving stock (Data)
+
+data Ann
+  = NullAnn
   | GroupKeyCrypt (Hash HbSync)
-  -- FIXME more crypt schemes
+  -- FIXME more annotation schemes
   deriving stock (Generic,Data,Show)
 
-instance Serialise CryptScheme
+instance Serialise Ann
 
 data MTree a = MNode MNodeData [Hash HbSync] | MLeaf a
                deriving stock (Generic,Data,Show)

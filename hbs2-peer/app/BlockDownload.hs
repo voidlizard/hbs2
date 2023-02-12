@@ -187,9 +187,9 @@ processBlock h = do
 
      Just (AnnRef{}) -> pure ()
 
-     Just (MerkleWrap (MWrap sch t)) -> do
-       case sch of
-            NullCrypt -> pure ()
+     Just (MerkleAnn (MTreeAnn ann t)) -> do
+       case ann of
+            NullAnn -> pure ()
             GroupKeyCrypt hk -> addDownload hk
 
        debug $ "GOT WRAPPED MERKLE. requesting nodes/leaves" <+> pretty h

@@ -5,6 +5,7 @@ import HBS2.Data.Detect
 import HBS2.Data.Types
 import HBS2.Defaults
 import HBS2.Merkle
+import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
@@ -20,6 +21,7 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.State.Strict
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Either
@@ -61,11 +63,19 @@ newtype OptInit = OptInit { fromOptInit :: Bool }
                   deriving newtype (Eq,Ord,Pretty)
                   deriving stock (Data,Generic)
 
-data StoreOpts =
+data OptEncryption e = OptEncryption
+  { encryptFromSecKey :: Maybe (PrivKey 'Encrypt e)
+  , encryptToSecKey :: PrivKey 'Encrypt e
+  , encryptToPubKey :: PubKey 'Encrypt e
+  , encryptToGroup :: [PubKey 'Encrypt e]
+  }
+  deriving stock (Data)
+
+data StoreOpts e =
   StoreOpts
   {  storeInit      :: Maybe OptInit
   ,  storeInputFile :: Maybe OptInputFile
-      -- FIXME store option to encrypt
+  ,  storeEncryption :: Maybe (OptEncryption e)
   }
   deriving stock (Data)
 
@@ -73,6 +83,7 @@ data CatOpts =
   CatOpts
   { catMerkleHash :: Maybe MerkleHash
   , catHashesOnly :: Maybe CatHashesOnly
+  , catPathToKeyring :: Maybe FilePath
   }
   deriving stock (Data)
 
@@ -123,25 +134,46 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
-      let walkWrap :: CryptScheme -> MTree [HashRef] -> IO ()
-          walkWrap sch t = walkMerkleTree t (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
-            case hr of
-              Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
-              Right (hrr :: [HashRef]) -> do
-                 forM_ hrr $ \(HashRef hx) -> do
-                   if honly then do
-                     print $ pretty hx
-                   else do
-                     mblk <- getBlock ss hx
-                     case mblk of
-                       Nothing  -> die $ show $ "missed block: " <+> pretty hx
-                       -- FIXME apply crypto scheme `sch` to stream of blk's
-                       Just blk -> LBS.putStr blk
+      let walkAnn :: Ann -> MTree [HashRef] -> IO ()
+          walkAnn ann t = do
+            bprocess :: Int -> ByteString -> IO ByteString <- case ann of
+              NullAnn -> pure (\_ -> pure)
+              GroupKeyCrypt crypth -> do
+                  mblk <- getBlock ss crypth
+                  case mblk of
+                    Nothing  -> die $ show $ "missed block: " <+> pretty crypth
+                    Just blk -> do
+                        -- FIXME apply crypto scheme from `crypth` to stream of blk's
+                        -- extract AccessKeyV1 from blk
+                        -- find in it any pubkey known to us
+                        -- decrypt corresponding EncryptedBox
+                        -- get actual (PrivKey 'Encrypt e) to use for merkle decryption
+                        pure $ \blnum blk -> do
+                            -- convert blnum to Crypto.Saltine.Core.Box.Nonce
+                            -- decrypt blk with this nonce and priv key
+                            undefined
+
+            flip evalStateT firstNumOfBlock $
+             walkMerkleTree t (lift . getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+              case hr of
+                Left hx -> lift $ void $ hPrint stderr $ "missed block:" <+> pretty hx
+                Right (hrr :: [HashRef]) -> do
+                  forM_ hrr $ \(HashRef hx) -> do
+                    if honly then do
+                      lift $ print $ pretty hx
+                    else do
+                      mblk <- lift $ getBlock ss hx
+                      case mblk of
+                        Nothing  -> lift $ die $ show $ "missed block: " <+> pretty hx
+                        Just blk -> do
+                            blnum <- get
+                            modify (+1)
+                            lift $ LBS.putStr =<< bprocess blnum blk
 
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
         Merkle h -> walk h
-        MerkleWrap (MWrap sch hs) -> walkWrap sch hs
+        MerkleAnn (MTreeAnn ann hs) -> walkAnn ann hs
         AnnRef h -> do
           let lnk = deserialise @AnnotatedHashRef obj
           let mbHead =  headMay [ h
@@ -158,6 +190,8 @@ runStore opts ss | justInit = do
   where
     justInit = maybe False fromOptInit (uniLastMay @OptInit opts)
 
+firstNumOfBlock :: Int
+firstNumOfBlock = 1
 
 runStore opts ss = do
 
@@ -165,14 +199,36 @@ runStore opts ss = do
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  root <- case (undefined opts) of  -- FIXME
-    Nothing -> putAsMerkle ss handle
+  case (uniLastMay @(OptEncryption MerkleEncryptionType) opts) of
+    Nothing -> do
+        root <- putAsMerkle ss handle
+        print $ "merkle-root: " <+> pretty root
     Just encOpts -> do
-        encryptedChunks :: S.Stream (S.Of ByteString) IO ()
-            <- undefined encOpts handle  -- FIXME readChunked then encrypt ?
-        putAsMerkle ss encryptedChunks
 
-  print $ "merkle-root: " <+> pretty root
+        -- FIXME generate AccessKeyV1, store it
+        accKeyh <- maybe (die "can not store access key") pure
+              =<< (putBlock ss . serialise) do
+            AccessKeyV1 (undefined :: [(PubKey 'Encrypt e, EncryptedBox)])
+
+        let rawChunks :: S.Stream (S.Of ByteString) IO ()
+            rawChunks = readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
+
+            encryptedChunks :: S.Stream (S.Of ByteString) IO ()
+            -- FIXME get keys to enrypt
+            encryptedChunks = rawChunks
+                & S.zip (S.enumFrom firstNumOfBlock)
+                & S.map (\(blnum, blk) -> do
+                      -- FIXME convert blnum to Crypto.Saltine.Core.Box.Nonce
+                      -- encrypt blk with this nonce and priv key
+                      undefined
+
+        mhash <- putAsMerkle ss encryptedChunks
+
+        mannh <- maybe (die "can not store MerkleAnn") pure
+              =<< (putBlock ss . serialise) do
+            MerkleAnn (MTreeAnn (GroupKeyCrypt accKeyh) (undefined mhash))
+
+        print $ "merkle-ann-root: " <+> pretty mannh
 
 runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
 runNewRef opts mhash ss = do
@@ -273,13 +329,15 @@ main = join . customExecParser (prefs showHelpOnError) $
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
       -- FIXME option to encrypt
-      pure $ withStore o (runStore ( StoreOpts init file ))
+      encOps :: Maybe (OptEncryption MerkleEncryptionType) <- optional $ undefined
+      pure $ withStore o (runStore ( StoreOpts init file encOps ))
 
     pCat = do
       o <- common
       hash  <- optional $ strArgument ( metavar "HASH" )
       onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
-      pure $ withStore o $ runCat $ CatOpts hash (CatHashesOnly <$> onlyh)
+      keyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
+      pure $ withStore o $ runCat $ CatOpts hash (CatHashesOnly <$> onlyh) keyringFile
 
     pHash = do
       o <- common
