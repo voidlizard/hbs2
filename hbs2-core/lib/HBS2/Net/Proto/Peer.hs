@@ -94,18 +94,18 @@ peerHandShakeProto =
   \case
     PeerPing nonce  -> do
       pip <- thatPeer proto
-      -- TODO: взять свои ключи
+      -- взять свои ключи
       creds <- getCredentials @e
 
-      -- TODO: подписать нонс
+      -- подписать нонс
       let sign = makeSign @e (view peerSignSk creds) nonce
 
       own <- peerNonce @e
 
-      -- TODO: отправить обратно вместе с публичным ключом
+      -- отправить обратно вместе с публичным ключом
       response (PeerPong @e nonce sign (PeerData (view peerSignPk creds) own))
 
-      -- TODO: да и пингануть того самим
+      -- да и пингануть того самим
 
       se <- find (KnownPeerKey pip) id <&> isJust
 
@@ -126,10 +126,6 @@ peerHandShakeProto =
         when signed $ do
 
           expire (PeerHandshakeKey (nonce0,pip))
-
-          -- FIXME: check if peer is blacklisted
-          --        right here
-          update d (KnownPeerKey pip) id
 
           emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
           emit (ConcretePeerKey pip) (ConcretePeerData pip d)
