@@ -130,17 +130,18 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
 
 data PeerEnv e =
   PeerEnv
-  { _envSelf         :: Peer e
-  , _envPeerNonce    :: PeerNonce
-  , _envFab          :: Fabriq e
-  , _envStorage      :: AnyStorage
-  , _envPeerLocator  :: AnyPeerLocator e
-  , _envDeferred     :: Pipeline IO ()
-  , _envSessions     :: Cache SKey Dynamic
-  , _envEvents       :: TVar (HashMap SKey [Dynamic])
-  , _envExpireTimes  :: Cache SKey ()
-  , _envSweepers     :: TVar (HashMap SKey [PeerM e IO ()])
-  , _envReqLimit     :: Cache (Peer e, Integer, Encoded e) ()
+  { _envSelf          :: Peer e
+  , _envPeerNonce     :: PeerNonce
+  , _envFab           :: Fabriq e
+  , _envStorage       :: AnyStorage
+  , _envPeerLocator   :: AnyPeerLocator e
+  , _envDeferred      :: Pipeline IO ()
+  , _envSessions      :: Cache SKey Dynamic
+  , _envEvents        :: TVar (HashMap SKey [Dynamic])
+  , _envExpireTimes   :: Cache SKey ()
+  , _envSweepers      :: TVar (HashMap SKey [PeerM e IO ()])
+  , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
+  , _envReqProtoLimit :: Cache (Peer e, Integer) ()
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -236,27 +237,39 @@ instance ( MonadIO m
     se <- asks (view envSessions)
     liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
-class (HasProtocol e p) => HasTimeLimits e p m where
-  withTimeLimit :: Peer e -> p -> m () -> m ()
+class HasProtocol e p => HasTimeLimits e p m where
+  tryLockForPeriod :: Peer e -> p -> m Bool
 
 instance {-# OVERLAPPABLE #-}
-  (Monad m, HasProtocol e p) => HasTimeLimits e p m where
-  withTimeLimit _ p m = m
+  (MonadIO (t m), Monad m, MonadTrans t, HasProtocol e p, HasTimeLimits e p m) => HasTimeLimits e p (t m) where
+  tryLockForPeriod p m = lift (tryLockForPeriod p m)
+    -- pure True
+    -- liftIO $ print "LIMIT DOES NOT WORK"
+    -- pure True
 
 instance (MonadIO m, HasProtocol e p, Hashable (Encoded e))
   => HasTimeLimits e p (PeerM e m) where
-  withTimeLimit peer msg m = case requestMinPeriod @e @p of
-    Nothing -> m
+  tryLockForPeriod peer msg = case requestPeriodLim @e @p of
+    NoLimit -> pure True
 
-    Just lim -> do
+    ReqLimPerMessage lim -> do
       let proto = protoId @e @p (Proxy @p)
-      ex <- asks (view envReqLimit)
+      ex <- asks (view envReqMsgLimit)
       let bin = encode @e msg
       let key = (peer, proto, bin)
       here <- liftIO $ Cache.lookup ex key  <&> isJust
       unless here $ do
         liftIO $ Cache.insert' ex (Just (toTimeSpec lim)) key ()
-        m
+      pure (not here)
+
+    ReqLimPerProto lim -> do
+      let proto = protoId @e @p (Proxy @p)
+      ex <- asks (view envReqProtoLimit)
+      let key = (peer, proto)
+      here <- liftIO $ Cache.lookup ex key  <&> isJust
+      unless here $ do
+        liftIO $ Cache.insert' ex (Just (toTimeSpec lim)) key ()
+      pure (not here)
 
 instance ( MonadIO m
          , HasProtocol e p
@@ -275,8 +288,11 @@ instance ( MonadIO m
     --
     -- TODO: where to store the timeout?
     -- TODO: where the timeout come from?
-    withTimeLimit @e @p p msg $ do
+    -- withTimeLimit @e @p p msg $ do
       -- liftIO $ print "request!"
+    allowed <- tryLockForPeriod p msg
+
+    when allowed do
       sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 
@@ -378,7 +394,8 @@ newPeerEnv s bus p = do
                            <*> liftIO (newTVarIO mempty)
                            <*> liftIO (Cache.newCache (Just defCookieTimeout))
                            <*> liftIO (newTVarIO mempty)
-                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
+                           <*> liftIO (Cache.newCache (Just defRequestLimit))
+                           <*> liftIO (Cache.newCache (Just defRequestLimit))
 
 runPeerM :: forall e m . ( MonadIO m
                          , HasPeer e

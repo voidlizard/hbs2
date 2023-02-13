@@ -74,6 +74,8 @@ instance Monad m => HasFabriq UDP (PingPongM m) where
 instance Monad m => HasOwnPeer UDP (PingPongM m) where
   ownPeer = asks (view ppSelf)
 
+instance HasTimeLimits UDP (PingPong UDP) IO where
+  tryLockForPeriod _ _ = pure True
 
 main :: IO ()
 main = do

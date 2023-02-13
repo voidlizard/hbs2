@@ -47,6 +47,12 @@ defCookieTimeoutSec = 1200
 defCookieTimeout :: TimeSpec
 defCookieTimeout = toTimeSpec defCookieTimeoutSec
 
+defRequestLimit :: TimeSpec
+defRequestLimit = toTimeSpec defRequestLimitSec
+
+defRequestLimitSec :: Timeout 'Seconds
+defRequestLimitSec = 60
+
 defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = toTimeSpec defCookieTimeoutSec
 

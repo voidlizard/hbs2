@@ -235,6 +235,10 @@ withCredentials :: forall e m a . (HasOwnPeer e m, Monad m)
 
 withCredentials pc m = runReaderT (fromCredentials m) pc
 
+
+instance (Monad m, HasTimeLimits e p m) => HasTimeLimits  e p (CredentialsM e m) where
+  tryLockForPeriod p m = lift $ tryLockForPeriod p m
+
 instance (HasOwnPeer e m) => HasOwnPeer e (CredentialsM e m) where
   ownPeer = lift ownPeer
 

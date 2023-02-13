@@ -77,6 +77,9 @@ instance Monad m => HasFabriq UDP (RpcM m) where
 instance Monad m => HasOwnPeer UDP (RpcM m) where
   ownPeer = asks (view rpcSelf)
 
+instance (Monad m, HasProtocol UDP p) => HasTimeLimits UDP p (RpcM m) where
+  tryLockForPeriod _ _ = pure True
+
 rpcHandler :: forall e m  . ( MonadIO m
                             , Response e (RPC e) m
                             , HasProtocol e (RPC e)

@@ -73,6 +73,10 @@ class ( MonadIO m
 class Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()
 
+data ReqLimPeriod = NoLimit
+                  | ReqLimPerProto   (Timeout 'Seconds)
+                  | ReqLimPerMessage (Timeout 'Seconds)
+
 class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
   type family Encoded e :: Type
@@ -83,8 +87,8 @@ class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
   decode :: Encoded e -> Maybe p
   encode :: p -> Encoded e
 
-  requestMinPeriod :: Maybe (Timeout 'Seconds)
-  requestMinPeriod = Nothing
+  requestPeriodLim :: ReqLimPeriod
+  requestPeriodLim = NoLimit
 
 -- FIXME: slow and dumb
 instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e m where

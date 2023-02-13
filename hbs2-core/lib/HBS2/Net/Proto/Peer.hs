@@ -53,7 +53,12 @@ newtype instance SessionKey e (PeerHandshake e) =
 type instance SessionData e (PeerHandshake e) = PingNonce
 
 
--- FIXME: enormous-request-amount-during-handshake
+-- FIXME: enormous-request-amount-during-handshake-2
+--  несмотря на то, что проблема решается введением ReqLimPeriod
+--  и HasTimeLimits, хорошо бы разобраться, что именно вызывает
+--  шквал пингов и в какой момент (Pex? PeerAnnounce?)
+--  это не очень правильное поведение, возможно там нужно
+--  что-то делать с peerNonce
 
 sendPing :: forall e m . ( MonadIO m
                          , Request e (PeerHandshake e) m
