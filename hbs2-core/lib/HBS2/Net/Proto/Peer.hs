@@ -53,6 +53,8 @@ newtype instance SessionKey e (PeerHandshake e) =
 type instance SessionData e (PeerHandshake e) = PingNonce
 
 
+-- FIXME: enormous-request-amount-during-handshake
+
 sendPing :: forall e m . ( MonadIO m
                          , Request e (PeerHandshake e) m
                          , Sessions e (PeerHandshake e) m

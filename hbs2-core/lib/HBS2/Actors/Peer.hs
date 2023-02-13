@@ -66,9 +66,16 @@ data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
-class Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
+class ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
+      , Eq (Encoded e)
+      , Hashable (Encoded e)
+      ) => PeerMessaging e
 
-instance Messaging (Fabriq e) e (AnyMessage (Encoded e) e) => PeerMessaging e
+instance ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
+         , Eq (Encoded e)
+         , Hashable (Encoded e)
+         )
+  => PeerMessaging e
 
 class ( Eq (SessionKey e a)
       , Hashable (SessionKey e a)
@@ -133,7 +140,7 @@ data PeerEnv e =
   , _envEvents       :: TVar (HashMap SKey [Dynamic])
   , _envExpireTimes  :: Cache SKey ()
   , _envSweepers     :: TVar (HashMap SKey [PeerM e IO ()])
-  , _envReqLimit     :: Cache (Peer e, Integer) ()
+  , _envReqLimit     :: Cache (Peer e, Integer, Encoded e) ()
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -229,23 +236,26 @@ instance ( MonadIO m
     se <- asks (view envSessions)
     liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
-class HasProtocol e p => HasTimeLimits e p m where
-  withTimeLimit :: Peer e -> m () -> m ()
+class (HasProtocol e p) => HasTimeLimits e p m where
+  withTimeLimit :: Peer e -> p -> m () -> m ()
 
 instance {-# OVERLAPPABLE #-}
   (Monad m, HasProtocol e p) => HasTimeLimits e p m where
-  withTimeLimit _ m = m
+  withTimeLimit _ p m = m
 
-instance (MonadIO m, HasProtocol e p)
+instance (MonadIO m, HasProtocol e p, Hashable (Encoded e))
   => HasTimeLimits e p (PeerM e m) where
-  withTimeLimit peer m = case requestMinPeriod @e @p of
+  withTimeLimit peer msg m = case requestMinPeriod @e @p of
     Nothing -> m
+
     Just lim -> do
       let proto = protoId @e @p (Proxy @p)
       ex <- asks (view envReqLimit)
-      here <- liftIO $ Cache.lookup ex (peer, proto) <&> isJust
+      let bin = encode @e msg
+      let key = (peer, proto, bin)
+      here <- liftIO $ Cache.lookup ex key  <&> isJust
       unless here $ do
-        liftIO $ Cache.insert' ex (Just (toTimeSpec lim)) (peer, proto) ()
+        liftIO $ Cache.insert' ex (Just (toTimeSpec lim)) key ()
         m
 
 instance ( MonadIO m
@@ -265,7 +275,8 @@ instance ( MonadIO m
     --
     -- TODO: where to store the timeout?
     -- TODO: where the timeout come from?
-    withTimeLimit @e @p p $ do
+    withTimeLimit @e @p p msg $ do
+      -- liftIO $ print "request!"
       sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
 
 

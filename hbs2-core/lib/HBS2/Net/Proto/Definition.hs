@@ -55,7 +55,7 @@ instance HasProtocol UDP (BlockInfo UDP) where
 
   -- FIXME: requestMinPeriod-breaks-fast-block-download
   --
-  requestMinPeriod = Nothing
+  requestMinPeriod = Just 10
 
 instance HasProtocol UDP (BlockChunks UDP) where
   type instance ProtocolId (BlockChunks UDP) = 2
