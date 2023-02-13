@@ -127,6 +127,10 @@ peerHandShakeProto =
 
           expire (PeerHandshakeKey (nonce0,pip))
 
+          -- FIXME: check if peer is blacklisted
+          --        right here
+          update d (KnownPeerKey pip) id
+
           emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
           emit (ConcretePeerKey pip) (ConcretePeerData pip d)
 
