@@ -18,6 +18,7 @@ import HBS2.OrDie
 import HBS2.Prelude.Plated
 
 import Codec.Serialise
+import Control.Monad ((<=<))
 import Crypto.Saltine.Core.Sign (Keypair(..))
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
@@ -40,9 +41,98 @@ newtype EncryptedBox = EncryptedBox { unEncryptedBox :: ByteString }
 
 instance Serialise EncryptedBox
 
-newtype AccessKeyV1 e = AccessKeyV1
+data EncryptionSchema = NaClAsymm
+
+---
+
+data family AccessKey e ( s :: EncryptionSchema )
+
+newtype instance AccessKey e 'NaClAsymm =
+  AccessKeyNaClAsymm
   { permitted :: [(PubKey 'Encrypt e, EncryptedBox)]
   }
   deriving stock (Generic)
 
-instance Serialise (AccessKeyV1 e)
+instance Serialise (AccessKey e 'NaClAsymm)
+
+---
+
+data family GroupKey e ( s :: EncryptionSchema )
+
+data instance GroupKey e 'NaClAsymm =
+  GroupKeyNaClAsymm
+  { encryptionKey :: KeyringEntry e
+  , permittedPubKeys :: [PubKey 'Encrypt e]
+  }
+  deriving stock (Generic)
+
+instance Serialise (GroupKey e 'NaClAsymm)
+
+---
+
+newtype AsGroupKeyFile a = AsGroupKeyFile a
+
+---- FIXME: integration-regression-test-for-groupkey
+----   Добавить тест: сгенерировали groupkey/распарсили groupkey
+
+parseGroupKey :: forall e . ()
+                 =>  AsGroupKeyFile ByteString -> Maybe (GroupKey e 'NaClAsymm)
+
+parseGroupKey (AsGroupKeyFile bs) = maybe1 b58_1 Nothing fromCbor
+
+  where
+    fromCbor s = deserialiseOrFail @(GroupKey e 'NaClAsymm) s
+                   & either (const Nothing) Just
+
+    b58_1 = B8.lines bs & dropWhile hdr
+                        & filter ( not . B8.null )
+                        & B8.concat
+                        & fromBase58
+                        & fmap LBS.fromStrict
+
+    hdr s = B8.isPrefixOf "#" s || B8.null s
+
+instance ( Serialise  (GroupKey e s)
+         )
+
+  =>  Pretty (AsBase58 (GroupKey e s)) where
+  pretty (AsBase58 c) =
+    pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
+
+
+instance Pretty (AsBase58 a) => Pretty (AsGroupKeyFile (AsBase58 a)) where
+  pretty (AsGroupKeyFile pc) =  "# hbs2 groupkey file" <> line
+                         <> "# keep it private" <> line <> line
+                         <> co
+    where
+      co = vcat $ fmap pretty
+                $ chunksOf 60
+                $ show
+                $ pretty pc
+
+
+-- newtype ListGroupKeyKeys e s = ListGroupKeyKeys (GroupKey e s)
+
+-- instance ()
+--   => Pretty (ListGroupKeyKeys e 'NaClAsymm) where
+--   pretty (ListGroupKeyKeys (GroupKeyNaClAsymm keypair pubkeys)) =
+--     fill 10 "recipient public keys:"
+--     <+> vcat (pretty . AsBase58 . Crypto.encode <$> pubkeys)
+--     <> line
+--     <> pretty keypair
+
+---
+
+parsePubKeys :: forall e . ()
+                 =>  ByteString -> Maybe [PubKey 'Encrypt e]
+
+parsePubKeys = sequenceA . fmap (Crypto.decode <=< fromBase58) . B8.lines
+
+---
+
+mkEncryptedKey :: KeyringEntry MerkleEncryptionType -> PubKey 'Encrypt MerkleEncryptionType -> IO EncryptedBox
+mkEncryptedKey kr pk = EncryptedBox <$> Encrypt.boxSeal pk ((LBS.toStrict . serialise) kr)
+
+openEncryptedKey :: EncryptedBox -> KeyringEntry MerkleEncryptionType -> Maybe (KeyringEntry MerkleEncryptionType)
+openEncryptedKey (EncryptedBox bs) kr =
+    deserialise . LBS.fromStrict =<< Encrypt.boxSealOpen (_krPk kr) (_krSk kr) bs

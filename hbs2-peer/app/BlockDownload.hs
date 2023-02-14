@@ -187,13 +187,18 @@ processBlock h = do
 
      Just (AnnRef{}) -> pure ()
 
-     Just (MerkleAnn (MTreeAnn ann t)) -> do
-       case ann of
-            NullAnn -> pure ()
-            GroupKeyCrypt hk -> addDownload hk
+     Just (MerkleAnn ann) -> do
+       case (_mtaMeta ann) of
+          NoMetaData -> pure ()
+          ShortMetadata {} -> pure ()
+          AnnHashRef h -> addDownload h
+
+       case (_mtaCrypt ann) of
+          NullEncryption -> pure ()
+          CryptAccessKeyNaClAsymm h -> addDownload h
 
        debug $ "GOT WRAPPED MERKLE. requesting nodes/leaves" <+> pretty h
-       walkMerkleTree t (liftIO . getBlock sto) handleHrr
+       walkMerkleTree (_mtaTree ann) (liftIO . getBlock sto) handleHrr
 
      Just (Merkle{}) -> do
        debug $ "GOT MERKLE. requesting nodes/leaves" <+> pretty h

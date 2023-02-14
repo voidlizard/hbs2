@@ -16,17 +16,22 @@ import HBS2.Storage.Simple.Extra
 import HBS2.OrDie
 
 
-import Data.ByteString.Lazy (ByteString)
+import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State.Strict
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Function
 import Data.Functor
+import Data.Map.Strict qualified as Map
+import Data.Monoid qualified as Monoid
+import Data.Text (Text)
 import Data.UUID qualified as UUID
 import Data.UUID.V4 qualified as UUID
 import Options.Applicative
@@ -59,15 +64,18 @@ newtype CatHashesOnly = CatHashesOnly Bool
                         deriving stock (Data,Generic)
 
 
+newtype OptKeyringFile = OptKeyringFile { unOptKeyringFile :: FilePath }
+                       deriving newtype (Eq,Ord,IsString)
+                       deriving stock (Data)
+
 newtype OptInit = OptInit { fromOptInit :: Bool }
                   deriving newtype (Eq,Ord,Pretty)
                   deriving stock (Data,Generic)
 
 data OptEncryption e = OptEncryption
-  { encryptFromSecKey :: Maybe (PrivKey 'Encrypt e)
-  , encryptToSecKey :: PrivKey 'Encrypt e
-  , encryptToPubKey :: PubKey 'Encrypt e
-  , encryptToGroup :: [PubKey 'Encrypt e]
+  { encoptGroupkeyFile :: FilePath
+  , encoptKeyringFile :: Maybe FilePath
+  , encoptFromPubKey :: Maybe Text
   }
   deriving stock (Data)
 
@@ -83,7 +91,7 @@ data CatOpts =
   CatOpts
   { catMerkleHash :: Maybe MerkleHash
   , catHashesOnly :: Maybe CatHashesOnly
-  , catPathToKeyring :: Maybe FilePath
+  , catPathToKeyring :: Maybe OptKeyringFile
   }
   deriving stock (Data)
 
@@ -134,46 +142,54 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
-      let walkAnn :: Ann -> MTree [HashRef] -> IO ()
-          walkAnn ann t = do
-            bprocess :: Int -> ByteString -> IO ByteString <- case ann of
-              NullAnn -> pure (\_ -> pure)
-              GroupKeyCrypt crypth -> do
-                  mblk <- getBlock ss crypth
-                  case mblk of
-                    Nothing  -> die $ show $ "missed block: " <+> pretty crypth
-                    Just blk -> do
-                        -- FIXME apply crypto scheme from `crypth` to stream of blk's
-                        -- extract AccessKeyV1 from blk
-                        -- find in it any pubkey known to us
-                        -- decrypt corresponding EncryptedBox
-                        -- get actual (PrivKey 'Encrypt e) to use for merkle decryption
-                        pure $ \blnum blk -> do
-                            -- convert blnum to Crypto.Saltine.Core.Box.Nonce
-                            -- decrypt blk with this nonce and priv key
-                            undefined
+      let walkAnn :: MTreeAnn [HashRef] -> IO ()
+          walkAnn ann = do
+            bprocess :: Hash HbSync -> ByteString -> IO ByteString <- case (_mtaCrypt ann) of
+              NullEncryption -> pure (const pure)
+              CryptAccessKeyNaClAsymm crypth -> do
 
-            flip evalStateT firstNumOfBlock $
-             walkMerkleTree t (lift . getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+                  keyringFile <- pure (uniLastMay @OptKeyringFile opts <&> unOptKeyringFile)
+                      `orDie` "block encrypted. keyring required"
+                  s <- BS.readFile keyringFile
+                  ourKeys <- _peerKeyring
+                      <$> pure (parseCredentials @MerkleEncryptionType (AsCredFile s))
+                      `orDie` "bad keyring file"
+
+                  blkc <- getBlock ss crypth `orDie` (show $ "missed block: " <+> pretty crypth)
+                  recipientKeys :: [(PubKey 'Encrypt MerkleEncryptionType, EncryptedBox)]
+                    <- pure ((either (const Nothing) Just . deserialiseOrFail) blkc)
+                      `orDie` "can not deserialise access key"
+
+                  (ourkr, box)
+                      <- pure (Monoid.getFirst
+                                (foldMap (\kr@(KeyringEntry pk sk _)
+                                           -> Monoid.First ((kr, )
+                                          <$> Map.lookup pk (Map.fromList recipientKeys)))
+                                         ourKeys))
+                      `orDie` "no available recipient key"
+
+                  kr <- pure (openEncryptedKey box ourkr)
+                      `orDie` "can not open sealed secret key with our key"
+
+                  pure $ \hx blk ->
+                      pure ((fmap LBS.fromStrict . Encrypt.boxSealOpen (_krPk kr) (_krSk kr) . LBS.toStrict) blk)
+                      `orDie` (show $ "can not decode block: " <+> pretty hx)
+
+            walkMerkleTree (_mtaTree ann) (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
               case hr of
-                Left hx -> lift $ void $ hPrint stderr $ "missed block:" <+> pretty hx
+                Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
                 Right (hrr :: [HashRef]) -> do
                   forM_ hrr $ \(HashRef hx) -> do
                     if honly then do
-                      lift $ print $ pretty hx
+                      print $ pretty hx
                     else do
-                      mblk <- lift $ getBlock ss hx
-                      case mblk of
-                        Nothing  -> lift $ die $ show $ "missed block: " <+> pretty hx
-                        Just blk -> do
-                            blnum <- get
-                            modify (+1)
-                            lift $ LBS.putStr =<< bprocess blnum blk
+                      blk <- getBlock ss hx `orDie` (show $ "missed block: " <+> pretty hx)
+                      LBS.putStr =<< bprocess hx blk
 
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
         Merkle h -> walk h
-        MerkleAnn (MTreeAnn ann hs) -> walkAnn ann hs
+        MerkleAnn ann -> walkAnn ann
         AnnRef h -> do
           let lnk = deserialise @AnnotatedHashRef obj
           let mbHead =  headMay [ h
@@ -190,9 +206,6 @@ runStore opts ss | justInit = do
   where
     justInit = maybe False fromOptInit (uniLastMay @OptInit opts)
 
-firstNumOfBlock :: Int
-firstNumOfBlock = 1
-
 runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
@@ -204,31 +217,38 @@ runStore opts ss = do
         root <- putAsMerkle ss handle
         print $ "merkle-root: " <+> pretty root
     Just encOpts -> do
+        gk :: GroupKey MerkleEncryptionType 'NaClAsymm
+            <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (encoptGroupkeyFile encOpts))
+            `orDie` "bad groupkey file"
 
-        -- FIXME generate AccessKeyV1, store it
         accKeyh <- maybe (die "can not store access key") pure
-              =<< (putBlock ss . serialise) do
-            AccessKeyV1 (undefined :: [(PubKey 'Encrypt e, EncryptedBox)])
+              =<< (putBlock ss . serialise @[(PubKey 'Encrypt MerkleEncryptionType, EncryptedBox)])
+              =<< (permittedPubKeys gk `forM` \pk -> (pk, ) <$> mkEncryptedKey (encryptionKey gk) pk)
 
         let rawChunks :: S.Stream (S.Of ByteString) IO ()
             rawChunks = readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
 
             encryptedChunks :: S.Stream (S.Of ByteString) IO ()
-            -- FIXME get keys to enrypt
             encryptedChunks = rawChunks
-                & S.zip (S.enumFrom firstNumOfBlock)
-                & S.map (\(blnum, blk) -> do
-                      -- FIXME convert blnum to Crypto.Saltine.Core.Box.Nonce
-                      -- encrypt blk with this nonce and priv key
-                      undefined
+                & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal ((_krPk . encryptionKey) gk) . LBS.toStrict)
 
         mhash <- putAsMerkle ss encryptedChunks
+        mtree <- ((deserialise =<<) <$> getBlock ss (fromMerkleHash mhash))
+            `orDie` "merkle tree was not stored properly with `putAsMerkle`"
 
         mannh <- maybe (die "can not store MerkleAnn") pure
-              =<< (putBlock ss . serialise) do
-            MerkleAnn (MTreeAnn (GroupKeyCrypt accKeyh) (undefined mhash))
+              =<< (putBlock ss . serialise @(MTreeAnn [HashRef])) do
+            MTreeAnn NoMetaData (CryptAccessKeyNaClAsymm accKeyh) mtree
 
         print $ "merkle-ann-root: " <+> pretty mannh
+
+runNewGroupkey :: FilePath -> IO ()
+runNewGroupkey pubkeysFile = do
+  s <- BS.readFile pubkeysFile
+  pubkeys <- pure (parsePubKeys s) `orDie` "bad pubkeys file"
+  keypair <- newKeypair @MerkleEncryptionType Nothing
+  print $ pretty $ AsGroupKeyFile $ AsBase58
+      $ GroupKeyNaClAsymm keypair pubkeys
 
 runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
 runNewRef opts mhash ss = do
@@ -312,6 +332,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "keyring-key-add"  (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
                         <> command "keyring-key-del"  (info pKeyDel (progDesc "removes a keypair from the keyring"))
                         <> command "show-peer-key"    (info pShowPeerKey (progDesc "show peer key from credential file"))
+                        <> command "groupkey-new"      (info pNewGroupkey (progDesc "generates a new groupkey"))
                         )
 
     common = do
@@ -328,16 +349,25 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- common
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
-      -- FIXME option to encrypt
-      encOps :: Maybe (OptEncryption MerkleEncryptionType) <- optional $ undefined
-      pure $ withStore o (runStore ( StoreOpts init file encOps ))
+      groupkeyFile <- optional $ strOption ( long "groupkey" <> help "path to groupkey file" )
+      encoptKeyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
+      encoptFromPubKey <- optional $ strOption ( metavar "PUB-KEY-BAS58" )
+      pure do
+          let encOps :: Maybe (OptEncryption MerkleEncryptionType)
+              encOps = groupkeyFile <&> \encoptGroupkeyFile -> OptEncryption{..}
+          withStore o (runStore ( StoreOpts init file encOps ))
 
     pCat = do
       o <- common
       hash  <- optional $ strArgument ( metavar "HASH" )
       onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
       keyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
-      pure $ withStore o $ runCat $ CatOpts hash (CatHashesOnly <$> onlyh) keyringFile
+      pure $ withStore o $ runCat
+          $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile)
+
+    pNewGroupkey = do
+      pubkeysFile <- strArgument ( metavar "FILE" <> help "path to a file with a list of recipient public keys" )
+      pure $ runNewGroupkey pubkeysFile
 
     pHash = do
       o <- common

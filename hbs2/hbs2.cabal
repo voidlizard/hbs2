@@ -49,6 +49,7 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
@@ -81,6 +82,7 @@ executable hbs2
                     , optparse-applicative
                     , prettyprinter
                     , safe
+                    , saltine
                     , serialise
                     , streaming
                     , text

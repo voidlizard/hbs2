@@ -7,11 +7,12 @@ import HBS2.Hash
 
 import Codec.Serialise
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Data
 import Data.Foldable (forM_, traverse_)
 import Data.List qualified as List
+import Data.Text (Text)
 import GHC.Generics
 import Lens.Micro.Platform
 import Prettyprinter
@@ -76,8 +77,14 @@ makeLenses ''MNodeData
 
 instance Serialise MNodeData
 
+data AnnMetaData = NoMetaData | ShortMetadata Text | AnnHashRef (Hash HbSync)
+  deriving stock (Generic,Data,Show)
+
+instance Serialise AnnMetaData
+
 data MTreeAnn a = MTreeAnn
- { _mtaAnn :: !Ann
+ { _mtaMeta :: !AnnMetaData
+ , _mtaCrypt :: !MTreeEncryption
  , _mtaTree :: !(MTree a)
  }
   deriving stock (Generic,Data,Show)
@@ -87,13 +94,12 @@ instance Serialise a => Serialise (MTreeAnn a)
 data MerkleEncryptionType
   deriving stock (Data)
 
-data Ann
-  = NullAnn
-  | GroupKeyCrypt (Hash HbSync)
-  -- FIXME more annotation schemes
+data MTreeEncryption
+  = NullEncryption
+  | CryptAccessKeyNaClAsymm (Hash HbSync)
   deriving stock (Generic,Data,Show)
 
-instance Serialise Ann
+instance Serialise MTreeEncryption
 
 data MTree a = MNode MNodeData [Hash HbSync] | MLeaf a
                deriving stock (Generic,Data,Show)
