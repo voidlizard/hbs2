@@ -17,19 +17,29 @@ fixme-id-show-len 10
 fixme-list-full-row-pref ">>> "
 
 
-fixme-attribs assigned workflow resolution
+fixme-attribs assigned workflow resolution cat
 
 fixme-value-set workflow new backlog wip test fixed done
+
+fixme-value-set cat bug feat refactor
 
 
 [ fixme-report all json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 8 8 10 _)
+  (post builtin:columns | 10 10 8 10 _)
+  (query ~workflow:backlog)
 ]
+
+[ fixme-report backlog json
+  (render builtin:microstache report-wip.tpl)
+  (post builtin:columns | 10 10 8 10 _)
+  (query workflow:backlog)
+]
+
 
 [ fixme-report wip json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 8 8 10 _)
+  (post builtin:columns | 10 10 8 10 _)
   (query ?workflow:test)
   (query ?workflow:wip)
   (query ?workflow:fixed)
