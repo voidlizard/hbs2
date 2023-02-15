@@ -23,6 +23,7 @@ import System.FilePath
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.Text qualified as Text
+import Text.InterpolatedString.Perl6 (qc)
 
 class HasCfgKey a b where
   -- type family CfgValue a :: Type
@@ -53,9 +54,21 @@ peerConfigDefault = liftIO $
     catchAny :: IO a -> (SomeException -> IO a) -> IO a
     catchAny = Control.Exception.catch
 
+defConfigData :: String
+defConfigData = [qc|
 
-peerConfigInit :: Maybe FilePath -> IO ()
-peerConfigInit mbfp = do
+listen "0.0.0.0:7351"
+rpc    "127.0.0.1:13331"
+
+; default storage is $HOME/.local/share/hbs2
+; storage "./storage"
+
+; edit path to a keyring file
+; key    "./key"
+|]
+
+peerConfigInit :: MonadIO m => Maybe FilePath -> m ()
+peerConfigInit mbfp = liftIO do
   debug $ "peerConfigInit" <+> pretty mbfp
 
   defDir <- peerConfigDefault <&> takeDirectory
@@ -70,9 +83,13 @@ peerConfigInit mbfp = do
 
   unless here do
     appendFile (dir</>cfgName) ";; hbs2-peer config file"
+    appendFile (dir</>cfgName) defConfigData
 
 peerConfigRead :: MonadIO m => Maybe FilePath -> m PeerConfig
 peerConfigRead mbfp = do
+
+  peerConfigInit mbfp
+
   debug $ "peerConfigRead" <+> pretty mbfp
 
   xdg <- peerConfigDefault

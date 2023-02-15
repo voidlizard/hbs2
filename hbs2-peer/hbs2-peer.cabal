@@ -51,6 +51,7 @@ common common-deps
         , uniplate
         , unordered-containers
         , vector
+        , interpolatedstring-perl6
 
 common shared-properties
   ghc-options:
