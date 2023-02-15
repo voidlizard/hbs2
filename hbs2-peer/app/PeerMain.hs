@@ -636,11 +636,13 @@ withRPC saddr cmd = do
 
   pingQ <- newTQueueIO
 
+  pokeQ <- newTQueueIO
+
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @UDP
-                        [ makeResponse (rpcHandler (adapter pingQ))
+                        [ makeResponse (rpcHandler (adapter pingQ pokeQ))
                         ]
 
                     request rpc cmd
