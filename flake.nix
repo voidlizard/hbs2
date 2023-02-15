@@ -3,7 +3,7 @@ description = "hbs2";
 
 inputs = {
 
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
     hspup.url = "github:voidlizard/hspup";

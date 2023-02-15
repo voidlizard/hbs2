@@ -493,8 +493,8 @@ runPeer opts = Exception.handle myException $ do
                                 request localMulticast announce
 
                                 liftIO $ withPeerM env do
-                                  debug "send single-cast announces"
                                   forKnownPeers $ \p _ -> do
+                                    debug $ "send single-cast announces" <+> pretty p
                                     request @e p announce
 
                             CHECK nonce pa h -> do
@@ -599,6 +599,7 @@ runPeer opts = Exception.handle myException $ do
                    self <- ownPeer @e
 
                    subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
+                    debug "Peer announce wtf?"
                     unless (p == self) do
                       pa <- toPeerAddr p
                       liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
