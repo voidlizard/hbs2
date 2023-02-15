@@ -89,8 +89,7 @@ listen "0.0.0.0:7351"
 rpc    "127.0.0.1:13331"
 key    "./key"
 storage  "/root/hbs2"
-accept-block-announce "AAh9rjcgg2Zfmd9c8xAhVPBEmUCyYM7wHGxjjqYDZYRb"
-accept-block-announce "FA9ZptS3esbGYqrKTXJKTGbctGkQTSsz1ZePQHJzRAQ3"
+accept-block-announce *
 '';
 
               };
