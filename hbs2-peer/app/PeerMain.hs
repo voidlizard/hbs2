@@ -280,13 +280,18 @@ instance ( Monad m
 
   response = lift . response
 
-
--- FIXME: Нормальные синхронизированные логи. Можно даже цветные.
---        Ориентированные на Prettyprinter.
---        Без лишнего мусора.
-
--- FIXME: Убрать хардкод UDP отовсюду ниже.
---        Вынести  в сигнатуру.
+forKnownPeers :: forall e  m . ( MonadIO m
+                               , HasPeerLocator e m
+                               , Sessions e (KnownPeer e) m
+                               , HasPeer e
+                               )
+               =>  ( Peer e -> PeerData e -> m () ) -> m ()
+forKnownPeers m = do
+  pl <- getPeerLocator @e
+  pips <- knownPeers @e pl
+  for_ pips $ \p -> do
+    pd' <- find (KnownPeerKey p) id
+    maybe1 pd' (pure ()) (m p)
 
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
@@ -479,9 +484,16 @@ runPeer opts = Exception.handle myException $ do
                               mbsize <- liftIO $ hasBlock sto h
 
                               maybe1 mbsize (pure ()) $ \size -> do
+                                debug "send multicast announce"
                                 let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
                                 no <- peerNonce @e
                                 request localMulticast (BlockAnnounce @e no ann)
+
+                              -- withKnownPeers $ \p -> do
+                              --   let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
+                              --   no <- peerNonce @e
+                              --   request p (BlockAnnounce @e ann)
+
 
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
@@ -557,19 +569,11 @@ runPeer opts = Exception.handle myException $ do
                $ withDownload denv (processBlock h)
 
   let peersAction _ = do
-        debug "rpcPeers command"
-
         who <- thatPeer (Proxy @(RPC e))
-
         void $ liftIO $ async $ withPeerM penv $ do
-          pl <- getPeerLocator @e
-          pips <- knownPeers @e pl
-          for_ pips $ \p -> do
-            pd' <- find (KnownPeerKey p) id
-            maybe1 pd' (pure ()) $ \pd -> do
-              let k = view peerSignKey pd
-              debug $ "known-peer" <+> pretty p <+> pretty (AsBase58 k)
+          forKnownPeers @e $ \p pd -> do
               pa <- toPeerAddr p
+              let k = view peerSignKey pd
               request who (RPCPeersAnswer @e pa k)
 
   let arpc = RpcAdapter pokeAction
