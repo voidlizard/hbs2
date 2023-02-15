@@ -398,12 +398,16 @@ runPeer opts = Exception.handle myException $ do
               addPeers @e pl ps
 
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
-                unless (nonce == pnonce) $ do
-                  debug $ "Got peer announce!" <+> pretty pip
-                  pd <- find (KnownPeerKey pip) id -- <&> isJust
-                  banned <- maybe (pure False) (peerBanned pip) pd
-                  let known = isJust pd && not banned
-                  unless known $ sendPing pip
+               unless (nonce == pnonce) $ do
+                 debug $ "Got peer announce!" <+> pretty pip
+                 pd <- find (KnownPeerKey pip) id -- <&> isJust
+                 banned <- maybe (pure False) (peerBanned pip) pd
+                 let known = isJust pd && not banned
+                 unless known $ sendPing pip
+
+              subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
+                 pa <- toPeerAddr p
+                 liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
 
@@ -599,7 +603,6 @@ runPeer opts = Exception.handle myException $ do
                    self <- ownPeer @e
 
                    subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
-                    debug "Peer announce wtf?"
                     unless (p == self) do
                       pa <- toPeerAddr p
                       liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
