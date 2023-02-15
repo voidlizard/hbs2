@@ -1,6 +1,8 @@
 
 ## 2023-02-15
 
+TODO: rpc-known-peers
+
 TODO: announce-group
 
   Сделать способ задания группы/групп пиров,
