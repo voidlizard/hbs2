@@ -9,11 +9,11 @@
         "suckless-conf": "suckless-conf"
       },
       "locked": {
-        "lastModified": 1676388118,
-        "narHash": "sha256-DwweXleyoSA5zihHEvb+vSm6yxViEBFyUpFcceiaA2Y=",
+        "lastModified": 1676442489,
+        "narHash": "sha256-uYkq5T+SwflDjL0gMVGIte6zKMLMrSwjskcEQo6jMRs=",
         "owner": "voidlizard",
         "repo": "fixme",
-        "rev": "39da09984b8aefae72df42066e8752c24b065f75",
+        "rev": "e13eda2bf1b58064a56bf38a46b1643c2927b334",
         "type": "github"
       },
       "original": {
