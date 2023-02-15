@@ -485,15 +485,17 @@ runPeer opts = Exception.handle myException $ do
 
                               maybe1 mbsize (pure ()) $ \size -> do
                                 debug "send multicast announce"
-                                let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
+
                                 no <- peerNonce @e
-                                request localMulticast (BlockAnnounce @e no ann)
+                                let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta size h
+                                let announce = BlockAnnounce @e no annInfo
 
-                              -- withKnownPeers $ \p -> do
-                              --   let ann = BlockAnnounceInfo 0 NoBlockInfoMeta size h
-                              --   no <- peerNonce @e
-                              --   request p (BlockAnnounce @e ann)
+                                request localMulticast announce
 
+                                liftIO $ withPeerM env do
+                                  debug "send single-cast announces"
+                                  forKnownPeers $ \p _ -> do
+                                    request @e p announce
 
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
