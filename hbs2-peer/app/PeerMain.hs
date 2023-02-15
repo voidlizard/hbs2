@@ -123,6 +123,7 @@ data RPCCommand =
   | PING (PeerAddr UDP) (Maybe (Peer UDP))
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
+  | PEERS
 
 data PeerOpts =
   PeerOpts
@@ -165,6 +166,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
+                        <> command "peers"     (info pPeers (progDesc "show known peers"))
                         )
 
     common = do
@@ -211,6 +213,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
       pure $ runRpcCommand rpc (PING h Nothing)
+
+    pPeers = do
+      rpc <- pRpcCommon
+      pure $ runRpcCommand rpc PEERS
 
     pInit = do
       pref <- optional $ strArgument ( metavar "DIR" )
@@ -546,12 +552,17 @@ runPeer opts = Exception.handle myException $ do
         liftIO $ withPeerM penv
                $ withDownload denv (processBlock h)
 
+  let peersAction _ = do
+        debug "rpcPeers command"
+        pure ()
+
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
                         pingAction
                         dontHandle
                         fetchAction
+                        peersAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -640,6 +651,7 @@ withRPC saddr cmd = do
                           (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)
+                          dontHandle
                           dontHandle
 
 runRpcCommand :: String -> RPCCommand -> IO ()

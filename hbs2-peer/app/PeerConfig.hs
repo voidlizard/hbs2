@@ -94,7 +94,7 @@ peerConfigRead mbfp = do
 
   xdg <- peerConfigDefault
 
-  let cfgPath = fromMaybe xdg mbfp
+  let cfgPath = maybe xdg (</> cfgName) mbfp
   let dir = takeDirectory cfgPath
 
   debug $ "searching config" <+> pretty cfgPath
