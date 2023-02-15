@@ -1,6 +1,10 @@
 
 ## 2023-02-15
 
+TODO: rpc-own-peer-key
+
+  poke to print peer's own auth key
+
 TODO: rpc-known-peers
 
 TODO: announce-group

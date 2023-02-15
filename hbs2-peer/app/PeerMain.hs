@@ -538,7 +538,11 @@ runPeer opts = Exception.handle myException $ do
               void $ liftIO $ waitAnyCatchCancel workers
 
   let pokeAction _ = do
+        who <- thatPeer (Proxy @(RPC e))
+        let k = view peerSignPk pc
+        -- FIXME: to-delete-POKE
         liftIO $ atomically $ writeTQueue rpcQ POKE
+        request who (RPCPokeAnswer @e k)
 
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
@@ -654,6 +658,17 @@ withRPC saddr cmd = do
                                  Log.info $ "pong from" <+> pretty pa
                                  exitSuccess
 
+
+                      RPCPoke{} -> do
+                        let onTimeout = do pause @'Seconds 0.5
+                                           Log.info "no-one-is-here"
+                                           exitFailure
+
+                        void $ liftIO $ race onTimeout do
+                                 k <- liftIO $ atomically $ readTQueue pokeQ
+                                 Log.info $ "alive-and-kicking" <+> pretty (AsBase58 k)
+                                 exitSuccess
+
                       RPCPeers{} -> liftIO do
                         pause @'Seconds 1
                         exitSuccess
@@ -665,8 +680,8 @@ withRPC saddr cmd = do
   void $ waitAnyCatchCancel [mrpc, prpc]
 
   where
-    adapter q = RpcAdapter dontHandle
-                          (const $ notice "alive-and-kicking" >> liftIO exitSuccess)
+    adapter q pq = RpcAdapter dontHandle
+                          (liftIO . atomically . writeTQueue pq)
                           (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)
