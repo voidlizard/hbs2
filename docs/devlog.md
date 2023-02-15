@@ -1,6 +1,12 @@
 
 ## 2023-02-15
 
+TODO: make-key-optional-parameter
+
+  -k should be an optional parameter
+  cause it comes from config now
+
+
 TODO:  check-if-block-announce-sufficient
 
   Нужно проверить, достаточно ли BlockAnnounce + BlockChunks
