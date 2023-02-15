@@ -1,6 +1,16 @@
 
 ## 2023-02-15
 
+TODO:  check-if-block-announce-sufficient-experiment
+
+  1. Поднять виртуальный хост
+  2. nixos-infect
+  3. Задеплоить туда hbs2
+  4. Прописать его в accept-announce
+  5. Сделать ему announce явно (сейчас невозможно)
+  6. Убедиться, что он может выкачать блок у хоста за NAT
+
+
 FIXME: create-default-config
 
 FIXME: wrong-default-config-path
