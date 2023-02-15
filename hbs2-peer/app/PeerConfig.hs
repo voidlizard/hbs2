@@ -77,8 +77,10 @@ peerConfigRead mbfp = do
 
   xdg <- peerConfigDefault
 
-  let cfgPath = fromMaybe xdg mbfp </> cfgName
+  let cfgPath = fromMaybe xdg mbfp
   let dir = takeDirectory cfgPath
+
+  debug $ "searching config" <+> pretty cfgPath
 
   here <- liftIO $ doesFileExist cfgPath
 
@@ -91,7 +93,11 @@ peerConfigRead mbfp = do
     -- FIXME: config-parse-error-handling
     --  Handle parse errors
 
-    confData <- liftIO $ readFile cfgPath <&> parseTop
+    debug $ pretty cfgPath
+
+    confData <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
+
+    debug $ pretty confData
 
     config <- flip transformBiM confData $ \case
                 List co (Key "key" [LitStrVal p]) -> do
@@ -104,7 +110,7 @@ peerConfigRead mbfp = do
 
                 x -> pure x
 
-    pure $ PeerConfig $ fromRight mempty config
+    pure $ PeerConfig config
 
 
 instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
