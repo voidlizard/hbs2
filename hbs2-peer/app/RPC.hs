@@ -7,6 +7,8 @@ import HBS2.Net.Proto
 import HBS2.Hash
 import HBS2.Net.Messaging.UDP
 import HBS2.Actors.Peer
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Proto.Definition()
 
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
@@ -21,6 +23,7 @@ data RPC e =
   | RPCAnnounce (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
+  | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
   deriving stock (Generic)
 
 
@@ -50,6 +53,7 @@ data RpcAdapter e m =
   , rpcOnPong        :: PeerAddr e -> m ()
   , rpcOnFetch       :: Hash HbSync -> m ()
   , rpcOnPeers       :: RPC e -> m ()
+  , rpcOnPeersAnswer :: (PeerAddr e, PubKey 'Sign e) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -90,11 +94,12 @@ rpcHandler :: forall e m  . ( MonadIO m
            => RpcAdapter e m -> RPC e -> m ()
 
 rpcHandler adapter = \case
-    p@RPCPoke{}       -> rpcOnPoke adapter p >> response (RPCPokeAnswer @e)
-    p@RPCPokeAnswer{} -> rpcOnPokeAnswer adapter p
-    (RPCAnnounce h)   -> rpcOnAnnounce adapter h
-    (RPCPing pa)      -> rpcOnPing adapter pa
-    (RPCPong pa)      -> rpcOnPong adapter pa
-    (RPCFetch h)      -> rpcOnFetch adapter h
-    p@RPCPeers{}      -> rpcOnPeers adapter p
+    p@RPCPoke{}        -> rpcOnPoke adapter p >> response (RPCPokeAnswer @e)
+    p@RPCPokeAnswer{}  -> rpcOnPokeAnswer adapter p
+    (RPCAnnounce h)    -> rpcOnAnnounce adapter h
+    (RPCPing pa)       -> rpcOnPing adapter pa
+    (RPCPong pa)       -> rpcOnPong adapter pa
+    (RPCFetch h)       -> rpcOnFetch adapter h
+    p@RPCPeers{}       -> rpcOnPeers adapter p
+    (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
 

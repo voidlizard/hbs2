@@ -554,7 +554,19 @@ runPeer opts = Exception.handle myException $ do
 
   let peersAction _ = do
         debug "rpcPeers command"
-        pure ()
+
+        who <- thatPeer (Proxy @(RPC e))
+
+        void $ liftIO $ async $ withPeerM penv $ do
+          pl <- getPeerLocator @e
+          pips <- knownPeers @e pl
+          for_ pips $ \p -> do
+            pd' <- find (KnownPeerKey p) id
+            maybe1 pd' (pure ()) $ \pd -> do
+              let k = view peerSignKey pd
+              debug $ "known-peer" <+> pretty p <+> pretty (AsBase58 k)
+              pa <- toPeerAddr p
+              request who (RPCPeersAnswer @e pa k)
 
   let arpc = RpcAdapter pokeAction
                         dontHandle
@@ -563,6 +575,7 @@ runPeer opts = Exception.handle myException $ do
                         dontHandle
                         fetchAction
                         peersAction
+                        dontHandle
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -639,6 +652,10 @@ withRPC saddr cmd = do
                                  Log.info $ "pong from" <+> pretty pa
                                  exitSuccess
 
+                      RPCPeers{} -> liftIO do
+                        pause @'Seconds 1
+                        exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
@@ -654,12 +671,16 @@ withRPC saddr cmd = do
                           dontHandle
                           dontHandle
 
+                          (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
+                          )
+
 runRpcCommand :: String -> RPCCommand -> IO ()
 runRpcCommand saddr = \case
-  POKE -> withRPC saddr (RPCPoke @UDP)
+  POKE -> withRPC saddr RPCPoke
   PING s _ -> withRPC saddr (RPCPing s)
-  ANNOUNCE h -> withRPC saddr (RPCAnnounce @UDP h)
-  FETCH h  -> withRPC saddr (RPCFetch @UDP h)
+  ANNOUNCE h -> withRPC saddr (RPCAnnounce h)
+  FETCH h  -> withRPC saddr (RPCFetch h)
+  PEERS -> withRPC saddr RPCPeers
 
   _ -> pure ()
 
