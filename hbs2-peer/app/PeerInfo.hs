@@ -25,12 +25,14 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Concurrent.Async
 import System.Random.Shuffle
+import Data.IntSet (IntSet)
 import Prettyprinter
 
 data PeerInfo e =
   PeerInfo
   { _peerBurst          :: TVar Int
   , _peerBurstMax       :: TVar Int
+  , _peerBurstSet       :: TVar IntSet
   , _peerErrors         :: TVar Int
   , _peerErrorsLast     :: TVar Int
   , _peerErrorsPerSec   :: TVar Int
@@ -48,6 +50,7 @@ newPeerInfo :: MonadIO m => m (PeerInfo e)
 newPeerInfo = liftIO do
   PeerInfo <$> newTVarIO defBurst
            <*> newTVarIO defBurstMax
+           <*> newTVarIO mempty
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0

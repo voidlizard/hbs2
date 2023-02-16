@@ -360,6 +360,7 @@ updatePeerInfo onError pinfo = do
 
           bu        <- readTVar (view peerBurst pinfo)
           buMax     <- readTVar (view peerBurstMax pinfo)
+          buSet     <- readTVar (view peerBurstSet pinfo)
           errs      <- readTVar (view peerErrors pinfo)
           errsLast  <- readTVar (view peerErrorsLast pinfo)
           t0        <- readTVar (view peerLastWatched pinfo)
@@ -371,26 +372,33 @@ updatePeerInfo onError pinfo = do
 
           let eps = floor (dE / dT)
 
-          let bu1 = if down - downLast > 0 || onError then
-                      max 1 $ min buMax
-                              $ if eps == 0 then
-                                   ceiling $ realToFrac bu * 1.10 -- FIXME: to defaults
-                                 else
-                                   floor $ realToFrac bu * 0.55
-                    else
-                      max defBurst $ floor (realToFrac bu * 0.75)
+          when (down - downLast > 0 || onError) do
+
+            (bu1, bus) <- if  eps == 0 then do
+                            let buN = min defBurstMax $ ceiling $ realToFrac bu * 1.10
+                            pure (buN, trimUp 50 $ IntSet.insert buN buSet)
+                          else do
+                            let bu2 = max defBurst $ ceiling $ realToFrac bu * 0.80
+                            let (le,_) = IntSet.split bu2 buSet
+                            let bu3 = headDef bu2 $ IntSet.elems le
+                            let buN = bu3
+                            pure (buN, trimDown 50 $ IntSet.insert bu3 buSet)
 
 
-          when (eps > 0) do
-            writeTVar (view peerBurstMax pinfo) (ceiling (realToFrac bu * 0.90))
-            -- FIXME: remove-burstMax-upper-bound-hardcode
+            writeTVar (view peerErrorsLast pinfo) errs
+            writeTVar (view peerLastWatched pinfo) t1
+            writeTVar (view peerErrorsPerSec pinfo) eps
+            writeTVar (view peerBurst pinfo) bu1
+            writeTVar (view peerBurstSet pinfo) bus
+            writeTVar (view peerDownloadedLast pinfo) down
 
-          writeTVar (view peerErrorsLast pinfo) errs
-          writeTVar (view peerLastWatched pinfo) t1
-          writeTVar (view peerErrorsPerSec pinfo) eps
-          writeTVar (view peerBurst pinfo) bu1
-          writeTVar (view peerDownloadedLast pinfo) down
 
+    where
+      trimUp n s | IntSet.size s >= n = IntSet.deleteMin s
+                 | otherwise       = s
+
+      trimDown n s | IntSet.size s >= n = IntSet.deleteMax s
+                   | otherwise       = s
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    ,  MonadIO m
