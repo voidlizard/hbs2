@@ -30,6 +30,7 @@ import Prettyprinter
 data PeerInfo e =
   PeerInfo
   { _peerBurst          :: TVar Int
+  , _peerBurstMax       :: TVar Int
   , _peerErrors         :: TVar Int
   , _peerErrorsLast     :: TVar Int
   , _peerErrorsPerSec   :: TVar Int
@@ -46,6 +47,7 @@ makeLenses 'PeerInfo
 newPeerInfo :: MonadIO m => m (PeerInfo e)
 newPeerInfo = liftIO do
   PeerInfo <$> newTVarIO defBurst
+           <*> newTVarIO defBurstMax
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0

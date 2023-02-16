@@ -348,6 +348,9 @@ instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
   getPeerLocator = lift getPeerLocator
 
 
+-- NOTE: updatePeerInfo is CC
+--   updatePeerInfo is actuall doing CC (congestion control)
+
 updatePeerInfo :: MonadIO m => Bool -> PeerInfo e -> m ()
 updatePeerInfo onError pinfo = do
 
@@ -356,6 +359,7 @@ updatePeerInfo onError pinfo = do
   void $ liftIO $ atomically $ do
 
           bu        <- readTVar (view peerBurst pinfo)
+          buMax     <- readTVar (view peerBurstMax pinfo)
           errs      <- readTVar (view peerErrors pinfo)
           errsLast  <- readTVar (view peerErrorsLast pinfo)
           t0        <- readTVar (view peerLastWatched pinfo)
@@ -367,14 +371,19 @@ updatePeerInfo onError pinfo = do
 
           let eps = floor (dE / dT)
 
-          let bu1 = if (down - downLast > 0 || onError) then
-                      max 1 $ min defBurstMax
+          let bu1 = if down - downLast > 0 || onError then
+                      max 1 $ min buMax
                               $ if eps == 0 then
                                    ceiling $ realToFrac bu * 1.10 -- FIXME: to defaults
                                  else
                                    floor $ realToFrac bu * 0.55
                     else
                       max defBurst $ floor (realToFrac bu * 0.75)
+
+
+          when (eps > 0) do
+            writeTVar (view peerBurstMax pinfo) (ceiling (realToFrac bu * 0.90))
+            -- FIXME: remove-burstMax-upper-bound-hardcode
 
           writeTVar (view peerErrorsLast pinfo) errs
           writeTVar (view peerLastWatched pinfo) t1
