@@ -72,25 +72,12 @@ instance Serialise (GroupKey e 'NaClAsymm)
 
 newtype AsGroupKeyFile a = AsGroupKeyFile a
 
----- FIXME: integration-regression-test-for-groupkey
-----   Добавить тест: сгенерировали groupkey/распарсили groupkey
+-- FIXME: integration-regression-test-for-groupkey
+--   Добавить тест: сгенерировали groupkey/распарсили groupkey
 
 parseGroupKey :: forall e . ()
                  =>  AsGroupKeyFile ByteString -> Maybe (GroupKey e 'NaClAsymm)
-
-parseGroupKey (AsGroupKeyFile bs) = maybe1 b58_1 Nothing fromCbor
-
-  where
-    fromCbor s = deserialiseOrFail @(GroupKey e 'NaClAsymm) s
-                   & either (const Nothing) Just
-
-    b58_1 = B8.lines bs & dropWhile hdr
-                        & filter ( not . B8.null )
-                        & B8.concat
-                        & fromBase58
-                        & fmap LBS.fromStrict
-
-    hdr s = B8.isPrefixOf "#" s || B8.null s
+parseGroupKey (AsGroupKeyFile bs) = parseSerialisableFromBase58 bs
 
 instance ( Serialise  (GroupKey e s)
          )

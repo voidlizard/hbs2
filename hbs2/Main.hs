@@ -351,7 +351,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
       groupkeyFile <- optional $ strOption ( long "groupkey" <> help "path to groupkey file" )
       encoptKeyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
-      encoptFromPubKey <- optional $ strOption ( metavar "PUB-KEY-BAS58" )
+      encoptFromPubKey <- optional $ strOption ( metavar "PUB-KEY-BASE58" )
       pure do
           let encOps :: Maybe (OptEncryption MerkleEncryptionType)
               encOps = groupkeyFile <&> \encoptGroupkeyFile -> OptEncryption{..}
@@ -391,7 +391,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
 
     pKeyDel = do
-      s <- strArgument ( metavar "PUB-KEY-BAS58" )
+      s <- strArgument ( metavar "PUB-KEY-BASE58" )
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyDel s f)
 
