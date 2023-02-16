@@ -68,22 +68,19 @@ newtype OptKeyringFile = OptKeyringFile { unOptKeyringFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
                        deriving stock (Data)
 
+newtype OptGroupkeyFile = OptGroupkeyFile { unOptGroupkeyFile :: FilePath }
+                       deriving newtype (Eq,Ord,IsString)
+                       deriving stock (Data)
+
 newtype OptInit = OptInit { fromOptInit :: Bool }
                   deriving newtype (Eq,Ord,Pretty)
                   deriving stock (Data,Generic)
 
-data OptEncryption e = OptEncryption
-  { encoptGroupkeyFile :: FilePath
-  , encoptKeyringFile :: Maybe FilePath
-  , encoptFromPubKey :: Maybe Text
-  }
-  deriving stock (Data)
-
-data StoreOpts e =
+data StoreOpts =
   StoreOpts
   {  storeInit      :: Maybe OptInit
   ,  storeInputFile :: Maybe OptInputFile
-  ,  storeEncryption :: Maybe (OptEncryption e)
+  ,  storeGroupkeyFile :: Maybe OptGroupkeyFile
   }
   deriving stock (Data)
 
@@ -212,13 +209,13 @@ runStore opts ss = do
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  case (uniLastMay @(OptEncryption MerkleEncryptionType) opts) of
+  case (uniLastMay @OptGroupkeyFile opts) of
     Nothing -> do
         root <- putAsMerkle ss handle
         print $ "merkle-root: " <+> pretty root
-    Just encOpts -> do
+    Just gkfile -> do
         gk :: GroupKey MerkleEncryptionType 'NaClAsymm
-            <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (encoptGroupkeyFile encOpts))
+            <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile))
             `orDie` "bad groupkey file"
 
         accKeyh <- maybe (die "can not store access key") pure
@@ -350,12 +347,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
       groupkeyFile <- optional $ strOption ( long "groupkey" <> help "path to groupkey file" )
-      encoptKeyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
-      encoptFromPubKey <- optional $ strOption ( metavar "PUB-KEY-BASE58" )
-      pure do
-          let encOps :: Maybe (OptEncryption MerkleEncryptionType)
-              encOps = groupkeyFile <&> \encoptGroupkeyFile -> OptEncryption{..}
-          withStore o (runStore ( StoreOpts init file encOps ))
+      pure $ withStore o (runStore ( StoreOpts init file (OptGroupkeyFile <$> groupkeyFile) ))
 
     pCat = do
       o <- common
