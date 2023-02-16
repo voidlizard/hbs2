@@ -122,4 +122,4 @@ mkEncryptedKey kr pk = EncryptedBox <$> Encrypt.boxSeal pk ((LBS.toStrict . seri
 
 openEncryptedKey :: EncryptedBox -> KeyringEntry MerkleEncryptionType -> Maybe (KeyringEntry MerkleEncryptionType)
 openEncryptedKey (EncryptedBox bs) kr =
-    deserialise . LBS.fromStrict =<< Encrypt.boxSealOpen (_krPk kr) (_krSk kr) bs
+    either (const Nothing) Just . deserialiseOrFail . LBS.fromStrict =<< Encrypt.boxSealOpen (_krPk kr) (_krSk kr) bs

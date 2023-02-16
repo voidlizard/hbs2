@@ -230,7 +230,7 @@ runStore opts ss = do
                 & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal ((_krPk . encryptionKey) gk) . LBS.toStrict)
 
         mhash <- putAsMerkle ss encryptedChunks
-        mtree <- ((deserialise =<<) <$> getBlock ss (fromMerkleHash mhash))
+        mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash mhash))
             `orDie` "merkle tree was not stored properly with `putAsMerkle`"
 
         mannh <- maybe (die "can not store MerkleAnn") pure
