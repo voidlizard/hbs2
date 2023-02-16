@@ -382,7 +382,7 @@ updatePeerInfo onError pinfo = do
                             let buM = headMay $ drop 2 $ IntSet.toDescList buSet
                             writeTVar (view peerBurstMax pinfo) buM
                             -- let s = IntSet.size buSet
-                            let buN = defBurst -- atDef defBurst (IntSet.toList buSet) (s `div` 2 )
+                            let buN =  headDef defBurst $ drop 10 $ IntSet.toDescList buSet
                             pure (buN, trimDown 50 $ IntSet.insert buN buSet)
 
 
