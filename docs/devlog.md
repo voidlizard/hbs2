@@ -1,5 +1,22 @@
 ## 2023-02-16
 
+TODO: cat-metadata-command
+
+  Добавить команду, которая печатает метаданные ann. merke tree, если они есть
+  и/или тип объекта (merkle, ann-merkle, blob)
+
+  Если дерево зашифровано -- выводит в том числе хэш ключа
+
+
+TODO: check-group-encrypt-case-works
+
+  1. создать group key
+  2. положить  его в store
+  3. сохранить зашифрованный им файл
+  4. достать сохранённый group key
+  5. расшифровать им файл
+
+
 FIXME: group-key-is-public
 
   ```
