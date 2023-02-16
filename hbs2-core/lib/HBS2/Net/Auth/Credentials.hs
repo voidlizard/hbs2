@@ -125,11 +125,12 @@ parseCredentials :: forall e . ( Signatures e
                                , SerialisedCredentials e
                                )
                  =>  AsCredFile ByteString -> Maybe (PeerCredentials e)
+parseCredentials (AsCredFile bs) = parseSerialisableFromBase58 bs
 
-parseCredentials (AsCredFile bs) = maybe1 b58_1 Nothing fromCbor
-
+parseSerialisableFromBase58 :: Serialise a => ByteString -> Maybe a
+parseSerialisableFromBase58 bs = maybe1 b58_1 Nothing fromCbor
   where
-    fromCbor s = deserialiseOrFail @(PeerCredentials e) s
+    fromCbor s = deserialiseOrFail s
                    & either (const Nothing) Just
 
     b58_1 = B8.lines bs & dropWhile hdr

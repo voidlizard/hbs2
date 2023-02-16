@@ -1,3 +1,26 @@
+## 2023-02-16
+
+FIXME: group-key-is-public
+
+  ```
+  cat ./group1.key
+  # hbs2 groupkey file
+  # keep it private
+
+  ```
+
+ group key is actually public. it contains
+ encrypted records
+
+
+FIXME: group-key-new-brokes-on-empty-line
+  ```
+  cat pub
+  3YpCdSGw7BdTVTpaWUMxF1DbWcTwAsH6ai3wRXfvCYx6
+
+  ./bin/hbs2 groupkey-new ./pub
+  bad pubkeys file
+  ```
 
 ## 2023-02-15
 

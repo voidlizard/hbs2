@@ -76,6 +76,7 @@ library
                     , HBS2.Events
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Net.Auth.AccessKey
                     , HBS2.Net.Auth.Credentials
                     , HBS2.Net.IP.Addr
                     , HBS2.Net.Messaging

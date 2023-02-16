@@ -7,11 +7,12 @@ import HBS2.Hash
 
 import Codec.Serialise
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Data
-import Data.Foldable (traverse_)
+import Data.Foldable (forM_, traverse_)
 import Data.List qualified as List
+import Data.Text (Text)
 import GHC.Generics
 import Lens.Micro.Platform
 import Prettyprinter
@@ -75,6 +76,30 @@ newtype MNodeData =
 makeLenses ''MNodeData
 
 instance Serialise MNodeData
+
+data AnnMetaData = NoMetaData | ShortMetadata Text | AnnHashRef (Hash HbSync)
+  deriving stock (Generic,Data,Show)
+
+instance Serialise AnnMetaData
+
+data MTreeAnn a = MTreeAnn
+ { _mtaMeta :: !AnnMetaData
+ , _mtaCrypt :: !MTreeEncryption
+ , _mtaTree :: !(MTree a)
+ }
+  deriving stock (Generic,Data,Show)
+
+instance Serialise a => Serialise (MTreeAnn a)
+
+data MerkleEncryptionType
+  deriving stock (Data)
+
+data MTreeEncryption
+  = NullEncryption
+  | CryptAccessKeyNaClAsymm (Hash HbSync)
+  deriving stock (Generic,Data,Show)
+
+instance Serialise MTreeEncryption
 
 data MTree a = MNode MNodeData [Hash HbSync] | MLeaf a
                deriving stock (Generic,Data,Show)
@@ -159,3 +184,13 @@ walkMerkle root flookup sink = walkMerkle' root flookup withTree
         (Right (MNode _ _)) -> pure ()
         Left hx             -> sink (Left hx)
 
+
+walkMerkleTree :: (Serialise (MTree a), Monad m)
+           => MTree a
+           -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
+           -> ( Either (Hash HbSync) a -> m () )
+           -> m ()
+
+walkMerkleTree tree flookup sink = case tree of
+    (MLeaf s)   -> sink (Right s)
+    (MNode _ hashes) -> forM_ hashes \h -> walkMerkle h flookup sink

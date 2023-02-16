@@ -8,6 +8,7 @@ module HBS2.Net.Proto.Definition
 
 import HBS2.Clock
 import HBS2.Defaults
+import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Proto
@@ -139,5 +140,11 @@ instance Signatures UDP where
   type Signature UDP = Sign.Signature
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
+
+instance Signatures MerkleEncryptionType where
+  type Signature MerkleEncryptionType = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
+
 
 
