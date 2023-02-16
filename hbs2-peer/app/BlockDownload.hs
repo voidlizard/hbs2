@@ -293,8 +293,8 @@ downloadFromWithPeer peer thisBkSize h = do
             -- liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
             updatePeerInfo True pinfo
 
-            newBurst' <- liftIO $ readTVarIO burstSizeT
-            let newBurst = max defBurst $ floor (realToFrac newBurst' * 0.5 )
+            newBurst <- liftIO $ readTVarIO burstSizeT
+            -- let newBurst = max defBurst $ floor (realToFrac newBurst' * 0.5 )
 
             liftIO $ atomically $ modifyTVar (view peerDownloaded pinfo) (+chunksN)
 
@@ -348,6 +348,9 @@ instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
   getPeerLocator = lift getPeerLocator
 
 
+-- NOTE: updatePeerInfo is CC
+--   updatePeerInfo is actuall doing CC (congestion control)
+
 updatePeerInfo :: MonadIO m => Bool -> PeerInfo e -> m ()
 updatePeerInfo onError pinfo = do
 
@@ -356,6 +359,8 @@ updatePeerInfo onError pinfo = do
   void $ liftIO $ atomically $ do
 
           bu        <- readTVar (view peerBurst pinfo)
+          buMax     <- readTVar (view peerBurstMax pinfo)
+          buSet     <- readTVar (view peerBurstSet pinfo)
           errs      <- readTVar (view peerErrors pinfo)
           errsLast  <- readTVar (view peerErrorsLast pinfo)
           t0        <- readTVar (view peerLastWatched pinfo)
@@ -367,21 +372,34 @@ updatePeerInfo onError pinfo = do
 
           let eps = floor (dE / dT)
 
-          let bu1 = if (down - downLast > 0 || onError) then
-                      max 1 $ min defBurstMax
-                              $ if eps == 0 then
-                                   ceiling $ realToFrac bu * 1.10 -- FIXME: to defaults
-                                 else
-                                   floor $ realToFrac bu * 0.55
-                    else
-                      max defBurst $ floor (realToFrac bu * 0.75)
+          when (down - downLast > 0 || onError) do
 
-          writeTVar (view peerErrorsLast pinfo) errs
-          writeTVar (view peerLastWatched pinfo) t1
-          writeTVar (view peerErrorsPerSec pinfo) eps
-          writeTVar (view peerBurst pinfo) bu1
-          writeTVar (view peerDownloadedLast pinfo) down
+            (bu1, bus) <- if  eps == 0 then do
+                            let bmm = fromMaybe defBurstMax buMax
+                            let buN = min bmm (ceiling $ (realToFrac bu * 1.05))
+                            pure (buN, trimUp 50 $ IntSet.insert buN buSet)
+                          else do
+                            let buM = headMay $ drop 2 $ IntSet.toDescList buSet
+                            writeTVar (view peerBurstMax pinfo) buM
+                            -- let s = IntSet.size buSet
+                            let buN = defBurst -- atDef defBurst (IntSet.toList buSet) (s `div` 2 )
+                            pure (buN, trimDown 50 $ IntSet.insert buN buSet)
 
+
+            writeTVar (view peerErrorsLast pinfo) errs
+            writeTVar (view peerLastWatched pinfo) t1
+            writeTVar (view peerErrorsPerSec pinfo) eps
+            writeTVar (view peerBurst pinfo) bu1
+            writeTVar (view peerBurstSet pinfo) bus
+            writeTVar (view peerDownloadedLast pinfo) down
+
+
+    where
+      trimUp n s | IntSet.size s >= n = IntSet.deleteMin s
+                 | otherwise       = s
+
+      trimDown n s | IntSet.size s >= n = IntSet.deleteMax s
+                   | otherwise       = s
 
 blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    ,  MonadIO m
@@ -416,7 +434,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 2
+    pause @'Seconds 5
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
@@ -430,7 +448,7 @@ blockDownloadLoop env0 = do
 
   -- TODO: peer info loop
   void $ liftIO $ async $ forever $ withPeerM e $ do
-    pause @'Seconds 20
+    pause @'Seconds 10
     pee <- knownPeers @e pl
 
     npi <- newPeerInfo
@@ -440,8 +458,10 @@ blockDownloadLoop env0 = do
     for_ pee $ \p -> do
       pinfo <- fetch True npi (PeerInfoKey p) id
       burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
+      buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
       errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
-      debug $ "peer" <+> pretty p <+> "burst: " <+> pretty burst
+      debug $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
+                                  <+> "burst-max:" <+> pretty buM
                                   <+> "errors:" <+> pretty errors
       pure ()
 
