@@ -153,9 +153,18 @@ instance ( Serialise  (PeerCredentials e)
 instance Pretty (AsBase58 Sign.PublicKey) where
   pretty (AsBase58 pk) = pretty $ B8.unpack $ toBase58 (Crypto.encode pk)
 
+instance Pretty (AsBase58 Encrypt.PublicKey) where
+  pretty (AsBase58 pk) = pretty $ B8.unpack $ toBase58 (Crypto.encode pk)
+
 -- FIXME: test-from-string-maybe-sign-pub-key
 --
 instance FromStringMaybe Sign.PublicKey where
+  fromStringMay s = de
+    where
+      de = bs >>= Crypto.decode
+      bs = fromBase58 (fromString s)
+
+instance FromStringMaybe Encrypt.PublicKey where
   fromStringMay s = de
     where
       de = bs >>= Crypto.decode

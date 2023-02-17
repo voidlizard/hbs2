@@ -1,6 +1,20 @@
 
 ## 2023-02-17
 
+TODO: extract-hbs2-core
+
+```
+$$$ (set workflow backlog)
+```
+
+Оставить в hbs2-core только реализацию
+Messaging и Peer.
+
+Сам протокол вынести в отдельный пакет,
+так, что бы на hbs2-core можно было реализовывать
+самые различные протоколы.
+
+
 TODO: hbs2-print-acb
 
 TODO: hbs2-create-acb

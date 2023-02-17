@@ -1,0 +1,59 @@
+NOTE: hbs2-create-acb
+
+Config example:
+---------------
+
+```
+define-acb a1
+
+acb-root a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+acb-owner a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+acb-owner a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+acb-reader a1 "5k9rLmFdXCP4RncG9WHEaXXEjxvnxmBvvMUqcKkoY45q"
+acb-reader a1 "FpZbzEbdFBztGUSXy5yCoWgkYUbJYDuCmSVxFTTrHx7D"
+acb-writer a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+acb-writer a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+
+```
+
+Usage example:
+--------------
+
+```
+
+cat  > test-acb.cfg
+define-acb a1
+
+acb-root a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+acb-owner a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+acb-owner a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+acb-reader a1 "5k9rLmFdXCP4RncG9WHEaXXEjxvnxmBvvMUqcKkoY45q"
+acb-reader a1 "FpZbzEbdFBztGUSXy5yCoWgkYUbJYDuCmSVxFTTrHx7D"
+acb-writer a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+acb-writer a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+^D
+
+hbs2 acb-gen ./test-acb.cfg > acb.bin
+
+hbs2 acb-dump ./acb.bin
+
+```
+
+Config syntax
+-------------
+
+```
+define-acb xxx ;; defines an acb with local id xxx
+
+acb-root   xxx key  ;; adds key as root's key for acb xxx
+acb-owner  xxx key  ;; adds key as owner's key for acb xxx
+acb-reader xxx key  ;; adds reader
+acb-writer xxx key  ;; adds writer
+acb-prev   xxx hash ;; sets hash as prev. acb for acb xxx
+
+```
+
+Note, that xxx is only a local id. It does not make any
+sense outside the acb config file
+
+

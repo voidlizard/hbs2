@@ -3,7 +3,9 @@ module HBS2.Data.Types.Refs
   , serialise
   ) where
 
+import HBS2.Prelude
 import HBS2.Hash
+import HBS2.Base58
 
 import Codec.Serialise(serialise)
 import Data.Data
@@ -15,6 +17,13 @@ newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty)
                   deriving stock (Data,Generic,Show)
 
+
+instance Pretty (AsBase58 HashRef) where
+  pretty (AsBase58 x) = pretty x
+  -- TODO: should be instance Pretty (AsBase58 (Hash HbSync))
+
+instance FromStringMaybe HashRef where
+  fromStringMay = fmap HashRef . fromStringMay
 
 data HashRefObject = HashRefObject HashRef (Maybe HashRefMetadata)
   deriving stock (Data,Show,Generic)

@@ -25,27 +25,17 @@ Curve25519 (?), т.е ключевую пару асимметричного ш�
 
 ```
 
--- PubKey 'Sign e ;;; ключ подписи Ed25519
+data family ACB ( s :: EncryptionSchema ) e
 
-data ACBSchema = NaClAsymm
-
-data family ACB e (schema :: ACBSchema) :: Type
-
-data family AccessKey e schema :: Type
-
-
-data instance ACB e 'NaClAsymm  =
-  ACBNaClAsymm
-  { acbParent   :: HashRef              -- указатель на предыдущий ACB
-  , acbRoot     :: PubKey 'Sign e       -- корневой владелец
-  , acbOwners   :: [PubKey 'Sign e]     -- ключи владельцев
-
-  , acbRead     :: [(PubKey 'Sign e, PubKey 'Encrypt e)]
-     -- при чтении нужно расшифровывать и идентифицировать ключ
-
-  , acbWrite    :: [(PubKey 'Sign e)]
-     -- при публикации нужно проверять подпись
+data instance ACB 'NaClAsymm e =
+  ACB1
+  { _acbRoot     :: !(Maybe (PubKey  'Sign e))
+  , _acbOwners   :: ![PubKey 'Sign e]
+  , _acbReaders  :: ![PubKey 'Encrypt e]
+  , _acbWriters  :: ![PubKey 'Sign e]
+  , _acbPrev     :: !(Maybe HashRef)
   }
+
 
 ```
 
@@ -61,18 +51,6 @@ ACB не является закрытой информацией и может 
 за исключением раскрытия принадлежности ключа шифрования к ключу
 подписи.
 
-
-```
-
--- EncryptedBox - обертка вокруг ключа ассиметричного шифрования
---                (KeyPAir)
-
-newtype instance AccessKey e 'NaClAsymm =
-  AccessKeyNaClAsymm
-  { permitted :: [(PubKey 'Sign e, EncryptedBox)]
-  }
-
-```
 
 Список пар (ключ подписи пользователя, ключ шифрования).
 Пара необходима, что бы пользователи за O(1) найти и
@@ -109,5 +87,30 @@ newtype instance AccessKey e 'NaClAsymm =
  - Взять ключ публикации
  - Расшифровать свой экземпляр ключа (KeyPair)
  - Расшифровывать этим ключом блоки
+
+
+
+
+## Текстовый формат ACB
+
+Конфигурационный файл следующего вида:
+
+```
+define-acb a1 ;; определить acb с идентификатором a1
+
+;; добавить root с ключом "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+
+acb-root a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+
+;; добавить owner с ключом "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+acb-owner a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
+
+;; добавить читателя с ключом
+acb-reader a1 "5k9rLmFdXCP4RncG9WHEaXXEjxvnxmBvvMUqcKkoY45q"
+
+;; добавить писателя с ключом
+acb-writer a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+
+```
 
 

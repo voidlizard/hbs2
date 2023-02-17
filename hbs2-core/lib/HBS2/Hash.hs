@@ -6,6 +6,7 @@ module HBS2.Hash
   where
 
 import HBS2.Base58
+import HBS2.Prelude (FromStringMaybe(..))
 
 import Codec.Serialise
 import Crypto.Hash hiding (SHA1)
@@ -66,6 +67,11 @@ instance Hashed HbSync LBS.ByteString where
 
 instance IsString (Hash HbSync) where
   fromString s = maybe (error ("invalid base58: " <> show s)) HbSyncHash doDecode
+    where
+      doDecode = fromBase58 (BS8.pack s)
+
+instance FromStringMaybe (Hash HbSync) where
+  fromStringMay s= HbSyncHash <$> doDecode
     where
       doDecode = fromBase58 (BS8.pack s)
 

@@ -14,6 +14,7 @@ import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.OrDie
+import HBS2.Net.Proto.ACB
 
 
 import Control.Arrow ((&&&))
@@ -295,6 +296,24 @@ runShowPeerKey fp = do
   maybe1 cred' exitFailure $ \cred -> do
     print $ pretty $ AsBase58 (view peerSignPk cred)
 
+runGenACB :: Maybe FilePath -> Maybe FilePath -> IO ()
+runGenACB inFile outFile = do
+  inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
+  s <- hGetContents inf
+  acb <- pure (fromStringMay s :: Maybe (ACBSimple UDP)) `orDie` "invalid ACB syntax"
+  let bin = serialise acb
+  out <- maybe (pure stdout) (`openFile` WriteMode) outFile
+  LBS.hPutStr out bin
+  hClose out
+  hClose inf
+
+
+runDumpACB :: Maybe FilePath -> IO ()
+runDumpACB inFile = do
+  inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
+  acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple UDP)
+  print $ pretty (AsSyntax (DefineACB "a1" acb))
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
@@ -321,16 +340,18 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "store"            (info pStore (progDesc "store block"))
-                        <> command "new-ref"          (info pNewRef (progDesc "creates reference"))
-                        <> command "cat"              (info pCat (progDesc "cat block"))
-                        <> command "hash"             (info pHash (progDesc "calculates hash"))
-                        <> command "keyring-new"      (info pNewKey (progDesc "generates a new keyring"))
-                        <> command "keyring-list"     (info pKeyList (progDesc "list public keys from keyring"))
-                        <> command "keyring-key-add"  (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
-                        <> command "keyring-key-del"  (info pKeyDel (progDesc "removes a keypair from the keyring"))
-                        <> command "show-peer-key"    (info pShowPeerKey (progDesc "show peer key from credential file"))
-                        <> command "groupkey-new"      (info pNewGroupkey (progDesc "generates a new groupkey"))
+    parser = hsubparser (  command "store"           (info pStore (progDesc "store block"))
+                        <> command "new-ref"         (info pNewRef (progDesc "creates reference"))
+                        <> command "cat"             (info pCat (progDesc "cat block"))
+                        <> command "hash"            (info pHash (progDesc "calculates hash"))
+                        <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
+                        <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
+                        <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
+                        <> command "keyring-key-del" (info pKeyDel (progDesc "removes a keypair from the keyring"))
+                        <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
+                        <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
+                        <> command "acb-gen"         (info pACBGen  (progDesc "generates binary ACB from text config"))
+                        <> command "acb-dump"        (info pACBDump (progDesc "dumps binary ACB to text config"))
                         )
 
     common = do
@@ -388,3 +409,11 @@ main = join . customExecParser (prefs showHelpOnError) $
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyDel s f)
 
+    pACBGen = do
+      f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
+      o <- optional $ strArgument ( metavar "ACB-FILE-OUTPUT" )
+      pure (runGenACB f o)
+
+    pACBDump = do
+      f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
+      pure (runDumpACB f)
