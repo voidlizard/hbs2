@@ -19,12 +19,15 @@ import System.IO
 import Lens.Micro.Platform
 import Data.Either
 import Data.Text qualified as Text
+import Data.Set qualified as Set
 import Safe
 
 data T
 
 type SK = PubKey 'Sign T
 
+
+maybeToSet = maybe mempty Set.singleton
 
 
 main :: IO ()
@@ -34,12 +37,12 @@ main = do
   let pek2 = fromStringMay "FpZbzEbdFBztGUSXy5yCoWgkYUbJYDuCmSVxFTTrHx7D"
 
   let root   = fromStringMay @SK "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
-  let owners = catMaybes [ fromStringMay "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN" ]
+  let owners = Set.fromList $ catMaybes [ fromStringMay "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN" ]
 
   let acb =   set acbRoot root
-            . set acbOwners  ( owners <> maybeToList root )
-            . set acbWriters ( owners <> maybeToList root )
-            . set acbReaders ( catMaybes [pek1, pek2 ] )
+            . set acbOwners  ( owners <> maybeToSet root )
+            . set acbWriters ( owners <> maybeToSet root )
+            . set acbReaders ( Set.fromList $ catMaybes [pek1, pek2 ] )
             $  mempty :: ACBSimple T
 
   let s = show $ pretty (AsSyntax (DefineACB "a1" acb))
@@ -50,7 +53,7 @@ main = do
 
   acb2 <- pure macb2 `orDie` "can't load ACB"
 
-  print $ pretty (AsSyntax (DefineACB "a1" acb2))
+  print $ pretty (AsSyntax (DefineACB "a2" acb2))
 
   assertBool "1" $ view acbRoot acb == view acbRoot acb2
   assertBool "2" $ view acbOwners acb == view acbOwners acb2
@@ -59,6 +62,14 @@ main = do
   assertBool "5" $ view acbPrev acb == view acbPrev acb2
 
   assertBool "6" $ acb == acb2
+
+  acb3' <- pure (fromStringMay @[(Id, ACBSimple T)] s) `orDie` "can't parse ACB"
+
+  let acb3 = snd $ head acb3'
+
+  print $ pretty (AsSyntax (DefineACB "a3" acb3))
+
+  assertBool "7" (acb2 == acb)
 
   -- TODO: acbPrev test
 

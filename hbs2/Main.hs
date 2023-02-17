@@ -44,6 +44,7 @@ import Lens.Micro.Platform
 -- import System.FilePath.Posix
 import System.IO
 import System.Exit
+import Data.UUID.V4 as UUID
 
 import Codec.Serialise
 
@@ -352,6 +353,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
                         <> command "acb-gen"         (info pACBGen  (progDesc "generates binary ACB from text config"))
                         <> command "acb-dump"        (info pACBDump (progDesc "dumps binary ACB to text config"))
+                        <> command "uuid"            (info pUUID (progDesc "gen uuid"))
                         )
 
     common = do
@@ -417,3 +419,8 @@ main = join . customExecParser (prefs showHelpOnError) $
     pACBDump = do
       f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
       pure (runDumpACB f)
+
+    pUUID = do
+      pure $ do
+        UUID.nextRandom >>= print
+

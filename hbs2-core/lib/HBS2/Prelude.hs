@@ -1,3 +1,4 @@
+{-# Language PatternSynonyms #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -9,6 +10,7 @@ module HBS2.Prelude
   , AsFileName(..)
   , Pretty
   , FromStringMaybe(..)
+  , pattern Key
   ) where
 
 import Data.String (IsString(..))
@@ -16,6 +18,8 @@ import Safe
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad (void,guard,when,unless)
 import Control.Monad.Trans.Class (lift)
+
+import Data.Config.Suckless
 
 import Data.Function
 import Data.Char qualified as Char
@@ -41,4 +45,5 @@ instance Pretty a => Pretty (AsFileName a) where
 class FromStringMaybe a where
   fromStringMay :: String -> Maybe a
 
-
+pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
+pattern Key n ns <- SymbolVal  n : ns

@@ -22,6 +22,9 @@ import Data.Text qualified as Text
 import Data.Text (Text)
 import Data.Maybe
 import Data.Either
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Map qualified as Map
 
 
 data family ACB ( s :: EncryptionSchema ) e
@@ -33,9 +36,9 @@ type ACBSimple = ACB 'NaClAsymm
 data instance ACB 'NaClAsymm e =
   ACB1
   { _acbRoot     :: !(Maybe (PubKey  'Sign e)) -- it's monoid. no choice but Maybe
-  , _acbOwners   :: ![PubKey 'Sign e]
-  , _acbReaders  :: ![PubKey 'Encrypt e]
-  , _acbWriters  :: ![PubKey 'Sign e]
+  , _acbOwners   :: !(Set (PubKey 'Sign e))
+  , _acbReaders  :: !(Set (PubKey 'Encrypt e))
+  , _acbWriters  :: !(Set (PubKey 'Sign e))
   , _acbPrev     :: !(Maybe HashRef)
   }
   deriving stock (Generic)
@@ -58,9 +61,9 @@ instance IsACB e => Monoid (ACBSimple e) where
 
 instance IsACB e => Semigroup (ACBSimple e) where
   (<>) a b = ACB1 (view acbRoot a <|> view acbRoot b)
-                  (L.nub (view acbOwners a <> view acbOwners b))
-                  (L.nub (view acbReaders a <> view acbReaders b))
-                  (L.nub (view acbWriters a <> view acbWriters b))
+                  (view acbOwners a <> view acbOwners b)
+                  (view acbReaders a <> view acbReaders b)
+                  (view acbWriters a <> view acbWriters b)
                   (view acbPrev a <|> view acbPrev b)
 
 
@@ -86,54 +89,38 @@ instance ( Pretty (AsBase58 (PubKey 'Sign e))
       prev = maybe mempty (dquotes . pretty . AsBase58) (view acbPrev acb)
 
       root    = maybe mempty ( (acbR <+>) . dquotes . pretty . AsBase58 ) (view acbRoot acb)
-      owners  = vcat $ fmap owner (view acbOwners acb)
+      owners  = vcat $ fmap owner (Set.toList $ view acbOwners acb)
       acbR    = "acb-root" <+> nacb
-      readers = vcat $ fmap reader (view acbReaders acb)
-      writers = vcat $ fmap writer (view acbWriters acb)
+      readers = vcat $ fmap reader (Set.toList $ view acbReaders acb)
+      writers = vcat $ fmap writer (Set.toList $ view acbWriters acb)
 
       owner  = (wacb "acb-owner"  <+>)  . dquotes . pretty . AsBase58
       reader = (wacb "acb-reader"  <+>) . dquotes . pretty . AsBase58
       writer = (wacb "acb-writer"  <+>) . dquotes . pretty . AsBase58
 
 
-pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
-pattern Key n ns <- SymbolVal  n : ns
 
-instance FromStringMaybe (ACB 'NaClAsymm e) where
-  fromStringMay s = Just $ ACB1 root owners readers writers prev
-
+instance FromStringMaybe [(Id, ACB 'NaClAsymm e)] where
+  fromStringMay s = Just $ Map.toList acbs
     where
       parsed = parseTop s & fromRight mempty
-      defAcb = headMay [ acb | (ListVal (Key "define-acb" [SymbolVal acb]) ) <- parsed ]
+      acbNames = [ (acb, mempty) | (ListVal (Key "define-acb" [SymbolVal acb]) ) <- parsed ]
+      acbIns =  [ (ins, a, Text.unpack e) | (ListVal (Key ins [SymbolVal a, LitStrVal e]) ) <- parsed ]
 
-      root = lastMay $ catMaybes $
-                     [ fromStringMay (Text.unpack e)
-                     | (ListVal (Key "acb-root" [SymbolVal a, LitStrVal e]) ) <- parsed
-                     , Just a == defAcb
-                     ]
+      acbs = Map.fromListWith (<>) $ acbNames <> foldMap mkAcb acbIns
 
-      owners = L.nub $ catMaybes
-                     [ fromStringMay (Text.unpack e)
-                     | (ListVal (Key "acb-owner" [SymbolVal a, LitStrVal e]) ) <- parsed
-                     , Just a == defAcb
-                     ]
+      mkAcb =  \case
+        ("acb-root", n, e)   -> mkv n acbRoot (fromStringMay e)
+        ("acb-owner", n, e)  -> mkv n acbOwners (Set.fromList $ maybeToList (fromStringMay e))
+        ("acb-reader", n, e) -> mkv n acbReaders (Set.fromList $ maybeToList (fromStringMay e))
+        ("acb-writer", n, e) -> mkv n acbWriters (Set.fromList $ maybeToList (fromStringMay e))
+        ("acb-prev", n, e)   -> mkv n acbPrev (fromStringMay e)
+        _ -> mempty
 
-      readers = L.nub $ catMaybes
-                     [ fromStringMay (Text.unpack e)
-                     | (ListVal (Key "acb-reader" [SymbolVal a, LitStrVal e]) ) <- parsed
-                     , Just a == defAcb
-                     ]
-
-      writers = L.nub $ catMaybes
-                     [ fromStringMay (Text.unpack e)
-                     | (ListVal (Key "acb-writer" [SymbolVal a, LitStrVal e]) ) <- parsed
-                     , Just a == defAcb
-                     ]
-
-      prev =lastMay $ catMaybes $
-                     [ fromStringMay (Text.unpack e)
-                     | (ListVal (Key "acb-prev" [SymbolVal a, LitStrVal e]) ) <- parsed
-                     , Just a == defAcb
-                     ]
+      mkv n l v = L.singleton $ (n,) $ mempty & set l v
 
 
+instance FromStringMaybe (ACB 'NaClAsymm e) where
+  fromStringMay s = fmap snd . headMay  $ mconcat
+                                        $ maybeToList
+                                        $ fromStringMay @[(Id, ACB 'NaClAsymm e)] s

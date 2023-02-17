@@ -34,9 +34,6 @@ class HasCfgKey a b => HasCfgValue a b where
 
 type C = MegaParsec
 
-pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
-pattern Key n ns <- SymbolVal  n : ns
-
 cfgName :: FilePath
 cfgName = "config"
 

@@ -301,3 +301,5 @@ test-suite test-ref-set
           base, hbs2-core
         , containers
         , text
+        , interpolatedstring-perl6
+
