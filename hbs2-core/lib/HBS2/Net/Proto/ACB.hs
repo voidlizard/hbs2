@@ -112,19 +112,19 @@ instance FromStringMaybe (ACB 'NaClAsymm e) where
                      , Just a == defAcb
                      ]
 
-      owners = catMaybes
+      owners = L.nub $ catMaybes
                      [ fromStringMay (Text.unpack e)
                      | (ListVal (Key "acb-owner" [SymbolVal a, LitStrVal e]) ) <- parsed
                      , Just a == defAcb
                      ]
 
-      readers = catMaybes
+      readers = L.nub $ catMaybes
                      [ fromStringMay (Text.unpack e)
                      | (ListVal (Key "acb-reader" [SymbolVal a, LitStrVal e]) ) <- parsed
                      , Just a == defAcb
                      ]
 
-      writers = catMaybes
+      writers = L.nub $ catMaybes
                      [ fromStringMay (Text.unpack e)
                      | (ListVal (Key "acb-writer" [SymbolVal a, LitStrVal e]) ) <- parsed
                      , Just a == defAcb

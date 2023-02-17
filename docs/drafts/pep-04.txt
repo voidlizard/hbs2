@@ -1,7 +1,7 @@
 PEP: pep-03-reference-update
 
 ```
-$$ (set lang ru)
+$$$ (set lang ru)
 ```
 
 
