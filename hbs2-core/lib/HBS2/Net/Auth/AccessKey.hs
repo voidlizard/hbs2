@@ -61,8 +61,8 @@ data family GroupKey e ( s :: EncryptionSchema )
 
 data instance GroupKey e 'NaClAsymm =
   GroupKeyNaClAsymm
-  { encryptionKey :: KeyringEntry e
-  , permittedPubKeys :: [PubKey 'Encrypt e]
+  { recipientPk :: PubKey 'Encrypt e
+  , accessKey :: AccessKey e 'NaClAsymm
   }
   deriving stock (Generic)
 
@@ -88,9 +88,7 @@ instance ( Serialise  (GroupKey e s)
 
 
 instance Pretty (AsBase58 a) => Pretty (AsGroupKeyFile (AsBase58 a)) where
-  pretty (AsGroupKeyFile pc) =  "# hbs2 groupkey file" <> line
-                         <> "# keep it private" <> line <> line
-                         <> co
+  pretty (AsGroupKeyFile pc) =  "# hbs2 groupkey file" <> line <> co
     where
       co = vcat $ fmap pretty
                 $ chunksOf 60

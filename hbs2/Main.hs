@@ -29,6 +29,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Function
 import Data.Functor
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Monoid qualified as Monoid
 import Data.Text (Text)
@@ -218,16 +219,15 @@ runStore opts ss = do
             <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile))
             `orDie` "bad groupkey file"
 
-        accKeyh <- maybe (die "can not store access key") pure
-              =<< (putBlock ss . serialise @[(PubKey 'Encrypt MerkleEncryptionType, EncryptedBox)])
-              =<< (permittedPubKeys gk `forM` \pk -> (pk, ) <$> mkEncryptedKey (encryptionKey gk) pk)
+        accKeyh <- (putBlock ss . serialise . permitted . accessKey) gk
+            `orDie` "can not store access key"
 
         let rawChunks :: S.Stream (S.Of ByteString) IO ()
             rawChunks = readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
 
             encryptedChunks :: S.Stream (S.Of ByteString) IO ()
             encryptedChunks = rawChunks
-                & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal ((_krPk . encryptionKey) gk) . LBS.toStrict)
+                & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal (recipientPk gk) . LBS.toStrict)
 
         mhash <- putAsMerkle ss encryptedChunks
         mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash mhash))
@@ -244,8 +244,9 @@ runNewGroupkey pubkeysFile = do
   s <- BS.readFile pubkeysFile
   pubkeys <- pure (parsePubKeys s) `orDie` "bad pubkeys file"
   keypair <- newKeypair @MerkleEncryptionType Nothing
-  print $ pretty $ AsGroupKeyFile $ AsBase58
-      $ GroupKeyNaClAsymm keypair pubkeys
+  accesskey <- AccessKeyNaClAsymm <$> do
+      List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
+  print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
 
 runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
 runNewRef opts mhash ss = do
