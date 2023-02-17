@@ -124,3 +124,4 @@ instance FromStringMaybe (ACB 'NaClAsymm e) where
   fromStringMay s = fmap snd . headMay  $ mconcat
                                         $ maybeToList
                                         $ fromStringMay @[(Id, ACB 'NaClAsymm e)] s
+

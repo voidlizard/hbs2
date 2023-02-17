@@ -3,8 +3,10 @@
 module HBS2.Net.Proto.Ref where
 
 import HBS2.Prelude.Plated
-import HBS2.Data.Types.Refs (HashRef)
+import HBS2.Data.Types.Refs (HashRef(..))
+import HBS2.Net.Proto.ACB
 import HBS2.Net.Auth.Credentials
+import HBS2.Hash
 
 
 import Data.Config.Suckless
@@ -15,6 +17,9 @@ import Data.ByteString (ByteString)
 import Lens.Micro.Platform
 import Codec.Serialise
 import Data.Either
+import Data.Map qualified as Map
+import Data.Maybe
+import Data.List qualified as L
 -- import Data.Set (Set)
 
 -- TODO: tagged-hash-ref
@@ -39,47 +44,45 @@ instance IsRef e => Serialise (Ref e)
 
 data DefineRef e  = DefineRef Text (Ref e)
 
+
+
 instance FromStringMaybe (Ref e) where
-  fromStringMay s = Nothing
+  fromStringMay s  = case defRe of
+    Nothing -> Nothing
+    Just n -> Ref <$> Map.lookup n refNon
+                  <*> Map.lookup n refAcb
+                  <*> Map.lookup n refDat
 
     where
       parsed = parseTop s & fromRight mempty
       defRe  = headMay [ re | (ListVal (Key "define-ref" [SymbolVal re]) ) <- parsed ]
 
-      nonce  = lastMay [ n
-                       | (ListVal (Key "ref-nonce" [SymbolVal x, LitStrVal n]) ) <- parsed
-                       , Just x == defRe
-                       ]
+      insn = [ (i,k,Text.unpack v) | (ListVal (Key i [SymbolVal k, LitStrVal v]) ) <- parsed ]
 
-      acbDefs = ""
+      refDat  = Map.fromList $ foldMap mkRefData insn
+      refNon  = Map.fromList $ foldMap mkRefNonce insn
+      refAcb  = Map.fromList $ foldMap mkAbcId insn <> foldMap mkAbcRef insn
 
-      -- root = lastMay $ catMaybes $
-      --                [ fromStringMay (Text.unpack e)
-      --                | (ListVal (Key "acb-root" [SymbolVal a, LitStrVal e]) ) <- parsed
-      --                , Just a == defAcb
-      --                ]
+      mkRefData = \case
+        ("ref-data",  n, v) -> maybeToList $ (n,) <$> fromStringMay @HashRef v
+        _                   -> mempty
 
-      -- owners = L.nub $ catMaybes
-      --                [ fromStringMay (Text.unpack e)
-      --                | (ListVal (Key "acb-owner" [SymbolVal a, LitStrVal e]) ) <- parsed
-      --                , Just a == defAcb
-      --                ]
+      mkRefNonce = \case
+        ("ref-nonce", n, v) -> L.singleton (n,fromString v)
+        _ -> mempty
 
-      -- readers = L.nub $ catMaybes
-      --                [ fromStringMay (Text.unpack e)
-      --                | (ListVal (Key "acb-reader" [SymbolVal a, LitStrVal e]) ) <- parsed
-      --                , Just a == defAcb
-      --                ]
+      mkAbcRef = \case
+        ("ref-acb-hash", n, v) -> maybeToList $ (n,) <$> fromStringMay @HashRef v
+        _ -> mempty
 
-      -- writers = L.nub $ catMaybes
-      --                [ fromStringMay (Text.unpack e)
-      --                | (ListVal (Key "acb-writer" [SymbolVal a, LitStrVal e]) ) <- parsed
-      --                , Just a == defAcb
-      --                ]
+      mkAbcId = \case
+        ("ref-acb-id", n, v) -> maybeToList $ (n,) <$> Map.lookup (fromString v) acbDefs
+        _ -> mempty
 
-      -- prev =lastMay $ catMaybes $
-      --                [ fromStringMay (Text.unpack e)
-      --                | (ListVal (Key "acb-prev" [SymbolVal a, LitStrVal e]) ) <- parsed
-      --                , Just a == defAcb
-      --                ]
+      acbDefs = fromStringMay @[(Id, ACBSimple e)] s
+                  & maybeToList
+                  & mconcat
+                  & Map.fromListWith (<>)
+                  & Map.map (HashRef . hashObject @HbSync . serialise)
+
 
