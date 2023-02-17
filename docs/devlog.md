@@ -1,3 +1,14 @@
+
+## 2023-02-17
+
+TODO: hbs2-print-acb
+
+TODO: hbs2-create-acb
+
+  1. From a text script
+  2. ACB is a monoid: ACB + ACB = ACB
+  3. Default ACB has root
+
 ## 2023-02-16
 
 TODO: cat-metadata-command
