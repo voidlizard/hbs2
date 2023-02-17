@@ -148,6 +148,7 @@ library
                     , transformers
                     , uniplate
                     , unordered-containers
+                    , uuid
 
 
     hs-source-dirs:   lib
