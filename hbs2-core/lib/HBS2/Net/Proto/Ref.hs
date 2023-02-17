@@ -7,19 +7,21 @@ import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Net.Proto.ACB
 import HBS2.Net.Auth.Credentials
 import HBS2.Hash
-
+import HBS2.Data.Types
 
 import Data.Config.Suckless
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as B8
 import Lens.Micro.Platform
 import Codec.Serialise
 import Data.Either
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.List qualified as L
+import Prettyprinter
 -- import Data.Set (Set)
 
 -- TODO: tagged-hash-ref
@@ -29,7 +31,7 @@ import Data.List qualified as L
 data Ref e = Ref
   { _refNonce     :: ByteString
   , _refACB       :: HashRef
-  , _refData      :: HashRef
+  , _refData      :: Maybe HashRef
   }
   deriving stock (Generic)
 
@@ -44,14 +46,23 @@ instance IsRef e => Serialise (Ref e)
 
 data DefineRef e  = DefineRef Text (Ref e)
 
-
+instance (
+         ) => Pretty (AsSyntax (DefineRef e)) where
+  pretty (AsSyntax (DefineRef n ref)) = vcat [
+         "define-ref"    <+> pretty n
+       , "ref-nonce"     <+> dquotes (pretty $ B8.unpack (view refNonce ref))
+       , "ref-acb-hash"  <+> dquotes (pretty (view refACB ref))
+       , rd
+    ]
+    where
+      rd = maybe mempty ( ("ref-data" <+>) . dquotes . pretty  ) (view refData ref)
 
 instance FromStringMaybe (Ref e) where
   fromStringMay s  = case defRe of
     Nothing -> Nothing
     Just n -> Ref <$> Map.lookup n refNon
                   <*> Map.lookup n refAcb
-                  <*> Map.lookup n refDat
+                  <*> pure (Map.lookup n refDat)
 
     where
       parsed = parseTop s & fromRight mempty
