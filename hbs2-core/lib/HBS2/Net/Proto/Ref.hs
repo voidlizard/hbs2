@@ -11,6 +11,7 @@ import HBS2.Data.Types
 
 import Data.Config.Suckless
 
+import Control.Applicative
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.ByteString.Char8 (ByteString)
@@ -49,19 +50,19 @@ data DefineRef e  = DefineRef Text (Ref e)
 instance (
          ) => Pretty (AsSyntax (DefineRef e)) where
   pretty (AsSyntax (DefineRef n ref)) = vcat [
-         "define-ref"    <+> pretty n
-       , "ref-nonce"     <+> dquotes (pretty $ B8.unpack (view refNonce ref))
-       , "ref-acb-hash"  <+> dquotes (pretty (view refACB ref))
+         "define-ref"   <+> pretty n
+       , "ref-nonce"    <+> pretty n  <+> dquotes (pretty $ B8.unpack (view refNonce ref))
+       , "ref-acb-hash" <+> pretty n  <+> dquotes (pretty (view refACB ref))
        , rd
     ]
     where
-      rd = maybe mempty ( ("ref-data" <+>) . dquotes . pretty  ) (view refData ref)
+      rd = maybe mempty ( (("ref-data" <+> pretty n) <+>) . dquotes . pretty  ) (view refData ref)
 
 instance FromStringMaybe (Ref e) where
   fromStringMay s  = case defRe of
     Nothing -> Nothing
     Just n -> Ref <$> Map.lookup n refNon
-                  <*> Map.lookup n refAcb
+                  <*> (Map.lookup n refAcbR <|> Map.lookup n refAcbH)
                   <*> pure (Map.lookup n refDat)
 
     where
@@ -69,10 +70,12 @@ instance FromStringMaybe (Ref e) where
       defRe  = headMay [ re | (ListVal (Key "define-ref" [SymbolVal re]) ) <- parsed ]
 
       insn = [ (i,k,Text.unpack v) | (ListVal (Key i [SymbolVal k, LitStrVal v]) ) <- parsed ]
+      insn1 = [ (i,k,v) | (ListVal (Key i [SymbolVal k, SymbolVal v]) ) <- parsed ]
 
       refDat  = Map.fromList $ foldMap mkRefData insn
       refNon  = Map.fromList $ foldMap mkRefNonce insn
-      refAcb  = Map.fromList $ foldMap mkAbcId insn <> foldMap mkAbcRef insn
+      refAcbH  = Map.fromList $ foldMap mkAbcId insn1
+      refAcbR  = Map.fromList $ foldMap mkAbcRef insn
 
       mkRefData = \case
         ("ref-data",  n, v) -> maybeToList $ (n,) <$> fromStringMay @HashRef v
@@ -87,7 +90,7 @@ instance FromStringMaybe (Ref e) where
         _ -> mempty
 
       mkAbcId = \case
-        ("ref-acb-id", n, v) -> maybeToList $ (n,) <$> Map.lookup (fromString v) acbDefs
+        ("ref-acb-id", n, v) -> maybeToList $ (n,) <$> Map.lookup v acbDefs
         _ -> mempty
 
       acbDefs = fromStringMay @[(Id, ACBSimple e)] s

@@ -71,6 +71,8 @@ main = do
 
   assertBool "7" (acb2 == acb)
 
+  print $ "acb hash:" <+> pretty (hashObject @HbSync (serialise acb))
+
   -- TODO: acbPrev test
 
   pure ()
