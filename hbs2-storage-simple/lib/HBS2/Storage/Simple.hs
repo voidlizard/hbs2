@@ -5,6 +5,7 @@ module HBS2.Storage.Simple
   ( module HBS2.Storage.Simple
   , StoragePrefix(..)
   , Storage(..)
+  , RefAttr(..)
   , Block
   ) where
 
@@ -309,6 +310,20 @@ spawnAndWait s act = do
   atomically $ TBMQ.readTBMQueue doneQ
 
 
+simpleUpdateLink  :: forall h . ( IsSimpleStorageKey h
+                                , Hashed h LBS.ByteString
+                                )
+                   => SimpleStorage h
+                   -> Hash h
+                   -> RefAttr
+                   -> Hash h
+                   -> IO ()
+
+simpleUpdateLink ss h a what  = do
+  let fnr = simpleRefFileName ss h a
+  createDirectoryIfMissing True (takeDirectory fnr)
+  writeFile fnr (show $ pretty what)
+
 simpleWriteLinkRaw :: forall h . ( IsSimpleStorageKey h
                                  , Hashed h LBS.ByteString
                                  )
@@ -319,14 +334,10 @@ simpleWriteLinkRaw :: forall h . ( IsSimpleStorageKey h
                    -> IO (Maybe (Hash h))
 
 simpleWriteLinkRaw ss h a lbs = do
-  let fnr = simpleRefFileName ss h a
-
   runMaybeT $ do
     r <- MaybeT $ putBlock ss lbs
     MaybeT $ liftIO $ spawnAndWait ss $ do
-      createDirectoryIfMissing True (takeDirectory fnr)
-      print $ pretty fnr
-      writeFile fnr (show (pretty r))
+      simpleUpdateLink ss h a r
       pure h
 
 simpleReadLinkRaw :: IsKey h

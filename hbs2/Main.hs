@@ -265,9 +265,19 @@ runNewRef opts seedFile ss = do
            Just True -> pure (fromStringMay @(RefSeed UDP) s) `orDie` "can't parse"
            _   -> die "not supported yet"
 
-  print $ pretty (AsSyntax (DefineRef "g1" "a" seed))
+  -- print $ pretty (AsSyntax (DefineRef "g1" "a" seed))
   res <- simpleWriteLinkRaw ss uuid ".seed" (serialise seed)
   print (pretty res)
+
+-- TODO: runUpdateRef-to-check-acb?
+runUpdateRef :: Hash HbSync-> RefAttr -> Hash HbSync -> SimpleStorage HbSync -> IO ()
+runUpdateRef h a what ss | a /= ".seed" = do
+-- TODO: ref-update-log
+  void $ simpleUpdateLink ss h a what
+
+runUpdateRef _ _ _ _  = do
+  hPrint stderr $ pretty @String "updating .seed not allowed"
+  exitFailure
 
 runNewKey :: IO ()
 runNewKey = do
