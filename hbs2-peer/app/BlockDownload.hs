@@ -186,12 +186,12 @@ processBlock h = do
      Nothing -> addDownload h
 
      Just (MerkleAnn ann) -> do
-       case (_mtaMeta ann) of
+       case _mtaMeta ann of
           NoMetaData -> pure ()
           ShortMetadata {} -> pure ()
-          AnnHashRef h -> addDownload h
+          AnnHashRef hh -> addDownload hh
 
-       case (_mtaCrypt ann) of
+       case _mtaCrypt ann of
           NullEncryption -> pure ()
           CryptAccessKeyNaClAsymm h -> addDownload h
 
