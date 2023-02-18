@@ -36,13 +36,14 @@ main = do
   let pek1 = fromStringMay "5k9rLmFdXCP4RncG9WHEaXXEjxvnxmBvvMUqcKkoY45q"
   let pek2 = fromStringMay "FpZbzEbdFBztGUSXy5yCoWgkYUbJYDuCmSVxFTTrHx7D"
 
-  let root   = fromStringMay @SK "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
+  let root   = maybeToSet $ fromStringMay @SK "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
   let owners = Set.fromList $ catMaybes [ fromStringMay "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN" ]
+  let readers = Set.fromList $ catMaybes [pek1, pek2 ]
 
   let acb =   set acbRoot root
-            . set acbOwners  ( owners <> maybeToSet root )
-            . set acbWriters ( owners <> maybeToSet root )
-            . set acbReaders ( Set.fromList $ catMaybes [pek1, pek2 ] )
+            . set acbOwners  ( owners <> root )
+            . set acbWriters ( owners <> root )
+            . set acbReaders readers
             $  mempty :: ACBSimple T
 
   let s = show $ pretty (AsSyntax (DefineACB "a1" acb))
@@ -75,6 +76,5 @@ main = do
 
   -- TODO: acbPrev test
 
-  pure ()
 
 
