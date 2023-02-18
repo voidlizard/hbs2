@@ -37,7 +37,6 @@ newtype AttrId = AttrId Text
 -- Иммутабельный seed ссылки
 data RefSeed e = Ref
   { _refACB       :: ACBSimple e
-  , _refAttr      :: Set AttrId
   }
   deriving stock (Generic)
 
@@ -57,35 +56,22 @@ instance (
          ) => Pretty (AsSyntax (DefineRef e)) where
   pretty (AsSyntax (DefineRef n a ref)) = vcat [
            "define-ref"   <+> pretty n <+> pretty a <> line
-         , vcat refAttrs
     ] <> line <> line
       <> pretty (AsSyntax (DefineACB a (view refACB ref)))
 
     where
-      refAttrs = prettyAttr <$> Set.toList (view refAttr ref)
       prettyAttr (AttrId s) = "define-ref-attr" <+> pretty n <+> pretty s
 
 instance FromStringMaybe (RefSeed e) where
   fromStringMay s  = case defRe of
     Nothing -> Nothing
     Just (n,a) -> Ref <$> Map.lookup a acbDefs
-                  <*> attrs n
 
     where
       parsed = parseTop s & fromRight mempty
       defRe  = headMay [ (re,a)
                        | (ListVal (Key "define-ref" [SymbolVal re, SymbolVal a]) ) <- parsed
                        ]
-
-      allAttrs = Map.unionsWith (<>) [ mkAttr (ins,g,v)
-                                     | (ListVal (Key ins [SymbolVal g, SymbolVal v]) ) <- parsed
-                                     ]
-
-      attrs g = Map.lookup g allAttrs
-
-      mkAttr = \case
-        ("define-ref-attr", g, Id v) -> Map.singleton g (Set.singleton (AttrId v))
-        _                            -> mempty
 
       acbDefs = fromStringMay @[(Id, ACBSimple e)] s
                   & maybeToList

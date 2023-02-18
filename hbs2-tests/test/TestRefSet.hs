@@ -33,12 +33,7 @@ acb-reader a1 "FpZbzEbdFBztGUSXy5yCoWgkYUbJYDuCmSVxFTTrHx7D"
 acb-writer a1 "EJgvBg9bL2yKXk3GvZaYJgqpHy5kvpXdtEnAgoi4B5DN"
 acb-writer a1 "sRyP45vd7wnopdLP6MLxUJAFGJu5wGVHyzF64mKwBbH"
 
-
 define-ref g1 a1
-define-ref-attr g1 acb
-define-ref-attr g1 head
-define-ref-attr g1 log-head
-define-ref-attr g1 metadata
 
 |]
 
