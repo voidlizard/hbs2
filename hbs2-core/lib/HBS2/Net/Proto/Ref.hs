@@ -24,6 +24,7 @@ import Data.Maybe
 import Data.List qualified as L
 import Prettyprinter
 import Data.Set (Set)
+import Data.Set qualified as Set
 
 -- TODO: tagged-hash-ref
 --   Сделать newtype HashRef t = HashRef
@@ -50,55 +51,45 @@ deriving stock instance IsRef e => Eq (RefSeed e)
 instance Serialise AttrId
 instance IsRef e => Serialise (RefSeed e)
 
-data DefineRef e  = DefineRef Text (RefSeed e)
+data DefineRef e  = DefineRef Text Text (RefSeed e)
 
 instance (
          ) => Pretty (AsSyntax (DefineRef e)) where
-  pretty (AsSyntax (DefineRef n ref)) = vcat [
-         "define-ref"   <+> pretty n
-    ]
-    -- where
---       rd = maybe mempty ( (("ref-data" <+> pretty n) <+>) . dquotes . pretty  ) (view refData ref)
+  pretty (AsSyntax (DefineRef n a ref)) = vcat [
+           "define-ref"   <+> pretty n <+> pretty a <> line
+         , vcat refAttrs
+    ] <> line <> line
+      <> pretty (AsSyntax (DefineACB a (view refACB ref)))
 
--- instance FromStringMaybe (Ref e) where
---   fromStringMay s  = case defRe of
---     Nothing -> Nothing
---     Just n -> Ref <$> Map.lookup n refNon
---                   <*> (Map.lookup n refAcbR <|> Map.lookup n refAcbH)
---                   <*> pure (Map.lookup n refDat)
+    where
+      refAttrs = prettyAttr <$> Set.toList (view refAttr ref)
+      prettyAttr (AttrId s) = "define-ref-attr" <+> pretty n <+> pretty s
 
---     where
---       parsed = parseTop s & fromRight mempty
---       defRe  = headMay [ re | (ListVal (Key "define-ref" [SymbolVal re]) ) <- parsed ]
+instance FromStringMaybe (RefSeed e) where
+  fromStringMay s  = case defRe of
+    Nothing -> Nothing
+    Just (n,a) -> Ref <$> Map.lookup a acbDefs
+                  <*> attrs n
 
---       insn = [ (i,k,Text.unpack v) | (ListVal (Key i [SymbolVal k, LitStrVal v]) ) <- parsed ]
---       insn1 = [ (i,k,v) | (ListVal (Key i [SymbolVal k, SymbolVal v]) ) <- parsed ]
+    where
+      parsed = parseTop s & fromRight mempty
+      defRe  = headMay [ (re,a)
+                       | (ListVal (Key "define-ref" [SymbolVal re, SymbolVal a]) ) <- parsed
+                       ]
 
---       refDat  = Map.fromList $ foldMap mkRefData insn
---       refNon  = Map.fromList $ foldMap mkRefNonce insn
---       refAcbH  = Map.fromList $ foldMap mkAbcId insn1
---       refAcbR  = Map.fromList $ foldMap mkAbcRef insn
+      allAttrs = Map.unionsWith (<>) [ mkAttr (ins,g,v)
+                                     | (ListVal (Key ins [SymbolVal g, SymbolVal v]) ) <- parsed
+                                     ]
 
---       mkRefData = \case
---         ("ref-data",  n, v) -> maybeToList $ (n,) <$> fromStringMay @HashRef v
---         _                   -> mempty
+      attrs g = Map.lookup g allAttrs
 
---       mkRefNonce = \case
---         ("ref-nonce", n, v) -> L.singleton (n,fromString v)
---         _ -> mempty
+      mkAttr = \case
+        ("define-ref-attr", g, Id v) -> Map.singleton g (Set.singleton (AttrId v))
+        _                            -> mempty
 
---       mkAbcRef = \case
---         ("ref-acb-hash", n, v) -> maybeToList $ (n,) <$> fromStringMay @HashRef v
---         _ -> mempty
-
---       mkAbcId = \case
---         ("ref-acb-id", n, v) -> maybeToList $ (n,) <$> Map.lookup v acbDefs
---         _ -> mempty
-
---       acbDefs = fromStringMay @[(Id, ACBSimple e)] s
---                   & maybeToList
---                   & mconcat
---                   & Map.fromListWith (<>)
---                   & Map.map (HashRef . hashObject @HbSync . serialise)
+      acbDefs = fromStringMay @[(Id, ACBSimple e)] s
+                  & maybeToList
+                  & mconcat
+                  & Map.fromListWith (<>)
 
 

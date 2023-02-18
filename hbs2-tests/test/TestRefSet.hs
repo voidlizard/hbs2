@@ -3,7 +3,6 @@ module Main where
 import HBS2.Prelude
 import HBS2.Net.Proto.Ref
 import HBS2.Net.Proto.ACB
-import HBS2.Data.Types.Refs
 import HBS2.Data.Types
 import HBS2.OrDie
 import HBS2.Net.Proto.Definition()
@@ -47,27 +46,13 @@ define-ref-attr g1 metadata
 
 main :: IO ()
 main = do
-  pure ()
-  -- ref1 <- pure (fromStringMay @(Ref T) r1) `orDie` "can't parse"
-  -- let r1s = show $ pretty (AsSyntax (DefineRef "g1" ref1))
+  ref1 <- pure (fromStringMay @(RefSeed T) r1) `orDie` "can't parse"
+  let r1s = show $ pretty (AsSyntax (DefineRef "g1" "a" ref1))
 
-  -- putStrLn r1s
+  putStrLn r1s
 
-  -- ref2 <- pure (fromStringMay @(Ref T) r1s) `orDie` "can't parse"
+  ref2 <- pure (fromStringMay @(RefSeed T) r1s) `orDie` "can't parse"
 
-  -- assertBool "1" $ ref2 == ref1
-
-  -- ref2 <- pure (fromStringMay @(Ref T) r2) `orDie` "can't parse"
-
-  -- let r2s = show $ pretty (AsSyntax (DefineRef "g1" ref2))
-
-  -- a1 <- pure (fromStringMay @(ACBSimple T) r2) `orDie` "can't parse"
-
-  -- putStrLn r2s
-
-  -- assertBool "2" $ view refACB ref2 == HashRef (hashObject @HbSync (serialise a1))
-
-  -- print $ "acb hash:" <+> pretty (hashObject @HbSync (serialise a1))
-
+  assertBool "1" $ ref2 == ref1
 
 
