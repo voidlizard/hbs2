@@ -1,3 +1,4 @@
+{-# Language TemplateHaskell #-}
 module Main where
 
 import HBS2.Base58
@@ -15,7 +16,7 @@ import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.OrDie
 import HBS2.Net.Proto.ACB
-
+import HBS2.Net.Proto.Ref
 
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
@@ -103,9 +104,17 @@ newtype HashOpts =
 
 newtype NewRefOpts =
   NewRefOpts
-  { newRefMerkle :: Bool
+  { _newRefIsConf :: Maybe Bool
   }
   deriving stock (Data)
+
+makeLenses 'NewRefOpts
+
+instance Monoid NewRefOpts where
+  mempty = NewRefOpts Nothing
+
+instance Semigroup NewRefOpts where
+  (<>) a b = mempty & set newRefIsConf ( view newRefIsConf b <|> view newRefIsConf a )
 
 
 runHash :: HashOpts -> SimpleStorage HbSync -> IO ()
@@ -244,15 +253,21 @@ runNewGroupkey pubkeysFile = do
       List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
   print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
 
-runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
-runNewRef opts mhash ss = do
+runNewRef :: NewRefOpts -> Maybe FilePath -> SimpleStorage HbSync -> IO ()
+runNewRef opts seedFile ss = do
+  inf <- maybe (pure stdin) (`openFile` ReadMode) seedFile
   uuid <- UUID.nextRandom <&> (hashObject @HbSync . UUID.toASCIIBytes)
-  die "not supported yet"
-  -- let href = HashRef (fromMerkleHash mhash)
-  -- let mref = HashRefMerkle (HashRefObject href Nothing)
-  -- let ref = AnnotatedHashRef Nothing mref
-  -- res <- simpleWriteLinkRaw ss uuid (serialise ref)
-  -- print (pretty res)
+
+  s <- hGetContents inf
+
+  -- TODO: support-binary-ref-seed
+  seed <- case view newRefIsConf opts of
+           Just True -> pure (fromStringMay @(RefSeed UDP) s) `orDie` "can't parse"
+           _   -> die "not supported yet"
+
+  print $ pretty (AsSyntax (DefineRef "g1" "a" seed))
+  res <- simpleWriteLinkRaw ss uuid ".seed" (serialise seed)
+  print (pretty res)
 
 runNewKey :: IO ()
 runNewKey = do
@@ -337,7 +352,6 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "store"           (info pStore (progDesc "store block"))
-                        <> command "new-ref"         (info pNewRef (progDesc "creates reference"))
                         <> command "cat"             (info pCat (progDesc "cat block"))
                         <> command "hash"            (info pHash (progDesc "calculates hash"))
                         <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
@@ -349,6 +363,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "acb-gen"         (info pACBGen  (progDesc "generates binary ACB from text config"))
                         <> command "acb-dump"        (info pACBDump (progDesc "dumps binary ACB to text config"))
                         <> command "uuid"            (info pUUID (progDesc "gen uuid"))
+                        <> command "new-ref"         (info pNewRef (progDesc "creates a reference"))
                         )
 
     common = do
@@ -357,9 +372,10 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pNewRef = do
       o <- common
-      merkle <- flag' True ( long "merkle-tree" <> help "it's a merkle-tree reference" )
-      hash <- strArgument ( metavar "HASH" )
-      pure $ withStore o (runNewRef (NewRefOpts merkle) hash)
+      -- s <- NewRefOpts <$> optional $ flag' True ( short 'c' <> long "config" <> help "from text config")
+      opts <- NewRefOpts <$> optional (flag' True ( short 'c' <> long "config" <> help "from text config"))
+      fp <- optional $ strArgument ( metavar "SEED-FILE" )
+      pure $ withStore o (runNewRef opts fp)
 
     pStore = do
       o <- common
@@ -414,6 +430,9 @@ main = join . customExecParser (prefs showHelpOnError) $
     pACBDump = do
       f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
       pure (runDumpACB f)
+
+    -- TODO: pRefSeedDump
+    -- TODO: pRefSeedGen
 
     pUUID = do
       pure $ do

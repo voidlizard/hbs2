@@ -186,12 +186,16 @@ simpleBlockFileName ss h = path
     (pref,suf) = splitAt 1 (show (pretty h))
     path = view storageBlocks ss </> pref </> suf
 
-simpleRefFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
-simpleRefFileName ss h = path
+simpleRefFileName :: Pretty (Hash h)
+                  => SimpleStorage h
+                  -> Hash h
+                  -> RefAttr
+                  -> FilePath
+
+simpleRefFileName ss h a = path
   where
     (pref,suf) = splitAt 1 (show (pretty h))
-    path = view storageRefs ss </> pref </> suf
-
+    path = view storageRefs ss </> pref </> suf </> refPath a
 
 -- NOTE: reads a whole file into memory!
 --       if file size is too big --- it will
@@ -310,25 +314,29 @@ simpleWriteLinkRaw :: forall h . ( IsSimpleStorageKey h
                                  )
                    => SimpleStorage h
                    -> Hash h
+                   -> RefAttr
                    -> LBS.ByteString
                    -> IO (Maybe (Hash h))
 
-simpleWriteLinkRaw ss h lbs = do
-  let fnr = simpleRefFileName ss h
+simpleWriteLinkRaw ss h a lbs = do
+  let fnr = simpleRefFileName ss h a
 
   runMaybeT $ do
     r <- MaybeT $ putBlock ss lbs
     MaybeT $ liftIO $ spawnAndWait ss $ do
+      createDirectoryIfMissing True (takeDirectory fnr)
+      print $ pretty fnr
       writeFile fnr (show (pretty r))
       pure h
 
 simpleReadLinkRaw :: IsKey h
                   => SimpleStorage h
                   -> Hash h
+                  -> RefAttr
                   -> IO (Maybe LBS.ByteString)
 
-simpleReadLinkRaw ss hash = do
-  let fn = simpleRefFileName ss hash
+simpleReadLinkRaw ss hash attr = do
+  let fn = simpleRefFileName ss hash attr
   rs <- spawnAndWait ss $ do
     r <- tryJust (guard . isDoesNotExistError) (LBS.readFile fn)
     case r of

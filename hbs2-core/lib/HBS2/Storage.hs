@@ -13,6 +13,10 @@ import Prettyprinter
 class Pretty (Hash h) => IsKey h where
   type family Key h :: Type
 
+newtype RefAttr = RefAttr { refPath :: FilePath }
+                  deriving stock (Eq,Ord,Show)
+                  deriving newtype (IsString)
+
 instance Key HbSync ~ Hash HbSync => IsKey HbSync where
   type instance Key HbSync = Hash HbSync
 
