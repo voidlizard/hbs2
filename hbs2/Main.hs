@@ -190,12 +190,6 @@ runCat opts ss = do
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
         Merkle h -> walk h
         MerkleAnn ann -> walkAnn ann
-        AnnRef h -> do
-          let lnk = deserialise @AnnotatedHashRef obj
-          let mbHead =  headMay [ h
-                                | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
-                                ]
-          maybe (error "empty ref") walk mbHead
 
 
 runStore ::(Data opts) => opts -> SimpleStorage HbSync -> IO ()
@@ -212,7 +206,7 @@ runStore opts ss = do
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  case (uniLastMay @OptGroupkeyFile opts) of
+  case uniLastMay @OptGroupkeyFile opts of
     Nothing -> do
         root <- putAsMerkle ss handle
         print $ "merkle-root: " <+> pretty root
@@ -253,11 +247,12 @@ runNewGroupkey pubkeysFile = do
 runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
 runNewRef opts mhash ss = do
   uuid <- UUID.nextRandom <&> (hashObject @HbSync . UUID.toASCIIBytes)
-  let href = HashRef (fromMerkleHash mhash)
-  let mref = HashRefMerkle (HashRefObject href Nothing)
-  let ref = AnnotatedHashRef Nothing mref
-  res <- simpleWriteLinkRaw ss uuid (serialise ref)
-  print (pretty res)
+  die "not supported yet"
+  -- let href = HashRef (fromMerkleHash mhash)
+  -- let mref = HashRefMerkle (HashRefObject href Nothing)
+  -- let ref = AnnotatedHashRef Nothing mref
+  -- res <- simpleWriteLinkRaw ss uuid (serialise ref)
+  -- print (pretty res)
 
 runNewKey :: IO ()
 runNewKey = do

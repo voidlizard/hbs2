@@ -5,7 +5,7 @@ module BlockDownload where
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Data.Detect
-import HBS2.Data.Types.Refs
+import HBS2.Data.Types.HashRef
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -184,8 +184,6 @@ processBlock h = do
 
    case bt of
      Nothing -> addDownload h
-
-     Just (AnnRef{}) -> pure ()
 
      Just (MerkleAnn ann) -> do
        case (_mtaMeta ann) of

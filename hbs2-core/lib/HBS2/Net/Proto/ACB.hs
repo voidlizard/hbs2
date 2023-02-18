@@ -5,7 +5,7 @@ module HBS2.Net.Proto.ACB where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
-import HBS2.Data.Types.Refs (HashRef)
+import HBS2.Data.Types.HashRef
 import HBS2.Base58
 import HBS2.Data.Types
 import HBS2.Net.Proto.Definition
