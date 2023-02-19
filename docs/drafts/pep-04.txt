@@ -1,4 +1,4 @@
-PEP: pep-03-reference-update
+PEP: pep-04-reference-update
 
 ```
 $$$ (set lang ru)
