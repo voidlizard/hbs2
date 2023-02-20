@@ -1,4 +1,12 @@
 
+## 2023-02-21
+
+TODO: sometimes-does-not-resume-block-download
+
+
+TODO: does-not-choose-peers
+
+
 ## 2023-02-17
 
 TODO: reference-basic-implementation
