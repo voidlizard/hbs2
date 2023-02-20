@@ -487,7 +487,6 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "lref-list"       (info pListLRef (progDesc "list node linear refs"))
                         <> command "lref-get"        (info pGetLRef (progDesc "get a linear ref"))
                         <> command "lref-update"     (info pUpdateLRef (progDesc "updates a linear ref"))
-                        -- <> command "lref-del"        (info pDelLRef (progDesc "removes a linear ref from node linear ref list"))
                         )
 
     common = do
