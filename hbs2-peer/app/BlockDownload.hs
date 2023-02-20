@@ -434,7 +434,18 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 5
+    pause @'Seconds 20
+
+    pee <- knownPeers @e pl
+    npi <- newPeerInfo
+
+    for_ pee $ \p -> do
+      pinfo <- fetch True npi (PeerInfoKey p) id
+      liftIO $ atomically $ writeTVar (view peerBurstMax pinfo) Nothing
+
+
+  void $ liftIO $ async $ forever $ withPeerM e do
+    pause @'Seconds 2
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
