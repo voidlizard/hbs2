@@ -260,6 +260,8 @@ downloadFromWithPeer peer thisBkSize h = do
 
   -- debug $ "bursts: " <+> pretty bursts
 
+  let burstTime =  min defBlockWaitMax (0.8 * realToFrac burstSize * defChunkWaitMax)
+
   r  <- liftIO $ newTVarIO (mempty :: IntMap ByteString)
   rq <- liftIO newTQueueIO
 
@@ -277,7 +279,7 @@ downloadFromWithPeer peer thisBkSize h = do
         -- TODO: here wait for all requested chunks!
         -- FIXME: it may blocks forever, so must be timeout and retry
 
-        catched <- either id id <$> liftIO ( race ( pause defChunkWaitMax >> pure mempty )
+        catched <- either id id <$> liftIO ( race ( pause burstTime >> pure mempty )
                                                   ( replicateM chunksN
                                                        $ atomically
                                                           $ readTQueue chuQ )
@@ -304,6 +306,7 @@ downloadFromWithPeer peer thisBkSize h = do
 
             debug $ "new burst: " <+> pretty newBurst
             debug $ "missed chunks for request" <+> pretty (i,chunksN)
+            debug $ "burst time" <+> pretty burstTime
 
             for_ chuchu $ liftIO . atomically . writeTQueue rq
 
@@ -372,18 +375,20 @@ updatePeerInfo onError pinfo = do
 
           let eps = floor (dE / dT)
 
+          let win = min 10 $ defBurstMax - defBurst - 2
+
           when (down - downLast > 0 || onError) do
 
             (bu1, bus) <- if  eps == 0 then do
                             let bmm = fromMaybe defBurstMax buMax
                             let buN = min bmm (ceiling $ (realToFrac bu * 1.05))
-                            pure (buN, trimUp 50 $ IntSet.insert buN buSet)
+                            pure (buN, trimUp win $ IntSet.insert buN buSet)
                           else do
-                            let buM = headMay $ drop 2 $ IntSet.toDescList buSet
+                            let buM = headMay $ drop 1 $ IntSet.toDescList buSet
                             writeTVar (view peerBurstMax pinfo) buM
                             -- let s = IntSet.size buSet
-                            let buN =  headDef defBurst $ drop 4 $ IntSet.toDescList buSet
-                            pure (buN, trimDown 50 $ IntSet.insert buN buSet)
+                            let buN =  headDef defBurst $ drop 2 $ IntSet.toDescList buSet
+                            pure (buN, trimDown win $ IntSet.insert buN buSet)
 
 
             writeTVar (view peerErrorsLast pinfo) errs
@@ -434,7 +439,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 20
+    pause @'Seconds 30
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
@@ -445,7 +450,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 2
+    pause @'Seconds 1
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
