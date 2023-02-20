@@ -140,10 +140,10 @@ udpWorker env tso = do
 
   rcvLoop <- async $ forever $ do
     -- so <- readTVarIO tso
-    pause ( 10 :: Timeout 'Seconds )
-    -- (msg, from) <- recvFrom so defMaxDatagram
+    -- pause ( 10 :: Timeout 'Seconds )
+    (msg, from) <- recvFrom so defMaxDatagram
   -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
-    -- atomically $ Q.writeTBQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
+    liftIO $ atomically $ Q.writeTBQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
 
   sndLoop <- async $ forever $ do
     pause ( 10 :: Timeout 'Seconds )
@@ -178,10 +178,9 @@ instance Messaging MessagingUDP UDP ByteString where
     sendAllTo so (LBS.toStrict msg) (view sockAddr whom)
 
   receive bus _ = liftIO do
-    so <- readTVarIO (sock bus)
-    (msg, from) <- recvFrom so defMaxDatagram
-    pure [(From (PeerUDP from), LBS.fromStrict msg)]
+    -- so <- readTVarIO (sock bus)
+    -- (msg, from) <- recvFrom so defMaxDatagram
+    -- pure [(From (PeerUDP from), LBS.fromStrict msg)]
 
-    -- liftIO $ atomically
-    -- $ Q.readTBQueue (sink bus) <&> L.singleton
+    liftIO $ atomically $ Q.readTBQueue (sink bus) <&> L.singleton
 
