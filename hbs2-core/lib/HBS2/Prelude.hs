@@ -11,6 +11,7 @@ module HBS2.Prelude
   , FromStringMaybe(..)
   , none
   , module Prettyprinter
+  , Text.Text
   ) where
 
 import Data.String (IsString(..))

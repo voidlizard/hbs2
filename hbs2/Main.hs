@@ -33,7 +33,7 @@ import Data.Functor
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Monoid qualified as Monoid
-import Data.Text (Text)
+import Data.Set qualified as Set
 import Data.UUID qualified as UUID
 import Data.UUID.V4 qualified as UUID
 import Options.Applicative
@@ -314,6 +314,55 @@ runDumpACB inFile = do
   acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple UDP)
   print $ pretty (AsSyntax (DefineACB "a1" acb))
 
+runNewLRef :: FilePath -> FilePath -> Text -> IO ()
+runNewLRef nf uf refName = do
+  hPrint stderr $ "adding a new linear ref" <+> pretty nf <+> pretty uf
+  nodeCred <- (parseCredentials @UDP . AsCredFile <$> BS.readFile nf)
+      `orDie` "bad node keyring file"
+  ownerCred <- (parseCredentials @MerkleEncryptionType . AsCredFile <$> BS.readFile uf)
+      `orDie` "bad ref owner keyring file"
+
+  -- FIXME:
+  -- lrh <- создать блок с nodeLinearRefsRef (_ nodeCred)
+  -- полученный хэш будет хэшем ссылки на список референсов ноды
+  -- попытаться прочитать эту ссылку
+  -- h <- создать блок с RefGenesis (_ ownerCred) refName NoMetaData
+  -- полученный хэш будет хэшем ссылки - канала владельца cownerCred
+  -- modifyNodeLiearRefList lrh nodeCred $ Set.toList . Set.insert h . Set.fromList
+
+  undefined
+
+-- modifyNodeLiearRefList :: Hash HbSync -> PeerCredentials e -> ([Hash HbSync] -> [Hash HbSync]) -> IO ()
+-- modifyNodeLiearRefList h kr f = modifyLinearRef h kr (writeBlock . serialiseList . f . parseList =<< readBlock)
+    -- = LinearMutableRefSigned
+    -- { signature :: Signature e
+    -- , signedRef :: MutableRef e 'LinearRef
+
+modifyLinearRef :: Hash HbSync -> PeerCredentials e -> (Hash HbSync -> IO (Hash HbSync)) -> IO ()
+modifyLinearRef h kr modIO = do
+    -- FIXME:
+    -- read genesis by h
+    -- check that owner match pubkey of keyring
+    -- read reference with simpleReadLinkRaw
+    -- parse ref as Signed 'SignaturePresent (MutableRef e 'LinearRef)
+
+    -- given
+    -- LinearMutableRefSigned
+    -- { signature :: Signature e
+    -- , signedRef = --:: MutableRef e 'LinearRef
+    --       LinearMutableRef
+    --       { lrefId :: !(Hash HbSync)
+    --       , lrefHeight :: !Int
+    --       , lrefVal :: !(Hash HbSync)
+    --       }
+    -- guard lrefId == h
+    -- update lrefVal with modIO
+    -- increment lrefHeight
+    -- wrap it with LinearMutableRefSigned
+    -- write with simpleWriteLinkRaw h $ serialise
+
+    undefined
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
@@ -352,6 +401,10 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
                         <> command "acb-gen"         (info pACBGen  (progDesc "generates binary ACB from text config"))
                         <> command "acb-dump"        (info pACBDump (progDesc "dumps binary ACB to text config"))
+                        <> command "lref-new"        (info pNewLRef (progDesc "generates a new linear ref"))
+                        -- <> command "lref-add"        (info pAddLRef (progDesc "generates a new linear ref"))
+                        -- <> command "lref-list"       (info pListLRef (progDesc "list node linear refs"))
+                        -- <> command "lref-del"        (info pDelLRef (progDesc "removes a linear ref from node linear ref list"))
                         )
 
     common = do
@@ -418,3 +471,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
       pure (runDumpACB f)
 
+    pNewLRef = do
+      nf <- strArgument ( metavar "NODE-KEYRING-FILE" )
+      uf <- strArgument ( metavar "REF-OWNER-KEYRING-FILE" )
+      refName <- strArgument ( metavar "REF-NAME" )
+      pure (runNewLRef nf uf refName)
