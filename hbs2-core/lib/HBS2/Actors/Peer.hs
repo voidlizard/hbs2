@@ -422,8 +422,8 @@ runPeerM env f  = do
   void $ liftIO $ stopPipeline de
   liftIO $ mapM_ cancel (as <> [sw])
 
-withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m ()
-withPeerM env action = void $ runReaderT (fromPeerM action) env
+withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m a
+withPeerM env action = runReaderT (fromPeerM action) env
 
 runProto :: forall e m  . ( MonadIO m
                           , HasOwnPeer e m

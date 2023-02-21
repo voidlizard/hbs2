@@ -439,12 +439,19 @@ runPeer opts = Exception.handle myException $ do
 
                         addPeers pl [p]
 
+                        -- TODO: better-handling-for-new-peers
                         npi    <- newPeerInfo
-                        pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                        liftIO $ atomically $ writeTVar pfails 0
 
-                        debug $ "Got authorized peer!" <+> pretty p
-                                                       <+> pretty (AsBase58 (view peerSignKey d))
+                        here <- find @e (KnownPeerKey p) id <&> isJust
+
+                        unless here do
+                          pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                          pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+                          liftIO $ atomically $ writeTVar pfails 0
+                          liftIO $ atomically $ writeTVar pdownfails 0
+
+                          debug $ "Got authorized peer!" <+> pretty p
+                                                         <+> pretty (AsBase58 (view peerSignKey d))
 
               void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1
@@ -534,9 +541,6 @@ runPeer opts = Exception.handle myException $ do
                                           debug $ pretty pip <+> "announce-not-accepted"
 
                                        | otherwise -> do
-
-                                          debug "announce from a known peer"
-                                          debug "preparing to dowload shit"
 
                                           withDownload denv $ do
                                             processBlock h

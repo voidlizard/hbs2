@@ -70,7 +70,7 @@ instance MonadIO m => IsPeerAddr UDP m where
 data MessagingUDP =
   MessagingUDP
   { listenAddr :: SockAddr
-  , sink       :: TBQueue (From UDP, ByteString)
+  , sink       :: TQueue (From UDP, ByteString)
   , inbox      :: TQueue (To UDP, ByteString)
   , sock       :: TVar Socket
   , mcast      :: Bool
@@ -91,7 +91,7 @@ newMessagingUDPMulticast s = runMaybeT $ do
 
   a <- liftIO $ getSocketName so
 
-  liftIO $ MessagingUDP a <$> Q.newTBQueueIO defMessageQueueSize
+  liftIO $ MessagingUDP a <$> Q0.newTQueueIO
                           <*> Q0.newTQueueIO
                           <*> newTVarIO so
                           <*> pure True
@@ -109,7 +109,7 @@ newMessagingUDP reuse saddr =
         when reuse $ do
           liftIO $ setSocketOption so ReuseAddr 1
 
-        liftIO $ MessagingUDP a <$> Q.newTBQueueIO defMessageQueueSize
+        liftIO $ MessagingUDP a <$> Q0.newTQueueIO
                                 <*> Q0.newTQueueIO
                                 <*> newTVarIO so
                                 <*> pure False
@@ -119,7 +119,7 @@ newMessagingUDP reuse saddr =
         so <- liftIO $ socket AF_INET Datagram defaultProtocol
         sa <- liftIO $ getSocketName so
 
-        liftIO $ Just <$> ( MessagingUDP sa <$> Q.newTBQueueIO defMessageQueueSize
+        liftIO $ Just <$> ( MessagingUDP sa <$> Q0.newTQueueIO
                                             <*> Q0.newTQueueIO
                                             <*> newTVarIO so
                                             <*> pure False
@@ -143,7 +143,7 @@ udpWorker env tso = do
     -- pause ( 10 :: Timeout 'Seconds )
     (msg, from) <- recvFrom so defMaxDatagram
   -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
-    liftIO $ atomically $ Q.writeTBQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
+    liftIO $ atomically $ Q0.writeTQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
 
   sndLoop <- async $ forever $ do
     pause ( 10 :: Timeout 'Seconds )
@@ -182,5 +182,5 @@ instance Messaging MessagingUDP UDP ByteString where
     -- (msg, from) <- recvFrom so defMaxDatagram
     -- pure [(From (PeerUDP from), LBS.fromStrict msg)]
 
-    liftIO $ atomically $ Q.readTBQueue (sink bus) <&> L.singleton
+    liftIO $ atomically $ Q0.readTQueue (sink bus) <&> L.singleton
 
