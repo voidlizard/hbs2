@@ -104,7 +104,7 @@ pexLoop = do
 
     for_ peers sendPeerExchangeGet
 
-    pause @'Seconds 60  -- FIXME: defaults
+    pause @'Seconds 180  -- FIXME: defaults
 
 peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , HasPeer e

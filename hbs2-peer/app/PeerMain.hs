@@ -444,11 +444,12 @@ runPeer opts = Exception.handle myException $ do
 
                         here <- find @e (KnownPeerKey p) id <&> isJust
 
+                        pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                        -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+
                         unless here do
-                          pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                          pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
                           liftIO $ atomically $ writeTVar pfails 0
-                          liftIO $ atomically $ writeTVar pdownfails 0
+                          -- liftIO $ atomically $ writeTVar pdownfails 0
 
                           debug $ "Got authorized peer!" <+> pretty p
                                                          <+> pretty (AsBase58 (view peerSignKey d))
