@@ -1,6 +1,8 @@
 
 ## 2023-02-22
 
+FIXME: unknown-busyloop
+
 FIXME: fix-removing-inactive-peers
   Сейчас как-то слишком криво удаляет их.
   Не надо сначала увеличивать счётчик, потом ловить
