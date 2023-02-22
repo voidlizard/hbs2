@@ -574,7 +574,7 @@ peerDownloadLoop peer = forever do
 --                 addDownload h
 
               Right{} -> do
-                processBlock h
+                -- processBlock h
                 liftIO $ atomically do
                   writeTVar  downFail 0
                   modifyTVar downBlk succ
