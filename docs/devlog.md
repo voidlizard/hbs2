@@ -1,6 +1,8 @@
 
 ## 2023-02-22
 
+TODO: dns-bootstrap
+
 TODO: gossip-block-announce
   Пересылать известным пирам полученный BlockAnnounce
   Не пересылать его дважды за период. То есть, либо
