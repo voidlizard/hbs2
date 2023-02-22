@@ -1,6 +1,13 @@
 
 ## 2023-02-22
 
+TODO: gossip-block-announce
+  Пересылать известным пирам полученный BlockAnnounce
+  Не пересылать его дважды за период. То есть, либо
+  заводить сессию, либо использовать ReqLimPeriod  с достаточно
+  большим периодом (полчаса? час?)
+
+
 FIXME: unknown-busyloop
 
 FIXME: fix-removing-inactive-peers
