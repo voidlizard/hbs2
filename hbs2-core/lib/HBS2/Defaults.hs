@@ -16,7 +16,7 @@ defBurst :: Integral a => a
 defBurst = 4
 
 defBurstMax :: Integral a => a
-defBurstMax = 32
+defBurstMax = 128
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
