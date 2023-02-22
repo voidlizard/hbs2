@@ -1,6 +1,17 @@
 
 ## 2023-02-22
 
+
+TODO: known-peer-file
+ Сделать опцию known-peer-file
+ при старте hbs2-peer читает все такие файлы и добавляет
+ все known-peer из них к общим known-peer
+
+TODO: known-peer-options-for-config
+  При старте hbs2-peer читает все known-peer из конфига
+  и пингует их
+
+
 TODO: drop-peer-loop-when-peer-removed
 
 FIXME: unknown-busyloop
