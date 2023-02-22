@@ -13,10 +13,10 @@ defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536*10
 
 defBurst :: Integral a => a
-defBurst = 4
+defBurst = 8
 
 defBurstMax :: Integral a => a
-defBurstMax = 128
+defBurstMax = 64
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a

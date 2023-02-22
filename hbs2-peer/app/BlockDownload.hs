@@ -437,7 +437,7 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 0.5
+    pause @'Seconds 2
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
