@@ -154,7 +154,7 @@ peerPingLoop = do
       fnum <- liftIO $ readTVarIO pfails
       fdown <- liftIO $ readTVarIO pdownfails
 
-      when (fnum > 10) do -- FIXME: hardcode!
+      when (fnum > 2) do -- FIXME: hardcode!
         warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
         delPeers pl [p]
         expire (PeerInfoKey p)

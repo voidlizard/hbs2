@@ -88,6 +88,8 @@ data PeerThread e =
   , _peerThreadMailbox :: TQueue (PeerTask e)
   }
 
+makeLenses 'PeerThread
+
 data DownloadEnv e =
   DownloadEnv
   { _downloadQ      :: TQueue (Hash HbSync)
@@ -221,6 +223,16 @@ hasPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m Bool
 hasPeerThread p = do
   threads <- asks (view peerThreads)
   liftIO $ readTVarIO threads <&> HashMap.member p
+
+
+delPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m ()
+delPeerThread p = do
+  debug $ "delPeerThread"  <+> pretty p
+  threads <- asks (view peerThreads)
+  pt <- liftIO $ atomically $ stateTVar threads (\x -> let t = HashMap.lookup p x
+                                                       in  (t, HashMap.delete p x))
+
+  maybe1 pt (pure ()) $ liftIO . cancel . view peerThreadAsync
 
 newPeerThread :: (MyPeer e, MonadIO m) => Peer e -> Async () -> BlockDownloadM e m ()
 newPeerThread p m = do

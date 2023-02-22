@@ -39,6 +39,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Data.IntSet qualified as IntSet
+import Data.List qualified as List
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
@@ -401,6 +402,31 @@ blockDownloadLoop env0 = do
 
   pl <- getPeerLocator @e
 
+  void $ liftIO $ async $ forever $ withPeerM e $ withDownload env0 do
+    pause @'Seconds 60
+    debug "I'm peer thread sweeping thread"
+
+    known <- knownPeers @e pl
+
+    peers' <- forM known $ \p -> do
+                auth <- lift $ find (KnownPeerKey p) id <&> isJust
+                if auth then
+                  pure [(p,())]
+                else
+                  pure mempty
+
+    let auth = HashMap.fromList (mconcat peers')
+
+    pts <- asks (view peerThreads)
+
+    r <- liftIO $ atomically $ stateTVar pts $ \x ->
+            let items = HashMap.toList x
+            in let (alive,dead) = List.partition (\(k,_) -> HashMap.member k auth ) items
+            in (dead, HashMap.fromList alive)
+
+    debug $ "peers to delete" <+> pretty (length r)
+
+    for_ r $ delPeerThread . fst
 
   void $ liftIO $ async $ forever $ withPeerM e do
     pause @'Seconds 5
@@ -410,6 +436,7 @@ blockDownloadLoop env0 = do
 
     for_ pee $ \p -> do
       pinfo' <- find (PeerInfoKey p) id
+      auth <- find (KnownPeerKey p) id <&> isJust
       maybe1 pinfo' none $ \pinfo -> do
 
         fails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
@@ -419,11 +446,16 @@ blockDownloadLoop env0 = do
 
         here <- withDownload env0 $ hasPeerThread p
 
-        unless here do
-          debug $ "peer" <+> pretty p <+> "does not have a thread"
+        if | not here && auth -> do
 
-          runPeer <-  liftIO $ async $ liftIO (withPeerM e $ withDownload env0 (peerDownloadLoop p))
-          withDownload env0 $ newPeerThread p runPeer
+              debug $ "peer" <+> pretty p <+> "does not have a thread"
+              runPeer <-  liftIO $ async $ liftIO (withPeerM e $ withDownload env0 (peerDownloadLoop p))
+              withDownload env0 $ newPeerThread p runPeer
+
+           | here && not auth -> do
+              pure () -- remove thread
+
+           | otherwise -> pure ()
 
   void $ liftIO $ async $ forever $ withPeerM e do
     pause @'Seconds 30
