@@ -10,13 +10,13 @@ defMaxDatagramRPC :: Int
 defMaxDatagramRPC = 4096
 
 defMessageQueueSize :: Integral a => a
-defMessageQueueSize = 65536
+defMessageQueueSize = 65536*10
 
 defBurst :: Integral a => a
-defBurst = 4
+defBurst = 8
 
 defBurstMax :: Integral a => a
-defBurstMax = 32
+defBurstMax = 64
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
@@ -32,7 +32,7 @@ defPipelineSize :: Int
 defPipelineSize = 16000
 
 defBlockDownloadQ :: Integral a => a
-defBlockDownloadQ = 65536
+defBlockDownloadQ = 65536*10
 
 defBlockDownloadThreshold :: Integral a => a
 defBlockDownloadThreshold = 2
@@ -61,11 +61,11 @@ defBlockInfoTimeout = 2
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 1.5 :: Timeout 'Seconds
+defBlockWaitMax = 1 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 0.15 :: Timeout 'Seconds
+defChunkWaitMax = 0.5  :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 30 -- FIXME: only for debug!
@@ -76,5 +76,16 @@ defPeerAnnounceTime = 120
 defPexMaxPeers :: Int
 defPexMaxPeers = 50
 
+defDownloadFails :: Int
+defDownloadFails = 100
+
+-- TODO: peer-does-not-have-a-block-ok
+--  Это нормально, когда у пира нет блока.
+--  У него может не быть каких-то блоков,
+--  а какие-то могут быть. Нужно более умный
+--  алгоритм, чем бан пира за отсутствие блока.
+
+defUsefulLimit :: Double
+defUsefulLimit = 0.25
 
 

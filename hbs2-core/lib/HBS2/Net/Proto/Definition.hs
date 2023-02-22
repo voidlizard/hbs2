@@ -56,7 +56,7 @@ instance HasProtocol UDP (BlockInfo UDP) where
 
   -- FIXME: requestMinPeriod-breaks-fast-block-download
   --
-  requestPeriodLim = ReqLimPerMessage 10
+  -- requestPeriodLim = ReqLimPerMessage 0.5
 
 instance HasProtocol UDP (BlockChunks UDP) where
   type instance ProtocolId (BlockChunks UDP) = 2
@@ -79,7 +79,7 @@ instance HasProtocol UDP (PeerHandshake UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-  requestPeriodLim = ReqLimPerProto 10
+  requestPeriodLim = ReqLimPerProto 2
 
 instance HasProtocol UDP (PeerAnnounce UDP) where
   type instance ProtocolId (PeerAnnounce UDP) = 5

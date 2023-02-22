@@ -40,6 +40,9 @@ data PeerInfo e =
   , _peerDownloaded     :: TVar Int
   , _peerDownloadedLast :: TVar Int
   , _peerPingFailed     :: TVar Int
+  , _peerDownloadedBlk  :: TVar Int
+  , _peerDownloadFail   :: TVar Int
+  , _peerUsefulness     :: TVar Double
   }
   deriving stock (Generic,Typeable)
 
@@ -51,6 +54,9 @@ newPeerInfo = liftIO do
   PeerInfo <$> newTVarIO defBurst
            <*> newTVarIO Nothing
            <*> newTVarIO mempty
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
@@ -98,7 +104,7 @@ pexLoop = do
 
     for_ peers sendPeerExchangeGet
 
-    pause @'Seconds 60 -- FIXME: defaults
+    pause @'Seconds 60  -- FIXME: defaults
 
 peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , HasPeer e
@@ -140,13 +146,15 @@ peerPingLoop = do
     for_ pips $ \p -> do
       npi <- newPeerInfo
       pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+      pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+
       liftIO $ atomically $ modifyTVar pfails succ
       sendPing @e p
-      pause @'Seconds 1 -- NOTE: it's okay?
 
       fnum <- liftIO $ readTVarIO pfails
+      fdown <- liftIO $ readTVarIO pdownfails
 
-      when (fnum > 3) do -- FIXME: hardcode!
+      when (fnum > 10) do -- FIXME: hardcode!
         warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
         delPeers pl [p]
         expire (PeerInfoKey p)

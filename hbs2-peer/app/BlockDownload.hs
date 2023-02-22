@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language UndecidableInstances #-}
+{-# Language MultiWayIf #-}
 module BlockDownload where
 
 import HBS2.Actors.Peer
@@ -48,49 +49,9 @@ import System.Random.Shuffle
 import Type.Reflection
 
 
+none :: forall m . Monad m => m ()
+none = pure ()
 
-withFreePeer :: forall e m .
-                ( MyPeer e
-                , MonadIO m
-                , Sessions e (KnownPeer e) m
-                )
-             => Peer e
-             -> BlockDownloadM e m ()
-             -> BlockDownloadM e m ()
-             -> BlockDownloadM e m ()
-
-withFreePeer p n m = do
-  busy <- asks (view peerBusy)
-
-  avail <- liftIO $ atomically
-                  $ stateTVar busy $
-                      \s -> case HashMap.lookup p s of
-                              Nothing -> (True, HashMap.insert p () s)
-                              Just{}  -> (False, s)
-
-  auth <- lift $ find (KnownPeerKey p) id <&> isJust
-
-  unless auth do
-    debug $ "peer " <+> pretty p <+> "not authorized (yet?)"
-
-  if not (avail && auth)
-    then n
-    else do
-      r <- m
-      liftIO $ atomically $ modifyTVar busy $ HashMap.delete p
-      pure r
-
--- NOTE: dangerous! if called in
---       wrong place/wrong time,
---       it may cause a drastical
---       download speed degradation
-
-dismissPeer  :: (MyPeer e, MonadIO m)
-             => Peer e
-             -> BlockDownloadM e m ()
-dismissPeer p = do
-  busy <- asks (view peerBusy)
-  liftIO $ atomically $ modifyTVar busy $ HashMap.delete p
 
 getBlockForDownload :: MonadIO m => BlockDownloadM e m (Hash HbSync)
 getBlockForDownload = do
@@ -212,20 +173,22 @@ processBlock h = do
 --       So make sure that this peer really answered to
 --       GetBlockSize request
 
-downloadFromWithPeer :: forall e m . ( MyPeer e
-                                     , MonadIO m
-                                     , Request e (BlockInfo e) m
-                                     , Request e (BlockChunks e) m
-                                     , MonadReader (PeerEnv e ) m
-                                     , PeerMessaging e
-                                     , HasProtocol e (BlockInfo e)
-                                     , EventListener e (BlockInfo e) m
-                                     , EventListener e (BlockChunks e) m
-                                     , Sessions e (BlockChunks e) m
-                                     , Sessions e (PeerInfo e) m
-                                     , Block ByteString ~ ByteString
-                                     , HasStorage m
-                                     )
+type DownloadFromPeerStuff e m = ( MyPeer e
+                                 , MonadIO m
+                                 , Request e (BlockInfo e) m
+                                 , Request e (BlockChunks e) m
+                                 , MonadReader (PeerEnv e ) m
+                                 , PeerMessaging e
+                                 , HasProtocol e (BlockInfo e)
+                                 , EventListener e (BlockInfo e) m
+                                 , EventListener e (BlockChunks e) m
+                                 , Sessions e (BlockChunks e) m
+                                 , Sessions e (PeerInfo e) m
+                                 , Block ByteString ~ ByteString
+                                 , HasStorage m
+                                 )
+
+downloadFromWithPeer :: forall e m . DownloadFromPeerStuff e m
                      => Peer e
                      -> Integer
                      -> Hash HbSync
@@ -258,9 +221,9 @@ downloadFromWithPeer peer thisBkSize h = do
 
   let bursts = calcBursts burstSize chunkNums
 
-  -- debug $ "bursts: " <+> pretty bursts
+  let w = max defChunkWaitMax $ realToFrac (toNanoSeconds defBlockWaitMax)  / realToFrac  (length bursts) / 1e9 * 2
 
-  let burstTime =  min defBlockWaitMax (0.8 * realToFrac burstSize * defChunkWaitMax)
+  let burstTime = realToFrac w :: Timeout 'Seconds -- defChunkWaitMax  -- min defBlockWaitMax (0.8 * realToFrac burstSize * defChunkWaitMax)
 
   r  <- liftIO $ newTVarIO (mempty :: IntMap ByteString)
   rq <- liftIO newTQueueIO
@@ -369,25 +332,26 @@ updatePeerInfo onError pinfo = do
           t0        <- readTVar (view peerLastWatched pinfo)
           down      <- readTVar (view peerDownloaded pinfo)
           downLast  <- readTVar (view peerDownloadedLast pinfo)
+          -- downFail  <- readTVar (view peerDownloadFail pinfo)
+          -- downBlk   <- readTVar (view peerDownloadedBlk pinfo)
 
           let dE  =  realToFrac $ max 0 (errs - errsLast)
           let dT  =  realToFrac (max 1 (toNanoSecs t1 - toNanoSecs t0)) / 1e9
 
           let eps = floor (dE / dT)
 
-          let win = min 10 $ defBurstMax - defBurst - 2
+          let win =  min 10 $ defBurstMax - defBurst - 2
 
           when (down - downLast > 0 || onError) do
 
-            (bu1, bus) <- if  eps == 0 then do
+            (bu1, bus) <- if  eps == 0 && not onError then do
                             let bmm = fromMaybe defBurstMax buMax
-                            let buN = min bmm (ceiling $ (realToFrac bu * 1.05))
+                            let buN = min bmm (ceiling (realToFrac bu * 1.05))
                             pure (buN, trimUp win $ IntSet.insert buN buSet)
                           else do
-                            let buM = headMay $ drop 1 $ IntSet.toDescList buSet
+                            let buM = headMay $ drop 2 $ IntSet.toDescList buSet
                             writeTVar (view peerBurstMax pinfo) buM
-                            -- let s = IntSet.size buSet
-                            let buN =  headDef defBurst $ drop 2 $ IntSet.toDescList buSet
+                            let buN = headDef defBurst $ drop 8 $ IntSet.toDescList buSet
                             pure (buN, trimDown win $ IntSet.insert buN buSet)
 
 
@@ -397,7 +361,7 @@ updatePeerInfo onError pinfo = do
             writeTVar (view peerBurst pinfo) bu1
             writeTVar (view peerBurstSet pinfo) bus
             writeTVar (view peerDownloadedLast pinfo) down
-
+            -- writeTVar (view peerUsefulness pinfo) usefulN
 
     where
       trimUp n s | IntSet.size s >= n = IntSet.deleteMin s
@@ -439,6 +403,29 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
+    pause @'Seconds 5
+    debug "I'm a peer maintaining thread"
+
+    pee <- knownPeers @e pl
+
+    for_ pee $ \p -> do
+      pinfo' <- find (PeerInfoKey p) id
+      maybe1 pinfo' none $ \pinfo -> do
+
+        fails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
+
+        when (fails >= defDownloadFails) do
+          warn $ "peer" <+> pretty p <+> "has too many failures:" <+> pretty fails
+
+        here <- withDownload env0 $ hasPeerThread p
+
+        unless here do
+          debug $ "peer" <+> pretty p <+> "does not have a thread"
+
+          runPeer <-  liftIO $ async $ liftIO (withPeerM e $ withDownload env0 (peerDownloadLoop p))
+          withDownload env0 $ newPeerThread p runPeer
+
+  void $ liftIO $ async $ forever $ withPeerM e do
     pause @'Seconds 30
 
     pee <- knownPeers @e pl
@@ -450,11 +437,10 @@ blockDownloadLoop env0 = do
 
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 1
+    pause @'Seconds 2
 
     pee <- knownPeers @e pl
     npi <- newPeerInfo
-
 
     for_ pee $ \p -> do
       pinfo <- fetch True npi (PeerInfoKey p) id
@@ -476,9 +462,14 @@ blockDownloadLoop env0 = do
       burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
       buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
       errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
+      downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
+      down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
+      useful    <- liftIO $ readTVarIO (view peerUsefulness pinfo)
       debug $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
                                   <+> "burst-max:" <+> pretty buM
-                                  <+> "errors:" <+> pretty errors
+                                  <+> "errors:" <+> pretty (downFails + errors)
+                                  <+> "down:" <+> pretty down
+                                  <+> "useful:" <+> pretty useful
       pure ()
 
   void $ liftIO $ async $ forever $ withPeerM e $ withDownload env0 do
@@ -506,57 +497,89 @@ blockDownloadLoop env0 = do
 
     env <- ask
 
-    let again h = do
-          -- debug $ "retrying block: " <+> pretty h
-          withPeerM e $ withDownload env (addDownload h)
-
     mapM_ processBlock blks
 
     fix \next -> do
-
-      withBlockForDownload $ \h -> do
-
-        here <- liftIO $ hasBlock stor h <&> isJust
-
-        unless here do
-
-          peers <- getPeersForBlock h
-
-          when (null peers) $ do
-
-            lift do -- in PeerM
-              subscribe (BlockSizeEventKey h) $ \(BlockSizeEvent (p1,hx,s)) -> do
-                withDownload env (addBlockInfo p1 hx s)
-
-              pips <- knownPeers @e pl
-              for_ pips $ \pip -> do
-                auth <- find (KnownPeerKey pip) id <&> isJust
-
-                when auth $ request pip (GetBlockSize @e h) -- FIXME: request only known peers
-                                                            --        move this to peer locator
-
-          p0 <- headMay <$> liftIO (shuffleM peers) -- FIXME: random choice to work faster
-
-          let withAllShit f = withPeerM e $ withDownload env f
-
-          maybe1 p0 (again h) $ \(p1,size) -> do
-
-              st <- getBlockState h
-              setBlockState h (set bsState Downloading st)
-
-              withFreePeer p1 (again h) $
-                liftIO do
-                    re <- race ( pause defBlockWaitMax ) $
-                            withAllShit $ downloadFromWithPeer p1 size h
-
-                    case re of
-                      Left{}  -> withAllShit (again h)
-                      Right{} -> withAllShit (processBlock h)
-
+      pause @'Seconds 30
+      debug "I'm a download loop. I don't do anything anymore"
       next
 
+peerDownloadLoop :: forall e m . ( MyPeer e
+                                 , Sessions e (KnownPeer e) m
+                                 , Request e (BlockInfo e) m
+                                 , EventListener e (BlockInfo e) m
+                                 , DownloadFromPeerStuff e m
+                                 , m ~ PeerM e IO
+                                 ) => Peer e -> BlockDownloadM e m ()
+peerDownloadLoop peer = forever do
+
+  sto <- lift getStorage
+
+  auth <- lift $ find (KnownPeerKey peer) id <&> isJust
+  pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
+
+  maybe1 pinfo' none $ \pinfo -> do
+
+    let downFail = view peerDownloadFail pinfo
+    let downBlk = view peerDownloadedBlk pinfo
+    failNum <- liftIO $ readTVarIO downFail
+
+    -- FIXME: failNum-to-defaults
+    let notFailed = failNum < defDownloadFails
+
+    -- FIXME: better-avoiding-busyloop
+    -- unless notFailed do
+    --   pause @'Seconds 1
+
+    when (failNum > 5) do
+      pause @'Seconds defBlockWaitMax
+
+    when auth do
+
+      withBlockForDownload $ \h -> do
+        e <- lift ask
+        ee <- ask
 
 
+        st <- getBlockState h
+        setBlockState h (set bsState Downloading st)
+
+        r1 <- liftIO $ race ( pause defBlockInfoTimeout ) $ withPeerM e do
+                  blksq <- liftIO newTQueueIO
+                  subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (_,_,s)) -> do
+                    liftIO $ atomically $ writeTQueue blksq s
+
+                  request peer (GetBlockSize @e h)
+
+                  liftIO $ atomically $ readTQueue blksq
+
+        case r1 of
+          Left{} -> do
+            liftIO $ atomically $ modifyTVar downFail succ
+            addDownload h
+
+          Right size -> do
+            r2 <- liftIO $ race ( pause defBlockWaitMax )
+                              $ withPeerM e
+                              $ withDownload ee
+                              $ downloadFromWithPeer peer size h
+
+            case r2 of
+              Left{} -> do
+                liftIO $ atomically $ modifyTVar downFail succ
+                addDownload h
+
+--               Right Nothing -> do
+--                 liftIO $ atomically $ modifyTVar downFail succ
+--                 addDownload h
+
+              Right{} -> do
+                processBlock h
+                liftIO $ atomically do
+                  writeTVar  downFail 0
+                  modifyTVar downBlk succ
+
+        pure ()
 
 -- NOTE: this is an adapter for a ResponseM monad
 --       because response is working in ResponseM monad (ha!)
@@ -582,6 +605,12 @@ mkAdapter = do
 
     , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
         let cKey = DownloadSessionKey (p,c)
+
+        dodo <- lift $ find cKey (view sBlockChunks)
+
+        unless (isJust dodo) $ do
+          debug $ "session lost for peer !" <+> pretty p
+
         dwnld <- MaybeT $ find cKey (view sBlockChunks)
         liftIO $ atomically $ writeTQueue dwnld (n, bs)
     }

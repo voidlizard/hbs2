@@ -15,6 +15,7 @@ import HBS2.Storage
 import HBS2.System.Logger.Simple
 import HBS2.Net.Messaging.UDP (UDP)
 
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
@@ -78,6 +79,15 @@ data BlockState =
 
 makeLenses 'BlockState
 
+
+data PeerTask e = DoDownload
+
+data PeerThread e =
+  PeerThread
+  { _peerThreadAsync   :: Async ()
+  , _peerThreadMailbox :: TQueue (PeerTask e)
+  }
+
 data DownloadEnv e =
   DownloadEnv
   { _downloadQ      :: TQueue (Hash HbSync)
@@ -87,6 +97,7 @@ data DownloadEnv e =
   , _blockState     :: TVar   (HashMap (Hash HbSync) BlockState)
   , _blockPostponed :: Cache  (Hash HbSync) ()
   , _blockInQ       :: TVar   (HashMap (Hash HbSync) ())
+  , _peerThreads    :: TVar   (HashMap (Peer e) (PeerThread e))
   }
 
 makeLenses 'DownloadEnv
@@ -102,6 +113,7 @@ newDownloadEnv = liftIO do
               <*> Cache.newCache (Just defBlockWipTimeout)
               <*> newTVarIO mempty
               <*> Cache.newCache Nothing
+              <*> newTVarIO mempty
               <*> newTVarIO mempty
 
 newtype BlockDownloadM e m a =
@@ -181,7 +193,7 @@ addDownload h = do
 
   tinq <- asks (view blockInQ)
 
-  doAdd <- liftIO $ atomically $ stateTVar tinq
+  doAdd <- do liftIO $ atomically $ stateTVar tinq
                                   \hm -> case HashMap.lookup h hm of
                                            Nothing -> (True,  HashMap.insert h () hm)
                                            Just{}  -> (False, HashMap.insert h () hm)
@@ -204,4 +216,16 @@ removeFromWip h = do
   liftIO $ Cache.delete wip h
   liftIO $ Cache.delete po h
   liftIO $ atomically $ modifyTVar' st (HashMap.delete h)
+
+hasPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m Bool
+hasPeerThread p = do
+  threads <- asks (view peerThreads)
+  liftIO $ readTVarIO threads <&> HashMap.member p
+
+newPeerThread :: (MyPeer e, MonadIO m) => Peer e -> Async () -> BlockDownloadM e m ()
+newPeerThread p m = do
+  q <- liftIO  newTQueueIO
+  let pt = PeerThread m q
+  threads <- asks (view peerThreads)
+  liftIO $ atomically $ modifyTVar threads $ HashMap.insert p pt
 
