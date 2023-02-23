@@ -44,7 +44,7 @@ bootstrapDnsLoop conf = do
   forever do
     debug "I'm a bootstrapLoop"
 
-    let dns = cfgValue @PeerDnsBootStrapKey conf :: Set String
+    let dns = cfgValue @PeerDnsBootStrapKey conf <> Set.singleton "bootstrap.hbs2.net"
 
     for_ (Set.toList dns) $ \dn -> do
       debug $ "bootstrapping from" <+> pretty dn
