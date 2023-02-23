@@ -37,6 +37,7 @@ common common-deps
         , prettyprinter
         , random
         , random-shuffle
+        , resolv
         , safe
         , saltine >=0.2.0.1
         , suckless-conf
@@ -104,6 +105,7 @@ executable hbs2-peer
     main-is:          PeerMain.hs
 
     other-modules:    BlockDownload
+                    , Bootstrap
                     , PeerInfo
                     , PokePostponed
                     , RPC

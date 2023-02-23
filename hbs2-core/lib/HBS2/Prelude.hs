@@ -7,8 +7,9 @@ module HBS2.Prelude
   , Hashable
   , lift
   , AsFileName(..)
-  , Pretty
+  -- , Pretty
   , FromStringMaybe(..)
+  , module Prettyprinter
   ) where
 
 import Data.String (IsString(..))

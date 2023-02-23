@@ -33,6 +33,7 @@ import PeerTypes
 import BlockDownload
 import PeerInfo
 import PeerConfig
+import Bootstrap
 
 import Data.Text qualified as Text
 import Data.Foldable (for_)
@@ -445,10 +446,10 @@ runPeer opts = Exception.handle myException $ do
                         here <- find @e (KnownPeerKey p) id <&> isJust
 
                         pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                        liftIO $ atomically $ writeTVar pfails 0
                         -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
 
                         unless here do
-                          liftIO $ atomically $ writeTVar pfails 0
                           -- liftIO $ atomically $ writeTVar pdownfails 0
 
                           debug $ "Got authorized peer!" <+> pretty p
@@ -460,21 +461,24 @@ runPeer opts = Exception.handle myException $ do
                 request localMulticast (PeerAnnounce @e pnonce)
 
               let wo = fmap L.singleton
+              let peerThread = wo . liftIO . async . withPeerM env
 
               workers <- do
 
-                wo $ liftIO $ async $ withPeerM env $ forever $ do
+                peerThread $ forever $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
-                wo $ liftIO $ async $ withPeerM env (peerPingLoop @e)
+                peerThread (peerPingLoop @e)
 
-                wo $ liftIO $ async $ withPeerM env (pexLoop @e)
+                peerThread (bootstrapDnsLoop @e conf)
 
-                wo $ liftIO $ async $ withPeerM env (blockDownloadLoop denv)
+                peerThread (pexLoop @e)
 
-                wo $ liftIO $ async $ withPeerM env $ forever $ do
+                peerThread (blockDownloadLoop denv)
+
+                peerThread $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
                           case cmd of
                             POKE -> debug "on poke: alive and kicking!"
@@ -549,7 +553,7 @@ runPeer opts = Exception.handle myException $ do
                             _ -> pure ()
 
 
-                wo $ liftIO $ async $ withPeerM env $ do
+                peerThread do
                   runProto @e
                     [ makeResponse (blockSizeProto blk dontHandle)
                     , makeResponse (blockChunksProto adapter)
