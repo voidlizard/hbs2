@@ -9,6 +9,7 @@ module HBS2.Prelude
   , AsFileName(..)
   -- , Pretty
   , FromStringMaybe(..)
+  , none
   , module Prettyprinter
   ) where
 
@@ -24,6 +25,9 @@ import Data.Text qualified as Text
 import Data.Hashable
 import Prettyprinter
 import Data.Word
+
+none :: forall m . Monad m => m ()
+none = pure ()
 
 maybe1 :: Maybe a -> b -> (a -> b) -> b
 maybe1 mb n j = maybe n j mb

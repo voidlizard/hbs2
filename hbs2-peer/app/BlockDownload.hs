@@ -49,10 +49,6 @@ import System.Random.Shuffle
 import Type.Reflection
 
 
-none :: forall m . Monad m => m ()
-none = pure ()
-
-
 getBlockForDownload :: MonadIO m => BlockDownloadM e m (Hash HbSync)
 getBlockForDownload = do
   q <- asks (view downloadQ)
