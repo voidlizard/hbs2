@@ -22,7 +22,6 @@ import HBS2.System.Logger.Simple
 
 import PeerTypes
 import PeerInfo
-import PokePostponed
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -478,8 +477,6 @@ blockDownloadLoop env0 = do
       pinfo <- fetch True npi (PeerInfoKey p) id
       updatePeerInfo False pinfo
 
-  void $ liftIO $ async $ withPeerM e $ withDownload env0 (pokePostponed e)
-
   -- TODO: peer info loop
   void $ liftIO $ async $ forever $ withPeerM e $ do
     pause @'Seconds 10
@@ -543,75 +540,105 @@ peerDownloadLoop :: forall e m . ( MyPeer e
                                  , DownloadFromPeerStuff e m
                                  , m ~ PeerM e IO
                                  ) => Peer e -> BlockDownloadM e m ()
-peerDownloadLoop peer = forever do
+peerDownloadLoop peer = do
 
-  sto <- lift getStorage
+  bannedBlocks <- liftIO $ Cache.newCache (Just defBlockBanTime)
+  seenBlocks   <- liftIO $ newTVarIO mempty
 
-  auth <- lift $ find (KnownPeerKey peer) id <&> isJust
-  pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
+  pe <- lift ask
+  e <- ask
 
-  maybe1 pinfo' none $ \pinfo -> do
+  let withAllStuff m = withPeerM pe $ withDownload e m
 
-    let downFail = view peerDownloadFail pinfo
-    let downBlk = view peerDownloadedBlk pinfo
-    failNum <- liftIO $ readTVarIO downFail
+  forever do
 
-    -- FIXME: failNum-to-defaults
-    let notFailed = failNum < defDownloadFails
+    sto <- lift getStorage
 
-    -- FIXME: better-avoiding-busyloop
-    -- unless notFailed do
-    --   pause @'Seconds 1
+    auth <- lift $ find (KnownPeerKey peer) id <&> isJust
+    pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
 
-    when (failNum > 5) do
-      pause @'Seconds defBlockWaitMax
+    maybe1 pinfo' none $ \pinfo -> do
 
-    when auth do
+      let downFail = view peerDownloadFail pinfo
+      let downBlk = view peerDownloadedBlk pinfo
+      failNum <- liftIO $ readTVarIO downFail
 
-      withBlockForDownload $ \h -> do
-        e <- lift ask
-        ee <- ask
+      -- FIXME: failNum-to-defaults
+      let notFailed = failNum < defDownloadFails
+
+      -- FIXME: better-avoiding-busyloop
+      -- unless notFailed do
+      --   pause @'Seconds 1
+
+      when (failNum > 5) do
+        pause @'Seconds defBlockWaitMax
+
+      when auth do
+
+        withBlockForDownload $ \h -> do
+          e <- lift ask
+          ee <- ask
+
+          st <- getBlockState h
+
+          let alterSeen = \case
+                Just x  -> Just (succ x)
+                Nothing -> Just 1
 
 
-        st <- getBlockState h
-        setBlockState h (set bsState Downloading st)
+          banned <- liftIO $ Cache.lookup bannedBlocks h <&> isJust
 
-        r1 <- liftIO $ race ( pause defBlockInfoTimeout ) $ withPeerM e do
-                  blksq <- liftIO newTQueueIO
-                  subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (_,_,s)) -> do
-                    liftIO $ atomically $ writeTQueue blksq s
+          if banned then do
+              let seenTotal = view bsTimes st
+              let wa = min defBlockBanTimeSec (realToFrac (ceiling $ Prelude.logBase 10 (realToFrac (50 * seenTotal))))
+              void $ liftIO $ async $ withAllStuff (pause wa >> addDownload h)
+              debug $ "block" <+> pretty h <+> "seen" <+> pretty seenTotal <+> "times" <+> parens (pretty wa)
+          else do
 
-                  request peer (GetBlockSize @e h)
+            liftIO $ atomically $ modifyTVar seenBlocks (HashMap.alter alterSeen h)
 
-                  liftIO $ atomically $ readTQueue blksq
+            seenTimes <- liftIO $ readTVarIO seenBlocks <&> fromMaybe 0 . HashMap.lookup h
 
-        case r1 of
-          Left{} -> do
-            liftIO $ atomically $ modifyTVar downFail succ
-            addDownload h
+            when ( seenTimes > 1 ) do
+              debug $ "ban block" <+> pretty h <+> "for a while" <+> parens (pretty seenTimes)
+              liftIO $ atomically $ modifyTVar seenBlocks (HashMap.delete h)
+              liftIO $ Cache.insert bannedBlocks h ()
 
-          Right size -> do
-            r2 <- liftIO $ race ( pause defBlockWaitMax )
-                              $ withPeerM e
-                              $ withDownload ee
-                              $ downloadFromWithPeer peer size h
+            setBlockState h (set bsState Downloading st)
 
-            case r2 of
+            r1 <- liftIO $ race ( pause defBlockInfoTimeout ) $ withPeerM e do
+                      blksq <- liftIO newTQueueIO
+                      subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (_,_,s)) -> do
+                        liftIO $ atomically $ writeTQueue blksq s
+
+                      request peer (GetBlockSize @e h)
+
+                      liftIO $ atomically $ readTQueue blksq
+
+            case r1 of
               Left{} -> do
                 liftIO $ atomically $ modifyTVar downFail succ
                 addDownload h
 
---               Right Nothing -> do
---                 liftIO $ atomically $ modifyTVar downFail succ
---                 addDownload h
+              Right size -> do
+                r2 <- liftIO $ race ( pause defBlockWaitMax )
+                                  $ withPeerM e
+                                  $ withDownload ee
+                                  $ downloadFromWithPeer peer size h
 
-              Right{} -> do
-                processBlock h
-                liftIO $ atomically do
-                  writeTVar  downFail 0
-                  modifyTVar downBlk succ
+                case r2 of
+                  Left{} -> do
+                    liftIO $ atomically $ modifyTVar downFail succ
+                    addDownload h
+                    -- FIXME: remove-block-seen-times-hardcode
 
-        pure ()
+                  Right{} -> do
+                    processBlock h
+                    liftIO $ atomically do
+                      writeTVar  downFail 0
+                      modifyTVar downBlk succ
+
+            pure ()
 
 -- NOTE: this is an adapter for a ResponseM monad
 --       because response is working in ResponseM monad (ha!)

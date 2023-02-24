@@ -53,6 +53,12 @@ defRequestLimit = toTimeSpec defRequestLimitSec
 defRequestLimitSec :: Timeout 'Seconds
 defRequestLimitSec = 60
 
+defBlockBanTime :: TimeSpec
+defBlockBanTime = toTimeSpec defBlockBanTimeSec
+
+defBlockBanTimeSec :: Timeout 'Seconds
+defBlockBanTimeSec = 30 :: Timeout 'Seconds
+
 defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = toTimeSpec defCookieTimeoutSec
 

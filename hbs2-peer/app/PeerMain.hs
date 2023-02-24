@@ -435,6 +435,10 @@ runPeer opts = Exception.handle myException $ do
                     let pd = Map.fromList $ catMaybes pd'
 
                     case Map.lookup thatNonce pd of
+
+                      -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
+                      --   remove remote peer
+                      --   add local peer
                       Just p0 | p0 /= p -> debug "Same peer, different address"
                       _ -> do
 

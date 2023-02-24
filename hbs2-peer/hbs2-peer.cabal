@@ -107,7 +107,6 @@ executable hbs2-peer
     other-modules:    BlockDownload
                     , Bootstrap
                     , PeerInfo
-                    , PokePostponed
                     , RPC
                     , PeerTypes
                     , PeerConfig
