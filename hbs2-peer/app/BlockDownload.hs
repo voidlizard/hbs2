@@ -13,8 +13,8 @@ import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Definition
+import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
@@ -27,13 +27,9 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Control.Concurrent.STM.TSem as Sem
 import Data.ByteString.Lazy (ByteString)
-import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Foldable hiding (find)
-import Data.Hashable
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
@@ -41,12 +37,7 @@ import Data.IntSet qualified as IntSet
 import Data.List qualified as List
 import Data.Maybe
 import Data.Set qualified as Set
-import Data.Set (Set)
 import Lens.Micro.Platform
-import Numeric ( showGFloat )
-import Prettyprinter
-import System.Random.Shuffle
-import Type.Reflection
 
 
 getBlockForDownload :: MonadIO m => BlockDownloadM e m (Hash HbSync)
@@ -169,20 +160,6 @@ processBlock h = do
 --       So make sure that this peer really answered to
 --       GetBlockSize request
 
-type DownloadFromPeerStuff e m = ( MyPeer e
-                                 , MonadIO m
-                                 , Request e (BlockInfo e) m
-                                 , Request e (BlockChunks e) m
-                                 , MonadReader (PeerEnv e ) m
-                                 , PeerMessaging e
-                                 , HasProtocol e (BlockInfo e)
-                                 , EventListener e (BlockInfo e) m
-                                 , EventListener e (BlockChunks e) m
-                                 , Sessions e (BlockChunks e) m
-                                 , Sessions e (PeerInfo e) m
-                                 , Block ByteString ~ ByteString
-                                 , HasStorage m
-                                 )
 
 downloadFromWithPeer :: forall e m . DownloadFromPeerStuff e m
                      => Peer e
@@ -378,6 +355,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , EventListener e (BlockAnnounce e) m
                                    , EventListener e (PeerHandshake e) m
                                    , EventEmitter e (BlockChunks e) m
+                                   , EventEmitter e (DownloadReq e) m
                                    , Sessions e (BlockChunks e) m
                                    , Sessions e (PeerInfo e) m
                                    , Sessions e (KnownPeer e) m

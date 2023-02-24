@@ -31,6 +31,7 @@ import HBS2.System.Logger.Simple qualified as Log
 import RPC
 import PeerTypes
 import BlockDownload
+import DownloadQ
 import PeerInfo
 import PeerConfig
 import Bootstrap
@@ -482,6 +483,8 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (blockDownloadLoop denv)
 
+                peerThread (downloadQueue conf denv)
+
                 peerThread $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
                           case cmd of
@@ -551,6 +554,7 @@ runPeer opts = Exception.handle myException $ do
 
                                        | otherwise -> do
 
+                                          downloadLogAppend @e h
                                           withDownload denv $ do
                                             processBlock h
 
@@ -584,8 +588,9 @@ runPeer opts = Exception.handle myException $ do
 
   let fetchAction h = do
         debug  $ "fetchAction" <+> pretty h
-        liftIO $ withPeerM penv
-               $ withDownload denv (processBlock h)
+        liftIO $ withPeerM penv $ do
+                  downloadLogAppend @e h
+                  withDownload denv (processBlock h)
 
   let peersAction _ = do
         who <- thatPeer (Proxy @(RPC e))

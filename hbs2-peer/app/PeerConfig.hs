@@ -37,6 +37,11 @@ type C = MegaParsec
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
 
+data PeerDownloadLogKey
+
+instance HasCfgKey PeerDownloadLogKey (Maybe String) where
+  key = "download-log"
+
 cfgName :: FilePath
 cfgName = "config"
 
@@ -85,6 +90,11 @@ peerConfigInit mbfp = liftIO do
     appendFile (dir</>cfgName) ";; hbs2-peer config file"
     appendFile (dir</>cfgName) defConfigData
 
+peerConfDef :: String
+peerConfDef = [qc|
+  download-log  "./download-log"
+|]
+
 peerConfigRead :: MonadIO m => Maybe FilePath -> m PeerConfig
 peerConfigRead mbfp = do
 
@@ -112,7 +122,9 @@ peerConfigRead mbfp = do
 
     debug $ pretty cfgPath
 
-    confData <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
+    confData' <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
+
+    let confData = confData' <> either mempty id (parseTop  peerConfDef)
 
     debug $ pretty confData
 
@@ -124,6 +136,10 @@ peerConfigRead mbfp = do
                 List co (Key "storage" [LitStrVal p]) -> do
                   kp <- liftIO $ canonicalizePath (dir </> Text.unpack p)
                   pure $ List @C co [Symbol co "storage", Literal co (mkLit (Text.pack kp)) ]
+
+                List co (Key "download-log" [LitStrVal p]) -> do
+                  kp <- liftIO $ canonicalizePath (dir </> Text.unpack p)
+                  pure $ List @C co [Symbol co "download-log", Literal co (mkLit (Text.pack kp)) ]
 
                 x -> pure x
 

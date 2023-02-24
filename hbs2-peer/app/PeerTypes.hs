@@ -3,9 +3,12 @@
 {-# Language UndecidableInstances #-}
 module PeerTypes where
 
+import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Defaults
+import HBS2.Events
 import HBS2.Hash
+import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Definition
@@ -13,7 +16,8 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.System.Logger.Simple
-import HBS2.Net.Messaging.UDP (UDP)
+
+import PeerInfo
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -25,8 +29,49 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe
 import Lens.Micro.Platform
+import Data.Hashable
+import Type.Reflection
 import Numeric (showGFloat)
-import Prettyprinter
+
+
+type MyPeer e = (Eq (Peer e), Hashable (Peer e), Pretty (Peer e))
+
+data DownloadReq e
+
+data instance EventKey e (DownloadReq e) =
+  DownloadReqKey
+  deriving (Generic,Typeable,Eq)
+
+instance Typeable (DownloadReq e) => Hashable (EventKey e (DownloadReq e)) where
+  hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
+    where
+      p = Proxy @DownloadReq
+
+newtype instance Event e (DownloadReq e) =
+  DownloadReqData (Hash HbSync)
+  deriving (Typeable)
+
+instance EventType ( Event e (DownloadReq e) ) where
+  isPersistent = True
+
+instance Expires (EventKey e (DownloadReq e)) where
+  expiresIn = const Nothing
+
+type DownloadFromPeerStuff e m = ( MyPeer e
+                                 , MonadIO m
+                                 , Request e (BlockInfo e) m
+                                 , Request e (BlockChunks e) m
+                                 , MonadReader (PeerEnv e ) m
+                                 , PeerMessaging e
+                                 , HasProtocol e (BlockInfo e)
+                                 , EventListener e (BlockInfo e) m
+                                 , EventListener e (BlockChunks e) m
+                                 , Sessions e (BlockChunks e) m
+                                 , Sessions e (PeerInfo e) m
+                                 , Block ByteString ~ ByteString
+                                 , HasStorage m
+                                 )
+
 
 calcBursts :: forall a . Integral a => a -> [a] -> [(a,a)]
 calcBursts bu pieces = go seed
@@ -104,8 +149,6 @@ data DownloadEnv e =
 
 makeLenses 'DownloadEnv
 
-class (Eq (Peer e), Hashable (Peer e), Pretty (Peer e)) => MyPeer e
-instance (Eq (Peer e), Hashable (Peer e), Pretty (Peer e)) => MyPeer e
 
 newDownloadEnv :: (MonadIO m, MyPeer e) => m (DownloadEnv e)
 newDownloadEnv = liftIO do

@@ -53,6 +53,7 @@ common common-deps
         , unordered-containers
         , vector
         , interpolatedstring-perl6
+        , filelock
 
 common shared-properties
   ghc-options:
@@ -105,6 +106,7 @@ executable hbs2-peer
     main-is:          PeerMain.hs
 
     other-modules:    BlockDownload
+                    , DownloadQ
                     , Bootstrap
                     , PeerInfo
                     , RPC
