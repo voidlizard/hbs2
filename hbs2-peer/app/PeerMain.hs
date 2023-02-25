@@ -119,6 +119,14 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
 
 
+data RPCOpt =
+  RPCOpt
+  { _rpcOptConf :: Maybe FilePath
+  , _rpcOptAddr :: Maybe String
+  }
+
+makeLenses 'RPCOpt
+
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
@@ -171,6 +179,12 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         )
 
+    confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
+
+    rpcOpt = strOption ( short 'r' <> long "rpc"
+                                   <> help "addr:port" )
+
+
     common = do
       pref <- optional $ strOption ( short 'p' <> long "prefix"
                                                <> help "storage prefix" )
@@ -178,13 +192,12 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       l    <- optional $ strOption ( short 'l' <> long "listen"
                                     <> help "addr:port" )
 
-      r    <- optional $ strOption ( short 'r' <> long "rpc"
-                                    <> help "addr:port" )
+      r    <- optional rpcOpt
 
       k    <- optional $ strOption ( short 'k' <> long "key"
                                     <> help "peer keys file" )
 
-      c <- optional $ strOption ( long "config"  <> short 'c' <> help "config" )
+      c <- optional confOpt
 
       pure $ PeerOpts pref l r k c
 
@@ -192,10 +205,8 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       runPeer <$> common
 
     pRpcCommon = do
-      strOption (     short 'r' <> long "rpc"
-                   <> help "addr:port"
-                   <> value defRpcUDP
-                )
+      RPCOpt <$> optional confOpt
+             <*> optional rpcOpt
 
     pPoke = do
       rpc <- pRpcCommon
@@ -303,7 +314,7 @@ runPeer opts = Exception.handle myException $ do
   conf <- peerConfigRead (view peerConfig opts)
 
   -- let (PeerConfig syn) = conf
-  -- print $ pretty syn
+  print $ pretty conf
 
   let listenConf = cfgValue @PeerListenKey conf
   let rpcConf = cfgValue @PeerRpcKey conf
@@ -650,8 +661,16 @@ emitToPeer :: ( MonadIO m
 
 emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
-withRPC :: String -> RPC UDP -> IO ()
-withRPC saddr cmd = do
+withRPC :: RPCOpt -> RPC UDP -> IO ()
+withRPC o cmd = do
+
+  setLoggingOff @DEBUG
+
+  conf <- peerConfigRead (view rpcOptConf o)
+
+  let rpcConf = cfgValue @PeerRpcKey conf :: Maybe String
+
+  saddr <- pure  (view rpcOptAddr o <|> rpcConf) `orDie` "RPC endpoint not set"
 
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
@@ -719,13 +738,13 @@ withRPC saddr cmd = do
                           (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
                           )
 
-runRpcCommand :: String -> RPCCommand -> IO ()
-runRpcCommand saddr = \case
-  POKE -> withRPC saddr RPCPoke
-  PING s _ -> withRPC saddr (RPCPing s)
-  ANNOUNCE h -> withRPC saddr (RPCAnnounce h)
-  FETCH h  -> withRPC saddr (RPCFetch h)
-  PEERS -> withRPC saddr RPCPeers
+runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
+runRpcCommand opt = \case
+  POKE -> withRPC opt RPCPoke
+  PING s _ -> withRPC opt (RPCPing s)
+  ANNOUNCE h -> withRPC opt (RPCAnnounce h)
+  FETCH h  -> withRPC opt (RPCFetch h)
+  PEERS -> withRPC opt RPCPeers
 
   _ -> pure ()
 

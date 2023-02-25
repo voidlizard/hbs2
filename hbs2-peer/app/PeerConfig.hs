@@ -47,7 +47,7 @@ cfgName = "config"
 
 newtype PeerConfig =
   PeerConfig [Syntax C]
-  deriving newtype (Monoid, Semigroup)
+  deriving newtype (Monoid, Semigroup, Pretty)
 
 
 peerConfigDefault :: MonadIO m => m FilePath
@@ -126,7 +126,7 @@ peerConfigRead mbfp = do
 
     let confData = confData' <> either mempty id (parseTop  peerConfDef)
 
-    debug $ pretty confData
+    -- debug $ pretty confData
 
     config <- flip transformBiM confData $ \case
                 List co (Key "key" [LitStrVal p]) -> do

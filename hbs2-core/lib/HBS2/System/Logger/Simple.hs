@@ -11,7 +11,7 @@ module HBS2.System.Logger.Simple
   , warn
   , notice
   , info
-  , setLogging
+  , setLogging, setLoggingOff
   , defLog
   , loggerTr
   , module HBS2.System.Logger.Simple.Class
@@ -62,6 +62,12 @@ setLogging f = do
   let def = f (LoggerEntry se id)
   let key = logKey @a
   void $ liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, ()))
+
+
+setLoggingOff :: forall a m . (MonadIO m, HasLogLevel a) => m ()
+setLoggingOff = do
+  let key = logKey @a
+  void $ liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.delete key x, IntMap.lookup key x))
 
 withLogger :: forall a m . (HasLogLevel a, MonadIO m) => (LoggerEntry -> m ()) -> m ()
 withLogger f = do
