@@ -66,6 +66,9 @@ data RefGenesis e = RefGenesis
   , refName :: !Text
   , refMeta :: !AnnMetaData
   }
+  deriving stock (Generic)
+
+instance (Serialise (PubKey 'Sign e)) => Serialise (RefGenesis e)
 
 data RefForm
   = LinearRef
@@ -92,7 +95,7 @@ data instance MutableRef e 'LinearRef
   -- , lrefMTree :: !(MTreeAnn [Hash HbSync])
   , lrefVal :: !(Hash HbSync)
   }
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 instance Serialise (MutableRef e 'LinearRef)
 
@@ -115,8 +118,8 @@ instance Serialise (Signature e) =>
 data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
   = LinearMutableRefSignatureVerified
   { signature :: Signature e
-  , signer :: PubKey 'Sign e
   , signedRef :: MutableRef e 'LinearRef
+  , signer :: PubKey 'Sign e
   }
   deriving stock (Generic)
 

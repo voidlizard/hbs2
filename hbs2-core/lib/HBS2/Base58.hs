@@ -6,7 +6,7 @@ import Data.ByteString.Char8 (ByteString)
 
 import Prettyprinter
 
-newtype AsBase58 a = AsBase58 a
+newtype AsBase58 a = AsBase58 { unAsBase58 :: a }
 
 alphabet :: Alphabet
 alphabet = bitcoinAlphabet

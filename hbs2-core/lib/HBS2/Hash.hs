@@ -6,7 +6,7 @@ module HBS2.Hash
   where
 
 import HBS2.Base58
-import HBS2.Prelude (FromStringMaybe(..))
+import HBS2.Prelude (FromStringMaybe(..), ToByteString(..), FromByteString(..))
 
 import Codec.Serialise
 import Crypto.Hash hiding (SHA1)
@@ -77,6 +77,12 @@ instance FromStringMaybe (Hash HbSync) where
 
 instance Pretty (Hash HbSync) where
   pretty (HbSyncHash s) = pretty @String [qc|{toBase58 s}|]
+
+instance ToByteString (AsBase58 (Hash HbSync)) where
+  toByteString (AsBase58 (HbSyncHash s)) = toBase58 s
+
+instance FromByteString (AsBase58 (Hash HbSync)) where
+  fromByteString = fmap (AsBase58 . HbSyncHash) . fromBase58
 
 
 instance FromJSON (Hash HbSync) where
