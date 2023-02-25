@@ -50,6 +50,9 @@ defCookieTimeout = toTimeSpec defCookieTimeoutSec
 defRequestLimit :: TimeSpec
 defRequestLimit = toTimeSpec defRequestLimitSec
 
+defBlockSizeCacheTime :: TimeSpec
+defBlockSizeCacheTime = toTimeSpec ( 20 :: Timeout 'Seconds )
+
 defRequestLimitSec :: Timeout 'Seconds
 defRequestLimitSec = 60
 
