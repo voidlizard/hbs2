@@ -1,6 +1,16 @@
 
 ## 2023-02-25
 
+FIXME: asap-whitelist
+  Реализовать whitelist.
+  Поведение: если whitelist не пустой --- авторизовать
+  только пиров, которые находятся в нём.
+  В остальном (настройки) аналогично blacklist.
+
+  Нужно для отладки fetch-from-single-peer-speed-degradation
+  #asap
+
+
 FIXME: fetch-from-single-peer-speed-degradation
   Упала скорость скачивания в случае одного пира на
   раздаче. Возможно, дело в новом алгоритме (ban),
