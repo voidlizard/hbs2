@@ -582,8 +582,12 @@ peerDownloadLoop peer = do
 
             r1 <- liftIO $ race ( pause defBlockInfoTimeout ) $ withPeerM e do
                       blksq <- liftIO newTQueueIO
-                      subscribe @e (BlockSizeEventKey h) $ \(BlockSizeEvent (_,_,s)) -> do
-                        liftIO $ atomically $ writeTQueue blksq s
+                      subscribe @e (BlockSizeEventKey h) $ \case
+                        (BlockSizeEvent (_,_,s)) -> do
+                          liftIO $ atomically $ writeTQueue blksq (Just s)
+                        (NoBlockEvent p) -> do
+                          debug $ "NoBlockEvent" <+> pretty p <+> pretty h
+                          liftIO $ atomically $ writeTQueue blksq Nothing
 
                       request peer (GetBlockSize @e h)
 
@@ -594,7 +598,10 @@ peerDownloadLoop peer = do
                 liftIO $ atomically $ modifyTVar downFail succ
                 addDownload h
 
-              Right size -> do
+              Right Nothing -> do
+                addDownload h -- this is a legit situation; it is handled above (block ban... etc).
+
+              Right (Just size) -> do
                 r2 <- liftIO $ race ( pause defBlockWaitMax )
                                   $ withPeerM e
                                   $ withDownload ee

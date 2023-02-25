@@ -38,6 +38,7 @@ blockSizeProto getBlockSize evHasBlock =
 
     NoBlock h       -> do
       that <- thatPeer (Proxy @(BlockInfo e))
+      emit @e (BlockSizeEventKey h) (NoBlockEvent that)
       evHasBlock ( that, h, Nothing )
 
     BlockSize h sz  -> do
@@ -57,7 +58,9 @@ newtype instance EventKey e (BlockInfo e) =
 
 deriving  instance Hashable (EventKey e (BlockInfo e))
 
-newtype instance Event e (BlockInfo e) =
-  BlockSizeEvent (Peer e, Hash HbSync, Integer)
+data instance Event e (BlockInfo e) =
+    BlockSizeEvent (Peer e, Hash HbSync, Integer)
+  | NoBlockEvent (Peer e)
   deriving stock (Typeable)
+
 
