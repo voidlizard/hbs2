@@ -577,7 +577,7 @@ peerDownloadLoop peer = do
 
             seenTimes <- liftIO $ readTVarIO seenBlocks <&> fromMaybe 0 . HashMap.lookup h
 
-            when ( seenTimes > 50 ) do
+            when ( seenTimes > 100 ) do
               trace $ "ban block" <+> pretty h <+> "for a while" <+> parens (pretty seenTimes)
               liftIO $ atomically $ modifyTVar seenBlocks (HashMap.delete h)
               liftIO $ Cache.insert bannedBlocks h ()
