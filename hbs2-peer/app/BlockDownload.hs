@@ -240,9 +240,9 @@ downloadFromWithPeer peer thisBkSize h = do
 
             liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
 
-            debug $ "new burst: " <+> pretty newBurst
-            debug $ "missed chunks for request" <+> pretty (i,chunksN)
-            debug $ "burst time" <+> pretty burstTime
+            trace $ "new burst: " <+> pretty newBurst
+            trace $ "missed chunks for request" <+> pretty (i,chunksN)
+            trace $ "burst time" <+> pretty burstTime
 
             for_ chuchu $ liftIO . atomically . writeTQueue rq
 
@@ -266,11 +266,10 @@ downloadFromWithPeer peer thisBkSize h = do
             void $ liftIO $ putBlock sto block
             void $ processBlock h
           else do
-            debug "HASH NOT MATCH"
-            debug "MAYBE THAT PEER IS JERK"
+            trace "HASH NOT MATCH / PEER MAYBE JERK"
 
         else do
-          debug "RETRY BLOCK DOWNLOADING / ASK FOR MISSED CHUNKS"
+          trace "RETRY BLOCK DOWNLOADING / ASK FOR MISSED CHUNKS"
           got  <- liftIO $ readTVarIO r <&> IntMap.keysSet
           let need = IntSet.fromList (fmap fromIntegral chunkNums)
 
@@ -415,7 +414,7 @@ blockDownloadLoop env0 = do
         fails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
 
         when (fails >= defDownloadFails) do
-          warn $ "peer" <+> pretty p <+> "has too many failures:" <+> pretty fails
+          trace $ "peer" <+> pretty p <+> "has too many failures:" <+> pretty fails
 
         here <- withDownload env0 $ hasPeerThread p
 
@@ -494,7 +493,7 @@ blockDownloadLoop env0 = do
 
     liftIO $ atomically $ writeTVar tinfo alive
 
-    debug $ "maintain blocks wip" <+> pretty (Set.size aliveWip)
+    notice $ "maintain blocks wip" <+> pretty (Set.size aliveWip)
 
   withDownload env0 do
 
@@ -537,9 +536,6 @@ peerDownloadLoop peer = do
       let downBlk = view peerDownloadedBlk pinfo
       failNum <- liftIO $ readTVarIO downFail
 
-      -- FIXME: failNum-to-defaults
-      let notFailed = failNum < defDownloadFails
-
       -- FIXME: better-avoiding-busyloop
       -- unless notFailed do
       --   pause @'Seconds 1
@@ -566,7 +562,7 @@ peerDownloadLoop peer = do
               let seenTotal = view bsTimes st
               let wa = min defBlockBanTimeSec (realToFrac (ceiling $ Prelude.logBase 10 (realToFrac (50 * seenTotal))))
               void $ liftIO $ async $ withAllStuff (pause wa >> addDownload h)
-              debug $ "block" <+> pretty h <+> "seen" <+> pretty seenTotal <+> "times" <+> parens (pretty wa)
+              trace $ "block" <+> pretty h <+> "seen" <+> pretty seenTotal <+> "times" <+> parens (pretty wa)
           else do
 
             liftIO $ atomically $ modifyTVar seenBlocks (HashMap.alter alterSeen h)
@@ -574,7 +570,7 @@ peerDownloadLoop peer = do
             seenTimes <- liftIO $ readTVarIO seenBlocks <&> fromMaybe 0 . HashMap.lookup h
 
             when ( seenTimes > 1 ) do
-              debug $ "ban block" <+> pretty h <+> "for a while" <+> parens (pretty seenTimes)
+              trace $ "ban block" <+> pretty h <+> "for a while" <+> parens (pretty seenTimes)
               liftIO $ atomically $ modifyTVar seenBlocks (HashMap.delete h)
               liftIO $ Cache.insert bannedBlocks h ()
 
@@ -586,7 +582,7 @@ peerDownloadLoop peer = do
                         (BlockSizeEvent (_,_,s)) -> do
                           liftIO $ atomically $ writeTQueue blksq (Just s)
                         (NoBlockEvent p) -> do
-                          debug $ "NoBlockEvent" <+> pretty p <+> pretty h
+                          trace $ "NoBlockEvent" <+> pretty p <+> pretty h
                           liftIO $ atomically $ writeTQueue blksq Nothing
 
                       request peer (GetBlockSize @e h)

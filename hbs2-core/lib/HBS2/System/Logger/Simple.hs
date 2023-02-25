@@ -5,6 +5,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.System.Logger.Simple
   ( withSimpleLogger
+  , trace
   , debug
   , log
   , err
@@ -14,6 +15,7 @@ module HBS2.System.Logger.Simple
   , setLogging, setLoggingOff
   , defLog
   , loggerTr
+  , SetLoggerEntry
   , module HBS2.System.Logger.Simple.Class
   ) where
 
@@ -53,6 +55,14 @@ withSimpleLogger program = do
   lo <- readIORef loggers <&> IntMap.elems
   for_ lo (flushLogStr . view loggerSet)
 
+type SetLoggerEntry  = ( LoggerEntry -> LoggerEntry )
+
+delLogger :: forall m . MonadIO m => Maybe LoggerEntry -> m ()
+delLogger e =
+  case view loggerSet <$> e of
+    Nothing -> pure ()
+    Just s  -> liftIO $ rmLoggerSet s
+
 setLogging :: forall a m . (MonadIO m, HasLogLevel a)
            => (LoggerEntry -> LoggerEntry)
            -> m ()
@@ -61,13 +71,14 @@ setLogging f = do
   se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
   let def = f (LoggerEntry se id)
   let key = logKey @a
-  void $ liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, ()))
-
+  e <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, IntMap.lookup key x))
+  delLogger e
 
 setLoggingOff :: forall a m . (MonadIO m, HasLogLevel a) => m ()
 setLoggingOff = do
   let key = logKey @a
-  void $ liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.delete key x, IntMap.lookup key x))
+  e <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.delete key x, IntMap.lookup key x))
+  delLogger e
 
 withLogger :: forall a m . (HasLogLevel a, MonadIO m) => (LoggerEntry -> m ()) -> m ()
 withLogger f = do
@@ -78,6 +89,10 @@ log :: forall a s m . (MonadIO m, HasLogLevel a, ToLogStr s) => s -> m ()
 log s = liftIO $ withLogger @a
                $ \le -> pushLogStrLn (view loggerSet le)
                                      (view loggerTr le (toLogStr s))
+
+
+trace :: (MonadIO m, ToLogStr a) => a -> m ()
+trace = log @TRACE
 
 debug :: (MonadIO m, ToLogStr a) => a -> m ()
 debug = log @DEBUG

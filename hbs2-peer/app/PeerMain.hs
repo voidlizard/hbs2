@@ -127,6 +127,7 @@ data RPCOpt =
 
 makeLenses 'RPCOpt
 
+
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
@@ -134,6 +135,7 @@ data RPCCommand =
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
   | PEERS
+  | SETLOG SetLogging
 
 data PeerOpts =
   PeerOpts
@@ -147,17 +149,35 @@ data PeerOpts =
 
 makeLenses 'PeerOpts
 
+logPrefix s = set loggerTr (s <>)
+
+tracePrefix :: SetLoggerEntry
+tracePrefix  = logPrefix "[trace] "
+
+debugPrefix :: SetLoggerEntry
+debugPrefix  = logPrefix "[debug] "
+
+errorPrefix :: SetLoggerEntry
+errorPrefix  = logPrefix "[error] "
+
+warnPrefix :: SetLoggerEntry
+warnPrefix   = logPrefix "[warn] "
+
+noticePrefix :: SetLoggerEntry
+noticePrefix = logPrefix "[notice] "
 
 main :: IO ()
 main = do
 
   sodiumInit
 
-  setLogging @DEBUG  (set loggerTr ("[debug] " <>))
+  setLogging @DEBUG  debugPrefix
   setLogging @INFO   defLog
-  setLogging @ERROR  (set loggerTr ("[error] " <>))
-  setLogging @WARN   (set loggerTr ("[warn] " <>))
-  setLogging @NOTICE (set loggerTr ("[notice] " <>))
+  setLogging @ERROR  errorPrefix
+  setLogging @WARN   warnPrefix
+  setLogging @NOTICE noticePrefix
+
+  setLoggingOff @TRACE
 
   withSimpleLogger runCLI
 
@@ -177,6 +197,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
+                        <> command "log"       (info pLog   (progDesc "set logging level"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -231,9 +252,22 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       pure $ runRpcCommand rpc PEERS
 
+    onOff l =
+            hsubparser ( command "on" (info (pure (l True) ) (progDesc "on")  ) )
+      <|>   hsubparser ( command "off" (info (pure (l False) ) (progDesc "off")  ) )
+
+    pLog = do
+      rpc <- pRpcCommon
+      setlog <- SETLOG <$> ( hsubparser ( command "trace"  (info (onOff TraceOn) (progDesc "set trace")  ) )
+                               <|>
+                              hsubparser ( command "debug"  (info (onOff DebugOn) (progDesc "set debug")  ) )
+                            )
+      pure $ runRpcCommand rpc setlog
+
     pInit = do
       pref <- optional $ strArgument ( metavar "DIR" )
       pure $ peerConfigInit pref
+
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -611,6 +645,23 @@ runPeer opts = Exception.handle myException $ do
               let k = view peerSignKey pd
               request who (RPCPeersAnswer @e pa k)
 
+  let logLevelAction = \case
+        DebugOn True  -> do
+          setLogging @DEBUG debugPrefix
+          debug "DebugOn"
+
+        DebugOn False -> do
+          debug "DebugOff"
+          setLoggingOff @DEBUG
+
+        TraceOn True -> do
+          setLogging @TRACE tracePrefix
+          trace "TraceOn"
+
+        TraceOn False -> do
+          trace "TraceOff"
+          setLoggingOff @TRACE
+
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
@@ -619,6 +670,7 @@ runPeer opts = Exception.handle myException $ do
                         fetchAction
                         peersAction
                         dontHandle
+                        logLevelAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -720,6 +772,8 @@ withRPC o cmd = do
                         pause @'Seconds 1
                         exitSuccess
 
+                      RPCLogLevel{} -> liftIO exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
@@ -738,6 +792,8 @@ withRPC o cmd = do
                           (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
                           )
 
+                          dontHandle
+
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
@@ -745,6 +801,7 @@ runRpcCommand opt = \case
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
+  SETLOG s -> withRPC opt (RPCLogLevel s)
 
   _ -> pure ()
 

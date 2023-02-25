@@ -15,6 +15,13 @@ import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise (serialise,deserialiseOrFail)
 import Lens.Micro.Platform
 
+data SetLogging =
+    DebugOn Bool
+  | TraceOn Bool
+  deriving (Generic,Eq,Show)
+
+instance Serialise SetLogging
+
 data RPC e =
     RPCPoke
   | RPCPing (PeerAddr e)
@@ -24,6 +31,7 @@ data RPC e =
   | RPCFetch (Hash HbSync)
   | RPCPeers
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
+  | RPCLogLevel SetLogging
   deriving stock (Generic)
 
 
@@ -54,6 +62,7 @@ data RpcAdapter e m =
   , rpcOnFetch       :: Hash HbSync -> m ()
   , rpcOnPeers       :: RPC e -> m ()
   , rpcOnPeersAnswer :: (PeerAddr e, PubKey 'Sign e) -> m ()
+  , rpcOnLogLevel    :: SetLogging -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -102,4 +111,5 @@ rpcHandler adapter = \case
     (RPCFetch h)       -> rpcOnFetch adapter h
     p@RPCPeers{}       -> rpcOnPeers adapter p
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
+    (RPCLogLevel l)    -> rpcOnLogLevel adapter l
 
