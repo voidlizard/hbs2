@@ -46,9 +46,9 @@ getBlockForDownload = do
   q <- asks (view downloadQ)
   inq <- asks (view blockInQ)
   liftIO $ atomically $ do
-    readTQueue q
-     -- modifyTVar inq (HashMap.delete h)
-     -- pure h
+     h <- readTQueue q
+     modifyTVar' inq (HashMap.delete h)
+     pure h
 
 withBlockForDownload :: (MonadIO m, MyPeer e, HasStorage m, HasPeerLocator e m)
                      => Peer e
@@ -554,7 +554,7 @@ postponedLoop env0 = do
         for_ blk2pip $ \(h, banned) -> do
           let notBanned = HashSet.difference pipsAll banned
           when (null notBanned) do
-            liftIO $ atomically $ modifyTVar po $ HashMap.insert h ()
+            liftIO $ atomically $ modifyTVar' po $ HashMap.insert h ()
 
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do

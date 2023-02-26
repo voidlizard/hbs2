@@ -150,7 +150,6 @@ data DownloadEnv e =
   , _peerPostponed  :: TVar   (HashMap (Hash HbSync) ())
   , _blockStored    :: Cache  (Hash HbSync) ()
   , _blockBanned    :: Cache  (Hash HbSync, Peer e) ()
-  , _blocksWipCnt   :: TVar Int
   }
 
 makeLenses 'DownloadEnv
@@ -168,7 +167,6 @@ newDownloadEnv = liftIO do
               <*> newTVarIO mempty
               <*> Cache.newCache (Just defBlockWipTimeout)
               <*> Cache.newCache (Just defBlockBanTime)
-              <*> newTVarIO 0
 
 newtype BlockDownloadM e m a =
   BlockDownloadM { fromBlockDownloadM :: ReaderT (DownloadEnv e) m a }
@@ -222,7 +220,7 @@ isBanned p h = do
 delBlockState :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
 delBlockState h = do
   sh <- asks (view blockState)
-  liftIO $ atomically $ modifyTVar sh (HashMap.delete h)
+  liftIO $ atomically $ modifyTVar' sh (HashMap.delete h)
 
 incBlockSizeReqCount :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
 incBlockSizeReqCount h = do
@@ -277,18 +275,17 @@ addDownload h = do
   po <- asks (view peerPostponed)
 
   tinq <- asks (view blockInQ)
-  wipCnt <- asks (view blocksWipCnt)
 
-  -- doAdd <- do liftIO $ atomically $ stateTVar tinq
-  --                                 \hm -> case HashMap.lookup h hm of
-  --                                          Nothing -> (True,  HashMap.insert h () hm)
-  --                                          Just{}  -> (False, HashMap.insert h () hm)
+  doAdd <- do liftIO $ atomically $ stateTVar tinq
+                                  \hm -> case HashMap.lookup h hm of
+                                           Nothing -> (True,  HashMap.insert h () hm)
+                                           Just{}  -> (False, HashMap.insert h () hm)
 
-  doAdd <- isBlockHereCached h <&> not
+  notHere <- isBlockHereCached h <&> not
 
   notPostponed <- liftIO $ readTVarIO po <&> isNothing . HashMap.lookup h
 
-  when (doAdd && notPostponed) do
+  when (doAdd && notPostponed && notHere) do
 
     q <- asks (view downloadQ)
     wip <- asks (view blockWip)
@@ -341,7 +338,6 @@ removeFromWip h = do
   sz  <- asks (view blockPeers)
   tinq <- asks (view blockInQ)
   po  <- asks (view peerPostponed)
-  wi <- asks (view blocksWipCnt)
   ba <- asks (view blockBanned)
 
   liftIO $ Cache.delete wip h
@@ -352,7 +348,6 @@ removeFromWip h = do
     modifyTVar' sz   (HashMap.delete h)
     modifyTVar' tinq (HashMap.delete h)
     modifyTVar' po (HashMap.delete h)
-    modifyTVar' wi (max 0 . pred)
 
 hasPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m Bool
 hasPeerThread p = do
