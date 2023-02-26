@@ -477,9 +477,10 @@ blockDownloadLoop env0 = do
     pause @'Seconds 5 -- FIXME: put to defaults
                       --        we need to show download stats
 
-    tinfo <- asks (view blockPeers)
-    binfo <- liftIO $ readTVarIO tinfo
-    wip  <- asks (view blockWip)
+    tinfo   <- asks (view blockPeers)
+    binfo   <- liftIO $ readTVarIO tinfo
+    wip     <- asks (view blockWip)
+    wipCnt  <- asks (view blocksWipCnt) >>= liftIO . readTVarIO
 
     liftIO $ Cache.purgeExpired wip
 
@@ -494,7 +495,7 @@ blockDownloadLoop env0 = do
 
     po <- asks (view peerPostponed) >>= liftIO . readTVarIO
 
-    notice $ "maintain blocks wip" <+> pretty (Set.size aliveWip)
+    notice $ "maintain blocks wip" <+> pretty wipCnt
                                    <+> "postponed"
                                    <+> pretty (HashMap.size po)
 
