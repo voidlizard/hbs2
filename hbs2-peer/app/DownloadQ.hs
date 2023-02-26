@@ -7,12 +7,14 @@ import HBS2.Hash
 import HBS2.Events
 import HBS2.Data.Types.Refs
 import HBS2.Actors.Peer
+import HBS2.Net.PeerLocator
 import HBS2.Storage
 import HBS2.Merkle
 import HBS2.System.Logger.Simple
 
 import PeerTypes
 import PeerConfig
+import BlockDownload (processBlock)
 
 import Data.Map qualified as Map
 import Data.Foldable
@@ -41,6 +43,8 @@ noLogFile = err "download log not defined"
 
 downloadQueue :: forall e m . ( MyPeer e
                               , DownloadFromPeerStuff e m
+                              , HasPeerLocator e (BlockDownloadM e m)
+                              , HasPeerLocator e m
                               , EventListener e (DownloadReq e) m
                               ) => PeerConfig -> DownloadEnv e -> m ()
 
@@ -71,7 +75,7 @@ downloadQueue conf denv = do
 
     debug $ "downloadQueue" <+> pretty fn
 
-    liftIO do
+    lo <- liftIO do
 
       -- FIXME: will-crash-on-big-logs
       atomically $ waitTSem fsem
@@ -103,12 +107,15 @@ downloadQueue conf denv = do
 
       let leftovers = [ x | x <- hashesWip , Map.member x loosers ]
 
-      for_ leftovers $ withDownload denv . addDownload
 
       atomically $ waitTSem fsem
       catchAny ( B8.writeFile fn ( B8.unlines (fmap (B8.pack.show.pretty) leftovers) ) )
                whimper
       atomically $ signalTSem fsem
+
+      pure leftovers
+
+    for_ lo $ withDownload denv . processBlock
 
     debug "downloadQueue okay"
 

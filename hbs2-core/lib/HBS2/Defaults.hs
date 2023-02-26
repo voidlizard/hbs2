@@ -60,13 +60,16 @@ defBlockBanTime :: TimeSpec
 defBlockBanTime = toTimeSpec defBlockBanTimeSec
 
 defBlockBanTimeSec :: Timeout 'Seconds
-defBlockBanTimeSec = 30 :: Timeout 'Seconds
+defBlockBanTimeSec = 60 :: Timeout 'Seconds
 
 defBlockWipTimeout :: TimeSpec
-defBlockWipTimeout = toTimeSpec defCookieTimeoutSec
+defBlockWipTimeout = defBlockSizeCacheTime
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 2
+defBlockInfoTimeout = 1
+
+defBlockInfoTimeoutSpec :: TimeSpec
+defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds

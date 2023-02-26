@@ -59,6 +59,7 @@ import System.Directory
 import System.Exit
 import System.IO
 import Data.Set (Set)
+import GHC.TypeLits
 
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
@@ -79,6 +80,7 @@ data PeerKeyFileKey
 data PeerBlackListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
+data PeerTraceKey
 
 data AcceptAnnounce = AcceptAnnounceAll
                     | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
@@ -89,6 +91,9 @@ instance Pretty AcceptAnnounce where
 
     -- FIXME: better-pretty-for-AcceptAnnounceFrom
     AcceptAnnounceFrom xs -> parens ("accept-announce" <+> pretty (fmap AsBase58 (Set.toList xs)))
+
+instance HasCfgKey PeerTraceKey FeatureSwitch where
+  key = "trace"
 
 instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
@@ -354,6 +359,7 @@ runPeer opts = Exception.handle myException $ do
   let rpcConf = cfgValue @PeerRpcKey conf
   let keyConf = cfgValue @PeerKeyFileKey conf
   let storConf = cfgValue @PeerStorageKey conf <&> StoragePrefix
+  let traceConf = cfgValue @PeerTraceKey conf :: FeatureSwitch
 
   let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
   let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
@@ -362,6 +368,11 @@ runPeer opts = Exception.handle myException $ do
   let pref = view storage opts <|> storConf <|> Just xdg
 
   debug $ "storage prefix:" <+> pretty pref
+
+  debug $ pretty "trace: " <+> pretty (show traceConf)
+
+  when (traceConf == FeatureOn) do
+    setLogging @TRACE tracePrefix
 
   let bls = cfgValue @PeerBlackListKey conf :: Set String
 
@@ -527,6 +538,8 @@ runPeer opts = Exception.handle myException $ do
                 peerThread (pexLoop @e)
 
                 peerThread (blockDownloadLoop denv)
+
+                peerThread (postponedLoop denv)
 
                 peerThread (downloadQueue conf denv)
 

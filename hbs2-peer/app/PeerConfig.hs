@@ -25,6 +25,10 @@ import Data.Set (Set)
 import Data.Text qualified as Text
 import Text.InterpolatedString.Perl6 (qc)
 
+data FeatureSwitch =
+  FeatureOn | FeatureOff
+  deriving (Eq,Ord,Show,Generic)
+
 class HasCfgKey a b where
   -- type family CfgValue a :: Type
   key :: Id
@@ -154,6 +158,14 @@ instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue
                 | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
                 ]
 
+instance (HasCfgKey a FeatureSwitch) => HasCfgValue a FeatureSwitch where
+  cfgValue (PeerConfig syn) = val
+    where
+      val =
+        lastDef FeatureOff
+                [ FeatureOn
+                | ListVal @C (Key s [SymbolVal (Id e)]) <- syn, s == key @a @FeatureSwitch, e == "on"
+                ]
 
 instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a [b]) => HasCfgValue a [b] where
   cfgValue (PeerConfig syn) = val
