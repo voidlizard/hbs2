@@ -539,6 +539,8 @@ postponedLoop env0 = do
           for_ wip1 $ \h -> do
             removeFromWip h
             addDownload h
+            wip2 <- asks (view blockWip) >>= liftIO . Cache.keys
+            liftIO $ atomically $ writeTVar twip (length wip2)
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     forever do
