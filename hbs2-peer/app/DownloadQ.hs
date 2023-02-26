@@ -120,7 +120,7 @@ downloadQueue conf denv = do
     debug "downloadQueue okay"
 
     -- TODO: remove-downloadQueue-pause-hardcode
-    pause @'Seconds 300
+    pause @'Seconds 150
     -- FIXME: only-debug-20-sec
 
   where

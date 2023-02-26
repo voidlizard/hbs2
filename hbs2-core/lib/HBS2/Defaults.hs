@@ -42,7 +42,7 @@ defProtoPipelineSize :: Int
 defProtoPipelineSize = 65536*2
 
 defCookieTimeoutSec :: Timeout 'Seconds
-defCookieTimeoutSec = 1200
+defCookieTimeoutSec = 3600
 
 defCookieTimeout :: TimeSpec
 defCookieTimeout = toTimeSpec defCookieTimeoutSec

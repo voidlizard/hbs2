@@ -533,14 +533,15 @@ postponedLoop env0 = do
       forever do
         pause @'Seconds 10
         wip1 <- asks (view blockWip) >>= liftIO . Cache.keys
+        wip2 <- liftIO $ readTVarIO twip
 
-        when (wip0 == length wip1) do
+        when (length wip1 == wip2) do
           trace "download stuck"
           for_ wip1 $ \h -> do
             removeFromWip h
             addDownload h
-            wip2 <- asks (view blockWip) >>= liftIO . Cache.keys
-            liftIO $ atomically $ writeTVar twip (length wip2)
+            wip3 <- asks (view blockWip) >>= liftIO . Cache.keys
+            liftIO $ atomically $ writeTVar twip (length wip3)
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     forever do
