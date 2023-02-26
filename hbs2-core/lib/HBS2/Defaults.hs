@@ -63,7 +63,7 @@ defBlockBanTimeSec :: Timeout 'Seconds
 defBlockBanTimeSec = 60 :: Timeout 'Seconds
 
 defBlockWipTimeout :: TimeSpec
-defBlockWipTimeout = defBlockSizeCacheTime
+defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
 defBlockInfoTimeout = 1

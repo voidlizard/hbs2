@@ -480,7 +480,6 @@ blockDownloadLoop env0 = do
     tinfo   <- asks (view blockPeers)
     binfo   <- liftIO $ readTVarIO tinfo
     wip     <- asks (view blockWip)
-    wipCnt  <- asks (view blocksWipCnt) >>= liftIO . readTVarIO
 
     liftIO $ Cache.purgeExpired wip
 
@@ -495,7 +494,9 @@ blockDownloadLoop env0 = do
 
     po <- asks (view peerPostponed) >>= liftIO . readTVarIO
 
-    notice $ "maintain blocks wip" <+> pretty wipCnt
+    wipNum <- liftIO $ Cache.size wip
+
+    notice $ "maintain blocks wip" <+> pretty wipNum
                                    <+> "postponed"
                                    <+> pretty (HashMap.size po)
 

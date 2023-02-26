@@ -294,7 +294,6 @@ addDownload h = do
     liftIO do
       atomically $ do
         modifyTVar tinq $ HashMap.insert h ()
-        modifyTVar wipCnt succ
         writeTQueue q h
 
       Cache.insert wip h ()
