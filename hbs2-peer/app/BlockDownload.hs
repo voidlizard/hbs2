@@ -493,12 +493,15 @@ blockDownloadLoop env0 = do
     liftIO $ atomically $ writeTVar tinfo alive
 
     po <- asks (view peerPostponed) >>= liftIO . readTVarIO
+    ba <- asks (view blockBanned ) >>= liftIO . Cache.size
 
     wipNum <- liftIO $ Cache.size wip
 
     notice $ "maintain blocks wip" <+> pretty wipNum
                                    <+> "postponed"
                                    <+> pretty (HashMap.size po)
+                                   <+> "banned"
+                                   <+> pretty ba
 
   withDownload env0 do
 
@@ -521,6 +524,12 @@ postponedLoop :: forall e m . ( MyPeer e
               => DownloadEnv e -> m ()
 postponedLoop env0 = do
   e <- ask
+
+
+  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
+    pause @'Seconds 60
+    ban <- asks (view blockBanned)
+    void $ liftIO $ Cache.purgeExpired ban
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
 

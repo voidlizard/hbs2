@@ -279,10 +279,12 @@ addDownload h = do
   tinq <- asks (view blockInQ)
   wipCnt <- asks (view blocksWipCnt)
 
-  doAdd <- do liftIO $ atomically $ stateTVar tinq
-                                  \hm -> case HashMap.lookup h hm of
-                                           Nothing -> (True,  HashMap.insert h () hm)
-                                           Just{}  -> (False, HashMap.insert h () hm)
+  -- doAdd <- do liftIO $ atomically $ stateTVar tinq
+  --                                 \hm -> case HashMap.lookup h hm of
+  --                                          Nothing -> (True,  HashMap.insert h () hm)
+  --                                          Just{}  -> (False, HashMap.insert h () hm)
+
+  doAdd <- isBlockHereCached h <&> not
 
   notPostponed <- liftIO $ readTVarIO po <&> isNothing . HashMap.lookup h
 
