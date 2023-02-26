@@ -289,7 +289,10 @@ addDownload h = do
     wip <- asks (view blockWip)
 
     liftIO do
-      atomically $ writeTQueue q h
+      atomically $ do
+        modifyTVar tinq $ HashMap.insert h ()
+        writeTQueue q h
+
       Cache.insert wip h ()
 
      -- | False -> do -- not hasSize -> do
