@@ -46,9 +46,9 @@ getBlockForDownload = do
   q <- asks (view downloadQ)
   inq <- asks (view blockInQ)
   liftIO $ atomically $ do
-     h <- readTQueue q
-     modifyTVar inq (HashMap.delete h)
-     pure h
+    readTQueue q
+     -- modifyTVar inq (HashMap.delete h)
+     -- pure h
 
 withBlockForDownload :: (MonadIO m, MyPeer e, HasStorage m, HasPeerLocator e m)
                      => Peer e
