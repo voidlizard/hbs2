@@ -525,6 +525,20 @@ postponedLoop :: forall e m . ( MyPeer e
 postponedLoop env0 = do
   e <- ask
 
+  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
+    -- wip <- asks (blockWip) >>= liftIO . Cache.keys
+      wip0 <- asks (view blockWip) >>= liftIO . Cache.keys <&> length
+      twip <- liftIO $ newTVarIO wip0
+
+      forever do
+        pause @'Seconds 10
+        wip1 <- asks (view blockWip) >>= liftIO . Cache.keys
+
+        when (wip0 == length wip1) do
+          trace "download stuck"
+          for_ wip1 $ \h -> do
+            removeFromWip h
+            addDownload h
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     forever do
