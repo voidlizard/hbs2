@@ -66,7 +66,7 @@ defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 1
+defBlockInfoTimeout = 2
 
 defBlockInfoTimeoutSpec :: TimeSpec
 defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout

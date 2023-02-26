@@ -527,9 +527,13 @@ postponedLoop env0 = do
 
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
-    pause @'Seconds 60
-    ban <- asks (view blockBanned)
-    void $ liftIO $ Cache.purgeExpired ban
+    forever do
+      pause @'Seconds 60
+      ban <- asks (view blockBanned)
+      void $ liftIO $ Cache.purgeExpired ban
+      wip <- asks (view blockWip) >>= liftIO . Cache.keys <&> HashSet.fromList
+      trace $ "wipe banned!"
+      void $ liftIO $ Cache.filterWithKey (\(h,_) _ -> HashSet.member h wip ) ban
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
 

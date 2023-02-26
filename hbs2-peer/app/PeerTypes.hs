@@ -334,7 +334,7 @@ delFromPostponed h = do
   liftIO $ atomically $ do
     modifyTVar' po (HashMap.delete h)
 
-removeFromWip :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
+removeFromWip :: (MyPeer e, MonadIO m) => Hash HbSync -> BlockDownloadM e m ()
 removeFromWip h = do
   wip <- asks (view blockWip)
   st  <- asks (view blockState)
@@ -342,8 +342,11 @@ removeFromWip h = do
   tinq <- asks (view blockInQ)
   po  <- asks (view peerPostponed)
   wi <- asks (view blocksWipCnt)
+  ba <- asks (view blockBanned)
 
   liftIO $ Cache.delete wip h
+  liftIO $ Cache.filterWithKey (\(hx,_) _ -> hx /= h) ba
+
   liftIO $ atomically $ do
     modifyTVar' st   (HashMap.delete h)
     modifyTVar' sz   (HashMap.delete h)
