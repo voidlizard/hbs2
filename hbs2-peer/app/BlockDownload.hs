@@ -534,6 +534,7 @@ postponedLoop env0 = do
         pause @'Seconds 10
         wip1 <- asks (view blockWip) >>= liftIO . Cache.keys
         wip2 <- liftIO $ readTVarIO twip
+        trace $ "download stuck chech" <+> pretty wip1 <+> pretty wip2
 
         when (length wip1 == wip2) do
           trace "download stuck"
