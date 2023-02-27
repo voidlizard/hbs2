@@ -73,9 +73,9 @@ newtype instance SessionKey e  (PeerInfo e) =
 deriving newtype instance Hashable (SessionKey UDP (PeerInfo UDP))
 deriving stock instance Eq (SessionKey UDP (PeerInfo UDP))
 
+-- FIXME: this?
 instance Expires (SessionKey UDP (PeerInfo UDP)) where
-  expiresIn = const (Just 600)
-
+  expiresIn = const (Just defCookieTimeoutSec)
 
 pexLoop :: forall e m . ( HasPeerLocator e m
                         , HasPeer e
@@ -115,6 +115,7 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , Sessions e (PeerInfo e) m
                              , Sessions e (KnownPeer e) m
                              , EventListener e (PeerExchangePeersEv e) m
+                             , EventListener e (PeerHandshake e) m
                              , Pretty (Peer e)
                              , MonadIO m
                              )
@@ -123,12 +124,15 @@ peerPingLoop = do
 
   wake <- liftIO newTQueueIO
 
+  pause @'Seconds 0.25
+
   subscribe @e PeerExchangePeersKey $ \(PeerExchangePeersData sas) -> do
     liftIO $ atomically $ writeTQueue wake sas
 
-  forever do
+  subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p _) -> do
+    liftIO $ atomically $ writeTQueue wake [p]
 
-    pause @'Seconds 1
+  forever do
 
     -- FIXME: defaults
     r <- liftIO $ race (pause @'Seconds 60)

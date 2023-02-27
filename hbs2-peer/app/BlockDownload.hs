@@ -59,7 +59,9 @@ withBlockForDownload p action = do
   -- FIXME: busyloop-e46ad5e0
   h <- getBlockForDownload
   banned <- isBanned p h
+  trace $ "withBlockForDownload" <+> pretty p <+> pretty h
   if banned then do
+    trace $ "skip banned block" <+> pretty p <+> pretty h
     addDownload h
   else do
     action h
@@ -526,6 +528,12 @@ postponedLoop env0 = do
   e <- ask
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
+    forever do
+      pause @'Seconds 10
+      mt <- asks (view downloadQ) >>= liftIO . atomically . isEmptyTQueue
+      debug $ "queue monitor thread" <+> "EMPTY:" <+> pretty mt
+
+  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     -- wip <- asks (blockWip) >>= liftIO . Cache.keys
       wip0 <- asks (view blockWip) >>= liftIO . Cache.keys <&> length
       twip <- liftIO $ newTVarIO wip0
@@ -534,15 +542,16 @@ postponedLoop env0 = do
         pause @'Seconds 10
         wip1 <- asks (view blockWip) >>= liftIO . Cache.keys
         wip2 <- liftIO $ readTVarIO twip
-        trace $ "download stuck chech" <+> pretty wip1 <+> pretty wip2
+        trace $ "download stuck check" <+> pretty (length wip1) <+> pretty wip2
 
-        when (length wip1 == wip2) do
-          trace "download stuck"
+        when (length wip1 == wip2 && not (null wip1)) do
+          debug "download stuck"
           for_ wip1 $ \h -> do
             removeFromWip h
             addDownload h
-            wip3 <- asks (view blockWip) >>= liftIO . Cache.keys
-            liftIO $ atomically $ writeTVar twip (length wip3)
+
+        wip3 <- asks (view blockWip) >>= liftIO . Cache.keys
+        liftIO $ atomically $ writeTVar twip (length wip3)
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     forever do
@@ -660,14 +669,16 @@ peerDownloadLoop peer = do
                 writeTVar  downFail 0
                 modifyTVar downBlk succ
 
-  fix \next -> do
+  forever do
 
     auth' <-  lift $ find (KnownPeerKey peer) id
     pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
 
     let mbauth = (,) <$> auth' <*> pinfo'
 
-    maybe1 mbauth none $ \(_,pinfo) -> do
+    let noAuth = warn ( "lost peer auth"  <+> pretty peer) >> pause @'Seconds 5
+
+    maybe1 mbauth noAuth $ \(_,pinfo) -> do
 
       withBlockForDownload peer $ \h -> do
         -- TODO: insert-busyloop-counter-for-block-request
@@ -697,14 +708,16 @@ peerDownloadLoop peer = do
 
               Right Nothing  -> do
                 -- FIXME: non-existent-block-ruins-all
-                liftIO $ Cache.insert noBlock h ()
+                here <- liftIO $ Cache.lookup noBlock h <&> isJust
+
+                unless here $
+                  liftIO $ Cache.insert noBlock h ()
+
                 addDownload h
 
               Right (Just s) -> do
                 updateBlockPeerSize h peer s
                 tryDownload pinfo h s
-
-      next
 
 -- NOTE: this is an adapter for a ResponseM monad
 --       because response is working in ResponseM monad (ha!)

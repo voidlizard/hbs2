@@ -383,6 +383,7 @@ failedDownload :: forall e m . ( MyPeer e
                -> BlockDownloadM e m ()
 
 failedDownload p h = do
+  trace $ "failedDownload" <+> pretty p <+> pretty h
   addDownload h
 
 updateBlockPeerSize :: forall e m . (MyPeer e, MonadIO m)
