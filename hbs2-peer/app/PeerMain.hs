@@ -461,7 +461,7 @@ runPeer opts = Exception.handle myException $ do
                  pd <- find (KnownPeerKey pip) id -- <&> isJust
                  banned <- maybe (pure False) (peerBanned pip) pd
                  let known = isJust pd && not banned
-                 unless known $ sendPing pip
+                 sendPing pip
 
               subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                  pa <- toPeerAddr p
