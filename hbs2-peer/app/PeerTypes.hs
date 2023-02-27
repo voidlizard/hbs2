@@ -285,7 +285,7 @@ addDownload h = do
 
   notPostponed <- liftIO $ readTVarIO po <&> isNothing . HashMap.lookup h
 
-  if (doAdd && notPostponed && notHere) then do
+  when (doAdd && notPostponed && notHere) do
 
     q <- asks (view downloadQ)
     wip <- asks (view blockWip)
@@ -296,11 +296,6 @@ addDownload h = do
         writeTQueue q h
 
       Cache.insert wip h ()
-  else do
-      -- FIXME: wtf?
-      po <- asks (view peerPostponed)
-      liftIO $ atomically $ do
-        modifyTVar po $ HashMap.insert h ()
 
      -- | False -> do -- not hasSize -> do
 
