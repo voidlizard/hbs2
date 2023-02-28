@@ -383,7 +383,8 @@ blockDownloadLoop env0 = do
 
     peers' <- forM known $ \p -> do
                 auth <- lift $ find (KnownPeerKey p) id <&> isJust
-                if auth then
+                pinfo <- lift $ find (PeerInfoKey p) id <&> isJust
+                if auth && pinfo then
                   pure [(p,())]
                 else
                   pure mempty
