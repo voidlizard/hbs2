@@ -35,6 +35,7 @@ import DownloadQ
 import PeerInfo
 import PeerConfig
 import Bootstrap
+import CheckMetrics
 
 import Data.Text qualified as Text
 import Data.Foldable (for_)
@@ -60,6 +61,8 @@ import System.Exit
 import System.IO
 import Data.Set (Set)
 import GHC.TypeLits
+import GHC.Stats
+import System.Metrics
 
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
@@ -348,6 +351,9 @@ forKnownPeers m = do
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
+  metrics <- newStore
+
+
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
 
   conf <- peerConfigRead (view peerConfig opts)
@@ -530,6 +536,8 @@ runPeer opts = Exception.handle myException $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
+
+                peerThread (checkMetrics metrics)
 
                 peerThread (peerPingLoop @e)
 

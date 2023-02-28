@@ -54,6 +54,7 @@ common common-deps
         , vector
         , interpolatedstring-perl6
         , filelock
+        , ekg-core
 
 common shared-properties
   ghc-options:
@@ -67,7 +68,7 @@ common shared-properties
         -- -fno-warn-unused-binds
         -threaded
         -rtsopts
-        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+        "-with-rtsopts=-N4 -A64m -AL256m -I0 -T"
 
 
   default-language:    Haskell2010
@@ -112,6 +113,7 @@ executable hbs2-peer
                     , RPC
                     , PeerTypes
                     , PeerConfig
+                    , CheckMetrics
 
     -- other-extensions:
     build-depends:    base
