@@ -1,6 +1,10 @@
 
 ## 2023-02-28
 
+FIXME: annoying-lost-peer-auth-message
+  кэшировать данное событие в peer loop на какое-то время
+  и больше не ныть
+
 TODO: gc-live-mem-stat
   Выводить в лог размер активной памяти
 
