@@ -586,11 +586,16 @@ postponedLoop env0 = do
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     po <- asks (view peerPostponed)
+    ban <- asks (view blockBanned)
+    stored <- asks (view blockStored)
 
     forever do
       -- FIXME: del-posponed-time-hardcode
       pause @'Seconds 60
       debug "postponedLoop"
+
+      liftIO $ Cache.purgeExpired ban
+      liftIO $ Cache.purgeExpired stored
 
       back <- liftIO $ atomically $ stateTVar po $ \hm ->
         let els = HashMap.toList hm in
@@ -671,12 +676,16 @@ peerDownloadLoop peer = do
 
   forever do
 
+    liftIO do
+      Cache.purgeExpired sizeCache
+      Cache.purgeExpired noBlock
+
     auth' <-  lift $ find (KnownPeerKey peer) id
     pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
 
     let mbauth = (,) <$> auth' <*> pinfo'
 
-    let noAuth = warn ( "lost peer auth"  <+> pretty peer) >> pause @'Seconds 5
+    let noAuth = warn ( "lost peer auth"  <+> pretty peer) >> pause @'Seconds 1
 
     maybe1 mbauth noAuth $ \(_,pinfo) -> do
 

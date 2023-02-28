@@ -235,14 +235,6 @@ incBlockSizeReqCount h = do
       writeTVar (view bsLastSeen blk) now
       modifyTVar (view bsReqSizeTimes blk) succ
 
--- FIXME: что-то более обоснованно
-calcWaitTime :: MonadIO m => BlockDownloadM e m Double
-calcWaitTime = do
-  wip <- asks (view blockWip) >>= liftIO . Cache.size
-  let wipn = realToFrac wip * 3
-  let waiting = 5 + ( (realToFrac (toNanoSeconds defBlockWaitMax) * wipn) / 1e9 )
-  pure waiting
-
 isBlockHereCached :: forall e m . ( MyPeer e
                                   , MonadIO m
                                   , HasStorage m
