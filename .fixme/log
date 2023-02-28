@@ -249,3 +249,5 @@ fixme-set "workflow" "backlog" "G8FMaRmAga"
 fixme-merged "EGPR1m3NNr" "5RbVNm9SRz"
 (fixme-set "assigned" "voidlizard" "5RbVNm9SRz")
 (fixme-set "workflow" "test" "5RbVNm9SRz")
+(fixme-set "workflow" "wip" "AKoEsF2q7t")
+(fixme-set "assigned" "voidlizard" "AKoEsF2q7t")

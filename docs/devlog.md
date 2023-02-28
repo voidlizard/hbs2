@@ -1,6 +1,16 @@
 
 ## 2023-02-28
 
+TODO: hbs2-git
+  - git push hbs2://<annotated-merkle-tree>
+  - git fetch hbs2://<annotated-merkle-tree>
+  - git clone hbs2://<annotated-merkle-tree>
+  - подпись объектов
+  - проверка подписей объектов
+  - задание ACL для репозитория
+  - объекты git
+  - изменение ref
+
 FIXME: annoying-lost-peer-auth-message
   кэшировать данное событие в peer loop на какое-то время
   и больше не ныть.
