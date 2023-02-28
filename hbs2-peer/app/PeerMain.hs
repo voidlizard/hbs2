@@ -84,6 +84,7 @@ data PeerBlackListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
 data PeerTraceKey
+data PeerKnownPeer
 
 data AcceptAnnounce = AcceptAnnounceAll
                     | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
@@ -115,6 +116,9 @@ instance HasCfgKey PeerBlackListKey (Set String) where
 
 instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
   key = "accept-block-announce"
+
+instance HasCfgKey PeerKnownPeer [String] where
+  key = "known-peer"
 
 instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
   cfgValue (PeerConfig syn) = fromMaybe (AcceptAnnounceFrom lst) fromAll
@@ -388,6 +392,12 @@ runPeer opts = Exception.handle myException $ do
 
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
+  -- FIXME: add validation and error handling
+  let parseKnownPeers xs = fmap (PeerUDP . addrAddress) . catMaybes 
+         <$> (fmap headMay . parseAddr . fromString) `mapM` xs
+
+  knownPeers' <- parseKnownPeers $ cfgValue @PeerKnownPeer conf
+
   print $ pretty accptAnn
 
   -- FIXME: move-peerBanned-somewhere
@@ -635,6 +645,10 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse (withCredentials pc . peerHandShakeProto)
                     , makeResponse peerExchangeProto
                     ]
+
+                wo $ liftIO $ async $ withPeerM env $ forever do
+                    forM_  knownPeers' (sendPing @e)
+                    pause @'Minutes 20
 
               void $ liftIO $ waitAnyCatchCancel workers
 
