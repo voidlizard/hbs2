@@ -1,0 +1,80 @@
+cabal-version:      3.0
+name:               hbs2-git
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           Development
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -- -fno-warn-unused-matches
+        -- -fno-warn-unused-do-bind
+        -- -Werror=missing-methods
+        -- -Werror=incomplete-patterns
+        -- -fno-warn-unused-binds
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+
+  default-language:    Haskell2010
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , RecordWildCards
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+
+  build-depends: hbs2-core
+
+
+library
+    exposed-modules:  MyLib
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base
+    hs-source-dirs:   lib
+    default-language: Haskell2010
+
+executable git-hbs2
+    import:           shared-properties
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base,
+        hbs2-git
+
+    hs-source-dirs:   git-hbs2
+    default-language: Haskell2010
