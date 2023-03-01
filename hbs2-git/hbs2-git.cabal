@@ -66,7 +66,9 @@ common shared-properties
                , transformers
                , uniplate
                , prettyprinter
-
+               , microlens-platform
+               , filepath
+               , directory
 
 library
     exposed-modules:  MyLib
@@ -79,7 +81,11 @@ library
 executable git-hbs2
     import:           shared-properties
     main-is:          Main.hs
-    -- other-modules:
+
+    other-modules:
+      HBS2Git.Export
+      HBS2Git.Config
+
     -- other-extensions:
     build-depends:
         base, hbs2-git
