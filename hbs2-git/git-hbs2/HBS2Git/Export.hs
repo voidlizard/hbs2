@@ -67,6 +67,8 @@ runExport = do
 
   db <- asks (view appStateEnv)
 
+  -- FIXME: test-fixme
+
   withDB db $ transactional do
     els <- liftIO $ Cache.toList (hCache cache)
     for_ els $ \(k,vs,_) -> do
