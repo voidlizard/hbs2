@@ -3,8 +3,18 @@ module HBS2Git.Export where
 import HBS2.Prelude
 import HBS2.System.Logger.Simple
 
-runExport :: MonadIO m => m ()
-runExport = liftIO do
+import HBS2.Git.Local
+
+import HBS2Git.App
+
+import Control.Monad.Reader
+import Lens.Micro.Platform
+import Data.Set (Set)
+import Data.Set qualified as Set
+
+
+runExport :: MonadIO m => App m ()
+runExport = do
   trace "Export"
 
   -- TODO: read-repo-head
@@ -16,6 +26,17 @@ runExport = liftIO do
   -- TODO: build-transitive-closure
   trace "build-transitive-closure"
 
+  git <- asks (view appGitDir)
+
+  trace $ "git directory is" <+> pretty git
+
+  env <- ask
+
+  let branches = cfgValue @ConfBranch env
+
+  refs <- gitReadRefs git branches
+
+  notice $ vcat (fmap pretty refs)
 
   pure ()
 

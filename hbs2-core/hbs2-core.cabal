@@ -101,6 +101,8 @@ library
                     , HBS2.Storage
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
+                    -- FIXME: move-to-a-separate-package
+                    , Data.Config.Suckless.KeyVal
 
 
     -- other-modules:

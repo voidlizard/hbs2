@@ -6,13 +6,15 @@ import HBS2.OrDie
 
 import Data.Config.Suckless
 
+import Data.Functor
 import System.FilePath
 import System.Directory
 import System.IO
 
+type C = MegaParsec
 
-findGitDir :: FilePath -> IO (Maybe FilePath)
-findGitDir dir = do
+findGitDir :: MonadIO m => FilePath -> m (Maybe FilePath)
+findGitDir dir = liftIO do
   let gitDir = dir </> ".git"
   exists <- doesDirectoryExist gitDir
   if exists
@@ -24,13 +26,14 @@ findGitDir dir = do
 
 
 configPath :: MonadIO m => FilePath -> m FilePath
-configPath pwd = do
+configPath pwd = liftIO do
   xdg <- liftIO $ getXdgDirectory XdgConfig "hbs2-git"
   home <- liftIO getHomeDirectory
+  gitDir <- findGitDir pwd `orDie` ".git directory not found"
   pure $ xdg </> makeRelative home pwd
 
 -- returns current directory, where found .git directory
-configInit :: MonadIO m => m FilePath
+configInit :: MonadIO m => m (FilePath, [Syntax C])
 configInit = liftIO do
   trace "configInit"
 
@@ -53,7 +56,14 @@ configInit = liftIO do
     debug $ "create directory" <+> pretty confP
     createDirectoryIfMissing True confP
 
-  pure pwd
+  let confFile = confP </> "config"
 
+  confHere <- doesFileExist confFile
 
+  unless confHere do
+    appendFile confFile ""
+
+  cfg <- readFile confFile <&> parseTop <&> either mempty id
+
+  pure (pwd, cfg)
 

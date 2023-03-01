@@ -59,6 +59,7 @@ common shared-properties
   build-depends: hbs2-core
                , async
                , bytestring
+               , base16-bytestring
                , containers
                , mtl
                , suckless-conf
@@ -69,9 +70,15 @@ common shared-properties
                , microlens-platform
                , filepath
                , directory
+               , interpolatedstring-perl6
 
 library
-    exposed-modules:  MyLib
+    import:           shared-properties
+
+    exposed-modules:
+      HBS2.Git.Types
+      HBS2.Git.Local
+
     -- other-modules:
     -- other-extensions:
     build-depends:    base
