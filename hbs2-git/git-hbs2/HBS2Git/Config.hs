@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-warn-defaulting #-}
 module HBS2Git.Config where
 
 import HBS2.Prelude
@@ -9,7 +10,6 @@ import Data.Config.Suckless
 import Data.Functor
 import System.FilePath
 import System.Directory
-import System.IO
 
 type C = MegaParsec
 

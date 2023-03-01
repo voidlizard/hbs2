@@ -16,6 +16,7 @@ extra-doc-files:    CHANGELOG.md
 common shared-properties
   ghc-options:
         -Wall
+        -Wno-type-defaults
         -- -fno-warn-unused-matches
         -- -fno-warn-unused-do-bind
         -- -Werror=missing-methods
@@ -57,6 +58,7 @@ common shared-properties
 
 
   build-depends: hbs2-core
+               , aeson
                , async
                , bytestring
                , base16-bytestring
@@ -71,6 +73,8 @@ common shared-properties
                , filepath
                , directory
                , interpolatedstring-perl6
+               , cryptonite
+               , memory
 
 library
     import:           shared-properties

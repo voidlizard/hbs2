@@ -23,8 +23,6 @@ runExport = do
   -- TODO: create-repo-head-block
   trace "create-repo-head-block"
 
-  -- TODO: build-transitive-closure
-  trace "build-transitive-closure"
 
   git <- asks (view appGitDir)
 
@@ -37,6 +35,9 @@ runExport = do
   refs <- gitReadRefs git branches
 
   notice $ vcat (fmap pretty refs)
+
+  -- TODO: build-transitive-closure
+  trace "build-transitive-closure"
 
   pure ()
 
