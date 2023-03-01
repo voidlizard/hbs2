@@ -75,4 +75,8 @@ runExport = do
       for_ (Set.toList vs) $ \h -> do
         stateAddDep k h
 
+  liftIO $ print $ vcat (fmap pretty refs)
+
+
+
 
