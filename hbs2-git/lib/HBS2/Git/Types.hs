@@ -1,5 +1,5 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Git.Types where
-
 
 import Crypto.Hash hiding (SHA1)
 import Crypto.Hash qualified as Crypto
@@ -18,14 +18,18 @@ import Data.Text (Text)
 import GHC.Generics
 import Prettyprinter
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Hashable
 
+class Monad m => HasCache t k v m where
+  cacheLookup  :: t -> k -> m (Maybe v)
+  cacheInsert  :: t -> k -> v -> m ()
 
 data SHA1 = SHA1
             deriving stock(Eq,Ord,Data,Generic)
 
 newtype GitHash = GitHash ByteString
                   deriving stock (Eq,Ord,Data,Generic,Show)
-
+                  deriving newtype Hashable
 
 instance IsString GitHash where
   fromString s = GitHash (B16.decodeLenient (BS.pack s))

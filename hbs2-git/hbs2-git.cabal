@@ -59,6 +59,7 @@ common shared-properties
                , async
                , base16-bytestring
                , bytestring
+               , cache
                , containers
                , cryptonite
                , directory
@@ -69,11 +70,13 @@ common shared-properties
                , mtl
                , prettyprinter
                , safe
+               , serialise
                , suckless-conf
                , text
                , transformers
                , typed-process
                , uniplate
+               , hashable
 
 library
     import:           shared-properties

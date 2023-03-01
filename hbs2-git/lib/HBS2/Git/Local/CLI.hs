@@ -1,7 +1,11 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Git.Local.CLI where
 
 import HBS2.Git.Types
 
+import HBS2.System.Logger.Simple
+
+import Control.Concurrent.Async
 import Data.String
 import Control.Monad.IO.Class
 import Data.ByteString.Char8 qualified as BS8
@@ -89,15 +93,21 @@ gitGetDependencies hash = do
     _           -> pure mempty
 
 
-gitGetTransitiveClosure :: (MonadIO m)
+gitGetTransitiveClosure :: forall cache . (HasCache cache GitHash (Set GitHash) IO)
                         => cache
                         -> Set GitHash
                         -> GitHash
-                        -> m (Set GitHash)
+                        -> IO (Set GitHash)
 
 gitGetTransitiveClosure cache exclude hash = do
-  -- withCache cache hash $ \_ -> do
-    deps <- gitGetDependencies hash
-    clos <- mapM (gitGetTransitiveClosure cache exclude) deps
-    pure $ (Set.fromList (hash:deps) <> Set.unions clos) `Set.difference` exclude
+    trace $ "gitGetTransitiveClosure" <+> pretty hash
+    r <- cacheLookup cache hash :: IO (Maybe (Set GitHash))
+    case r of
+      Just xs -> pure xs
+      Nothing -> do
+        deps <- gitGetDependencies hash
+        clos <- mapConcurrently (gitGetTransitiveClosure cache exclude) deps
+        let res = (Set.fromList (hash:deps) <> Set.unions clos) `Set.difference` exclude
+        cacheInsert cache hash res
+        pure res
 
