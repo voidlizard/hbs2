@@ -3,12 +3,11 @@ module Main where
 import HBS2.Prelude
 import HBS2.System.Logger.Simple hiding (info)
 
-import HBS2Git.Config as Config
+import HBS2Git.App
 import HBS2Git.Export
 
 import Options.Applicative as O
 import Control.Monad
-import Lens.Micro.Platform
 
 -- TODO: hbs2-git-state-init
 --   Создать / обновить стейт в XDG_DATA_HOME/.hbs2-git, включая БД
@@ -90,39 +89,6 @@ import Lens.Micro.Platform
 
 -- TODO: hbs2-git-cli-skeleton
 --  скелет обработки аргументов командной строки
-
-logPrefix s = set loggerTr (s <>)
-
-tracePrefix :: SetLoggerEntry
-tracePrefix  = logPrefix "[trace] "
-
-debugPrefix :: SetLoggerEntry
-debugPrefix  = logPrefix "[debug] "
-
-errorPrefix :: SetLoggerEntry
-errorPrefix  = logPrefix "[error] "
-
-warnPrefix :: SetLoggerEntry
-warnPrefix   = logPrefix ""
-
-noticePrefix :: SetLoggerEntry
-noticePrefix = logPrefix ""
-
-runApp :: MonadIO m => m () -> m ()
-runApp m = do
-
-  setLogging @DEBUG  debugPrefix
-  setLogging @ERROR  errorPrefix
-  setLogging @NOTICE noticePrefix
-  setLogging @TRACE  tracePrefix
-
-  Config.configInit
-  m
-
-  setLoggingOff @DEBUG
-  setLoggingOff @ERROR
-  setLoggingOff @NOTICE
-  setLoggingOff @TRACE
 
 main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $

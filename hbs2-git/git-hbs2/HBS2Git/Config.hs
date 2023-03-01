@@ -29,7 +29,8 @@ configPath pwd = do
   home <- liftIO getHomeDirectory
   pure $ xdg </> makeRelative home pwd
 
-configInit :: MonadIO m => m ()
+-- returns current directory, where found .git directory
+configInit :: MonadIO m => m FilePath
 configInit = liftIO do
   trace "configInit"
 
@@ -51,6 +52,8 @@ configInit = liftIO do
   unless here do
     debug $ "create directory" <+> pretty confP
     createDirectoryIfMissing True confP
+
+  pure pwd
 
 
 

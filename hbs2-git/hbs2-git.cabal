@@ -85,6 +85,7 @@ executable git-hbs2
     other-modules:
       HBS2Git.Export
       HBS2Git.Config
+      HBS2Git.App
 
     -- other-extensions:
     build-depends:
