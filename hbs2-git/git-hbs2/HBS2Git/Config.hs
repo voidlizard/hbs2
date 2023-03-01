@@ -12,6 +12,9 @@ import System.Directory
 
 type C = MegaParsec
 
+appName :: FilePath
+appName = "hbs2-git"
+
 findGitDir :: MonadIO m => FilePath -> m (Maybe FilePath)
 findGitDir dir = liftIO do
   let gitDir = dir </> ".git"
@@ -26,7 +29,7 @@ findGitDir dir = liftIO do
 
 configPath :: MonadIO m => FilePath -> m FilePath
 configPath pwd = liftIO do
-  xdg <- liftIO $ getXdgDirectory XdgConfig "hbs2-git"
+  xdg <- liftIO $ getXdgDirectory XdgConfig appName
   home <- liftIO getHomeDirectory
   gitDir <- findGitDir pwd `orDie` ".git directory not found"
   pure $ xdg </> makeRelative home pwd

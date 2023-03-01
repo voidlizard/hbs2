@@ -77,6 +77,7 @@ common shared-properties
                , typed-process
                , uniplate
                , hashable
+               , sqlite-simple
 
 library
     import:           shared-properties
@@ -102,9 +103,11 @@ executable git-hbs2
         "-with-rtsopts=-N4 -A64m -AL256m -I0"
 
     other-modules:
+      HBS2Git.Types
       HBS2Git.Export
       HBS2Git.Config
       HBS2Git.App
+      HBS2Git.State
 
     -- other-extensions:
     build-depends:

@@ -43,8 +43,6 @@ runExport = do
 
   refs <- gitReadRefs git branches
 
-  notice $ vcat (fmap pretty refs)
-
   -- TODO: build-transitive-closure
   trace "build-transitive-closure"
 
@@ -52,6 +50,6 @@ runExport = do
 
   for_ refs $ \(_, h) -> do
     clo <- liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
-    liftIO $ print $ vcat (fmap pretty clo)
+    debug $ "closure:" <+> pretty (length clo)
 
 
