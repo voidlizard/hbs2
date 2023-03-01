@@ -100,7 +100,7 @@ gitGetTransitiveClosure :: forall cache . (HasCache cache GitHash (Set GitHash) 
                         -> IO (Set GitHash)
 
 gitGetTransitiveClosure cache exclude hash = do
-    trace $ "gitGetTransitiveClosure" <+> pretty hash
+    -- trace $ "gitGetTransitiveClosure" <+> pretty hash
     r <- cacheLookup cache hash :: IO (Maybe (Set GitHash))
     case r of
       Just xs -> pure xs
