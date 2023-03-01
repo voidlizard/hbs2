@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wno-warn-defaulting #-}
+{-# OPTIONS_GHC -Wno-warn-defaults #-}
 module HBS2Git.Config where
 
 import HBS2.Prelude
