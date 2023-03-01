@@ -1,13 +1,23 @@
 module HBS2Git.State where
 
 import HBS2Git.Types
+import HBS2.Git.Types
 
+import Data.Functor
 import Database.SQLite.Simple
+import Database.SQLite.Simple.FromField
+import Database.SQLite.Simple.ToField
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
+import Data.String
+import Prettyprinter
 
-type DBEnv = Connection
+instance ToField GitHash where
+  toField h = toField (show $ pretty h)
+
+instance FromField GitHash where
+  fromField = fmap fromString . fromField @String
 
 newtype DB m a =
   DB { fromDB :: ReaderT DBEnv m a }
@@ -36,7 +46,26 @@ stateInit = do
   )
   |]
 
--- stateInit :: MonadIO m => FilePath -> App m ()
--- stateInit fp = do
---   undefined
+transactional :: forall a m . MonadIO m => DB m a -> DB m a
+transactional action = do
+  conn <- ask
+  liftIO $ execute_ conn "begin"
+  x <- action
+  liftIO $ execute_ conn "commit"
+  pure x
+
+stateAddDep :: MonadIO m => GitHash -> GitHash -> DB m ()
+stateAddDep h1 h2 = do
+  conn <- ask
+  void $ liftIO $ execute conn [qc|
+    insert into dep (object,parent) values(?,?)
+    on conflict (object,parent) do nothing
+    |] (h1,h2)
+
+stateGetDeps :: MonadIO m => GitHash -> DB m [GitHash]
+stateGetDeps h = do
+  conn <- ask
+  liftIO $ query conn [qc|
+  select object from dep where parent = ?
+  |] (Only h) <&> fmap fromOnly
 

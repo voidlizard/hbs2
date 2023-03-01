@@ -7,11 +7,14 @@ module HBS2Git.Types where
 import Data.Config.Suckless
 
 import Control.Monad.Reader
+import Database.SQLite.Simple (Connection)
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.String
 import Lens.Micro.Platform
 import Prettyprinter
+
+type DBEnv = Connection
 
 type C = MegaParsec
 
@@ -19,10 +22,11 @@ data ConfBranch
 
 data AppEnv =
   AppEnv
-  { _appCurDir :: FilePath
-  , _appGitDir :: FilePath
-  , _appConf   :: [Syntax C]
-  , _appState  :: FilePath
+  { _appCurDir     :: FilePath
+  , _appGitDir     :: FilePath
+  , _appConf       :: [Syntax C]
+  , _appStatePath  :: FilePath
+  , _appStateEnv   :: DBEnv
   }
 
 makeLenses 'AppEnv

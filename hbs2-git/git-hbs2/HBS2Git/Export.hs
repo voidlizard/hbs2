@@ -7,6 +7,7 @@ import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
 import HBS2Git.App
+import HBS2Git.State
 
 import Data.Foldable (for_)
 import Control.Monad.Reader
@@ -15,12 +16,25 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Cache as Cache
 
-type HashCache = Cache GitHash (Set GitHash)
+data HashCache =
+  HashCache
+  { hCache :: Cache GitHash (Set GitHash)
+  , hDb    :: DBEnv
+  }
 
-instance Hashable GitHash => HasCache (Cache GitHash (Set GitHash)) GitHash (Set GitHash) IO where
-  cacheInsert = Cache.insert
-  cacheLookup = Cache.lookup'
+instance Hashable GitHash => HasCache HashCache GitHash (Set GitHash) IO where
+  cacheInsert (HashCache cache _) = Cache.insert cache
 
+  cacheLookup (HashCache cache db) k = do
+    refs <- withDB db (stateGetDeps k)
+    case refs of
+      [] -> Cache.lookup' cache k
+      xs -> pure $ Just $ Set.fromList xs
+
+newHashCache :: MonadIO m => DBEnv -> m HashCache
+newHashCache db = do
+  ca <- liftIO $ Cache.newCache Nothing
+  pure $ HashCache ca db
 
 runExport :: MonadIO m => App m ()
 runExport = do
@@ -46,10 +60,17 @@ runExport = do
   -- TODO: build-transitive-closure
   trace "build-transitive-closure"
 
-  cache <- liftIO (newCache Nothing :: IO HashCache)
+  cache <- newHashCache (view appStateEnv env)
 
   for_ refs $ \(_, h) -> do
-    clo <- liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
-    debug $ "closure:" <+> pretty (length clo)
+    liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
+
+  db <- asks (view appStateEnv)
+
+  withDB db $ transactional do
+    els <- liftIO $ Cache.toList (hCache cache)
+    for_ els $ \(k,vs,_) -> do
+      for_ (Set.toList vs) $ \h -> do
+        stateAddDep k h
 
 

@@ -78,6 +78,7 @@ common shared-properties
                , uniplate
                , hashable
                , sqlite-simple
+               , stm
 
 library
     import:           shared-properties

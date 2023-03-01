@@ -11,6 +11,7 @@ import HBS2.System.Logger.Simple
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
+import HBS2Git.State
 
 import Data.Config.Suckless
 
@@ -21,7 +22,6 @@ import Control.Monad.Reader
 import Lens.Micro.Platform
 import System.Directory
 import System.FilePath
-
 
 logPrefix s = set loggerTr (s <>)
 
@@ -53,13 +53,14 @@ runApp m = do
 
   (pwd, syn) <- Config.configInit
 
-  let db = "jopakita.db"
-
-
   home <- liftIO getHomeDirectory
   xdgstate <- liftIO $ getXdgDirectory XdgData Config.appName
 
   let statePath = xdgstate </> makeRelative home pwd
+
+  let dbPath = statePath </> "state.db"
+
+  db <- dbEnv dbPath
 
   trace $ "state" <+> pretty statePath
 
@@ -68,7 +69,9 @@ runApp m = do
   unless here do
     liftIO $ createDirectoryIfMissing True statePath
 
-  let env = AppEnv pwd (pwd </> ".git") syn db
+  withDB db stateInit
+
+  let env = AppEnv pwd (pwd </> ".git") syn dbPath db
   runReaderT (fromApp m) env
 
   debug $ vcat (fmap pretty syn)
