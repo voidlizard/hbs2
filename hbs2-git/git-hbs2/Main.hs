@@ -1,5 +1,8 @@
 module Main where
 
+import Options.Applicative
+import Control.Monad
+
 import qualified MyLib (someFunc)
 
 -- TODO: hbs2-git-state-init
@@ -85,7 +88,18 @@ import qualified MyLib (someFunc)
 
 
 main :: IO ()
-main = do
-  putStrLn "Hello, Haskell!"
-  MyLib.someFunc
+main = join . customExecParser (prefs showHelpOnError) $
+  info (helper <*> parser)
+  (  fullDesc
+  <> header "hbsync block fetch"
+  <> progDesc "fetches blocks from hbsync peers"
+  )
+  where
+    parser ::  Parser (IO ())
+    parser = hsubparser (  command "export" (info pExport (progDesc "store block"))
+                        )
+
+
+    pExport = do
+      pure $ pure ()
 
