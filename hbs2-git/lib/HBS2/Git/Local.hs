@@ -14,14 +14,14 @@ import Data.Set qualified as Set
 import System.Directory
 import System.FilePath
 
-gitReadRefs :: MonadIO m => FilePath -> Set String -> m [GitHash]
+gitReadRefs :: MonadIO m => FilePath -> Set String -> m [(GitRef, GitHash)]
 gitReadRefs p m = do
 
   xs <- forM (Set.toList m) $ \br -> do
           let fn = p </> "refs/heads" </> br
           here <- liftIO $ doesFileExist fn
           if here then do
-            s <- liftIO $ readFile fn <&> fromString
+            s <- liftIO $ readFile fn <&> (fromString br,) . fromString
             pure [s]
           else do
             pure mempty
