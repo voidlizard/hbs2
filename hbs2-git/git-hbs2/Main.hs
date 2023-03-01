@@ -80,6 +80,10 @@ import qualified MyLib (someFunc)
 --    значение ссылки, либо - отдельной командой из полученного merkle дерева импортировать
 --    всё в репозиторий (что делать со ссылками?)
 
+-- TODO: hbs2-git-cli-skeleton
+--  скелет обработки аргументов командной строки
+
+
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
