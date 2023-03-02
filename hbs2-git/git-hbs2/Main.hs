@@ -5,6 +5,7 @@ import HBS2.System.Logger.Simple hiding (info)
 
 import HBS2Git.App
 import HBS2Git.Export
+import HBS2Git.ListRefs
 
 import Options.Applicative as O
 import Control.Monad
@@ -99,10 +100,14 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "export" (info pExport (progDesc "store block"))
+    parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
+                        <> command "list-refs" (info pListRefs (progDesc "list refs"))
                         )
 
 
     pExport = do
       pure $ runApp runExport
+
+    pListRefs = do
+      pure $ runApp runListRefs
 

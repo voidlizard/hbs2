@@ -2,10 +2,15 @@
 {-# Language UndecidableInstances #-}
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2Git.Types where
+module HBS2Git.Types
+  ( module HBS2Git.Types
+  , module Control.Monad.IO.Class
+  )
+  where
 
 import Data.Config.Suckless
 
+import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Database.SQLite.Simple (Connection)
 import Data.Set qualified as Set
