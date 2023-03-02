@@ -121,8 +121,8 @@ runExport h = do
 
   withDB db $ transactional do -- to speedup inserts
 
-    let gha = gitHashObject (GitObject Blob repoHead)
-    hh  <- withApp ae $ storeObject repoHead
+    -- let gha = gitHashObject (GitObject Blob repoHead)
+    hh  <- withApp ae $ storeObject repoHead `orDie` "cant save repo head"
 
     for_ deps $ \d -> do
       here <- stateGetHash d <&> isJust
@@ -133,8 +133,9 @@ runExport h = do
           withDB db $ statePutHash d hr
           trace $ "store" <+> pretty d <+> pretty hr
 
-    hashes <- stateGetAllHashes
+    hashes <- (hh : ) <$> stateGetAllHashes
 
     trace $ pretty $ length hashes
+    trace $ "head" <+> pretty hh
 
 
