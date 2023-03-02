@@ -45,7 +45,10 @@ warnPrefix :: SetLoggerEntry
 warnPrefix   = toStderr . logPrefix "[warn] "
 
 noticePrefix :: SetLoggerEntry
-noticePrefix = toStderr . logPrefix ""
+noticePrefix = toStderr
+
+infoPrefix :: SetLoggerEntry
+infoPrefix = toStdout
 
 instance HasCfgKey ConfBranch (Set String) where
   key = "branch"
@@ -72,6 +75,7 @@ runApp l m = do
       setLogging @ERROR  errorPrefix
       setLogging @NOTICE noticePrefix
       setLogging @TRACE  tracePrefix
+      setLogging @INFO   infoPrefix
 
   (pwd, syn) <- Config.configInit
 
@@ -94,6 +98,7 @@ runApp l m = do
   setLoggingOff @ERROR
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
+  setLoggingOff @INFO
 
 readBlock :: MonadIO m => HashRef -> App m (Maybe ByteString)
 readBlock h = do

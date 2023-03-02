@@ -74,7 +74,7 @@ toStderr :: SetLoggerEntry
 toStderr = set loggerType LoggerStderr
 
 toStdout :: SetLoggerEntry
-toStdout = set loggerType LoggerStderr
+toStdout = set loggerType LoggerStdout
 
 setLogging :: forall a m . (MonadIO m, HasLogLevel a)
            => (LoggerEntry -> LoggerEntry)

@@ -132,11 +132,31 @@ runDumpStateTree ref rfv = do
   dbPath <- makeDbPath ref
   db <- dbEnv dbPath
 
-  -- dn <-
-  -- withDB
+  withDB db stateInit
 
+  let rest = drop 1 entries
 
-  pure ()
+  ae <- ask
+
+  withDB db do
+
+    for_ rest $ \r -> do
+
+      gh <- stateGetGitHash r <&> isJust
+
+      unless gh do
+
+        blk <- withApp ae $ readBlock r `orDie` "empty data block"
+
+        let what = tryDetect (fromHashRef r) blk
+
+        case what of
+          MerkleAnn{} -> do
+            let meta = headDef "" [ Text.unpack s | ShortMetadata s <- universeBi hdBlk ]
+            info $ pretty r
+
+          _ -> liftIO $ die $ show $ pretty "unexpected block" <+> pretty r
+
 
 runExport :: MonadIO m => HashRef -> App m ()
 runExport h = do
@@ -191,8 +211,6 @@ runExport h = do
             pure $ mconcat x
 
   ae <- ask
-
-
 
   withDB db $ transactional do -- to speedup inserts
 

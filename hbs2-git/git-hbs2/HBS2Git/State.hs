@@ -122,6 +122,15 @@ stateGetHash h = do
   limit 1
   |] (Only h) <&> fmap fromOnly <&> listToMaybe
 
+
+stateGetGitHash :: MonadIO m => HashRef -> DB m (Maybe GitHash)
+stateGetGitHash h = do
+  conn <- ask
+  liftIO $ query conn [qc|
+  select githash from object where hash = ?
+  limit 1
+  |] (Only h) <&> fmap fromOnly <&> listToMaybe
+
 stateGetAllHashes :: MonadIO m => DB m [HashRef]
 stateGetAllHashes = do
   conn <- ask
