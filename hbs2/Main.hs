@@ -26,6 +26,7 @@ import Control.Monad.Trans.State.Strict
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Function
@@ -213,13 +214,20 @@ runStore opts ss = do
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  case (uniLastMay @OptGroupkeyFile opts) of
+  case uniLastMay @OptGroupkeyFile opts of
     Nothing -> do
         root' <- putAsMerkle ss handle
 
         root <- case meta58 of
                   Nothing -> pure root'
-                  Just s -> error "metadata is not supported"
+                  Just s -> do
+                    let metad = fromBase58 (BS8.pack s) & fromMaybe "" & BS8.unpack & fromString
+                    mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash root'))
+                        `orDie` "merkle tree was not stored properly with `putAsMerkle`"
+                    mannh <- maybe (die "can not store MerkleAnn") pure
+                                  =<< (putBlock ss . serialise @(MTreeAnn [HashRef])) do
+                                            MTreeAnn (ShortMetadata metad) NullEncryption  mtree
+                    pure (MerkleHash mannh)
 
         print $ "merkle-root: " <+> pretty root
 
