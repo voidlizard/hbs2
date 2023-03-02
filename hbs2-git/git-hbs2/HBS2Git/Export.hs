@@ -135,7 +135,12 @@ runExport h = do
 
     hashes <- (hh : ) <$> stateGetAllHashes
 
+    let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
+
+    root <- makeMerkle 0 pt $ \(_,_,bss) -> void $ withApp ae $ storeObject bss
+
     trace $ pretty $ length hashes
     trace $ "head" <+> pretty hh
+    trace $ "merkle" <+> pretty root
 
 
