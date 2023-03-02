@@ -116,7 +116,6 @@ instance HasCfgKey PeerBlackListKey (Set String) where
 instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
   key = "accept-block-announce"
 
-
 instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
   cfgValue (PeerConfig syn) = fromMaybe (AcceptAnnounceFrom lst) fromAll
     where

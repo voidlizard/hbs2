@@ -131,11 +131,13 @@ peerConfigRead mbfp = do
 
     debug $ pretty cfgPath
 
-    confData' <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
+    let parseConf f = liftIO $ readFile f <&> parseTop <&> either mempty id
+
+    confData' <- parseConf cfgPath
 
     knownPeersFiles <- mapM (liftIO . canonicalizePath . (dir </>)) (cfgValue @PeerKnownPeersFile $ PeerConfig confData')
 
-    knownPeersConfData <- concat <$> mapM (\file -> liftIO $ readFile file <&> parseTop <&> either mempty id) knownPeersFiles
+    knownPeersConfData <- concat <$> mapM parseConf knownPeersFiles
 
     let confData = confData' <> either mempty id (parseTop  peerConfDef) <> knownPeersConfData
 
