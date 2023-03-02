@@ -102,7 +102,7 @@ storeObjectHBS2Store bs = do
 
   let input = byteStringInput bs
   let cmd = setStdin input $ setStderr closed
-                           $ shell [qc|hbs2 store|]
+                           $ shell [qc|hbs2 store --short-meta-base58=jopakita|]
 
   (_, out, _) <- liftIO $ readProcess cmd
 

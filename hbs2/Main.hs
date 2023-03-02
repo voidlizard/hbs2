@@ -83,6 +83,7 @@ data StoreOpts =
   {  storeInit      :: Maybe OptInit
   ,  storeInputFile :: Maybe OptInputFile
   ,  storeGroupkeyFile :: Maybe OptGroupkeyFile
+  ,  storeBase58Meta :: Maybe String
   }
   deriving stock (Data)
 
@@ -197,7 +198,7 @@ runCat opts ss = do
           maybe (error "empty ref") walk mbHead
 
 
-runStore ::(Data opts) => opts -> SimpleStorage HbSync -> IO ()
+runStore :: StoreOpts -> SimpleStorage HbSync -> IO ()
 
 runStore opts ss | justInit = do
   putStrLn "initialized"
@@ -208,13 +209,20 @@ runStore opts ss | justInit = do
 runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
+  let meta58  = storeBase58Meta opts
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
   case (uniLastMay @OptGroupkeyFile opts) of
     Nothing -> do
-        root <- putAsMerkle ss handle
+        root' <- putAsMerkle ss handle
+
+        root <- case meta58 of
+                  Nothing -> pure root'
+                  Just s -> error "metadata is not supported"
+
         print $ "merkle-root: " <+> pretty root
+
     Just gkfile -> do
         gk :: GroupKey MerkleEncryptionType 'NaClAsymm
             <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile))
@@ -505,7 +513,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
       groupkeyFile <- optional $ strOption ( long "groupkey" <> help "path to groupkey file" )
-      pure $ withStore o (runStore ( StoreOpts init file (OptGroupkeyFile <$> groupkeyFile) ))
+      b58meta <- optional $ strOption ( long "short-meta-base58" <> help "pass escaped metadata string")
+      pure $ withStore o (runStore ( StoreOpts init file (OptGroupkeyFile <$> groupkeyFile) b58meta))
 
     pCat = do
       o <- common
