@@ -643,12 +643,26 @@ runPeer opts = Exception.handle myException $ do
 
               void $ liftIO $ waitAnyCatchCancel workers
 
+
   let pokeAction _ = do
         who <- thatPeer (Proxy @(RPC e))
         let k = view peerSignPk pc
+        let rpc  = "rpc:" <+> dquotes (pretty (listenAddr udp1))
+        let udp  = "udp:" <+> dquotes (pretty (listenAddr mess))
+
+        let http = case cfgValue @PeerHttpPortKey conf :: Maybe Integer of
+                     Nothing -> mempty
+                     Just p  -> "http-port:" <+> pretty p
+
+        let answ = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
+                               , rpc
+                               , udp
+                               , http
+                               ]
+
         -- FIXME: to-delete-POKE
         liftIO $ atomically $ writeTQueue rpcQ POKE
-        request who (RPCPokeAnswer @e k)
+        request who (RPCPokeAnswerFull @e (Text.pack answ))
 
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
@@ -689,6 +703,7 @@ runPeer opts = Exception.handle myException $ do
           setLoggingOff @TRACE
 
   let arpc = RpcAdapter pokeAction
+                        dontHandle
                         dontHandle
                         annAction
                         pingAction
@@ -763,11 +778,13 @@ withRPC o cmd = do
 
   pokeQ <- newTQueueIO
 
+  pokeFQ <- newTQueueIO
+
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @UDP
-                        [ makeResponse (rpcHandler (adapter pingQ pokeQ))
+                        [ makeResponse (rpcHandler (adapter pingQ pokeQ pokeFQ))
                         ]
 
                     request rpc cmd
@@ -790,8 +807,8 @@ withRPC o cmd = do
                                            exitFailure
 
                         void $ liftIO $ race onTimeout do
-                                 k <- liftIO $ atomically $ readTQueue pokeQ
-                                 Log.info $ "alive-and-kicking" <+> pretty (AsBase58 k)
+                                 k <- liftIO $ atomically $ readTQueue pokeFQ
+                                 Log.info $ pretty k
                                  exitSuccess
 
                       RPCPeers{} -> liftIO do
@@ -807,8 +824,9 @@ withRPC o cmd = do
   void $ waitAnyCatchCancel [mrpc, prpc]
 
   where
-    adapter q pq = RpcAdapter dontHandle
+    adapter q pq pt = RpcAdapter dontHandle
                           (liftIO . atomically . writeTQueue pq)
+                          (liftIO . atomically . writeTQueue pt)
                           (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)

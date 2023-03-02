@@ -42,6 +42,10 @@ pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
 
 data PeerDownloadLogKey
+data PeerHttpPortKey
+
+instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
+  key = "http-port"
 
 instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"

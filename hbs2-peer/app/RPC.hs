@@ -10,6 +10,9 @@ import HBS2.Actors.Peer
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
 
+import PeerConfig
+
+import Data.Text (Text)
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise (serialise,deserialiseOrFail)
@@ -27,6 +30,7 @@ data RPC e =
   | RPCPing (PeerAddr e)
   | RPCPong (PeerAddr e)
   | RPCPokeAnswer (PubKey 'Sign e)
+  | RPCPokeAnswerFull Text
   | RPCAnnounce (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
@@ -56,6 +60,7 @@ data RpcAdapter e m =
   RpcAdapter
   { rpcOnPoke        :: RPC e -> m ()
   , rpcOnPokeAnswer  :: PubKey 'Sign e -> m ()
+  , rpcOnPokeAnswerFull :: Text -> m ()
   , rpcOnAnnounce    :: Hash HbSync -> m ()
   , rpcOnPing        :: PeerAddr e -> m ()
   , rpcOnPong        :: PeerAddr e -> m ()
@@ -105,6 +110,7 @@ rpcHandler :: forall e m  . ( MonadIO m
 rpcHandler adapter = \case
     p@RPCPoke{}        -> rpcOnPoke adapter p
     (RPCPokeAnswer k)  -> rpcOnPokeAnswer adapter k
+    (RPCPokeAnswerFull k)  -> rpcOnPokeAnswerFull adapter k
     (RPCAnnounce h)    -> rpcOnAnnounce adapter h
     (RPCPing pa)       -> rpcOnPing adapter pa
     (RPCPong pa)       -> rpcOnPong adapter pa
