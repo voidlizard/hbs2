@@ -17,6 +17,7 @@ import Network.DNS qualified as DNS
 import Network.DNS (Name(..),CharStr(..))
 import Data.ByteString.Char8 qualified as B8
 import Data.Foldable
+import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Control.Monad
@@ -24,8 +25,13 @@ import Network.Socket
 
 data PeerDnsBootStrapKey
 
+data PeerKnownPeer
+
 instance HasCfgKey PeerDnsBootStrapKey (Set String) where
   key = "bootstrap-dns"
+
+instance HasCfgKey PeerKnownPeer [String] where
+  key = "known-peer"
 
 bootstrapDnsLoop :: forall e m . ( HasPeer e
                                  , Request e (PeerHandshake e) m
@@ -61,3 +67,27 @@ bootstrapDnsLoop conf = do
   where
     mkStr (CharStr s) = B8.unpack s
 
+knownPeersPingLoop ::
+  forall e m.
+  ( HasPeer e,
+    Request e (PeerHandshake e) m,
+    HasNonces (PeerHandshake e) m,
+    Nonce (PeerHandshake e) ~ PingNonce,
+    Sessions e (PeerHandshake e) m,
+    Pretty (Peer e),
+    MonadIO m,
+    e ~ UDP
+  ) =>
+  PeerConfig ->
+  m ()
+knownPeersPingLoop conf = do
+  -- FIXME: add validation and error handling
+  let parseKnownPeers xs =
+        fmap (PeerUDP . addrAddress)
+          . catMaybes
+          <$> (fmap headMay . parseAddr . fromString)
+          `mapM` xs
+  knownPeers' <- liftIO $ parseKnownPeers $ cfgValue @PeerKnownPeer conf
+  forever do
+    forM_ knownPeers' (sendPing @e)
+    pause @'Minutes 20
