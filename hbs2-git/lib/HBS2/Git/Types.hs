@@ -19,6 +19,7 @@ import GHC.Generics
 import Prettyprinter
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Hashable
+import Codec.Serialise
 
 class Monad m => HasCache t k v m where
   cacheLookup  :: t -> k -> m (Maybe v)
@@ -30,6 +31,8 @@ data SHA1 = SHA1
 newtype GitHash = GitHash ByteString
                   deriving stock (Eq,Ord,Data,Generic,Show)
                   deriving newtype Hashable
+
+instance Serialise GitHash
 
 instance IsString GitHash where
   fromString s = GitHash (B16.decodeLenient (BS.pack s))
@@ -62,7 +65,9 @@ data GitObject = GitObject GitObjectType LBS.ByteString
 
 newtype GitRef = GitRef { unGitRef :: Text }
                  deriving stock (Eq,Ord,Data,Generic,Show)
-                 deriving newtype (IsString,FromJSON,ToJSON,Monoid,Semigroup)
+                 deriving newtype (IsString,FromJSON,ToJSON,Monoid,Semigroup,Hashable)
+
+instance Serialise GitRef
 
 mkGitRef :: ByteString -> GitRef
 mkGitRef x = GitRef (decodeLatin1 x)

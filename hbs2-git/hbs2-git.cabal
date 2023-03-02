@@ -79,6 +79,7 @@ common shared-properties
                , hashable
                , sqlite-simple
                , stm
+               , unordered-containers
 
 library
     import:           shared-properties

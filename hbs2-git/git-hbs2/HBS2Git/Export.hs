@@ -1,6 +1,7 @@
+{-# Language TemplateHaskell #-}
 module HBS2Git.Export where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
 import HBS2.System.Logger.Simple
 
@@ -17,6 +18,28 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Cache as Cache
 import System.FilePath
+import Data.ByteString.Lazy qualified as LBS
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Codec.Serialise
+
+newtype AsGitRefsFile a = AsGitRefsFile a
+
+newtype RepoHead =
+  RepoHead
+  { _repoHeads :: HashMap GitRef GitHash
+  }
+  deriving stock (Generic)
+
+makeLenses 'RepoHead
+
+instance Pretty (AsGitRefsFile RepoHead) where
+  pretty (AsGitRefsFile h) = vcat (fmap fmt els)
+    where
+      els = HashMap.toList (view repoHeads h)
+      fmt (r,hx) = pretty hx <+> pretty r
+
+instance Serialise RepoHead
 
 data HashCache =
   HashCache
@@ -79,7 +102,15 @@ runExport h = do
       for_ (Set.toList vs) $ \h -> do
         stateAddDep k h
 
-  liftIO $ print $ vcat (fmap pretty refs)
+  let repoHead = RepoHead (HashMap.fromList refs)
+
+  shutUp
+
+  liftIO $ print $ pretty (AsGitRefsFile repoHead)
+
+  let hd = serialise repoHead
+
+  liftIO $ LBS.putStr hd
 
 
 
