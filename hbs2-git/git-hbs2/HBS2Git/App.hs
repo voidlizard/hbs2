@@ -95,6 +95,36 @@ runApp l m = do
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
 
+readBlock :: MonadIO m => HashRef -> App m (Maybe ByteString)
+readBlock h = do
+
+  let cmd = setStdin closed $ setStderr closed
+                            $ shell [qc|hbs2 cat --raw {pretty h}|]
+
+  (code, out, _) <- liftIO $ readProcess cmd
+
+  case code of
+    ExitSuccess -> pure $ Just out
+    _           -> pure Nothing
+
+readRefValue :: MonadIO m => HashRef -> App m (Maybe HashRef)
+readRefValue r = do
+  pure Nothing
+
+-- FIXME: readObject is dangerous!
+readObject :: MonadIO m => HashRef -> App m (Maybe ByteString)
+readObject h = do
+
+  let cmd = setStdin closed $ setStderr closed
+                            $ shell [qc|hbs2 cat {pretty h}|]
+
+  (code, out, _) <- liftIO $ readProcess cmd
+
+  case code of
+    ExitSuccess -> pure $ Just out
+    _           -> pure Nothing
+
+
 storeObject :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
 storeObject = storeObjectHBS2Store
 
@@ -116,4 +146,7 @@ storeObjectHBS2Store meta bs = do
     ["merkle-root:", h] -> pure $ Just $ fromString (LBS.unpack h)
     _                   -> pure Nothing
 
+
+makeDbPath :: MonadIO m => HashRef -> App m FilePath
+makeDbPath h = asks (view appStateDir) <&> (</> (show $ pretty h))
 

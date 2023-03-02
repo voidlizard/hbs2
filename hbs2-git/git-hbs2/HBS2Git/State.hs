@@ -75,6 +75,13 @@ stateInit = do
   )
   |]
 
+  liftIO $ execute_ conn [qc|
+  create table if not exists head
+  ( key text not null primary key
+  , hash text not null unique
+  )
+  |]
+
 transactional :: forall a m . MonadIO m => DB m a -> DB m a
 transactional action = do
   conn <- ask

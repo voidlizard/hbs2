@@ -6,6 +6,11 @@ import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
+import HBS2.Hash
+import HBS2.Data.Detect hiding (Blob)
+import HBS2.Data.Detect qualified as Detect
+
+import Data.Config.Suckless
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -13,12 +18,15 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 
+import System.Exit
 import Data.Maybe
 import Data.Foldable (for_)
 import Control.Monad.Reader
 import Lens.Micro.Platform
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Data.Cache as Cache
 import System.FilePath
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -26,6 +34,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet  qualified as HashSet
 import Codec.Serialise
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue qualified as Q
 
 newtype AsGitRefsFile a = AsGitRefsFile a
 
@@ -66,8 +76,66 @@ newHashCache db = do
   pure $ HashCache ca db
 
 
-runDumpStateTree :: MonadIO m => HashRef -> App m ()
-runDumpStateTree hr = do
+runDumpStateTree :: MonadIO m => HashRef -> Maybe HashRef-> App m ()
+runDumpStateTree ref rfv = do
+
+  -- FIXME: readRefValue
+  root <- pure rfv `orDie` "ref value not set"      -- readRefValue ref
+
+  q <- liftIO newTQueueIO
+
+  let walk h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+        case hr of
+          Left hx -> liftIO $ die $ show $ pretty "missed block:" <+> pretty hx
+          Right (hrr :: [HashRef]) -> do
+             forM_ hrr $ liftIO . atomically . Q.writeTQueue q
+
+  walk (fromHashRef root)
+
+  entries <- liftIO $ atomically $ Q.flushTQueue q
+
+  hd <- pure (headMay entries) `orDie` "no head block found"
+
+  -- TODO: what-if-metadata-is-really-big?
+  hdData <- readBlock hd `orDie` "empty head block"
+
+  let hdBlk = tryDetect (fromHashRef hd) hdData
+
+  case hdBlk of
+    MerkleAnn{} -> pure ()
+    _ -> liftIO $ die "invalid head block format"
+
+  let meta = headDef "" [ Text.unpack s | ShortMetadata s <- universeBi hdBlk ]
+
+  syn <- liftIO $ parseTop meta & either (const $ die "invalid head block meta") pure
+
+  let app = headDef False
+            [ True
+            | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- syn
+            ]
+
+  let hdd = headDef False
+            [ True
+            | ListVal @C (Key "type:" [SymbolVal "head"]) <- syn
+            ]
+
+
+  unless ( app && hdd ) do
+    liftIO $ die "invalid head block meta"
+
+  headBlk <- readObject hd `orDie` "empty head block data"
+
+  -- shutUp
+
+  -- liftIO $ LBS.putStr headBlk
+
+  dbPath <- makeDbPath ref
+  db <- dbEnv dbPath
+
+  -- dn <-
+  -- withDB
+
+
   pure ()
 
 runExport :: MonadIO m => HashRef -> App m ()
@@ -94,7 +162,7 @@ runExport h = do
   -- TODO: build-transitive-closure
   trace "build-transitive-closure"
 
-  dbPath <- asks (view appStateDir) <&> (</> (show $ pretty h))
+  dbPath <- makeDbPath h
 
   trace $ "dbPath" <+> pretty dbPath
 

@@ -101,6 +101,7 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
+                        <> command "dump"      (info pDump (progDesc "dump repo state tree"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
                         )
 
@@ -111,4 +112,9 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pListRefs = do
       pure $ runApp NoLog runListRefs
+
+    pDump = do
+      ref <- strArgument (metavar "HASH-REF")
+      refv <- optional $ strArgument (metavar "HASH-REF-VAL")
+      pure $ runApp WithLog (runDumpStateTree ref refv)
 
