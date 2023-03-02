@@ -36,6 +36,7 @@ import PeerInfo
 import PeerConfig
 import Bootstrap
 import CheckMetrics
+import HttpWorker
 
 import Data.Text qualified as Text
 import Data.Foldable (for_)
@@ -536,6 +537,8 @@ runPeer opts = Exception.handle myException $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
+
+                peerThread (httpWorker conf denv)
 
                 peerThread (checkMetrics metrics)
 

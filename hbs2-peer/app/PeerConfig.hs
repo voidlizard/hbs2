@@ -167,6 +167,15 @@ instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue
                 | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
                 ]
 
+
+instance {-# OVERLAPPABLE #-} (HasCfgKey a (Maybe Integer)) => HasCfgValue a (Maybe Integer) where
+  cfgValue (PeerConfig syn) = val
+    where
+      val =
+        lastMay [ e
+                | ListVal @C (Key s [LitIntVal e]) <- syn, s == key @a @(Maybe Integer)
+                ]
+
 instance (HasCfgKey a FeatureSwitch) => HasCfgValue a FeatureSwitch where
   cfgValue (PeerConfig syn) = val
     where
