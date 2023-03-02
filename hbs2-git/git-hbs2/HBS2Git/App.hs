@@ -7,6 +7,7 @@ module HBS2Git.App
   where
 
 import HBS2.Prelude
+import HBS2.Data.Types.Refs
 import HBS2.System.Logger.Simple
 
 import HBS2Git.Types
@@ -15,30 +16,34 @@ import HBS2Git.State
 
 import Data.Config.Suckless
 
-import Data.Set (Set)
-import Data.Set  qualified as Set
--- import System.FilePath
 import Control.Monad.Reader
+import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Set  qualified as Set
+import Data.Set (Set)
 import Lens.Micro.Platform
 import System.Directory
+-- import System.FilePath
 import System.FilePath
+import System.Process.Typed
+import Text.InterpolatedString.Perl6 (qc)
 
 logPrefix s = set loggerTr (s <>)
 
 tracePrefix :: SetLoggerEntry
-tracePrefix  = logPrefix "[trace] "
+tracePrefix  = toStderr . logPrefix "[trace] "
 
 debugPrefix :: SetLoggerEntry
-debugPrefix  = logPrefix "[debug] "
+debugPrefix  = toStderr . logPrefix "[debug] "
 
 errorPrefix :: SetLoggerEntry
-errorPrefix  = logPrefix "[error] "
+errorPrefix  = toStderr . logPrefix "[error] "
 
 warnPrefix :: SetLoggerEntry
-warnPrefix   = logPrefix "[warn] "
+warnPrefix   = toStderr . logPrefix "[warn] "
 
 noticePrefix :: SetLoggerEntry
-noticePrefix = logPrefix ""
+noticePrefix = toStderr . logPrefix ""
 
 instance HasCfgKey ConfBranch (Set String) where
   key = "branch"
@@ -51,6 +56,9 @@ shutUp = do
   setLoggingOff @TRACE
 
 data WithLog = NoLog | WithLog
+
+withApp :: MonadIO m => AppEnv -> App m a -> m a
+withApp env m = runReaderT (fromApp m) env
 
 runApp :: MonadIO m => WithLog -> App m () -> m ()
 runApp l m = do
@@ -84,4 +92,22 @@ runApp l m = do
   setLoggingOff @ERROR
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
+
+storeObject :: MonadIO m => ByteString -> App m (Maybe HashRef)
+storeObject = storeObjectHBS2Store
+
+-- FIXME: support-another-apis-for-storage
+storeObjectHBS2Store :: MonadIO m => ByteString -> App m (Maybe HashRef)
+storeObjectHBS2Store bs = do
+
+  let input = byteStringInput bs
+  let cmd = setStdin input $ setStderr closed
+                           $ shell [qc|hbs2 store|]
+
+  (_, out, _) <- liftIO $ readProcess cmd
+
+  case LBS.words out of
+    ["merkle-root:", h] -> pure $ Just $ fromString (LBS.unpack h)
+    _                   -> pure Nothing
+
 

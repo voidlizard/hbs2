@@ -1,6 +1,7 @@
 module HBS2Git.State where
 
 import HBS2Git.Types
+import HBS2.Data.Types.Refs
 import HBS2.Git.Types
 
 import Data.Functor
@@ -13,12 +14,20 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.String
 import System.Directory
 import System.FilePath
+import Data.Maybe
 import Prettyprinter
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
 
 instance FromField GitHash where
+  fromField = fmap fromString . fromField @String
+
+
+instance ToField HashRef where
+  toField h = toField (show $ pretty h)
+
+instance FromField HashRef where
   fromField = fmap fromString . fromField @String
 
 newtype DB m a =
@@ -53,6 +62,14 @@ stateInit = do
   )
   |]
 
+  liftIO $ execute_ conn [qc|
+  create table if not exists object
+  ( githash text not null
+  , hash text null unique
+  , primary key (githash)
+  )
+  |]
+
 transactional :: forall a m . MonadIO m => DB m a -> DB m a
 transactional action = do
   conn <- ask
@@ -73,6 +90,23 @@ stateGetDeps :: MonadIO m => GitHash -> DB m [GitHash]
 stateGetDeps h = do
   conn <- ask
   liftIO $ query conn [qc|
-  select object from dep where parent = ?
+  select parent from dep where object = ?
   |] (Only h) <&> fmap fromOnly
+
+
+statePutHash :: MonadIO m => GitHash -> HashRef -> DB m ()
+statePutHash g h = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into object (githash,hash) values(?,?)
+  on conflict (githash) do nothing
+  |] (g,h)
+
+stateGetHash :: MonadIO m => GitHash -> DB m (Maybe HashRef)
+stateGetHash h = do
+  conn <- ask
+  liftIO $ query conn [qc|
+  select hash from object where githash = ?
+  limit 1
+  |] (Only h) <&> fmap fromOnly <&> listToMaybe
 

@@ -3,7 +3,9 @@ module HBS2Git.Export where
 
 import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
+import HBS2.OrDie
 import HBS2.System.Logger.Simple
+import HBS2.Merkle
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -11,6 +13,7 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 
+import Data.Maybe
 import Data.Foldable (for_)
 import Control.Monad.Reader
 import Lens.Micro.Platform
@@ -21,6 +24,7 @@ import System.FilePath
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet  qualified as HashSet
 import Codec.Serialise
 
 newtype AsGitRefsFile a = AsGitRefsFile a
@@ -104,14 +108,25 @@ runExport h = do
 
   let repoHead = RepoHead (HashMap.fromList refs)
 
-  shutUp
+  -- shutUp
 
-  liftIO $ print $ pretty (AsGitRefsFile repoHead)
+  els <- liftIO $ Cache.toList (hCache cache)
 
-  let hd = serialise repoHead
+  deps <- withDB db $ do
+            x <- forM refs $ stateGetDeps . snd
+            pure $ mconcat x
 
-  liftIO $ LBS.putStr hd
+  ae <- ask
 
+  withDB db $ transactional do -- for speedup inserts
 
+    for_ deps $ \d -> do
+      here <- stateGetHash d <&> isJust
+      unless here do
+        lbs <- gitReadObject Nothing d
+        hr' <- withApp ae $ storeObject lbs
+        maybe1 hr' (pure ()) $ \hr -> do
+          withDB db $ statePutHash d hr
+          trace $ "store" <+> pretty d <+> pretty hr
 
 

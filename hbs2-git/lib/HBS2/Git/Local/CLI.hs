@@ -154,3 +154,20 @@ gitGetRemotes = do
   where
     stripRemote x = headMay $ take 1 $ drop 1 $ Text.splitOn "." x
 
+
+-- FIXME: error handling!
+gitReadObject :: MonadIO m => Maybe GitObjectType -> GitHash -> m LBS.ByteString
+gitReadObject mbType' hash = do
+
+  mbType'' <- case mbType' of
+    Nothing -> gitGetObjectType hash
+    Just tp -> pure (Just tp)
+
+  oType <- maybe (error [qc|unknown type of {pretty hash}|]) pure mbType''
+
+  -- liftIO $ hPutStrLn stderr [qc|git cat-file {pretty oType} {pretty hash}|]
+
+  (_, out, _) <- readProcess (shell [qc|git cat-file {pretty oType} {pretty hash}|])
+
+  pure out
+
