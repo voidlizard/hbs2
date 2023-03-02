@@ -9,7 +9,10 @@ module HBS2Git.App
 import HBS2.Prelude
 import HBS2.Data.Types.Refs
 import HBS2.Base58
+import HBS2.OrDie
+import HBS2.Hash
 import HBS2.System.Logger.Simple
+import HBS2.Merkle
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
@@ -17,6 +20,7 @@ import HBS2Git.State
 
 import Data.Config.Suckless
 
+import Data.Either
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
@@ -29,6 +33,10 @@ import System.Directory
 import System.FilePath
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
+import Network.HTTP.Simple
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue as Q
+import System.Exit
 
 logPrefix s = set loggerTr (s <>)
 
@@ -89,7 +97,27 @@ runApp l m = do
   --   liftIO $ createDirectoryIfMissing True statePath
   -- withDB db stateInit
 
-  let env = AppEnv pwd (pwd </> ".git") syn xdgstate
+  -- FIXME: hardcoded-hbs2-peer
+  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+
+  trace $ pretty (show o)
+
+  let dieMsg = "hbs2-peer is down or it's http is inactive"
+
+  let answ = parseTop (LBS.unpack o) & fromRight mempty
+
+  let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
+
+  -- shutUp
+
+  pnum <- pure po `orDie`  dieMsg
+
+  debug $ pretty "using http port" <+> pretty po
+
+  let req = [qc|http://localhost:{pnum}/cat|]
+
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate req
+
   runReaderT (fromApp m) env
 
   debug $ vcat (fmap pretty syn)
@@ -102,33 +130,34 @@ runApp l m = do
 
 readBlock :: MonadIO m => HashRef -> App m (Maybe ByteString)
 readBlock h = do
-
-  let cmd = setStdin closed $ setStderr closed
-                            $ shell [qc|hbs2 cat --raw {pretty h}|]
-
-  (code, out, _) <- liftIO $ readProcess cmd
-
-  case code of
-    ExitSuccess -> pure $ Just out
-    _           -> pure Nothing
+  req1 <- asks (view appPeerHttpCat)
+  let reqs = req1 <> "/" <> show (pretty h)
+  req  <- liftIO $ parseRequest reqs
+  httpLBS req <&> getResponseBody <&> Just
 
 readRefValue :: MonadIO m => HashRef -> App m (Maybe HashRef)
 readRefValue r = do
   pure Nothing
 
 -- FIXME: readObject is dangerous!
-readObject :: MonadIO m => HashRef -> App m (Maybe ByteString)
-readObject h = do
+readObject :: forall m . MonadIO m => HashRef -> App m (Maybe ByteString)
+readObject obj = do
 
-  let cmd = setStdin closed $ setStderr closed
-                            $ shell [qc|hbs2 cat {pretty h}|]
+  res <- liftIO newTQueueIO
 
-  (code, out, _) <- liftIO $ readProcess cmd
+  let walk h = walkMerkle h (readBlock @m . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+        case hr of
+          Left hx -> void $ liftIO$ die $ show $ "missed block:" <+> pretty hx
+          Right (hrr :: [HashRef]) -> do
+             forM_ hrr $ \(HashRef hx) -> do
+                 mblk <- readBlock (HashRef hx)
+                 case mblk of
+                   Nothing  -> void $ liftIO$ die $ show $ "missed block:" <+> pretty hx
+                   Just blk -> liftIO $ atomically $ Q.writeTQueue res blk
 
-  case code of
-    ExitSuccess -> pure $ Just out
-    _           -> pure Nothing
+  pieces <- liftIO $ atomically $ flushTQueue res
 
+  pure $ Just $ mconcat pieces
 
 storeObject :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
 storeObject = storeObjectHBS2Store

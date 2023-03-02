@@ -18,6 +18,7 @@ import Data.Set (Set)
 import Data.String
 import Lens.Micro.Platform
 import Prettyprinter
+import Network.HTTP.Simple
 
 type DBEnv = Connection
 
@@ -27,10 +28,11 @@ data ConfBranch
 
 data AppEnv =
   AppEnv
-  { _appCurDir     :: FilePath
-  , _appGitDir     :: FilePath
-  , _appConf       :: [Syntax C]
-  , _appStateDir   :: FilePath
+  { _appCurDir      :: FilePath
+  , _appGitDir      :: FilePath
+  , _appConf        :: [Syntax C]
+  , _appStateDir    :: FilePath
+  , _appPeerHttpCat :: String
   }
 
 makeLenses 'AppEnv

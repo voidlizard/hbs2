@@ -81,6 +81,7 @@ common shared-properties
                , stm
                , unordered-containers
                , filelock
+               , http-conduit
 
 library
     import:           shared-properties
