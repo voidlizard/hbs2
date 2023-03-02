@@ -19,6 +19,7 @@ import Data.Config.Suckless
 
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Set  qualified as Set
 import Data.Set (Set)
@@ -101,7 +102,9 @@ storeObject = storeObjectHBS2Store
 storeObjectHBS2Store :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
 storeObjectHBS2Store meta bs = do
 
-  let meta58 = pretty $ AsBase58 $ toBase58 (LBS.toStrict meta)
+  let meta58 = show $ pretty $ B8.unpack $ toBase58 (LBS.toStrict meta)
+
+  -- trace $ "meta58" <+> pretty meta58
 
   let input = byteStringInput bs
   let cmd = setStdin input $ setStderr closed

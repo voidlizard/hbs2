@@ -65,6 +65,11 @@ newHashCache db = do
   ca <- liftIO $ Cache.newCache Nothing
   pure $ HashCache ca db
 
+
+runDumpStateTree :: MonadIO m => HashRef -> App m ()
+runDumpStateTree hr = do
+  pure ()
+
 runExport :: MonadIO m => HashRef -> App m ()
 runExport h = do
   trace $ "Export" <+> pretty h
@@ -153,7 +158,8 @@ runExport h = do
 
     let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
 
-    root <- makeMerkle 0 pt $ const $ pure ()
+    root <- makeMerkle 0 pt $ \(_,_,bss) -> do
+      void $ withApp ae $ storeObject (fromString (show metaApp)) bss
 
     trace $ pretty $ length hashes
     trace $ "head" <+> pretty hh

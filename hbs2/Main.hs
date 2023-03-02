@@ -34,6 +34,7 @@ import Data.Functor
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Monoid qualified as Monoid
+import Data.Text (Text)
 import Data.Set qualified as Set
 import Data.UUID qualified as UUID
 import Data.UUID.V4 qualified as UUID
@@ -93,6 +94,7 @@ data CatOpts =
   { catMerkleHash :: Maybe MerkleHash
   , catHashesOnly :: Maybe CatHashesOnly
   , catPathToKeyring :: Maybe OptKeyringFile
+  , catRaw        :: Maybe Bool
   }
   deriving stock (Data)
 
@@ -114,8 +116,17 @@ runHash opts ss = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
+runCat :: CatOpts -> SimpleStorage HbSync -> IO ()
 
-runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
+runCat opts ss | catRaw opts == Just True = do
+
+  let mhash' = uniLastMay @MerkleHash opts <&> fromMerkleHash
+
+  maybe1 mhash' exitFailure $ \h -> do
+    obj <- getBlock ss h
+    maybe exitFailure LBS.putStr obj
+    exitSuccess
+
 runCat opts ss = do
 
   let honly = or [ x | CatHashesOnly x <- universeBi opts  ]
@@ -247,7 +258,7 @@ runStore opts ss = do
                 & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal (recipientPk gk) . LBS.toStrict)
 
         mhash <- putAsMerkle ss encryptedChunks
-        mtree <- (mdeserialiseMay <$> getBlock ss (fromMerkleHash mhash))
+        mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash mhash))
             `orDie` "merkle tree was not stored properly with `putAsMerkle`"
 
         mannh <- maybe (die "can not store MerkleAnn") pure
@@ -460,6 +471,10 @@ mdeserialiseMay :: Serialise a => Maybe ByteString -> Maybe a
 mdeserialiseMay = (deserialiseMay =<<)
 
 ---
+runEnc58 :: IO ()
+runEnc58 = do
+   s <- LBS.hGetContents stdin  <&> LBS.toStrict
+   print $ pretty (AsBase58 s)
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
@@ -529,8 +544,9 @@ main = join . customExecParser (prefs showHelpOnError) $
       hash  <- optional $ strArgument ( metavar "HASH" )
       onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
       keyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
+      raw <- optional $ flag' True ( short 'r' <> long "raw" <> help "dump raw block" )
       pure $ withStore o $ runCat
-          $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile)
+          $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile) raw
 
     pNewGroupkey = do
       pubkeysFile <- strArgument ( metavar "FILE" <> help "path to a file with a list of recipient public keys" )
