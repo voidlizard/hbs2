@@ -106,7 +106,8 @@ main = join . customExecParser (prefs showHelpOnError) $
 
 
     pExport = do
-      pure $ runApp WithLog runExport
+      ref <- strArgument (metavar "HASH-REF")
+      pure $ runApp WithLog (runExport ref)
 
     pListRefs = do
       pure $ runApp NoLog runListRefs

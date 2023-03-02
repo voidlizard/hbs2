@@ -11,6 +11,8 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
 import Data.String
+import System.Directory
+import System.FilePath
 import Prettyprinter
 
 instance ToField GitHash where
@@ -30,7 +32,12 @@ newtype DB m a =
 
 
 dbEnv :: MonadIO m => FilePath -> m DBEnv
-dbEnv fp = liftIO $ open fp
+dbEnv fp = do
+  let dir = takeDirectory fp
+  liftIO $ createDirectoryIfMissing True dir
+  co <- liftIO $ open fp
+  withDB co stateInit
+  pure co
 
 withDB :: DBEnv -> DB m a -> m a
 withDB env action = runReaderT (fromDB action) env

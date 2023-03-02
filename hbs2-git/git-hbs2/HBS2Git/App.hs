@@ -65,25 +65,17 @@ runApp l m = do
 
   (pwd, syn) <- Config.configInit
 
-  home <- liftIO getHomeDirectory
   xdgstate <- liftIO $ getXdgDirectory XdgData Config.appName
+  -- let statePath = xdgstate </> makeRelative home pwd
+  -- let dbPath = statePath </> "state.db"
+  -- db <- dbEnv dbPath
+  -- trace $ "state" <+> pretty statePath
+  -- here <- liftIO $ doesDirectoryExist statePath
+  -- unless here do
+  --   liftIO $ createDirectoryIfMissing True statePath
+  -- withDB db stateInit
 
-  let statePath = xdgstate </> makeRelative home pwd
-
-  let dbPath = statePath </> "state.db"
-
-  db <- dbEnv dbPath
-
-  trace $ "state" <+> pretty statePath
-
-  here <- liftIO $ doesDirectoryExist statePath
-
-  unless here do
-    liftIO $ createDirectoryIfMissing True statePath
-
-  withDB db stateInit
-
-  let env = AppEnv pwd (pwd </> ".git") syn dbPath db
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate
   runReaderT (fromApp m) env
 
   debug $ vcat (fmap pretty syn)

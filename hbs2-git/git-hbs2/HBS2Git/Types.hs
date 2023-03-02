@@ -30,8 +30,7 @@ data AppEnv =
   { _appCurDir     :: FilePath
   , _appGitDir     :: FilePath
   , _appConf       :: [Syntax C]
-  , _appStatePath  :: FilePath
-  , _appStateEnv   :: DBEnv
+  , _appStateDir   :: FilePath
   }
 
 makeLenses 'AppEnv

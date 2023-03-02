@@ -1,6 +1,7 @@
 module HBS2Git.Export where
 
 import HBS2.Prelude
+import HBS2.Data.Types.Refs
 import HBS2.System.Logger.Simple
 
 import HBS2.Git.Local
@@ -15,6 +16,7 @@ import Lens.Micro.Platform
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Cache as Cache
+import System.FilePath
 
 data HashCache =
   HashCache
@@ -36,9 +38,9 @@ newHashCache db = do
   ca <- liftIO $ Cache.newCache Nothing
   pure $ HashCache ca db
 
-runExport :: MonadIO m => App m ()
-runExport = do
-  trace "Export"
+runExport :: MonadIO m => HashRef -> App m ()
+runExport h = do
+  trace $ "Export" <+> pretty h
 
   -- TODO: read-repo-head
   trace "read repository head"
@@ -60,14 +62,16 @@ runExport = do
   -- TODO: build-transitive-closure
   trace "build-transitive-closure"
 
-  cache <- newHashCache (view appStateEnv env)
+  dbPath <- asks (view appStateDir) <&> (</> (show $ pretty h))
+
+  trace $ "dbPath" <+> pretty dbPath
+
+  db <- dbEnv dbPath
+
+  cache <- newHashCache db
 
   for_ refs $ \(_, h) -> do
     liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
-
-  db <- asks (view appStateEnv)
-
-  -- FIXME: test-fixme
 
   withDB db $ transactional do
     els <- liftIO $ Cache.toList (hCache cache)
