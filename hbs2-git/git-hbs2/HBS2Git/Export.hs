@@ -18,24 +18,25 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 
-import System.Exit
-import Data.Maybe
-import Data.Foldable (for_)
-import Control.Monad.Reader
-import Lens.Micro.Platform
-import Data.Set (Set)
-import Data.Set qualified as Set
-import Data.Text qualified as Text
-import Data.Text.IO qualified as Text
-import Data.Cache as Cache
-import System.FilePath
-import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet  qualified as HashSet
 import Codec.Serialise
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue qualified as Q
+import Control.Monad.Reader
+import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Cache as Cache
+import Data.Either
+import Data.Foldable (for_)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet  qualified as HashSet
+import Data.Maybe
+import Data.Set qualified as Set
+import Data.Set (Set)
+import Data.Text.IO qualified as Text
+import Data.Text qualified as Text
+import Lens.Micro.Platform
+import System.Exit
+import System.FilePath
 
 newtype AsGitRefsFile a = AsGitRefsFile a
 
@@ -109,10 +110,10 @@ runDumpStateTree ref rfv = do
 
   syn <- liftIO $ parseTop meta & either (const $ die "invalid head block meta") pure
 
-  let app = headDef False
-            [ True
-            | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- syn
-            ]
+  let app syn = headDef False
+               [ True
+               | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- syn
+               ]
 
   let hdd = headDef False
             [ True
@@ -120,7 +121,7 @@ runDumpStateTree ref rfv = do
             ]
 
 
-  unless ( app && hdd ) do
+  unless ( app syn  && hdd ) do
     liftIO $ die "invalid head block meta"
 
   headBlk <- readObject hd `orDie` "empty head block data"
@@ -150,12 +151,21 @@ runDumpStateTree ref rfv = do
 
         let what = tryDetect (fromHashRef r) blk
 
-        case what of
-          MerkleAnn{} -> do
-            let meta = headDef "" [ Text.unpack s | ShortMetadata s <- universeBi hdBlk ]
-            info $ pretty r
+        let short = headDef "" [ s | ShortMetadata s <- universeBi what ]
 
-          _ -> liftIO $ die $ show $ pretty "unexpected block" <+> pretty r
+        let fields = Text.lines short & fmap Text.words
+
+        hm <- forM fields $ \case
+                ["type:", "blob", x]   -> pure $ Just (Blob, fromString (Text.unpack x))
+                ["type:", "commit", x] -> pure $ Just (Commit, fromString (Text.unpack x))
+                ["type:", "tree", x]   -> pure $ Just (Tree, fromString (Text.unpack x))
+                _                      -> pure Nothing
+
+        -- trace $ pretty hm
+
+        case catMaybes hm of
+          [(t,sha1)] -> notice $ pretty t <+> pretty sha1
+          _          -> err $ "bad object" <+> pretty r
 
 
 runExport :: MonadIO m => HashRef -> App m ()

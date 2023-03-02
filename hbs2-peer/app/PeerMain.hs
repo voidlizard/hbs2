@@ -802,7 +802,7 @@ withRPC o cmd = do
 
 
                       RPCPoke{} -> do
-                        let onTimeout = do pause @'Seconds 0.5
+                        let onTimeout = do pause @'Seconds 1.5
                                            Log.info "no-one-is-here"
                                            exitFailure
 
