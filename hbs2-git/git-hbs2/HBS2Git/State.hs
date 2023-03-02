@@ -70,7 +70,7 @@ stateInit = do
   create table if not exists object
   ( githash text not null
   , hash text not null unique
-  , type texy not null
+  , type text not null
   , primary key (githash)
   )
   |]
