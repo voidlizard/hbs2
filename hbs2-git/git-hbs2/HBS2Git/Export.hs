@@ -21,7 +21,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Cache as Cache
 import System.FilePath
-import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet  qualified as HashSet
@@ -106,7 +106,8 @@ runExport h = do
       for_ (Set.toList vs) $ \h -> do
         stateAddDep k h
 
-  let repoHead = RepoHead (HashMap.fromList refs)
+  let repoHead = RepoHead (HashMap.fromList refs) & show . pretty . AsGitRefsFile
+                                                  & LBS.pack
 
   -- shutUp
 
@@ -118,7 +119,10 @@ runExport h = do
 
   ae <- ask
 
-  withDB db $ transactional do -- for speedup inserts
+  withDB db $ transactional do -- to speedup inserts
+
+    let gha = gitHashObject (GitObject Blob repoHead)
+    hh  <- withApp ae $ storeObject repoHead
 
     for_ deps $ \d -> do
       here <- stateGetHash d <&> isJust
@@ -128,5 +132,9 @@ runExport h = do
         maybe1 hr' (pure ()) $ \hr -> do
           withDB db $ statePutHash d hr
           trace $ "store" <+> pretty d <+> pretty hr
+
+    hashes <- stateGetAllHashes
+
+    trace $ pretty $ length hashes
 
 

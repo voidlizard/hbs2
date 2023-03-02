@@ -80,6 +80,7 @@ common shared-properties
                , sqlite-simple
                , stm
                , unordered-containers
+               , filelock
 
 library
     import:           shared-properties

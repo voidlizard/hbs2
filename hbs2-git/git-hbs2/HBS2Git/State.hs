@@ -110,3 +110,10 @@ stateGetHash h = do
   limit 1
   |] (Only h) <&> fmap fromOnly <&> listToMaybe
 
+stateGetAllHashes :: MonadIO m => DB m [HashRef]
+stateGetAllHashes = do
+  conn <- ask
+  liftIO $ query_ conn [qc|
+  select distinct(hash) from object
+  |] <&> fmap fromOnly
+
