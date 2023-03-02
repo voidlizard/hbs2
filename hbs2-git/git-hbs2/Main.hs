@@ -106,8 +106,8 @@ main = join . customExecParser (prefs showHelpOnError) $
 
 
     pExport = do
-      pure $ runApp runExport
+      pure $ runApp WithLog runExport
 
     pListRefs = do
-      pure $ runApp runListRefs
+      pure $ runApp NoLog runListRefs
 

@@ -43,13 +43,25 @@ noticePrefix = logPrefix ""
 instance HasCfgKey ConfBranch (Set String) where
   key = "branch"
 
-runApp :: MonadIO m => App m () -> m ()
-runApp m = do
+shutUp :: MonadIO m => m ()
+shutUp = do
+  setLoggingOff @DEBUG
+  setLoggingOff @ERROR
+  setLoggingOff @NOTICE
+  setLoggingOff @TRACE
 
-  setLogging @DEBUG  debugPrefix
-  setLogging @ERROR  errorPrefix
-  setLogging @NOTICE noticePrefix
-  setLogging @TRACE  tracePrefix
+data WithLog = NoLog | WithLog
+
+runApp :: MonadIO m => WithLog -> App m () -> m ()
+runApp l m = do
+
+  case l of
+    NoLog   -> pure ()
+    WithLog -> do
+      setLogging @DEBUG  debugPrefix
+      setLogging @ERROR  errorPrefix
+      setLogging @NOTICE noticePrefix
+      setLogging @TRACE  tracePrefix
 
   (pwd, syn) <- Config.configInit
 

@@ -6,20 +6,25 @@ import HBS2.Git.Types
 import HBS2.System.Logger.Simple
 
 import Control.Concurrent.Async
-import Data.String
 import Control.Monad.IO.Class
+import Control.Monad.Writer
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Function
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.ByteString.Lazy.Char8 (ByteString)
-import Control.Monad.Writer
-import Safe
-import Text.InterpolatedString.Perl6 (qc)
+import Data.String
+import Data.Text.Encoding qualified as Text
+import Data.Text qualified as Text
+import Data.Text (Text)
 import Prettyprinter
+import Safe
 import System.Process.Typed
+import Text.InterpolatedString.Perl6 (qc)
 
+-- FIXME: specify-git-dir
 
 parseHash :: BS8.ByteString -> GitHash
 parseHash = fromString . BS8.unpack
@@ -110,4 +115,32 @@ gitGetTransitiveClosure cache exclude hash = do
         let res = (Set.fromList (hash:deps) <> Set.unions clos) `Set.difference` exclude
         cacheInsert cache hash res
         pure res
+
+
+-- FIXME: inject-git-working-dir-via-typeclass
+
+gitConfigGet :: MonadIO m => Text -> m (Maybe Text)
+gitConfigGet k = do
+  let cmd = [qc|git config {k}|]
+  (code, out, _) <- liftIO $ readProcess (shell cmd)
+
+  case code of
+    ExitSuccess -> pure (Just $ Text.strip [qc|{LBS.unpack out}|])
+    _           -> pure Nothing
+
+
+gitConfigSet :: MonadIO m => Text -> Text -> m ()
+gitConfigSet k v = do
+  let cmd = [qc|git config --add {k} {v}|]
+  liftIO $ putStrLn cmd
+  runProcess_ (shell cmd)
+
+gitGetRemotes :: MonadIO m => m [Text]
+gitGetRemotes = do
+  let cmd = [qc|git config --get-regexp '^remote\..*\.url$'|]
+  (code, out, _) <- liftIO $ readProcess (shell cmd)
+
+  let txt = Text.decodeUtf8 (LBS.toStrict out)
+
+  pure $ Text.lines txt & foldMap (drop 1 . Text.words)
 
