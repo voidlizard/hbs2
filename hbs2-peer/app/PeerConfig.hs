@@ -46,6 +46,11 @@ data PeerDownloadLogKey
 instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"
 
+data PeerKnownPeersFile
+
+instance HasCfgKey PeerKnownPeersFile [String] where
+  key = "known-peers-file"
+
 cfgName :: FilePath
 cfgName = "config"
 
@@ -128,7 +133,11 @@ peerConfigRead mbfp = do
 
     confData' <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
 
-    let confData = confData' <> either mempty id (parseTop  peerConfDef)
+    knownPeersFiles <- mapM (liftIO . canonicalizePath . (dir </>)) (cfgValue @PeerKnownPeersFile $ PeerConfig confData')
+
+    knownPeersConfData <- concat <$> mapM (\file -> liftIO $ readFile file <&> parseTop <&> either mempty id) knownPeersFiles
+
+    let confData = confData' <> either mempty id (parseTop  peerConfDef) <> knownPeersConfData
 
     -- debug $ pretty confData
 
