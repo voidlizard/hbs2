@@ -8,6 +8,7 @@ module HBS2Git.App
 
 import HBS2.Prelude
 import HBS2.Data.Types.Refs
+import HBS2.Base58
 import HBS2.System.Logger.Simple
 
 import HBS2Git.Types
@@ -93,16 +94,18 @@ runApp l m = do
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
 
-storeObject :: MonadIO m => ByteString -> App m (Maybe HashRef)
+storeObject :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
 storeObject = storeObjectHBS2Store
 
 -- FIXME: support-another-apis-for-storage
-storeObjectHBS2Store :: MonadIO m => ByteString -> App m (Maybe HashRef)
-storeObjectHBS2Store bs = do
+storeObjectHBS2Store :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
+storeObjectHBS2Store meta bs = do
+
+  let meta58 = pretty $ AsBase58 $ toBase58 (LBS.toStrict meta)
 
   let input = byteStringInput bs
   let cmd = setStdin input $ setStderr closed
-                           $ shell [qc|hbs2 store --short-meta-base58=jopakita|]
+                           $ shell [qc|hbs2 store --short-meta-base58={meta58}|]
 
   (_, out, _) <- liftIO $ readProcess cmd
 

@@ -119,10 +119,17 @@ runExport h = do
 
   ae <- ask
 
+
+
   withDB db $ transactional do -- to speedup inserts
 
+    let metaApp = "application:" <+> "hbs2-git" <> line
+
+    let metaHead = fromString $ show
+                              $ metaApp <> "type:" <+> "head" <> line
+
     -- let gha = gitHashObject (GitObject Blob repoHead)
-    hh  <- withApp ae $ storeObject repoHead `orDie` "cant save repo head"
+    hh  <- withApp ae $ storeObject metaHead repoHead `orDie` "cant save repo head"
 
     for_ deps $ \d -> do
       here <- stateGetHash d <&> isJust
@@ -131,7 +138,13 @@ runExport h = do
         -- TODO: why-not-default-blob
         --   anything is blob
         tp <- gitGetObjectType d <&> fromMaybe Blob --
-        hr' <- withApp ae $ storeObject lbs
+
+        let metaO = fromString $ show
+                               $ metaApp
+                               <> "type:" <+> pretty tp <+> pretty d
+                               <> line
+
+        hr' <- withApp ae $ storeObject metaO lbs
         maybe1 hr' (pure ()) $ \hr -> do
           withDB db $ statePutHash tp d hr
           trace $ "store" <+> pretty tp <+> pretty d <+> pretty hr
@@ -140,7 +153,7 @@ runExport h = do
 
     let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
 
-    root <- makeMerkle 0 pt $ \(_,_,bss) -> void $ withApp ae $ storeObject bss
+    root <- makeMerkle 0 pt $ const $ pure ()
 
     trace $ pretty $ length hashes
     trace $ "head" <+> pretty hh
