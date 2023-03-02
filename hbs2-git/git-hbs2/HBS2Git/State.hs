@@ -23,12 +23,16 @@ instance ToField GitHash where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
-
 instance ToField HashRef where
+  toField h = toField (show $ pretty h)
+
+
+instance ToField GitObjectType where
   toField h = toField (show $ pretty h)
 
 instance FromField HashRef where
   fromField = fmap fromString . fromField @String
+
 
 newtype DB m a =
   DB { fromDB :: ReaderT DBEnv m a }
@@ -65,7 +69,8 @@ stateInit = do
   liftIO $ execute_ conn [qc|
   create table if not exists object
   ( githash text not null
-  , hash text null unique
+  , hash text not null unique
+  , type texy not null
   , primary key (githash)
   )
   |]
@@ -94,13 +99,13 @@ stateGetDeps h = do
   |] (Only h) <&> fmap fromOnly
 
 
-statePutHash :: MonadIO m => GitHash -> HashRef -> DB m ()
-statePutHash g h = do
+statePutHash :: MonadIO m => GitObjectType -> GitHash -> HashRef -> DB m ()
+statePutHash t g h = do
   conn <- ask
   liftIO $ execute conn [qc|
-  insert into object (githash,hash) values(?,?)
+  insert into object (githash,hash,type) values(?,?,?)
   on conflict (githash) do nothing
-  |] (g,h)
+  |] (g,h,t)
 
 stateGetHash :: MonadIO m => GitHash -> DB m (Maybe HashRef)
 stateGetHash h = do

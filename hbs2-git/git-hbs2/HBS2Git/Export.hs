@@ -128,10 +128,13 @@ runExport h = do
       here <- stateGetHash d <&> isJust
       unless here do
         lbs <- gitReadObject Nothing d
+        -- TODO: why-not-default-blob
+        --   anything is blob
+        tp <- gitGetObjectType d <&> fromMaybe Blob --
         hr' <- withApp ae $ storeObject lbs
         maybe1 hr' (pure ()) $ \hr -> do
-          withDB db $ statePutHash d hr
-          trace $ "store" <+> pretty d <+> pretty hr
+          withDB db $ statePutHash tp d hr
+          trace $ "store" <+> pretty tp <+> pretty d <+> pretty hr
 
     hashes <- (hh : ) <$> stateGetAllHashes
 
