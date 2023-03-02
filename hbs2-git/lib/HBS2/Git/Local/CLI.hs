@@ -135,12 +135,22 @@ gitConfigSet k v = do
   liftIO $ putStrLn cmd
   runProcess_ (shell cmd)
 
-gitGetRemotes :: MonadIO m => m [Text]
+gitGetRemotes :: MonadIO m => m [(Text,Text)]
 gitGetRemotes = do
   let cmd = [qc|git config --get-regexp '^remote\..*\.url$'|]
   (code, out, _) <- liftIO $ readProcess (shell cmd)
 
   let txt = Text.decodeUtf8 (LBS.toStrict out)
 
-  pure $ Text.lines txt & foldMap (drop 1 . Text.words)
+  let ls = Text.lines txt -- & foldMap (drop 1 . Text.words)
+
+  remotes <- forM ls $ \l ->
+                case Text.words l of
+                  [r,val] | Text.isPrefixOf "remote." r -> pure $ (,val) <$> stripRemote r
+                  _       -> pure Nothing
+
+  pure $ catMaybes remotes
+
+  where
+    stripRemote x = headMay $ take 1 $ drop 1 $ Text.splitOn "." x
 
