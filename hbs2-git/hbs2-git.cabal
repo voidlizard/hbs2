@@ -145,7 +145,9 @@ executable git-remote-hbs2
     -- other-extensions:
     build-depends:
         base, hbs2-git
+      , attoparsec
       , optparse-applicative
+      , unix
 
     hs-source-dirs:   git-hbs2
     default-language: Haskell2010
