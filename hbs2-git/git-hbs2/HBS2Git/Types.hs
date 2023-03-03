@@ -19,12 +19,14 @@ import Data.String
 import Lens.Micro.Platform
 import Prettyprinter
 import Network.HTTP.Simple
+import Safe
 
 type DBEnv = Connection
 
 type C = MegaParsec
 
 data ConfBranch
+data HeadBranch
 
 data AppEnv =
   AppEnv
@@ -53,6 +55,13 @@ newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
   deriving newtype ( Applicative, Functor, Monad, MonadIO, MonadReader AppEnv )
 
+instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
+  cfgValue ae = lastMay val
+    where
+      syn = view appConf ae
+      val = [ fromString (show $ pretty e)
+            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
+            ]
 
 instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Set b)) => HasCfgValue a (Set b) where
   cfgValue ae = Set.fromList val

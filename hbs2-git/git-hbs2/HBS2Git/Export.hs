@@ -15,6 +15,8 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 
+import Data.List (sortBy)
+import Control.Applicative
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Cache as Cache
@@ -28,9 +30,10 @@ import Lens.Micro.Platform
 
 newtype AsGitRefsFile a = AsGitRefsFile a
 
-newtype RepoHead =
+data RepoHead =
   RepoHead
-  { _repoHeads :: HashMap GitRef GitHash
+  { _repoHEAD  :: GitRef
+  , _repoHeads :: HashMap GitRef GitHash
   }
   deriving stock (Generic)
 
@@ -65,8 +68,6 @@ newHashCache db = do
   pure $ HashCache ca db
 
 
-
-
 runExport :: MonadIO m => HashRef -> App m ()
 runExport h = do
   trace $ "Export" <+> pretty h
@@ -77,7 +78,18 @@ runExport h = do
 
   env <- ask
 
-  let branches = cfgValue @ConfBranch env
+  let branches    = cfgValue @ConfBranch env
+  let headBranch' = cfgValue @HeadBranch env :: Maybe GitRef
+
+  let defSort a b = case (a,b) of
+        ("master",_) -> LT
+        ("main", _)  -> LT
+        _            -> EQ
+
+  let sortedBr = sortBy defSort $ Set.toList branches
+
+  let headBranch = fromMaybe "master"
+                     $ headBranch' <|> (fromString <$> headMay sortedBr)
 
   refs <- gitReadRefs git branches
 
@@ -98,7 +110,12 @@ runExport h = do
       for_ (Set.toList vs) $ \h -> do
         stateAddDep k h
 
-  let repoHead = RepoHead (HashMap.fromList refs) & show . pretty . AsGitRefsFile
+  fullHead <- gitHeadFullName headBranch
+
+  debug $ "HEAD" <+> pretty fullHead
+
+  let repoHead = RepoHead fullHead
+                          (HashMap.fromList refs) & show . pretty . AsGitRefsFile
                                                   & LBS.pack
 
   deps <- withDB db $ do

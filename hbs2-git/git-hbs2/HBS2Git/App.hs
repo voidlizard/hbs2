@@ -13,6 +13,7 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
+import HBS2.Git.Types
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
@@ -60,6 +61,9 @@ infoPrefix = toStdout
 
 instance HasCfgKey ConfBranch (Set String) where
   key = "branch"
+
+instance HasCfgKey HeadBranch (Maybe GitRef) where
+  key = "head-branch"
 
 shutUp :: MonadIO m => m ()
 shutUp = do

@@ -17,6 +17,7 @@ import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.String
 import Data.Text.Encoding qualified as Text
+import Data.Text.Encoding (decodeLatin1)
 import Data.Text qualified as Text
 import Data.Text (Text)
 import Prettyprinter
@@ -154,6 +155,11 @@ gitGetRemotes = do
   where
     stripRemote x = headMay $ take 1 $ drop 1 $ Text.splitOn "." x
 
+-- FIXME: respect-git-workdir
+gitHeadFullName :: MonadIO m => GitRef -> m GitRef
+gitHeadFullName (GitRef r) = do
+  let r' = Text.stripPrefix "refs/heads" r & fromMaybe r
+  pure $ GitRef $ "refs/heads/" <> r'
 
 -- FIXME: error handling!
 gitReadObject :: MonadIO m => Maybe GitObjectType -> GitHash -> m LBS.ByteString
@@ -170,4 +176,29 @@ gitReadObject mbType' hash = do
   (_, out, _) <- readProcess (shell [qc|git cat-file {pretty oType} {pretty hash}|])
 
   pure out
+
+
+gitRemotes :: MonadIO m => m (Set GitRef)
+gitRemotes = do
+  let cmd = setStdin closed $ setStdout closed
+                            $ setStderr closed
+                            $ shell [qc|git remote|]
+
+  (_, out, _) <- readProcess cmd
+  let txt = decodeLatin1 (LBS.toStrict out)
+  pure $ Set.fromList (GitRef . Text.strip <$> Text.lines txt)
+
+
+gitNormalizeRemoteBranchName :: MonadIO  m => GitRef -> m GitRef
+gitNormalizeRemoteBranchName orig@(GitRef ref) = do
+  remotes <- gitRemotes
+  stripped <- forM (Set.toList remotes) $ \(GitRef remote) -> do
+     pure $ GitRef <$> (("refs/heads" <>) <$> Text.stripPrefix remote ref)
+
+
+  let GitRef r = headDef orig (catMaybes stripped)
+
+  if Text.isPrefixOf "refs/heads" r
+      then pure (GitRef r)
+      else pure (GitRef $ "refs/heads/" <> r)
 
