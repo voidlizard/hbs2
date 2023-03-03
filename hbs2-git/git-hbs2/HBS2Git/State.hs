@@ -71,7 +71,7 @@ stateInit = do
   ( githash text not null
   , hash text not null unique
   , type text not null
-  , primary key (githash)
+  , primary key (githash,hash)
   )
   |]
 
@@ -111,7 +111,7 @@ statePutHash t g h = do
   conn <- ask
   liftIO $ execute conn [qc|
   insert into object (githash,hash,type) values(?,?,?)
-  on conflict (githash) do nothing
+  on conflict (githash,hash) do nothing
   |] (g,h,t)
 
 stateGetHash :: MonadIO m => GitHash -> DB m (Maybe HashRef)

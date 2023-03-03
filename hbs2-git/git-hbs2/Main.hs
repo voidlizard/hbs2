@@ -116,6 +116,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pDump = do
       ref <- strArgument (metavar "HASH-REF")
-      refv <- optional $ strArgument (metavar "HASH-REF-VAL")
-      pure $ runApp WithLog (runImport ref refv)
+      o <- RunImportOpts <$> optional (flag' True ( long "dry" <> help "don't update repo state" ))
+                         <*> optional (strArgument (metavar "HASH-REF-VAL"))
+      pure $ runApp WithLog (runImport o ref)
 

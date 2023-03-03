@@ -1,5 +1,5 @@
+{-# Language TemplateHaskell #-}
 module HBS2Git.Import where
-
 
 import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
@@ -26,11 +26,27 @@ import Lens.Micro.Platform
 import System.Exit
 
 
-runImport :: MonadIO m => HashRef -> Maybe HashRef-> App m ()
-runImport ref rfv = do
+data RunImportOpts =
+  RunImportOpts
+  { _runImportDry    :: Maybe Bool
+  , _runImportRefVal :: Maybe HashRef
+  }
+
+makeLenses 'RunImportOpts
+
+isRunImportDry :: RunImportOpts -> Bool
+isRunImportDry o = view runImportDry o == Just True
+
+runImport :: MonadIO m
+           => RunImportOpts
+           -> HashRef
+           -> App m ()
+
+runImport o ref = do
 
   -- FIXME: readRefValue
-  root <- pure rfv `orDie` "ref value not set"      -- readRefValue ref
+  let rfv = view runImportRefVal o
+  root <- pure rfv `orDie` "ref value not set"
 
   q <- liftIO newTQueueIO
 
@@ -59,9 +75,9 @@ runImport ref rfv = do
 
   syn <- liftIO $ parseTop meta & either (const $ die "invalid head block meta") pure
 
-  let app syn = headDef False
+  let app sy = headDef False
                [ True
-               | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- syn
+               | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- sy
                ]
 
   let hdd = headDef False
@@ -72,8 +88,6 @@ runImport ref rfv = do
 
   unless ( app syn  && hdd ) do
     liftIO $ die "invalid head block meta"
-
-  headBlk <- readObject hd `orDie` "empty head block data"
 
   -- shutUp
 
@@ -88,7 +102,7 @@ runImport ref rfv = do
 
   ae <- ask
 
-  withDB db do
+  withDB db $ transactional $ do
 
     for_ rest $ \r -> do
 
@@ -104,15 +118,28 @@ runImport ref rfv = do
 
         let fields = Text.lines short & fmap Text.words
 
+        let fromTxt =  fromString . Text.unpack
+        let fromRec t = Just . (t,) . fromTxt
+
         hm <- forM fields $ \case
-                ["type:", "blob", x]   -> pure $ Just (Blob, fromString (Text.unpack x))
-                ["type:", "commit", x] -> pure $ Just (Commit, fromString (Text.unpack x))
-                ["type:", "tree", x]   -> pure $ Just (Tree, fromString (Text.unpack x))
+                ["type:", "blob", x]   -> pure $ fromRec Blob x
+                ["type:", "commit", x] -> pure $ fromRec Commit x
+                ["type:", "tree", x]   -> pure $ fromRec Tree x
                 _                      -> pure Nothing
 
-        -- trace $ pretty hm
+        -- TODO: backlog-sha1-might-be-verified-as-well
+        --   Можно проверять соответствие sha1 хэша объекта,
+        --   что бы защищаться от мусорных/битых коммитов.
+        --   Но это затратно. Это так же можно делать при clone/fetch,
+        --   там мы все равно читаем объект.
 
         case catMaybes hm of
-          [(t,sha1)] -> notice $ pretty t <+> pretty sha1
-          _          -> err $ "bad object" <+> pretty r
+          [(t,sha1)] -> do
+            info $ pretty t <+> pretty sha1
+
+            unless (isRunImportDry o) do
+              statePutHash t sha1 r
+
+          _          -> err $ "skipping bad object" <+> pretty r
+
 
