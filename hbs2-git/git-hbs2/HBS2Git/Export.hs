@@ -142,7 +142,7 @@ runExport h = do
     root <- makeMerkle 0 pt $ \(_,_,bss) -> do
       void $ withApp ae $ storeObject (fromString (show metaApp)) bss
 
-    notice $ "objects:" <+> pretty (length hashes)
-    notice $ "head:" <+> pretty hh
-    notice $ "merkle:" <+> pretty root
+    info $ "objects:" <+> pretty (length hashes)
+    info $ "head:" <+> pretty hh
+    info $ "merkle:" <+> pretty root
 
