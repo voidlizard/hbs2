@@ -23,6 +23,9 @@ instance ToField GitHash where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
+instance FromField GitObjectType where
+  fromField = fmap fromString . fromField @String
+
 instance ToField HashRef where
   toField h = toField (show $ pretty h)
 
@@ -159,4 +162,12 @@ stateGetAllHashes = do
   liftIO $ query_ conn [qc|
   select distinct(hash) from object
   |] <&> fmap fromOnly
+
+stateGetAllObjects:: MonadIO m => DB m [(HashRef,GitObjectType)]
+stateGetAllObjects = do
+  conn <- ask
+  liftIO $ query_ conn [qc|
+  select hash, type from object
+  |]
+
 

@@ -38,6 +38,7 @@ import Network.HTTP.Simple
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue as Q
 import System.Exit
+import Codec.Serialise
 
 logPrefix s = set loggerTr (s <>)
 
@@ -65,6 +66,11 @@ instance HasCfgKey ConfBranch (Set String) where
 instance HasCfgKey HeadBranch (Maybe GitRef) where
   key = "head-branch"
 
+type API = String
+
+class MonadIO m => HasCatAPI m where
+  getHttpCatAPI :: m API
+
 shutUp :: MonadIO m => m ()
 shutUp = do
   setLoggingOff @DEBUG
@@ -74,8 +80,34 @@ shutUp = do
 
 data WithLog = NoLog | WithLog
 
+instance MonadIO m => HasCatAPI (App m) where
+  getHttpCatAPI = asks (view appPeerHttpCat)
+
 withApp :: MonadIO m => AppEnv -> App m a -> m a
 withApp env m = runReaderT (fromApp m) env
+
+detectHBS2PeerCatAPI :: MonadIO m => m String
+detectHBS2PeerCatAPI = do
+  -- FIXME: hardcoded-hbs2-peer
+  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+
+  trace $ pretty (LBS.unpack o)
+
+  let dieMsg = "hbs2-peer is down or it's http is inactive"
+
+  let answ = parseTop (LBS.unpack o) & fromRight mempty
+
+  let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
+  -- shutUp
+
+  pnum <- pure po `orDie`  dieMsg
+
+  debug $ pretty "using http port" <+> pretty po
+
+  pure [qc|http://localhost:{pnum}/cat|]
+
+getAppStateDir :: forall m . MonadIO m => m FilePath
+getAppStateDir = liftIO $ getXdgDirectory XdgData Config.appName
 
 runApp :: MonadIO m => WithLog -> App m () -> m ()
 runApp l m = do
@@ -91,7 +123,7 @@ runApp l m = do
 
   (pwd, syn) <- Config.configInit
 
-  xdgstate <- liftIO $ getXdgDirectory XdgData Config.appName
+  xdgstate <- getAppStateDir
   -- let statePath = xdgstate </> makeRelative home pwd
   -- let dbPath = statePath </> "state.db"
   -- db <- dbEnv dbPath
@@ -101,26 +133,9 @@ runApp l m = do
   --   liftIO $ createDirectoryIfMissing True statePath
   -- withDB db stateInit
 
-  -- FIXME: hardcoded-hbs2-peer
-  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+  reQ <- detectHBS2PeerCatAPI
 
-  trace $ pretty (LBS.unpack o)
-
-  let dieMsg = "hbs2-peer is down or it's http is inactive"
-
-  let answ = parseTop (LBS.unpack o) & fromRight mempty
-
-  let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
-
-  -- shutUp
-
-  pnum <- pure po `orDie`  dieMsg
-
-  debug $ pretty "using http port" <+> pretty po
-
-  let req = [qc|http://localhost:{pnum}/cat|]
-
-  let env = AppEnv pwd (pwd </> ".git") syn xdgstate req
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ
 
   runReaderT (fromApp m) env
 
@@ -132,42 +147,79 @@ runApp l m = do
   setLoggingOff @TRACE
   setLoggingOff @INFO
 
-readBlock :: MonadIO m => HashRef -> App m (Maybe ByteString)
+readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
 readBlock h = do
-  req1 <- asks (view appPeerHttpCat)
+  trace $ "readBlock" <+> pretty h
+  req1 <-  getHttpCatAPI -- asks (view appPeerHttpCat)
   let reqs = req1 <> "/" <> show (pretty h)
   req  <- liftIO $ parseRequest reqs
   httpLBS req <&> getResponseBody <&> Just
 
-readRefValue :: MonadIO m => HashRef -> App m (Maybe HashRef)
+readRefValue :: MonadIO m => HashRef -> m (Maybe HashRef)
 readRefValue r = do
   pure Nothing
 
+
+type ObjType = MTreeAnn [HashRef]
+
+readObject :: forall m . (MonadIO m) => HashRef -> m (Maybe ByteString)
+readObject h = do
+
+  trace $ "readObject" <+> pretty h
+
+  let cmd = setStderr closed
+               $ shell [qc|hbs2 cat {pretty h}]|]
+
+  liftIO $ print cmd
+  -- (c, out, _) <- liftIO $ readProcess cmd
+
+  error "STOP"
+
+  -- trace $ "readObject done" <+> pretty h
+
+  -- case c of
+  --   ExitFailure{} -> pure Nothing
+  --   ExitSuccess  -> pure $ Just out
+
 -- FIXME: readObject is dangerous!
-readObject :: forall m . MonadIO m => HashRef -> App m (Maybe ByteString)
-readObject obj = do
+readObject' :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m (Maybe ByteString)
+readObject' obj = do
 
   res <- liftIO newTQueueIO
 
-  let walk h = walkMerkle h (readBlock @m . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
-        case hr of
-          Left hx -> void $ liftIO$ die $ show $ "missed block:" <+> pretty hx
-          Right (hrr :: [HashRef]) -> do
-             forM_ hrr $ \(HashRef hx) -> do
-                 mblk <- readBlock (HashRef hx)
-                 case mblk of
-                   Nothing  -> void $ liftIO$ die $ show $ "missed block:" <+> pretty hx
-                   Just blk -> liftIO $ atomically $ Q.writeTQueue res blk
+  -- FIXME: walkAnn-to-library
+  let walkAnn :: MonadIO m => MTreeAnn [HashRef] -> m ()
+      walkAnn ann = do
+        bprocess :: Hash HbSync -> ByteString -> App m ByteString <- case _mtaCrypt ann of
+          NullEncryption -> pure (const pure)
+          _ -> liftIO $ die "encryption not supported yet"
+          -- FIXME: support-encryption
 
-  pieces <- liftIO $ atomically $ flushTQueue res
+        walkMerkleTree (_mtaTree ann) (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+          case hr of
+            Left hx -> void $ liftIO $ die $ show $ "missed block:" <+> pretty hx
+            Right (hrr :: [HashRef]) -> do
+              forM_ hrr $ \(HashRef hx) -> do
+                  blk <- readBlock (HashRef hx) `orDie` (show $ "missed block: " <+> pretty hx)
+                  liftIO $ atomically $ Q.writeTQueue res blk
 
+  mts <- readBlock obj `orDie` "unable to read block data"
+  let tree = deserialiseOrFail mts & fromRight (error "unable to deserialise block")
+
+  walkAnn tree
+
+  p0 <- liftIO $ atomically $ readTQueue res
+  ps <- liftIO $ atomically $ Q.flushTQueue res
+
+  let pieces = p0:ps
+  trace $ "pieces:" <+> pretty (length pieces)
   pure $ Just $ mconcat pieces
 
-storeObject :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
+storeObject :: MonadIO m => ByteString -> ByteString -> m (Maybe HashRef)
 storeObject = storeObjectHBS2Store
 
 -- FIXME: support-another-apis-for-storage
-storeObjectHBS2Store :: MonadIO m => ByteString -> ByteString -> App m (Maybe HashRef)
+storeObjectHBS2Store :: MonadIO m => ByteString -> ByteString -> m (Maybe HashRef)
 storeObjectHBS2Store meta bs = do
 
   let meta58 = show $ pretty $ B8.unpack $ toBase58 (LBS.toStrict meta)
@@ -185,6 +237,12 @@ storeObjectHBS2Store meta bs = do
     _                   -> pure Nothing
 
 
-makeDbPath :: MonadIO m => HashRef -> App m FilePath
-makeDbPath h = asks (view appStateDir) <&> (</> (show $ pretty h))
+makeDbPath :: MonadIO m => HashRef -> m FilePath
+makeDbPath h = do
+  state <- getAppStateDir
+  liftIO $ createDirectoryIfMissing True state
+  pure $ state </> show (pretty h)
+
+
+
 

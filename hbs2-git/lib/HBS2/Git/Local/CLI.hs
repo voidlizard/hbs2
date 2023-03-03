@@ -202,3 +202,15 @@ gitNormalizeRemoteBranchName orig@(GitRef ref) = do
       then pure (GitRef r)
       else pure (GitRef $ "refs/heads/" <> r)
 
+
+gitStoreObject :: MonadIO m => GitObject -> m (Maybe GitHash)
+gitStoreObject (GitObject t s) = do
+  let cmd = [qc|git hash-object -t {pretty t} -w --stdin|]
+  let procCfg = setStdin (byteStringInput s) $ setStderr closed
+                                             (shell cmd)
+  (code, out, _) <- readProcess procCfg
+  case code of
+    ExitSuccess -> pure $ Just (parseHashLazy out)
+    ExitFailure{} -> pure Nothing
+
+

@@ -154,6 +154,7 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
+      -- TODO: to-the-library
       let walkAnn :: MTreeAnn [HashRef] -> IO ()
           walkAnn ann = do
             bprocess :: Hash HbSync -> ByteString -> IO ByteString <- case (_mtaCrypt ann) of
