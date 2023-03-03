@@ -85,7 +85,7 @@ runExport h = do
   let defSort a b = case (a,b) of
         ("master",_) -> LT
         ("main", _)  -> LT
-        _            -> EQ
+        _            -> GT
 
   let sortedBr = sortBy defSort $ Set.toList branches
 
