@@ -40,8 +40,9 @@ data RepoHead =
 makeLenses 'RepoHead
 
 instance Pretty (AsGitRefsFile RepoHead) where
-  pretty (AsGitRefsFile h) = vcat (fmap fmt els)
+  pretty (AsGitRefsFile h) = vcat (hhead : fmap fmt els)
     where
+      hhead = pretty (view repoHEAD h) <+> "HEAD"
       els = HashMap.toList (view repoHeads h)
       fmt (r,hx) = pretty hx <+> pretty r
 
