@@ -104,6 +104,8 @@ runImport o ref = do
 
   withDB db $ transactional $ do
 
+    statePutHead hd
+
     for_ rest $ \r -> do
 
       gh <- stateGetGitHash r <&> isJust
