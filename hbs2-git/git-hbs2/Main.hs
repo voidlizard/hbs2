@@ -5,6 +5,7 @@ import HBS2.System.Logger.Simple hiding (info)
 
 import HBS2Git.App
 import HBS2Git.Export
+import HBS2Git.Import
 import HBS2Git.ListRefs
 
 import Options.Applicative as O
@@ -101,7 +102,7 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
-                        <> command "dump"      (info pDump (progDesc "dump repo state tree"))
+                        <> command "import"    (info pDump (progDesc "import remote repo to the state"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
                         )
 
@@ -116,5 +117,5 @@ main = join . customExecParser (prefs showHelpOnError) $
     pDump = do
       ref <- strArgument (metavar "HASH-REF")
       refv <- optional $ strArgument (metavar "HASH-REF-VAL")
-      pure $ runApp WithLog (runDumpStateTree ref refv)
+      pure $ runApp WithLog (runImport ref refv)
 

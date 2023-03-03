@@ -109,6 +109,7 @@ executable git-hbs2
     other-modules:
       HBS2Git.Types
       HBS2Git.Export
+      HBS2Git.Import
       HBS2Git.ListRefs
       HBS2Git.Config
       HBS2Git.App
