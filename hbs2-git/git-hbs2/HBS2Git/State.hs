@@ -90,6 +90,11 @@ transactional action = do
   liftIO $ execute_ conn "commit"
   pure x
 
+-- TODO: backlog-head-history
+--   можно сделать таблицу history, в которую
+--   писать журнал всех изменений голов.
+--   тогда можно будет откатиться на любое предыдущее
+--   состояние репозитория
 
 statePutHead :: MonadIO m => HashRef -> DB m ()
 statePutHead h = do
