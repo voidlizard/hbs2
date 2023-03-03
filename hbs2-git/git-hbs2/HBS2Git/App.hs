@@ -100,7 +100,7 @@ runApp l m = do
   -- FIXME: hardcoded-hbs2-peer
   (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
 
-  trace $ pretty (show o)
+  trace $ pretty (LBS.unpack o)
 
   let dieMsg = "hbs2-peer is down or it's http is inactive"
 
