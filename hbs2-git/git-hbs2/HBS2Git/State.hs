@@ -96,7 +96,7 @@ statePutHead h = do
   conn <- ask
   liftIO $ execute conn [qc|
   insert into head (key,hash) values('head',?)
-  on conflict (head) do update set hash = ?
+  on conflict (key) do update set hash = ?
   |] (h,h)
 
 stateGetHead :: MonadIO m => DB m (Maybe HashRef)
