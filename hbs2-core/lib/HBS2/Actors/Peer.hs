@@ -51,6 +51,8 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
   getBlock (AnyStorage s) = getBlock s
   getChunk (AnyStorage s) = getChunk s
   hasBlock (AnyStorage s) = hasBlock s
+  writeLinkRaw (AnyStorage s) = writeLinkRaw s
+  readLinkRaw (AnyStorage s) = readLinkRaw s
 
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)

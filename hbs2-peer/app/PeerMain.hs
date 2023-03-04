@@ -8,6 +8,7 @@ module Main where
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
+import HBS2.Data.Types.Refs
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -43,10 +44,12 @@ import Data.Foldable (for_)
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
 import Data.Function
+import Codec.Serialise (deserialiseOrFail)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified  as L
@@ -597,24 +600,28 @@ runPeer opts = Exception.handle myException $ do
                             ANNLREF h -> do
                               debug $ "got annlref rpc" <+> pretty h
                               sto <- getStorage
-                              -- mbsize <- liftIO $ hasBlock sto h  -- FIXME:
 
-                              -- FIXME: get by hash h value AnnounceLinearRef(LinearMutableRefSigned{})
+                              void $ runMaybeT do
 
-                              -- maybe1 mbsize (pure ()) $ \size -> do
-                              --   debug "send multicast annlref"
+                                  refvalraw <- MaybeT $ (liftIO $ readLinkRaw sto h)
+                                    `orLogError` "error reading ref val"
+                                  slref@(LinearMutableRefSigned _ ref) <- MaybeT $
+                                      pure ((either (const Nothing) Just
+                                           . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
+                                      `orLogError` "can not parse channel ref"
 
-                              --   no <- peerNonce @e
-                              --   let annInfo = BlockAnnlrefInfo 0 NoBlockInfoMeta size h  -- FIXME:
-                              --   let annlref = BlockAnnlref @e no annInfo  -- FIXME:
+                                  let annlref :: AnnLRef UDP
+                                      annlref = AnnLRef @e h slref
 
-                              --   request localMulticast annlref
+                                  lift do
 
-                              --   liftIO $ withPeerM env do
-                              --     forKnownPeers $ \p _ -> do
-                              --       debug $ "send single-cast annlrefs" <+> pretty p
-                              --       request @e p annlref
-                              undefined
+                                      debug "send multicast annlref"
+                                      request localMulticast annlref
+
+                                      withPeerM env do
+                                        forKnownPeers $ \p _ -> do
+                                          debug $ "send single-cast annlrefs" <+> pretty p
+                                          request @e p annlref
 
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
@@ -754,6 +761,8 @@ runPeer opts = Exception.handle myException $ do
 
   simpleStorageStop s
 
+orLogError :: MonadIO m => m (Maybe a) -> String -> m (Maybe a)
+orLogError ma msg = maybe (err msg >> pure Nothing) (pure . Just) =<< ma
 
 
 emitToPeer :: ( MonadIO m

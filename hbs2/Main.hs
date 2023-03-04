@@ -359,7 +359,7 @@ runListLRef nf ss = do
           print $ "owner:" <+> viaShow (refOwner g)
           print $ "title:" <+> viaShow (refName g)
           print $ "meta:" <+> viaShow (refMeta g)
-      simpleReadLinkVal ss chh >>= \case
+      simpleReadLinkRaw ss chh >>= \case
           Nothing -> do
               print $ "empty"
           Just refvalraw -> do
@@ -375,7 +375,7 @@ readNodeLinearRefList ss pk = do
     -- полученный хэш будет хэшем ссылки на список референсов ноды
     lrh :: Hash HbSync <- pure do
         (hashObject . serialise) (nodeLinearRefsRef @e pk)
-    simpleReadLinkVal ss lrh >>= \case
+    simpleReadLinkRaw ss lrh >>= \case
       Nothing -> pure []
       Just refvalraw -> do
           LinearMutableRefSigned _ ref
@@ -394,7 +394,7 @@ modifyLinearRef ss kr chh modIO = do
       `orDie` "can not read channel ref genesis"
     when (refOwner g /= _peerSignPk kr) do
       (pure Nothing) `orDie` "channel ref owner does not match genesis owner"
-    mrefvalraw <- simpleReadLinkVal ss chh
+    mrefvalraw <- simpleReadLinkRaw ss chh
     lmr <- case mrefvalraw of
         Nothing -> do
             val <- modIO Nothing
@@ -419,20 +419,14 @@ modifyLinearRef ss kr chh modIO = do
       `orDie` "can not write link"
     pure ()
 
--- FIXME: make polymorphic, move to storage
-getLRef :: forall e.
-    (Serialise (Signature e))
-    => SimpleStorage HbSync -> Hash HbSync -> IO (Either String (Signed SignaturePresent (MutableRef e 'LinearRef)))
-getLRef ss refh = runExceptT do
-    refvalraw <- simpleReadLinkVal ss refh
-        `orExcept` "error reading ref val"
-    pure (deserialiseMay @(Signed SignaturePresent (MutableRef e 'LinearRef)) refvalraw)
-        `orExcept` "can not parse channel ref"
-
 runGetLRef :: Hash HbSync -> SimpleStorage HbSync -> IO ()
 runGetLRef refh ss = do
     hPrint stderr $ "getting ref value" <+> pretty refh
-    LinearMutableRefSigned _ ref <- getLRef @UDP ss refh `orDie` "getLRef"
+    refvalraw <- readLinkRaw ss refh
+        `orDie` "error reading ref val"
+    LinearMutableRefSigned _ ref
+        <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef UDP 'LinearRef)) refvalraw)
+        `orDie` "can not parse channel ref"
     hPrint stderr $ "channel ref height: " <+> viaShow (lrefHeight ref)
     print $ pretty (lrefVal ref)
 

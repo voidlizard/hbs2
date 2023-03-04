@@ -2,8 +2,8 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.RefLinear where
 
+-- import HBS2.Actors.Peer
 import HBS2.Data.Types.Refs
-import HBS2.Events
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto

@@ -47,7 +47,9 @@ class ( Monad m
 
   -- listBlocks :: a -> ( Key block -> m () ) -> m ()
 
+  writeLinkRaw :: a -> Key h -> Block block -> m (Maybe (Key h))
 
+  readLinkRaw :: a -> Key h -> m (Maybe (Block block))
 
 calcChunks :: forall a b . (Integral a, Integral b)
            => Integer  -- | block size
@@ -57,6 +59,3 @@ calcChunks :: forall a b . (Integral a, Integral b)
 calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
   where
     chu = fmap (,s2) (takeWhile (<s1) $ iterate (+s2) 0)
-
-
-

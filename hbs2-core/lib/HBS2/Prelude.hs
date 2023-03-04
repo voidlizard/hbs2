@@ -4,7 +4,6 @@ module HBS2.Prelude
   , MonadIO(..)
   , void, guard, when, unless
   , maybe1
-  , orExcept
   , Hashable
   , lift
   , AsFileName(..)
@@ -23,7 +22,6 @@ import Safe
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad (void,guard,when,unless)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Except
 
 import Data.Function
 import Data.Char qualified as Char
@@ -57,6 +55,3 @@ class ToByteString a where
 
 class FromByteString a where
   fromByteString :: ByteString -> Maybe a
-
-orExcept :: Monad m => m (Maybe a) -> e -> ExceptT e m a
-orExcept mev msg = ExceptT $ maybe (Left msg) Right <$> mev

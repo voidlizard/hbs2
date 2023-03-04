@@ -1,6 +1,7 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Storage.Simple.Extra where
 
+import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Hash
 import HBS2.Prelude
@@ -23,7 +24,12 @@ pieces :: Integral a => a
 pieces = 1024
 
 class SimpleStorageExtra a  where
-  putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
+  putAsMerkle :: forall h .
+      (IsSimpleStorageKey h, Hashed h ByteString
+      , ToByteString (AsBase58 (Hash h))
+      , FromByteString (AsBase58 (Hash h))
+      )
+      => SimpleStorage h -> a -> IO MerkleHash
 
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
