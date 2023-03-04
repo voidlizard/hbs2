@@ -142,6 +142,7 @@ executable git-remote-hbs2
       , optparse-applicative
       , unix
       , unliftio
+      , terminal-progress-bar
 
     hs-source-dirs:   git-hbs2
     default-language: Haskell2010

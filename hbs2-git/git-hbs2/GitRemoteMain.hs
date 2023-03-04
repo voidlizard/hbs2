@@ -14,6 +14,7 @@ import HBS2Git.Types
 import HBS2Git.App
 import HBS2Git.State
 
+import System.ProgressBar
 import Control.Monad.Reader
 import Data.Maybe
 import Data.Function
@@ -33,6 +34,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.Posix.Signals
 import Lens.Micro.Platform
 import System.Directory
+import Safe
 
 exitSuccess :: MonadIO m => m ()
 exitSuccess = liftIO Exit.exitSuccess
@@ -134,9 +136,12 @@ loop args = do
   --   если fetch - брать список объектов и импортировать
   --   только те, которых нет в репо
 
+  let hl = length hashes
+  pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
   for_ hashes $ \(h,t) -> do
     o <- readObject h `orDie` "unable to fetch object from hbs2"
-    gitStoreObject (GitObject t o)
+    void $ gitStoreObject (GitObject t o)
+    liftIO $ incProgress pb 1
 
   -- shutUp
 
@@ -181,10 +186,14 @@ main = do
   hSetBuffering stdin  NoBuffering
   hSetBuffering stdout LineBuffering
 
-  setLogging @DEBUG  debugPrefix
-  setLogging @ERROR  errorPrefix
+  doTrace <- lookupEnv "HBS2TRACE" <&> isJust
+
+  when doTrace do
+    setLogging @DEBUG  debugPrefix
+    setLogging @TRACE  tracePrefix
+
   setLogging @NOTICE noticePrefix
-  setLogging @TRACE  tracePrefix
+  setLogging @ERROR  errorPrefix
   setLogging @INFO   infoPrefix
 
   args <- getArgs
