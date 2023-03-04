@@ -138,6 +138,7 @@ executable git-remote-hbs2
     -- other-extensions:
     build-depends:
         base, hbs2-git
+      , async
       , attoparsec
       , optparse-applicative
       , unix

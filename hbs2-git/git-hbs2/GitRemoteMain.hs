@@ -14,27 +14,28 @@ import HBS2Git.Types
 import HBS2Git.App
 import HBS2Git.State
 
-import System.ProgressBar
+import Control.Concurrent.Async
 import Control.Monad.Reader
-import Data.Maybe
-import Data.Function
-import Data.Functor
-import Data.Foldable
 -- import Data.Attoparsec.ByteString.Char8 qualified as Atto8
 import Data.Attoparsec.Text
 import Data.Attoparsec.Text qualified as Atto
-import UnliftIO.IO as UIO
--- import System.IO
-import System.Exit qualified as Exit
-import System.Environment
--- import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import System.Posix.Signals
+import Data.Foldable
+import Data.Function
+import Data.Functor
+import Data.Maybe
+import Data.Text qualified as Text
+-- import Data.Text (Text)
 import Lens.Micro.Platform
-import System.Directory
 import Safe
+import System.Directory
+import System.Environment
+import System.Exit qualified as Exit
+-- import System.IO
+import System.Posix.Signals
+import System.ProgressBar
+import UnliftIO.IO as UIO
 
 exitSuccess :: MonadIO m => m ()
 exitSuccess = liftIO Exit.exitSuccess
@@ -136,12 +137,17 @@ loop args = do
   --   если fetch - брать список объектов и импортировать
   --   только те, которых нет в репо
 
+  env <- ask
+
   let hl = length hashes
   pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
-  for_ hashes $ \(h,t) -> do
-    o <- readObject h `orDie` "unable to fetch object from hbs2"
-    void $ gitStoreObject (GitObject t o)
-    liftIO $ incProgress pb 1
+
+
+  liftIO $ for_ hashes $ \(h,t) -> do
+    runRemoteM env do
+      o <- readObject h `orDie` "unable to fetch object from hbs2"
+      liftIO $ incProgress pb 1
+      void $ gitStoreObject (GitObject t o)
 
   -- shutUp
 
