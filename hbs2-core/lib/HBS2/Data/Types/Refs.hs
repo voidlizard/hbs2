@@ -1,14 +1,19 @@
+{-# Language DuplicateRecordFields #-}
+{-# Language UndecidableInstances #-}
 module HBS2.Data.Types.Refs
   ( module HBS2.Data.Types.Refs
   , serialise
   ) where
 
-import HBS2.Prelude
-import HBS2.Hash
 import HBS2.Base58
+import HBS2.Hash
+import HBS2.Merkle
+import HBS2.Net.Auth.Credentials
+import HBS2.Prelude
 
 import Codec.Serialise(serialise)
 import Data.Data
+import Data.Functor.Identity
 import Data.String(IsString)
 import GHC.Generics
 import Prettyprinter
@@ -54,3 +59,75 @@ instance Serialise HashRefObject
 instance Serialise HashRefPrevState
 instance Serialise HashRefType
 
+---
+
+data RefGenesis e = RefGenesis
+  { refOwner :: !(PubKey 'Sign e)
+  , refName :: !Text
+  , refMeta :: !AnnMetaData
+  }
+  deriving stock (Generic)
+
+instance (Serialise (PubKey 'Sign e)) => Serialise (RefGenesis e)
+
+data RefForm
+  = LinearRef
+
+---
+
+data family Refs e ( f :: RefForm )
+
+newtype instance Refs e 'LinearRef
+  -- List of hashes of stored RefGenesis
+  = LinearRefs { unLinearRefs :: [Hash HbSync] }
+  deriving stock (Generic)
+
+instance Serialise (Refs e 'LinearRef)
+
+---
+
+data family MutableRef e ( f :: RefForm )
+
+data instance MutableRef e 'LinearRef
+  = LinearMutableRef
+  { lrefId :: !(Hash HbSync)
+  , lrefHeight :: !Int
+  -- , lrefMTree :: !(MTreeAnn [Hash HbSync])
+  , lrefVal :: !(Hash HbSync)
+  }
+  deriving stock (Generic, Show)
+
+instance Serialise (MutableRef e 'LinearRef)
+
+---
+
+data SignPhase = SignaturePresent | SignatureVerified
+
+data family Signed ( p :: SignPhase ) a
+
+data instance Signed SignaturePresent (MutableRef e 'LinearRef)
+  = LinearMutableRefSigned
+  { signature :: Signature e
+  , signedRef :: MutableRef e 'LinearRef
+  }
+  deriving stock (Generic)
+
+instance Serialise (Signature e) =>
+    Serialise (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+
+data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
+  = LinearMutableRefSignatureVerified
+  { signature :: Signature e
+  , signedRef :: MutableRef e 'LinearRef
+  , signer :: PubKey 'Sign e
+  }
+  deriving stock (Generic)
+
+---
+
+nodeLinearRefsRef :: PubKey 'Sign e -> RefGenesis e
+nodeLinearRefsRef pk = RefGenesis
+  { refOwner = pk
+  , refName = "List of node linear refs"
+  , refMeta = NoMetaData
+  }

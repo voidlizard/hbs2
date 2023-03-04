@@ -307,6 +307,7 @@ spawnAndWait s act = do
 
 simpleWriteLinkRaw :: forall h . ( IsSimpleStorageKey h
                                  , Hashed h LBS.ByteString
+                                 , ToByteString (AsBase58 (Hash h))
                                  )
                    => SimpleStorage h
                    -> Hash h
@@ -319,7 +320,7 @@ simpleWriteLinkRaw ss h lbs = do
   runMaybeT $ do
     r <- MaybeT $ putBlock ss lbs
     MaybeT $ liftIO $ spawnAndWait ss $ do
-      writeFile fnr (show (pretty r))
+      BS.writeFile fnr (toByteString (AsBase58 r))
       pure h
 
 simpleReadLinkRaw :: IsKey h
@@ -336,6 +337,26 @@ simpleReadLinkRaw ss hash = do
       Left  _  -> pure Nothing
 
   pure $ fromMaybe Nothing rs
+
+
+simpleReadLinkVal :: ( IsKey h
+                     , IsSimpleStorageKey h
+                     , Hashed h LBS.ByteString
+                     , FromByteString (AsBase58 (Hash h))
+                     )
+                  => SimpleStorage h
+                  -> Hash h
+                  -> IO (Maybe LBS.ByteString)
+
+simpleReadLinkVal ss hash = do
+  let fn = simpleRefFileName ss hash
+  rs <- spawnAndWait ss $ do
+    r <- tryJust (guard . isDoesNotExistError) (BS.readFile fn)
+    case r of
+      Right bh -> pure (Just bh)
+      Left  _  -> pure Nothing
+  runMaybeT do
+      MaybeT . getBlock ss . unAsBase58 =<< MaybeT (pure (fromByteString =<< join rs))
 
 -- instance Hashed hash LBS.ByteString => Hashed hash LBS.ByteString where
 --   hashObject s = hashObject s

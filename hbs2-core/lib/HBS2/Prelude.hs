@@ -11,8 +11,12 @@ module HBS2.Prelude
   , FromStringMaybe(..)
   , none
   , module Prettyprinter
+  , ToByteString(..)
+  , FromByteString(..)
+  , Text.Text
   ) where
 
+import Data.ByteString (ByteString)
 import Data.String (IsString(..))
 import Safe
 import Control.Monad.IO.Class (MonadIO(..))
@@ -46,4 +50,8 @@ instance Pretty a => Pretty (AsFileName a) where
 class FromStringMaybe a where
   fromStringMay :: String -> Maybe a
 
+class ToByteString a where
+  toByteString :: a -> ByteString
 
+class FromByteString a where
+  fromByteString :: ByteString -> Maybe a
