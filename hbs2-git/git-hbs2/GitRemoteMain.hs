@@ -127,12 +127,14 @@ loop args = do
 
   hashes <- withDB db stateGetAllObjects
 
-  -- FIXME: asap-get-all-existing-objectsor-none-if-clone
+  -- FIXME: asap-get-all-existing-objects-or-all-if-clone
+  --   если clone - доставать всё
+  --   если fetch - брать список объектов и импортировать
+  --   только те, которых нет в репо
 
   for_ hashes $ \(h,t) -> do
     o <- readObject h `orDie` "unable to fetch object from hbs2"
-    trace $ "wtf" <+> pretty h
-    -- gitStoreObject (GitObject t o)
+    gitStoreObject (GitObject t o)
 
   -- shutUp
 
@@ -148,9 +150,6 @@ loop args = do
 
     trace $ pretty (fmap BS.unpack cmd)
 
-    hFlush stderr
-
-
     case cmd of
       [] -> do
         shutUp
@@ -162,14 +161,12 @@ loop args = do
           sendEol
 
       ("list":xs) -> do
-        -- for_ (LBS.lines hd) (trace . pretty . BS.unpack . LBS.toStrict)
+        for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         --
         -- pwd <- liftIO getCurrentDirectory
         -- trace $ "PWD" <+> pretty pwd <+> pretty args <+> pretty (fmap BS.unpack xs)
         -- git <- liftIO $ doesDirectoryExist $ pwd
         -- trace $ "importing" <+> pretty pwd <+> pretty t <+> pretty h
-
-        for_ (LBS.lines hd) (sendLn . LBS.toStrict)
 
       other -> die $ show other
 

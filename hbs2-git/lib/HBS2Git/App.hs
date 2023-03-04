@@ -21,6 +21,8 @@ import HBS2Git.State
 
 import Data.Config.Suckless
 
+import Control.Monad.Trans.Maybe
+import Data.Foldable
 import Data.Either
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -149,7 +151,7 @@ runApp l m = do
 
 readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
 readBlock h = do
-  trace $ "readBlock" <+> pretty h
+  -- trace $ "readBlock" <+> pretty h
   req1 <-  getHttpCatAPI -- asks (view appPeerHttpCat)
   let reqs = req1 <> "/" <> show (pretty h)
   req  <- liftIO $ parseRequest reqs
@@ -162,58 +164,26 @@ readRefValue r = do
 
 type ObjType = MTreeAnn [HashRef]
 
-readObject :: forall m . (MonadIO m) => HashRef -> m (Maybe ByteString)
-readObject h = do
+readObject :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m (Maybe ByteString)
+readObject h = runMaybeT do
 
-  trace $ "readObject" <+> pretty h
+  q <- liftIO newTQueueIO
 
-  let cmd = setStderr closed
-               $ shell [qc|hbs2 cat {pretty h}]|]
+  -- trace $ "readObject" <+> pretty h
 
-  liftIO $ print cmd
-  -- (c, out, _) <- liftIO $ readProcess cmd
+  blk <- MaybeT $ readBlock h
 
-  error "STOP"
+  ann <- MaybeT $ pure $ deserialiseOrFail @(MTreeAnn [HashRef]) blk & either (const Nothing) Just
 
-  -- trace $ "readObject done" <+> pretty h
+  walkMerkleTree (_mtaTree ann) (lift . readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+    case hr of
+      Left{} -> mzero
+      Right (hrr :: [HashRef]) -> do
+        for_ hrr $ \(HashRef hx) -> do
+            block <- MaybeT $ readBlock (HashRef hx)
+            liftIO $ atomically $ writeTQueue q block
 
-  -- case c of
-  --   ExitFailure{} -> pure Nothing
-  --   ExitSuccess  -> pure $ Just out
-
--- FIXME: readObject is dangerous!
-readObject' :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m (Maybe ByteString)
-readObject' obj = do
-
-  res <- liftIO newTQueueIO
-
-  -- FIXME: walkAnn-to-library
-  let walkAnn :: MonadIO m => MTreeAnn [HashRef] -> m ()
-      walkAnn ann = do
-        bprocess :: Hash HbSync -> ByteString -> App m ByteString <- case _mtaCrypt ann of
-          NullEncryption -> pure (const pure)
-          _ -> liftIO $ die "encryption not supported yet"
-          -- FIXME: support-encryption
-
-        walkMerkleTree (_mtaTree ann) (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
-          case hr of
-            Left hx -> void $ liftIO $ die $ show $ "missed block:" <+> pretty hx
-            Right (hrr :: [HashRef]) -> do
-              forM_ hrr $ \(HashRef hx) -> do
-                  blk <- readBlock (HashRef hx) `orDie` (show $ "missed block: " <+> pretty hx)
-                  liftIO $ atomically $ Q.writeTQueue res blk
-
-  mts <- readBlock obj `orDie` "unable to read block data"
-  let tree = deserialiseOrFail mts & fromRight (error "unable to deserialise block")
-
-  walkAnn tree
-
-  p0 <- liftIO $ atomically $ readTQueue res
-  ps <- liftIO $ atomically $ Q.flushTQueue res
-
-  let pieces = p0:ps
-  trace $ "pieces:" <+> pretty (length pieces)
-  pure $ Just $ mconcat pieces
+  mconcat <$> liftIO (atomically $ flushTQueue q)
 
 storeObject :: MonadIO m => ByteString -> ByteString -> m (Maybe HashRef)
 storeObject = storeObjectHBS2Store
@@ -242,7 +212,5 @@ makeDbPath h = do
   state <- getAppStateDir
   liftIO $ createDirectoryIfMissing True state
   pure $ state </> show (pretty h)
-
-
 
 

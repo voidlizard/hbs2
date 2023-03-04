@@ -67,10 +67,6 @@ runImport o ref = do
 
   let hdBlk = tryDetect (fromHashRef hd) hdData
 
-  case hdBlk of
-    MerkleAnn{} -> pure ()
-    _ -> liftIO $ die "invalid head block format"
-
   let meta = headDef "" [ Text.unpack s | ShortMetadata s <- universeBi hdBlk ]
 
   syn <- liftIO $ parseTop meta & either (const $ die "invalid head block meta") pure
