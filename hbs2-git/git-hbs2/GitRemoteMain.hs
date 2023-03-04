@@ -48,10 +48,12 @@ send :: MonadIO m => BS.ByteString -> m ()
 send = liftIO . BS.hPutStr stdout
 
 sendLn :: MonadIO m => BS.ByteString -> m ()
-sendLn s = liftIO $ BS.hPutStrLn stdout s >> hFlush stdout
+sendLn s = do
+  trace $ "sendLn" <+> pretty (show s)
+  liftIO $ BS.hPutStrLn stdout s
 
 sendEol :: MonadIO m => m ()
-sendEol = liftIO $ BS.hPutStrLn stdout "\n" >> hFlush stdout
+sendEol = liftIO $ BS.hPutStrLn stdout "" >> hFlush stdout
 
 receive :: MonadIO m => m BS.ByteString
 receive = liftIO $ BS.hGetLine stdin
@@ -152,21 +154,22 @@ loop args = do
 
     case cmd of
       [] -> do
+        sendEol
         shutUp
         exitSuccess
 
       ["capabilities"] -> do
           trace $ "send capabilities" <+> pretty (BS.unpack capabilities)
-          send capabilities
-          sendEol
+          send capabilities >> sendEol
 
       ("list":xs) -> do
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
-        --
-        -- pwd <- liftIO getCurrentDirectory
-        -- trace $ "PWD" <+> pretty pwd <+> pretty args <+> pretty (fmap BS.unpack xs)
-        -- git <- liftIO $ doesDirectoryExist $ pwd
-        -- trace $ "importing" <+> pretty pwd <+> pretty t <+> pretty h
+        sendEol
+        next
+
+      ["fetch", sha1, x] -> do
+        trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
+        next
 
       other -> die $ show other
 
@@ -176,7 +179,7 @@ main :: IO ()
 main = do
 
   hSetBuffering stdin  NoBuffering
-  hSetBuffering stdout NoBuffering
+  hSetBuffering stdout LineBuffering
 
   setLogging @DEBUG  debugPrefix
   setLogging @ERROR  errorPrefix

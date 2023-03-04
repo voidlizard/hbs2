@@ -32,7 +32,7 @@ newtype AsGitRefsFile a = AsGitRefsFile a
 
 data RepoHead =
   RepoHead
-  { _repoHEAD  :: GitRef
+  { _repoHEAD  :: Maybe GitRef
   , _repoHeads :: HashMap GitRef GitHash
   }
   deriving stock (Generic)
@@ -42,9 +42,12 @@ makeLenses 'RepoHead
 instance Pretty (AsGitRefsFile RepoHead) where
   pretty (AsGitRefsFile h) = vcat (hhead : fmap fmt els)
     where
-      hhead = pretty (view repoHEAD h) <+> "HEAD"
+      hhead = case view repoHEAD h of
+               Nothing -> mempty
+               Just r -> "@" <> pretty r <+> "HEAD"
+
       els = HashMap.toList (view repoHeads h)
-      fmt (r,hx) = pretty hx <+> pretty r
+      fmt (r,hx) = pretty hx <+> pretty ("refs/heads/" <> r)
 
 instance Serialise RepoHead
 
@@ -115,7 +118,7 @@ runExport h = do
 
   debug $ "HEAD" <+> pretty fullHead
 
-  let repoHead = RepoHead fullHead
+  let repoHead = RepoHead (Just fullHead)
                           (HashMap.fromList refs) & show . pretty . AsGitRefsFile
                                                   & LBS.pack
 
@@ -137,6 +140,7 @@ runExport h = do
 
     for_ deps $ \d -> do
       here <- stateGetHash d <&> isJust
+      -- FIXME: asap-check-if-objects-is-in-hbs2
       unless here do
         lbs <- gitReadObject Nothing d
         -- TODO: why-not-default-blob
