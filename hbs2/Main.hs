@@ -10,6 +10,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Types
+import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
@@ -21,6 +22,7 @@ import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.State.Strict
 import Crypto.Saltine.Core.Box qualified as Encrypt
@@ -417,14 +419,20 @@ modifyLinearRef ss kr chh modIO = do
       `orDie` "can not write link"
     pure ()
 
+-- FIXME: make polymorphic, move to storage
+getLRef :: forall e.
+    (Serialise (Signature e))
+    => SimpleStorage HbSync -> Hash HbSync -> IO (Either String (Signed SignaturePresent (MutableRef e 'LinearRef)))
+getLRef ss refh = runExceptT do
+    refvalraw <- simpleReadLinkVal ss refh
+        `orExcept` "error reading ref val"
+    pure (deserialiseMay @(Signed SignaturePresent (MutableRef e 'LinearRef)) refvalraw)
+        `orExcept` "can not parse channel ref"
+
 runGetLRef :: Hash HbSync -> SimpleStorage HbSync -> IO ()
 runGetLRef refh ss = do
     hPrint stderr $ "getting ref value" <+> pretty refh
-    refvalraw <- simpleReadLinkVal ss refh
-        `orDie` "error reading ref val"
-    LinearMutableRefSigned _ ref
-        <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef UDP 'LinearRef)) refvalraw)
-        `orDie` "can not parse channel ref"
+    LinearMutableRefSigned _ ref <- getLRef @UDP ss refh `orDie` "getLRef"
     hPrint stderr $ "channel ref height: " <+> viaShow (lrefHeight ref)
     print $ pretty (lrefVal ref)
 

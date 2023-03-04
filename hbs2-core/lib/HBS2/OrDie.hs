@@ -14,6 +14,12 @@ instance OrDie IO (Maybe a) where
       Nothing -> die err
       Just x  -> pure x
 
+instance OrDie IO (Either String a) where
+  type instance OrDieResult (Either String a) = a
+  orDie ev err = ev >>= \case
+      Left e -> die (e <> ": " <> err)
+      Right x  -> pure x
+
 instance MonadIO m => OrDie m ExitCode where
   type instance OrDieResult ExitCode = ()
   orDie mv err = mv >>= \case

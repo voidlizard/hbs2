@@ -20,6 +20,7 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLinear
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
@@ -139,6 +140,7 @@ makeLenses 'RPCOpt
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
+  | ANNLREF (Hash HbSync)
   | PING (PeerAddr UDP) (Maybe (Peer UDP))
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
@@ -202,6 +204,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
+                        <> command "annlref"   (info pAnnLRef (progDesc "announce linear ref"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
@@ -245,6 +248,11 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (ANNOUNCE h)
+
+    pAnnLRef = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "HASH" )
+      pure $ runRpcCommand rpc (ANNLREF h)
 
     pFetch = do
       rpc <- pRpcCommon
@@ -586,6 +594,28 @@ runPeer opts = Exception.handle myException $ do
                                     debug $ "send single-cast announces" <+> pretty p
                                     request @e p announce
 
+                            ANNLREF h -> do
+                              debug $ "got annlref rpc" <+> pretty h
+                              sto <- getStorage
+                              -- mbsize <- liftIO $ hasBlock sto h  -- FIXME:
+
+                              -- FIXME: get by hash h value AnnounceLinearRef(LinearMutableRefSigned{})
+
+                              -- maybe1 mbsize (pure ()) $ \size -> do
+                              --   debug "send multicast annlref"
+
+                              --   no <- peerNonce @e
+                              --   let annInfo = BlockAnnlrefInfo 0 NoBlockInfoMeta size h  -- FIXME:
+                              --   let annlref = BlockAnnlref @e no annInfo  -- FIXME:
+
+                              --   request localMulticast annlref
+
+                              --   liftIO $ withPeerM env do
+                              --     forKnownPeers $ \p _ -> do
+                              --       debug $ "send single-cast annlrefs" <+> pretty p
+                              --       request @e p annlref
+                              undefined
+
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
 
@@ -634,6 +664,7 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials pc . peerHandShakeProto)
                     , makeResponse peerExchangeProto
+                    , makeResponse refLinearProto
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers
@@ -652,6 +683,7 @@ runPeer opts = Exception.handle myException $ do
         that <- thatPeer (Proxy @(RPC e))
         liftIO $ atomically $ writeTQueue rpcQ (PING pa (Just that))
 
+  -- FIXME
   let fetchAction h = do
         debug  $ "fetchAction" <+> pretty h
         liftIO $ withPeerM penv $ do

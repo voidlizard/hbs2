@@ -18,6 +18,7 @@ import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLinear
 import HBS2.Prelude
 
 import Data.Functor
@@ -93,6 +94,11 @@ instance HasProtocol UDP (PeerExchange UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (AnnLRef UDP) where
+  type instance ProtocolId (AnnLRef UDP) = 7
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 instance Expires (SessionKey UDP (BlockInfo UDP)) where
   expiresIn _ = Just defCookieTimeoutSec
@@ -113,6 +119,9 @@ instance Expires (SessionKey UDP (PeerHandshake UDP)) where
   expiresIn _ = Just 10
 
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
+  expiresIn _ = Nothing
+
+instance Expires (EventKey UDP (AnnLRef UDP)) where
   expiresIn _ = Nothing
 
 

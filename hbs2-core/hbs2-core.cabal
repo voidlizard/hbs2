@@ -93,6 +93,7 @@ library
                     , HBS2.Net.Proto.Peer
                     , HBS2.Net.Proto.PeerAnnounce
                     , HBS2.Net.Proto.PeerExchange
+                    , HBS2.Net.Proto.RefLinear
                     , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.Types
                     , HBS2.OrDie
