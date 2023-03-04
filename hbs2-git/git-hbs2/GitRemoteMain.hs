@@ -10,11 +10,11 @@ import HBS2.Git.Local.CLI
 
 import HBS2.System.Logger.Simple
 
-import HBS2Git.Types
 import HBS2Git.App
 import HBS2Git.State
 
 import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad.Reader
 -- import Data.Attoparsec.ByteString.Char8 qualified as Atto8
 import Data.Attoparsec.Text
@@ -22,19 +22,17 @@ import Data.Attoparsec.Text qualified as Atto
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Foldable
-import Data.Function
 import Data.Functor
 import Data.Maybe
 import Data.Text qualified as Text
 -- import Data.Text (Text)
 import Lens.Micro.Platform
-import Safe
-import System.Directory
 import System.Environment
 import System.Exit qualified as Exit
 -- import System.IO
 import System.Posix.Signals
 import System.ProgressBar
+import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO as UIO
 
 exitSuccess :: MonadIO m => m ()
@@ -137,17 +135,25 @@ loop args = do
   --   если fetch - брать список объектов и импортировать
   --   только те, которых нет в репо
 
-  env <- ask
+  jobz <- liftIO newTQueueIO
+  liftIO $ atomically $ for_ hashes $ writeTQueue jobz
 
   let hl = length hashes
   pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
 
+  env <- ask
 
-  liftIO $ for_ hashes $ \(h,t) -> do
-    runRemoteM env do
-      o <- readObject h `orDie` "unable to fetch object from hbs2"
-      liftIO $ incProgress pb 1
-      void $ gitStoreObject (GitObject t o)
+  -- FIXME: thread-num-hardcoded
+  liftIO $ replicateConcurrently_ 4 $ fix \next -> do
+    atomically (tryReadTQueue jobz) >>= \case
+      Nothing -> pure ()
+      Just (h,t)  -> do
+        runRemoteM env do
+          -- FIXME: proper-error-handling
+          o <- readObject h `orDie` [qc|unable to fetch object {pretty t} {pretty h}|]
+          void $ gitStoreObject (GitObject t o)
+        liftIO $ incProgress pb 1
+        next
 
   -- shutUp
 
