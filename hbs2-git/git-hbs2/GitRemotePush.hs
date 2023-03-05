@@ -74,11 +74,8 @@ push remote [bFrom , Just br] = do
 
     newHead <- case bFrom of
                 Just newBr -> do
-                   trace $ pretty ("WTF1", newBr, br)
                    gh <- gitGetHash newBr `orDie` [qc|can't read hash for ref {pretty newBr}|]
-                   trace $ "newBranchHead" <+> pretty gh
                    pure $ over repoHeads (HashMap.insert br gh) oldHead
-                   -- pure oldHead
 
                 Nothing -> do
                   warn $ "about to delete branch" <+> pretty br <+> pretty "in" <+> pretty remote
@@ -88,8 +85,6 @@ push remote [bFrom , Just br] = do
                     exitFailure
 
                   pure $ over repoHeads (HashMap.delete br) oldHead
-
-    trace $ "new head is" <+> pretty (AsGitRefsFile newHead)
 
     (root, hh) <- export remote newHead
 
