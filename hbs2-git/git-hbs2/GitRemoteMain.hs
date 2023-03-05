@@ -220,3 +220,6 @@ main = do
 
   runRemoteM env (loop args)
 
+  shutUp
+
+
