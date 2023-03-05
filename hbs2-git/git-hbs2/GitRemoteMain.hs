@@ -100,7 +100,7 @@ instance MonadIO m => HasCatAPI (GitRemoteApp m) where
 loop :: MonadIO m => [String] -> GitRemoteApp m ()
 loop args = do
 
-  trace $ "ref:" <+> pretty args
+  trace $ "args:" <+> pretty args
 
   let ref' = case args of
               [_, s] -> Text.stripPrefix "hbs2://" (Text.pack s) <&> fromString @HashRef . Text.unpack
@@ -199,6 +199,10 @@ loop args = do
       -- TODO: check-if-git-push-works
       ["fetch", sha1, x] -> do
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
+        next
+
+      ["push", rr] -> do
+        trace $ "push" <+> pretty (BS.unpack rr)
         next
 
       other -> die $ show other
