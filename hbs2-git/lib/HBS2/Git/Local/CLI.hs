@@ -229,7 +229,7 @@ gitListAllObjects = do
 
 -- FIXME: better error handling
 gitGetHash :: MonadIO m => GitRef -> m (Maybe GitHash)
-gitGetHash (GitRef ref) = do
+gitGetHash ref = do
   (code, out, _) <- readProcess (shell [qc|git show-ref {pretty ref}|])
 
   if code == ExitSuccess then do

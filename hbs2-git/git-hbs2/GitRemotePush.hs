@@ -73,9 +73,8 @@ push remote [bFrom , Just br] = do
 
     newHead <- case bFrom of
                 Just newBr -> do
-                   pure oldHead
-                   -- gh <- gitGetHash newBr `orDie` [qc|can't read hash for ref {pretty newBr}|]
-                   -- pure $ over repoHeads (HashMap.insert br gh) oldHead
+                   gh <- gitGetHash newBr `orDie` [qc|can't read hash for ref {pretty newBr}|]
+                   pure $ over repoHeads (HashMap.insert br gh) oldHead
 
                 Nothing -> do
                   warn $ "about to delete branch" <+> pretty br <+> pretty "in" <+> pretty remote
