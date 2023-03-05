@@ -71,7 +71,7 @@ instance Pretty (AsGitRefsFile RepoHead) where
                Just r -> "@" <> pretty r <+> "HEAD"
 
       els = HashMap.toList (view repoHeads h)
-      fmt (r,hx) = pretty hx <+> pretty ("refs/heads/" <> r)
+      fmt (r,hx) = pretty hx <+> pretty (normalizeRef r)
 
 instance Serialise RepoHead
 

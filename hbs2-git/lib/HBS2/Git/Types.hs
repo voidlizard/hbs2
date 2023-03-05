@@ -97,6 +97,6 @@ instance GitHashed GitObject where
       hd = LBS.pack $ show (pretty t) <> " " <> show (LBS.length c) <> "\x0"
 
 normalizeRef :: GitRef -> GitRef
-normalizeRef (GitRef x) = GitRef x --GitRef "refs/heads" <> GitRef (fromMaybe x (Text.stripPrefix "refs/heads" x))
+normalizeRef (GitRef x) = GitRef "refs/heads" <> GitRef (fromMaybe x (Text.stripPrefix "refs/heads" x))
 
 
