@@ -101,6 +101,7 @@ runImport o ref = do
   withDB db $ transactional $ do
 
     statePutHead hd
+    statePutImported root hd
 
     for_ rest $ \r -> do
 

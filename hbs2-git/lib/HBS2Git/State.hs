@@ -85,6 +85,15 @@ stateInit = do
   )
   |]
 
+  liftIO $ execute_ conn [qc|
+  create table if not exists imported
+  ( id int primary key autoincrement
+  , ts timestamp_column TIMESTAMP DEFAULT DATETIME('now')
+  , merkle text not null
+  , head text not null
+  )
+  |]
+
 transactional :: forall a m . MonadIO m => DB m a -> DB m a
 transactional action = do
   conn <- ask
@@ -98,6 +107,13 @@ transactional action = do
 --   писать журнал всех изменений голов.
 --   тогда можно будет откатиться на любое предыдущее
 --   состояние репозитория
+
+statePutImported :: MonadIO m => HashRef -> HashRef -> DB m ()
+statePutImported merkle hd = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into imported (merkle,head) values(?,?)
+  |] (merkle,hd)
 
 statePutHead :: MonadIO m => HashRef -> DB m ()
 statePutHead h = do
