@@ -19,8 +19,6 @@ import HBS2Git.Types
 import HBS2Git.Config as Config
 import HBS2Git.State
 
-import Data.Config.Suckless
-
 import Control.Monad.Trans.Maybe
 import Data.Foldable
 import Data.Either
@@ -28,7 +26,6 @@ import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.Set  qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
 import System.Directory
@@ -38,9 +35,8 @@ import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import Network.HTTP.Simple
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TQueue as Q
-import System.Exit
 import Codec.Serialise
+import Data.HashMap.Strict qualified as HashMap
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
@@ -216,6 +212,20 @@ makeDbPath h = do
 readHead :: (MonadIO m, HasCatAPI m) => DBEnv -> m (Maybe RepoHead)
 readHead db = runMaybeT do
   href <- MaybeT $ withDB db stateGetHead
+  trace $ "repoHead" <+> pretty href
   bs   <- MaybeT $ readObject href
-  MaybeT $ pure $ deserialiseOrFail bs & either (const Nothing) Just
+
+  let toParse = fmap LBS.words ( LBS.lines bs )
+
+  let fromSymb = Just . fromString . LBS.unpack . LBS.dropWhile (=='@')
+  let fromBS :: forall a . IsString a => LBS.ByteString -> a
+      fromBS = fromString . LBS.unpack
+
+  let parsed = flip foldMap toParse $ \case
+                [a,"HEAD"] -> [RepoHead (fromSymb a) mempty]
+                [h,r]      -> [RepoHead Nothing (HashMap.singleton (fromBS r) (fromBS h))]
+                _          -> mempty
+
+  pure $ mconcat parsed
+
 

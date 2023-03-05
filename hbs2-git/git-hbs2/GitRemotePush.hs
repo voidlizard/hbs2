@@ -69,7 +69,7 @@ push remote [Nothing, Just br] = do
 
     hd <- readHead db <&> fromMaybe mempty  <&> over repoHeads (HashMap.delete br)
 
-    trace $ "hew heads" <+> pretty (AsGitRefsFile hd)
+    trace $ "new head is" <+> pretty (AsGitRefsFile hd)
 
     pure ()
 

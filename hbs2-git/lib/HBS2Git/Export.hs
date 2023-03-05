@@ -50,6 +50,74 @@ newHashCache db = do
   pure $ HashCache ca db
 
 
+export :: MonadIO m => HashRef -> RepoHead -> m (HashRef, HashRef)
+export h repoHead = do
+
+  let refs = HashMap.toList (view repoHeads repoHead)
+
+  let repoHeadStr =  (LBS.pack . show . pretty . AsGitRefsFile) repoHead
+
+  dbPath <- makeDbPath h
+
+  trace $ "dbPath" <+> pretty dbPath
+
+  db <- dbEnv dbPath
+
+  cache <- newHashCache db
+
+  for_ refs $ \(_, h) -> do
+    liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
+
+  withDB db $ transactional do
+    els <- liftIO $ Cache.toList (hCache cache)
+    for_ els $ \(k,vs,_) -> do
+      for_ (Set.toList vs) $ \h -> do
+        stateAddDep k h
+
+  deps <- withDB db $ do
+            x <- forM refs $ stateGetDeps . snd
+            pure $ mconcat x
+
+  withDB db $ transactional do -- to speedup inserts
+
+    let metaApp = "application:" <+> "hbs2-git" <> line
+
+    let metaHead = fromString $ show
+                              $ metaApp <> "type:" <+> "head" <> line
+
+    -- let gha = gitHashObject (GitObject Blob repoHead)
+    hh  <- storeObject metaHead repoHeadStr `orDie` "cant save repo head"
+
+    for_ deps $ \d -> do
+      here <- stateGetHash d <&> isJust
+      -- FIXME: asap-check-if-objects-is-in-hbs2
+      unless here do
+        lbs <- gitReadObject Nothing d
+        -- TODO: why-not-default-blob
+        --   anything is blob
+        tp <- gitGetObjectType d <&> fromMaybe Blob --
+
+        let metaO = fromString $ show
+                               $ metaApp
+                               <> "type:" <+> pretty tp <+> pretty d
+                               <> line
+
+        hr' <- storeObject metaO lbs
+        maybe1 hr' (pure ()) $ \hr -> do
+          withDB db $ statePutHash tp d hr
+          trace $ "store" <+> pretty tp <+> pretty d <+> pretty hr
+
+    hashes <- (hh : ) <$> stateGetAllHashes
+
+    let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
+
+    root <- makeMerkle 0 pt $ \(_,_,bss) -> do
+      void $ storeObject (fromString (show metaApp)) bss
+
+    trace $ "objects:" <+> pretty (length hashes)
+
+    pure (HashRef root, hh)
+
 runExport :: MonadIO m => HashRef -> App m ()
 runExport h = do
   trace $ "Export" <+> pretty h
@@ -75,74 +143,15 @@ runExport h = do
 
   refs <- gitReadRefs git branches
 
-  dbPath <- makeDbPath h
-
-  trace $ "dbPath" <+> pretty dbPath
-
-  db <- dbEnv dbPath
-
-  cache <- newHashCache db
-
-  for_ refs $ \(_, h) -> do
-    liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
-
-  withDB db $ transactional do
-    els <- liftIO $ Cache.toList (hCache cache)
-    for_ els $ \(k,vs,_) -> do
-      for_ (Set.toList vs) $ \h -> do
-        stateAddDep k h
-
   fullHead <- gitHeadFullName headBranch
 
   debug $ "HEAD" <+> pretty fullHead
 
   let repoHead = RepoHead (Just fullHead)
-                          (HashMap.fromList refs) & show . pretty . AsGitRefsFile
-                                                  & LBS.pack
+                          (HashMap.fromList refs)
 
-  deps <- withDB db $ do
-            x <- forM refs $ stateGetDeps . snd
-            pure $ mconcat x
+  (root, hhh) <- export h repoHead
 
-  ae <- ask
-
-  withDB db $ transactional do -- to speedup inserts
-
-    let metaApp = "application:" <+> "hbs2-git" <> line
-
-    let metaHead = fromString $ show
-                              $ metaApp <> "type:" <+> "head" <> line
-
-    -- let gha = gitHashObject (GitObject Blob repoHead)
-    hh  <- withApp ae $ storeObject metaHead repoHead `orDie` "cant save repo head"
-
-    for_ deps $ \d -> do
-      here <- stateGetHash d <&> isJust
-      -- FIXME: asap-check-if-objects-is-in-hbs2
-      unless here do
-        lbs <- gitReadObject Nothing d
-        -- TODO: why-not-default-blob
-        --   anything is blob
-        tp <- gitGetObjectType d <&> fromMaybe Blob --
-
-        let metaO = fromString $ show
-                               $ metaApp
-                               <> "type:" <+> pretty tp <+> pretty d
-                               <> line
-
-        hr' <- withApp ae $ storeObject metaO lbs
-        maybe1 hr' (pure ()) $ \hr -> do
-          withDB db $ statePutHash tp d hr
-          trace $ "store" <+> pretty tp <+> pretty d <+> pretty hr
-
-    hashes <- (hh : ) <$> stateGetAllHashes
-
-    let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
-
-    root <- makeMerkle 0 pt $ \(_,_,bss) -> do
-      void $ withApp ae $ storeObject (fromString (show metaApp)) bss
-
-    info $ "objects:" <+> pretty (length hashes)
-    info $ "head:" <+> pretty hh
-    info $ "merkle:" <+> pretty root
+  info  $ "head:" <+> pretty hhh
+  info  $ "merkle:" <+> pretty root
 
