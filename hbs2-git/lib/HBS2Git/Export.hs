@@ -28,28 +28,6 @@ import Data.Set qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
 
-newtype AsGitRefsFile a = AsGitRefsFile a
-
-data RepoHead =
-  RepoHead
-  { _repoHEAD  :: Maybe GitRef
-  , _repoHeads :: HashMap GitRef GitHash
-  }
-  deriving stock (Generic)
-
-makeLenses 'RepoHead
-
-instance Pretty (AsGitRefsFile RepoHead) where
-  pretty (AsGitRefsFile h) = vcat (hhead : fmap fmt els)
-    where
-      hhead = case view repoHEAD h of
-               Nothing -> mempty
-               Just r -> "@" <> pretty r <+> "HEAD"
-
-      els = HashMap.toList (view repoHeads h)
-      fmt (r,hx) = pretty hx <+> pretty ("refs/heads/" <> r)
-
-instance Serialise RepoHead
 
 data HashCache =
   HashCache

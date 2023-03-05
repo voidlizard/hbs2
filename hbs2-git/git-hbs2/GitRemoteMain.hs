@@ -9,10 +9,13 @@ import HBS2.Git.Local.CLI
 
 import HBS2.System.Logger.Simple
 
-import GitRemoteTypes
-import GitRemotePush
+import HBS2Git.Types()
 import HBS2Git.App
 import HBS2Git.State
+import HBS2Git.Config as Config
+
+import GitRemoteTypes
+import GitRemotePush
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -33,15 +36,6 @@ import System.ProgressBar
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO as UIO
 
-exitSuccess :: MonadIO m => m ()
-exitSuccess = liftIO Exit.exitSuccess
-
-exitFailure :: MonadIO m => m ()
-exitFailure = liftIO Exit.exitFailure
-
-die :: MonadIO m => String -> m a
-die s = do
-  liftIO $ Exit.die s
 
 send :: MonadIO m => BS.ByteString -> m ()
 send = liftIO . BS.hPutStr stdout
@@ -75,9 +69,11 @@ capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
 
+-- type WithAllStuff m
 
 
-loop :: MonadIO m => [String] -> GitRemoteApp m ()
+loop :: forall m . ( MonadIO m
+                   ) => [String] -> GitRemoteApp m ()
 loop args = do
 
   trace $ "args:" <+> pretty args

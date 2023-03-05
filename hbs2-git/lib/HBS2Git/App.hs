@@ -42,6 +42,15 @@ import Control.Concurrent.STM.TQueue as Q
 import System.Exit
 import Codec.Serialise
 
+instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
+  key = "branch"
+
+instance MonadIO m => HasCfgKey ConfBranch (Set GitRef) m where
+  key = "branch"
+
+instance MonadIO m => HasCfgKey HeadBranch (Maybe GitRef) m where
+  key = "head-branch"
+
 logPrefix s = set loggerTr (s <>)
 
 tracePrefix :: SetLoggerEntry
@@ -61,12 +70,6 @@ noticePrefix = toStderr
 
 infoPrefix :: SetLoggerEntry
 infoPrefix = toStderr
-
-instance HasCfgKey ConfBranch (Set String) where
-  key = "branch"
-
-instance HasCfgKey HeadBranch (Maybe GitRef) where
-  key = "head-branch"
 
 
 shutUp :: MonadIO m => m ()
@@ -209,4 +212,10 @@ makeDbPath h = do
   liftIO $ createDirectoryIfMissing True state
   pure $ state </> show (pretty h)
 
+
+readHead :: (MonadIO m, HasCatAPI m) => DBEnv -> m (Maybe RepoHead)
+readHead db = runMaybeT do
+  href <- MaybeT $ withDB db stateGetHead
+  bs   <- MaybeT $ readObject href
+  MaybeT $ pure $ deserialiseOrFail bs & either (const Nothing) Just
 

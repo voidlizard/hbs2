@@ -1,4 +1,7 @@
-module HBS2Git.Config where
+module HBS2Git.Config
+  ( module HBS2Git.Config
+  , module Data.Config.Suckless
+  ) where
 
 import HBS2.Prelude
 import HBS2.System.Logger.Simple
@@ -6,11 +9,13 @@ import HBS2.OrDie
 
 import Data.Config.Suckless
 
+import HBS2Git.Types
+
 import Data.Functor
 import System.FilePath
 import System.Directory
 
-type C = MegaParsec
+-- type C = MegaParsec
 
 appName :: FilePath
 appName = "hbs2-git"
