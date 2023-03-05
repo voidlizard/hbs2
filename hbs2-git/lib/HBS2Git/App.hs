@@ -60,7 +60,7 @@ noticePrefix :: SetLoggerEntry
 noticePrefix = toStderr
 
 infoPrefix :: SetLoggerEntry
-infoPrefix = toStdout
+infoPrefix = toStderr
 
 instance HasCfgKey ConfBranch (Set String) where
   key = "branch"

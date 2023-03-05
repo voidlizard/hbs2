@@ -10,6 +10,7 @@ import HBS2.Git.Local.CLI
 
 import HBS2.System.Logger.Simple
 
+import GitRemotePush
 import HBS2Git.App
 import HBS2Git.State
 
@@ -146,26 +147,7 @@ loop args = do
       modifyTVar' jobNumT succ
       writeTQueue jobz o
 
-  hl <- liftIO $ readTVarIO jobNumT
-  pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
-
   env <- ask
-
-  -- FIXME: thread-num-hardcoded
-  liftIO $ replicateConcurrently_ 4 $ fix \next -> do
-    atomically (tryReadTQueue jobz) >>= \case
-      Nothing -> pure ()
-      Just (h,_,t) -> do
-        runRemoteM env do
-          -- FIXME: proper-error-handling
-          o <- readObject h `orDie` [qc|unable to fetch object {pretty t} {pretty h}|]
-          r <- gitStoreObject (GitObject t o)
-
-          when (isNothing r) do
-            err $ "can't write object to git" <+> pretty h
-
-        liftIO $ incProgress pb 1
-        next
 
   -- shutUp
 
@@ -191,7 +173,32 @@ loop args = do
           trace $ "send capabilities" <+> pretty (BS.unpack capabilities)
           send capabilities >> sendEol
 
-      ("list":xs) -> do
+      ["list"] -> do
+
+        hl <- liftIO $ readTVarIO jobNumT
+        pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
+
+        -- FIXME: thread-num-hardcoded
+        liftIO $ replicateConcurrently_ 4 $ fix \next -> do
+          atomically (tryReadTQueue jobz) >>= \case
+            Nothing -> pure ()
+            Just (h,_,t) -> do
+              runRemoteM env do
+                -- FIXME: proper-error-handling
+                o <- readObject h `orDie` [qc|unable to fetch object {pretty t} {pretty h}|]
+                r <- gitStoreObject (GitObject t o)
+
+                when (isNothing r) do
+                  err $ "can't write object to git" <+> pretty h
+
+              liftIO $ incProgress pb 1
+              next
+
+        for_ (LBS.lines hd) (sendLn . LBS.toStrict)
+        sendEol
+        next
+
+      ["list","for-push"] -> do
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
@@ -202,12 +209,16 @@ loop args = do
         next
 
       ["push", rr] -> do
-        trace $ "push" <+> pretty (BS.unpack rr)
-        next
+        let bra = BS.split ':' rr
+        push ref (fmap (fromString' . BS.unpack) bra )
 
       other -> die $ show other
 
     next
+
+  where
+    fromString' "" = Nothing
+    fromString' x  = Just $ fromString x
 
 main :: IO ()
 main = do
@@ -223,6 +234,7 @@ main = do
 
   setLogging @NOTICE noticePrefix
   setLogging @ERROR  errorPrefix
+  setLogging @WARN   warnPrefix
   setLogging @INFO   infoPrefix
 
   args <- getArgs
