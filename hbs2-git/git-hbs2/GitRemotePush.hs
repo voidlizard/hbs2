@@ -13,18 +13,20 @@ import HBS2.Git.Local
 import HBS2Git.Config as Config
 import HBS2Git.App
 
+import GitRemoteTypes
+
 import Data.Set (Set)
 
 -- import HBS2Git.State
 --
 
 
-push :: MonadIO m => HashRef -> [Maybe GitRef] -> m ()
+push :: forall m . (MonadIO m) => HashRef -> [Maybe GitRef] -> GitRemoteApp m ()
 
 push remote [Nothing, br] = do
   (pwd, syn) <- Config.configInit
 
-  -- let brCfg = cfgValue @ConfBranch :: Set GitRef
+  -- brCfg <- cfgValue @ConfBranch @(Set GitRef) @m
 
   trace $ pretty pwd
   warn $ "about to delete branch" <+> pretty br <+> pretty "in" <+> pretty remote

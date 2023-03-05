@@ -18,8 +18,9 @@ import Data.Set (Set)
 import Data.String
 import Lens.Micro.Platform
 import Prettyprinter
-import Network.HTTP.Simple
 import Safe
+
+type API = String
 
 type DBEnv = Connection
 
@@ -42,6 +43,9 @@ makeLenses 'AppEnv
 
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
+
+class MonadIO m => HasCatAPI m where
+  getHttpCatAPI :: m API
 
 class HasCfgKey a b where
   -- type family CfgValue a :: Type

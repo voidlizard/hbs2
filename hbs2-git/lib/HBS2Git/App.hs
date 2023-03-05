@@ -68,10 +68,6 @@ instance HasCfgKey ConfBranch (Set String) where
 instance HasCfgKey HeadBranch (Maybe GitRef) where
   key = "head-branch"
 
-type API = String
-
-class MonadIO m => HasCatAPI m where
-  getHttpCatAPI :: m API
 
 shutUp :: MonadIO m => m ()
 shutUp = do

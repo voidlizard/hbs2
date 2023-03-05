@@ -1,4 +1,3 @@
-{-# Language TemplateHaskell #-}
 module Main where
 
 import HBS2.Prelude
@@ -10,6 +9,7 @@ import HBS2.Git.Local.CLI
 
 import HBS2.System.Logger.Simple
 
+import GitRemoteTypes
 import GitRemotePush
 import HBS2Git.App
 import HBS2Git.State
@@ -26,7 +26,6 @@ import Data.Functor
 import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Text qualified as Text
-import Lens.Micro.Platform
 import System.Environment
 import System.Exit qualified as Exit
 import System.Posix.Signals
@@ -75,28 +74,8 @@ parseRepoURL url' = either (const Nothing) Just (parseOnly p url)
 capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
-newtype RemoteEnv =
-  RemoteEnv
-  { _reHttpCat :: API
-  }
-
-makeLenses 'RemoteEnv
 
 
-newtype GitRemoteApp m a =
-  GitRemoteApp { fromRemoteApp :: ReaderT RemoteEnv m a }
-  deriving newtype ( Applicative
-                   , Functor
-                   , Monad
-                   , MonadIO
-                   , MonadReader RemoteEnv
-                   )
-
-runRemoteM :: MonadIO m => RemoteEnv -> GitRemoteApp m a -> m a
-runRemoteM env m = runReaderT (fromRemoteApp m) env
-
-instance MonadIO m => HasCatAPI (GitRemoteApp m) where
-  getHttpCatAPI = view (asks reHttpCat)
 
 loop :: MonadIO m => [String] -> GitRemoteApp m ()
 loop args = do
