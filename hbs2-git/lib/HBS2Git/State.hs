@@ -87,11 +87,11 @@ stateInit = do
 
   liftIO $ execute_ conn [qc|
   create table if not exists imported
-  ( seq integer autoincrement
+  ( seq integer primary key autoincrement
   , ts DATE DEFAULT (datetime('now','localtime'))
   , merkle text not null
   , head text not null
-  , primary key (merkle,head)
+  , unique (merkle,head)
   )
   |]
 
