@@ -65,6 +65,7 @@ push remote [bFrom , Just br] = do
   dbPath <- makeDbPath remote
   db <- dbEnv dbPath
 
+  -- FIXME: check-head-consistency
   runWithConfig syn do
 
     brCfg <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
