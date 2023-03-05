@@ -137,6 +137,8 @@ loop args = do
 
   jobz <- liftIO newTQueueIO
 
+  -- TODO: check-if-fetch-really-works
+
   jobNumT <- liftIO $ newTVarIO 0
   liftIO $ atomically $ for_ hashes $ \o@(_,gh,_) -> do
     unless (HashSet.member gh existed) do
