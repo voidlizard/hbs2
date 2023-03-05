@@ -14,6 +14,7 @@ import HBS2Git.Config as Config
 import HBS2Git.Types
 import HBS2Git.State
 import HBS2Git.App
+import HBS2Git.Export (export)
 
 import GitRemoteTypes
 
@@ -71,8 +72,10 @@ push remote [Nothing, Just br] = do
 
     trace $ "new head is" <+> pretty (AsGitRefsFile hd)
 
-    pure ()
+    (root, hh) <- export remote hd
 
+    info  $ "head:" <+> pretty hh
+    info  $ "merkle:" <+> pretty root
 
 push remote fromTo = do
   trace $ "push" <+> pretty remote <+> pretty fromTo
