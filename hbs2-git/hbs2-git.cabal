@@ -92,6 +92,7 @@ library
       HBS2.Git.Local.CLI
       HBS2Git.Types
       HBS2Git.Export
+      HBS2Git.Push
       HBS2Git.Import
       HBS2Git.ListRefs
       HBS2Git.Config
