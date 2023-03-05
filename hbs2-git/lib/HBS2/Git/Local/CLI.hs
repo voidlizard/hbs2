@@ -239,3 +239,18 @@ gitGetHash ref = do
   else
     pure Nothing
 
+
+gitListLocalBranches :: MonadIO m => m [(GitRef, GitHash)]
+gitListLocalBranches  = do
+  let cmd = [qc|git branch --format='%(objectname) %(refname)'|]
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+
+  pure $ LBS.lines out & foldMap (fromLine . LBS.words)
+
+  where
+    fromLine = \case
+      [h, n] -> [(fromString (LBS.unpack n), fromString (LBS.unpack h))]
+      _      -> []
+
+

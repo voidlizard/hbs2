@@ -15,6 +15,7 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 
+import Data.Functor
 import Data.List (sortBy)
 import Control.Applicative
 import Control.Monad.Reader
@@ -128,7 +129,8 @@ runExport h = do
 
   env <- ask
 
-  branches <- cfgValue @ConfBranch
+  branches   <- cfgValue @ConfBranch
+  branchesGr <- cfgValue @ConfBranch <&> Set.map normalizeRef
   headBranch' <- cfgValue @HeadBranch
 
   trace $ "BRANCHES" <+> pretty (Set.toList branches)
@@ -143,7 +145,8 @@ runExport h = do
   let headBranch = fromMaybe "master"
                      $ headBranch' <|> (fromString <$> headMay sortedBr)
 
-  refs <- gitReadRefs git branches
+  refs <- gitListLocalBranches
+             <&> filter (\x -> Set.member (fst x) branchesGr)
 
   trace $ "REFS" <+> pretty refs
 
