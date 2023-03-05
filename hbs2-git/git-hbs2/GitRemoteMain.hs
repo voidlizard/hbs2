@@ -196,6 +196,7 @@ loop args = do
         sendEol
         next
 
+      -- TODO: check-if-git-push-works
       ["fetch", sha1, x] -> do
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         next
