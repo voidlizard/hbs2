@@ -163,11 +163,10 @@ stateGetAllHashes = do
   select distinct(hash) from object
   |] <&> fmap fromOnly
 
-stateGetAllObjects:: MonadIO m => DB m [(HashRef,GitObjectType)]
+stateGetAllObjects:: MonadIO m => DB m [(HashRef,GitHash,GitObjectType)]
 stateGetAllObjects = do
   conn <- ask
   liftIO $ query_ conn [qc|
-  select hash, type from object
+  select hash, githash, type from object
   |]
-
 

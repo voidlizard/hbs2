@@ -214,3 +214,16 @@ gitStoreObject (GitObject t s) = do
     ExitFailure{} -> pure Nothing
 
 
+gitListAllObjects :: MonadIO m => m [GitHash]
+gitListAllObjects = do
+  let cmd = [qc|git cat-file --batch-check --batch-all-objects|]
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+
+  pure $ LBS.lines out & foldMap (fromLine . LBS.words)
+
+  where
+    fromLine = \case
+      [ha, _, _] -> [fromString (LBS.unpack ha)]
+      _          -> []
+

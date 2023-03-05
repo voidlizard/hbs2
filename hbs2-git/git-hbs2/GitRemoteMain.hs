@@ -16,20 +16,18 @@ import HBS2Git.State
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
--- import Data.Attoparsec.ByteString.Char8 qualified as Atto8
 import Data.Attoparsec.Text
 import Data.Attoparsec.Text qualified as Atto
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Foldable
 import Data.Functor
+import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Text qualified as Text
--- import Data.Text (Text)
 import Lens.Micro.Platform
 import System.Environment
 import System.Exit qualified as Exit
--- import System.IO
 import System.Posix.Signals
 import System.ProgressBar
 import Text.InterpolatedString.Perl6 (qc)
@@ -135,10 +133,17 @@ loop args = do
   --   если fetch - брать список объектов и импортировать
   --   только те, которых нет в репо
 
-  jobz <- liftIO newTQueueIO
-  liftIO $ atomically $ for_ hashes $ writeTQueue jobz
+  existed <- gitListAllObjects <&> HashSet.fromList
 
-  let hl = length hashes
+  jobz <- liftIO newTQueueIO
+
+  jobNumT <- liftIO $ newTVarIO 0
+  liftIO $ atomically $ for_ hashes $ \o@(_,gh,_) -> do
+    unless (HashSet.member gh existed) do
+      modifyTVar' jobNumT succ
+      writeTQueue jobz o
+
+  hl <- liftIO $ readTVarIO jobNumT
   pb <- liftIO $ newProgressBar defStyle 10 (Progress 0 hl ())
 
   env <- ask
@@ -147,11 +152,15 @@ loop args = do
   liftIO $ replicateConcurrently_ 4 $ fix \next -> do
     atomically (tryReadTQueue jobz) >>= \case
       Nothing -> pure ()
-      Just (h,t)  -> do
+      Just (h,_,t) -> do
         runRemoteM env do
           -- FIXME: proper-error-handling
           o <- readObject h `orDie` [qc|unable to fetch object {pretty t} {pretty h}|]
-          void $ gitStoreObject (GitObject t o)
+          r <- gitStoreObject (GitObject t o)
+
+          when (isNothing r) do
+            err $ "can't write object to git" <+> pretty h
+
         liftIO $ incProgress pb 1
         next
 
