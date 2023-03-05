@@ -82,8 +82,8 @@ runExport h = do
 
   env <- ask
 
-  let branches    = cfgValue @ConfBranch env
-  let headBranch' = cfgValue @HeadBranch env :: Maybe GitRef
+  branches <- cfgValue @ConfBranch
+  headBranch' <- cfgValue @HeadBranch
 
   let defSort a b = case (a,b) of
         ("master",_) -> LT

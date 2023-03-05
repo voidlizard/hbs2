@@ -47,27 +47,30 @@ class HasCfgKey a b where
   -- type family CfgValue a :: Type
   key :: Id
 
-class HasCfgKey a b => HasCfgValue a b where
-  cfgValue :: AppEnv -> b
+class (Monad m, HasCfgKey a b) => HasCfgValue a b m where
+  cfgValue :: m b
 
+class Monad m => HasConf m where
+  getConf :: m [Syntax C]
 
 newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
   deriving newtype ( Applicative, Functor, Monad, MonadIO, MonadReader AppEnv )
 
-instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
-  cfgValue ae = lastMay val
-    where
-      syn = view appConf ae
-      val = [ fromString (show $ pretty e)
-            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
-            ]
+instance MonadIO m => HasConf (App m) where
+  getConf = asks (view appConf)
 
-instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Set b)) => HasCfgValue a (Set b) where
-  cfgValue ae = Set.fromList val
+instance {-# OVERLAPPABLE #-} (HasConf m, Ord b, IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) m where
+  cfgValue = lastMay . val <$> getConf
     where
-      syn = view appConf ae
-      val = [ fromString (show $ pretty e)
-            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Set b)
-            ]
+      val syn = [ fromString (show $ pretty e)
+                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
+                ]
+
+instance {-# OVERLAPPABLE #-} (HasConf m, Ord b, IsString b, HasCfgKey a (Set b)) => HasCfgValue a (Set b) m where
+  cfgValue  = Set.fromList . val <$> getConf
+    where
+      val syn = [ fromString (show $ pretty e)
+                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Set b)
+                ]
 

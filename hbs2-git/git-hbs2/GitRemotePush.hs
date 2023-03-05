@@ -7,11 +7,14 @@ import HBS2.System.Logger.Simple
 -- import HBS2.Merkle
 -- import HBS2.Hash
 
-
 import HBS2.Git.Local
 -- import HBS2.Git.Local.CLI
 
--- import HBS2Git.App
+import HBS2Git.Config as Config
+import HBS2Git.App
+
+import Data.Set (Set)
+
 -- import HBS2Git.State
 --
 
@@ -19,7 +22,13 @@ import HBS2.Git.Local
 push :: MonadIO m => HashRef -> [Maybe GitRef] -> m ()
 
 push remote [Nothing, br] = do
+  (pwd, syn) <- Config.configInit
+
+  -- let brCfg = cfgValue @ConfBranch :: Set GitRef
+
+  trace $ pretty pwd
   warn $ "about to delete branch" <+> pretty br <+> pretty "in" <+> pretty remote
+
   pure ()
 
 push remote fromTo = do
