@@ -87,10 +87,11 @@ stateInit = do
 
   liftIO $ execute_ conn [qc|
   create table if not exists imported
-  ( id integer primary key autoincrement
+  ( seq integer autoincrement
   , ts DATE DEFAULT (datetime('now','localtime'))
   , merkle text not null
   , head text not null
+  , primary key (merkle,head)
   )
   |]
 
@@ -113,6 +114,7 @@ statePutImported merkle hd = do
   conn <- ask
   liftIO $ execute conn [qc|
   insert into imported (merkle,head) values(?,?)
+  on conflict (merkle,head) do nothing
   |] (merkle,hd)
 
 statePutHead :: MonadIO m => HashRef -> DB m ()
