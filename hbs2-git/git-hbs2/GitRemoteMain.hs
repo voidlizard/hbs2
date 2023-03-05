@@ -138,6 +138,7 @@ loop args = do
   jobz <- liftIO newTQueueIO
 
   -- TODO: check-if-fetch-really-works
+  -- TODO: check-if-fetch-actually-works
 
   jobNumT <- liftIO $ newTVarIO 0
   liftIO $ atomically $ for_ hashes $ \o@(_,gh,_) -> do
