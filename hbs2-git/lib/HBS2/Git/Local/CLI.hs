@@ -231,10 +231,10 @@ gitListAllObjects = do
 gitGetHash :: MonadIO m => GitRef -> m (Maybe GitHash)
 gitGetHash ref = do
 
-  (code, out, _) <- readProcess (shell [qc|git show-ref {pretty ref}|])
+  (code, out, _) <- readProcess (shell [qc|git rev-parse {pretty ref}|])
 
   if code == ExitSuccess then do
-    let hash = GitHash . fromString . BS8.unpack <$> headMay (BS8.words (LBS.toStrict out)) -- FIXME
+    let hash = (Just . GitHash . fromString . LBS.unpack) out
     pure hash
   else
     pure Nothing
