@@ -131,6 +131,8 @@ runExport h = do
   branches <- cfgValue @ConfBranch
   headBranch' <- cfgValue @HeadBranch
 
+  trace $ "BRANCHES" <+> pretty (Set.toList branches)
+
   let defSort a b = case (a,b) of
         ("master",_) -> LT
         ("main", _)  -> LT
@@ -143,12 +145,16 @@ runExport h = do
 
   refs <- gitReadRefs git branches
 
+  trace $ "REFS" <+> pretty refs
+
   fullHead <- gitHeadFullName headBranch
 
   debug $ "HEAD" <+> pretty fullHead
 
   let repoHead = RepoHead (Just fullHead)
                           (HashMap.fromList refs)
+
+  trace $ "NEW REPO HEAD" <+> pretty (AsGitRefsFile repoHead)
 
   (root, hhh) <- export h repoHead
 
