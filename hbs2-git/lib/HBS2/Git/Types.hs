@@ -20,6 +20,7 @@ import Prettyprinter
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Hashable
 import Codec.Serialise
+import Data.Maybe
 
 class Monad m => HasCache t k v m where
   cacheLookup  :: t -> k -> m (Maybe v)
@@ -96,7 +97,6 @@ instance GitHashed GitObject where
       hd = LBS.pack $ show (pretty t) <> " " <> show (LBS.length c) <> "\x0"
 
 normalizeRef :: GitRef -> GitRef
-normalizeRef r@(GitRef x) | not (Text.isPrefixOf "refs/heads" x) = GitRef $ "refs/heads/" <> x
-                          | otherwise = r
+normalizeRef (GitRef x) = GitRef "refs/heads" <> GitRef (fromMaybe x (Text.stripPrefix "refs/heads" x))
 
 

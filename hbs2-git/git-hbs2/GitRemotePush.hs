@@ -73,6 +73,7 @@ push remote [bFrom , Just br] = do
 
     newHead <- case bFrom of
                 Just newBr -> do
+                   trace $ pretty ("WTF1", newBr, br)
                    gh <- gitGetHash newBr `orDie` [qc|can't read hash for ref {pretty newBr}|]
                    trace $ "newBranchHead" <+> pretty gh
                    -- pure $ over repoHeads (HashMap.insert br gh) oldHead
