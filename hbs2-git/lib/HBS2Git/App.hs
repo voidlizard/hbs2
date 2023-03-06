@@ -65,7 +65,7 @@ noticePrefix :: SetLoggerEntry
 noticePrefix = toStderr
 
 infoPrefix :: SetLoggerEntry
-infoPrefix = toStderr
+infoPrefix = toStdout
 
 
 shutUp :: MonadIO m => m ()

@@ -15,6 +15,7 @@ import Data.String
 import System.Directory
 import System.FilePath
 import Data.Maybe
+import Data.Text (Text)
 import Prettyprinter
 
 instance ToField GitHash where
@@ -187,4 +188,14 @@ stateGetAllObjects = do
   liftIO $ query_ conn [qc|
   select hash, githash, type from object
   |]
+
+stateGetLastImported :: MonadIO m => Int -> DB m [(Text,HashRef,HashRef)]
+stateGetLastImported n = do
+  conn <- ask
+  liftIO $ query conn [qc|
+  select ts, merkle, head from imported
+  order by seq desc
+  limit  ?
+  |] (Only n)
+
 

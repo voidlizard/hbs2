@@ -114,6 +114,7 @@ executable git-hbs2
         "-with-rtsopts=-N4 -A64m -AL256m -I0"
 
     other-modules:
+      RunShow
 
     -- other-extensions:
     build-depends:

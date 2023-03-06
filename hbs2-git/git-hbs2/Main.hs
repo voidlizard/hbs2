@@ -8,6 +8,8 @@ import HBS2Git.Export
 import HBS2Git.Import
 import HBS2Git.ListRefs
 
+import RunShow
+
 import Options.Applicative as O
 import Control.Monad
 
@@ -104,6 +106,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
                         <> command "import"    (info pDump (progDesc "import remote repo to the state"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
+                        <> command "show"      (info pShow  (progDesc "show current state"))
                         )
 
 
@@ -119,4 +122,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- RunImportOpts <$> optional (flag' True ( long "dry" <> help "don't update repo state" ))
                          <*> optional (strArgument (metavar "HASH-REF-VAL"))
       pure $ runApp WithLog (runImport o ref)
+
+    pShow = do
+      ref <- strArgument (metavar "HASH-REF")
+      pure $ runApp NoLog (runShow ref)
 
