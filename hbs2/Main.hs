@@ -8,14 +8,15 @@ import HBS2.Merkle
 import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
+import HBS2.Net.Proto.ACB
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Types
+import HBS2.OrDie
 import HBS2.Prelude
 import HBS2.Prelude.Plated
+import HBS2.Refs.Linear
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
-import HBS2.OrDie
-import HBS2.Net.Proto.ACB
 
 
 import Control.Arrow ((&&&))
@@ -321,29 +322,14 @@ runDumpACB inFile = do
 runNewLRef :: FilePath -> FilePath -> Text -> SimpleStorage HbSync -> IO ()
 runNewLRef nf uf refName ss = do
   hPrint stderr $ "adding a new channel ref" <+> pretty nf <+> pretty uf
-  nodeCred <- (parseCredentials @UDP . AsCredFile <$> BS.readFile nf)
+  nodeCred <- (parseCredentials . AsCredFile <$> BS.readFile nf)
       `orDie` "bad node keyring file"
-  ownerCred <- (parseCredentials @MerkleEncryptionType . AsCredFile <$> BS.readFile uf)
+  ownerCred <- (parseCredentials @[Hash HbSync] . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
-  -- FIXME: extract reusable functions
-  -- полученный хэш будет хэшем ссылки на список референсов ноды
-  lrh <- (putBlock ss . serialise) (nodeLinearRefsRef @[HashRef] (_peerSignPk nodeCred))
-      `orDie` "can not create node refs genesis"
   -- полученный хэш будет хэшем ссылки на созданный канал владельца c ownerCred
   chh <- (putBlock ss . serialise) (RefGenesis (_peerSignPk ownerCred) refName NoMetaData)
       `orDie` "can not put channel genesis block"
-  modifyNodeLinearRefList ss nodeCred lrh $ Set.toList . Set.insert chh . Set.fromList
-  print $ "channel ref:" <+> pretty chh
-
-modifyNodeLinearRefList :: (Signatures e, Serialise (Signature e))
-    => SimpleStorage HbSync -> PeerCredentials e -> Hash HbSync -> ([Hash HbSync] -> [Hash HbSync]) -> IO ()
-modifyNodeLinearRefList ss kr chh f =
-    modifyLinearRef ss kr chh \mh -> do
-        v <- case mh of
-            Nothing -> pure mempty
-            Just h -> fromMaybe mempty . mdeserialiseMay <$> getBlock ss h
-        (putBlock ss . serialise) (f v)
-            `orDie` "can not put new node channel list block"
+  nodeRefListAdd ss nodeCred chh
 
 runListLRef :: FilePath -> SimpleStorage HbSync -> IO ()
 runListLRef nf ss = do
@@ -369,56 +355,6 @@ runListLRef nf ss = do
               print $ "height: " <+> viaShow (lrefHeight ref)
               print $ "val: " <+> pretty (lrefVal ref)
 
-readNodeLinearRefList :: forall e. (e ~ UDP)
-    => SimpleStorage HbSync -> PubKey 'Sign e -> IO [Hash HbSync]
-readNodeLinearRefList ss pk = do
-    -- полученный хэш будет хэшем ссылки на список референсов ноды
-    lrh :: Hash HbSync <- pure do
-        (hashObject . serialise) (nodeLinearRefsRef @e pk)
-    simpleReadLinkRaw ss lrh >>= \case
-      Nothing -> pure []
-      Just refvalraw -> do
-          LinearMutableRefSigned _ ref
-              <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef e 'LinearRef)) refvalraw)
-              `orDie` "can not parse channel ref"
-          fromMaybe mempty . mdeserialiseMay <$> getBlock ss (lrefVal ref)
-
-modifyLinearRef :: forall e. (Signatures e, Serialise (Signature e))
-  => SimpleStorage HbSync
-  -> PeerCredentials e   -- owner keyring
-  -> Hash HbSync         -- channel id
-  -> (Maybe (Hash HbSync) -> IO (Hash HbSync))
-  -> IO ()
-modifyLinearRef ss kr chh modIO = do
-    g :: RefGenesis [Hash HbSync] <- (mdeserialiseMay <$> getBlock ss chh)
-      `orDie` "can not read channel ref genesis"
-    when (refOwner g /= _peerSignPk kr) do
-      (pure Nothing) `orDie` "channel ref owner does not match genesis owner"
-    mrefvalraw <- simpleReadLinkRaw ss chh
-    lmr <- case mrefvalraw of
-        Nothing -> do
-            val <- modIO Nothing
-            pure LinearMutableRef
-                { lrefId = chh
-                , lrefHeight = 0
-                , lrefVal = val
-                }
-        Just refvalraw -> do
-        -- assert lrefId == h
-            LinearMutableRefSigned _ ref :: Signed SignaturePresent (MutableRef e 'LinearRef)
-                <- pure (deserialiseMay refvalraw)
-                `orDie` "can not parse channel ref"
-            val <- modIO (Just (lrefVal ref))
-            pure LinearMutableRef
-                { lrefId = chh
-                , lrefHeight = lrefHeight ref + 1
-                , lrefVal = val
-                }
-    (simpleWriteLinkRaw ss chh . serialise)
-      (LinearMutableRefSigned @e ((makeSign @e (_peerSignSk kr) . LBS.toStrict . serialise) lmr) lmr)
-      `orDie` "can not write link"
-    pure ()
-
 runGetLRef :: Hash HbSync -> SimpleStorage HbSync -> IO ()
 runGetLRef refh ss = do
     hPrint stderr $ "getting ref value" <+> pretty refh
@@ -433,7 +369,7 @@ runGetLRef refh ss = do
 runUpdateLRef :: FilePath -> Hash HbSync -> Hash HbSync -> SimpleStorage HbSync -> IO ()
 runUpdateLRef uf refh valh ss = do
   hPrint stderr $ "updating channel" <+> pretty refh <+> "with value" <+> pretty valh
-  ownerCred <- (parseCredentials @MerkleEncryptionType . AsCredFile <$> BS.readFile uf)
+  ownerCred <- (parseCredentials @[Hash HbSync] . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
   modifyLinearRef ss ownerCred refh \_ -> pure valh
 

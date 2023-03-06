@@ -24,50 +24,58 @@ newtype AnnLRefNonce = AnnLRefNonce Word64
 instance Serialise AnnLRefNonce
 
 
-data AnnLRef e = AnnLRef (Hash HbSync) (Signed SignaturePresent (MutableRef e 'LinearRef))
+data LRef e
+  = AnnLRef (Hash HbSync) (Signed SignaturePresent (MutableRef e 'LinearRef))
     deriving stock (Generic)
 
-instance Serialise (Signature e) => Serialise (AnnLRef e)
+instance Serialise (Signature e) => Serialise (LRef e)
 
-
--- annLRefProto :: forall e m  . ( MonadIO m
---                                     , EventEmitter e (AnnLRef e) m
---                                     , Response e (AnnLRef e) m
---                                     ) => AnnLRef e -> m ()
+data AnnLRefI e m =
+  AnnLRefI
+  { blkSize         :: GetBlockSize HbSync m
+  }
 
 refLinearProto :: forall e m  . ( MonadIO m
-                                  , Response e (AnnLRef e) m
-                                  -- , HasDeferred e (AnnLRef e) m
+                                  , Response e (LRef e) m
+--                                     , EventEmitter e (LRef e) m
+--                                     , Response e (LRef e) m
+                                  -- , HasDeferred e (LRef e) m
                                   -- , HasOwnPeer e m
                                   -- , Pretty (Peer e)
                                   )
                  -- => RefLinearI e m
-                 -- -> AnnLRef e
-                 => AnnLRef e
+                 => LRef e
                  -> m ()
--- refLinearProto adapter (AnnLRef c p) =
 refLinearProto = \case
 
--- * Анонс ссылки (уведомление о новом состоянии без запроса)
+-- Анонс ссылки (уведомление о новом состоянии без запроса)
     AnnLRef h (LinearMutableRefSigned{}) -> do
+
+        -- g :: RefGenesis e <- (((either (const Nothing) Just . deserialiseOrFail) =<<)
+        --     <$> getBlock ss chh)
+        -- Проверить подпись ссылки
+        -- Достать наше текущее значение ссылки, сравнить счётчик
+        -- Если новое значение больше, обновить его
+        -- И разослать анонс на другие ноды
         undefined
+        --
 --     AnnLRef n info -> do
 --       that <- thatPeer (Proxy @(AnnLRef e))
 --       emit @e AnnLRefInfoKey (AnnLRefEvent that info n)
 
 
--- data instance EventKey e (AnnLRef e) =
+-- data instance EventKey e (LRef e) =
 --   AnnLRefInfoKey
 --   deriving stock (Typeable, Eq,Generic)
 
--- data instance Event e (AnnLRef e) =
+-- data instance Event e (LRef e) =
 --   AnnLRefEvent (Peer e) (AnnLRefInfo e) PeerNonce
 --   deriving stock (Typeable)
 
--- instance Typeable (AnnLRefInfo e) => Hashable (EventKey e (AnnLRef e)) where
+-- instance Typeable (AnnLRefInfo e) => Hashable (EventKey e (LRef e)) where
 --   hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
 --     where
 --       p = Proxy @(AnnLRefInfo e)
 
--- instance EventType ( Event e ( AnnLRef e) ) where
+-- instance EventType ( Event e ( LRef e) ) where
 --   isPersistent = True

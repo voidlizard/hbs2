@@ -99,6 +99,7 @@ library
                     , HBS2.OrDie
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
+                    , HBS2.Refs.Linear
                     , HBS2.Storage
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class

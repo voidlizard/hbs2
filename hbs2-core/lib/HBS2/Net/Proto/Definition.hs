@@ -8,6 +8,7 @@ module HBS2.Net.Proto.Definition
 
 import HBS2.Clock
 import HBS2.Defaults
+import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP
@@ -94,8 +95,8 @@ instance HasProtocol UDP (PeerExchange UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (AnnLRef UDP) where
-  type instance ProtocolId (AnnLRef UDP) = 7
+instance HasProtocol UDP (LRef UDP) where
+  type instance ProtocolId (LRef UDP) = 7
   type instance Encoded UDP = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
@@ -121,7 +122,7 @@ instance Expires (SessionKey UDP (PeerHandshake UDP)) where
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
   expiresIn _ = Nothing
 
-instance Expires (EventKey UDP (AnnLRef UDP)) where
+instance Expires (EventKey UDP (LRef UDP)) where
   expiresIn _ = Nothing
 
 
@@ -152,6 +153,11 @@ instance Signatures UDP where
 
 instance Signatures MerkleEncryptionType where
   type Signature MerkleEncryptionType = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
+
+instance Signatures [Hash HbSync] where
+  type Signature [Hash HbSync] = Sign.Signature
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
 

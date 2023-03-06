@@ -25,6 +25,7 @@ import HBS2.Net.Proto.RefLinear
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
+import HBS2.Refs.Linear
 import HBS2.Storage.Simple
 
 import HBS2.System.Logger.Simple hiding (info)
