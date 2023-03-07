@@ -52,6 +52,7 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections

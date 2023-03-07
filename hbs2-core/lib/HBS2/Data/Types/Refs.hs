@@ -1,4 +1,3 @@
-{-# Language DuplicateRecordFields #-}
 {-# Language UndecidableInstances #-}
 module HBS2.Data.Types.Refs
   ( module HBS2.Data.Types.Refs
@@ -107,8 +106,8 @@ data family Signed ( p :: SignPhase ) a
 
 data instance Signed SignaturePresent (MutableRef e 'LinearRef)
   = LinearMutableRefSigned
-  { signature :: Signature e
-  , signedRef :: MutableRef e 'LinearRef
+  { lmrefSignature :: Signature e
+  , lmrefSignedRef :: MutableRef e 'LinearRef
   }
   deriving stock (Generic)
 
@@ -117,9 +116,9 @@ instance Serialise (Signature e) =>
 
 data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
   = LinearMutableRefSignatureVerified
-  { signature :: Signature e
-  , signedRef :: MutableRef e 'LinearRef
-  , signer :: PubKey 'Sign e
+  { lmrefVSignature :: Signature e
+  , lmrefVSignedRef :: MutableRef e 'LinearRef
+  , lmrefVSigner :: PubKey 'Sign e
   }
   deriving stock (Generic)
 

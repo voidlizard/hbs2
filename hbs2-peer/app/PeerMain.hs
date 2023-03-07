@@ -360,6 +360,32 @@ forKnownPeers m = do
     pd' <- find (KnownPeerKey p) id
     maybe1 pd' (pure ()) (m p)
 
+-- FIXME: implement mkLRefAdapter
+mkLRefAdapter :: forall e st block m .
+    ( m ~ PeerM e IO
+    -- , e ~ [Hash HbSync]
+    -- , e ~ UDP
+    , Signatures e
+    , Serialise (Signature e)
+    , Serialise (PubKey 'Sign e)
+    , Eq (PubKey 'Sign e)
+    -- , Block block ~ LBS.ByteString
+    -- , Storage (st HbSync) HbSync block IO
+    -- ( m ~ LRefI e (CredentialsM e (ResponseM e (PeerM e IO)))
+    -- , Pretty (Peer e)
+    -- , Block ByteString ~ ByteString
+    )
+    => m (LRefI e (CredentialsM e (ResponseM e m)))
+mkLRefAdapter = do
+  st <- getStorage
+  pure $
+    LRefI
+    { getBlockI = liftIO . getBlock st
+    -- :: TryUpdateLinearRefI e HbSync m
+    , tryUpdateLinearRefI = undefined
+    -- , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (_ st) h lvref
+    }
+
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
@@ -465,6 +491,9 @@ runPeer opts = Exception.handle myException $ do
 
             runPeerM penv $ do
               adapter <- mkAdapter
+              lrefAdapter <- mkLRefAdapter
+              -- lrefAdapter :: LRefI UDP (CredentialsM UDP (ResponseM UDP (PeerM UDP IO)))
+              --     <- undefined :: (PeerM UDP IO) (LRefI UDP (CredentialsM UDP (ResponseM UDP (PeerM UDP IO))))
               env <- ask
 
               pnonce <- peerNonce @e
@@ -611,7 +640,7 @@ runPeer opts = Exception.handle myException $ do
                                            . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
                                       `orLogError` "can not parse channel ref"
 
-                                  let annlref :: AnnLRef UDP
+                                  let annlref :: LRef UDP
                                       annlref = AnnLRef @e h slref
 
                                   lift do
@@ -672,7 +701,7 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials pc . peerHandShakeProto)
                     , makeResponse peerExchangeProto
-                    , makeResponse refLinearProto
+                    , makeResponse (withCredentials pc . refLinearProto lrefAdapter)
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers

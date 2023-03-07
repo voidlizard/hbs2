@@ -327,6 +327,7 @@ runNewLRef nf uf refName ss = do
   ownerCred <- (parseCredentials @[Hash HbSync] . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
   -- полученный хэш будет хэшем ссылки на созданный канал владельца c ownerCred
+  -- Это тоже перенести в Refs.hs ?
   chh <- (putBlock ss . serialise) (RefGenesis (_peerSignPk ownerCred) refName NoMetaData)
       `orDie` "can not put channel genesis block"
   nodeRefListAdd ss nodeCred chh

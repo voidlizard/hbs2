@@ -2,15 +2,18 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.RefLinear where
 
--- import HBS2.Actors.Peer
 import HBS2.Data.Types.Refs
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
+import HBS2.Refs.Linear
 
-import Codec.Serialise()
+import Codec.Serialise (serialise, deserialiseOrFail)
+import Control.Monad
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Hashable
 import Data.Word
 import Lens.Micro.Platform
@@ -30,39 +33,41 @@ data LRef e
 
 instance Serialise (Signature e) => Serialise (LRef e)
 
-data AnnLRefI e m =
-  AnnLRefI
-  { blkSize         :: GetBlockSize HbSync m
+data LRefI e m =
+  LRefI
+  { getBlockI         :: GetBlockI HbSync m
+  , tryUpdateLinearRefI :: TryUpdateLinearRefI e HbSync m
   }
 
-refLinearProto :: forall e m  . ( MonadIO m
-                                  , Response e (LRef e) m
---                                     , EventEmitter e (LRef e) m
---                                     , Response e (LRef e) m
-                                  -- , HasDeferred e (LRef e) m
-                                  -- , HasOwnPeer e m
-                                  -- , Pretty (Peer e)
-                                  )
-                 -- => RefLinearI e m
-                 => LRef e
-                 -> m ()
-refLinearProto = \case
+type GetBlockI h m = Hash h -> m (Maybe ByteString)
 
--- Анонс ссылки (уведомление о новом состоянии без запроса)
-    AnnLRef h (LinearMutableRefSigned{}) -> do
+type TryUpdateLinearRefI e h m = Hash h -> Signed SignatureVerified (MutableRef e 'LinearRef) -> m Bool
 
-        -- g :: RefGenesis e <- (((either (const Nothing) Just . deserialiseOrFail) =<<)
-        --     <$> getBlock ss chh)
-        -- Проверить подпись ссылки
-        -- Достать наше текущее значение ссылки, сравнить счётчик
-        -- Если новое значение больше, обновить его
-        -- И разослать анонс на другие ноды
-        undefined
-        --
---     AnnLRef n info -> do
---       that <- thatPeer (Proxy @(AnnLRef e))
---       emit @e AnnLRefInfoKey (AnnLRefEvent that info n)
+refLinearProto :: forall e m  .
+    ( MonadIO m
+    , Response e (LRef e) m
+    , HasCredentials e m
+    , Serialise (PubKey 'Sign e)
+    , Signatures e
+    )
+    => LRefI e m
+    -> LRef e
+    -> m ()
+refLinearProto LRefI{..} = \case
 
+    -- Анонс ссылки (уведомление о новом состоянии без запроса)
+    AnnLRef h (lref@LinearMutableRefSigned{}) -> do
+        creds <- getCredentials @e
+
+        void $ runMaybeT do
+            g :: RefGenesis e <- MaybeT $
+                (((either (const Nothing) Just . deserialiseOrFail) =<<) <$> getBlockI h)
+
+            lift $ forM_ (verifyLinearMutableRefSigned (refOwner g) lref) \vlref -> do
+                r <- tryUpdateLinearRefI h vlref
+                when r do
+                    -- FIXME: В случае успеха разослать анонс на другие ноды
+                    pure ()
 
 -- data instance EventKey e (LRef e) =
 --   AnnLRefInfoKey
