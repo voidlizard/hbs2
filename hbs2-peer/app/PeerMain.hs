@@ -382,8 +382,8 @@ mkLRefAdapter = do
     LRefI
     { getBlockI = liftIO . getBlock st
     -- :: TryUpdateLinearRefI e HbSync m
-    , tryUpdateLinearRefI = undefined
-    -- , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (_ st) h lvref
+    -- , tryUpdateLinearRefI = undefined
+    , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (_ st) h lvref
     }
 
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()

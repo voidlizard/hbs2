@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module HBS2.Refs.Linear where
 
 import HBS2.Actors
@@ -21,21 +22,18 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe
 import Data.Set qualified as Set
 
-modifyLinearRef :: forall e st block h.
-    ( e ~ [h]
-    , h ~ Hash HbSync
-    , Signatures e
+modifyLinearRef :: forall e st block.
+    ( Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
     , Block block ~ LBS.ByteString
     , Storage (st HbSync) HbSync block IO
-    -- , IsKey HbSync, Key HbSync ~ h
     )
   => st HbSync
   -> PeerCredentials e   -- owner keyring
-  -> h                   -- channel id
-  -> (Maybe (h) -> IO (h))
+  -> Hash HbSync         -- channel id
+  -> (Maybe (Hash HbSync) -> IO (Hash HbSync))
   -> IO ()
 modifyLinearRef ss kr chh modIO = do
     g :: RefGenesis e <- (((either (const Nothing) Just . deserialiseOrFail) =<<)
@@ -78,19 +76,16 @@ verifyLinearMutableRefSigned pk lref = do
   where
     dat = (LBS.toStrict . serialise) (lmrefSignedRef lref)
 
-tryUpdateLinearRef :: forall e st block h.
-    ( e ~ [h]
-    , h ~ Hash HbSync
-    , Signatures e
+tryUpdateLinearRef :: forall e st block.
+    ( Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
     , Block block ~ LBS.ByteString
     , Storage (st HbSync) HbSync block IO
-    -- , IsKey HbSync, Key HbSync ~ h
     )
   => st HbSync
-  -> h                -- channel id
+  -> Hash HbSync                -- channel id
   -> Signed SignatureVerified (MutableRef e 'LinearRef)
   -> IO Bool
 tryUpdateLinearRef ss chh vlref = do
@@ -117,18 +112,15 @@ tryUpdateLinearRef ss chh vlref = do
           pure True
       else (pure False)
 
-modifyNodeLinearRefList :: forall e st block h.
-    ( e ~ [h]
-    , h ~ Hash HbSync
-    , Signatures e
+modifyNodeLinearRefList :: forall e st block.
+    ( Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
     , Block block ~ LBS.ByteString
     , Storage (st HbSync) HbSync block IO
-    -- , IsKey HbSync, Key HbSync ~ h
     )
-    => st HbSync -> PeerCredentials e -> h -> ([h] -> [h]) -> IO ()
+    => st HbSync -> PeerCredentials e -> Hash HbSync -> ([Hash HbSync] -> [Hash HbSync]) -> IO ()
 modifyNodeLinearRefList ss kr chh f =
     modifyLinearRef ss kr chh \mh -> do
         v <- case mh of
@@ -138,18 +130,15 @@ modifyNodeLinearRefList ss kr chh f =
         (putBlock ss . serialise) (f v)
             `orDie` "can not put new node channel list block"
 
-readNodeLinearRefList :: forall e st block h.
-    ( e ~ [h]
-    , h ~ Hash HbSync
-    , Signatures e
+readNodeLinearRefList :: forall e st block.
+    ( Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
     , Block block ~ LBS.ByteString
     , Storage (st HbSync) HbSync block IO
-    -- , IsKey HbSync, Key HbSync ~ h
     )
-    => st HbSync -> PubKey 'Sign e -> IO [h]
+    => st HbSync -> PubKey 'Sign e -> IO [Hash HbSync]
 readNodeLinearRefList ss pk = do
     -- полученный хэш будет хэшем ссылки на список референсов ноды
     lrh :: h <- pure $ (hashObject . serialise) (nodeLinearRefsRef @e pk)
@@ -162,18 +151,15 @@ readNodeLinearRefList ss pk = do
           fromMaybe mempty . ((either (const Nothing) Just . deserialiseOrFail) =<<)
               <$> getBlock ss (lrefVal ref)
 
-nodeRefListAdd :: forall e st block h.
-    ( e ~ [h]
-    , h ~ Hash HbSync
-    , Signatures e
+nodeRefListAdd :: forall e st block.
+    ( Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
     , Block block ~ LBS.ByteString
     , Storage (st HbSync) HbSync block IO
-    -- , IsKey HbSync, Key HbSync ~ h
     )
-    => st HbSync -> PeerCredentials e -> h -> IO ()
+    => st HbSync -> PeerCredentials e -> Hash HbSync -> IO ()
 nodeRefListAdd ss nodeCred chh = do
   -- полученный хэш будет хэшем ссылки на список референсов ноды
   lrh <- (putBlock ss . serialise) (nodeLinearRefsRef @e (_peerSignPk nodeCred))
