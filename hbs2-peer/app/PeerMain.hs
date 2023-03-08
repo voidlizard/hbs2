@@ -26,6 +26,7 @@ import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
 import HBS2.Refs.Linear
+import HBS2.Storage
 import HBS2.Storage.Simple
 
 import HBS2.System.Logger.Simple hiding (info)
@@ -367,11 +368,6 @@ mkLRefAdapter :: forall e st block m .
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
     , Eq (PubKey 'Sign e)
-    -- , Block block ~ LBS.ByteString
-    -- , Storage (st HbSync) HbSync block IO
-    -- ( m ~ LRefI e (CredentialsM e (ResponseM e (PeerM e IO)))
-    -- , Pretty (Peer e)
-    -- , Block ByteString ~ ByteString
     )
     => m (LRefI e (CredentialsM e (ResponseM e m)))
 mkLRefAdapter = do
