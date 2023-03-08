@@ -4,7 +4,7 @@ module HBS2.Storage where
 import HBS2.Hash
 import HBS2.Prelude.Plated
 
-import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Hashable hiding (Hashed)
 import Data.Kind
 import Lens.Micro.Platform
@@ -63,9 +63,9 @@ calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
 
 
 
-data AnyStorage = forall zu . (Block ByteString ~ ByteString, Storage zu HbSync ByteString IO) => AnyStorage zu
+data AnyStorage = forall zu . (Block LBS.ByteString ~ LBS.ByteString, Storage zu HbSync LBS.ByteString IO) => AnyStorage zu
 
-instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString) => Storage AnyStorage HbSync ByteString IO where
+instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block LBS.ByteString ~ LBS.ByteString) => Storage AnyStorage HbSync LBS.ByteString IO where
 
   putBlock (AnyStorage s) = putBlock s
   enqueueBlock (AnyStorage s) = enqueueBlock s
