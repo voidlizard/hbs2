@@ -363,8 +363,6 @@ forKnownPeers m = do
 -- FIXME: implement mkLRefAdapter
 mkLRefAdapter :: forall e st block m .
     ( m ~ PeerM e IO
-    -- , e ~ [Hash HbSync]
-    -- , e ~ UDP
     , Signatures e
     , Serialise (Signature e)
     , Serialise (PubKey 'Sign e)
@@ -381,9 +379,7 @@ mkLRefAdapter = do
   pure $
     LRefI
     { getBlockI = liftIO . getBlock st
-    -- :: TryUpdateLinearRefI e HbSync m
-    -- , tryUpdateLinearRefI = undefined
-    , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (_ st) h lvref
+    , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (st) h lvref
     }
 
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()

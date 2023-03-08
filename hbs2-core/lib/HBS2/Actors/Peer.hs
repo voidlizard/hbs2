@@ -42,26 +42,11 @@ import Codec.Serialise (serialise, deserialiseOrFail)
 import Prettyprinter hiding (pipe)
 
 
-data AnyStorage = forall zu . (Block ByteString ~ ByteString, Storage zu HbSync ByteString IO) => AnyStorage zu
-
-instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString) => Storage AnyStorage HbSync ByteString IO where
-
-  putBlock (AnyStorage s) = putBlock s
-  enqueueBlock (AnyStorage s) = enqueueBlock s
-  getBlock (AnyStorage s) = getBlock s
-  getChunk (AnyStorage s) = getChunk s
-  hasBlock (AnyStorage s) = hasBlock s
-  writeLinkRaw (AnyStorage s) = writeLinkRaw s
-  readLinkRaw (AnyStorage s) = readLinkRaw s
-
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)
 
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
-
-class HasStorage m where
-  getStorage :: m AnyStorage
 
 data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 
