@@ -251,3 +251,6 @@ fixme-merged "EGPR1m3NNr" "5RbVNm9SRz"
 (fixme-set "workflow" "test" "5RbVNm9SRz")
 (fixme-set "workflow" "wip" "AKoEsF2q7t")
 (fixme-set "assigned" "voidlizard" "AKoEsF2q7t")
+fixme-del "3jyeE9RkML"
+fixme-del "2sDdEc1kA6"
+fixme-del "B4SztMBNcU"
