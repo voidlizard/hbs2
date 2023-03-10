@@ -46,6 +46,11 @@ data PeerDownloadLogKey
 instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"
 
+data PeerKnownPeersFile
+
+instance HasCfgKey PeerKnownPeersFile [String] where
+  key = "known-peers-file"
+
 cfgName :: FilePath
 cfgName = "config"
 
@@ -126,29 +131,33 @@ peerConfigRead mbfp = do
 
     debug $ pretty cfgPath
 
-    confData' <- liftIO $ readFile cfgPath <&> parseTop <&> either mempty id
+    let parseConf f = liftIO $ readFile f <&> parseTop <&> either mempty id
 
-    let confData = confData' <> either mempty id (parseTop  peerConfDef)
+    confData' <- parseConf cfgPath
+
+    knownPeersFiles <- mapM (canonicalizePath' dir) (cfgValue @PeerKnownPeersFile $ PeerConfig confData')
+
+    knownPeersConfData <- concat <$> mapM parseConf knownPeersFiles
+
+    let confData = confData' <> either mempty id (parseTop  peerConfDef) <> knownPeersConfData
 
     -- debug $ pretty confData
 
-    config <- flip transformBiM confData $ \case
-                List co (Key "key" [LitStrVal p]) -> do
-                  kp <- liftIO $ canonicalizePath (dir </> Text.unpack p)
-                  pure $ List @C co [Symbol co "key", Literal co (mkLit (Text.pack kp)) ]
-
-                List co (Key "storage" [LitStrVal p]) -> do
-                  kp <- liftIO $ canonicalizePath (dir </> Text.unpack p)
-                  pure $ List @C co [Symbol co "storage", Literal co (mkLit (Text.pack kp)) ]
-
-                List co (Key "download-log" [LitStrVal p]) -> do
-                  kp <- liftIO $ canonicalizePath (dir </> Text.unpack p)
-                  pure $ List @C co [Symbol co "download-log", Literal co (mkLit (Text.pack kp)) ]
-
-                x -> pure x
+    config <- transformBiM (canonicalizeConfPaths ["key", "storage", "download"] dir) confData
 
     pure $ PeerConfig config
+    where
+      canonicalizePath' :: MonadIO m => FilePath -> FilePath -> m FilePath
+      canonicalizePath' dir = liftIO . canonicalizePath . (dir </>)
 
+      canonicalizeConfPaths :: MonadIO m => [Id] -> FilePath -> Syntax C -> m (Syntax C)
+      canonicalizeConfPaths keys dir x@(List co (Key k [LitStrVal path])) =
+        if k `elem` keys
+          then do
+            canonicalPath <- canonicalizePath' dir $ Text.unpack path
+            pure $ List @C co [Symbol co k, Literal co (mkLit (Text.pack canonicalPath))]
+          else pure x
+      canonicalizeConfPaths _ _ x = pure x
 
 instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
   cfgValue (PeerConfig syn) = val

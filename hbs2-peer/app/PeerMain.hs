@@ -541,6 +541,8 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (peerPingLoop @e)
 
+                peerThread (knownPeersPingLoop @e conf)
+
                 peerThread (bootstrapDnsLoop @e conf)
 
                 peerThread (pexLoop @e)
@@ -748,7 +750,7 @@ withRPC o cmd = do
   as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
 
-  rpc <- pure rpc' `orDie` "Can't parse RPC endpoing"
+  rpc <- pure rpc' `orDie` "Can't parse RPC endpoint"
 
   udp1 <- newMessagingUDP False Nothing `orDie` "Can't start RPC"
 
