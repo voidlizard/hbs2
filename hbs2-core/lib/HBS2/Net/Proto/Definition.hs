@@ -95,8 +95,8 @@ instance HasProtocol UDP (PeerExchange UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (LRef UDP) where
-  type instance ProtocolId (LRef UDP) = 7
+instance HasProtocol UDP (LRefProto UDP) where
+  type instance ProtocolId (LRefProto UDP) = 7
   type instance Encoded UDP = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
@@ -122,7 +122,7 @@ instance Expires (SessionKey UDP (PeerHandshake UDP)) where
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
   expiresIn _ = Nothing
 
-instance Expires (EventKey UDP (LRef UDP)) where
+instance Expires (EventKey UDP (LRefProto UDP)) where
   expiresIn _ = Nothing
 
 

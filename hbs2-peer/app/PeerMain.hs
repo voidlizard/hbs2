@@ -361,7 +361,6 @@ forKnownPeers m = do
     pd' <- find (KnownPeerKey p) id
     maybe1 pd' (pure ()) (m p)
 
--- FIXME: implement mkLRefAdapter
 mkLRefAdapter :: forall e st block m .
     ( m ~ PeerM e IO
     , Signatures e
@@ -372,11 +371,24 @@ mkLRefAdapter :: forall e st block m .
     => m (LRefI e (CredentialsM e (ResponseM e m)))
 mkLRefAdapter = do
   st <- getStorage
-  pure $
-    LRefI
-    { getBlockI = liftIO . getBlock st
-    , tryUpdateLinearRefI = \h lvref -> liftIO $ tryUpdateLinearRef (st) h lvref
-    }
+
+  let
+
+    getBlockI = liftIO . getBlock st
+
+    tryUpdateLinearRefI h = liftIO . tryUpdateLinearRef st h
+
+    getLRefValI h = (liftIO . runMaybeT) do
+        refvalraw <- MaybeT $ (readLinkRaw st h) `orLogError` "error reading ref val"
+        MaybeT $ pure ((either (const Nothing) Just
+                      . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
+                      `orLogError` "can not parse channel ref"
+
+    announceLRefValI h = do
+        -- FIXME: implement announceLRefValI
+        pure ()
+
+  pure LRefI {..}
 
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
@@ -484,8 +496,6 @@ runPeer opts = Exception.handle myException $ do
             runPeerM penv $ do
               adapter <- mkAdapter
               lrefAdapter <- mkLRefAdapter
-              -- lrefAdapter :: LRefI UDP (CredentialsM UDP (ResponseM UDP (PeerM UDP IO)))
-              --     <- undefined :: (PeerM UDP IO) (LRefI UDP (CredentialsM UDP (ResponseM UDP (PeerM UDP IO))))
               env <- ask
 
               pnonce <- peerNonce @e
@@ -632,7 +642,7 @@ runPeer opts = Exception.handle myException $ do
                                            . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
                                       `orLogError` "can not parse channel ref"
 
-                                  let annlref :: LRef UDP
+                                  let annlref :: LRefProto UDP
                                       annlref = AnnLRef @e h slref
 
                                   lift do
@@ -708,6 +718,9 @@ runPeer opts = Exception.handle myException $ do
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
 
+  let annLRefAction h = do
+        liftIO $ atomically $ writeTQueue rpcQ (ANNLREF h)
+
   let pingAction pa = do
         that <- thatPeer (Proxy @(RPC e))
         liftIO $ atomically $ writeTQueue rpcQ (PING pa (Just that))
@@ -747,6 +760,7 @@ runPeer opts = Exception.handle myException $ do
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
+                        annLRefAction
                         pingAction
                         dontHandle
                         fetchAction
@@ -833,6 +847,8 @@ withRPC o cmd = do
                     case cmd of
                       RPCAnnounce{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
+                      RPCAnnLRef{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
                       RPCFetch{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
                       RPCPing{} -> do
@@ -865,8 +881,10 @@ withRPC o cmd = do
   void $ waitAnyCatchCancel [mrpc, prpc]
 
   where
-    adapter q pq = RpcAdapter dontHandle
+    adapter q pq = RpcAdapter
+                          dontHandle
                           (liftIO . atomically . writeTQueue pq)
+                          (const $ liftIO exitSuccess)
                           (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)
@@ -883,6 +901,7 @@ runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
+  ANNLREF h -> withRPC opt (RPCAnnLRef h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
