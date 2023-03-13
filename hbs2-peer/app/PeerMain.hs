@@ -361,35 +361,6 @@ forKnownPeers m = do
     pd' <- find (KnownPeerKey p) id
     maybe1 pd' (pure ()) (m p)
 
-mkLRefAdapter :: forall e st block m .
-    ( m ~ PeerM e IO
-    , Signatures e
-    , Serialise (Signature e)
-    , Serialise (PubKey 'Sign e)
-    , Eq (PubKey 'Sign e)
-    )
-    => m (LRefI e (CredentialsM e (ResponseM e m)))
-mkLRefAdapter = do
-  st <- getStorage
-
-  let
-
-    getBlockI = liftIO . getBlock st
-
-    tryUpdateLinearRefI h = liftIO . tryUpdateLinearRef st h
-
-    getLRefValI h = (liftIO . runMaybeT) do
-        refvalraw <- MaybeT $ (readLinkRaw st h) `orLogError` "error reading ref val"
-        MaybeT $ pure ((either (const Nothing) Just
-                      . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
-                      `orLogError` "can not parse channel ref"
-
-    announceLRefValI h = do
-        -- FIXME: implement announceLRefValI
-        pure ()
-
-  pure LRefI {..}
-
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
 
@@ -491,11 +462,43 @@ runPeer opts = Exception.handle myException $ do
 
   penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
 
+  let
+      broadcastMsgAction msg = runPeerM penv do
+          env <- ask
+          broadcastMsgAction' env msg
+
+      broadcastMsgAction' :: (MonadIO m) => PeerEnv e -> LRefProto e -> PeerM e m ()
+      broadcastMsgAction' env msg = do
+          debug "send multicast msg"
+          request localMulticast msg
+          withPeerM env do
+              forKnownPeers $ \p _ -> do
+                  debug $ "send single-cast msg" <+> pretty p
+                  request @e p msg
+
+  let
+      getLRefValAction :: (MonadIO m)
+          => AnyStorage -> Hash HbSync -> m (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
+      getLRefValAction st h = runMaybeT do
+          refvalraw <- MaybeT $ (liftIO $ readLinkRaw st h) `orLogError` "error reading ref val"
+          MaybeT $ pure ((either (const Nothing) Just
+                      . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
+                      `orLogError` "can not parse channel ref"
+
   loop <- async do
 
             runPeerM penv $ do
               adapter <- mkAdapter
-              lrefAdapter <- mkLRefAdapter
+
+              lrefAdapter <- do
+                  st <- getStorage
+                  let
+                      getBlockI = liftIO . getBlock st
+                      tryUpdateLinearRefI h = liftIO . tryUpdateLinearRef st h
+                      broadcastLRefI = broadcastMsgAction
+                      getLRefValI = getLRefValAction st
+                  pure LRefI {..}
+
               env <- ask
 
               pnonce <- peerNonce @e
@@ -517,6 +520,8 @@ runPeer opts = Exception.handle myException $ do
                  liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
+
+              -- subscribe @e LRefUpdateFromNodeKey $ \(KnownPeerEvent p d) -> do
 
                 let thatNonce = view peerOwnNonce d
 
@@ -631,29 +636,10 @@ runPeer opts = Exception.handle myException $ do
 
                             ANNLREF h -> do
                               debug $ "got annlref rpc" <+> pretty h
-                              sto <- getStorage
-
+                              st <- getStorage
                               void $ runMaybeT do
-
-                                  refvalraw <- MaybeT $ (liftIO $ readLinkRaw sto h)
-                                    `orLogError` "error reading ref val"
-                                  slref@(LinearMutableRefSigned _ ref) <- MaybeT $
-                                      pure ((either (const Nothing) Just
-                                           . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
-                                      `orLogError` "can not parse channel ref"
-
-                                  let annlref :: LRefProto UDP
-                                      annlref = AnnLRef @e h slref
-
-                                  lift do
-
-                                      debug "send multicast annlref"
-                                      request localMulticast annlref
-
-                                      withPeerM env do
-                                        forKnownPeers $ \p _ -> do
-                                          debug $ "send single-cast annlrefs" <+> pretty p
-                                          request @e p annlref
+                                  slref <- MaybeT $ getLRefValAction st h
+                                  lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
 
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa

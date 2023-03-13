@@ -32,7 +32,7 @@ data LRefI e m =
   { getBlockI           :: GetBlockI HbSync m
   , tryUpdateLinearRefI :: TryUpdateLinearRefI e HbSync m
   , getLRefValI         :: GetLRefValI e HbSync m
-  , announceLRefValI    :: AnnounceLRefValI e HbSync m
+  , broadcastLRefI      :: BroadcastLRefI e HbSync m
   }
 
 type GetBlockI h m = Hash h -> m (Maybe ByteString)
@@ -41,7 +41,7 @@ type TryUpdateLinearRefI e h m = Hash h -> Signed SignatureVerified (MutableRef 
 
 type GetLRefValI e h m = Hash h -> m (Maybe (Signed SignaturePresent (MutableRef e 'LinearRef)))
 
-type AnnounceLRefValI e h m = Hash h -> m ()
+type BroadcastLRefI e h m = LRefProto e -> m ()
 
 refLinearProto :: forall e m  .
     ( MonadIO m
@@ -64,7 +64,9 @@ refLinearProto LRefI{..} = \case
 
             lift $ forM_ (verifyLinearMutableRefSigned (refOwner g) lref) \vlref -> do
                 r <- tryUpdateLinearRefI h vlref
-                when r (announceLRefValI h)
+                when r $ void $ runMaybeT do
+                    slref <- MaybeT (getLRefValI h)
+                    lift $ broadcastLRefI (AnnLRef @e h slref)
 
     LRefGetVal h -> void $ runMaybeT do
         slref <- MaybeT (getLRefValI h)
