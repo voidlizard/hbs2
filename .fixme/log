@@ -253,6 +253,9 @@ fixme-del "B4SztMBNcU"
 fixme-del "3jyeE9RkML"
 fixme-del "2sDdEc1kA6"
 fixme-del "B4SztMBNcU"
+(fixme-set "assigned" "voidlizard" "3BuAFZwtR5")
+(fixme-set "workflow" "wip" "3BuAFZwtR5")
+(fixme-set "workflow" "test" "AkbZFmqRHw")
 fixme-del "3khHudiucN"
 (fixme-set "workflow" "backlog" "AEuRHd5sWC")
 fixme-del "BrqDJbo4Wx"
