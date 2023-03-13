@@ -8,6 +8,7 @@ module HBS2.Net.Proto.Definition
 
 import HBS2.Clock
 import HBS2.Defaults
+import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP
@@ -18,6 +19,7 @@ import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLinear
 import HBS2.Prelude
 
 import Data.Functor
@@ -93,6 +95,11 @@ instance HasProtocol UDP (PeerExchange UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (LRefProto UDP) where
+  type instance ProtocolId (LRefProto UDP) = 7
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
 
 instance Expires (SessionKey UDP (BlockInfo UDP)) where
   expiresIn _ = Just defCookieTimeoutSec
@@ -113,6 +120,9 @@ instance Expires (SessionKey UDP (PeerHandshake UDP)) where
   expiresIn _ = Just 10
 
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
+  expiresIn _ = Nothing
+
+instance Expires (EventKey UDP (LRefProto UDP)) where
   expiresIn _ = Nothing
 
 
@@ -143,6 +153,11 @@ instance Signatures UDP where
 
 instance Signatures MerkleEncryptionType where
   type Signature MerkleEncryptionType = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
+
+instance Signatures [Hash HbSync] where
+  type Signature [Hash HbSync] = Sign.Signature
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
 

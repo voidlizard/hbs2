@@ -55,6 +55,7 @@ common shared-properties
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , ViewPatterns
 
 
 executable hbs2

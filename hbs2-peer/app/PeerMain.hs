@@ -8,6 +8,7 @@ module Main where
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
+import HBS2.Data.Types.Refs
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -20,9 +21,12 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLinear
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
+import HBS2.Refs.Linear
+import HBS2.Storage
 import HBS2.Storage.Simple
 
 import HBS2.System.Logger.Simple hiding (info)
@@ -42,10 +46,12 @@ import Data.Foldable (for_)
 import Data.Maybe
 import Crypto.Saltine (sodiumInit)
 import Data.Function
+import Codec.Serialise (deserialiseOrFail)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified  as L
@@ -139,6 +145,7 @@ makeLenses 'RPCOpt
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
+  | ANNLREF (Hash HbSync)
   | PING (PeerAddr UDP) (Maybe (Peer UDP))
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
@@ -202,6 +209,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
+                        <> command "annlref"   (info pAnnLRef (progDesc "announce linear ref"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
@@ -245,6 +253,11 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (ANNOUNCE h)
+
+    pAnnLRef = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "HASH" )
+      pure $ runRpcCommand rpc (ANNLREF h)
 
     pFetch = do
       rpc <- pRpcCommon
@@ -347,6 +360,35 @@ forKnownPeers m = do
   for_ pips $ \p -> do
     pd' <- find (KnownPeerKey p) id
     maybe1 pd' (pure ()) (m p)
+
+mkLRefAdapter :: forall e st block m .
+    ( m ~ PeerM e IO
+    , Signatures e
+    , Serialise (Signature e)
+    , Serialise (PubKey 'Sign e)
+    , Eq (PubKey 'Sign e)
+    )
+    => m (LRefI e (CredentialsM e (ResponseM e m)))
+mkLRefAdapter = do
+  st <- getStorage
+
+  let
+
+    getBlockI = liftIO . getBlock st
+
+    tryUpdateLinearRefI h = liftIO . tryUpdateLinearRef st h
+
+    getLRefValI h = (liftIO . runMaybeT) do
+        refvalraw <- MaybeT $ (readLinkRaw st h) `orLogError` "error reading ref val"
+        MaybeT $ pure ((either (const Nothing) Just
+                      . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
+                      `orLogError` "can not parse channel ref"
+
+    announceLRefValI h = do
+        -- FIXME: implement announceLRefValI
+        pure ()
+
+  pure LRefI {..}
 
 runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
 runPeer opts = Exception.handle myException $ do
@@ -453,6 +495,7 @@ runPeer opts = Exception.handle myException $ do
 
             runPeerM penv $ do
               adapter <- mkAdapter
+              lrefAdapter <- mkLRefAdapter
               env <- ask
 
               pnonce <- peerNonce @e
@@ -588,6 +631,32 @@ runPeer opts = Exception.handle myException $ do
                                     debug $ "send single-cast announces" <+> pretty p
                                     request @e p announce
 
+                            ANNLREF h -> do
+                              debug $ "got annlref rpc" <+> pretty h
+                              sto <- getStorage
+
+                              void $ runMaybeT do
+
+                                  refvalraw <- MaybeT $ (liftIO $ readLinkRaw sto h)
+                                    `orLogError` "error reading ref val"
+                                  slref@(LinearMutableRefSigned _ ref) <- MaybeT $
+                                      pure ((either (const Nothing) Just
+                                           . deserialiseOrFail @(Signed SignaturePresent (MutableRef e 'LinearRef))) refvalraw)
+                                      `orLogError` "can not parse channel ref"
+
+                                  let annlref :: LRefProto UDP
+                                      annlref = AnnLRef @e h slref
+
+                                  lift do
+
+                                      debug "send multicast annlref"
+                                      request localMulticast annlref
+
+                                      withPeerM env do
+                                        forKnownPeers $ \p _ -> do
+                                          debug $ "send single-cast annlrefs" <+> pretty p
+                                          request @e p annlref
+
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
 
@@ -636,6 +705,7 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials pc . peerHandShakeProto)
                     , makeResponse peerExchangeProto
+                    , makeResponse (withCredentials pc . refLinearProto lrefAdapter)
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers
@@ -650,10 +720,14 @@ runPeer opts = Exception.handle myException $ do
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
 
+  let annLRefAction h = do
+        liftIO $ atomically $ writeTQueue rpcQ (ANNLREF h)
+
   let pingAction pa = do
         that <- thatPeer (Proxy @(RPC e))
         liftIO $ atomically $ writeTQueue rpcQ (PING pa (Just that))
 
+  -- FIXME
   let fetchAction h = do
         debug  $ "fetchAction" <+> pretty h
         liftIO $ withPeerM penv $ do
@@ -688,6 +762,7 @@ runPeer opts = Exception.handle myException $ do
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
+                        annLRefAction
                         pingAction
                         dontHandle
                         fetchAction
@@ -724,6 +799,8 @@ runPeer opts = Exception.handle myException $ do
 
   simpleStorageStop s
 
+orLogError :: MonadIO m => m (Maybe a) -> String -> m (Maybe a)
+orLogError ma msg = maybe (err msg >> pure Nothing) (pure . Just) =<< ma
 
 
 emitToPeer :: ( MonadIO m
@@ -772,6 +849,8 @@ withRPC o cmd = do
                     case cmd of
                       RPCAnnounce{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
+                      RPCAnnLRef{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
                       RPCFetch{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
                       RPCPing{} -> do
@@ -804,8 +883,10 @@ withRPC o cmd = do
   void $ waitAnyCatchCancel [mrpc, prpc]
 
   where
-    adapter q pq = RpcAdapter dontHandle
+    adapter q pq = RpcAdapter
+                          dontHandle
                           (liftIO . atomically . writeTQueue pq)
+                          (const $ liftIO exitSuccess)
                           (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)
@@ -822,6 +903,7 @@ runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
+  ANNLREF h -> withRPC opt (RPCAnnLRef h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)

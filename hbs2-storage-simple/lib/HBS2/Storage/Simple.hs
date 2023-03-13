@@ -308,6 +308,7 @@ spawnAndWait s act = do
 simpleWriteLinkRaw :: forall h . ( IsSimpleStorageKey h
                                  , Hashed h LBS.ByteString
                                  , ToByteString (AsBase58 (Hash h))
+                                 , FromByteString (AsBase58 (Hash h))
                                  )
                    => SimpleStorage h
                    -> Hash h
@@ -323,32 +324,17 @@ simpleWriteLinkRaw ss h lbs = do
       BS.writeFile fnr (toByteString (AsBase58 r))
       pure h
 
-simpleReadLinkRaw :: IsKey h
-                  => SimpleStorage h
-                  -> Hash h
-                  -> IO (Maybe LBS.ByteString)
-
-simpleReadLinkRaw ss hash = do
-  let fn = simpleRefFileName ss hash
-  rs <- spawnAndWait ss $ do
-    r <- tryJust (guard . isDoesNotExistError) (LBS.readFile fn)
-    case r of
-      Right bs -> pure (Just bs)
-      Left  _  -> pure Nothing
-
-  pure $ fromMaybe Nothing rs
-
-
-simpleReadLinkVal :: ( IsKey h
+simpleReadLinkRaw :: ( IsKey h
                      , IsSimpleStorageKey h
                      , Hashed h LBS.ByteString
+                     , ToByteString (AsBase58 (Hash h))
                      , FromByteString (AsBase58 (Hash h))
                      )
                   => SimpleStorage h
                   -> Hash h
                   -> IO (Maybe LBS.ByteString)
 
-simpleReadLinkVal ss hash = do
+simpleReadLinkRaw ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
     r <- tryJust (guard . isDoesNotExistError) (BS.readFile fn)
@@ -366,6 +352,8 @@ instance ( MonadIO m, IsKey hash
          , Key hash ~ Hash hash
          , IsSimpleStorageKey hash
          , Block LBS.ByteString ~ LBS.ByteString
+         , ToByteString (AsBase58 (Hash hash))
+         , FromByteString (AsBase58 (Hash hash))
          )
   => Storage (SimpleStorage hash) hash LBS.ByteString m where
 
@@ -379,6 +367,6 @@ instance ( MonadIO m, IsKey hash
 
   hasBlock s k = liftIO $ simpleBlockExists s k
 
+  writeLinkRaw s key lbs = liftIO $ simpleWriteLinkRaw s key lbs
 
-
-
+  readLinkRaw s key = liftIO $ simpleReadLinkRaw s key

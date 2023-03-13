@@ -28,6 +28,7 @@ data RPC e =
   | RPCPong (PeerAddr e)
   | RPCPokeAnswer (PubKey 'Sign e)
   | RPCAnnounce (Hash HbSync)
+  | RPCAnnLRef (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
@@ -57,6 +58,7 @@ data RpcAdapter e m =
   { rpcOnPoke        :: RPC e -> m ()
   , rpcOnPokeAnswer  :: PubKey 'Sign e -> m ()
   , rpcOnAnnounce    :: Hash HbSync -> m ()
+  , rpcOnAnnLRef     :: Hash HbSync -> m ()
   , rpcOnPing        :: PeerAddr e -> m ()
   , rpcOnPong        :: PeerAddr e -> m ()
   , rpcOnFetch       :: Hash HbSync -> m ()
@@ -106,6 +108,7 @@ rpcHandler adapter = \case
     p@RPCPoke{}        -> rpcOnPoke adapter p
     (RPCPokeAnswer k)  -> rpcOnPokeAnswer adapter k
     (RPCAnnounce h)    -> rpcOnAnnounce adapter h
+    (RPCAnnLRef h)     -> rpcOnAnnLRef adapter h
     (RPCPing pa)       -> rpcOnPing adapter pa
     (RPCPong pa)       -> rpcOnPong adapter pa
     (RPCFetch h)       -> rpcOnFetch adapter h

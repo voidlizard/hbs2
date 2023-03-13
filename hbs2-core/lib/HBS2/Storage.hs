@@ -4,8 +4,9 @@ module HBS2.Storage where
 import HBS2.Hash
 import HBS2.Prelude.Plated
 
-import Data.Kind
+import Data.ByteString.Lazy qualified as LBS
 import Data.Hashable hiding (Hashed)
+import Data.Kind
 import Lens.Micro.Platform
 import Prettyprinter
 
@@ -47,7 +48,9 @@ class ( Monad m
 
   -- listBlocks :: a -> ( Key block -> m () ) -> m ()
 
+  writeLinkRaw :: a -> Key h -> Block block -> m (Maybe (Key h))
 
+  readLinkRaw :: a -> Key h -> m (Maybe (Block block))
 
 calcChunks :: forall a b . (Integral a, Integral b)
            => Integer  -- | block size
@@ -60,3 +63,17 @@ calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
 
 
 
+data AnyStorage = forall zu . (Block LBS.ByteString ~ LBS.ByteString, Storage zu HbSync LBS.ByteString IO) => AnyStorage zu
+
+instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block LBS.ByteString ~ LBS.ByteString) => Storage AnyStorage HbSync LBS.ByteString IO where
+
+  putBlock (AnyStorage s) = putBlock s
+  enqueueBlock (AnyStorage s) = enqueueBlock s
+  getBlock (AnyStorage s) = getBlock s
+  getChunk (AnyStorage s) = getChunk s
+  hasBlock (AnyStorage s) = hasBlock s
+  writeLinkRaw (AnyStorage s) = writeLinkRaw s
+  readLinkRaw (AnyStorage s) = readLinkRaw s
+
+class HasStorage m where
+  getStorage :: m AnyStorage
