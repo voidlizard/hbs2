@@ -184,3 +184,12 @@ instance Messaging MessagingUDP UDP ByteString where
 
     liftIO $ atomically $ Q0.readTQueue (sink bus) <&> L.singleton
 
+
+parsePeerAddr :: MonadIO m => String -> m (Maybe (Peer UDP))
+parsePeerAddr s = do
+  ai <- liftIO $ parseAddr (fromString s) <&> listToMaybe
+  let sa = fmap addrAddress ai
+  pure $ PeerUDP <$> sa
+
+
+

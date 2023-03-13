@@ -20,6 +20,7 @@ common common-deps
     build-depends:
           base, hbs2-core, hbs2-storage-simple
         , async
+        , attoparsec
         , bytestring
         , cache
         , containers
@@ -114,6 +115,7 @@ executable hbs2-peer
                     , PeerTypes
                     , PeerConfig
                     , CheckMetrics
+                    , DetectGateway
 
     -- other-extensions:
     build-depends:    base
