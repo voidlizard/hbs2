@@ -538,7 +538,7 @@ runPeer opts = Exception.handle myException $ do
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
-                peerThread detectGatewayLoop
+                peerThread (detectGatewayLoop @e)
 
                 peerThread (checkMetrics metrics)
 

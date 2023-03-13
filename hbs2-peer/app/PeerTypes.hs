@@ -64,6 +64,27 @@ instance EventType ( Event e (DownloadReq e) ) where
 instance Expires (EventKey e (DownloadReq e)) where
   expiresIn = const Nothing
 
+data UPnPGatewayDetect e
+
+data instance EventKey e (UPnPGatewayDetect e) =
+  UPnPGatewayDetectKey
+  deriving (Generic,Typeable,Eq)
+
+newtype instance Event e (UPnPGatewayDetect e) =
+  UPnPGatewayDetect String
+  deriving (Typeable)
+
+instance Typeable (UPnPGatewayDetect e) => Hashable (EventKey e (UPnPGatewayDetect e)) where
+  hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
+    where
+      p = Proxy @DownloadReq
+
+instance EventType ( Event e (UPnPGatewayDetect e) ) where
+  isPersistent = True
+
+instance Expires (EventKey e (UPnPGatewayDetect e)) where
+  expiresIn = const Nothing
+
 type DownloadFromPeerStuff e m = ( MyPeer e
                                  , MonadIO m
                                  , Request e (BlockInfo e) m
