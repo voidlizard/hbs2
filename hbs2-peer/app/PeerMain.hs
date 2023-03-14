@@ -145,12 +145,13 @@ makeLenses 'RPCOpt
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
-  | ANNLREF (Hash HbSync)
   | PING (PeerAddr UDP) (Maybe (Peer UDP))
   | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
   | FETCH (Hash HbSync)
   | PEERS
   | SETLOG SetLogging
+  | LREFANN (Hash HbSync)
+  | LREFGET (Hash HbSync)
 
 data PeerOpts =
   PeerOpts
@@ -209,11 +210,15 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
-                        <> command "annlref"   (info pAnnLRef (progDesc "announce linear ref"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
+                        <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
+                        -- <> command "lref-new"  (info pNewLRef (progDesc "generates a new linear ref"))
+                        -- <> command "lref-list" (info pListLRef (progDesc "list node linear refs"))
+                        <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
+                        -- <> command "lref-update" (info pUpdateLRef (progDesc "updates a linear ref"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -254,11 +259,6 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (ANNOUNCE h)
 
-    pAnnLRef = do
-      rpc <- pRpcCommon
-      h   <- strArgument ( metavar "HASH" )
-      pure $ runRpcCommand rpc (ANNLREF h)
-
     pFetch = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
@@ -288,6 +288,16 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pInit = do
       pref <- optional $ strArgument ( metavar "DIR" )
       pure $ peerConfigInit pref
+
+    pLRefAnn = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "HASH" )
+      pure $ runRpcCommand rpc (LREFANN h)
+
+    pLRefGet = do
+      rpc <- pRpcCommon
+      h   <- strArgument ( metavar "REF-ID" )
+      pure $ runRpcCommand rpc (LREFGET h)
 
 
 myException :: SomeException -> IO ()
@@ -634,13 +644,6 @@ runPeer opts = Exception.handle myException $ do
                                     debug $ "send single-cast announces" <+> pretty p
                                     request @e p announce
 
-                            ANNLREF h -> do
-                              debug $ "got annlref rpc" <+> pretty h
-                              st <- getStorage
-                              void $ runMaybeT do
-                                  slref <- MaybeT $ getLRefValAction st h
-                                  lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
-
                             CHECK nonce pa h -> do
                               pip <- fromPeerAddr @e pa
 
@@ -679,6 +682,16 @@ runPeer opts = Exception.handle myException $ do
                                           withDownload denv $ do
                                             processBlock h
 
+                            LREFANN h -> do
+                              debug $ "got lrefann rpc" <+> pretty h
+                              st <- getStorage
+                              void $ runMaybeT do
+                                  slref <- MaybeT $ getLRefValAction st h
+                                  lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
+
+                            LREFGET h -> do
+                              debug $ "got lrefget rpc" <+> pretty h
+
                             _ -> pure ()
 
 
@@ -703,9 +716,6 @@ runPeer opts = Exception.handle myException $ do
 
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
-
-  let annLRefAction h = do
-        liftIO $ atomically $ writeTQueue rpcQ (ANNLREF h)
 
   let pingAction pa = do
         that <- thatPeer (Proxy @(RPC e))
@@ -743,16 +753,31 @@ runPeer opts = Exception.handle myException $ do
           trace "TraceOff"
           setLoggingOff @TRACE
 
+  let lrefAnnAction h = do
+        liftIO $ atomically $ writeTQueue rpcQ (LREFANN h)
+
+  let lrefGetAction h = do
+        debug  $ "lrefGetAction" <+> pretty h
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            st <- getStorage
+            mhval <- getLRefValAction st h
+            forM_ mhval \hval ->
+                request who (RPCLRefGetAnswer @e h hval)
+
+
   let arpc = RpcAdapter pokeAction
                         dontHandle
                         annAction
-                        annLRefAction
                         pingAction
                         dontHandle
                         fetchAction
                         peersAction
                         dontHandle
                         logLevelAction
+                        lrefAnnAction
+                        lrefGetAction
+                        (\h hval -> pure ())
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -833,8 +858,6 @@ withRPC o cmd = do
                     case cmd of
                       RPCAnnounce{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
-                      RPCAnnLRef{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
-
                       RPCFetch{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
                       RPCPing{} -> do
@@ -860,6 +883,10 @@ withRPC o cmd = do
 
                       RPCLogLevel{} -> liftIO exitSuccess
 
+                      RPCLRefAnn{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
+
+                      RPCLRefGet{} -> pause @'Seconds 1 >> liftIO exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
@@ -871,7 +898,6 @@ withRPC o cmd = do
                           dontHandle
                           (liftIO . atomically . writeTQueue pq)
                           (const $ liftIO exitSuccess)
-                          (const $ liftIO exitSuccess)
                           (const $ notice "ping?")
                           (liftIO . atomically . writeTQueue q)
                           dontHandle
@@ -882,15 +908,20 @@ withRPC o cmd = do
 
                           dontHandle
 
+                          (const $ liftIO exitSuccess)
+                          (const $ liftIO exitSuccess)
+                          (\h hval -> Log.info $ pretty h <+> viaShow hval)
+
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
-  ANNLREF h -> withRPC opt (RPCAnnLRef h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
+  LREFANN h ->  withRPC opt (RPCLRefAnn h)
+  LREFGET h ->  withRPC opt (RPCLRefGet h)
 
   _ -> pure ()
 

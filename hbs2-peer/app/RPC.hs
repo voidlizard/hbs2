@@ -2,6 +2,7 @@
 {-# Language UndecidableInstances #-}
 module RPC where
 
+import HBS2.Data.Types.Refs
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
 import HBS2.Hash
@@ -28,15 +29,20 @@ data RPC e =
   | RPCPong (PeerAddr e)
   | RPCPokeAnswer (PubKey 'Sign e)
   | RPCAnnounce (Hash HbSync)
-  | RPCAnnLRef (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
   | RPCLogLevel SetLogging
+  | RPCLRefAnn (Hash HbSync)
+  | RPCLRefGet (Hash HbSync)
+  | RPCLRefGetAnswer (Hash HbSync) (Signed SignaturePresent (MutableRef e 'LinearRef))
   deriving stock (Generic)
 
 
-instance Serialise (PeerAddr e) => Serialise (RPC e)
+instance (
+    Serialise (PeerAddr e)
+  , Serialise (Signature e)
+  ) => Serialise (RPC e)
 
 instance HasProtocol UDP (RPC UDP) where
   type instance ProtocolId (RPC UDP) = 0xFFFFFFE0
@@ -58,13 +64,15 @@ data RpcAdapter e m =
   { rpcOnPoke        :: RPC e -> m ()
   , rpcOnPokeAnswer  :: PubKey 'Sign e -> m ()
   , rpcOnAnnounce    :: Hash HbSync -> m ()
-  , rpcOnAnnLRef     :: Hash HbSync -> m ()
   , rpcOnPing        :: PeerAddr e -> m ()
   , rpcOnPong        :: PeerAddr e -> m ()
   , rpcOnFetch       :: Hash HbSync -> m ()
   , rpcOnPeers       :: RPC e -> m ()
   , rpcOnPeersAnswer :: (PeerAddr e, PubKey 'Sign e) -> m ()
   , rpcOnLogLevel    :: SetLogging -> m ()
+  , rpcOnLRefAnn     :: Hash HbSync -> m ()
+  , rpcOnLRefGet     :: Hash HbSync -> m ()
+  , rpcOnLRefGetAnswer :: Hash HbSync -> Signed SignaturePresent (MutableRef e 'LinearRef) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -108,11 +116,13 @@ rpcHandler adapter = \case
     p@RPCPoke{}        -> rpcOnPoke adapter p
     (RPCPokeAnswer k)  -> rpcOnPokeAnswer adapter k
     (RPCAnnounce h)    -> rpcOnAnnounce adapter h
-    (RPCAnnLRef h)     -> rpcOnAnnLRef adapter h
     (RPCPing pa)       -> rpcOnPing adapter pa
     (RPCPong pa)       -> rpcOnPong adapter pa
     (RPCFetch h)       -> rpcOnFetch adapter h
     p@RPCPeers{}       -> rpcOnPeers adapter p
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
+    (RPCLRefAnn h)     -> rpcOnLRefAnn adapter h
+    (RPCLRefGet h)     -> rpcOnLRefGet adapter h
+    (RPCLRefGetAnswer h hval) -> rpcOnLRefGetAnswer adapter h hval
 

@@ -114,6 +114,9 @@ data instance Signed SignaturePresent (MutableRef e 'LinearRef)
 instance Serialise (Signature e) =>
     Serialise (Signed 'SignaturePresent (MutableRef e 'LinearRef))
 
+instance Show (Signature e) =>
+    Show (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+
 data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
   = LinearMutableRefSignatureVerified
   { lmrefVSignature :: Signature e
