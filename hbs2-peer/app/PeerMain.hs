@@ -762,7 +762,7 @@ runPeer opts = Exception.handle myException $ do
         void $ liftIO $ async $ withPeerM penv $ do
             st <- getStorage
             hval <- getLRefValAction st h
-            request who (RPCLRefGetAnswer @e h hval)
+            request who (RPCLRefGetAnswer @e hval)
             debug $ "lrefGetAction sent" <+> pretty h
 
 
@@ -846,11 +846,31 @@ withRPC o cmd = do
 
   pokeQ <- newTQueueIO
 
+  lrefGetQ <- newTQueueIO
+
+  let rpcAdapter = RpcAdapter
+          dontHandle
+          (liftIO . atomically . writeTQueue pokeQ)
+          (const $ liftIO exitSuccess)
+          (const $ notice "ping?")
+          (liftIO . atomically . writeTQueue pingQ)
+          dontHandle
+          dontHandle
+
+          (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
+          )
+
+          dontHandle
+
+          (const $ liftIO exitSuccess)
+          (const $ liftIO exitSuccess)
+          (liftIO . atomically . writeTQueue lrefGetQ)
+
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @UDP
-                        [ makeResponse (rpcHandler (adapter pingQ pokeQ))
+                        [ makeResponse (rpcHandler rpcAdapter)
                         ]
 
                     request rpc cmd
@@ -885,32 +905,17 @@ withRPC o cmd = do
 
                       RPCLRefAnn{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
-                      RPCLRefGet{} -> pause @'Seconds 1 >> liftIO exitSuccess
+                      RPCLRefGet{} ->
+                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
+                                 pa <- liftIO $ atomically $ readTQueue lrefGetQ
+                                 Log.info $ "got RPCLRefGetAnswer" <+> pretty pa
+                                 exitSuccess
 
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
 
   void $ waitAnyCatchCancel [mrpc, prpc]
-
-  where
-    adapter q pq = RpcAdapter
-                          dontHandle
-                          (liftIO . atomically . writeTQueue pq)
-                          (const $ liftIO exitSuccess)
-                          (const $ notice "ping?")
-                          (liftIO . atomically . writeTQueue q)
-                          dontHandle
-                          dontHandle
-
-                          (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
-                          )
-
-                          dontHandle
-
-                          (const $ liftIO exitSuccess)
-                          (const $ liftIO exitSuccess)
-                          (\(h, hval) -> Log.info $ pretty h <+> viaShow hval)
 
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case

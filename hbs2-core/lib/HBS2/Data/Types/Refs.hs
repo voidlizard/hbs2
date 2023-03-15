@@ -96,6 +96,10 @@ data instance MutableRef e 'LinearRef
   }
   deriving stock (Generic, Show)
 
+instance Pretty (MutableRef e 'LinearRef) where
+  pretty LinearMutableRef {..} =
+      parens ( "LinearMutableRef" <+> pretty lrefId <+> pretty lrefHeight <+> pretty lrefVal)
+
 instance Serialise (MutableRef e 'LinearRef)
 
 ---
@@ -114,8 +118,10 @@ data instance Signed SignaturePresent (MutableRef e 'LinearRef)
 instance Serialise (Signature e) =>
     Serialise (Signed 'SignaturePresent (MutableRef e 'LinearRef))
 
-instance Show (Signature e) =>
-    Show (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+instance (Show (Signature e), Pretty (MutableRef e 'LinearRef)
+    ) => Pretty (Signed 'SignaturePresent (MutableRef e 'LinearRef)) where
+  pretty LinearMutableRefSigned {..} =
+      parens ( "LinearMutableRefSigned" <+> viaShow lmrefSignature <+> pretty lmrefSignedRef)
 
 data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
   = LinearMutableRefSignatureVerified
