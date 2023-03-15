@@ -179,7 +179,9 @@ data RPCCommand =
   | SETLOG SetLogging
   | LREFANN (Hash HbSync)
   | LREFNEW (PubKey 'Sign UDP) Text
+  | LREFLIST
   | LREFGET (Hash HbSync)
+  | LREFUPDATE (PrivKey 'Sign UDP) (PubKey 'Sign UDP) (Hash HbSync) (Hash HbSync)
 
 data PeerOpts =
   PeerOpts
@@ -244,9 +246,9 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
                         <> command "lref-new"  (info pLRefNew (progDesc "generates a new linear ref"))
-                        -- <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
+                        <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
                         <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
-                        -- <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
+                        <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -331,10 +333,27 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                     <&> parseCredentials @UDP . AsCredFile . LBS.toStrict . LBS.take 4096)
               `orDie` "can't parse credential file"
           runRpcCommand rpc (LREFNEW (_peerSignPk cred) t)
+
+    pLRefList = do
+      rpc <- pRpcCommon
+      pure $ do
+          runRpcCommand rpc (LREFLIST)
+
     pLRefGet = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "REF-ID" )
       pure $ runRpcCommand rpc (LREFGET h)
+
+    pLRefUpdate = do
+      rpc <- pRpcCommon
+      credFile <- strOption ( short 'k' <> long "key" <> help "author keys file" )
+      lrefId <- strArgument ( metavar "REF-ID" )
+      hval <- strArgument ( metavar "HASH" )
+      pure $ do
+          cred <- (LBS.readFile credFile
+                    <&> parseCredentials @UDP . AsCredFile . LBS.toStrict . LBS.take 4096)
+              `orDie` "can't parse credential file"
+          runRpcCommand rpc (LREFUPDATE (_peerSignSk cred) (_peerSignPk cred) lrefId hval)
 
 
 myException :: SomeException -> IO ()
