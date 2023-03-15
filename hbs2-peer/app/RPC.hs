@@ -38,6 +38,8 @@ data RPC e =
   | RPCLRefNewAnswer (Hash HbSync)
   | RPCLRefGet (Hash HbSync)
   | RPCLRefGetAnswer (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
+  | RPCLRefUpdate (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+  | RPCLRefUpdateAnswer (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
   deriving stock (Generic)
 
 
@@ -77,6 +79,8 @@ data RpcAdapter e m =
   , rpcOnLRefNewAnswer :: Hash HbSync -> m ()
   , rpcOnLRefGet     :: Hash HbSync -> m ()
   , rpcOnLRefGetAnswer :: Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
+  , rpcOnLRefUpdate  :: (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
+  , rpcOnLRefUpdateAnswer :: Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -126,9 +130,10 @@ rpcHandler adapter = \case
     p@RPCPeers{}       -> rpcOnPeers adapter p
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
-    (RPCLRefAnn h)     -> rpcOnLRefAnn adapter h
-    (RPCLRefNew pk t)     -> rpcOnLRefNew adapter (pk, t)
-    (RPCLRefNewAnswer h) -> rpcOnLRefNewAnswer adapter h
-    (RPCLRefGet h)     -> rpcOnLRefGet adapter h
-    (RPCLRefGetAnswer hval) -> rpcOnLRefGetAnswer adapter hval
-
+    (RPCLRefAnn h)             -> rpcOnLRefAnn adapter h
+    (RPCLRefNew pk t)          -> rpcOnLRefNew adapter (pk, t)
+    (RPCLRefNewAnswer h)       -> rpcOnLRefNewAnswer adapter h
+    (RPCLRefGet h)             -> rpcOnLRefGet adapter h
+    (RPCLRefGetAnswer hval)    -> rpcOnLRefGetAnswer adapter hval
+    (RPCLRefUpdate upd)        -> rpcOnLRefUpdate adapter upd
+    (RPCLRefUpdateAnswer mupd) -> rpcOnLRefUpdateAnswer adapter mupd

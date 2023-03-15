@@ -179,7 +179,6 @@ data RPCCommand =
   | SETLOG SetLogging
   | LREFANN (Hash HbSync)
   | LREFNEW (PubKey 'Sign UDP) Text
-  | LREFLIST
   | LREFGET (Hash HbSync)
   | LREFUPDATE (PrivKey 'Sign UDP) (PubKey 'Sign UDP) (Hash HbSync) (Hash HbSync)
 
@@ -246,7 +245,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
                         <> command "lref-new"  (info pLRefNew (progDesc "generates a new linear ref"))
-                        <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
+                        -- <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
                         <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
                         <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
                         )
@@ -334,10 +333,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
               `orDie` "can't parse credential file"
           runRpcCommand rpc (LREFNEW (_peerSignPk cred) t)
 
-    pLRefList = do
-      rpc <- pRpcCommon
-      pure $ do
-          runRpcCommand rpc (LREFLIST)
+    -- pLRefList = do
+      -- rpc <- pRpcCommon
+      -- pure $ do
+      --     runRpcCommand rpc (LREFLIST)
 
     pLRefGet = do
       rpc <- pRpcCommon
@@ -827,20 +826,33 @@ runPeer opts = Exception.handle myException $ do
             request who (RPCLRefGetAnswer @e hval)
             debug $ "lrefGetAction sent" <+> pretty h
 
-  let arpc = RpcAdapter pokeAction
-                        dontHandle
-                        annAction
-                        pingAction
-                        dontHandle
-                        fetchAction
-                        peersAction
-                        dontHandle
-                        logLevelAction
-                        lrefAnnAction
-                        lrefNewAction
-                        dontHandle
-                        lrefGetAction
-                        dontHandle
+  let lrefUpdateAction h = do
+        debug $ "lrefUpdateAction" <+> pretty True
+        -- who <- thatPeer (Proxy @(RPC e))
+        -- void $ liftIO $ async $ withPeerM penv $ do
+        -- --     -- st <- getStorage
+        -- --     mlref <- undefined  -- FIXME: lrefUpdateAction
+        -- --     -- request who (RPCLRefUpdateAnswer @e mlref)
+        --     debug $ "lrefUpdateAction sent" <+> pretty h
+
+  let arpc = RpcAdapter
+        { rpcOnPoke             = pokeAction
+        , rpcOnPokeAnswer       = dontHandle
+        , rpcOnAnnounce         = annAction
+        , rpcOnPing             = pingAction
+        , rpcOnPong             = dontHandle
+        , rpcOnFetch            = fetchAction
+        , rpcOnPeers            = peersAction
+        , rpcOnPeersAnswer      = dontHandle
+        , rpcOnLogLevel         = logLevelAction
+        , rpcOnLRefAnn          = lrefAnnAction
+        , rpcOnLRefNew          = lrefNewAction
+        , rpcOnLRefNewAnswer    = dontHandle
+        , rpcOnLRefGet          = lrefGetAction
+        , rpcOnLRefGetAnswer    = dontHandle
+        , rpcOnLRefUpdate       = lrefUpdateAction
+        , rpcOnLRefUpdateAnswer = dontHandle
+        }
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -913,27 +925,32 @@ withRPC o cmd = do
 
   lrefGetQ <- newTQueueIO
 
+  lrefUpdateQ <- newTQueueIO
+
   let rpcAdapter = RpcAdapter
-          dontHandle
-          (liftIO . atomically . writeTQueue pokeQ)
-          (const $ liftIO exitSuccess)
-          (const $ notice "ping?")
-          (liftIO . atomically . writeTQueue pingQ)
-          dontHandle
-          dontHandle
-
-          (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
-          )
-
-          dontHandle
-
-          (const $ liftIO exitSuccess)
-
-          (const $ liftIO exitSuccess)
-          (liftIO . atomically . writeTQueue lrefNewQ)
-
-          (const $ liftIO exitSuccess)
-          (liftIO . atomically . writeTQueue lrefGetQ)
+        { rpcOnPoke             = dontHandle
+        , rpcOnPokeAnswer       = liftIO . atomically . writeTQueue pokeQ
+        , rpcOnAnnounce         = const $ liftIO exitSuccess
+        , rpcOnPing             = const $ notice "ping?"
+        , rpcOnPong             = liftIO . atomically . writeTQueue pingQ
+        , rpcOnFetch            = dontHandle
+        , rpcOnPeers            = dontHandle
+        --
+        , rpcOnPeersAnswer      = \(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
+        --
+        , rpcOnLogLevel         = dontHandle
+        --
+        , rpcOnLRefAnn          = const $ liftIO exitSuccess
+        --
+        , rpcOnLRefNew          = const $ liftIO exitSuccess
+        , rpcOnLRefNewAnswer    = liftIO . atomically . writeTQueue lrefNewQ
+        --
+        , rpcOnLRefGet          = const $ liftIO exitSuccess
+        , rpcOnLRefGetAnswer    = liftIO . atomically . writeTQueue lrefGetQ
+        --
+        , rpcOnLRefUpdate       = const $ liftIO exitSuccess
+        , rpcOnLRefUpdateAnswer = liftIO . atomically . writeTQueue lrefUpdateQ
+        }
 
   prpc <- async $ runRPC udp1 do
                     env <- ask
@@ -986,6 +1003,12 @@ withRPC o cmd = do
                                  Log.info $ "got RPCLRefGetAnswer" <+> pretty pa
                                  exitSuccess
 
+                      RPCLRefUpdate{} ->
+                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
+                                 pa <- liftIO $ atomically $ readTQueue lrefUpdateQ
+                                 Log.info $ "got RPCLRefUpdateAnswer" <+> pretty pa
+                                 exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
@@ -1003,6 +1026,16 @@ runRpcCommand opt = \case
   LREFANN h -> withRPC opt (RPCLRefAnn h)
   LREFNEW pk title -> withRPC opt (RPCLRefNew pk title)
   LREFGET h -> withRPC opt (RPCLRefGet h)
+  LREFUPDATE sk pk lrefId h -> do
+      -- FIXME LREFUPDATE implementation
+      -- запросить текущее значение ссылки с помощью (RPCLRefGet h)
+      -- увеличить счётчик, обновить значение, подписать
+      -- выполнить (RPCLRefUpdate lref)
+      -- дождаться ответа
+      let
+        lref :: Signed 'SignaturePresent (MutableRef UDP 'LinearRef)
+        lref = undefined
+      withRPC opt (RPCLRefUpdate lref)
 
   _ -> pure ()
 
