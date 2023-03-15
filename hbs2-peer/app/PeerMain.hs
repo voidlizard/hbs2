@@ -757,13 +757,13 @@ runPeer opts = Exception.handle myException $ do
         liftIO $ atomically $ writeTQueue rpcQ (LREFANN h)
 
   let lrefGetAction h = do
-        debug  $ "lrefGetAction" <+> pretty h
+        debug $ "lrefGetAction" <+> pretty h
         who <- thatPeer (Proxy @(RPC e))
         void $ liftIO $ async $ withPeerM penv $ do
             st <- getStorage
-            mhval <- getLRefValAction st h
-            forM_ mhval \hval ->
-                request who (RPCLRefGetAnswer @e h hval)
+            hval <- getLRefValAction st h
+            request who (RPCLRefGetAnswer @e h hval)
+            debug $ "lrefGetAction sent" <+> pretty h
 
 
   let arpc = RpcAdapter pokeAction
@@ -777,7 +777,7 @@ runPeer opts = Exception.handle myException $ do
                         logLevelAction
                         lrefAnnAction
                         lrefGetAction
-                        (\h hval -> pure ())
+                        dontHandle
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -910,7 +910,7 @@ withRPC o cmd = do
 
                           (const $ liftIO exitSuccess)
                           (const $ liftIO exitSuccess)
-                          (\h hval -> Log.info $ pretty h <+> viaShow hval)
+                          (\(h, hval) -> Log.info $ pretty h <+> viaShow hval)
 
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
@@ -920,8 +920,8 @@ runRpcCommand opt = \case
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
-  LREFANN h ->  withRPC opt (RPCLRefAnn h)
-  LREFGET h ->  withRPC opt (RPCLRefGet h)
+  LREFANN h -> withRPC opt (RPCLRefAnn h)
+  LREFGET h -> withRPC opt (RPCLRefGet h)
 
   _ -> pure ()
 

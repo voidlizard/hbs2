@@ -35,7 +35,7 @@ data RPC e =
   | RPCLogLevel SetLogging
   | RPCLRefAnn (Hash HbSync)
   | RPCLRefGet (Hash HbSync)
-  | RPCLRefGetAnswer (Hash HbSync) (Signed SignaturePresent (MutableRef e 'LinearRef))
+  | RPCLRefGetAnswer (Hash HbSync) (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
   deriving stock (Generic)
 
 
@@ -72,7 +72,7 @@ data RpcAdapter e m =
   , rpcOnLogLevel    :: SetLogging -> m ()
   , rpcOnLRefAnn     :: Hash HbSync -> m ()
   , rpcOnLRefGet     :: Hash HbSync -> m ()
-  , rpcOnLRefGetAnswer :: Hash HbSync -> Signed SignaturePresent (MutableRef e 'LinearRef) -> m ()
+  , rpcOnLRefGetAnswer :: (Hash HbSync, Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef))) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -124,5 +124,5 @@ rpcHandler adapter = \case
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
     (RPCLRefAnn h)     -> rpcOnLRefAnn adapter h
     (RPCLRefGet h)     -> rpcOnLRefGet adapter h
-    (RPCLRefGetAnswer h hval) -> rpcOnLRefGetAnswer adapter h hval
+    (RPCLRefGetAnswer h hval) -> rpcOnLRefGetAnswer adapter (h, hval)
 
