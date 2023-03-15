@@ -34,6 +34,8 @@ data RPC e =
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
   | RPCLogLevel SetLogging
   | RPCLRefAnn (Hash HbSync)
+  | RPCLRefNew (PubKey 'Sign e) Text
+  | RPCLRefNewAnswer (Hash HbSync)
   | RPCLRefGet (Hash HbSync)
   | RPCLRefGetAnswer (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
   deriving stock (Generic)
@@ -71,6 +73,8 @@ data RpcAdapter e m =
   , rpcOnPeersAnswer :: (PeerAddr e, PubKey 'Sign e) -> m ()
   , rpcOnLogLevel    :: SetLogging -> m ()
   , rpcOnLRefAnn     :: Hash HbSync -> m ()
+  , rpcOnLRefNew     :: (PubKey 'Sign e, Text) -> m ()
+  , rpcOnLRefNewAnswer :: Hash HbSync -> m ()
   , rpcOnLRefGet     :: Hash HbSync -> m ()
   , rpcOnLRefGetAnswer :: Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
   }
@@ -123,6 +127,8 @@ rpcHandler adapter = \case
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
     (RPCLRefAnn h)     -> rpcOnLRefAnn adapter h
+    (RPCLRefNew pk t)     -> rpcOnLRefNew adapter (pk, t)
+    (RPCLRefNewAnswer h) -> rpcOnLRefNewAnswer adapter h
     (RPCLRefGet h)     -> rpcOnLRefGet adapter h
     (RPCLRefGetAnswer hval) -> rpcOnLRefGetAnswer adapter hval
 

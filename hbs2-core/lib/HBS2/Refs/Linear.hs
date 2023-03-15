@@ -7,6 +7,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging
 import HBS2.Net.PeerLocator
@@ -147,6 +148,21 @@ readNodeLinearRefList ss pk = do
           fromMaybe mempty . ((either (const Nothing) Just . deserialiseOrFail) =<<)
               <$> getBlock ss (lrefVal ref)
 
+nodeRefListNew :: forall e.
+    ( Signatures e
+    , Serialise (Signature e)
+    , Serialise (PubKey 'Sign e)
+    , Eq (PubKey 'Sign e)
+    , Block LBS.ByteString ~ LBS.ByteString
+    )
+    => AnyStorage -> PeerCredentials e -> PubKey 'Sign e -> Text -> AnnMetaData -> IO (Hash HbSync)
+nodeRefListNew st nodeCred ownerPk title meta = do
+  -- полученный хэш будет хэшем ссылки на созданный канал владельца c ownerCred
+  chh <- (putBlock st . serialise) (RefGenesis @e ownerPk title meta)
+      `orDie` "can not put channel genesis block"
+  nodeRefListAdd st nodeCred chh
+  pure chh
+
 nodeRefListAdd :: forall e.
     ( Signatures e
     , Serialise (Signature e)
@@ -155,8 +171,8 @@ nodeRefListAdd :: forall e.
     , Block LBS.ByteString ~ LBS.ByteString
     )
     => AnyStorage -> PeerCredentials e -> Hash HbSync -> IO ()
-nodeRefListAdd ss nodeCred chh = do
+nodeRefListAdd st nodeCred chh = do
   -- полученный хэш будет хэшем ссылки на список референсов ноды
-  lrh <- (putBlock ss . serialise) (nodeLinearRefsRef @e (_peerSignPk nodeCred))
+  lrh <- (putBlock st . serialise) (nodeLinearRefsRef @e (_peerSignPk nodeCred))
       `orDie` "can not create node refs genesis"
-  modifyNodeLinearRefList ss nodeCred lrh $ Set.toList . Set.insert chh . Set.fromList
+  modifyNodeLinearRefList st nodeCred lrh $ Set.toList . Set.insert chh . Set.fromList

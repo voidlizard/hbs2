@@ -12,6 +12,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
@@ -90,6 +91,7 @@ data PeerBlackListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
 data PeerTraceKey
+data PeerAcceptLRefFromKey
 
 data AcceptAnnounce = AcceptAnnounceAll
                     | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
@@ -132,6 +134,31 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
                           ]
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
 
+---
+
+data AcceptLRefFrom = AcceptLRefFromAll
+                    | AcceptLRefFrom (Set (PubKey 'Sign UDP))
+
+instance Pretty AcceptLRefFrom where
+  pretty = \case
+    AcceptLRefFromAll -> parens ("accept-lref-from" <+> "*")
+
+    AcceptLRefFrom xs -> parens ("accept-lref-from" <+> pretty (fmap AsBase58 (Set.toList xs)))
+
+instance HasCfgKey PeerAcceptLRefFromKey AcceptLRefFrom where
+  key = "accept-lref-from"
+
+instance HasCfgValue PeerAcceptLRefFromKey AcceptLRefFrom where
+  cfgValue (PeerConfig syn) = fromMaybe (AcceptLRefFrom lst) fromAll
+    where
+      fromAll = headMay [ AcceptLRefFromAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
+      lst = Set.fromList $
+                catMaybes [ fromStringMay @(PubKey 'Sign UDP) (Text.unpack e)
+                          | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
+                          ]
+      kk = key @PeerAcceptLRefFromKey @AcceptLRefFrom
+
+---
 
 data RPCOpt =
   RPCOpt
@@ -151,6 +178,7 @@ data RPCCommand =
   | PEERS
   | SETLOG SetLogging
   | LREFANN (Hash HbSync)
+  | LREFNEW (PubKey 'Sign UDP) Text
   | LREFGET (Hash HbSync)
 
 data PeerOpts =
@@ -215,10 +243,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
-                        -- <> command "lref-new"  (info pNewLRef (progDesc "generates a new linear ref"))
-                        -- <> command "lref-list" (info pListLRef (progDesc "list node linear refs"))
+                        <> command "lref-new"  (info pLRefNew (progDesc "generates a new linear ref"))
+                        -- <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
                         <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
-                        -- <> command "lref-update" (info pUpdateLRef (progDesc "updates a linear ref"))
+                        -- <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -294,6 +322,15 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       h   <- strArgument ( metavar "HASH" )
       pure $ runRpcCommand rpc (LREFANN h)
 
+    pLRefNew = do
+      rpc <- pRpcCommon
+      credFile <- strOption ( short 'k' <> long "key" <> help "author keys file" )
+      t <- strArgument ( metavar "TEXT" )
+      pure $ do
+          cred <- (LBS.readFile credFile
+                    <&> parseCredentials @UDP . AsCredFile . LBS.toStrict . LBS.take 4096)
+              `orDie` "can't parse credential file"
+          runRpcCommand rpc (LREFNEW (_peerSignPk cred) t)
     pLRefGet = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "REF-ID" )
@@ -689,9 +726,6 @@ runPeer opts = Exception.handle myException $ do
                                   slref <- MaybeT $ getLRefValAction st h
                                   lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
 
-                            LREFGET h -> do
-                              debug $ "got lrefget rpc" <+> pretty h
-
                             _ -> pure ()
 
 
@@ -756,6 +790,15 @@ runPeer opts = Exception.handle myException $ do
   let lrefAnnAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (LREFANN h)
 
+  let lrefNewAction q@(pk, t) = do
+        debug $ "lrefNewAction" <+> viaShow q
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            st <- getStorage
+            h <- liftIO $ nodeRefListNew st pc pk t NoMetaData
+            request who (RPCLRefNewAnswer @e h)
+            debug $ "lrefNewAction sent" <+> pretty h
+
   let lrefGetAction h = do
         debug $ "lrefGetAction" <+> pretty h
         who <- thatPeer (Proxy @(RPC e))
@@ -764,7 +807,6 @@ runPeer opts = Exception.handle myException $ do
             hval <- getLRefValAction st h
             request who (RPCLRefGetAnswer @e hval)
             debug $ "lrefGetAction sent" <+> pretty h
-
 
   let arpc = RpcAdapter pokeAction
                         dontHandle
@@ -776,6 +818,8 @@ runPeer opts = Exception.handle myException $ do
                         dontHandle
                         logLevelAction
                         lrefAnnAction
+                        lrefNewAction
+                        dontHandle
                         lrefGetAction
                         dontHandle
 
@@ -846,6 +890,8 @@ withRPC o cmd = do
 
   pokeQ <- newTQueueIO
 
+  lrefNewQ <- newTQueueIO
+
   lrefGetQ <- newTQueueIO
 
   let rpcAdapter = RpcAdapter
@@ -863,6 +909,10 @@ withRPC o cmd = do
           dontHandle
 
           (const $ liftIO exitSuccess)
+
+          (const $ liftIO exitSuccess)
+          (liftIO . atomically . writeTQueue lrefNewQ)
+
           (const $ liftIO exitSuccess)
           (liftIO . atomically . writeTQueue lrefGetQ)
 
@@ -905,6 +955,12 @@ withRPC o cmd = do
 
                       RPCLRefAnn{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
+                      RPCLRefNew{} ->
+                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
+                                 pa <- liftIO $ atomically $ readTQueue lrefNewQ
+                                 Log.info $ "got RPCLRefNewAnswer" <+> pretty pa
+                                 exitSuccess
+
                       RPCLRefGet{} ->
                         void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
                                  pa <- liftIO $ atomically $ readTQueue lrefGetQ
@@ -926,6 +982,7 @@ runRpcCommand opt = \case
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
   LREFANN h -> withRPC opt (RPCLRefAnn h)
+  LREFNEW pk title -> withRPC opt (RPCLRefNew pk title)
   LREFGET h -> withRPC opt (RPCLRefGet h)
 
   _ -> pure ()

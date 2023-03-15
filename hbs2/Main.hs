@@ -327,11 +327,8 @@ runNewLRef nf uf refName (AnyStorage -> st) = do
       `orDie` "bad node keyring file"
   ownerCred <- (parseCredentials @UDP . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
-  -- полученный хэш будет хэшем ссылки на созданный канал владельца c ownerCred
-  -- Это тоже перенести в Refs.hs ?
-  chh <- (putBlock st . serialise) (RefGenesis (_peerSignPk ownerCred) refName NoMetaData)
-      `orDie` "can not put channel genesis block"
-  nodeRefListAdd st nodeCred chh
+  hPrint stdout . pretty
+      =<< nodeRefListNew st nodeCred (_peerSignPk ownerCred) refName NoMetaData
 
 runListLRef :: FilePath -> SimpleStorage HbSync -> IO ()
 runListLRef nf (AnyStorage -> st) = do
