@@ -845,9 +845,8 @@ FIXME: RPC, cli для линейных ссылок
 
 * [x] lref-get через rpc пира get
 * [x] lref-new через rpc пира new
-* [ ] lref-update через rpc пира update
-
-* [ ] lref-list через rpc пира list
+* [x] lref-update через rpc пира update
+* [x] lref-list через rpc пира list
 
 * [ ] cli на запрос значений ссылки у всех нод
 * [ ] cli на запрос всех ссылок ноды

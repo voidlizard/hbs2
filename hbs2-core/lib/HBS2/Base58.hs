@@ -24,4 +24,3 @@ fromBase58 = decodeBase58 bitcoinAlphabet
 
 instance Pretty (AsBase58 ByteString) where
   pretty (AsBase58 bs) = pretty $ BS8.unpack $ toBase58 bs
-

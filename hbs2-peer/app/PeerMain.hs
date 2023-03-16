@@ -179,6 +179,7 @@ data RPCCommand =
   | SETLOG SetLogging
   | LREFANN (Hash HbSync)
   | LREFNEW (PubKey 'Sign UDP) Text
+  | LREFLIST
   | LREFGET (Hash HbSync)
   | LREFUPDATE (PrivKey 'Sign UDP) (PubKey 'Sign UDP) (Hash HbSync) (Hash HbSync)
 
@@ -245,7 +246,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
                         <> command "lref-new"  (info pLRefNew (progDesc "generates a new linear ref"))
-                        -- <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
+                        <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
                         <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
                         <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
                         )
@@ -333,10 +334,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
               `orDie` "can't parse credential file"
           runRpcCommand rpc (LREFNEW (_peerSignPk cred) t)
 
-    -- pLRefList = do
-      -- rpc <- pRpcCommon
-      -- pure $ do
-      --     runRpcCommand rpc (LREFLIST)
+    pLRefList = do
+      rpc <- pRpcCommon
+      pure $ do
+          runRpcCommand rpc (LREFLIST)
 
     pLRefGet = do
       rpc <- pRpcCommon
@@ -817,6 +818,21 @@ runPeer opts = Exception.handle myException $ do
             request who (RPCLRefNewAnswer @e h)
             debug $ "lrefNewAction sent" <+> pretty h
 
+  let lrefListAction h = do
+        debug $ "lrefListAction" <+> pretty h
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            st <- getStorage
+            hs :: [Hash HbSync] <- liftIO $ readNodeLinearRefList @e st (_peerSignPk pc)
+            lrefs <- catMaybes <$> forM hs \chh -> runMaybeT do
+                g :: RefGenesis [Hash HbSync] <- MaybeT $
+                    ((either (const Nothing) Just . deserialiseOrFail) =<<)
+                    <$> (liftIO $ getBlock st chh)
+                mlrefVal <- ((either (const Nothing) Just . deserialiseOrFail) =<<)
+                    <$> (liftIO $ readLinkRaw st chh)
+                lift $ request who (RPCLRefListAnswer @e (g, mlrefVal))
+            debug $ "lrefListAction sent" <+> pretty (length lrefs)
+
   let lrefGetAction h = do
         debug $ "lrefGetAction" <+> pretty h
         who <- thatPeer (Proxy @(RPC e))
@@ -832,9 +848,11 @@ runPeer opts = Exception.handle myException $ do
         void $ liftIO $ async $ withPeerM penv $ do
             st <- getStorage
             let cred = PeerCredentials @e sk pk mempty
+            -- FIXME: do not increment counter if value is the same
             liftIO $ modifyLinearRef st cred lrefId \_ -> pure valh
             mlref <- getLRefValAction st lrefId
             request who (RPCLRefUpdateAnswer @e mlref)
+            -- FIXME: maybe fire rpc command to announce new lref value
             debug $ "lrefUpdateAction sent" <+> pretty mlref
 
   let arpc = RpcAdapter
@@ -850,6 +868,8 @@ runPeer opts = Exception.handle myException $ do
         , rpcOnLRefAnn          = lrefAnnAction
         , rpcOnLRefNew          = lrefNewAction
         , rpcOnLRefNewAnswer    = dontHandle
+        , rpcOnLRefList         = lrefListAction
+        , rpcOnLRefListAnswer   = dontHandle
         , rpcOnLRefGet          = lrefGetAction
         , rpcOnLRefGetAnswer    = dontHandle
         , rpcOnLRefUpdate       = lrefUpdateAction
@@ -925,6 +945,8 @@ withRPC o cmd = do
 
   lrefNewQ <- newTQueueIO
 
+  lrefListQ <- newTQueueIO
+
   lrefGetQ <- newTQueueIO
 
   lrefUpdateQ <- newTQueueIO
@@ -946,6 +968,9 @@ withRPC o cmd = do
         --
         , rpcOnLRefNew          = const $ liftIO exitSuccess
         , rpcOnLRefNewAnswer    = liftIO . atomically . writeTQueue lrefNewQ
+        --
+        , rpcOnLRefList          = const $ liftIO exitSuccess
+        , rpcOnLRefListAnswer    = liftIO . atomically . writeTQueue lrefListQ
         --
         , rpcOnLRefGet          = const $ liftIO exitSuccess
         , rpcOnLRefGetAnswer    = liftIO . atomically . writeTQueue lrefGetQ
@@ -993,11 +1018,22 @@ withRPC o cmd = do
 
                       RPCLRefAnn{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
-                      RPCLRefNew{} ->
-                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
-                                 pa <- liftIO $ atomically $ readTQueue lrefNewQ
-                                 Log.info $ "got RPCLRefNewAnswer" <+> pretty pa
-                                 exitSuccess
+                      RPCLRefNew{} -> do
+                          fix \go -> do
+                              r <- liftIO $ race (pause @'Seconds 5)
+                                      (atomically $ readTQueue lrefNewQ)
+                              case r of
+                                  Left _ -> pure ()
+                                  Right pa -> do
+                                      Log.info $ "got RPCLRefNewAnswer" <+> pretty pa
+                                      go
+                          liftIO exitSuccess
+
+                      RPCLRefList{} ->
+                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitSuccess) do
+                            forever do
+                                 (g, lrefVal) <- liftIO $ atomically $ readTQueue lrefListQ
+                                 Log.info $ "got RPCLRefListAnswer" <+> pretty g <+> pretty lrefVal
 
                       RPCLRefGet{} ->
                         void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
@@ -1027,6 +1063,7 @@ runRpcCommand opt = \case
   SETLOG s -> withRPC opt (RPCLogLevel s)
   LREFANN h -> withRPC opt (RPCLRefAnn h)
   LREFNEW pk title -> withRPC opt (RPCLRefNew pk title)
+  LREFLIST -> withRPC opt RPCLRefList
   LREFGET h -> withRPC opt (RPCLRefGet h)
   LREFUPDATE sk pk lrefId h -> do
       -- FIXME LREFUPDATE implementation

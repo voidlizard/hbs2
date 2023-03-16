@@ -80,6 +80,12 @@ instance Serialise MNodeData
 data AnnMetaData = NoMetaData | ShortMetadata Text | AnnHashRef (Hash HbSync)
   deriving stock (Generic,Data,Show)
 
+instance Pretty AnnMetaData where
+  pretty = \case
+    NoMetaData -> "NoMetaData"
+    ShortMetadata t -> "ShortMetadata" <+> pretty (show t)
+    AnnHashRef h -> "AnnHashRef" <+> pretty h
+
 instance Serialise AnnMetaData
 
 data MTreeAnn a = MTreeAnn

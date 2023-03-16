@@ -67,6 +67,10 @@ data RefGenesis e = RefGenesis
   }
   deriving stock (Generic)
 
+instance (Pretty (AsBase58 (PubKey 'Sign e))) => Pretty (RefGenesis e) where
+  pretty RefGenesis {..} =
+      parens ( "RefGenesis" <+> pretty (AsBase58 refOwner) <+> pretty (show refName) <+> pretty refMeta)
+
 instance (Serialise (PubKey 'Sign e)) => Serialise (RefGenesis e)
 
 data RefForm
