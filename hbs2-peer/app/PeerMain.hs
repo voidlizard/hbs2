@@ -826,14 +826,16 @@ runPeer opts = Exception.handle myException $ do
             request who (RPCLRefGetAnswer @e hval)
             debug $ "lrefGetAction sent" <+> pretty h
 
-  let lrefUpdateAction h = do
-        debug $ "lrefUpdateAction" <+> pretty True
-        -- who <- thatPeer (Proxy @(RPC e))
-        -- void $ liftIO $ async $ withPeerM penv $ do
-        -- --     -- st <- getStorage
-        -- --     mlref <- undefined  -- FIXME: lrefUpdateAction
-        -- --     -- request who (RPCLRefUpdateAnswer @e mlref)
-        --     debug $ "lrefUpdateAction sent" <+> pretty h
+  let lrefUpdateAction q@(sk, pk, lrefId, valh) = do
+        debug $ "lrefUpdateAction" <+> viaShow q
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            st <- getStorage
+            let cred = PeerCredentials @e sk pk mempty
+            liftIO $ modifyLinearRef st cred lrefId \_ -> pure valh
+            mlref <- getLRefValAction st lrefId
+            request who (RPCLRefUpdateAnswer @e mlref)
+            debug $ "lrefUpdateAction sent" <+> pretty mlref
 
   let arpc = RpcAdapter
         { rpcOnPoke             = pokeAction
@@ -1032,10 +1034,11 @@ runRpcCommand opt = \case
       -- увеличить счётчик, обновить значение, подписать
       -- выполнить (RPCLRefUpdate lref)
       -- дождаться ответа
-      let
-        lref :: Signed 'SignaturePresent (MutableRef UDP 'LinearRef)
-        lref = undefined
-      withRPC opt (RPCLRefUpdate lref)
+      -- let
+      --   lref :: Signed 'SignaturePresent (MutableRef UDP 'LinearRef)
+      --   lref = undefined
+      -- withRPC opt (RPCLRefUpdate lref)
+      withRPC opt (RPCLRefUpdate sk pk lrefId h)
 
   _ -> pure ()
 
