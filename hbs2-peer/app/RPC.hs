@@ -40,8 +40,8 @@ data RPC e =
   | RPCLRefListAnswer (RefGenesis [Hash HbSync], Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
   | RPCLRefGet (Hash HbSync)
   | RPCLRefGetAnswer (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
-  -- | RPCLRefUpdate (Signed 'SignaturePresent (MutableRef e 'LinearRef))
   | RPCLRefUpdate (PrivKey 'Sign UDP) (PubKey 'Sign UDP) (Hash HbSync) (Hash HbSync)
+  | RPCLRefUpdateRaw (Signed 'SignaturePresent (MutableRef e 'LinearRef))
   | RPCLRefUpdateAnswer (Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)))
   deriving stock (Generic)
 
@@ -84,8 +84,8 @@ data RpcAdapter e m =
   , rpcOnLRefListAnswer :: (RefGenesis [Hash HbSync], Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef))) -> m ()
   , rpcOnLRefGet     :: Hash HbSync -> m ()
   , rpcOnLRefGetAnswer :: Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
-  -- , rpcOnLRefUpdate  :: (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
   , rpcOnLRefUpdate  :: (PrivKey 'Sign UDP, PubKey 'Sign UDP, Hash HbSync, Hash HbSync) -> m ()
+  , rpcOnLRefUpdateRaw :: Signed 'SignaturePresent (MutableRef e 'LinearRef) -> m ()
   , rpcOnLRefUpdateAnswer :: Maybe (Signed 'SignaturePresent (MutableRef e 'LinearRef)) -> m ()
   }
 
@@ -143,6 +143,6 @@ rpcHandler adapter = \case
     (RPCLRefListAnswer lrefVal) -> rpcOnLRefListAnswer adapter lrefVal
     (RPCLRefGet h)             -> rpcOnLRefGet adapter h
     (RPCLRefGetAnswer hval)    -> rpcOnLRefGetAnswer adapter hval
-    -- (RPCLRefUpdate upd)        -> rpcOnLRefUpdate adapter upd
     (RPCLRefUpdate sk pk lrefId h) -> rpcOnLRefUpdate adapter (sk, pk, lrefId, h)
+    (RPCLRefUpdateRaw lref) -> rpcOnLRefUpdateRaw adapter lref
     (RPCLRefUpdateAnswer mupd) -> rpcOnLRefUpdateAnswer adapter mupd

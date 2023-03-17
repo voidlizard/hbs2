@@ -119,6 +119,9 @@ data instance Signed SignaturePresent (MutableRef e 'LinearRef)
   }
   deriving stock (Generic)
 
+deriving instance Show (Signature e) =>
+    Show (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+
 instance Serialise (Signature e) =>
     Serialise (Signed 'SignaturePresent (MutableRef e 'LinearRef))
 

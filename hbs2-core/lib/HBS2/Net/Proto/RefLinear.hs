@@ -30,14 +30,14 @@ instance Serialise (Signature e) => Serialise (LRefProto e)
 data LRefI e m =
   LRefI
   { getBlockI           :: GetBlockI HbSync m
-  , tryUpdateLinearRefI :: TryUpdateLinearRefI e HbSync m
+  , tryUpdateLinearRefI :: TryUpdateLinearRefI e m
   , getLRefValI         :: GetLRefValI e HbSync m
   , broadcastLRefI      :: BroadcastLRefI e HbSync m
   }
 
 type GetBlockI h m = Hash h -> m (Maybe ByteString)
 
-type TryUpdateLinearRefI e h m = Hash h -> Signed SignatureVerified (MutableRef e 'LinearRef) -> m Bool
+type TryUpdateLinearRefI e m = Signed SignatureVerified (MutableRef e 'LinearRef) -> m Bool
 
 type GetLRefValI e h m = Hash h -> m (Maybe (Signed SignaturePresent (MutableRef e 'LinearRef)))
 
@@ -63,7 +63,7 @@ refLinearProto LRefI{..} = \case
                 (((either (const Nothing) Just . deserialiseOrFail) =<<) <$> getBlockI h)
 
             lift $ forM_ (verifyLinearMutableRefSigned (refOwner g) lref) \vlref -> do
-                r <- tryUpdateLinearRefI h vlref
+                r <- tryUpdateLinearRefI vlref
                 when r $ void $ runMaybeT do
                     slref <- MaybeT (getLRefValI h)
                     lift $ broadcastLRefI (AnnLRef @e h slref)

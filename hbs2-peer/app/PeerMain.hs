@@ -3,6 +3,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 {-# Language MultiWayIf #-}
+{-# Language RankNTypes #-}
 module Main where
 
 import HBS2.Actors.Peer
@@ -53,6 +54,7 @@ import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified  as L
@@ -177,11 +179,6 @@ data RPCCommand =
   | FETCH (Hash HbSync)
   | PEERS
   | SETLOG SetLogging
-  | LREFANN (Hash HbSync)
-  | LREFNEW (PubKey 'Sign UDP) Text
-  | LREFLIST
-  | LREFGET (Hash HbSync)
-  | LREFUPDATE (PrivKey 'Sign UDP) (PubKey 'Sign UDP) (Hash HbSync) (Hash HbSync)
 
 data PeerOpts =
   PeerOpts
@@ -249,6 +246,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
                         <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
                         <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
+                        <> command "lref-update-raw" (info pLRefUpdateRaw (progDesc "updates a linear ref with already signed data"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -322,39 +320,64 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pLRefAnn = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ runRpcCommand rpc (LREFANN h)
+      pure $ withRPC rpc (RPCLRefAnn h)
 
     pLRefNew = do
       rpc <- pRpcCommon
       credFile <- strOption ( short 'k' <> long "key" <> help "author keys file" )
+      cbor <- switch ( long "cbor" <> help "use cbor as output format" )
       t <- strArgument ( metavar "TEXT" )
-      pure $ do
+      pure do
           cred <- (LBS.readFile credFile
                     <&> parseCredentials @UDP . AsCredFile . LBS.toStrict . LBS.take 4096)
               `orDie` "can't parse credential file"
-          runRpcCommand rpc (LREFNEW (_peerSignPk cred) t)
+          let ofmt = if cbor then FmtCbor else FmtPretty
+          withRPC' ofmt rpc (RPCLRefNew (_peerSignPk cred) t)
 
     pLRefList = do
       rpc <- pRpcCommon
       pure $ do
-          runRpcCommand rpc (LREFLIST)
+          withRPC rpc RPCLRefList
 
     pLRefGet = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "REF-ID" )
-      pure $ runRpcCommand rpc (LREFGET h)
+      cbor <- switch ( long "cbor" <> help "use cbor as output format" )
+      pure do
+          let ofmt = if cbor then FmtCbor else FmtPretty
+          withRPC' ofmt rpc (RPCLRefGet h)
 
     pLRefUpdate = do
       rpc <- pRpcCommon
       credFile <- strOption ( short 'k' <> long "key" <> help "author keys file" )
       lrefId <- strArgument ( metavar "REF-ID" )
       hval <- strArgument ( metavar "HASH" )
+      cbor <- switch ( long "cbor" <> help "use cbor as output format" )
+      mcounter <- (optional . option auto) ( long "counter" <> help "explicit counter value" )
       pure $ do
           cred <- (LBS.readFile credFile
                     <&> parseCredentials @UDP . AsCredFile . LBS.toStrict . LBS.take 4096)
               `orDie` "can't parse credential file"
-          runRpcCommand rpc (LREFUPDATE (_peerSignSk cred) (_peerSignPk cred) lrefId hval)
+          let ofmt = if cbor then FmtCbor else FmtPretty
+          case mcounter of
+            Nothing -> withRPC' ofmt rpc (RPCLRefUpdate (_peerSignSk cred) (_peerSignPk cred) lrefId hval)
+            Just height -> do
+                let lref = signLinearMutableRef (_peerSignSk cred)
+                        $ LinearMutableRef
+                        { lrefId = lrefId
+                        , lrefHeight = height
+                        , lrefVal = hval
+                        }
+                withRPC' ofmt rpc (RPCLRefUpdateRaw lref)
 
+    pLRefUpdateRaw = do
+      rpc <- pRpcCommon
+      cbor <- switch ( long "cbor" <> help "use cbor as output format (always on)" )
+      pure $ do
+          raw <- LBS.hGetContents stdin
+          lref <- pure ((either (const Nothing) Just . deserialiseOrFail) raw)
+              `orDie` "can't parse Signed mutable linear ref from stdin"
+          withRPC' FmtPretty rpc (RPCLRefUpdateRaw lref)
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -560,7 +583,7 @@ runPeer opts = Exception.handle myException $ do
                   st <- getStorage
                   let
                       getBlockI = liftIO . getBlock st
-                      tryUpdateLinearRefI h = liftIO . tryUpdateLinearRef st h
+                      tryUpdateLinearRefI = liftIO . tryUpdateLinearRef st
                       broadcastLRefI = broadcastMsgAction
                       getLRefValI = getLRefValAction st
                   pure LRefI {..}
@@ -738,13 +761,6 @@ runPeer opts = Exception.handle myException $ do
                                           withDownload denv $ do
                                             processBlock h
 
-                            LREFANN h -> do
-                              debug $ "got lrefann rpc" <+> pretty h
-                              st <- getStorage
-                              void $ runMaybeT do
-                                  slref <- MaybeT $ getLRefValAction st h
-                                  lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
-
                             _ -> pure ()
 
 
@@ -806,8 +822,12 @@ runPeer opts = Exception.handle myException $ do
           trace "TraceOff"
           setLoggingOff @TRACE
 
-  let lrefAnnAction h = do
-        liftIO $ atomically $ writeTQueue rpcQ (LREFANN h)
+  let lrefAnnAction h = void $ liftIO $ async $ withPeerM penv $ do
+        st <- getStorage
+        void $ runMaybeT do
+            slref <- MaybeT $ getLRefValAction st h
+            env <- ask
+            lift $ broadcastMsgAction' env (AnnLRef @e h slref :: LRefProto UDP)
 
   let lrefNewAction q@(pk, t) = do
         debug $ "lrefNewAction" <+> viaShow q
@@ -848,12 +868,22 @@ runPeer opts = Exception.handle myException $ do
         void $ liftIO $ async $ withPeerM penv $ do
             st <- getStorage
             let cred = PeerCredentials @e sk pk mempty
-            -- FIXME: do not increment counter if value is the same
             liftIO $ modifyLinearRef st cred lrefId \_ -> pure valh
             mlref <- getLRefValAction st lrefId
             request who (RPCLRefUpdateAnswer @e mlref)
             -- FIXME: maybe fire rpc command to announce new lref value
             debug $ "lrefUpdateAction sent" <+> pretty mlref
+
+  let lrefUpdateRawAction slref = do
+        debug $ "lrefUpdateRawAction" <+> pretty slref
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            st <- getStorage
+            liftIO $ tryUpdateLinearRefSigned st slref
+            mlref <- getLRefValAction st ((lrefId . lmrefSignedRef) slref)
+            request who (RPCLRefUpdateAnswer @e mlref)
+            -- FIXME: maybe fire rpc command to announce new lref value
+            debug $ "lrefUpdateRawAction sent" <+> pretty mlref
 
   let arpc = RpcAdapter
         { rpcOnPoke             = pokeAction
@@ -873,6 +903,7 @@ runPeer opts = Exception.handle myException $ do
         , rpcOnLRefGet          = lrefGetAction
         , rpcOnLRefGetAnswer    = dontHandle
         , rpcOnLRefUpdate       = lrefUpdateAction
+        , rpcOnLRefUpdateRaw    = lrefUpdateRawAction
         , rpcOnLRefUpdateAnswer = dontHandle
         }
 
@@ -920,7 +951,13 @@ emitToPeer :: ( MonadIO m
 emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
 withRPC :: RPCOpt -> RPC UDP -> IO ()
-withRPC o cmd = do
+withRPC o cmd =
+    withRPC' FmtPretty o cmd
+
+data Fmt = FmtPretty | FmtCbor
+
+withRPC' :: Fmt -> RPCOpt -> RPC UDP -> IO ()
+withRPC' ofmt o cmd = do
 
   setLoggingOff @DEBUG
 
@@ -976,6 +1013,7 @@ withRPC o cmd = do
         , rpcOnLRefGetAnswer    = liftIO . atomically . writeTQueue lrefGetQ
         --
         , rpcOnLRefUpdate       = const $ liftIO exitSuccess
+        , rpcOnLRefUpdateRaw    = const $ liftIO exitSuccess
         , rpcOnLRefUpdateAnswer = liftIO . atomically . writeTQueue lrefUpdateQ
         }
 
@@ -1018,40 +1056,63 @@ withRPC o cmd = do
 
                       RPCLRefAnn{} -> pause @'Seconds 0.1 >> liftIO exitSuccess
 
-                      RPCLRefNew{} -> do
-                          fix \go -> do
-                              r <- liftIO $ race (pause @'Seconds 5)
-                                      (atomically $ readTQueue lrefNewQ)
-                              case r of
+                      RPCLRefNew{} -> liftIO do
+                          race (pause @'Seconds 1)
+                               (atomically $ readTQueue lrefNewQ)
+                            >>= either (const exitFailure) \pa -> do
+                                 case ofmt of
+                                       FmtPretty -> hPrint stdout . pretty $ pa
+                                       FmtCbor -> BS.hPut stdout . LBS.toStrict . serialise $ pa
+                                 exitSuccess
+
+                      RPCLRefList{} -> liftIO $ fix \go -> do
+                          race (pause @'Seconds 1)
+                               (atomically $ readTQueue lrefListQ)
+                            >>= \case
                                   Left _ -> pure ()
                                   Right pa -> do
-                                      Log.info $ "got RPCLRefNewAnswer" <+> pretty pa
+                                      case ofmt of
+                                            FmtPretty -> hPrint stdout . pretty $ pa
+                                            FmtCbor -> BS.hPut stdout . LBS.toStrict . serialise $ pa
                                       go
                           liftIO exitSuccess
 
-                      RPCLRefList{} ->
-                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitSuccess) do
-                            forever do
-                                 (g, lrefVal) <- liftIO $ atomically $ readTQueue lrefListQ
-                                 Log.info $ "got RPCLRefListAnswer" <+> pretty g <+> pretty lrefVal
+                      RPCLRefGet{} -> liftIO do
+                          race (pause @'Seconds 1)
+                               (atomically $ readTQueue lrefGetQ)
+                            >>= either (const exitFailure) \case
+                                Nothing -> exitFailure
+                                Just pa -> do
+                                  case ofmt of
+                                        FmtPretty -> hPrint stdout . pretty . lrefId . lmrefSignedRef $ pa
+                                        FmtCbor -> BS.hPut stdout . LBS.toStrict . serialise $ pa
+                                  exitSuccess
 
-                      RPCLRefGet{} ->
-                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
-                                 pa <- liftIO $ atomically $ readTQueue lrefGetQ
-                                 Log.info $ "got RPCLRefGetAnswer" <+> pretty pa
+                      RPCLRefUpdate{} -> liftIO do
+                          race (pause @'Seconds 1)
+                               (atomically $ readTQueue lrefUpdateQ)
+                            >>= either (const exitFailure) \pa -> do
+                                 case ofmt of
+                                       FmtPretty -> hPrint stdout . pretty $ pa
+                                       FmtCbor -> BS.hPut stdout . LBS.toStrict . serialise $ pa
                                  exitSuccess
 
-                      RPCLRefUpdate{} ->
-                        void $ liftIO $ void $ race (pause @'Seconds 5 >> exitFailure) do
-                                 pa <- liftIO $ atomically $ readTQueue lrefUpdateQ
-                                 Log.info $ "got RPCLRefUpdateAnswer" <+> pretty pa
+                      RPCLRefUpdateRaw raw -> liftIO do
+                          race (pause @'Seconds 1)
+                               (atomically $ readTQueue lrefUpdateQ)
+                            >>= either (const exitFailure) \pa -> do
+                                 case ofmt of
+                                       FmtPretty -> hPrint stdout . pretty $ pa
+                                       FmtCbor -> BS.hPut stdout . LBS.toStrict . serialise $ pa
+                                 when ((lrefVal . lmrefSignedRef <$> pa) /= Just ((lrefVal . lmrefSignedRef) raw))
+                                    exitFailure
                                  exitSuccess
 
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
 
-  void $ waitAnyCatchCancel [mrpc, prpc]
+  void $ waitAnyCancel [mrpc, prpc]
 
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
@@ -1061,21 +1122,6 @@ runRpcCommand opt = \case
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
-  LREFANN h -> withRPC opt (RPCLRefAnn h)
-  LREFNEW pk title -> withRPC opt (RPCLRefNew pk title)
-  LREFLIST -> withRPC opt RPCLRefList
-  LREFGET h -> withRPC opt (RPCLRefGet h)
-  LREFUPDATE sk pk lrefId h -> do
-      -- FIXME LREFUPDATE implementation
-      -- запросить текущее значение ссылки с помощью (RPCLRefGet h)
-      -- увеличить счётчик, обновить значение, подписать
-      -- выполнить (RPCLRefUpdate lref)
-      -- дождаться ответа
-      -- let
-      --   lref :: Signed 'SignaturePresent (MutableRef UDP 'LinearRef)
-      --   lref = undefined
-      -- withRPC opt (RPCLRefUpdate lref)
-      withRPC opt (RPCLRefUpdate sk pk lrefId h)
 
   _ -> pure ()
 

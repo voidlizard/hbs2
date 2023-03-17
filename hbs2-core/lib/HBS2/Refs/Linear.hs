@@ -19,6 +19,7 @@ import HBS2.Prelude.Plated
 import HBS2.Storage
 
 import Codec.Serialise (serialise, deserialiseOrFail)
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe
 import Data.Set qualified as Set
@@ -51,6 +52,7 @@ modifyLinearRef ss kr chh modIO = do
                 , lrefVal = val
                 }
         Just refvalraw -> do
+            -- FIXME: do not increment counter if value is the same
             LinearMutableRefSigned _ ref :: Signed SignaturePresent (MutableRef e 'LinearRef)
                 <- pure ((either (const Nothing) Just . deserialiseOrFail) refvalraw)
                 `orDie` "can not parse channel ref"
@@ -61,10 +63,13 @@ modifyLinearRef ss kr chh modIO = do
                 , lrefHeight = lrefHeight ref + 1
                 , lrefVal = val
                 }
-    (writeLinkRaw ss chh . serialise)
-      (LinearMutableRefSigned @e ((makeSign @e (_peerSignSk kr) . LBS.toStrict . serialise) lmr) lmr)
+    (writeLinkRaw ss chh . serialise) (signLinearMutableRef @e (_peerSignSk kr) lmr)
       `orDie` "can not write link"
     pure ()
+
+signLinearMutableRef :: forall e. (Signatures e)
+  => PrivKey 'Sign e -> MutableRef e 'LinearRef -> Signed 'SignaturePresent (MutableRef e 'LinearRef)
+signLinearMutableRef sk lmr = LinearMutableRefSigned @e ((makeSign @e sk . LBS.toStrict . serialise) lmr) lmr
 
 verifyLinearMutableRefSigned :: forall e. (Signatures e)
   => PubKey 'Sign e
@@ -76,6 +81,24 @@ verifyLinearMutableRefSigned pk lref = do
   where
     dat = (LBS.toStrict . serialise) (lmrefSignedRef lref)
 
+tryUpdateLinearRefSigned :: forall e.
+    ( Signatures e
+    , Serialise (Signature e)
+    , Serialise (PubKey 'Sign e)
+    , Eq (PubKey 'Sign e)
+    , Block LBS.ByteString ~ LBS.ByteString
+    )
+  => AnyStorage
+  -> Signed SignaturePresent (MutableRef e 'LinearRef)
+  -> IO Bool
+tryUpdateLinearRefSigned st slref = do
+    (maybe (pure False) pure =<<) $ runMaybeT do
+        g :: RefGenesis e <- MaybeT $
+            (((either (const Nothing) Just . deserialiseOrFail) =<<)
+              <$> getBlock st ((lrefId . lmrefSignedRef) slref))
+        vlref <- MaybeT . pure $ (verifyLinearMutableRefSigned (refOwner g) slref)
+        lift $ tryUpdateLinearRef st vlref
+
 tryUpdateLinearRef :: forall e.
     ( Signatures e
     , Serialise (Signature e)
@@ -84,10 +107,10 @@ tryUpdateLinearRef :: forall e.
     , Block LBS.ByteString ~ LBS.ByteString
     )
   => AnyStorage
-  -> Hash HbSync                -- channel id
   -> Signed SignatureVerified (MutableRef e 'LinearRef)
   -> IO Bool
-tryUpdateLinearRef ss chh vlref = do
+tryUpdateLinearRef ss vlref = do
+    let chh = lrefId . lmrefVSignedRef $ vlref
     g :: RefGenesis e <- (((either (const Nothing) Just . deserialiseOrFail) =<<)
         <$> getBlock ss chh)
       `orDie` "can not read channel ref genesis"
@@ -176,3 +199,4 @@ nodeRefListAdd st nodeCred chh = do
   lrh <- (putBlock st . serialise) (nodeLinearRefsRef @e (_peerSignPk nodeCred))
       `orDie` "can not create node refs genesis"
   modifyNodeLinearRefList st nodeCred lrh $ Set.toList . Set.insert chh . Set.fromList
+
