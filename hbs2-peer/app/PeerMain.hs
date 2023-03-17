@@ -91,6 +91,7 @@ data PeerListenKey
 data PeerRpcKey
 data PeerKeyFileKey
 data PeerBlackListKey
+data PeerWhiteListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
 data PeerTraceKey
@@ -122,6 +123,9 @@ instance HasCfgKey PeerStorageKey (Maybe String) where
 
 instance HasCfgKey PeerBlackListKey (Set String) where
   key = "blacklist"
+
+instance HasCfgKey PeerWhiteListKey (Set String) where
+  key = "whitelist"
 
 instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
   key = "accept-block-announce"
@@ -431,10 +435,14 @@ runPeer opts = Exception.handle myException $ do
     setLogging @TRACE tracePrefix
 
   let bls = cfgValue @PeerBlackListKey conf :: Set String
-
-  let blkeys = Set.fromList
-                    $ catMaybes [ fromStringMay x | x <- Set.toList bls
+  let whs = cfgValue @PeerWhiteListKey conf :: Set String
+  let toKeys xs = Set.fromList
+                    $ catMaybes [ fromStringMay x | x <- Set.toList xs
                                 ] :: Set (PubKey 'Sign UDP)
+  let blkeys = toKeys bls
+  let wlkeys = toKeys whs
+  unless (Set.disjoint blkeys wlkeys) do
+    die "whitelist and blacklist intersect"
 
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
@@ -443,7 +451,9 @@ runPeer opts = Exception.handle myException $ do
   -- FIXME: move-peerBanned-somewhere
   let peerBanned p d = do
         let k = view peerSignKey d
-        pure $ k `Set.member` blkeys
+        let blacklisted = k `Set.member` blkeys
+        let whitelisted = Set.null wlkeys || (k `Set.member` wlkeys)
+        pure $ blacklisted || not whitelisted
 
   let acceptAnnounce p d = do
         case accptAnn of
