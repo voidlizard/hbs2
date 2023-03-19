@@ -1,4 +1,13 @@
 
+## 2023-03-19
+
+FIXME: broken-commit-object-file-disaster
+ see 13CuHGmVHfdr2VAzmnMkQV4kZa8kSM2HEoSb8dUVLSQV
+
+FIXME: ASAP-fix-download-log
+   8e72fbff5c395fa6d1dab02dde7eea887bdca274
+
+
 ## 2023-02-28
 
 TODO: hbs2-git
