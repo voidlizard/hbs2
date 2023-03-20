@@ -143,7 +143,7 @@ peerConfigRead mbfp = do
 
     -- debug $ pretty confData
 
-    config <- transformBiM (canonicalizeConfPaths ["key", "storage", "download-log"] dir) confData
+    config <- transformBiM (canonicalizeConfPaths ["key", "storage", "download"] dir) confData
 
     pure $ PeerConfig config
     where
