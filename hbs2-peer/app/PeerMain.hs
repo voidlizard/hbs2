@@ -241,12 +241,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
-                        <> command "lref-ann"  (info pLRefAnn (progDesc "announce linear ref"))
-                        <> command "lref-new"  (info pLRefNew (progDesc "generates a new linear ref"))
-                        <> command "lref-list" (info pLRefList (progDesc "list node linear refs"))
-                        <> command "lref-get"  (info pLRefGet (progDesc "get a linear ref"))
-                        <> command "lref-update" (info pLRefUpdate (progDesc "updates a linear ref"))
-                        <> command "lref-update-raw" (info pLRefUpdateRaw (progDesc "updates a linear ref with already signed data"))
+                        <> command "lref"      (info pLRef (progDesc "lref commands"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -316,6 +311,14 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pInit = do
       pref <- optional $ strArgument ( metavar "DIR" )
       pure $ peerConfigInit pref
+
+    pLRef = hsubparser $
+           command "ann"  (info pLRefAnn (progDesc "announce linear ref"))
+        <> command "new"  (info pLRefNew (progDesc "generates a new linear ref"))
+        <> command "list" (info pLRefList (progDesc "list node linear refs"))
+        <> command "get"  (info pLRefGet (progDesc "get a linear ref"))
+        <> command "update" (info pLRefUpdate (progDesc "updates a linear ref"))
+        <> command "update-raw" (info pLRefUpdateRaw (progDesc "updates a linear ref with already signed data"))
 
     pLRefAnn = do
       rpc <- pRpcCommon
