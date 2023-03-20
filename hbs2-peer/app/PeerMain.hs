@@ -440,14 +440,7 @@ runPeer opts = Exception.handle myException $ do
                     $ catMaybes [ fromStringMay x | x <- Set.toList xs
                                 ] :: Set (PubKey 'Sign UDP)
   let blkeys = toKeys bls
-  let wlkeys = toKeys whs
-
-  -- REVIEW: no-time-to-die
-    просто удаляй пира из вайтлиста,
-    если он в блэклисте
-
-  unless (Set.disjoint blkeys wlkeys) do
-    die "whitelist and blacklist intersect"
+  let wlkeys = toKeys (whs `Set.difference` bls)
 
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
