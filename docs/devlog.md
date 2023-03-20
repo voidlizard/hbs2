@@ -858,13 +858,16 @@ FIXME: RPC, cli для линейных ссылок
 * [x] возвращать ненулевой код ошибки приложения hbs2-peer на exitFailure
 
 
-TODO: Формат списка ссылок ноды поменять на merkle-tree ?
+TODO: lref-list output format to merkle-tree
+  Формат списка ссылок ноды поменять на merkle-tree ?
 
-TODO: настройка ноды о том, от каких нод принимать новые ссылки и добавлять себе
+TODO: confiuration-to-accept-lrefs-from-nodes
+  настройка ноды о том, от каких нод принимать новые ссылки и добавлять себе
 
-TODO: Получить список ссылок в виде хэша merkle-дерева
+TODO: lref-list-response-as-merkle-tree
+  Получить список ссылок в виде хэша merkle-дерева
 
-TODO: cli на запрос всех ссылок ноды
+TODO: cli-command-to-ask-node-lrefs
 
-TODO: cli на запрос значений ссылки у всех нод
+TODO: cli-command-to-ask-lref-from-all-nodes
 
