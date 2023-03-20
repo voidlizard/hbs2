@@ -54,6 +54,13 @@ fixme-value-set cat bug feat refactor
   (query tag:REVIEW:)
 ]
 
+
+[ fixme-report review json
+  (render builtin:microstache report-wip.tpl)
+  (post builtin:columns | 10 10 8 12 _)
+  (query tag:REVIEW:)
+]
+
 [ fixme-report wip-json json
 ]
 

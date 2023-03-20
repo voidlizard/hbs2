@@ -441,6 +441,11 @@ runPeer opts = Exception.handle myException $ do
                                 ] :: Set (PubKey 'Sign UDP)
   let blkeys = toKeys bls
   let wlkeys = toKeys whs
+
+  -- REVIEW: no-time-to-die
+    просто удаляй пира из вайтлиста,
+    если он в блэклисте
+
   unless (Set.disjoint blkeys wlkeys) do
     die "whitelist and blacklist intersect"
 
