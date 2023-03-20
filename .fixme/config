@@ -4,6 +4,7 @@ fixme-comments  "--"
 
 fixme-prefix     FIXME:     bugs issues
 fixme-prefix     TODO:      bugs issues
+fixme-prefix     REVIEW:    review
 
 fixme-files **/*.hs docs/devlog.md
 
@@ -42,6 +43,13 @@ fixme-value-set cat bug feat refactor
   (query ?workflow:wip)
   (query ?workflow:fixed)
   (query ?workflow:done)
+]
+
+
+[ fixme-report review json
+  (render builtin:microstache report-wip.tpl)
+  (post builtin:columns | 10 10 8 12 _)
+  (query tag:REVIEW:)
 ]
 
 [ fixme-report wip-json json
