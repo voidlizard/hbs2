@@ -192,7 +192,6 @@ fixme-del "Dm4CR9h8by"
 fixme-del "6kJiYeBxJc"
 fixme-del "AVwBiXMqRH"
 fixme-set "workflow" "test" "8ekvvQ3zUt"
-fixme-merged "6byezx8CYS" "Fhd4kAQhhw"
 fixme-set "workflow" "test" "5SBPCqrCZc"
 fixme-set "workflow" "backlog" "EqmR2Tmbqq"
 fixme-set "assigned" "fastpok" "2RE7qwfYkA"
@@ -271,3 +270,5 @@ fixme-del "WeoK4yaz16"
 
 (fixme-set "workflow" "test" "2RE7qwfYkA")
 (fixme-set "assigned" "fastpok" "Da2nChoaL9")
+(fixme-set "assigned" "fastpok" "5RbVNm9SRz")
+fixme-del "6byezx8CYS"
