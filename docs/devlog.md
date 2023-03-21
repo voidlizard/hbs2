@@ -1,4 +1,85 @@
 
+## 2023-03-21
+
+TODO: hbs2-peer-poll-reflog
+ poll-reflog-default - стартует процесс,
+ который с заданной периодичностью (или дефолтной)
+ запрашивает рефлог у всех, кого знает.
+
+TODO: hbs2-peer-subscribe-reflog
+ Опция, subscribe-reflog
+ Если включена, пир слушает данный reflog.
+ Если * - то слушаются все рефлоги.
+ Если reflog-from-peer "peer" reflog"  - делает так,
+ кто рефлог X принимается только от данного пира.
+ Если * - то все рефлоги от пира.
+
+FIXME: невнятно-ругается-когда-выключен-http
+  невнятно ругается, когда выключен http у
+  hbs2-peer. нужно отчётливо говорить, что включите
+  http.
+
+FIXME: ASAP-hardcoded-master-when-no-master
+
+  Как видно ниже -- в исходном репозитории нет бранча master,
+  однако, операция чтения ссылки его вернула, отсюда поломан git clone.
+  Решение: надо проверять, что этот бранч существует, если его нет ---
+  то брать один из бранчей, которые есть в конфиге и существуют, иначе те,
+  котрые существуют
+
+  [trace] head read: GKqqzjz3wr81hDf6gjYXLLp49PuUqwtcUqSNwMpwim4C
+  [===========================================] 100%
+  [trace] sendLn "@refs/heads/master HEAD"
+  [trace] sendLn "97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git"
+  [trace] got reflog (3, 6e1bQr8mvzn5xbdfRRtEiZJq8xDb58Tyz52hvKvoLNCK)
+  [trace] ABOUT TO UPDATE HEAD
+  [trace] [fetch, 0000000000000000000000000000000000000000, refs/heads/master]
+  [trace] fetch 0000000000000000000000000000000000000000 refs/heads/master
+  [trace] [fetch, 97bed303895cd4200b53230ba9c244215aa80beb, refs/heads/hbs2-git]
+  [trace] fetch 97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git
+  [trace] []
+  [trace] dbPath: /home/dmz/.local/share/hbs2-git/4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] updateLocalState 4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] hbs2 reflog get 4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] "FcctCWH8hTESQmnb8ozCmXhKW1SXzLbmY9ocCyU1TxEr\n"
+  [trace] FcctCWH8hTESQmnb8ozCmXhKW1SXzLbmY9ocCyU1TxEr
+  warning: remote HEAD refers to nonexistent ref, unable to checkout
+
+  [dmz@expert:~/tmp]$ hbs2 cat GKqqzjz3wr81hDf6gjYXLLp49PuUqwtcUqSNwMpwim4C
+  @refs/heads/master HEAD
+  97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git
+
+
+REVIEW: fastpok-preved-2
+
+REVIEW: faspok-preved
+
+FIXME: THAT-PEER-IS-JERK-issue
+ Повторяется ситуация, когда приходит пакет с размером 0.
+ Надо, во первых, понять почему.
+ Во вторых - как с этим бороться.
+ В третьих - как в этой ситуации перестать бомбить себя и пира.
+
+
+Тест git push 6
+
+## 2023-03-20
+
+Тест git push 4
+
+TODO: clone-no-ref-situation
+ Проверить, как работает git clone, если на хосте не
+ скачано состояние ссылки, или данные подъехали не полностью.
+ (Как вообще этого добиться? Нужно вычислять состояние ссылки)
+
+TODO: git-import-before-fetch
+
+TODO: git-export-on-push
+
+TODO: reflog-state-request
+
+TODO: git-new-repo-convenience-function
+
 ## 2023-02-28
 
 TODO: hbs2-git
