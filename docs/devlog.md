@@ -1,4 +1,61 @@
 
+## 2023-03-23
+
+Думали, что UDP не работает. А он еще как работает.
+
+Отлаживаем pusp, wip92
+
+NOTE: subscribe-reflog-format
+
+  ;; subscribe: fetch reflog value on start
+
+  poll-default reflog 10 ;; time in minutes
+
+  ;; говорит, что надо опрашивать ссылку раз в указанный период
+  ;; в минутах
+
+  poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+  poll reflog 2 "4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo"
+
+  ; говорит, что мы в принципе слушаем ссылку такую-то
+  subscribe reflog "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+  subscribe reflog "95mSAkUqyrkM47eBu6jXnHZW97nxARKZfuKpj4vxR8rF"
+  subscribe reflog "4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo"
+  subscribe reflog "74Kxc6kYCnjuXg7ridb28gE4n2vzSaKEm9MZNqd9ACV9"
+
+  ; слушать все рефлоги
+  subscribe reflog *
+
+  ; реализовать подписку на рефлоги только от такого-то пира!
+  ; subscribe reflog from-peer XXX
+
+
+FIXME: asap-storage-fails-investigation
+  Появляются блоки с размером 0 и правильным
+  названием (соответствует хэшу). Видимо,
+  каким-то образом не успевают записаться.
+  Необходимо проверить storage под нагрузкой
+  раз, реализовать более устойчивый к ошибкам
+  алгоритм записи - два, проверить его оверхед
+  относительно основного сторейджа - три.
+  Так же надо реализовать какой-то метод контроля
+  целостности и стратегию при обнаружении ошибок:
+  например, отдельный процесс, который берёт случайный
+  блок, читает его, если хэш расходится, то:
+  1) сигнализирует об ошибке 3) удаляет?? 4) отправляет
+  скачиваться и помечает блок, как к перезаписи.
+
+## 2023-03-22
+
+Или нет затыков? wip91
+Какие-то затыки. wip26
+
+FIXME: ошибка-десереализации-при-удалении-бранча
+
+  [root@hbs2-test:~/hbs2]# git fetch
+  git-remote-hbs2: DeserialiseFailure 0 "end of input
+
+
 ## 2023-03-21
 
 TODO: hbs2-peer-poll-reflog
@@ -61,6 +118,66 @@ FIXME: THAT-PEER-IS-JERK-issue
  В третьих - как в этой ситуации перестать бомбить себя и пира.
 
 
+
+TODO: hbs2-fetch-reflog-does-not-work
+  Похоже, что проигрывание транзакций не вызывает
+  скачивание зависимостей.
+
+TODO: hbs2-peer-poll-reflog
+ poll-reflog-default - стартует процесс,
+ который с заданной периодичностью (или дефолтной)
+ запрашивает рефлог у всех, кого знает.
+
+TODO: hbs2-peer-subscribe-reflog
+ Опция, subscribe-reflog
+ Если включена, пир слушает данный reflog.
+ Если * - то слушаются все рефлоги.
+ Если reflog-from-peer "peer" reflog"  - делает так,
+ кто рефлог X принимается только от данного пира.
+ Если * - то все рефлоги от пира.
+
+FIXME: невнятно-ругается-когда-выключен-http
+  невнятно ругается, когда выключен http у
+  hbs2-peer. нужно отчётливо говорить, что включите
+  http.
+
+FIXME: ASAP-hardcoded-master-when-no-master
+
+  Как видно ниже -- в исходном репозитории нет бранча master,
+  однако, операция чтения ссылки его вернула, отсюда поломан git clone.
+  Решение: надо проверять, что этот бранч существует, если его нет ---
+  то брать один из бранчей, которые есть в конфиге и существуют, иначе те,
+  котрые существуют
+
+  [trace] head read: GKqqzjz3wr81hDf6gjYXLLp49PuUqwtcUqSNwMpwim4C
+  [===========================================] 100%
+  [trace] sendLn "@refs/heads/master HEAD"
+  [trace] sendLn "97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git"
+  [trace] got reflog (3, 6e1bQr8mvzn5xbdfRRtEiZJq8xDb58Tyz52hvKvoLNCK)
+  [trace] ABOUT TO UPDATE HEAD
+  [trace] [fetch, 0000000000000000000000000000000000000000, refs/heads/master]
+  [trace] fetch 0000000000000000000000000000000000000000 refs/heads/master
+  [trace] [fetch, 97bed303895cd4200b53230ba9c244215aa80beb, refs/heads/hbs2-git]
+  [trace] fetch 97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git
+  [trace] []
+  [trace] dbPath: /home/dmz/.local/share/hbs2-git/4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] updateLocalState 4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] hbs2 reflog get 4qjsu7y5umqfFQG978nEUZCHJwd1ZSKrNT5Z74G7tbdo
+  [trace] "FcctCWH8hTESQmnb8ozCmXhKW1SXzLbmY9ocCyU1TxEr\n"
+  [trace] FcctCWH8hTESQmnb8ozCmXhKW1SXzLbmY9ocCyU1TxEr
+  warning: remote HEAD refers to nonexistent ref, unable to checkout
+
+  [dmz@expert:~/tmp]$ hbs2 cat GKqqzjz3wr81hDf6gjYXLLp49PuUqwtcUqSNwMpwim4C
+  @refs/heads/master HEAD
+  97bed303895cd4200b53230ba9c244215aa80beb refs/heads/hbs2-git
+
+FIXME: THAT-PEER-IS-JERK-issue
+ Повторяется ситуация, когда приходит пакет с размером 0.
+ Надо, во первых, понять почему.
+ Во вторых - как с этим бороться.
+ В третьих - как в этой ситуации перестать бомбить себя и пира.
+
+
 Тест git push 6
 
 ## 2023-03-20
@@ -79,6 +196,15 @@ TODO: git-export-on-push
 TODO: reflog-state-request
 
 TODO: git-new-repo-convenience-function
+
+## 2023-03-19
+
+FIXME: broken-commit-object-file-disaster
+ see 13CuHGmVHfdr2VAzmnMkQV4kZa8kSM2HEoSb8dUVLSQV
+
+FIXME: ASAP-fix-download-log
+   8e72fbff5c395fa6d1dab02dde7eea887bdca274
+
 
 ## 2023-02-28
 

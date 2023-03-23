@@ -15,6 +15,8 @@ module HBS2.System.Logger.Simple
   , setLogging, setLoggingOff
   , defLog
   , loggerTr
+  , toStderr
+  , toStdout
   , SetLoggerEntry
   , module HBS2.System.Logger.Simple.Class
   ) where
@@ -33,10 +35,15 @@ import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Lens.Micro.Platform
 
+data LoggerType = LoggerStdout
+                | LoggerStderr
+                | LoggerNull
+
 data LoggerEntry =
   LoggerEntry
   { _loggerSet  :: !LoggerSet
   , _loggerTr   :: LogStr -> LogStr
+  , _loggerType :: !LoggerType
   }
 
 makeLenses 'LoggerEntry
@@ -63,16 +70,38 @@ delLogger e =
     Nothing -> pure ()
     Just s  -> liftIO $ rmLoggerSet s
 
+toStderr :: SetLoggerEntry
+toStderr = set loggerType LoggerStderr
+
+toStdout :: SetLoggerEntry
+toStdout = set loggerType LoggerStdout
+
 setLogging :: forall a m . (MonadIO m, HasLogLevel a)
            => (LoggerEntry -> LoggerEntry)
            -> m ()
 
 setLogging f = do
   se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
-  let def = f (LoggerEntry se id)
+  def <- updateLogger $ f (LoggerEntry se id LoggerNull)
   let key = logKey @a
   e <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, IntMap.lookup key x))
   delLogger e
+
+  where
+    updateLogger e = case view loggerType e of
+
+      LoggerNull -> pure e
+
+      LoggerStderr -> do
+        delLogger (Just e)
+        se <- liftIO $ newStderrLoggerSet 10000 -- FIXME: ??
+        pure $ set loggerSet se e
+
+      LoggerStdout -> do
+        delLogger (Just e)
+        se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
+        pure $ set loggerSet se e
+
 
 setLoggingOff :: forall a m . (MonadIO m, HasLogLevel a) => m ()
 setLoggingOff = do

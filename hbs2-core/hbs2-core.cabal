@@ -94,6 +94,7 @@ library
                     , HBS2.Net.Proto.PeerAnnounce
                     , HBS2.Net.Proto.PeerExchange
                     , HBS2.Net.Proto.Sessions
+                    , HBS2.Net.Proto.RefLog
                     , HBS2.Net.Proto.Types
                     , HBS2.OrDie
                     , HBS2.Prelude

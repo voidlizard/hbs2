@@ -2,7 +2,6 @@
 {-# Language FunctionalDependencies #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
-{-# Language TemplateHaskell #-}
 module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where

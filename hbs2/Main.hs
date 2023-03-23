@@ -26,6 +26,7 @@ import Control.Monad.Trans.State.Strict
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Function
@@ -33,6 +34,7 @@ import Data.Functor
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Monoid qualified as Monoid
+import Data.Text (Text)
 import Data.Set qualified as Set
 import Data.UUID qualified as UUID
 import Data.UUID.V4 qualified as UUID
@@ -83,6 +85,7 @@ data StoreOpts =
   {  storeInit      :: Maybe OptInit
   ,  storeInputFile :: Maybe OptInputFile
   ,  storeGroupkeyFile :: Maybe OptGroupkeyFile
+  ,  storeBase58Meta :: Maybe String
   }
   deriving stock (Data)
 
@@ -91,6 +94,7 @@ data CatOpts =
   { catMerkleHash :: Maybe MerkleHash
   , catHashesOnly :: Maybe CatHashesOnly
   , catPathToKeyring :: Maybe OptKeyringFile
+  , catRaw        :: Maybe Bool
   }
   deriving stock (Data)
 
@@ -112,8 +116,17 @@ runHash opts ss = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
+runCat :: CatOpts -> SimpleStorage HbSync -> IO ()
 
-runCat :: Data opts => opts -> SimpleStorage HbSync -> IO ()
+runCat opts ss | catRaw opts == Just True = do
+
+  let mhash' = uniLastMay @MerkleHash opts <&> fromMerkleHash
+
+  maybe1 mhash' exitFailure $ \h -> do
+    obj <- getBlock ss h
+    maybe exitFailure LBS.putStr obj
+    exitSuccess
+
 runCat opts ss = do
 
   let honly = or [ x | CatHashesOnly x <- universeBi opts  ]
@@ -141,6 +154,7 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
+      -- TODO: to-the-library
       let walkAnn :: MTreeAnn [HashRef] -> IO ()
           walkAnn ann = do
             bprocess :: Hash HbSync -> ByteString -> IO ByteString <- case (_mtaCrypt ann) of
@@ -189,6 +203,11 @@ runCat opts ss = do
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
         Merkle h -> walk h
         MerkleAnn ann -> walkAnn ann
+
+        -- FIXME: what-if-multiple-seq-ref-?
+        SeqRef (SequentialRef n (AnnotatedHashRef _ h)) -> do
+          walk (fromHashRef h)
+
         AnnRef h -> do
           let lnk = deserialise @AnnotatedHashRef obj
           let mbHead =  headMay [ h
@@ -197,7 +216,7 @@ runCat opts ss = do
           maybe (error "empty ref") walk mbHead
 
 
-runStore ::(Data opts) => opts -> SimpleStorage HbSync -> IO ()
+runStore :: StoreOpts -> SimpleStorage HbSync -> IO ()
 
 runStore opts ss | justInit = do
   putStrLn "initialized"
@@ -208,13 +227,27 @@ runStore opts ss | justInit = do
 runStore opts ss = do
 
   let fname = uniLastMay @OptInputFile opts
+  let meta58  = storeBase58Meta opts
 
   handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
-  case (uniLastMay @OptGroupkeyFile opts) of
+  case uniLastMay @OptGroupkeyFile opts of
     Nothing -> do
-        root <- putAsMerkle ss handle
+        root' <- putAsMerkle ss handle
+
+        root <- case meta58 of
+                  Nothing -> pure root'
+                  Just s -> do
+                    let metad = fromBase58 (BS8.pack s) & fromMaybe "" & BS8.unpack & fromString
+                    mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash root'))
+                        `orDie` "merkle tree was not stored properly with `putAsMerkle`"
+                    mannh <- maybe (die "can not store MerkleAnn") pure
+                                  =<< (putBlock ss . serialise @(MTreeAnn [HashRef])) do
+                                            MTreeAnn (ShortMetadata metad) NullEncryption  mtree
+                    pure (MerkleHash mannh)
+
         print $ "merkle-root: " <+> pretty root
+
     Just gkfile -> do
         gk :: GroupKey MerkleEncryptionType 'NaClAsymm
             <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile))
@@ -231,7 +264,7 @@ runStore opts ss = do
                 & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal (recipientPk gk) . LBS.toStrict)
 
         mhash <- putAsMerkle ss encryptedChunks
-        mtree <- (mdeserialiseMay <$> getBlock ss (fromMerkleHash mhash))
+        mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash mhash))
             `orDie` "merkle tree was not stored properly with `putAsMerkle`"
 
         mannh <- maybe (die "can not store MerkleAnn") pure
@@ -248,15 +281,6 @@ runNewGroupkey pubkeysFile = do
   accesskey <- AccessKeyNaClAsymm <$> do
       List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
   print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
-
-runNewRef :: Data opts => opts -> MerkleHash -> SimpleStorage HbSync -> IO ()
-runNewRef opts mhash ss = do
-  uuid <- UUID.nextRandom <&> (hashObject @HbSync . UUID.toASCIIBytes)
-  let href = HashRef (fromMerkleHash mhash)
-  let mref = HashRefMerkle (HashRefObject href Nothing)
-  let ref = AnnotatedHashRef Nothing mref
-  res <- simpleWriteLinkRaw ss uuid (serialise ref)
-  print (pretty res)
 
 runNewKey :: IO ()
 runNewKey = do
@@ -444,6 +468,17 @@ mdeserialiseMay :: Serialise a => Maybe ByteString -> Maybe a
 mdeserialiseMay = (deserialiseMay =<<)
 
 ---
+runEnc58 :: IO ()
+runEnc58 = do
+   s <- LBS.hGetContents stdin  <&> LBS.toStrict
+   print $ pretty (AsBase58 s)
+
+runRefLogGet :: RefLogKey e -> SimpleStorage HbSync -> IO ()
+runRefLogGet s ss = do
+  ref' <- getRef ss s
+  maybe1 ref' exitFailure $ \ref -> do
+    print $ pretty ref
+    exitSuccess
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
@@ -472,7 +507,6 @@ main = join . customExecParser (prefs showHelpOnError) $
   where
     parser ::  Parser (IO ())
     parser = hsubparser (  command "store"           (info pStore (progDesc "store block"))
-                        <> command "new-ref"         (info pNewRef (progDesc "creates reference"))
                         <> command "cat"             (info pCat (progDesc "cat block"))
                         <> command "hash"            (info pHash (progDesc "calculates hash"))
                         <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
@@ -487,6 +521,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "lref-list"       (info pListLRef (progDesc "list node linear refs"))
                         <> command "lref-get"        (info pGetLRef (progDesc "get a linear ref"))
                         <> command "lref-update"     (info pUpdateLRef (progDesc "updates a linear ref"))
+                        <> command "reflog"          (info pReflog (progDesc "reflog commands"))
                         -- <> command "lref-del"        (info pDelLRef (progDesc "removes a linear ref from node linear ref list"))
                         )
 
@@ -494,26 +529,22 @@ main = join . customExecParser (prefs showHelpOnError) $
       pref <- optional $ strOption ( short 'p' <> long "prefix" <> help "storage prefix" )
       pure $ CommonOpts pref
 
-    pNewRef = do
-      o <- common
-      merkle <- flag' True ( long "merkle-tree" <> help "it's a merkle-tree reference" )
-      hash <- strArgument ( metavar "HASH" )
-      pure $ withStore o (runNewRef (NewRefOpts merkle) hash)
-
     pStore = do
       o <- common
       file <- optional $ strArgument ( metavar "FILE" )
       init <- optional $ flag' True ( long "init" <> help "just init storage") <&> OptInit
       groupkeyFile <- optional $ strOption ( long "groupkey" <> help "path to groupkey file" )
-      pure $ withStore o (runStore ( StoreOpts init file (OptGroupkeyFile <$> groupkeyFile) ))
+      b58meta <- optional $ strOption ( long "short-meta-base58" <> help "pass escaped metadata string")
+      pure $ withStore o (runStore ( StoreOpts init file (OptGroupkeyFile <$> groupkeyFile) b58meta))
 
     pCat = do
       o <- common
       hash  <- optional $ strArgument ( metavar "HASH" )
       onlyh <- optional $ flag' True ( short 'H' <> long "hashes-only" <> help "list only block hashes" )
       keyringFile <- optional $ strOption ( long "keyring" <> help "path to keyring file" )
+      raw <- optional $ flag' True ( short 'r' <> long "raw" <> help "dump raw block" )
       pure $ withStore o $ runCat
-          $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile)
+          $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile) raw
 
     pNewGroupkey = do
       pubkeysFile <- strArgument ( metavar "FILE" <> help "path to a file with a list of recipient public keys" )
@@ -577,3 +608,14 @@ main = join . customExecParser (prefs showHelpOnError) $
       valh <- strArgument ( metavar "HASH" )
       o <- common
       pure $ withStore o (runUpdateLRef ownerCredFile refh valh)
+
+    pReflog = hsubparser ( command "get" (info pRefLogGet (progDesc "get reflog root") )  )
+
+    pRefLogGet = do
+      o <- common
+      reflogs <- strArgument ( metavar "REFLOG" )
+      pure $ withStore o (runRefLogGet reflogs)
+
+      -- o <- common
+      -- reflog <- strArgument ( metavar "REFLOG-HASH" )
+

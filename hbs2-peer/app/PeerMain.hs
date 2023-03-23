@@ -11,6 +11,7 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Data.Types.Refs (RefLogKey(..))
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
@@ -20,6 +21,7 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
 import HBS2.Prelude.Plated
@@ -36,22 +38,32 @@ import PeerInfo
 import PeerConfig
 import Bootstrap
 import CheckMetrics
+import RefLog qualified
+import RefLog (reflogWorker)
+import HttpWorker
 
-import Data.Text qualified as Text
-import Data.Foldable (for_)
-import Data.Maybe
-import Crypto.Saltine (sodiumInit)
-import Data.Function
+import Codec.Serialise
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
+import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as BS
+import Data.Either
+import Data.Foldable (for_)
+import Data.Function
 import Data.List qualified  as L
-import Data.Set qualified as Set
 import Data.Map qualified as Map
+import Data.Maybe
+import Data.Set qualified as Set
+import Data.Set (Set)
+import Data.Text qualified as Text
 import Data.Text (Text)
+import GHC.Stats
+import GHC.TypeLits
 import Lens.Micro.Platform
 import Network.Socket
 import Options.Applicative
@@ -59,10 +71,8 @@ import Prettyprinter
 import System.Directory
 import System.Exit
 import System.IO
-import Data.Set (Set)
-import GHC.TypeLits
-import GHC.Stats
 import System.Metrics
+
 
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
@@ -144,6 +154,9 @@ data RPCCommand =
   | FETCH (Hash HbSync)
   | PEERS
   | SETLOG SetLogging
+  | REFLOGUPDATE ByteString
+  | REFLOGFETCH (PubKey 'Sign UDP)
+  | REFLOGGET (PubKey 'Sign UDP)
 
 data PeerOpts =
   PeerOpts
@@ -204,6 +217,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
+                        <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         )
@@ -276,6 +290,52 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
       pref <- optional $ strArgument ( metavar "DIR" )
       pure $ peerConfigInit pref
 
+    pRefLog = hsubparser (  command "send" (info pRefLogSend (progDesc "send reflog transaction" ))
+                         <> command "send-raw" (info pRefLogSendRaw (progDesc "send reflog raw transaction" ))
+                         <> command "fetch" (info pRefLogFetch (progDesc "fetch reflog from all" ))
+                         <> command "get"   (info pRefLogGet (progDesc "get own reflog from all" ))
+                         )
+
+    pRefLogSend = do
+      rpc <- pRpcCommon
+      kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
+      pure $ do
+        setLogging @TRACE tracePrefix
+        trace "pRefLogSend"
+        s <- BS.readFile kr
+        -- FIXME: UDP is weird here
+        creds <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+        bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
+        let pubk = view peerSignPk creds
+        let privk = view peerSignSk creds
+        msg <- makeRefLogUpdate @UDP pubk privk bs <&> serialise
+        runRpcCommand rpc (REFLOGUPDATE msg)
+
+    pRefLogSendRaw = do
+      rpc <- pRpcCommon
+      pure $ do
+        setLogging @TRACE tracePrefix
+        trace "pRefLogSendRaw"
+        bs <- LBS.take defChunkSize  <$> LBS.hGetContents stdin
+        runRpcCommand rpc (REFLOGUPDATE bs)
+
+    pRefLogFetch = do
+      rpc <- pRpcCommon
+      ref <- strArgument ( metavar "REFLOG-KEY" )
+      pure $ do
+        href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
+        setLogging @TRACE tracePrefix
+        trace "pRefLogFetch"
+        runRpcCommand rpc (REFLOGFETCH href)
+
+    pRefLogGet = do
+      rpc <- pRpcCommon
+      ref <- strArgument ( metavar "REFLOG-KEY" )
+      pure $ do
+        href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
+        setLogging @TRACE tracePrefix
+        runRpcCommand rpc (REFLOGGET href)
+
 
 myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
@@ -335,20 +395,10 @@ instance ( Monad m
 
   response = lift . response
 
-forKnownPeers :: forall e  m . ( MonadIO m
-                               , HasPeerLocator e m
-                               , Sessions e (KnownPeer e) m
-                               , HasPeer e
-                               )
-               =>  ( Peer e -> PeerData e -> m () ) -> m ()
-forKnownPeers m = do
-  pl <- getPeerLocator @e
-  pips <- knownPeers @e pl
-  for_ pips $ \p -> do
-    pd' <- find (KnownPeerKey p) id
-    maybe1 pd' (pure ()) (m p)
 
-runPeer :: forall e . e ~ UDP => PeerOpts -> IO ()
+-- runPeer :: forall e . (e ~ UDP, Nonce (RefLogUpdate e) ~ BS.ByteString) => PeerOpts -> IO ()
+runPeer :: forall e . (e ~ UDP) => PeerOpts -> IO ()
+
 runPeer opts = Exception.handle myException $ do
 
   metrics <- newStore
@@ -453,6 +503,24 @@ runPeer opts = Exception.handle myException $ do
 
             runPeerM penv $ do
               adapter <- mkAdapter
+
+
+              reflogAdapter <- RefLog.mkAdapter
+              reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e
+
+              let doDownload h = do
+                    withPeerM penv $ withDownload denv (addDownload h)
+
+              let doFetchRef puk = do
+                   withPeerM penv $ do
+                     forKnownPeers @e $ \p _ -> do
+                       request p (RefLogRequest @e puk)
+
+              let rwa = RefLog.RefLogWorkerAdapter
+                   { RefLog.reflogDownload = doDownload
+                   , RefLog.reflogFetch = doFetchRef
+                   }
+
               env <- ask
 
               pnonce <- peerNonce @e
@@ -537,6 +605,8 @@ runPeer opts = Exception.handle myException $ do
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
+                peerThread (httpWorker conf denv)
+
                 peerThread (checkMetrics metrics)
 
                 peerThread (peerPingLoop @e)
@@ -552,6 +622,8 @@ runPeer opts = Exception.handle myException $ do
                 peerThread (postponedLoop denv)
 
                 peerThread (downloadQueue conf denv)
+
+                peerThread (reflogWorker @e conf rwa)
 
                 peerThread $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
@@ -626,6 +698,20 @@ runPeer opts = Exception.handle myException $ do
                                           withDownload denv $ do
                                             processBlock h
 
+                            REFLOGUPDATE bs -> do
+
+                              trace "REFLOGUPDATE"
+
+                              let msg' = deserialiseOrFail @(RefLogUpdate UDP) bs
+                                          & either (const Nothing) Just
+
+                              when (isNothing msg') do
+                                warn "unable to parse RefLogUpdate message"
+
+                              maybe1 msg' none $ \msg -> do
+                                RefLog.doRefLogUpdate (view refLogId msg, msg)
+                                RefLog.doRefLogBroadCast msg
+
                             _ -> pure ()
 
 
@@ -636,16 +722,32 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials pc . peerHandShakeProto)
                     , makeResponse peerExchangeProto
+                    , makeResponse (refLogUpdateProto reflogAdapter)
+                    , makeResponse (refLogRequestProto reflogReqAdapter)
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers
 
+
   let pokeAction _ = do
         who <- thatPeer (Proxy @(RPC e))
         let k = view peerSignPk pc
+        let rpc  = "rpc:" <+> dquotes (pretty (listenAddr udp1))
+        let udp  = "udp:" <+> dquotes (pretty (listenAddr mess))
+
+        let http = case cfgValue @PeerHttpPortKey conf :: Maybe Integer of
+                     Nothing -> mempty
+                     Just p  -> "http-port:" <+> pretty p
+
+        let answ = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
+                               , rpc
+                               , udp
+                               , http
+                               ]
+
         -- FIXME: to-delete-POKE
         liftIO $ atomically $ writeTQueue rpcQ POKE
-        request who (RPCPokeAnswer @e k)
+        request who (RPCPokeAnswerFull @e (Text.pack answ))
 
   let annAction h = do
         liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
@@ -685,7 +787,26 @@ runPeer opts = Exception.handle myException $ do
           trace "TraceOff"
           setLoggingOff @TRACE
 
+  let reflogUpdateAction bs = void $ runMaybeT do
+        liftIO $ atomically $ writeTQueue rpcQ (REFLOGUPDATE bs)
+        -- trace $ "reflogUpdateAction"
+        --
+  let reflogFetchAction puk = do
+        trace "reflogFetchAction"
+        void $ liftIO $ async $ withPeerM penv $ do
+          forKnownPeers @e $ \p _ -> do
+            request p (RefLogRequest @e puk)
+
+  let reflogGetAction puk = do
+        trace $ "reflogGetAction" <+> pretty (AsBase58 puk)
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+          sto <- getStorage
+          h <- liftIO $ getRef sto (RefLogKey puk)
+          request who (RPCRefLogGetAnswer @e  h)
+
   let arpc = RpcAdapter pokeAction
+                        dontHandle
                         dontHandle
                         annAction
                         pingAction
@@ -694,6 +815,10 @@ runPeer opts = Exception.handle myException $ do
                         peersAction
                         dontHandle
                         logLevelAction
+                        reflogUpdateAction
+                        reflogFetchAction
+                        reflogGetAction
+                        dontHandle
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -736,10 +861,14 @@ emitToPeer :: ( MonadIO m
 
 emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
-withRPC :: RPCOpt -> RPC UDP -> IO ()
-withRPC o cmd = do
-
+rpcClientMain :: RPCOpt -> IO () -> IO ()
+rpcClientMain opt action = do
   setLoggingOff @DEBUG
+  action
+
+withRPC :: RPCOpt -> RPC UDP -> IO ()
+withRPC o cmd = rpcClientMain o $ do
+
 
   conf <- peerConfigRead (view rpcOptConf o)
 
@@ -760,11 +889,35 @@ withRPC o cmd = do
 
   pokeQ <- newTQueueIO
 
+  pokeFQ <- newTQueueIO
+
+  refQ <- newTQueueIO
+
+  let  adapter =
+        RpcAdapter dontHandle
+                   (liftIO . atomically . writeTQueue pokeQ)
+                   (liftIO . atomically . writeTQueue pokeFQ)
+                   (const $ liftIO exitSuccess)
+                   (const $ notice "ping?")
+                   (liftIO . atomically . writeTQueue pingQ)
+                   dontHandle
+                   dontHandle
+
+                   (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
+                   )
+
+                   dontHandle
+                   dontHandle
+                   dontHandle
+                   dontHandle
+
+                   ( liftIO . atomically . writeTQueue refQ )
+
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @UDP
-                        [ makeResponse (rpcHandler (adapter pingQ pokeQ))
+                        [ makeResponse (rpcHandler adapter)
                         ]
 
                     request rpc cmd
@@ -782,13 +935,13 @@ withRPC o cmd = do
 
 
                       RPCPoke{} -> do
-                        let onTimeout = do pause @'Seconds 0.5
+                        let onTimeout = do pause @'Seconds 1.5
                                            Log.info "no-one-is-here"
                                            exitFailure
 
                         void $ liftIO $ race onTimeout do
-                                 k <- liftIO $ atomically $ readTQueue pokeQ
-                                 Log.info $ "alive-and-kicking" <+> pretty (AsBase58 k)
+                                 k <- liftIO $ atomically $ readTQueue pokeFQ
+                                 Log.info $ pretty k
                                  exitSuccess
 
                       RPCPeers{} -> liftIO do
@@ -797,25 +950,28 @@ withRPC o cmd = do
 
                       RPCLogLevel{} -> liftIO exitSuccess
 
+                      RPCRefLogUpdate{} -> liftIO do
+                        pause @'Seconds 0.1
+                        exitSuccess
+
+                      RPCRefLogFetch {} -> liftIO do
+                        pause @'Seconds 0.5
+                        exitSuccess
+
+                      RPCRefLogGet{} -> liftIO do
+                        void $ liftIO $ race (pause @'Seconds 0.1 >> exitFailure) do
+                                 k <- liftIO $ atomically $ readTQueue refQ
+                                 case k of
+                                  Nothing -> exitFailure
+                                  Just re -> do
+                                   print $ pretty re
+                                   exitSuccess
+
                       _ -> pure ()
 
                     void $ liftIO $ waitAnyCatchCancel [proto]
 
   void $ waitAnyCatchCancel [mrpc, prpc]
-
-  where
-    adapter q pq = RpcAdapter dontHandle
-                          (liftIO . atomically . writeTQueue pq)
-                          (const $ liftIO exitSuccess)
-                          (const $ notice "ping?")
-                          (liftIO . atomically . writeTQueue q)
-                          dontHandle
-                          dontHandle
-
-                          (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
-                          )
-
-                          dontHandle
 
 runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
@@ -825,6 +981,9 @@ runRpcCommand opt = \case
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
   SETLOG s -> withRPC opt (RPCLogLevel s)
+  REFLOGUPDATE bs -> withRPC opt (RPCRefLogUpdate bs)
+  REFLOGFETCH k -> withRPC opt (RPCRefLogFetch k)
+  REFLOGGET k -> withRPC opt (RPCRefLogGet k)
 
   _ -> pure ()
 

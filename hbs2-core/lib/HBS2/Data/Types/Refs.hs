@@ -17,9 +17,11 @@ import Data.Functor.Identity
 import Data.String(IsString)
 import GHC.Generics
 import Prettyprinter
+import Data.Hashable hiding (Hashed)
+import Data.Maybe (fromMaybe)
 
 newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
-                  deriving newtype (Eq,Ord,IsString,Pretty)
+                  deriving newtype (Eq,Ord,IsString,Pretty,Hashable)
                   deriving stock (Data,Generic,Show)
 
 
@@ -48,16 +50,18 @@ data HashRefType =
   deriving stock (Data,Show,Generic)
 
 data AnnotatedHashRef =
-  AnnotatedHashRef (Maybe HashRefPrevState) HashRefType
+  AnnotatedHashRef (Maybe HashRef) HashRef
   deriving stock (Data,Show,Generic)
 
+data SequentialRef =
+  SequentialRef Integer AnnotatedHashRef
+  deriving stock (Data,Show,Generic)
 
 instance Serialise AnnotatedHashRef
+instance Serialise SequentialRef
 instance Serialise HashRef
 instance Serialise HashRefMetadata
 instance Serialise HashRefObject
-instance Serialise HashRefPrevState
-instance Serialise HashRefType
 
 ---
 
@@ -131,3 +135,29 @@ nodeLinearRefsRef pk = RefGenesis
   , refName = "List of node linear refs"
   , refMeta = NoMetaData
   }
+
+
+newtype RefLogKey e = RefLogKey (PubKey 'Sign e)
+
+deriving stock instance Eq (PubKey 'Sign e) => Eq (RefLogKey e)
+
+instance (Eq (PubKey 'Sign e), Serialise (PubKey 'Sign e)) => Hashable (RefLogKey e) where
+  hashWithSalt s k = hashWithSalt s (hashObject @HbSync k)
+
+instance Serialise (PubKey 'Sign e) => Hashed HbSync (RefLogKey e) where
+  hashObject (RefLogKey pk) = hashObject ("reflogkey|" <> serialise pk)
+
+instance FromStringMaybe (PubKey 'Sign e) => FromStringMaybe (RefLogKey e) where
+  fromStringMay s = RefLogKey <$> fromStringMay s
+
+instance FromStringMaybe (PubKey 'Sign e) =>  IsString (RefLogKey e) where
+  fromString s = fromMaybe (error "bad public key base58") (fromStringMay s)
+
+
+instance Pretty (AsBase58 (PubKey 'Sign e) ) => Pretty (AsBase58 (RefLogKey e)) where
+  pretty (AsBase58 (RefLogKey k)) = pretty (AsBase58 k)
+
+instance Pretty (AsBase58 (PubKey 'Sign e) ) => Pretty (RefLogKey e) where
+  pretty (RefLogKey k) = pretty (AsBase58 k)
+
+

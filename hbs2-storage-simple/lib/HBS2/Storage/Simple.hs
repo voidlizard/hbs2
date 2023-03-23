@@ -20,6 +20,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString qualified as BS
 import Data.ByteString (ByteString)
 import Data.Foldable
@@ -54,9 +55,13 @@ import Control.Concurrent.STM.TVar qualified as TV
 --        operations and wait in getBlock 'till it's completion
 --        in order to make the disk access in this fashion safe
 
-class (Eq (Key h), Hashable (Key h), IsKey h, Key h ~ Hash h) => IsSimpleStorageKey h
-instance (Eq (Key h), Hashable (Key h), IsKey h, Key h ~ Hash h) => IsSimpleStorageKey h
-
+type IsSimpleStorageKey h  = ( Eq (Key h)
+                             , Hashable (Key h)
+                             , IsKey h
+                             , Key h ~ Hash h
+                             , ToByteString (AsBase58 (Hash h))
+                             , FromByteString (AsBase58 (Hash h))
+                             )
 
 type instance Block LBS.ByteString = LBS.ByteString
 
@@ -323,6 +328,20 @@ simpleWriteLinkRaw ss h lbs = do
       BS.writeFile fnr (toByteString (AsBase58 r))
       pure h
 
+simpleWriteLinkRawRef :: forall h . ( IsSimpleStorageKey h
+                                 , Hashed h LBS.ByteString
+                                 , ToByteString (AsBase58 (Hash h))
+                                 )
+                      => SimpleStorage h
+                      -> Hash h
+                      -> Hash h
+                      -> IO ()
+
+simpleWriteLinkRawRef ss h ref = do
+  let fnr = simpleRefFileName ss h
+  void $ spawnAndWait ss $ do
+    BS.writeFile fnr (toByteString (AsBase58 ref))
+
 simpleReadLinkRaw :: IsKey h
                   => SimpleStorage h
                   -> Hash h
@@ -331,10 +350,8 @@ simpleReadLinkRaw :: IsKey h
 simpleReadLinkRaw ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
-    r <- tryJust (guard . isDoesNotExistError) (LBS.readFile fn)
-    case r of
-      Right bs -> pure (Just bs)
-      Left  _  -> pure Nothing
+          -- FIXME: log-this-situation
+          (Just <$> LBS.readFile fn) `catchAny` const (pure Nothing)
 
   pure $ fromMaybe Nothing rs
 
@@ -351,15 +368,11 @@ simpleReadLinkVal :: ( IsKey h
 simpleReadLinkVal ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
-    r <- tryJust (guard . isDoesNotExistError) (BS.readFile fn)
-    case r of
-      Right bh -> pure (Just bh)
-      Left  _  -> pure Nothing
+        -- FIXME: log-this-situation
+        (Just <$> BS.readFile fn) `catchAny` \_ -> pure Nothing
+
   runMaybeT do
       MaybeT . getBlock ss . unAsBase58 =<< MaybeT (pure (fromByteString =<< join rs))
-
--- instance Hashed hash LBS.ByteString => Hashed hash LBS.ByteString where
---   hashObject s = hashObject s
 
 instance ( MonadIO m, IsKey hash
          , Hashed hash LBS.ByteString
@@ -379,6 +392,16 @@ instance ( MonadIO m, IsKey hash
 
   hasBlock s k = liftIO $ simpleBlockExists s k
 
+  updateRef ss ref v = do
+    let refHash = hashObject @hash ref
+    -- liftIO $ print $ "updateRef:" <+> pretty refHash
+    void $ liftIO $ simpleWriteLinkRawRef ss refHash v
 
-
+  getRef ss ref = do
+    let refHash = hashObject @hash ref
+    runMaybeT do
+      bs <- MaybeT $ liftIO $ simpleReadLinkRaw ss refHash
+      let bss = LBS.toStrict bs
+      parsed <- MaybeT $ pure $ fromByteString bss
+      pure $ unAsBase58 parsed
 

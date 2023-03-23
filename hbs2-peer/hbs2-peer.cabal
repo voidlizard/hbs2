@@ -55,6 +55,10 @@ common common-deps
         , interpolatedstring-perl6
         , filelock
         , ekg-core
+        , scotty
+        , warp
+        , http-types
+        , wai-extra
 
 common shared-properties
   ghc-options:
@@ -113,7 +117,9 @@ executable hbs2-peer
                     , RPC
                     , PeerTypes
                     , PeerConfig
+                    , RefLog
                     , CheckMetrics
+                    , HttpWorker
 
     -- other-extensions:
     build-depends:    base

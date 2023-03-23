@@ -9,6 +9,7 @@ module HBS2.Net.Proto.Definition
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Merkle
+import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Proto
@@ -18,6 +19,7 @@ import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.RefLog
 import HBS2.Prelude
 
 import Data.Functor
@@ -93,6 +95,22 @@ instance HasProtocol UDP (PeerExchange UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (RefLogUpdate UDP) where
+  type instance ProtocolId (RefLogUpdate UDP) = 7
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+  requestPeriodLim = ReqLimPerMessage 600
+
+instance HasProtocol UDP (RefLogRequest UDP) where
+  type instance ProtocolId (RefLogRequest UDP) = 8
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+  -- FIXME: real-period
+  requestPeriodLim = ReqLimPerMessage 1
 
 instance Expires (SessionKey UDP (BlockInfo UDP)) where
   expiresIn _ = Just defCookieTimeoutSec
@@ -128,6 +146,12 @@ instance MonadIO m => HasNonces (PeerExchange UDP) m where
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
+instance MonadIO m => HasNonces (RefLogUpdate UDP) m where
+  type instance Nonce (RefLogUpdate UDP) = BS.ByteString
+  newNonce = do
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+    pure $ BS.take 32 n
+
 instance MonadIO m => HasNonces () m where
   type instance Nonce () = BS.ByteString
   newNonce = do
@@ -146,5 +170,6 @@ instance Signatures MerkleEncryptionType where
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
 
-
+instance Hashed HbSync Sign.PublicKey where
+  hashObject pk = hashObject (Crypto.encode pk)
 

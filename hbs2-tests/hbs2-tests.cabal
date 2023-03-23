@@ -305,3 +305,52 @@ test-suite test-acb
         -- , fast-logger
 
 
+executable test-walk-tree-meta
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+
+    ghc-options:
+      -- -prof
+      -- -fprof-auto
+
+    other-modules:
+
+    -- other-extensions:
+
+    -- type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestWalkTreeMeta.hs
+
+    build-depends:
+          base, hbs2-core
+        -- , async
+        -- , attoparsec
+        , bytestring
+        -- , cache
+        -- , clock
+        , containers
+        , interpolatedstring-perl6
+        -- , data-default
+        -- , data-textual
+        -- , directory
+        -- , hashable
+        -- , microlens-platform
+        -- , mtl
+        -- , mwc-random
+        -- , network
+        -- , network-ip
+        , prettyprinter
+        -- , random
+        , safe
+        , serialise
+        -- , stm
+        -- , streaming
+        -- , saltine
+        , text
+        , typed-process
+        -- , transformers
+        , uniplate
+        -- , vector
+        -- , fast-logger
+

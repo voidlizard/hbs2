@@ -1,5 +1,12 @@
 module TestSimpleStorage where
 
+import HBS2.OrDie
+import HBS2.Hash
+import HBS2.Clock
+import HBS2.Prelude.Plated
+import HBS2.Storage
+import HBS2.Storage.Simple
+
 import Control.Monad.Except
 import Control.Monad
 import Data.Traversable
@@ -19,11 +26,6 @@ import System.TimeIt
 
 import Test.Tasty.HUnit
 
-import HBS2.Hash
-import HBS2.Clock
-import HBS2.Prelude.Plated
-import HBS2.Storage
-import HBS2.Storage.Simple
 
 
 -- CASE:
@@ -177,4 +179,35 @@ testSimpleStorageRandomReadWrite = do
     mapM_ cancel workers
 
 
+testSimpleStorageRefs :: IO ()
+testSimpleStorageRefs  = do
+  withSystemTempDirectory "simpleStorageTest" $ \dir -> do
+
+    let opts = [ StoragePrefix (dir </> ".storage")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    worker <- async  (simpleStorageWorker storage)
+
+    link worker
+
+    let k  = "JOPAKITA" :: LBS.ByteString
+    let v  = "PECHENTRESKI" :: LBS.ByteString
+
+    vh <- putBlock storage v `orDie` "cant write"
+
+    updateRef storage k vh
+
+    qqq <- simpleReadLinkRaw storage (hashObject k)
+
+    pechen <- getRef storage k
+
+    assertEqual "kv1" (Just vh) pechen
+
+    non <- getRef storage ("QQQQQ" :: LBS.ByteString)
+
+    assertEqual "kv2" Nothing non
+
+    pure ()
 

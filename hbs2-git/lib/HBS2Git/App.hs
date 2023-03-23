@@ -1,0 +1,331 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
+module HBS2Git.App
+  ( module HBS2Git.App
+  , module HBS2Git.Types
+  )
+  where
+
+import HBS2.Prelude
+import HBS2.Data.Types.Refs
+import HBS2.Base58
+import HBS2.OrDie
+import HBS2.Hash
+import HBS2.System.Logger.Simple
+import HBS2.Merkle
+import HBS2.Git.Types
+import HBS2.Net.Proto.Definition()
+import HBS2.Net.Auth.Credentials hiding (getCredentials)
+import HBS2.Net.Proto.RefLog
+
+import HBS2Git.Types
+import HBS2Git.Config as Config
+import HBS2Git.State
+
+import Data.Maybe
+import Control.Monad.Trans.Maybe
+import Data.Foldable
+import Data.Either
+import Control.Monad.Reader
+import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Lens.Micro.Platform
+import System.Directory
+-- import System.FilePath
+import System.FilePath
+import System.Process.Typed
+import Text.InterpolatedString.Perl6 (qc)
+import Network.HTTP.Simple
+import Control.Concurrent.STM
+import Codec.Serialise
+import Data.HashMap.Strict qualified as HashMap
+import Data.List qualified as List
+import Data.Text qualified as Text
+
+instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
+  key = "branch"
+
+instance MonadIO m => HasCfgKey ConfBranch (Set GitRef) m where
+  key = "branch"
+
+instance MonadIO m => HasCfgKey HeadBranch (Maybe GitRef) m where
+  key = "head-branch"
+
+instance MonadIO m => HasCfgKey KeyRingFile (Maybe FilePath) m where
+  key = "keyring"
+
+instance MonadIO m => HasCfgKey KeyRingFiles (Set FilePath) m where
+  key = "keyring"
+
+instance MonadIO m => HasCfgKey StoragePref (Maybe FilePath) m where
+  key = "storage"
+
+logPrefix s = set loggerTr (s <>)
+
+tracePrefix :: SetLoggerEntry
+tracePrefix  = toStderr . logPrefix "[trace] "
+
+debugPrefix :: SetLoggerEntry
+debugPrefix  = toStderr . logPrefix "[debug] "
+
+errorPrefix :: SetLoggerEntry
+errorPrefix  = toStderr . logPrefix "[error] "
+
+warnPrefix :: SetLoggerEntry
+warnPrefix   = toStderr . logPrefix "[warn] "
+
+noticePrefix :: SetLoggerEntry
+noticePrefix = toStderr
+
+infoPrefix :: SetLoggerEntry
+infoPrefix = toStderr
+
+data WithLog = NoLog | WithLog
+
+instance MonadIO m => HasCatAPI (App m) where
+  getHttpCatAPI = asks (view appPeerHttpCat)
+  getHttpSizeAPI = asks (view appPeerHttpSize)
+
+instance MonadIO m => HasRefCredentials (App m) where
+  setCredentials ref cred = do
+    asks (view appRefCred) >>= \t -> liftIO $ atomically $
+      modifyTVar' t (HashMap.insert ref cred)
+
+  getCredentials ref = do
+    hm <- asks (view appRefCred) >>= liftIO . readTVarIO
+    pure (HashMap.lookup ref hm) `orDie` "keyring not set"
+
+
+withApp :: MonadIO m => AppEnv -> App m a -> m a
+withApp env m = runReaderT (fromApp m) env
+
+detectHBS2PeerCatAPI :: MonadIO m => m String
+detectHBS2PeerCatAPI = do
+  -- FIXME: hardcoded-hbs2-peer
+  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+
+  trace $ pretty (LBS.unpack o)
+
+  let dieMsg = "hbs2-peer is down or it's http is inactive"
+
+  let answ = parseTop (LBS.unpack o) & fromRight mempty
+
+  let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
+  -- shutUp
+
+  pnum <- pure po `orDie`  dieMsg
+
+  debug $ pretty "using http port" <+> pretty po
+
+  pure [qc|http://localhost:{pnum}/cat|]
+
+
+detectHBS2PeerSizeAPI :: MonadIO m => m String
+detectHBS2PeerSizeAPI = do
+  api <- detectHBS2PeerCatAPI
+  let new = Text.replace "/cat" "/size" $ Text.pack api
+  pure $ Text.unpack new
+
+getAppStateDir :: forall m . MonadIO m => m FilePath
+getAppStateDir = liftIO $ getXdgDirectory XdgData Config.appName
+
+runApp :: MonadIO m => WithLog -> App m () -> m ()
+runApp l m = do
+
+  case l of
+    NoLog   -> pure ()
+    WithLog -> do
+      setLogging @DEBUG  debugPrefix
+      setLogging @ERROR  errorPrefix
+      setLogging @NOTICE noticePrefix
+      setLogging @TRACE  tracePrefix
+      setLogging @INFO   infoPrefix
+
+  (pwd, syn) <- Config.configInit
+
+  xdgstate <- getAppStateDir
+  -- let statePath = xdgstate </> makeRelative home pwd
+  -- let dbPath = statePath </> "state.db"
+  -- db <- dbEnv dbPath
+  -- trace $ "state" <+> pretty statePath
+  -- here <- liftIO $ doesDirectoryExist statePath
+  -- unless here do
+  --   liftIO $ createDirectoryIfMissing True statePath
+  -- withDB db stateInit
+
+  reQ <- detectHBS2PeerCatAPI
+  szQ <- detectHBS2PeerSizeAPI
+
+  mtCred <- liftIO $ newTVarIO mempty
+
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ szQ mtCred
+
+  runReaderT (fromApp m) env
+
+  debug $ vcat (fmap pretty syn)
+
+  setLoggingOff @DEBUG
+  setLoggingOff @ERROR
+  setLoggingOff @NOTICE
+  setLoggingOff @TRACE
+  setLoggingOff @INFO
+
+readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
+readBlock h = do
+  -- trace $ "readBlock" <+> pretty h
+  req1 <-  getHttpCatAPI -- asks (view appPeerHttpCat)
+  let reqs = req1 <> "/" <> show (pretty h)
+  req  <- liftIO $ parseRequest reqs
+  httpLBS req <&> getResponseBody <&> Just
+
+getBlockSize :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe Integer)
+getBlockSize h = do
+  req1 <-  getHttpSizeAPI
+  let reqs = req1 <> "/" <> show (pretty h)
+  req  <- liftIO $ parseRequest reqs
+  httpJSONEither req <&> getResponseBody  <&> either (const Nothing) Just
+
+readRef :: MonadIO m => RepoRef -> m (Maybe HashRef)
+readRef r = do
+  let k = pretty (AsBase58 r)
+  trace  [qc|hbs2-peer reflog get {k}|]
+  let cmd = setStdin closed $ setStderr closed
+                            $ shell [qc|hbs2-peer reflog get {k}|]
+  (code, out, _)  <- liftIO $ readProcess cmd
+
+  trace $ viaShow out
+
+  case code of
+    ExitFailure{} -> pure Nothing
+    _  -> do
+      let s = LBS.unpack <$> headMay (LBS.lines out)
+      pure $ s >>= fromStringMay
+
+type ObjType = MTreeAnn [HashRef]
+
+readObject :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m (Maybe ByteString)
+readObject h = runMaybeT do
+
+  q <- liftIO newTQueueIO
+
+  -- trace $ "readObject" <+> pretty h
+
+  blk <- MaybeT $ readBlock h
+
+  ann <- MaybeT $ pure $ deserialiseOrFail @(MTreeAnn [HashRef]) blk & either (const Nothing) Just
+
+  walkMerkleTree (_mtaTree ann) (lift . readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+    case hr of
+      Left{} -> mzero
+      Right (hrr :: [HashRef]) -> do
+        for_ hrr $ \(HashRef hx) -> do
+
+            block <- MaybeT $ readBlock (HashRef hx)
+            liftIO $ atomically $ writeTQueue q block
+
+  mconcat <$> liftIO (atomically $ flushTQueue q)
+
+
+postRefUpdate :: (MonadIO m, HasRefCredentials m) => RepoRef -> Integer -> HashRef -> m ()
+postRefUpdate ref seqno hash = do
+  trace $ "refPostUpdate"  <+> pretty seqno <+> pretty hash
+
+  cred <- getCredentials ref
+  let pubk = view peerSignPk cred
+  let privk = view peerSignSk cred
+  let tran = SequentialRef seqno (AnnotatedHashRef Nothing hash)
+  let bs = serialise tran & LBS.toStrict
+  msg <- makeRefLogUpdate @Schema pubk privk bs <&> serialise
+
+  let input = byteStringInput msg
+  let cmd = setStdin input $ shell [qc|hbs2-peer reflog send-raw|]
+
+  (code, _, _)  <- liftIO $ readProcess cmd
+
+  trace $ "hbs2-peer exited with code" <+> viaShow code
+
+storeObject :: (MonadIO m, HasConf m) => ByteString -> ByteString -> m (Maybe HashRef)
+storeObject = storeObjectHBS2Store
+
+-- FIXME: ASAP-store-calls-hbs2
+--   Это может приводить к тому, что если пир и hbs2-peer
+--   смотрят на разные каталоги --- ошибки могут быть очень загадочны.
+--   Нужно починить.
+--
+-- FIXME: support-another-apis-for-storage
+storeObjectHBS2Store :: (MonadIO m, HasConf m) => ByteString -> ByteString -> m (Maybe HashRef)
+storeObjectHBS2Store meta bs = do
+
+  stor <- cfgValue @StoragePref @(Maybe FilePath)
+
+  -- FIXME: fix-temporary-workaround-while-hbs2-is-used
+  --  Пока не избавились от hbs2 store для сохранения объектов
+  --  можно использовать ключ storage в конфиге hbs2-git
+  let pref =  maybe "" (mappend "-p ") stor
+
+  let meta58 = show $ pretty $ B8.unpack $ toBase58 (LBS.toStrict meta)
+
+  -- trace $ "meta58" <+> pretty meta58
+
+  let input = byteStringInput bs
+  let cmd = setStdin input $ setStderr closed
+                           $ shell [qc|hbs2 store --short-meta-base58={meta58} {pref}|]
+
+  (_, out, _) <- liftIO $ readProcess cmd
+
+  case LBS.words out of
+    ["merkle-root:", h] -> pure $ Just $ fromString (LBS.unpack h)
+    _                   -> pure Nothing
+
+
+makeDbPath :: MonadIO m => RepoRef -> m FilePath
+makeDbPath h = do
+  state <- getAppStateDir
+  liftIO $ createDirectoryIfMissing True state
+  pure $ state </> show (pretty (AsBase58 h))
+
+
+readHead :: (MonadIO m, HasCatAPI m) => DBEnv -> m (Maybe RepoHead)
+readHead db = runMaybeT do
+  href <- MaybeT $ withDB db stateGetHead
+  trace $ "repoHead" <+> pretty href
+  bs   <- MaybeT $ readObject href
+
+  let toParse = fmap LBS.words ( LBS.lines bs )
+
+  let fromSymb = Just . fromString . LBS.unpack . LBS.dropWhile (=='@')
+  let fromBS :: forall a . IsString a => LBS.ByteString -> a
+      fromBS = fromString . LBS.unpack
+
+  let parsed = flip foldMap toParse $ \case
+                [a,"HEAD"] -> [RepoHead (fromSymb a) mempty]
+                [h,r]      -> [RepoHead Nothing (HashMap.singleton (fromBS r) (fromBS h))]
+                _          -> mempty
+
+  pure $ mconcat parsed
+
+loadCredentials :: ( MonadIO m
+                   , HasConf m
+                   , HasRefCredentials m
+                   ) => [FilePath] -> m ()
+loadCredentials fp = do
+  krOpt' <- cfgValue @KeyRingFiles @(Set FilePath) <&> Set.toList
+
+  let krOpt = List.nub $ fp <> krOpt'
+
+  when (null krOpt) do
+    die "keyring not set"
+
+  for_ krOpt $ \fn -> do
+    krData <- liftIO $ B8.readFile fn
+    cred <- pure (parseCredentials @Schema (AsCredFile krData)) `orDie` "bad keyring file"
+    let puk = view peerSignPk cred
+    trace $ "got creds for" <+> pretty (AsBase58 puk)
+    setCredentials (RefLogKey puk) cred
+    pure ()
+
+

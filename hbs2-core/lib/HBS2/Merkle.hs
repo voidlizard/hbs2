@@ -194,3 +194,4 @@ walkMerkleTree :: (Serialise (MTree a), Monad m)
 walkMerkleTree tree flookup sink = case tree of
     (MLeaf s)   -> sink (Right s)
     (MNode _ hashes) -> forM_ hashes \h -> walkMerkle h flookup sink
+

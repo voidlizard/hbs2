@@ -45,9 +45,9 @@ class ( Monad m
 
   hasBlock :: a -> Key h -> m (Maybe Integer)
 
-  -- listBlocks :: a -> ( Key block -> m () ) -> m ()
+  updateRef :: Hashed h k => a -> k -> Key h -> m ()
 
-
+  getRef :: Hashed h k => a -> k -> m (Maybe (Key h))
 
 calcChunks :: forall a b . (Integral a, Integral b)
            => Integer  -- | block size

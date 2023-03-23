@@ -4,6 +4,7 @@
 module BlockDownload where
 
 import HBS2.Actors.Peer
+import HBS2.Base58
 import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
@@ -15,6 +16,7 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
@@ -28,6 +30,7 @@ import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Cache qualified as Cache
 import Data.Foldable hiding (find)
 import Data.HashMap.Strict qualified as HashMap
@@ -57,14 +60,23 @@ withBlockForDownload :: (MonadIO m, MyPeer e, HasStorage m, HasPeerLocator e m)
 
 withBlockForDownload p action = do
   -- FIXME: busyloop-e46ad5e0
+  --
+  sto <- lift getStorage
+
   h <- getBlockForDownload
-  banned <- isBanned p h
-  trace $ "withBlockForDownload" <+> pretty p <+> pretty h
-  if banned then do
-    trace $ "skip banned block" <+> pretty p <+> pretty h
-    addDownload h
+
+  here <- liftIO $ hasBlock sto h <&> isJust
+
+  if here then do
+    processBlock h
   else do
-    action h
+    banned <- isBanned p h
+    trace $ "withBlockForDownload" <+> pretty p <+> pretty h
+    if banned then do
+      -- trace $ "skip banned block" <+> pretty p <+> pretty h
+      addDownload h
+    else do
+      action h
 
 addBlockInfo :: (MonadIO m, MyPeer e)
              => Peer e
@@ -133,7 +145,14 @@ processBlock h = do
    case bt of
      Nothing -> addDownload h
 
-     Just (AnnRef{}) -> pure ()
+     Just (SeqRef (SequentialRef n (AnnotatedHashRef a' b))) -> do
+      maybe1 a' none $ \a -> do
+        addDownload (fromHashRef a)
+
+      addDownload (fromHashRef b)
+
+     Just (AnnRef h) -> do
+       addDownload h
 
      Just (MerkleAnn ann) -> do
        case (_mtaMeta ann) of
@@ -354,6 +373,8 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , EventListener e (BlockChunks e) m
                                    , EventListener e (BlockAnnounce e) m
                                    , EventListener e (PeerHandshake e) m
+                                   , EventListener e (RefLogUpdateEv e) m
+                                   , EventListener e (RefLogRequestAnswer e) m
                                    , EventEmitter e (BlockChunks e) m
                                    , EventEmitter e (DownloadReq e) m
                                    , Sessions e (BlockChunks e) m
@@ -369,7 +390,6 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
 blockDownloadLoop env0 = do
 
   e    <- ask
-  stor <- getStorage
 
   let blks = mempty
 

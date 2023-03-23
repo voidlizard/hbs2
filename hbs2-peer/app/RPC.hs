@@ -10,6 +10,9 @@ import HBS2.Actors.Peer
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
 
+import PeerConfig
+
+import Data.Text (Text)
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise (serialise,deserialiseOrFail)
@@ -27,11 +30,16 @@ data RPC e =
   | RPCPing (PeerAddr e)
   | RPCPong (PeerAddr e)
   | RPCPokeAnswer (PubKey 'Sign e)
+  | RPCPokeAnswerFull Text
   | RPCAnnounce (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
   | RPCLogLevel SetLogging
+  | RPCRefLogUpdate ByteString
+  | RPCRefLogFetch (PubKey 'Sign e)
+  | RPCRefLogGet (PubKey 'Sign e)
+  | RPCRefLogGetAnswer (Maybe (Hash HbSync))
   deriving stock (Generic)
 
 
@@ -54,15 +62,20 @@ makeLenses 'RPCEnv
 
 data RpcAdapter e m =
   RpcAdapter
-  { rpcOnPoke        :: RPC e -> m ()
-  , rpcOnPokeAnswer  :: PubKey 'Sign e -> m ()
-  , rpcOnAnnounce    :: Hash HbSync -> m ()
-  , rpcOnPing        :: PeerAddr e -> m ()
-  , rpcOnPong        :: PeerAddr e -> m ()
-  , rpcOnFetch       :: Hash HbSync -> m ()
-  , rpcOnPeers       :: RPC e -> m ()
-  , rpcOnPeersAnswer :: (PeerAddr e, PubKey 'Sign e) -> m ()
-  , rpcOnLogLevel    :: SetLogging -> m ()
+  { rpcOnPoke          :: RPC e -> m ()
+  , rpcOnPokeAnswer    :: PubKey 'Sign e -> m ()
+  , rpcOnPokeAnswerFull :: Text -> m ()
+  , rpcOnAnnounce      :: Hash HbSync -> m ()
+  , rpcOnPing          :: PeerAddr e -> m ()
+  , rpcOnPong          :: PeerAddr e -> m ()
+  , rpcOnFetch         :: Hash HbSync -> m ()
+  , rpcOnPeers         :: RPC e -> m ()
+  , rpcOnPeersAnswer   :: (PeerAddr e, PubKey 'Sign e) -> m ()
+  , rpcOnLogLevel      :: SetLogging -> m ()
+  , rpcOnRefLogUpdate  :: ByteString -> m ()
+  , rpcOnRefLogFetch   :: PubKey 'Sign e -> m ()
+  , rpcOnRefLogGet     :: PubKey 'Sign e -> m ()
+  , rpcOnRefLogGetAnsw :: Maybe (Hash HbSync) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -105,6 +118,7 @@ rpcHandler :: forall e m  . ( MonadIO m
 rpcHandler adapter = \case
     p@RPCPoke{}        -> rpcOnPoke adapter p
     (RPCPokeAnswer k)  -> rpcOnPokeAnswer adapter k
+    (RPCPokeAnswerFull k)  -> rpcOnPokeAnswerFull adapter k
     (RPCAnnounce h)    -> rpcOnAnnounce adapter h
     (RPCPing pa)       -> rpcOnPing adapter pa
     (RPCPong pa)       -> rpcOnPong adapter pa
@@ -112,4 +126,8 @@ rpcHandler adapter = \case
     p@RPCPeers{}       -> rpcOnPeers adapter p
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
+    (RPCRefLogUpdate bs)  -> rpcOnRefLogUpdate adapter bs
+    (RPCRefLogFetch e) -> rpcOnRefLogFetch adapter e
+    (RPCRefLogGet e)   -> rpcOnRefLogGet adapter e
+    (RPCRefLogGetAnswer s)   -> rpcOnRefLogGetAnsw adapter s
 

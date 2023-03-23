@@ -5,7 +5,7 @@
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    hbs2.url = "github:voidlizard/hbs2/announce-group";
+    hbs2.url = "github:voidlizard/hbs2/hbs2-git";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
@@ -66,7 +66,13 @@
                 inputs.hbs2.packages.${pkgs.system}.default
                 screen
                 tshark
+                tmux
+                gitFull
               ];
+
+              environment.etc = {
+                "tmux.conf".source = ./tmux.conf;
+              };
 
               # environment.xdg.data."hbs2/wtf" = {
               #   text = "pwned";
@@ -87,9 +93,17 @@ j1u3RJEr8kosBH2DR8XMY6Mj8s
                 text = ''
 listen "0.0.0.0:7351"
 rpc    "127.0.0.1:13331"
+http-port 5001
 key    "./key"
-storage  "/root/hbs2"
+storage  "/root/.local/share/hbs2"
 accept-block-announce *
+download-log "/tmp/download-log"
+bootstrap-dns "bootstrap.hbs2.net"
+known-peer "10.250.0.1:7354"
+known-peer "10.250.0.1:7351"
+
+poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+
 '';
 
               };

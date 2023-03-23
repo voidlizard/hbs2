@@ -11,6 +11,7 @@ import HBS2.Events
 import HBS2.Hash
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Sessions
@@ -21,6 +22,7 @@ import HBS2.System.Logger.Simple
 
 import PeerInfo
 
+import Data.Foldable (for_)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
@@ -45,6 +47,8 @@ type MyPeer e = ( Eq (Peer e)
 
 data DownloadReq e
 
+data DownloadAsap e
+
 data instance EventKey e (DownloadReq e) =
   DownloadReqKey
   deriving (Generic,Typeable,Eq)
@@ -63,6 +67,8 @@ instance EventType ( Event e (DownloadReq e) ) where
 
 instance Expires (EventKey e (DownloadReq e)) where
   expiresIn = const Nothing
+
+
 
 type DownloadFromPeerStuff e m = ( MyPeer e
                                  , MonadIO m
@@ -254,6 +260,16 @@ isBlockHereCached h = do
      when blk $ Cache.insert szcache h ()
      pure blk
 
+checkForDownload :: forall e m . ( MyPeer e
+                                 , MonadIO m
+                                 , HasPeerLocator e (BlockDownloadM e m)
+                                 , HasStorage m -- (BlockDownloadM e m)
+                                 )
+                 => ByteString -> BlockDownloadM e m ()
+
+checkForDownload lbs = do
+  pure ()
+
 addDownload :: forall e m . ( MyPeer e
                             , MonadIO m
                             , HasPeerLocator e (BlockDownloadM e m)
@@ -394,4 +410,19 @@ updateBlockPeerSize h p s = do
         Just hm -> Just $ HashMap.insert p s hm
 
   liftIO $ atomically $ modifyTVar tv (HashMap.alter alt h)
+
+
+forKnownPeers :: forall e  m . ( MonadIO m
+                               , HasPeerLocator e m
+                               , Sessions e (KnownPeer e) m
+                               , HasPeer e
+                               )
+               =>  ( Peer e -> PeerData e -> m () ) -> m ()
+forKnownPeers m = do
+  pl <- getPeerLocator @e
+  pips <- knownPeers @e pl
+  for_ pips $ \p -> do
+    pd' <- find (KnownPeerKey p) id
+    maybe1 pd' (pure ()) (m p)
+
 

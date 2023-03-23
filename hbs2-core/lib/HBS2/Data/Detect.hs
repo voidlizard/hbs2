@@ -14,16 +14,18 @@ import Data.Functor
 data BlobType =  Merkle (Hash HbSync)
                | MerkleAnn (MTreeAnn [HashRef])
                | AnnRef (Hash HbSync)
+               | SeqRef SequentialRef
                | Blob (Hash HbSync)
                deriving (Show,Data)
 
 
 tryDetect :: Hash HbSync -> ByteString -> BlobType
-tryDetect hash obj = rights [mbAnn, mbLink, mbMerkle] & headDef orBlob
+tryDetect hash obj = rights [mbAnn, mbLink, mbMerkle, mbSeq] & headDef orBlob
 
   where
     mbLink   = deserialiseOrFail @AnnotatedHashRef obj >> pure (AnnRef hash)
     mbMerkle = deserialiseOrFail @(MTree [HashRef]) obj >> pure (Merkle hash)
-    mbAnn   = deserialiseOrFail obj <&> MerkleAnn
+    mbSeq    = deserialiseOrFail @SequentialRef obj <&> SeqRef
+    mbAnn    = deserialiseOrFail obj <&> MerkleAnn
     orBlob   = Blob hash
 

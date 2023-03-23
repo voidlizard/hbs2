@@ -42,6 +42,10 @@ pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
 
 data PeerDownloadLogKey
+data PeerHttpPortKey
+
+instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
+  key = "http-port"
 
 instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"
@@ -165,6 +169,15 @@ instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue
       val =
         lastMay [ fromString (show $ pretty e)
                 | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
+                ]
+
+
+instance {-# OVERLAPPABLE #-} (HasCfgKey a (Maybe Integer)) => HasCfgValue a (Maybe Integer) where
+  cfgValue (PeerConfig syn) = val
+    where
+      val =
+        lastMay [ e
+                | ListVal @C (Key s [LitIntVal e]) <- syn, s == key @a @(Maybe Integer)
                 ]
 
 instance (HasCfgKey a FeatureSwitch) => HasCfgValue a FeatureSwitch where
