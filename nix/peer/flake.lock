@@ -236,16 +236,16 @@
         "suckless-conf": "suckless-conf_2"
       },
       "locked": {
-        "lastModified": 1679562884,
-        "narHash": "sha256-NXnEgzSBEXE+XaVM9Io4rsA7Y6jvQ3WoCE8CqvDi6no=",
+        "lastModified": 1679596211,
+        "narHash": "sha256-MrfKDT4O4kEjM6KKA7taTCBsMSz4OvsxEd+oDNUfzc0=",
         "owner": "voidlizard",
         "repo": "hbs2",
-        "rev": "0ca64bf1929994b3e8f5fe6ad834440f018368ff",
+        "rev": "df5bb49271f9aa03572a4ac34df480b674501471",
         "type": "github"
       },
       "original": {
         "owner": "voidlizard",
-        "ref": "hbs2-git",
+        "ref": "master",
         "repo": "hbs2",
         "type": "github"
       }
