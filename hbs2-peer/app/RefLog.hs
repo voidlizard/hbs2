@@ -169,6 +169,7 @@ reflogWorker conf adapter = do
 
     here <- liftIO $ readTVarIO reflogMon <&> HashSet.member h
     unless here do
+      liftIO $ atomically $ modifyTVar' reflogMon (HashSet.insert h)
       void $ liftIO $ async $ do
         timeout <-  async (reflogTimeout reflog h)
         work <- async $ do
