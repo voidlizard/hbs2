@@ -347,10 +347,6 @@ storeObjectHttpPut :: (MonadIO m, HasCatAPI m, HasConf m)
 
 storeObjectHttpPut meta bs = do
 
-  -- TODO: разбить-на-блоки
-  -- TODO: сохранить-блоки-получить-хэши
-  -- TODO: записать-merkle-c-метадатой-и-хэшами
-
   let chu = chunks (fromIntegral defBlockSize) bs
 
   trace $ length chu
