@@ -18,6 +18,8 @@ data RemoteEnv =
   RemoteEnv
   { _reHttpCat :: API
   , _reHttpSize :: API
+  , _reHttpPut  :: API
+  , _reHttpRefGet  :: API
   , _reCreds :: TVar (HashMap RepoRef (PeerCredentials Schema))
   }
 
@@ -38,6 +40,8 @@ runRemoteM env m = runReaderT (fromRemoteApp m) env
 instance MonadIO m => HasCatAPI (GitRemoteApp m) where
   getHttpCatAPI = view (asks reHttpCat)
   getHttpSizeAPI = view (asks reHttpSize)
+  getHttpPutAPI = view (asks reHttpPut)
+  getHttpRefLogGetAPI = view (asks reHttpRefGet)
 
 instance MonadIO m => HasRefCredentials (GitRemoteApp m) where
 

@@ -869,6 +869,7 @@ rpcClientMain opt action = do
 withRPC :: RPCOpt -> RPC UDP -> IO ()
 withRPC o cmd = rpcClientMain o $ do
 
+  hSetBuffering stdout LineBuffering
 
   conf <- peerConfigRead (view rpcOptConf o)
 
@@ -941,7 +942,8 @@ withRPC o cmd = rpcClientMain o $ do
 
                         void $ liftIO $ race onTimeout do
                                  k <- liftIO $ atomically $ readTQueue pokeFQ
-                                 Log.info $ pretty k
+                                 print (pretty k)
+                                 hFlush stdout
                                  exitSuccess
 
                       RPCPeers{} -> liftIO do
@@ -965,6 +967,7 @@ withRPC o cmd = rpcClientMain o $ do
                                   Nothing -> exitFailure
                                   Just re -> do
                                    print $ pretty re
+                                   hFlush stdout
                                    exitSuccess
 
                       _ -> pure ()

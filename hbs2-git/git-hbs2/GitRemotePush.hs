@@ -52,6 +52,8 @@ instance MonadIO m => HasConf (RunWithConfig (GitRemoteApp m)) where
 instance MonadIO m => HasCatAPI (RunWithConfig (GitRemoteApp m)) where
   getHttpCatAPI = lift getHttpCatAPI
   getHttpSizeAPI = lift getHttpSizeAPI
+  getHttpPutAPI = lift getHttpPutAPI
+  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
 instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
   getCredentials = lift . getCredentials

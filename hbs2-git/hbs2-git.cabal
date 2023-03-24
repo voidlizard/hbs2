@@ -103,6 +103,7 @@ library
     -- other-extensions:
     build-depends:    base
                    ,  terminal-progress-bar
+                   ,  http-types
 
     hs-source-dirs:   lib
     default-language: Haskell2010
@@ -123,6 +124,7 @@ executable git-hbs2
     build-depends:
         base, hbs2-git
       , optparse-applicative
+      , http-types
 
     hs-source-dirs:   git-hbs2
     default-language: Haskell2010
@@ -150,6 +152,7 @@ executable git-remote-hbs2
       , unix
       , unliftio
       , terminal-progress-bar
+      , http-types
 
     hs-source-dirs:   git-hbs2
     default-language: Haskell2010

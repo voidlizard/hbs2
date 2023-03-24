@@ -2,6 +2,7 @@
 module HBS2Git.Export where
 
 import HBS2.Prelude.Plated
+import HBS2.Clock
 import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
@@ -26,17 +27,15 @@ import Data.List (sortBy)
 import Control.Applicative
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.ByteString qualified as BS
 import Data.Cache as Cache
 import Data.Foldable (for_)
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TVar
+import Control.Concurrent.Async
 
 data HashCache =
   HashCache
@@ -85,6 +84,7 @@ export h repoHead = do
     liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
 
   -- notice "store dependencies to state"
+  -- hashes <- readHashesFromBlock undefined
 
   sz   <- liftIO $ Cache.size (hCache cache)
   mon1 <- newProgressMonitor "storing dependencies" sz
@@ -110,14 +110,14 @@ export h repoHead = do
     -- let gha = gitHashObject (GitObject Blob repoHead)
     hh  <- lift $ storeObject metaHead repoHeadStr `orDie` "cant save repo head"
 
-
-    mon3 <- newProgressMonitor "store all objects from repo" (length deps)
+    mon3 <- newProgressMonitor "export objects from repo" (length deps)
 
     for_ deps $ \d -> do
       here <- stateGetHash d <&> isJust
       -- FIXME: asap-check-if-objects-is-in-hbs2
       unless here do
         lbs <- gitReadObject Nothing d
+
         -- TODO: why-not-default-blob
         --   anything is blob
         tp <- gitGetObjectType d <&> fromMaybe Blob --
@@ -126,7 +126,6 @@ export h repoHead = do
                                $ metaApp
                                <> "type:" <+> pretty tp <+> pretty d
                                <> line
-
 
         hr' <- lift $ storeObject metaO lbs
 
@@ -160,7 +159,23 @@ export h repoHead = do
 
     seqno <- stateGetSequence <&> succ
     -- FIXME: same-transaction-different-seqno
+
     postRefUpdate h seqno (HashRef root)
+
+    let noRef = do
+          pause @'Seconds 20
+          shutUp
+          die $ show $ pretty "No reference appeared for" <+> pretty h
+
+    wmon <- newProgressMonitor "waiting for ref" 20
+    void $ liftIO $ race noRef $ do
+            runApp NoLog do
+              fix \next -> do
+                v <- readRefHttp h
+                updateProgress wmon 1
+                case v of
+                  Nothing -> pause @'Seconds 1 >> next
+                  Just{}  -> pure ()
 
     pure (HashRef root, hh)
 

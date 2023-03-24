@@ -36,6 +36,7 @@ import Data.Kind
 
 type Schema = UDP
 
+-- FIXME: introduce-API-type
 type API = String
 
 type DBEnv = Connection
@@ -56,8 +57,10 @@ data AppEnv =
   , _appGitDir       :: FilePath
   , _appConf         :: [Syntax C]
   , _appStateDir     :: FilePath
-  , _appPeerHttpCat  :: String
+  , _appPeerHttpCat  :: API
   , _appPeerHttpSize :: API
+  , _appPeerHttpPut  :: API
+  , _appPeerHttpRefLogGet :: API
   , _appRefCred      :: TVar (HashMap RepoRef (PeerCredentials Schema))
   }
 
@@ -114,6 +117,8 @@ instance {-# OVERLAPPABLE #-} MonadIO m => HasProgress m where
 class MonadIO m => HasCatAPI m where
   getHttpCatAPI  :: m API
   getHttpSizeAPI :: m API
+  getHttpPutAPI  :: m API
+  getHttpRefLogGetAPI :: m API
 
 class MonadIO m => HasRefCredentials m where
   getCredentials :: RepoRef -> m (PeerCredentials Schema)
@@ -122,6 +127,8 @@ class MonadIO m => HasRefCredentials m where
 instance (HasCatAPI m, MonadIO m) => HasCatAPI (MaybeT m) where
   getHttpCatAPI = lift getHttpCatAPI
   getHttpSizeAPI = lift getHttpSizeAPI
+  getHttpPutAPI = lift getHttpPutAPI
+  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
 class Monad m => HasCfgKey a b m where
   -- type family CfgValue a :: Type

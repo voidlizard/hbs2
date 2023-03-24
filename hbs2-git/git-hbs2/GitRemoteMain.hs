@@ -6,6 +6,7 @@ import HBS2.Base58
 import HBS2.OrDie
 import HBS2.Git.Types
 import HBS2.Git.Local.CLI
+import HBS2.Clock
 
 import HBS2.System.Logger.Simple
 
@@ -72,7 +73,6 @@ parseRepoURL url' = either (const Nothing) Just (parseOnly p url)
 capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
-
 readHeadDef :: HasCatAPI m => DBEnv -> m LBS.ByteString
 readHeadDef db  =
   withDB db stateGetHead >>=
@@ -117,6 +117,8 @@ loop args = do
 
   updateLocalState ref
 
+  hd <- readHeadDef db
+
   hashes <- withDB db stateGetAllObjects
 
   -- FIXME: asap-get-all-existing-objects-or-all-if-clone
@@ -151,7 +153,7 @@ loop args = do
     let cmd = BS.words str
 
     -- trace $ pretty (fmap BS.unpack cmd)
-    hPrint stderr $ show $ pretty (fmap BS.unpack cmd)
+    -- hPrint stderr $ show $ pretty (fmap BS.unpack cmd)
     --
 
     isBatch <- liftIO $ readTVarIO batch
@@ -161,8 +163,7 @@ loop args = do
         liftIO $ atomically $ writeTVar batch False
         sendEol
         when isBatch next
-        unless isBatch do
-          updateLocalState ref
+        -- unless isBatch do
 
       ["capabilities"] -> do
           trace $ "send capabilities" <+> pretty (BS.unpack capabilities)
@@ -170,9 +171,6 @@ loop args = do
           next
 
       ["list"] -> do
-
-        updateLocalState ref
-        hd <- readHeadDef db
 
         hl <- liftIO $ readTVarIO jobNumT
         pb <- newProgressMonitor "storing git objects" hl
@@ -198,14 +196,14 @@ loop args = do
         next
 
       ["list","for-push"] -> do
-        for_ (LBS.lines hdRefOld) (sendLn . LBS.toStrict)
+        for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
 
       ["fetch", sha1, x] -> do
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         liftIO $ atomically $ writeTVar batch True
-        sendEol
+        -- sendEol
         next
 
       ["push", rr] -> do
@@ -214,11 +212,13 @@ loop args = do
         liftIO $ atomically $ writeTVar batch True
         pushed <- push ref pu
         case pushed of
-          Nothing  -> sendEol
+          Nothing  -> hPrint stderr "fucked!" >> sendEol
           Just re -> sendLn [qc|ok {pretty re}|]
         next
 
       other -> die $ show other
+
+    -- updateLocalState ref
 
   where
     fromString' "" = Nothing
@@ -247,6 +247,8 @@ main = do
 
   env <- RemoteEnv <$> detectHBS2PeerCatAPI
                    <*> detectHBS2PeerSizeAPI
+                   <*> detectHBS2PeerPutAPI
+                   <*> detectHBS2PeerRefLogGetAPI
                    <*> liftIO (newTVarIO mempty)
 
   runRemoteM env do

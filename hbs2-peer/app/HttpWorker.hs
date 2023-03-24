@@ -3,6 +3,8 @@ module HttpWorker where
 import HBS2.Prelude
 import HBS2.Actors.Peer
 import HBS2.Storage
+import HBS2.Hash
+import HBS2.Data.Types.Refs
 
 import HBS2.System.Logger.Simple
 
@@ -36,7 +38,7 @@ httpWorker conf e = do
   maybe1 port' none $ \port -> liftIO do
 
     scotty port $ do
-      middleware logStdoutDev
+      middleware logStdout
 
       get "/size/:hash" do
         what <- param @String "hash" <&> fromString
@@ -55,6 +57,31 @@ httpWorker conf e = do
             addHeader "content-type" "application/octet-stream"
             addHeader "content-length" [qc|{LBS.length lbs}|]
             raw lbs
+
+      get "/reflog/:ref" do
+        re <- param @String "ref" <&> fromStringMay
+        case re of
+          Nothing -> status status404
+          Just ref -> do
+            va <- liftIO $ getRef sto (RefLogKey ref)
+            maybe1 va (status status404) $ \val -> do
+              text [qc|{pretty val}|]
+
+      put "/" do
+        -- FIXME: optional-header-based-authorization
+        --   signed nonce + peer key?
+
+        -- TODO: ddos-protection
+        -- FIXME: fix-max-size-hardcode
+        bs <- LBS.take 4194304 <$> body
+        -- let ha = hashObject @HbSync bs
+        -- here <- liftIO $ hasBlock sto ha <&> isJust
+
+        mbHash <- liftIO $ putBlock sto bs
+
+        case mbHash of
+          Nothing -> status status500
+          Just h  -> text [qc|{pretty h}|]
 
   pure ()
 

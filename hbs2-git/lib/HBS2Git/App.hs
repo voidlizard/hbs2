@@ -18,6 +18,7 @@ import HBS2.Git.Types
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
 import HBS2.Net.Proto.RefLog
+import HBS2.Defaults (defBlockSize)
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
@@ -40,11 +41,18 @@ import System.FilePath
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import Network.HTTP.Simple
+import Network.HTTP.Types.Status
 import Control.Concurrent.STM
 import Codec.Serialise
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Text qualified as Text
+import System.IO ( stderr )
+import Data.IORef
+import System.IO.Unsafe (unsafePerformIO)
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
+import Control.Concurrent.Async
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
@@ -89,6 +97,8 @@ data WithLog = NoLog | WithLog
 instance MonadIO m => HasCatAPI (App m) where
   getHttpCatAPI = asks (view appPeerHttpCat)
   getHttpSizeAPI = asks (view appPeerHttpSize)
+  getHttpPutAPI = asks (view appPeerHttpPut)
+  getHttpRefLogGetAPI = asks (view appPeerHttpRefLogGet)
 
 instance MonadIO m => HasRefCredentials (App m) where
   setCredentials ref cred = do
@@ -103,31 +113,55 @@ instance MonadIO m => HasRefCredentials (App m) where
 withApp :: MonadIO m => AppEnv -> App m a -> m a
 withApp env m = runReaderT (fromApp m) env
 
-detectHBS2PeerCatAPI :: MonadIO m => m String
+{-# NOINLINE hBS2PeerCatAPI #-}
+hBS2PeerCatAPI :: IORef (Maybe API)
+hBS2PeerCatAPI = unsafePerformIO (newIORef Nothing)
+
+detectHBS2PeerCatAPI :: MonadIO m => m API
 detectHBS2PeerCatAPI = do
   -- FIXME: hardcoded-hbs2-peer
-  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
 
-  trace $ pretty (LBS.unpack o)
+  v <- liftIO $ readIORef hBS2PeerCatAPI
 
-  let dieMsg = "hbs2-peer is down or it's http is inactive"
+  case v of
+    Just x -> pure x
+    Nothing -> do
+      (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
 
-  let answ = parseTop (LBS.unpack o) & fromRight mempty
+      let dieMsg = "hbs2-peer is down or it's http is inactive"
 
-  let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
-  -- shutUp
+      let answ = parseTop (LBS.unpack o) & fromRight mempty
 
-  pnum <- pure po `orDie`  dieMsg
+      let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
+      -- shutUp
 
-  debug $ pretty "using http port" <+> pretty po
+      pnum <- pure po `orDie`  dieMsg
 
-  pure [qc|http://localhost:{pnum}/cat|]
+      debug $ pretty "using http port" <+> pretty po
+
+      let api = [qc|http://localhost:{pnum}/cat|]
+
+      liftIO $ writeIORef hBS2PeerCatAPI (Just api)
+
+      pure api
 
 
-detectHBS2PeerSizeAPI :: MonadIO m => m String
+detectHBS2PeerSizeAPI :: MonadIO m => m API
 detectHBS2PeerSizeAPI = do
   api <- detectHBS2PeerCatAPI
   let new = Text.replace "/cat" "/size" $ Text.pack api
+  pure $ Text.unpack new
+
+detectHBS2PeerPutAPI :: MonadIO m => m API
+detectHBS2PeerPutAPI = do
+  api <- detectHBS2PeerCatAPI
+  let new = Text.replace "/cat" "/" $ Text.pack api
+  pure $ Text.unpack new
+
+detectHBS2PeerRefLogGetAPI :: MonadIO m => m API
+detectHBS2PeerRefLogGetAPI = do
+  api <- detectHBS2PeerCatAPI
+  let new = Text.replace "/cat" "/reflog" $ Text.pack api
   pure $ Text.unpack new
 
 getAppStateDir :: forall m . MonadIO m => m FilePath
@@ -159,10 +193,12 @@ runApp l m = do
 
   reQ <- detectHBS2PeerCatAPI
   szQ <- detectHBS2PeerSizeAPI
+  puQ <- detectHBS2PeerPutAPI
+  rlQ <- detectHBS2PeerRefLogGetAPI
 
   mtCred <- liftIO $ newTVarIO mempty
 
-  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ szQ mtCred
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ szQ puQ rlQ mtCred
 
   runReaderT (fromApp m) env
 
@@ -174,13 +210,50 @@ runApp l m = do
   setLoggingOff @TRACE
   setLoggingOff @INFO
 
+
+writeBlock :: forall m . (HasCatAPI m, MonadIO m) => ByteString -> m (Maybe (Hash HbSync))
+writeBlock bs = do
+  req <-  getHttpPutAPI
+  writeBlockIO req bs
+
+writeBlockIO :: forall m . MonadIO m => API -> ByteString -> m (Maybe (Hash HbSync))
+writeBlockIO api bs = do
+  req1 <-  liftIO $ parseRequest api
+  let request = setRequestMethod "PUT"
+                    $ setRequestHeader "Content-Type" ["application/octet-stream"]
+                    $ setRequestBodyLBS bs req1
+
+  resp <- httpLBS request
+
+  case statusCode (getResponseStatus resp) of
+
+    200 -> pure $ getResponseBody resp & LBS.unpack & fromStringMay
+    _   -> pure Nothing
+
+
 readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
 readBlock h = do
-  -- trace $ "readBlock" <+> pretty h
-  req1 <-  getHttpCatAPI -- asks (view appPeerHttpCat)
+  req1 <-  getHttpCatAPI
   let reqs = req1 <> "/" <> show (pretty h)
   req  <- liftIO $ parseRequest reqs
-  httpLBS req <&> getResponseBody <&> Just
+  resp <- httpLBS req
+
+  case statusCode (getResponseStatus resp) of
+    200 -> pure $ Just (getResponseBody resp)
+    _   -> pure Nothing
+
+
+readRefHttp :: forall m . (HasCatAPI m, MonadIO m) => RepoRef -> m (Maybe HashRef)
+readRefHttp re = do
+  req0 <- getHttpRefLogGetAPI
+  let req = req0 <> "/" <> show (pretty re)
+  request <- liftIO $ parseRequest req
+  resp <- httpLBS request
+
+  case statusCode (getResponseStatus resp) of
+    200 -> pure $ getResponseBody resp & LBS.unpack & fromStringMay
+    _   -> pure Nothing
+
 
 getBlockSize :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe Integer)
 getBlockSize h = do
@@ -189,8 +262,22 @@ getBlockSize h = do
   req  <- liftIO $ parseRequest reqs
   httpJSONEither req <&> getResponseBody  <&> either (const Nothing) Just
 
-readRef :: MonadIO m => RepoRef -> m (Maybe HashRef)
-readRef r = do
+readRef :: (HasCatAPI m, MonadIO m) => RepoRef -> m (Maybe HashRef)
+readRef = readRefHttp
+
+
+readHashesFromBlock :: (MonadIO m, HasCatAPI m) => HashRef -> m [HashRef]
+readHashesFromBlock (HashRef h) = do
+  treeQ <- liftIO newTQueueIO
+  walkMerkle h (readBlock . HashRef) $ \hr -> do
+    case hr of
+      Left{} -> pure ()
+      Right (hrr :: [HashRef]) -> liftIO $ atomically $ writeTQueue treeQ hrr
+  re <- liftIO $ atomically $ flushTQueue treeQ
+  pure $ mconcat re
+
+readRefCLI :: MonadIO m => RepoRef -> m (Maybe HashRef)
+readRefCLI r = do
   let k = pretty (AsBase58 r)
   trace  [qc|hbs2-peer reflog get {k}|]
   let cmd = setStdin closed $ setStderr closed
@@ -248,8 +335,55 @@ postRefUpdate ref seqno hash = do
 
   trace $ "hbs2-peer exited with code" <+> viaShow code
 
-storeObject :: (MonadIO m, HasConf m) => ByteString -> ByteString -> m (Maybe HashRef)
-storeObject = storeObjectHBS2Store
+storeObject :: (MonadIO m, HasCatAPI m, HasConf m)
+            => ByteString -> ByteString -> m (Maybe HashRef)
+-- storeObject = storeObjectHBS2Store
+storeObject = storeObjectHttpPut
+
+storeObjectHttpPut :: (MonadIO m, HasCatAPI m, HasConf m)
+                   => ByteString
+                   -> ByteString
+                   -> m (Maybe HashRef)
+
+storeObjectHttpPut meta bs = do
+
+  -- TODO: разбить-на-блоки
+  -- TODO: сохранить-блоки-получить-хэши
+  -- TODO: записать-merkle-c-метадатой-и-хэшами
+
+  let chu = chunks (fromIntegral defBlockSize) bs
+
+  trace $ length chu
+
+  rt <- liftIO $ Cache.newCache Nothing
+
+  -- FIXME: run-concurrently
+  hashes  <- forM chu $ \s -> do
+               h <- writeBlock s `orDie` "cant write block"
+               pure (HashRef h)
+
+  let pt = toPTree (MaxSize 1024) (MaxNum 1024) hashes -- FIXME: settings
+
+  trace $ viaShow pt
+
+  root <- makeMerkle 0 pt $ \(h,t,bss) -> do
+            liftIO $ Cache.insert rt h (t,bss)
+            -- void $ writeBlock bss
+
+  pieces' <- liftIO $  Cache.toList rt
+  let pieces = [ bss | (_, (_,bss), _) <- pieces' ]
+
+  api <- getHttpPutAPI
+
+  liftIO $ mapConcurrently (writeBlockIO api) pieces
+
+  mtree <- liftIO $ fst <$> Cache.lookup rt root `orDie` "cant find root block"
+
+  let txt = LBS.unpack meta & Text.pack
+
+  let ann = serialise (MTreeAnn (ShortMetadata txt) NullEncryption  mtree)
+
+  writeBlock ann <&> fmap HashRef
 
 -- FIXME: ASAP-store-calls-hbs2
 --   Это может приводить к тому, что если пир и hbs2-peer
