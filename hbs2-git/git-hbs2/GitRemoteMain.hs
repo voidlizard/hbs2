@@ -212,7 +212,6 @@ loop args = do
         let pu = fmap (fromString' . BS.unpack) bra
         liftIO $ atomically $ writeTVar batch True
         pushed <- push ref pu
-        hPrint stderr (pretty pushed)
         case pushed of
           Nothing  -> sendEol
           Just re -> sendLn [qc|ok {pretty re}|]
