@@ -115,8 +115,7 @@ loop args = do
 
   hdRefOld <- readHeadDef db
 
-  -- updateLocalState ref
-  -- hd <- readHeadDef db
+  updateLocalState ref
 
   hashes <- withDB db stateGetAllObjects
 
