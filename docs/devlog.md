@@ -2,6 +2,22 @@
 
 ## 2023-03-24
 
+FIXME: git-does-not-show-update-after-push
+ git должен печатать то, что он закоммитил, после push,
+ однако не пишет. А git push+fetch --- пишет.
+
+ [dmz@minipig:~/w/hbs2]$ git push hbs2
+ importing objects [=========================] 100%
+ calculate dependencies
+ storing dependencies [======================] 100%
+ store objects [=============================] 100%
+ head: 9fJkmR61qUPZdrkEYpEWPQna2Bk6oaepofK5ZjJQHxrF
+ merkle: GpHhNxwSLcvMt2rYRx2TLdxwFH4mhUrjonAs8WPnJuC2
+ Everything up-to-date
+ importing objects [=========================] 100%
+
+
+
 FIXME: weird-reflog-syncronization-delays
  Долгое время не обновляется reflog, при том,
  что все транзации в БД есть. Нужно исследовать
