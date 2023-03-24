@@ -14,6 +14,8 @@ import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Base58
 
+import HBS2.System.Logger.Simple
+
 import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
@@ -245,7 +247,9 @@ simpleGetChunkLazy s key off size = do
   let action = do
        let fn = simpleBlockFileName s key
 
-       bs <- (Just <$> touchForRead s key) `catchAny` \e -> liftIO (print "CANT MMAP") >> (pure Nothing)  -- FIXME: log this situation (file not found)
+       bs <- (Just <$> touchForRead s key) `catchAny` \_ -> do
+                  err $ "simpleGetChunkLazy" <+> pretty key <+> pretty off <+> pretty size
+                  pure Nothing
 
        let result = BS.take (fromIntegral size) . BS.drop (fromIntegral off) <$> bs
 
@@ -287,6 +291,10 @@ simplePutBlockLazy doWait s lbs = do
 
     if doWait then do
       ok <- atomically $ TBQ.readTBQueue waits
+
+      unless ok do
+        err $ "simplePutBlockLazy" <+> pretty hash <+> pretty fn
+
       pure $! if ok then Just hash else Nothing
     else
       pure $ Just hash
@@ -326,6 +334,9 @@ simpleWriteLinkRaw ss h lbs = do
     r <- MaybeT $ putBlock ss lbs
     MaybeT $ liftIO $ spawnAndWait ss $ do
       BS.writeFile fnr (toByteString (AsBase58 r))
+        `catchAny` \_ -> do
+          err $ "simpleWriteLinkRaw" <+> pretty h <+> pretty fnr
+
       pure h
 
 simpleWriteLinkRawRef :: forall h . ( IsSimpleStorageKey h
@@ -341,6 +352,8 @@ simpleWriteLinkRawRef ss h ref = do
   let fnr = simpleRefFileName ss h
   void $ spawnAndWait ss $ do
     BS.writeFile fnr (toByteString (AsBase58 ref))
+      `catchAny` \_ -> do
+        err $ "simpleWriteLinkRawRef" <+> pretty h <+> pretty ref <+> pretty fnr
 
 simpleReadLinkRaw :: IsKey h
                   => SimpleStorage h
@@ -351,7 +364,9 @@ simpleReadLinkRaw ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
           -- FIXME: log-this-situation
-          (Just <$> LBS.readFile fn) `catchAny` const (pure Nothing)
+          (Just <$> LBS.readFile fn) `catchAny` \_ -> do
+            err $ "simpleReadLinkRaw" <+> pretty hash <+> pretty fn
+            pure Nothing
 
   pure $ fromMaybe Nothing rs
 
@@ -369,7 +384,9 @@ simpleReadLinkVal ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
         -- FIXME: log-this-situation
-        (Just <$> BS.readFile fn) `catchAny` \_ -> pure Nothing
+        (Just <$> BS.readFile fn) `catchAny` \_ -> do
+          err $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn
+          pure Nothing
 
   runMaybeT do
       MaybeT . getBlock ss . unAsBase58 =<< MaybeT (pure (fromByteString =<< join rs))
