@@ -106,10 +106,6 @@ loop args = do
   --FIXME: git-fetch-second-time
   -- Разобраться, почему git fetch срабатывает со второго раза
 
-  -- FIXME: git-push-always-up-to-date
-  --  Разобраться, почему git push всегда говорит
-  --  , что всё up-to-date
-
   checkRef <- readRef ref <&> isJust
 
   unless checkRef do
@@ -132,9 +128,6 @@ loop args = do
   existed <- gitListAllObjects <&> HashSet.fromList
 
   jobz <- liftIO newTQueueIO
-
-  -- TODO: check-if-fetch-really-works
-  -- TODO: check-if-fetch-actually-works
 
   jobNumT <- liftIO $ newTVarIO 0
   liftIO $ atomically $ for_ hashes $ \o@(_,gh,_) -> do
@@ -167,8 +160,6 @@ loop args = do
     case cmd of
       [] -> do
         liftIO $ atomically $ writeTVar batch False
-        -- -- FIXME: wtf
-        -- when isBatch next
         sendEol
         when isBatch next
 
@@ -206,12 +197,10 @@ loop args = do
         next
 
       ["list","for-push"] -> do
-        -- FIXME: send-head-before-update
         for_ (LBS.lines hdRefOld) (sendLn . LBS.toStrict)
         sendEol
         next
 
-      -- TODO: check-if-git-push-works
       ["fetch", sha1, x] -> do
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         liftIO $ atomically $ writeTVar batch True
