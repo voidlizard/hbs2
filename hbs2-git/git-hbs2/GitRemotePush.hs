@@ -61,7 +61,7 @@ push :: forall  m . ( MonadIO m
                     , HasProgress (RunWithConfig (GitRemoteApp m))
                     )
 
-     => RepoRef -> [Maybe GitRef] -> GitRemoteApp m ()
+     => RepoRef -> [Maybe GitRef] -> GitRemoteApp m (Maybe GitRef)
 
 push remote [bFrom , Just br] = do
 
@@ -96,6 +96,9 @@ push remote [bFrom , Just br] = do
 
     info  $ "head:" <+> pretty hh
     info  $ "merkle:" <+> pretty root
+    pure (Just br)
 
-push r w = warn $ "ignoring weird push" <+> pretty w <+> pretty r
+push r w = do
+  warn $ "ignoring weird push" <+> pretty w <+> pretty r
+  pure Nothing
 

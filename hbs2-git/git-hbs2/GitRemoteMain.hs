@@ -119,9 +119,8 @@ loop args = do
 
   hdRefOld <- readHeadDef db
 
-  updateLocalState ref
-
-  hd <- readHeadDef db
+  -- updateLocalState ref
+  -- hd <- readHeadDef db
 
   hashes <- withDB db stateGetAllObjects
 
@@ -170,11 +169,8 @@ loop args = do
         liftIO $ atomically $ writeTVar batch False
         -- -- FIXME: wtf
         -- when isBatch next
-        if isBatch then do
-            sendEol
-            next
-          else do
-            updateLocalState ref
+        sendEol
+        when isBatch next
 
       ["capabilities"] -> do
           trace $ "send capabilities" <+> pretty (BS.unpack capabilities)
@@ -183,6 +179,8 @@ loop args = do
 
       ["list"] -> do
 
+        updateLocalState ref
+        hd <- readHeadDef db
 
         hl <- liftIO $ readTVarIO jobNumT
         pb <- newProgressMonitor "storing git objects" hl
@@ -217,13 +215,18 @@ loop args = do
       ["fetch", sha1, x] -> do
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         liftIO $ atomically $ writeTVar batch True
+        sendEol
         next
 
       ["push", rr] -> do
         let bra = BS.split ':' rr
         let pu = fmap (fromString' . BS.unpack) bra
         liftIO $ atomically $ writeTVar batch True
-        push ref pu
+        pushed <- push ref pu
+        hPrint stderr (pretty pushed)
+        case pushed of
+          Nothing  -> sendEol
+          Just re -> sendLn [qc|ok {pretty re}|]
         next
 
       other -> die $ show other
