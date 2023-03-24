@@ -128,7 +128,7 @@ reflogWorker conf adapter = do
 
   sto <- getStorage
 
-  q <- liftIO newTQueueIO
+  pQ <- liftIO newTQueueIO
 
   let reflogTimeout puk h = do
         -- FIXME: fix-time-hardcode-again
@@ -139,7 +139,7 @@ reflogWorker conf adapter = do
         signed <- verifyRefLogUpdate tran
         when signed do
 
-          liftIO $ atomically $ writeTQueue q (reflog, [tran])
+          liftIO $ atomically $ writeTQueue pQ (reflog, [tran])
 
           -- FIXME: fix-this-copypaste
           let bss = view refLogUpdData tran
@@ -157,7 +157,7 @@ reflogWorker conf adapter = do
   subscribe @e RefLogUpdateEvKey $ \(RefLogUpdateEvData (reflog,v)) -> do
     trace $ "reflog worker.got refupdate" <+> pretty (AsBase58 reflog)
     liftIO $ reflogUpdate reflog Nothing v
-    liftIO $ atomically $ writeTQueue q (reflog, [v])
+    liftIO $ atomically $ writeTQueue pQ (reflog, [v])
 
 
   reflogMon <- liftIO $ newTVarIO (mempty :: HashSet (Hash HbSync))
@@ -234,7 +234,7 @@ reflogWorker conf adapter = do
           -- TODO: reflog-process-period-to-config
           pause @'Seconds 10
 
-          els <- liftIO $ atomically $ flushTQueue q
+          els <- liftIO $ atomically $ flushTQueue pQ
 
           let byRef = HashMap.fromListWith (<>) els
 
@@ -242,27 +242,32 @@ reflogWorker conf adapter = do
             let reflogkey = RefLogKey r
             h' <- liftIO $! getRef sto (RefLogKey r)
 
-            hashes <- liftIO $ readHashesFromBlock sto h'
+            hashes <- liftIO $ readHashesFromBlock sto h' <&> HashSet.fromList
 
             -- save new transaction, must be idempotent
-            newHashes <- liftIO $ mapM (putBlock sto . serialise) x <&> catMaybes <&> fmap HashRef
+            newHashes <- liftIO $ mapM (putBlock sto . serialise) x <&> catMaybes
+                                                                    <&> fmap HashRef
+                                                                    <&> HashSet.fromList
 
-            -- TODO: needs-very-fast-sort-and-dedupe
-            let hashesNew = HashSet.fromList (hashes <> newHashes) & HashSet.toList
+            let already = newHashes `HashSet.isSubsetOf` hashes
 
-            -- FIXME: remove-chunk-num-hardcode
-            let pt = toPTree (MaxSize 256) (MaxNum 256) hashesNew
+            unless already do
+              -- TODO: needs-very-fast-sort-and-dedupe
+              let hashesNew = (hashes <> newHashes) & HashSet.toList
 
-            newRoot <- liftIO do
-              nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
-                void $ putBlock sto bss
+              -- FIXME: remove-chunk-num-hardcode
+              let pt = toPTree (MaxSize 256) (MaxNum 256) hashesNew
 
-              updateRef sto reflogkey nref
-              pure nref
+              newRoot <- liftIO do
+                nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
+                  void $ putBlock sto bss
 
-            -- TODO: old-root-to-delete
+                updateRef sto reflogkey nref
+                pure nref
 
-            trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty newRoot
+              -- TODO: old-root-to-delete
+
+              trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty newRoot
 
           trace  "I'm a reflog update worker"
 

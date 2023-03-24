@@ -274,6 +274,8 @@ simplePutBlockLazy doWait s lbs = do
 
   stop <- atomically $ TV.readTVar ( s ^. storageStopWriting )
 
+  size <- simpleBlockExists s hash <&> fromMaybe 0
+
   if stop then do
     pure Nothing
 
@@ -281,7 +283,8 @@ simplePutBlockLazy doWait s lbs = do
 
     waits <- TBQ.newTBQueueIO 1 :: IO (TBQueue Bool)
 
-    let action = do
+    let action | size > 0 = atomically $ TBQ.writeTBQueue waits True
+               | otherwise = do
           catch (LBS.writeFile fn lbs)
                 (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
 
