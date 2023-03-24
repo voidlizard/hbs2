@@ -151,7 +151,7 @@ loop args = do
     let cmd = BS.words str
 
     -- trace $ pretty (fmap BS.unpack cmd)
-    -- hPrint stderr $ show $ pretty (fmap BS.unpack cmd)
+    hPrint stderr $ show $ pretty (fmap BS.unpack cmd)
     --
 
     isBatch <- liftIO $ readTVarIO batch
@@ -161,6 +161,8 @@ loop args = do
         liftIO $ atomically $ writeTVar batch False
         sendEol
         when isBatch next
+        unless isBatch do
+          updateLocalState ref
 
       ["capabilities"] -> do
           trace $ "send capabilities" <+> pretty (BS.unpack capabilities)
