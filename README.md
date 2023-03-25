@@ -408,7 +408,7 @@ cat --keyring kr <hash>
 
 ## Why DVCS are not actually distributed
 
-Reason 1. Because they don have a content distribution mechanisms
+Reason 1. Because they don't have any content distribution mechanism.
 
 Common practice right now is using centralized services, which are:
 
@@ -426,6 +426,13 @@ There are registered examples, how one most popular git service droppped
 repositoties because they contain some words in README file.
 
 And banned accounts for visiting the service from wrong IP address.
+
+And data loss in a cloud storage services because they
+located all replicas in a single data centre which was
+destroyed by the fire or a canalization breakthrough.
+They even don't tell you how many replicas do they have
+for your data. Why? Because fuck you, that's why.
+
 
 Setting own hosts/services for dvcs data hosting.
 
