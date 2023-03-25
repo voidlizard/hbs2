@@ -26,7 +26,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
  haskell-flake-utils.lib.simpleCabalProject2flake {
    inherit self nixpkgs;
-   systems = [ "x86_64-linux" "aarch64-linux" ];
+   systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" ];
    name = "hbs2";
 
    haskellFlakes = with inputs; [
