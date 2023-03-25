@@ -76,6 +76,21 @@ root data structures, protocols or API may change.
 It also have some known issues with performance and might have some
 stability issues. We\'re working hard to fix them.
 
+## Current status
+
+MVP. Means that it is not fully working, but it's
+useful. It is useful right now for data sharing,
+including git repositories.
+
+Encryption status: wip, partially works.
+
+Encryption for arbitrary merkle trees/blocks:
+implemented, not really tested.
+
+Encryption for protocols: wip, right now is turned
+off!
+
+
 # HOWTO
 
 ## How to install
@@ -514,5 +529,15 @@ not writing all the time.
 # Contact
 
 telegram: @voidlizard
+
+# Support
+
+Contribute! Code or ideas or share the experience or
+any suggestions.
+
+
+# Donate
+
+TBD.
 
 
