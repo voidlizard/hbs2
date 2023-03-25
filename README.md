@@ -540,6 +540,13 @@ not writing all the time.
 
 telegram: @voidlizard
 
+# Download
+
+hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+
+Note! This is not a bitcoin address. If you want a bitcoin
+address to donate, use the other one (TBD).
+
 # Support
 
 Contribute! Code or ideas or share the experience or
