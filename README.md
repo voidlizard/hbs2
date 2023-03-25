@@ -13,6 +13,7 @@
         distributed](#why-dvcs-are-not-actually-distributed)
     -   [Okay, if centralized services are bad, why are you
         here?](#okay-if-centralized-services-are-bad-why-are-you-here)
+    -   [What is the fixme?](#what-is-the-fixme)
 
 # ABOUT
 
@@ -459,7 +460,12 @@ hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 
 as the main project repository.
 
-Contact:
+## What is the fixme?
+
+[fixme](https://github.com/voidlizard/fixme)
+
+
+# Contact
 
 telegram: @voidlizard
 
