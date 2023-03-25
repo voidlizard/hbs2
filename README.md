@@ -7,8 +7,7 @@ config is a path to a **directory** with hbs2-peer config.
 
 By default it is $HOME/.config/hbs-peer
 
-
-## How make a pull request
+## How to make a pull request
 
 Since the goal of this project is to move away from
 centralized services, pull requests should be done by
