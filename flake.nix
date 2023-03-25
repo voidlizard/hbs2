@@ -6,11 +6,11 @@ inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
-    hspup.url = "github:voidlizard/hspup";
-    hspup.inputs.nixpkgs.follows = "nixpkgs";
+    # hspup.url = "github:voidlizard/hspup";
+    # hspup.inputs.nixpkgs.follows = "nixpkgs";
 
-    fixme.url = "github:voidlizard/fixme";
-    fixme.inputs.nixpkgs.follows = "nixpkgs";
+    # fixme.url = "github:voidlizard/fixme";
+    # fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url = "github:voidlizard/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
@@ -72,8 +72,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      haskellPackages.haskell-language-server
      haskellPackages.cbor-tool
      pkg-config
-     inputs.hspup.packages.${pkgs.system}.default
-     inputs.fixme.packages.${pkgs.system}.default
+     # inputs.hspup.packages.${pkgs.system}.default
+     # inputs.fixme.packages.${pkgs.system}.default
    ];
 
  };
