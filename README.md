@@ -411,8 +411,8 @@ Yeah, it\'s the way. But they are
 
 and also:
 
--   Domain name system is compomised
--   Certificate system is compomised by so many ways.
+-   Domain name system is compromised
+-   Certificate system is compromised by so many ways.
 
 Why? Because they are ruled by commercial companies working in certaing
 jurisdictions.
