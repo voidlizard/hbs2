@@ -79,7 +79,7 @@ stability issues. We\'re working hard to fix them.
 ## How to install
 
 Assuming you know what the Nix and Nix flakes are
-( See [nixos.org](nixos.org) if you don't )
+( See [nixos.org](https://nixos.org) if you don't )
 
 and nix flake support is turned on on your system:
 
