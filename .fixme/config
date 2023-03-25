@@ -5,6 +5,7 @@ fixme-comments  "--"
 fixme-prefix     FIXME:     bugs issues
 fixme-prefix     TODO:      bugs issues
 fixme-prefix     REVIEW:    review
+fixme-prefix     PR:        pr
 
 fixme-files **/*.hs docs/devlog.md
 
