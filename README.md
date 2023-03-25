@@ -118,22 +118,18 @@ Full procedure:
 
 2.  Optional\*. Make hbs2-peer poll this topic:
 
-``` {=html}
-<!-- -->
+```
+echo poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX" >> <your-hbs2-peer-config>
 ```
 
-    echo poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX" >> <your-hbs2-peer-config>
-
-`<your-hbs2-peer-config>`{=html} is typically
+`<your-hbs2-peer-config>` is typically
 \~/.config/hbs2-peer/config but it may vary up to setup
 
 3.  Fetch the *reflog* (topic) for the repo:
 
-``` {=html}
-<!-- -->
 ```
-
-    hbs2-peer reflog fetch 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+hbs2-peer reflog fetch 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+```
 
 If you have the set up as in step 2, it will be done periodically and
 upon hbs2-peer start, so you don\'t have to bother. Also, hbs2-peer
@@ -142,36 +138,30 @@ automatically.
 
 4.  Check the reflog is here:
 
-``` {=html}
-<!-- -->
 ```
-
-    hbs2-peer reflog get 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+hbs2-peer reflog get 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+```
 
 Note, that it may take time to all objects to deliver.
 
 5.  Clone the project
 
-``` {=html}
-<!-- -->
 ```
-
-    git clone hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX hbs2
+git clone hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX hbs2
+```
 
 6.  Create your own topic
 
-``` {=html}
-<!-- -->
 ```
+hbs2 keyring-new > my-keyring.key
+hbs2 keyring-list my-keyring.key
 
-    hbs2 keyring-new > my-keyring.key
-    hbs2 keyring-list my-keyring.key
-
-    [user@host:~]$ hbs2 keyring-list my-keyring.key
-    sign-key:  6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    this is your new repo's relog (topic)
-    Of course, sign-key will be different.
+[user@host:~]$ hbs2 keyring-list my-keyring.key
+sign-key:  6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+this is your new repo's relog (topic)
+Of course, sign-key will be different.
+```
 
 Keep the keyring file private. It contains the key pair (private+public
 keys) that wilyl allow you to write to the reflog. If you lose it, you
@@ -181,14 +171,12 @@ references to a new repo.
 
 7.  Export the repo to the new reflog (topic).
 
-``` {=html}
-<!-- -->
+```
+git hbs2 export <sign-key> -k <keyring-file>
 ```
 
-    git hbs2 export <sign-key> -k <keyring-file>
-
 In this example, sign-key will be
-6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d `<keyring-file>`{=html}
+6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d `<keyring-file>`
 will be my-keyring.key
 
 This step will export all objects to the new created topic.
@@ -202,11 +190,13 @@ to wait quite a while, but only for the first time.
 
 Example:
 
-    [user@host:~]$ cat ~/.config/hbs2-git/w/hbs2/config
+```
+[user@host:~]$ cat ~/.config/hbs2-git/w/hbs2/config
 
-    branch "master"
+branch "master"
 
-    keyring "/home/user/secrets-dir/my-keyring.key"
+keyring "/home/user/secrets-dir/my-keyring.key"
+```
 
 Note, that keyring file must be absolute. And the location supposed to
 be safe.
@@ -215,18 +205,18 @@ In my case, it\'s a mounted encrypted directory, but it\'s up to you.
 
 9.  Add the new repo to a git
 
-``` {=html}
-<!-- -->
 ```
-
-    git remote add mytopic hbs2://<sign-key>
+git remote add mytopic hbs2://<sign-key>
+```
 
 Example:
 
-    git remote add mytopic hbs2://6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
+```
+git remote add mytopic hbs2://6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
 
-    git fetch origin
-    git fetch mytopic
+git fetch origin
+git fetch mytopic
+```
 
 You may want to set your own topic as the \"origin,\" and another topic
 as something else. It\'s completely up to you. It works just like
@@ -247,24 +237,25 @@ commit and other information required for merging the changes.
 
 Example:
 
+```
 docs/\.../some-pr-file
 
-    PR: my-very-first-pr
-      Just to test the concept. It may be merged from the
-      branch
+PR: my-very-first-pr
+  Just to test the concept. It may be merged from the
+  branch
 
-      branch: pr-XXX-my-very-first
-      commit: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  branch: pr-XXX-my-very-first
+  commit: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+```
 
 13. Commit
 
 14. Push
 
-``` {=html}
-<!-- -->
 ```
-
-    git push mytopic
+git push mytopic
+```
 
 Now, if the author of the original topic (reflog, repo) is aware abour
 your topic and subscribed to if (added it as a remote to his/her git
@@ -272,28 +263,31 @@ repo) they will be able to receive and merge your pull requests.
 
 15. Check the reflog (just for in case)
 
-``` {=html}
-<!-- -->
-```
 
-    hbs2-peer reflog get <sign-key>
+```
+hbs2-peer reflog get <sign-key>
+```
 
 ## How to launch a peer
 
 Example:
 
-    hbs2-peer run -p .peers/1  -k .peers/1/key -l addr:port -r rpcaddr:rpcport
+```
+hbs2-peer run -p .peers/1  -k .peers/1/key -l addr:port -r rpcaddr:rpcport
+```
 
 ## How to save an encrypted file (TBD)
 
-    keyring-new > kr
-    keyring-list kr
-    ; create a file with a list of public keys
-    ; copy the lines from the output of the keyring-list command
-    groupkey-new path/to/file/with/list/of/pubkeys > groupkey
-    store --groupkey groupkey file/to/store
-    ; get the hash
-    cat --keyring kr <hash>
+```
+keyring-new > kr
+keyring-list kr
+; create a file with a list of public keys
+; copy the lines from the output of the keyring-list command
+groupkey-new path/to/file/with/list/of/pubkeys > groupkey
+store --groupkey groupkey file/to/store
+; get the hash
+cat --keyring kr <hash>
+```
 
 # FAQ
 
@@ -373,3 +367,9 @@ And since 2023-03-24 I consider the
 hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 
 as the main project repository.
+
+Contact:
+
+telegram: @voidlizard
+
+
