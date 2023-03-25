@@ -155,8 +155,10 @@ git fetch origin
 git fetch mytopic
 ```
 
-You may want to have your's topic as an origing, and other
-topic as something else. It's all up to you.
+You may want to set your own topic as the "origin," and
+another topic as something else. It's completely up to you.
+It works just like setting up Git remotes in the
+usual way.
 
 
 10. Make your changes
