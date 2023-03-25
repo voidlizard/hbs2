@@ -13,6 +13,7 @@
         distributed](#why-dvcs-are-not-actually-distributed)
     -   [Okay, if centralized services are bad, why are you
         here?](#okay-if-centralized-services-are-bad-why-are-you-here)
+    -   [What is a \"reflog\"](#what-is-a-reflog)
     -   [What is the fixme?](#what-is-the-fixme)
 
 # ABOUT
@@ -170,6 +171,10 @@ bootstrap-dns "bootstrap.hbs2.net"
 
 ; poll certain reference
 poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+
+; means poll reflog "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+; once per minute
+
 
 ```
 
@@ -459,6 +464,47 @@ And since 2023-03-24 I consider the
 hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 
 as the main project repository.
+
+## What is a "reflog"
+
+Reflog is an implementation of a permanent mutable
+reference. It has a permanent ID that corresponds to a
+public signing cryptographic key, and the value, that
+is  calculated from the "state", where the state  is
+a set of all "reference update" transactions.
+
+Each transaction is cryptographically signed by the sender,
+for current reflog implementation sender must be an owner of
+the private key of the public key.
+
+For this type of references, only transactions that are
+properly signed by the mentioned private key are accepted at
+the moment.
+
+Therefore, reflog is a log of signed transactions. Content
+of thouse transaction is up to an application.
+
+For the hbs2-git it is an reference to a merkle tree, that
+contains the state of repository ( branches + all objects
+accessible from thouse branches ).
+
+So, reflog is a sort of reference which state is defined by
+the set of signed binary transactions. The payload of the
+transactions mauy be arbitrary and application-dependent,
+but they must be properly signed by the owner of the private
+key.
+
+As there is only one valid writer for this type of
+reference, all transactions are assigned a Sequential Number
+that establishes their order. Applications may use this
+order to determine the sequence of transactions.
+
+Should be all reflogs on all hosts have the same value?
+
+Well. It would be nice, but not nesessary. But eventually
+yes, they will. If there is really only one writer and it is
+not writing all the time.
+
 
 ## What is the fixme?
 
