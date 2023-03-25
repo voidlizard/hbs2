@@ -15,6 +15,9 @@
         here?](#okay-if-centralized-services-are-bad-why-are-you-here)
     -   [What is a \"reflog\"](#what-is-a-reflog)
     -   [What is the fixme?](#what-is-the-fixme)
+-   [Contact](#contact)
+-   [Support](#support)
+-   [Donate](#donate)
 
 # ABOUT
 
