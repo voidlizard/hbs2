@@ -1,6 +1,7 @@
 -   [ABOUT](#about)
     -   [What is it](#what-is-it)
 -   [HOWTO](#howto)
+    -   [How to install](#how-to-install)
     -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
     -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
     -   [How to make a pull request](#how-to-make-a-pull-request)
@@ -74,6 +75,22 @@ It also have some known issues with performance and might have some
 stability issues. We\'re working hard to fix them.
 
 # HOWTO
+
+## How to install
+
+Assuming you know what the Nix and Nix flakes are
+(nixog.org)
+
+and nix flake support is turned on on your system:
+
+```
+nix profile install github:voidlizard/hbs2/master
+```
+
+It will take time. Patience, we're working on rolling
+out cachix, that will allow binary caches for the
+project.
+
 
 ## How to run hbs2-peer
 
