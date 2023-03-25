@@ -290,3 +290,93 @@ Example:
     ; get the hash
     cat --keyring kr <hash>
 
+
+# FAQ
+
+## Why DVCS are not actually distributed
+
+Reason 1. Because they don have a content distribution mechanisms
+
+Common practice right now is using centralized services,
+which are:
+
+ - Censored
+ - Faulty
+ - Not transparent and irresponsible (For customers. They
+   are responsible as hell for any sort of goverment-alike
+   structures before they even asked for something).
+ - Tracking users
+ - May use their code regardless of license agreement
+ - Giving up the network neutrality in a sake of <skipped*>
+   anyone but customers who pay
+
+There are registered examples, how one most popular git
+service droppped repositoties because they contain some
+words in README file.
+
+And banned accounts for visiting the service from wrong IP
+address.
+
+
+Setting own hosts/services for dvcs data hosting.
+
+Yeah, it's the way. But they are
+
+ - Obviously centralized
+
+and also:
+
+ - Domain name system is compomised
+ - Certificate system is compomised by so many ways.
+
+Why? Because they are ruled by commercial companies
+working in certaing jurisdictions.
+
+
+What else. Sending patches by email.
+
+ - Looks more like anecdote today (but still used be
+   someone)
+ - Email right now is a centralized service with all the
+   consequences (see above)
+
+Okay, ley's bring the overlay network (VPN), place all our
+hosts and resources there and will use own DNS.
+
+Yeap, it will work. But is it will cost you. It is
+acceptable for an organisation, but hardly for a group of
+random people.
+
+What else.
+
+Imagine, you generate a couple of cryptographic keys, drop
+the repo to a folder and it distributes by torrents as easy
+as any other torrents. Fully encrypted and only certain
+subscribers could decrypt and use the data.
+
+Well, torrent are brilliant, but they not just not designed
+to do things like this easily.
+
+Also they require trackers, that are centralized web
+resources.
+
+Things like Syncthing don't scales, in fact event if you
+will use git repo in syncthing dir, you will face file
+modification conflicts even if you use them alone.
+
+So that's why HBS2 came to light. Trust me, if I could use
+some decentralized solution normally for this I'd never
+start this project.
+
+## Okay, if centralized services are bad, why are you here?
+
+I'm here yet.  hbs2-git works only a few days, but it works
+now. So since 2023-03-23 this service is not an only one.
+
+And since 2023-03-24 I consider the
+
+hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+
+as the main project repository.
+
+
