@@ -419,7 +419,7 @@ jurisdictions.
 
 What else. Sending patches by email.
 
--   Looks more like anecdote today (but still used be someone)
+-   Looks more like anecdote today (but still used by someone)
 -   Email right now is a centralized service with all the consequences
     (see above)
 
