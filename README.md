@@ -1,4 +1,69 @@
 
+## What is it
+
+It is an experimental distributed P2P content addressable
+storage with content distribution protocols.
+
+It may be used for storing and distributed syncronization of
+data.
+
+HBS2 is aimed to take care of:
+
+ - NAT traversing
+ - Peer discovery
+ - Notification
+ - Distribution
+ - Encryption
+ - Validation (hashes checking, signatures checking)
+ - Storing and obtaining data
+
+In short, you store data in this storage, and all
+subscribers are notified of it and receive a copy of the
+data.
+
+It is a middleware for implementing distributed applications
+that shares data. Like a distributed git, for example.
+(What? git is already distributed and... No, it is not. Not
+really).
+
+The idea of extracting the minimal sufficent set of
+primitives for distributed applications and APIs and let the
+side applications do the rest.
+
+This is not a "blockchain", but heavily uses the approaches
+that "blockchains" brought to the world.
+
+Using this solution you may treat application data as local.
+HBS2 will syncronize all the data along the crowd of peers.
+The apps don't need to bother where the other peers are
+located, where the hosts, ssh keys on thouse hosts, auth
+tokens on thouse hosts, etc. They only need to know the
+references and (optionally) have signing/encryption keys
+that are stored locally or distributed (public parts, of
+course) automatically like any other data.
+
+What types of applications may be implemented on top of
+this?
+
+For an instance:
+
+  - Distributed file sharing (wip)
+  - Distributed git (seems working)
+  - Distributed communications, like a chat or a "channel"
+  - Distibuted ledgers with different types of consensus
+    protocols (we're trying not to use "b" words)
+  - Actually, any sort of applications that require data and
+    network
+
+The whitepaper is in shortlist, watch the updates.
+
+Why it is *experimental* ? Well, it's on a quite early stage
+and some root data structures, protocols or API may change.
+
+It also have some known issues with performance and might
+have some stability issues. We're working hard to fix them.
+
+
 ## How to run hbs2-peer
 
 hbs2-peer run [-c config]
