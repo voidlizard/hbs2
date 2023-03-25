@@ -374,3 +374,7 @@ fixme-del "8AYjTsFsTY"
 (fixme-set "workflow" "backlog" "3RBXa4CL1j")
 (fixme-set "workflow" "wip" "DM23r3nWQU")
 (fixme-set "workflow" "test" "56qguDYpiS")
+fixme-del "46xg3QnNHq"
+(fixme-set "workflow" "done" "DDD2tndvsj")
+(fixme-set "workflow" "test" "yXwCuKdnQp")
+(fixme-set "assigned" "voidlizard" "yXwCuKdnQp")
