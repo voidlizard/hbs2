@@ -13,6 +13,8 @@
         distributed](#why-dvcs-are-not-actually-distributed)
     -   [Okay, if centralized services are bad, why are you
         here?](#okay-if-centralized-services-are-bad-why-are-you-here)
+    -   [What platforms are supported
+        yet?](#what-platforms-are-supported-yet)
     -   [What is a \"reflog\"](#what-is-a-reflog)
     -   [What is the fixme?](#what-is-the-fixme)
 -   [Contact](#contact)
@@ -489,6 +491,17 @@ And since 2023-03-24 I consider the
 hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 
 as the main project repository.
+
+## What platforms are supported yet?
+
+So far we were able to run the hbs2-peer on:
+
+ - NixOS ( x86_64-linux )
+ - Windows WSL+Ubuntu
+ - Debian/rasberri-pi (aarch64-linux)
+
+Probably it will work on MacOS - but we need
+someone to check.
 
 ## What is a "reflog"
 
