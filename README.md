@@ -95,6 +95,10 @@ implemented, not really tested.
 Encryption for protocols: wip, right now is turned
 off!
 
+So right now it is useful for distributing any non-sensitive
+non-private data, like opensource projects, which is exactly
+what this project is.
+
 
 # HOWTO
 
