@@ -432,7 +432,7 @@ What else. Sending patches by email.
 Okay, ley\'s bring the overlay network (VPN), place all our hosts and
 resources there and will use own DNS.
 
-Yeap, it will work. But is it will cost you. It is acceptable for an
+Yeap, it will work. But it will cost you. It is acceptable for an
 organisation, but hardly for a group of random people.
 
 What else.
