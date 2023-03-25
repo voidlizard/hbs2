@@ -2,6 +2,7 @@
     -   [What is it](#what-is-it)
 -   [HOWTO](#howto)
     -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
+    -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
     -   [How to make a pull request](#how-to-make-a-pull-request)
     -   [How to launch a peer](#how-to-launch-a-peer)
     -   [How to save an encrypted file
