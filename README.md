@@ -561,4 +561,32 @@ TBD.
 
 Just a random string to measure github push time vs hbs2.
 
+```
+[dmz@minipig:~/w/hbs2]$ time git push github
+Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (3/3), done.
+Writing objects: 100% (3/3), 360 bytes | 360.00 KiB/s, done.
+Total 3 (delta 2), reused 0 (delta 0), pack-reused 0
+remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+To github.com:voidlizard/hbs2.git
+   4b6af37..89de740  master -> master
+
+real	0m1,753s
+user	0m0,012s
+sys	0m0,011s
+
+[dmz@minipig:~/w/hbs2]$ time git push hbs2
+importing objects [=========================] 100%
+calculate dependencies
+storing dependencies [======================] 100%
+store objects [=============================] 100%
+To hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+   2f8e928..89de740  master -> master
+
+real	0m1,354s
+user	0m0,663s
+sys	0m0,198s
+```
 
