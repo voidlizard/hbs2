@@ -46,7 +46,7 @@ Full procedure:
    Right now, it will take a time, so be ready to it.
 
 
-3. Optional*. Make hbs2-peer poll this topic:
+2. Optional*. Make hbs2-peer poll this topic:
 
 ```
 echo poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX" >> <your-hbs2-peer-config>
@@ -55,18 +55,18 @@ echo poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX" >> <your-hbs2-
 <your-hbs2-peer-config> is typically
 ~/.config/hbs2-peer/config  but it may vary up to setup
 
-4. Fetch the *reflog* (topic) for the repo:
+3. Fetch the *reflog* (topic) for the repo:
 
 ```
 hbs2-peer reflog fetch 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 ```
 
-If you have the set up as in step 3, it will be done
+If you have the set up as in step 2, it will be done
 periodically and upon hbs2-peer start, so you don't have
-to bother.  Also, hbs2-peer after step 3 will listen the
+to bother.  Also, hbs2-peer after step 2 will listen the
 reflog, so new pushes will be delivered automatically.
 
-5. Check the reflog is here:
+4. Check the reflog is here:
 
 ```
 hbs2-peer reflog get 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
@@ -74,13 +74,13 @@ hbs2-peer reflog get 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
 
 Note, that it may take time to all objects to deliver.
 
-6. Clone the project
+5. Clone the project
 
 ```
 git clone hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX hbs2
 ```
 
-7. Create your own topic
+6. Create your own topic
 
 ```
 hbs2 keyring-new > my-keyring.key
@@ -100,7 +100,7 @@ to your repo. It's not a big deal, creating keypairs is
 cheap. But you will need to tell anyone update theirs
 references to a new repo.
 
-8. Export the repo to the new reflog (topic).
+7. Export the repo to the new reflog (topic).
 
 ```
 git hbs2 export <sign-key> -k <keyring-file>
@@ -118,7 +118,7 @@ objects that are already in the hbs2, it takes time to
 calculate hashes and check it out. So be prepared to wait
 quite a while, but only for the first time.
 
-7. Locate the configuration file and add the keyring
+8. Locate the configuration file and add the keyring
 
 Example:
 
@@ -137,7 +137,7 @@ the location supposed to be safe.
 In my case, it's a mounted encrypted directory, but it's
 up to you.
 
-8. Add the new repo to a git
+9. Add the new repo to a git
 
 ```
 git remote add mytopic hbs2://<sign-key>
@@ -159,11 +159,11 @@ You may want to have your's topic as an origing, and other
 topic as something else. It's all up to you.
 
 
-9. Make your changes
+10. Make your changes
 
-10. Commit
+11. Commit
 
-11. Describe your changes somewhere, using PR: prefix
+12. Describe your changes somewhere, using PR: prefix
 
 See .fixme/config file to get an idea what files are
 scanned for issues/pull requests/etc.
@@ -188,9 +188,9 @@ PR: my-very-first-pr
 
 ```
 
-12. Commit
+13. Commit
 
-13. Push
+14. Push
 
 ```
 git push mytopic
@@ -201,12 +201,11 @@ aware abour your topic and subscribed to if (added it as a
 remote to his/her git repo) they will be able to receive
 and merge your pull requests.
 
-14. Check the reflog (just for in case)
+15. Check the reflog (just for in case)
 
 ```
 hbs2-peer reflog get <sign-key>
 ```
-
 
 ## How to launch a peer
 
