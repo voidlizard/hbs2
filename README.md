@@ -219,7 +219,7 @@ In short:
 7.  Add the repo as a new git remote
 8.  Work with git as usuall, push to the new created repo
 
-Each update is subscribed with the private key from the keypair, so only
+Each update is signed with the private key from the keypair, so only
 the person who has the private key may update the reflog. In fact,
 public key IS the reflog, and the private key is a proof of ownership.
 
