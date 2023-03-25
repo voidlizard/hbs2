@@ -82,6 +82,79 @@ config is a path to a **directory** with hbs2-peer config.
 
 By default it is \$HOME/.config/hbs-peer
 
+## How to configure hbs2-peer
+
+There are quite a lot of options even for today and we
+denitely need staring work on a manual. But here is a
+minimal working example:
+
+Typically hbs2-peer config is located at
+
+$HOME/.local/hbs2-peer/config
+
+```
+
+; ip/port to for UDP
+listen "0.0.0.0:7351"
+
+; ip/port for rpc
+rpc    "127.0.0.1:13331"
+
+; port for HTTP service.
+; required by hbs2-git
+; it's on you to pass it outside or not.
+
+http-port 5001
+
+; path to the peer's key
+; used to identify peers
+
+key    "./key"
+
+; path to storage. optional
+; storage  "/root/.local/share/hbs2"
+
+; may be omitted, default location
+; will be used then
+
+accept-block-announce *
+
+; accept blocks from anyone
+; by default is disabled
+
+; you may allow only a few peers
+; to send announces like
+
+; accept-block-announce "peer-public-key"
+; peer-public-key may be obtained from keyring file:
+; hbs2 keyring-list ./key
+; [user@host:~/hbs2]# hbs2 keyring-list /etc/hbs2-peer/key
+;
+; sign-key:  4543L9D1rr8M8Zzgxc76fRGjUyWF8rdsmiUMfCwF1RnA
+;
+; it's a public information.
+; but keep peer key file in private place!
+
+
+; download-log "/tmp/download-log"
+; where to place a "dowload-log"
+; may be omitted, default location will be used then
+
+; address for dns bootstrapping
+bootstrap-dns "bootstrap.hbs2.net"
+
+; just and example. it's my test container
+; known-peer "10.250.0.1:7354"
+; known-peer "10.250.0.1:7351"
+; you may add own peers like this
+; or use your own domains for dns bootstrapping
+
+; poll certain reference
+poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+
+```
+
+
 ## How to make a pull request
 
 Since the goal of this project is to move away from centralized
