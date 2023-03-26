@@ -1,6 +1,9 @@
 
 ## 2023-03-26
 
+TODO: git-http-protocol
+ Протокол http для гита, что бы можно было ссылаться на репозиторий
+ например в nix flakes.
 
 TODO: hbs2-websockets-transport
   http, т.к. неясно, к каким доменам привязывать
