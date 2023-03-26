@@ -104,6 +104,10 @@ touchForRead ss k  = liftIO $ do
     Nothing -> do
 
       bsmm <- unsafeMMapFile (simpleBlockFileName ss k)
+
+      -- FIXME: macos-support-1
+      --  вынести функцию в библиотеку
+      --  обернуть в CPP
       tick <- getTime MonotonicCoarse
 
       atomically $ do

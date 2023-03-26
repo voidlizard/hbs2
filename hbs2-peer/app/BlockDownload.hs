@@ -312,6 +312,7 @@ instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
 updatePeerInfo :: MonadIO m => Bool -> PeerInfo e -> m ()
 updatePeerInfo onError pinfo = do
 
+  -- FIXME: macos-support-3
   t1 <- liftIO $ getTime MonotonicCoarse
 
   void $ liftIO $ atomically $ do

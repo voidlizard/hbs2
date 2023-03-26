@@ -204,6 +204,7 @@ fetchBlockState :: MonadIO m => Hash HbSync -> BlockDownloadM e m BlockState
 fetchBlockState h = do
   sh <- asks (view blockState)
   liftIO do
+    -- FIXME: macos-support-2
     now     <- getTime MonotonicCoarse
     tvlast  <- newTVarIO now
     tvreq   <- newTVarIO 0
@@ -231,6 +232,7 @@ delBlockState h = do
 incBlockSizeReqCount :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
 incBlockSizeReqCount h = do
   blk  <- fetchBlockState h
+  -- FIXME: macos-support-4
   now  <- liftIO $ getTime MonotonicCoarse
   seen <- liftIO $ readTVarIO (view bsLastSeen blk)
   let elapsed = realToFrac (toNanoSecs (now - seen))  / 1e9
