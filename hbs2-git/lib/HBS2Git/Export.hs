@@ -7,13 +7,8 @@ import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
-import HBS2.Hash
 import HBS2.Net.Proto.Definition()
-import HBS2.Net.Auth.Credentials hiding (getCredentials)
 import HBS2.Base58
--- FIXME: UDP-name-is-irrelevant
-import HBS2.Net.Messaging.UDP (UDP)
-
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI

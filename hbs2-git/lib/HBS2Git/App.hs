@@ -47,12 +47,11 @@ import Codec.Serialise
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Text qualified as Text
-import System.IO ( stderr )
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Control.Concurrent.Async
+import System.Environment
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
@@ -173,11 +172,18 @@ runApp l m = do
   case l of
     NoLog   -> pure ()
     WithLog -> do
-      setLogging @DEBUG  debugPrefix
       setLogging @ERROR  errorPrefix
       setLogging @NOTICE noticePrefix
-      setLogging @TRACE  tracePrefix
       setLogging @INFO   infoPrefix
+
+  doTrace <- liftIO $ lookupEnv "HBS2TRACE" <&> isJust
+
+  if doTrace then do
+    setLogging @DEBUG  debugPrefix
+    setLogging @TRACE  tracePrefix
+  else do
+    setLoggingOff @DEBUG
+    setLoggingOff @TRACE
 
   (pwd, syn) <- Config.configInit
 
