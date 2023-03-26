@@ -448,7 +448,8 @@ blockDownloadLoop env0 = do
               withDownload env0 $ newPeerThread p runPeer
 
            | here && not auth -> do
-              pure () -- remove thread
+              withDownload env0 $ delPeerThread p
+              -- pure ()
 
            | otherwise -> pure ()
 
@@ -707,7 +708,15 @@ peerDownloadLoop peer = do
 
     let mbauth = (,) <$> auth' <*> pinfo'
 
-    let noAuth = warn ( "lost peer auth"  <+> pretty peer) >> pause @'Seconds 1
+    let noAuth = do
+          warn ( "lost peer auth"  <+> pretty peer )
+          pause @'Seconds 1
+          -- liftIO $ withPeerM pe $ sendPing @e peer
+          -- -- FIXME: time-hardcode
+          -- pause @'Seconds 3
+          -- found <- lift $ find (KnownPeerKey peer) id  <&> isJust
+          -- unless found do
+          --   warn ( "peer lost. stopping peer loop"  <+> pretty peer )
 
     maybe1 mbauth noAuth $ \(_,pinfo) -> do
 

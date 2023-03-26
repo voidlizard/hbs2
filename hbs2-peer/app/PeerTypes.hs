@@ -382,6 +382,7 @@ newPeerThread p m = do
   liftIO $ atomically $ modifyTVar threads $ HashMap.insert p pt
 
 
+
 failedDownload :: forall e m . ( MyPeer e
                                , MonadIO m
                                , HasPeer e
