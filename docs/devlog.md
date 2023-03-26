@@ -1,6 +1,8 @@
 
 ## 2023-03-26
 
+FIXME: download-log-location-again
+
 TODO: git-http-protocol
  Протокол http для гита, что бы можно было ссылаться на репозиторий
  например в nix flakes.
