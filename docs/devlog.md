@@ -1,17 +1,19 @@
 
 ## 2023-03-26
 
+TODO: git-tags-support
+
 FIXME: macos-support-clock
-    -- CPP
-    -- | Use coarse clock timer. This timer has 1ms resolution but is much
-    -- faster comparing to the ordinary one. Is used on linux, on macos
-    -- provides ordinary one.
-    getTimeCoarse :: IO TimeSpec
-#ifdef linux_HOST_OS
-    getTimeCoarse = getTime MonotonicCoarse
-#else
-    getTimeCoarse = getTime Monotonic
-#endif
+     -- CPP
+     -- | Use coarse clock timer. This timer has 1ms resolution but is much
+     -- faster comparing to the ordinary one. Is used on linux, on macos
+     -- provides ordinary one.
+     getTimeCoarse :: IO TimeSpec
+ #ifdef linux_HOST_OS
+     getTimeCoarse = getTime MonotonicCoarse
+ #else
+     getTimeCoarse = getTime Monotonic
+ #endif
 
 ## 2023-03-24
 
