@@ -1,6 +1,8 @@
 
 ## 2023-03-27
 
+TODO: lesser-ping-period
+
 TODO: reliable-storage-write
 
 TODO: http-block-download-worker
