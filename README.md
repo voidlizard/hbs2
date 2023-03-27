@@ -8,6 +8,8 @@
     -   [How to launch a peer](#how-to-launch-a-peer)
     -   [How to save an encrypted file
         (TBD)](#how-to-save-an-encrypted-file-tbd)
+    -   [How to save an encrypted file
+        (TBD)](#how-to-save-an-encrypted-file-tbd)
 -   [FAQ](#faq)
     -   [Why DVCS are not actually
         distributed](#why-dvcs-are-not-actually-distributed)
@@ -117,6 +119,11 @@ It will take time. Patience, we're working on rolling
 out cachix, that will allow binary caches for the
 project.
 
+## How to generate peer's key?
+
+```
+hbs2 keyring-new > new-peer-key.key
+```
 
 ## How to run hbs2-peer
 
