@@ -6,7 +6,7 @@
     -   [How to generate peer\'s key?](#how-to-generate-peers-key)
     -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
     -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
-    -   [How to a new own repo](#how-to-a-new-own-repo)
+    -   [How to create a new own repo](#how-to-create-a-new-own-repo)
     -   [How to make a pull request](#how-to-make-a-pull-request)
     -   [How to launch a peer](#how-to-launch-a-peer)
     -   [How to save an encrypted file
@@ -214,7 +214,7 @@ poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
 
 ```
 
-## How to a new own repo
+## How to create a new own repo
 
 1. Create a new keyring
 
