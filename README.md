@@ -1,7 +1,9 @@
 -   [ABOUT](#about)
     -   [What is it](#what-is-it)
+    -   [Current status](#current-status)
 -   [HOWTO](#howto)
     -   [How to install](#how-to-install)
+    -   [How to generate peer\'s key?](#how-to-generate-peers-key)
     -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
     -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
     -   [How to make a pull request](#how-to-make-a-pull-request)
@@ -18,8 +20,10 @@
     -   [What is a \"reflog\"](#what-is-a-reflog)
     -   [What is the fixme?](#what-is-the-fixme)
 -   [Contact](#contact)
+-   [Download](#download)
 -   [Support](#support)
 -   [Donate](#donate)
+-   [Other](#other)
 
 # ABOUT
 
@@ -116,6 +120,12 @@ nix profile install github:voidlizard/hbs2/master
 It will take time. Patience, we're working on rolling
 out cachix, that will allow binary caches for the
 project.
+
+## How to generate peer's key?
+
+```
+hbs2 keyring-new > new-peer-key.key
+```
 
 
 ## How to run hbs2-peer
