@@ -393,9 +393,3 @@ fixme-del "FbcbtA4eCx"
 (fixme-set "workflow" "test" "5RbVNm9SRz")
 (fixme-set "assigned" "fastopk" "EpnYqZi7bW")
 (fixme-set "workflow" "test" "EpnYqZi7bW")
-<<<<<<< HEAD
-=======
-(fixme-set "assigned" "fastpok" "Da2nChoaL9")
-
-fixme-del "Da2nChoaL9"
->>>>>>> 8fbb11a (Blacklist and whitelist intersection handling)
