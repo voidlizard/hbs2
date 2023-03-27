@@ -197,11 +197,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1672641093,
-        "narHash": "sha256-v0Uj3gkDWPdnXZUKpJGD7RxIOncTexhN0csIop36yug=",
+        "lastModified": 1679933705,
+        "narHash": "sha256-UOd70L+FKQLmGjA3IqjFaBpaS/dZMSABtRgVDY3lBCg=",
         "owner": "voidlizard",
         "repo": "hspup",
-        "rev": "031d27dea1505fd68cd603da7e72eb5eefd348fd",
+        "rev": "6b969a9de1f9800ebfc61c51252b8647123c51bb",
         "type": "github"
       },
       "original": {

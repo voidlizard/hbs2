@@ -1,4 +1,5 @@
 {-# Language FunctionalDependencies #-}
+{-# LANGUAGE CPP #-}
 module HBS2.Clock
   ( module HBS2.Clock
   , module System.Clock
@@ -71,5 +72,12 @@ class Expires a where
   -- FIXME: dangerous!
   expiresIn _ = Nothing
 
-
-
+-- | Use coarse clock timer. This timer has 1ms resolution but is much
+-- faster comparing to the ordinary one. Is used on Linux, on MacOS
+-- provides ordinary one.
+getTimeCoarse :: IO TimeSpec
+#ifdef linux_HOST_OS
+getTimeCoarse = getTime MonotonicCoarse
+#else
+getTimeCoarse = getTime Monotonic
+#endif

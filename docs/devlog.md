@@ -1,3 +1,10 @@
+## 2023-03-27
+
+PR: gettime-non-linux
+  branch: pr-gettime-non-linux
+  commit: a2cd4d575f965dc9c71b69a1355d6603129f2373
+  Исправляет получение текущего времени для MacOS.
+  Также добавлены "x86_64-darwin" и "aarch64-darwin" во flake.nix.
 
 ## 2023-03-27
 
