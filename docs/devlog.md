@@ -1,6 +1,8 @@
 
 ## 2023-03-27
 
+TODO: http-block-download-worker
+
 FIXME: atomic-ref-update
 
 FIXME: ref-download-monitor
