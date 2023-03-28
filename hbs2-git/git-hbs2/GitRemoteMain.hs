@@ -40,7 +40,7 @@ import System.ProgressBar
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO as UIO
 import Control.Monad.Trans.Maybe
-
+import Control.Monad.Catch
 
 send :: MonadIO m => BS.ByteString -> m ()
 send = liftIO . BS.hPutStr stdout
@@ -80,6 +80,7 @@ readHeadDef db  =
           readObject r <&> fromMaybe "\n"
 
 loop :: forall m . ( MonadIO m
+                   , MonadCatch m
                    , HasProgress (RunWithConfig (GitRemoteApp m))
                    ) => [String] -> GitRemoteApp m ()
 loop args = do

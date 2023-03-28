@@ -31,6 +31,7 @@ import Data.Set (Set)
 import Lens.Micro.Platform
 import Control.Concurrent.STM
 import Control.Concurrent.Async
+import Control.Monad.Catch
 
 data HashCache =
   HashCache
@@ -54,6 +55,7 @@ newHashCache db = do
 
 
 export :: forall  m . ( MonadIO m
+                      , MonadCatch m
                       , HasCatAPI m
                       , HasConf m
                       , HasRefCredentials m
@@ -175,7 +177,8 @@ export h repoHead = do
     pure (HashRef root, hh)
 
 
-runExport :: forall m . (MonadIO m, HasProgress (App m)) => Maybe FilePath -> RepoRef -> App m ()
+runExport :: forall m . (MonadIO m, MonadCatch m, HasProgress (App m))
+          => Maybe FilePath -> RepoRef -> App m ()
 runExport fp h = do
 
   trace $ "Export" <+> pretty (AsBase58 h)

@@ -29,6 +29,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Lens.Micro.Platform
 -- import System.Exit
 import Codec.Serialise
+import Control.Monad.Catch
 
 data RunImportOpts =
   RunImportOpts
@@ -79,7 +80,7 @@ importRefLog db ref = do
   when new do
     pure ()
 
-importObjects :: (MonadIO m, HasCatAPI m) => DBEnv -> HashRef -> m ()
+importObjects :: (MonadIO m, MonadCatch m, HasCatAPI m) => DBEnv -> HashRef -> m ()
 importObjects db root = do
 
   q <- liftIO newTQueueIO

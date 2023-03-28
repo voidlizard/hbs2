@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
 import Control.Concurrent.STM
+import Control.Monad.Catch
 
 data RemoteEnv =
   RemoteEnv
@@ -32,6 +33,8 @@ newtype GitRemoteApp m a =
                    , Monad
                    , MonadIO
                    , MonadReader RemoteEnv
+                   , MonadThrow
+                   , MonadCatch
                    )
 
 runRemoteM :: MonadIO m => RemoteEnv -> GitRemoteApp m a -> m a

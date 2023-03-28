@@ -11,8 +11,10 @@ import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Import
 
+import Control.Monad.Catch
 
-updateLocalState :: (MonadIO m, HasCatAPI m) => RepoRef -> m ()
+
+updateLocalState :: (MonadIO m, HasCatAPI m, MonadCatch m) => RepoRef -> m ()
 updateLocalState ref = do
 
   dbPath <- makeDbPath ref
@@ -23,15 +25,30 @@ updateLocalState ref = do
 
   trace $ "updateLocalState" <+> pretty ref
 
-  -- TODO: read-reflog
-  -- TODO: update-reflog
-  importRefLog db ref
+  sp <- withDB db savepointNew
 
-  (n,hash) <- withDB db $ stateGetRefLogLast `orDie` "empty reflog"
+  withDB db $ savepointBegin sp
 
-  trace $ "got reflog" <+> pretty (n,hash)
+  r <- try $ do
 
-  importObjects db hash
+    -- TODO: read-reflog
+    -- TODO: update-reflog
+    importRefLog db ref
 
-  pure ()
+    (n,hash) <- withDB db $ stateGetRefLogLast `orDie` "empty reflog"
+
+    trace $ "got reflog" <+> pretty (n,hash)
+
+    importObjects db hash
+
+    withDB db (savepointRelease sp)
+
+  case r of
+    Left (e :: SomeException) -> do
+      withDB db $ savepointRollback sp
+      err (viaShow e)
+      err "error happened. state rolled back"
+
+    Right{} -> pure ()
+
 

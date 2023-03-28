@@ -33,6 +33,7 @@ import Control.Concurrent.STM
 import System.IO qualified as IO
 import System.IO (Handle)
 import Data.Kind
+import Control.Monad.Catch
 
 type Schema = UDP
 
@@ -142,7 +143,14 @@ class Monad m => HasConf m where
 
 newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
-  deriving newtype ( Applicative, Functor, Monad, MonadIO, MonadReader AppEnv )
+  deriving newtype ( Applicative
+                   , Functor
+                   , Monad
+                   , MonadIO
+                   , MonadReader AppEnv
+                   , MonadThrow
+                   , MonadCatch
+                   )
 
 instance MonadIO m => HasConf (App m) where
   getConf = asks (view appConf)

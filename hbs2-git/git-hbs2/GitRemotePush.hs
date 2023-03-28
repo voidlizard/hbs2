@@ -31,6 +31,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.ByteString qualified as BS
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
+import Control.Monad.Catch
 
 newtype RunWithConfig m a =
   WithConfig { fromWithConf :: ReaderT [Syntax C] m a }
@@ -40,6 +41,8 @@ newtype RunWithConfig m a =
                    , MonadIO
                    , MonadReader [Syntax C]
                    , MonadTrans
+                   , MonadThrow
+                   , MonadCatch
                    )
 
 
@@ -60,6 +63,7 @@ instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
   setCredentials r c = lift $ setCredentials r c
 
 push :: forall  m . ( MonadIO m
+                    , MonadCatch m
                     , HasProgress (RunWithConfig (GitRemoteApp m))
                     )
 

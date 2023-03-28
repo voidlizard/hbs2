@@ -52,6 +52,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Data.Cache qualified as Cache
 import Control.Concurrent.Async
 import System.Environment
+import Control.Monad.Catch
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"

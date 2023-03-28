@@ -3,8 +3,10 @@ module HBS2Git.State where
 import HBS2Git.Types
 import HBS2.Data.Types.Refs
 import HBS2.Git.Types
+import HBS2.Hash
 
 import Data.Functor
+import Data.Function
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
@@ -12,11 +14,14 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
 import Data.String
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.Directory
 import System.FilePath
 import Data.Maybe
 import Data.Text (Text)
 import Prettyprinter
+import Data.UUID.V4 qualified as UUID
+import Control.Monad.Catch
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -46,10 +51,13 @@ newtype DB m a =
                    , MonadIO
                    , MonadReader Connection
                    , MonadTrans
+                   , MonadThrow
+                   , MonadCatch
                    )
 
 instance (HasRefCredentials m) => HasRefCredentials (DB m) where
   getCredentials = lift . getCredentials
+  setCredentials r s  = lift (setCredentials r s)
 
 dbEnv :: MonadIO m => FilePath -> m DBEnv
 dbEnv fp = do
@@ -109,13 +117,47 @@ stateInit = do
   |]
 
 
-transactional :: forall a m . MonadIO m => DB m a -> DB m a
-transactional action = do
+newtype Savepoint =
+  Savepoint String
+  deriving newtype (IsString)
+  deriving stock (Eq,Ord)
+
+savepointNew :: forall m . MonadIO m => DB m Savepoint
+savepointNew  = do
+  uu <- liftIO UUID.nextRandom
+  let s = LBS.pack (show uu) & hashObject @HbSync & pretty & show
+  pure $ fromString ("sp" <> s)
+
+savepointBegin :: forall m . MonadIO m => Savepoint -> DB m ()
+savepointBegin (Savepoint sp) = do
   conn <- ask
-  liftIO $ execute_ conn "begin"
-  x <- action
-  liftIO $ execute_ conn "commit"
-  pure x
+  liftIO $ execute_ conn [qc|SAVEPOINT {sp}|]
+
+savepointRelease:: forall m . MonadIO m => Savepoint -> DB m ()
+savepointRelease (Savepoint sp) = do
+  conn <- ask
+  liftIO $ execute_ conn [qc|RELEASE SAVEPOINT {sp}|]
+
+savepointRollback :: forall m . MonadIO m => Savepoint -> DB m ()
+savepointRollback (Savepoint sp) = do
+  conn <- ask
+  liftIO $ execute_ conn [qc|ROLLBACK TO SAVEPOINT {sp}|]
+
+transactional :: forall a m . (MonadCatch m, MonadIO m) => DB m a -> DB m a
+transactional action = do
+
+  sp <- savepointNew
+
+  savepointBegin sp
+  r <- try action
+
+  case r of
+    Left (e :: SomeException) -> do
+      savepointRollback sp
+      throwM e
+
+    Right x -> do
+      pure x
 
 -- TODO: backlog-head-history
 --   можно сделать таблицу history, в которую
