@@ -62,6 +62,7 @@ library
     -- other-extensions:
     build-depends:    base, hbs2-core
                     , async
+                    , atomic-write
                     , bytestring
                     , bytestring-mmap
                     , cache
@@ -77,6 +78,8 @@ library
                     , transformers
                     , uniplate
                     , unordered-containers
+                    , temporary
+                    , filepattern
 
 
     hs-source-dirs:   lib
@@ -118,5 +121,10 @@ test-suite test
         , timeit
         , uniplate
         , vector
+
+
+
+
+
 
 

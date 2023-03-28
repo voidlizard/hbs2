@@ -9,10 +9,20 @@ import HBS2.Storage.Simple
 import HBS2.Data.Types.Refs
 import HBS2.Defaults
 
+import Data.Foldable (for_)
 import Data.Bifunctor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as B
 import Data.Function
+import Lens.Micro.Platform
+import System.FilePattern.Directory
+import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.ByteString.Char8 qualified as BS
+import System.FilePath
+import Data.Maybe
+import Control.Concurrent.STM
+import Control.Concurrent.Async
+import Control.Monad
 
 import Streaming.Prelude qualified as S
 import Streaming qualified as S
@@ -79,4 +89,32 @@ instance Block ByteString ~ ByteString => SimpleStorageExtra ByteString where
     root <- makeMerkle 0 pt $ \(_,_,bss) -> void $ putBlock ss bss
 
     pure (MerkleHash root)
+
+
+simpleStorageFsck :: forall h . (IsSimpleStorageKey h, Hashed h ByteString)
+                  => SimpleStorage h
+                  -> IO [(Maybe (Hash HbSync), FilePath)]
+
+simpleStorageFsck sto = do
+  let fblock = view storageBlocks sto
+
+  files <- getDirectoryFiles fblock ["**/*"]
+
+  -- FIXME: thread-num-hardcode
+  bad <- forM files $ \f -> do
+          let fname = fblock </> f
+          let ha = splitDirectories f & mconcat & fromStringMay @(Hash HbSync)
+          case ha of
+            Just hash -> do
+              hr <- BS.readFile fname <&> hashObject @HbSync
+              if hr == hash then do
+                pure []
+              else
+                pure [(Just hash, fname)]
+
+            Nothing -> do
+              pure [(Nothing, fname)]
+
+  pure $ mconcat bad
+
 

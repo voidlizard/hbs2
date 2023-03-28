@@ -55,6 +55,8 @@ instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString)
   hasBlock (AnyStorage s) = hasBlock s
   updateRef (AnyStorage s) = updateRef s
   getRef (AnyStorage s) = getRef s
+  delBlock (AnyStorage s) = delBlock s
+  delRef (AnyStorage s) = delRef s
 
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)

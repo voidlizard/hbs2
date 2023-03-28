@@ -46,6 +46,7 @@ import Lens.Micro.Platform
 -- import System.FilePath.Posix
 import System.IO
 import System.Exit
+import System.ProgressBar
 
 import Codec.Serialise
 
@@ -509,6 +510,8 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser = hsubparser (  command "store"           (info pStore (progDesc "store block"))
                         <> command "cat"             (info pCat (progDesc "cat block"))
                         <> command "hash"            (info pHash (progDesc "calculates hash"))
+                        <> command "fsck"            (info pFsck (progDesc "check storage constistency"))
+                        <> command "del"            ( info pDel (progDesc "del block"))
                         <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
                         <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
                         <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
@@ -616,6 +619,18 @@ main = join . customExecParser (prefs showHelpOnError) $
       reflogs <- strArgument ( metavar "REFLOG" )
       pure $ withStore o (runRefLogGet reflogs)
 
-      -- o <- common
-      -- reflog <- strArgument ( metavar "REFLOG-HASH" )
+    pFsck = do
+      o <- common
+      pure $ withStore o $ \sto -> do
+        rs <- simpleStorageFsck sto
+        forM_ rs $ \(h,f) -> do
+          print $ fill 24 (pretty f) <+> pretty h
+
+    -- TODO: reflog-del-command
+    pDel = do
+      o <- common
+      h <- strArgument ( metavar "HASH" )
+      pure $ withStore o $ \sto -> do
+        delBlock sto h
+
 

@@ -41,6 +41,8 @@ class ( Monad m
 
   getBlock :: a -> Key h -> m (Maybe (Block block))
 
+  delBlock :: a -> Key h -> m ()
+
   getChunk :: a -> Key h -> Offset -> Size -> m (Maybe (Block block))
 
   hasBlock :: a -> Key h -> m (Maybe Integer)
@@ -48,6 +50,8 @@ class ( Monad m
   updateRef :: Hashed h k => a -> k -> Key h -> m ()
 
   getRef :: Hashed h k => a -> k -> m (Maybe (Key h))
+
+  delRef :: Hashed h k => a -> k -> m ()
 
 calcChunks :: forall a b . (Integral a, Integral b)
            => Integer  -- | block size

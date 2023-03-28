@@ -34,6 +34,9 @@ import System.Directory
 import System.FilePath.Posix
 import System.IO
 import System.IO.Error
+import System.IO.Temp
+import System.AtomicWrite.Writer.LazyByteString qualified as AwLBS
+import System.AtomicWrite.Writer.ByteString qualified as AwBS
 
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -88,6 +91,10 @@ storageBlocks = to f
   where
     f b = _storageDir b </> "blocks"
 
+storageTemp :: SimpleGetter (SimpleStorage h) FilePath
+storageTemp = to f
+  where
+    f b = _storageDir b </> "temp"
 
 storageRefs :: SimpleGetter (SimpleStorage h) FilePath
 storageRefs = to f
@@ -131,6 +138,7 @@ simpleStorageInit opts = liftIO $ do
                 <*> TV.newTVarIO mempty
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
+  createDirectoryIfMissing True (stor ^. storageTemp)
 
   let alph = getAlphabet
 
@@ -272,6 +280,8 @@ simplePutBlockLazy doWait s lbs = do
 
   let hash = hashObject lbs
   let fn = simpleBlockFileName s hash
+  let fntmp = takeFileName fn
+  let tmp = view storageTemp s
 
   stop <- atomically $ TV.readTVar ( s ^. storageStopWriting )
 
@@ -286,10 +296,13 @@ simplePutBlockLazy doWait s lbs = do
 
     let action | size > 0 = atomically $ TBQ.writeTBQueue waits True
                | otherwise = do
-          catch (LBS.writeFile fn lbs)
-                (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
-
-          atomically $ TBQ.writeTBQueue waits True
+          handle (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
+                 do
+                   withTempFile tmp fntmp $ \tname h -> do
+                     BS.hPut h (LBS.toStrict lbs)
+                     hClose h
+                     renameFile tname fn
+                     atomically $ TBQ.writeTBQueue waits True
 
     simpleAddTask s action
 
@@ -337,7 +350,7 @@ simpleWriteLinkRaw ss h lbs = do
   runMaybeT $ do
     r <- MaybeT $ putBlock ss lbs
     MaybeT $ liftIO $ spawnAndWait ss $ do
-      BS.writeFile fnr (toByteString (AsBase58 r))
+      AwBS.atomicWriteFile fnr (toByteString (AsBase58 r))
         `catchAny` \_ -> do
           err $ "simpleWriteLinkRaw" <+> pretty h <+> pretty fnr
 
@@ -355,7 +368,7 @@ simpleWriteLinkRawRef :: forall h . ( IsSimpleStorageKey h
 simpleWriteLinkRawRef ss h ref = do
   let fnr = simpleRefFileName ss h
   void $ spawnAndWait ss $ do
-    BS.writeFile fnr (toByteString (AsBase58 ref))
+    AwBS.atomicWriteFile fnr (toByteString (AsBase58 ref))
       `catchAny` \_ -> do
         err $ "simpleWriteLinkRawRef" <+> pretty h <+> pretty ref <+> pretty fnr
 
@@ -387,7 +400,6 @@ simpleReadLinkVal :: ( IsKey h
 simpleReadLinkVal ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
-        -- FIXME: log-this-situation
         (Just <$> BS.readFile fn) `catchAny` \_ -> do
           err $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn
           pure Nothing
@@ -425,4 +437,17 @@ instance ( MonadIO m, IsKey hash
       let bss = LBS.toStrict bs
       parsed <- MaybeT $ pure $ fromByteString bss
       pure $ unAsBase58 parsed
+
+  delBlock ss h = do
+    let fn = simpleBlockFileName ss h
+    void $ liftIO $ spawnAndWait ss do
+      exists <- doesFileExist fn
+      when exists (removeFile fn)
+
+  delRef ss ref = do
+    let refHash = hashObject @hash ref
+    let fn = simpleRefFileName ss refHash
+    void $ liftIO $ spawnAndWait ss $ do
+      here <- doesFileExist fn
+      when here (removeFile fn)
 

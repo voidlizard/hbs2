@@ -77,7 +77,7 @@ defBlockWaitMax = 1 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 0.5  :: Timeout 'Seconds
+defChunkWaitMax = 1  :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 30 -- FIXME: only for debug!
