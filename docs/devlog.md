@@ -24,6 +24,18 @@ FIXME: memory-usage-on-big-repos
 
 FIXME: slow-on-big-repos
 
+## 2023-03-27
+
+FIXME: atomic-ref-update
+
+FIXME: ref-download-monitor
+
+FIXME: git-clone-check-whole-tree
+
+FIXME: memory-usage-on-big-repos
+
+FIXME: slow-on-big-repos
+
 ## 2023-03-26
 
 FIXME: download-log-location-again
