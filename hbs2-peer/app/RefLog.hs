@@ -188,7 +188,9 @@ reflogWorker conf adapter = do
                 bss <- liftIO $ getBlock sto (fromHashRef ha)
 
                 when (isNothing bss) do
-                  liftIO $ reflogDownload adapter (fromHashRef ha)
+                  trace $ "missed block for " <+> pretty ha
+
+                liftIO $ reflogDownload adapter (fromHashRef ha)
 
                 bs <- MaybeT $ pure bss
 
