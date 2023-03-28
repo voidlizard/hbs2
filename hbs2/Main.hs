@@ -626,7 +626,8 @@ main = join . customExecParser (prefs showHelpOnError) $
         forM_ rs $ \(h,f) -> do
           print $ fill 24 (pretty f) <+> pretty h
 
-    -- TODO: reflog-del-command
+
+        -- TODO: reflog-del-command-- TODO: reflog-del-command
     pDel = do
       o <- common
       h <- strArgument ( metavar "HASH" )

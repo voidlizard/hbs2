@@ -74,6 +74,7 @@ import System.IO
 import System.Metrics
 
 
+-- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
 
@@ -609,7 +610,7 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (checkMetrics metrics)
 
-                peerThread (peerPingLoop @e)
+                peerThread (peerPingLoop @e conf)
 
                 peerThread (knownPeersPingLoop @e conf)
 

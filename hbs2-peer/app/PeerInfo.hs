@@ -15,6 +15,8 @@ import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
 
+import PeerConfig
+
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.List qualified as List
@@ -27,6 +29,13 @@ import Control.Concurrent.Async
 import System.Random.Shuffle
 import Data.IntSet (IntSet)
 import Prettyprinter
+
+
+data PeerPingIntervalKey
+
+-- TODO: ping-interval-specifically-for-peer
+instance HasCfgKey PeerPingIntervalKey (Maybe Integer) where
+  key = "ping-interval"
 
 data PeerInfo e =
   PeerInfo
@@ -119,8 +128,12 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , Pretty (Peer e)
                              , MonadIO m
                              )
-             => m ()
-peerPingLoop = do
+             => PeerConfig -> m ()
+peerPingLoop cfg = do
+
+  let pingTime = cfgValue @PeerPingIntervalKey cfg
+                      & fromMaybe 30
+                      & realToFrac
 
   wake <- liftIO newTQueueIO
 
@@ -135,7 +148,7 @@ peerPingLoop = do
   forever do
 
     -- FIXME: defaults
-    r <- liftIO $ race (pause @'Seconds 60)
+    r <- liftIO $ race (pause @'Seconds pingTime)
                        (atomically $ readTQueue wake)
 
     sas' <- liftIO $ atomically $ flushTQueue wake <&> mconcat
@@ -160,7 +173,7 @@ peerPingLoop = do
       fnum <- liftIO $ readTVarIO pfails
       fdown <- liftIO $ readTVarIO pdownfails
 
-      when (fnum > 3) do -- FIXME: hardcode!
+      when (fnum > 2) do -- FIXME: hardcode!
         warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
         delPeers pl [p]
         expire (PeerInfoKey p)
