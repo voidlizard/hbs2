@@ -1,13 +1,14 @@
 -   [ABOUT](#about)
     -   [What is it](#what-is-it)
+    -   [Current status](#current-status)
 -   [HOWTO](#howto)
     -   [How to install](#how-to-install)
+    -   [How to generate peer\'s key?](#how-to-generate-peers-key)
     -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
     -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
+    -   [How to create a new own repo](#how-to-create-a-new-own-repo)
     -   [How to make a pull request](#how-to-make-a-pull-request)
     -   [How to launch a peer](#how-to-launch-a-peer)
-    -   [How to save an encrypted file
-        (TBD)](#how-to-save-an-encrypted-file-tbd)
     -   [How to save an encrypted file
         (TBD)](#how-to-save-an-encrypted-file-tbd)
 -   [FAQ](#faq)
@@ -20,8 +21,11 @@
     -   [What is a \"reflog\"](#what-is-a-reflog)
     -   [What is the fixme?](#what-is-the-fixme)
 -   [Contact](#contact)
+-   [Download](#download)
 -   [Support](#support)
 -   [Donate](#donate)
+-   [Other](#other)
+
 
 # ABOUT
 
@@ -125,6 +129,7 @@ project.
 hbs2 keyring-new > new-peer-key.key
 ```
 
+
 ## How to run hbs2-peer
 
 hbs2-peer run \[-c config\]
@@ -208,6 +213,59 @@ poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
 
 
 ```
+
+## How to create a new own repo
+
+1. Create a new keyring
+
+```
+hbs2 keyring-new > new.key
+```
+
+2. Watch it's public key
+
+```
+hbs2 keyring-list new.key
+```
+Example:
+
+```
+[user@host:~/dir]$ hbs2 keyring-list ./new.key
+sign-key:  eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
+```
+
+
+3. Export repo to the new reflog
+
+```
+git hbs2 export eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk -k ./new.key
+```
+
+4.  Add key to a repo's config
+
+And a branch to track
+
+
+```
+cat ~/.config/hbs2-git/dir/config
+
+branch "master"
+
+keeyring "/path/to/new.key"
+
+```
+
+5. Add git remote and push
+
+```
+git add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
+git push mynerepo
+```
+
+6. Wait some time
+
+7. Work with git as usual
+
 
 
 ## How to make a pull request
