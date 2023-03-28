@@ -708,7 +708,9 @@ peerDownloadLoop peer = do
     let mbauth = (,) <$> auth' <*> pinfo'
 
     let noAuth = do
-          warn ( "lost peer auth"  <+> pretty peer )
+          let authNone = isNothing auth'
+          let pingNone = isNothing pinfo'
+          warn ( "lost peer auth"  <+> pretty peer <+> pretty authNone <+> pretty pingNone )
           pause @'Seconds 1
           -- liftIO $ withPeerM pe $ sendPing @e peer
           -- -- FIXME: time-hardcode
