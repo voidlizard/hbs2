@@ -372,13 +372,24 @@ delPeerThread p = do
 
   maybe1 pt (pure ()) $ liftIO . cancel . view peerThreadAsync
 
-newPeerThread :: (MyPeer e, MonadIO m) => Peer e -> Async () -> BlockDownloadM e m ()
+newPeerThread :: ( MyPeer e
+                 , MonadIO m
+                 , Sessions e (PeerInfo e) m
+                 -- , Sessions e (PeerInfo e) (BlockDownloadM e m)
+                 )
+              => Peer e
+              -> Async ()
+              -> BlockDownloadM e m ()
+
 newPeerThread p m = do
+
+  npi <- newPeerInfo
+  void $ lift $ fetch True npi (PeerInfoKey p) id
+
   q <- liftIO  newTQueueIO
   let pt = PeerThread m q
   threads <- asks (view peerThreads)
   liftIO $ atomically $ modifyTVar threads $ HashMap.insert p pt
-
 
 
 failedDownload :: forall e m . ( MyPeer e

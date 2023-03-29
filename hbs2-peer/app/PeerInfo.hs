@@ -164,16 +164,21 @@ peerPingLoop cfg = do
 
     for_ pips $ \p -> do
       npi <- newPeerInfo
-      pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-      pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+
+      here <- find @e (KnownPeerKey p) id
+
+      pinfo <- fetch True npi (PeerInfoKey p) id
+      let pfails = view peerPingFailed pinfo
+      let pdownfails = view peerDownloadFail pinfo
 
       liftIO $ atomically $ modifyTVar pfails succ
+
       sendPing @e p
 
       fnum <- liftIO $ readTVarIO pfails
       fdown <- liftIO $ readTVarIO pdownfails
 
-      when (fnum > 2) do -- FIXME: hardcode!
+      when (fnum > 4) do -- FIXME: hardcode!
         warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
         delPeers pl [p]
         expire (PeerInfoKey p)
