@@ -721,7 +721,7 @@ peerDownloadLoop peer = do
           -- unless found do
           --   warn ( "peer lost. stopping peer loop"  <+> pretty peer )
 
-    maybe1 mbauth noAuth $ \_ -> do
+    maybe1 mbauth noAuth $ \(_,_) -> do
 
       withBlockForDownload peer $ \h -> do
         -- TODO: insert-busyloop-counter-for-block-request
