@@ -171,6 +171,8 @@ peerPingLoop cfg = do
       let pfails = view peerPingFailed pinfo
       let pdownfails = view peerDownloadFail pinfo
 
+      -- FIXME: seems-like-a-bad-idea
+      --   Кажется, вызывает гонки
       liftIO $ atomically $ modifyTVar pfails succ
 
       sendPing @e p
