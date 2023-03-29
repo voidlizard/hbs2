@@ -446,7 +446,7 @@ blockDownloadLoop env0 = do
               runPeer <-  liftIO $ async $ liftIO (withPeerM e $ withDownload env0 (peerDownloadLoop p))
               withDownload env0 $ newPeerThread p runPeer
 
-           | here && not auth -> do
+           | not auth -> do
               withDownload env0 $ delPeerThread p
               -- pure ()
 
