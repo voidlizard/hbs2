@@ -523,7 +523,7 @@ blockDownloadLoop env0 = do
 
     liftIO $ atomically $ writeTVar tinfo alive
 
-    po <- postoponedNum
+    po <- postponedNum
 
     wipNum <- liftIO $ Cache.size wip
 

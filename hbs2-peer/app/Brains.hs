@@ -41,7 +41,7 @@ class HasBrains e a where
                      -> Hash HbSync
                      -> m ()
 
-  shouldPosponeBlock :: MonadIO m
+  shouldPostponeBlock :: MonadIO m
                      => a
                      -> Hash HbSync
                      -> m Bool
@@ -70,7 +70,7 @@ instance Pretty (Peer e) => HasBrains e NoBrains  where
 
   claimBlockCameFrom _ _ _ = do pure ()
 
-  shouldPosponeBlock _ _ = pure False
+  shouldPostponeBlock _ _ = pure False
 
   shouldDownloadBlock _ _ _ = pure True
 
@@ -82,7 +82,7 @@ instance HasBrains e (SomeBrains e) where
   onBlockDownloaded (SomeBrains a) = onBlockDownloaded a
   onBlockPostponed (SomeBrains a) = onBlockPostponed @e a
   claimBlockCameFrom (SomeBrains a) = claimBlockCameFrom @e a
-  shouldPosponeBlock (SomeBrains a) = shouldPosponeBlock @e a
+  shouldPostponeBlock (SomeBrains a) = shouldPostponeBlock @e a
   shouldDownloadBlock (SomeBrains a) = shouldDownloadBlock @e a
 
 data BasicBrains e =
@@ -123,7 +123,7 @@ instance Hashable (Peer e) => HasBrains e (BasicBrains e) where
   claimBlockCameFrom _ _ _ = do
     trace "BRAINS: claimBlockCameFrom"
 
-  shouldPosponeBlock b h = do
+  shouldPostponeBlock b h = do
     peers <- liftIO $ readTVarIO (view brainsPeers b)
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
 

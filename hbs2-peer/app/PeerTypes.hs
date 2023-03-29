@@ -286,7 +286,7 @@ addDownload mbh h = do
 
     maybe1 mbh none $ \hp -> claimBlockCameFrom @e brains hp h
 
-    postpone <- shouldPosponeBlock @e brains h
+    postpone <- shouldPostponeBlock @e brains h
 
     when postpone do
       -- trace $ "addDownload postpone" <+> pretty postpone <+> pretty h
@@ -314,8 +314,8 @@ addDownload mbh h = do
         Cache.insert wip h ()
 
 
-postoponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int
-postoponedNum = do
+postponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int
+postponedNum = do
   po <- asks (view blockPostponed)
   liftIO $ readTVarIO po <&> HashMap.size
 
