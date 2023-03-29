@@ -702,15 +702,17 @@ peerDownloadLoop peer = do
       Cache.purgeExpired sizeCache
       Cache.purgeExpired noBlock
 
-    auth' <-  lift $ find (KnownPeerKey peer) id
-    pinfo' <- lift $ find (PeerInfoKey peer) id -- (view peerDownloadFail)
 
-    let mbauth = (,) <$> auth' <*> pinfo'
+    npi <- newPeerInfo
+
+    auth' <-  lift $ find (KnownPeerKey peer) id
+    pinfo  <- lift $ fetch True npi (PeerInfoKey peer) id
+
+    let mbauth = (,) <$> auth' <*> pure pinfo
 
     let noAuth = do
-          let authNone = isNothing auth'
-          let pingNone = isNothing pinfo'
-          warn ( "lost peer auth"  <+> pretty peer <+> pretty authNone <+> pretty pingNone )
+          let authNone = if isNothing auth' then "noauth" else ""
+          warn ( "lost peer auth"  <+> pretty peer <+> pretty authNone  )
           pause @'Seconds 1
           -- liftIO $ withPeerM pe $ sendPing @e peer
           -- -- FIXME: time-hardcode
@@ -719,7 +721,7 @@ peerDownloadLoop peer = do
           -- unless found do
           --   warn ( "peer lost. stopping peer loop"  <+> pretty peer )
 
-    maybe1 mbauth noAuth $ \(_,pinfo) -> do
+    maybe1 mbauth noAuth $ \_ -> do
 
       withBlockForDownload peer $ \h -> do
         -- TODO: insert-busyloop-counter-for-block-request
