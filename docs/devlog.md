@@ -1,3 +1,17 @@
+
+## 2023-03-29
+
+TODO: smart-peer-choice-on-download
+
+TODO: test-new-timeouts-on-good-network
+
+TODO: measure-peer-rtt-on-ping
+
+TODO: set-timeouts-dynamically-via-rtt
+
+TODO: ASAP-FIX-FUCKING-AUTH-LOST-WTF
+
+
 ## 2023-03-28
 
 FIXME: git-repo-consistency-check
