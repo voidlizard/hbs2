@@ -30,6 +30,7 @@ import HBS2.Storage.Simple
 import HBS2.System.Logger.Simple hiding (info)
 import HBS2.System.Logger.Simple qualified as Log
 
+import Brains
 import RPC
 import PeerTypes
 import BlockDownload
@@ -504,7 +505,11 @@ runPeer opts = Exception.handle myException $ do
   messMcast <- async $ runMessagingUDP mcast
                  `catch` (\(e::SomeException) -> throwIO e )
 
-  denv <- newDownloadEnv
+  brains <- newBasicBrains @e
+
+  brainsThread <- async $ runBasicBrains brains
+
+  denv <- newDownloadEnv brains
 
   penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
 
@@ -518,7 +523,7 @@ runPeer opts = Exception.handle myException $ do
               reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e
 
               let doDownload h = do
-                    withPeerM penv $ withDownload denv (addDownload h)
+                    withPeerM penv $ withDownload denv (addDownload mzero h)
 
               let doFetchRef puk = do
                    withPeerM penv $ do
@@ -856,7 +861,7 @@ runPeer opts = Exception.handle myException $ do
                      , makeResponse peerAnnounceProto
                      ]
 
-  void $ waitAnyCatchCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast]
+  void $ waitAnyCatchCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast,brainsThread]
 
   simpleStorageStop s
 

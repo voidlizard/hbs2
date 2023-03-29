@@ -59,6 +59,9 @@ defRequestLimitSec = 60
 defBlockBanTime :: TimeSpec
 defBlockBanTime = toTimeSpec defBlockBanTimeSec
 
+defBlockPostponeTime :: TimeSpec
+defBlockPostponeTime = toTimeSpec ( 60 :: Timeout 'Seconds)
+
 defBlockBanTimeSec :: Timeout 'Seconds
 defBlockBanTimeSec = 60 :: Timeout 'Seconds
 

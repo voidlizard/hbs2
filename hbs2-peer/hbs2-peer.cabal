@@ -120,6 +120,7 @@ executable hbs2-peer
                     , RefLog
                     , CheckMetrics
                     , HttpWorker
+                    , Brains
 
     -- other-extensions:
     build-depends:    base

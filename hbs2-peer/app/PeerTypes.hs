@@ -21,6 +21,7 @@ import HBS2.Net.PeerLocator
 import HBS2.System.Logger.Simple
 
 import PeerInfo
+import Brains
 
 import Data.Foldable (for_)
 import Control.Concurrent.Async
@@ -153,16 +154,17 @@ data DownloadEnv e =
   , _blockState     :: TVar   (HashMap (Hash HbSync) BlockState)
   , _blockInQ       :: TVar   (HashMap (Hash HbSync) ())
   , _peerThreads    :: TVar   (HashMap (Peer e) (PeerThread e))
-  , _peerPostponed  :: TVar   (HashMap (Hash HbSync) ())
   , _blockStored    :: Cache  (Hash HbSync) ()
-  , _blockBanned    :: Cache  (Hash HbSync, Peer e) ()
+  , _blockPostponed :: TVar   (HashMap (Hash HbSync) () )
+  , _blockPostponedTo :: Cache  (Hash HbSync) ()
+  , _downloadBrains :: SomeBrains e
   }
 
 makeLenses 'DownloadEnv
 
 
-newDownloadEnv :: (MonadIO m, MyPeer e) => m (DownloadEnv e)
-newDownloadEnv = liftIO do
+newDownloadEnv :: (MonadIO m, MyPeer e, HasBrains e brains) => brains -> m (DownloadEnv e)
+newDownloadEnv brains = liftIO do
   DownloadEnv <$> newTQueueIO
               <*> newTVarIO mempty
               <*> newTVarIO mempty
@@ -170,9 +172,10 @@ newDownloadEnv = liftIO do
               <*> newTVarIO mempty
               <*> newTVarIO mempty
               <*> newTVarIO mempty
-              <*> newTVarIO mempty
               <*> Cache.newCache (Just defBlockWipTimeout)
+              <*> newTVarIO mempty
               <*> Cache.newCache (Just defBlockBanTime)
+              <*> pure (SomeBrains brains)
 
 newtype BlockDownloadM e m a =
   BlockDownloadM { fromBlockDownloadM :: ReaderT (DownloadEnv e) m a }
@@ -183,9 +186,6 @@ newtype BlockDownloadM e m a =
                    , MonadReader (DownloadEnv e)
                    , MonadTrans
                    )
-
-runDownloadM :: (MyPeer e, MonadIO m) => BlockDownloadM e m a -> m a
-runDownloadM m = runReaderT ( fromBlockDownloadM m ) =<< newDownloadEnv
 
 withDownload :: (MyPeer e, HasPeerLocator e m, MonadIO m) => DownloadEnv e -> BlockDownloadM e m a -> m a
 withDownload e m = runReaderT ( fromBlockDownloadM m ) e
@@ -213,15 +213,6 @@ fetchBlockState h = do
                                          Nothing -> (defState, HashMap.insert h defState hm)
                                          Just x  -> (x, hm)
 
-banBlock ::  (MyPeer e, MonadIO m) => Peer e -> Hash HbSync -> BlockDownloadM e m ()
-banBlock p h = do
-  banned <- asks (view blockBanned)
-  liftIO $ Cache.insert banned (h,p) ()
-
-isBanned :: (MyPeer e, MonadIO m) => Peer e -> Hash HbSync -> BlockDownloadM e m Bool
-isBanned p h = do
-  banned <- asks (view blockBanned)
-  liftIO $ Cache.lookup banned (h,p) <&> isJust
 
 delBlockState :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
 delBlockState h = do
@@ -270,74 +261,95 @@ checkForDownload :: forall e m . ( MyPeer e
 checkForDownload lbs = do
   pure ()
 
-addDownload :: forall e m . ( MyPeer e
-                            , MonadIO m
-                            , HasPeerLocator e (BlockDownloadM e m)
-                            , HasStorage m -- (BlockDownloadM e m)
-                            , Block ByteString ~ ByteString
+type DownloadConstr e m = ( MyPeer e
+                          , MonadIO m
+                          , HasPeerLocator e (BlockDownloadM e m)
+                          , HasStorage m -- (BlockDownloadM e m)
+                          , Block ByteString ~ ByteString
+                          )
+
+addDownload :: forall e m . ( DownloadConstr e m
                             )
-            => Hash HbSync -> BlockDownloadM e m ()
+            => Maybe (Hash HbSync)
+            -> Hash HbSync
+            -> BlockDownloadM e m ()
 
-addDownload h = do
-
-  po <- asks (view peerPostponed)
+addDownload mbh h = do
 
   tinq <- asks (view blockInQ)
 
-  doAdd <- do liftIO $ atomically $ stateTVar tinq
-                                  \hm -> case HashMap.lookup h hm of
-                                           Nothing -> (True,  HashMap.insert h () hm)
-                                           Just{}  -> (False, HashMap.insert h () hm)
+  brains <- asks (view downloadBrains)
 
-  notHere <- isBlockHereCached h <&> not
+  postponed <- isPostponed h
 
-  notPostponed <- liftIO $ readTVarIO po <&> isNothing . HashMap.lookup h
+  unless postponed do
 
-  when (doAdd && notPostponed && notHere) do
+    maybe1 mbh none $ \hp -> claimBlockCameFrom @e brains hp h
 
-    q <- asks (view downloadQ)
-    wip <- asks (view blockWip)
+    postpone <- shouldPosponeBlock @e brains h
 
-    liftIO do
-      atomically $ do
-        modifyTVar tinq $ HashMap.insert h ()
-        writeTQueue q h
+    when postpone do
+      -- trace $ "addDownload postpone" <+> pretty postpone <+> pretty h
+      postponeBlock h
 
-      Cache.insert wip h ()
+    doAdd <- do liftIO $ atomically $ stateTVar tinq
+                                    \hm -> case HashMap.lookup h hm of
+                                             Nothing -> (True,  HashMap.insert h () hm)
+                                             Just{}  -> (False, HashMap.insert h () hm)
 
-     -- | False -> do -- not hasSize -> do
+    notHere <- isBlockHereCached h <&> not
 
-     --  po <- asks (view peerPostponed)
-     --  liftIO $ atomically $ do
-     --    modifyTVar po $ HashMap.insert h ()
+    when (doAdd && notHere && not postpone) do
 
-     --  trace $ "postpone block" <+> pretty h <+> pretty brt
-     --                           <+> "here:" <+> pretty (not missed)
+      trace $ "addDownload" <+> pretty h
 
-     --  | otherwise -> do
-     --    -- TODO: counter-on-this-situation
-     --    none
+      q <- asks (view downloadQ)
+      wip <- asks (view blockWip)
 
-returnPostponed :: forall e m . ( MyPeer e
-                               , MonadIO m
-                               , HasStorage m
-                               , HasPeerLocator e (BlockDownloadM e m)
-                               )
-            => Hash HbSync -> BlockDownloadM e m ()
+      liftIO do
+        atomically $ do
+          modifyTVar tinq $ HashMap.insert h ()
+          writeTQueue q h
 
-returnPostponed h = do
-  tinq <- asks (view blockInQ)
-  -- TODO: atomic-operations
-  delFromPostponed h
-  delBlockState h
-  liftIO $ atomically $ modifyTVar' tinq (HashMap.delete h)
-  addDownload h
+        Cache.insert wip h ()
 
-delFromPostponed :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
-delFromPostponed h = do
-  po  <- asks (view peerPostponed)
-  liftIO $ atomically $ do
-    modifyTVar' po (HashMap.delete h)
+
+postoponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int
+postoponedNum = do
+  po <- asks (view blockPostponed)
+  liftIO $ readTVarIO po <&> HashMap.size
+
+isPostponed :: forall e  m . (MyPeer e, MonadIO m) => Hash HbSync -> BlockDownloadM e m Bool
+isPostponed h = do
+  po <- asks (view blockPostponed) >>= liftIO . readTVarIO
+  pure $ HashMap.member  h po
+
+postponeBlock :: forall e  m . (MyPeer e, MonadIO m) => Hash HbSync -> BlockDownloadM e m ()
+postponeBlock h = do
+
+  brains <- asks (view downloadBrains)
+  po <- asks (view blockPostponed)
+  tto <- asks (view blockPostponedTo)
+
+  liftIO $ do
+    already <- atomically $ readTVar po <&> HashMap.member h
+    unless already do
+      atomically $ modifyTVar po (HashMap.insert h ())
+      Cache.insert tto h ()
+      onBlockPostponed @e brains h
+
+unpostponeBlock :: forall e m . (DownloadConstr e m) => Hash HbSync -> BlockDownloadM e m ()
+unpostponeBlock h = do
+
+  po <- asks (view blockPostponed)
+  tto <- asks (view blockPostponedTo)
+
+  liftIO $ do
+      atomically $ modifyTVar po (HashMap.delete h)
+      Cache.delete tto h
+
+  trace $ "unpostponeBlock" <+> pretty h
+  addDownload @e mzero h
 
 removeFromWip :: (MyPeer e, MonadIO m) => Hash HbSync -> BlockDownloadM e m ()
 removeFromWip h = do
@@ -345,17 +357,13 @@ removeFromWip h = do
   st  <- asks (view blockState)
   sz  <- asks (view blockPeers)
   tinq <- asks (view blockInQ)
-  po  <- asks (view peerPostponed)
-  ba <- asks (view blockBanned)
 
   liftIO $ Cache.delete wip h
-  liftIO $ Cache.filterWithKey (\(hx,_) _ -> hx /= h) ba
 
   liftIO $ atomically $ do
     modifyTVar' st   (HashMap.delete h)
     modifyTVar' sz   (HashMap.delete h)
     modifyTVar' tinq (HashMap.delete h)
-    modifyTVar' po (HashMap.delete h)
 
 hasPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m Bool
 hasPeerThread p = do
@@ -404,7 +412,9 @@ failedDownload :: forall e m . ( MyPeer e
 
 failedDownload p h = do
   trace $ "failedDownload" <+> pretty p <+> pretty h
-  addDownload h
+  addDownload mzero h
+  -- FIXME: brains-download-fail
+
 
 updateBlockPeerSize :: forall e m . (MyPeer e, MonadIO m)
                     => Hash HbSync
