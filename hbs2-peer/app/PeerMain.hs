@@ -567,6 +567,8 @@ runPeer opts = Exception.handle myException $ do
 
                    | otherwise -> do
 
+                    update d (KnownPeerKey p) id
+
                     pd' <- knownPeers @e pl >>=
                               \peers -> forM peers $ \pip -> do
                                           pd <- find (KnownPeerKey pip) (view peerOwnNonce)
