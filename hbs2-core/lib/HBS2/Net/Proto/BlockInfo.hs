@@ -2,10 +2,13 @@ module HBS2.Net.Proto.BlockInfo where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Events
 import HBS2.Hash
 
+import Data.Functor
+import Data.Maybe
 
 data BlockInfo e = GetBlockSize (Hash HbSync)
                  | NoBlock (Hash HbSync)
@@ -21,6 +24,7 @@ blockSizeProto :: forall e m  . ( MonadIO m
                                 , Response e (BlockInfo e) m
                                 , HasDeferred e (BlockInfo e) m
                                 , EventEmitter e (BlockInfo e) m
+                                , Sessions e (KnownPeer e) m
                                 )
                => GetBlockSize  HbSync m
                -> HasBlockEvent HbSync e m
@@ -31,10 +35,13 @@ blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do
       -- liftIO $ print "GetBlockSize"
-      deferred (Proxy @(BlockInfo e))$ do
-        getBlockSize h >>= \case
-          Just size -> response (BlockSize @e h size)
-          Nothing   -> response (NoBlock @e h)
+      p <- thatPeer (Proxy @(BlockInfo e))
+      auth <- find (KnownPeerKey p) id <&> isJust
+      when auth do
+        deferred (Proxy @(BlockInfo e))$ do
+          getBlockSize h >>= \case
+            Just size -> response (BlockSize @e h size)
+            Nothing   -> response (NoBlock @e h)
 
     NoBlock h       -> do
       that <- thatPeer (Proxy @(BlockInfo e))
