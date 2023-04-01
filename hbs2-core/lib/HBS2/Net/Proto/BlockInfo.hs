@@ -28,11 +28,12 @@ blockSizeProto :: forall e m  . ( MonadIO m
                                 )
                => GetBlockSize  HbSync m
                -> HasBlockEvent HbSync e m
+               -> ( (Peer e, Hash HbSync) -> m () )
                -> BlockInfo e
                -> m ()
 
 -- FIXME: with-auth-combinator
-blockSizeProto getBlockSize evHasBlock =
+blockSizeProto getBlockSize evHasBlock onNoBlock =
   \case
     GetBlockSize h -> do
       -- liftIO $ print "GetBlockSize"
@@ -42,7 +43,9 @@ blockSizeProto getBlockSize evHasBlock =
         deferred (Proxy @(BlockInfo e))$ do
           getBlockSize h >>= \case
             Just size -> response (BlockSize @e h size)
-            Nothing   -> response (NoBlock @e h)
+            Nothing   -> do
+              onNoBlock (p, h)
+              response (NoBlock @e h)
 
     NoBlock h       -> do
       that <- thatPeer (Proxy @(BlockInfo e))

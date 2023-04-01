@@ -73,6 +73,7 @@ import System.Directory
 import System.Exit
 import System.IO
 import System.Metrics
+import Data.Cache qualified as Cache
 
 
 -- TODO: write-workers-to-config
@@ -97,6 +98,7 @@ data PeerWhiteListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
 data PeerTraceKey
+data PeerProxyFetchKey
 
 data AcceptAnnounce = AcceptAnnounceAll
                     | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
@@ -128,6 +130,9 @@ instance HasCfgKey PeerBlackListKey (Set String) where
 
 instance HasCfgKey PeerWhiteListKey (Set String) where
   key = "whitelist"
+
+instance HasCfgKey PeerProxyFetchKey (Set String) where
+  key = "proxy-fetch-for"
 
 instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
   key = "accept-block-announce"
@@ -443,6 +448,7 @@ runPeer opts = Exception.handle myException $ do
                                 ] :: Set (PubKey 'Sign UDP)
   let blkeys = toKeys bls
   let wlkeys = toKeys (whs `Set.difference` bls)
+  let helpFetchKeys = cfgValue @PeerProxyFetchKey conf & toKeys
 
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
@@ -475,6 +481,7 @@ runPeer opts = Exception.handle myException $ do
 
   s <- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
+
 
   w <- replicateM defStorageThreads $ async $ simpleStorageWorker s
 
@@ -510,6 +517,23 @@ runPeer opts = Exception.handle myException $ do
   denv <- newDownloadEnv brains
 
   penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
+
+  nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
+
+  void $ async $ forever do
+    pause @'Seconds 600
+    liftIO $ Cache.purgeExpired nbcache
+
+  let onNoBlock (p, h) = do
+        already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
+        unless already do
+          pd' <- find (KnownPeerKey p) id
+          maybe1 pd' none $ \pd -> do
+            let pk = view peerSignKey pd
+            when (Set.member pk helpFetchKeys) do
+              liftIO $ Cache.insert nbcache (p,h) ()
+              -- debug  $ "onNoBlock" <+> pretty p <+> pretty h
+              withPeerM penv $ withDownload denv (addDownload mzero h)
 
   loop <- async do
 
@@ -731,7 +755,7 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread do
                   runProto @e
-                    [ makeResponse (blockSizeProto blk dontHandle)
+                    [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials pc . peerHandShakeProto)
