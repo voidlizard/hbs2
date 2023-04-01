@@ -172,7 +172,7 @@ instance Expires (EventKey e (PeerHandshake e)) where
   expiresIn _ = Nothing
 
 instance Expires (EventKey e (ConcretePeer e)) where
-  expiresIn _ = Just 10
+  expiresIn _ = Just 60
 
 instance Hashable (Peer e) => Hashable (EventKey e (PeerHandshake e))
 

@@ -110,8 +110,7 @@ deriving instance Eq (Nonce (PeerExchange e)) => Eq (SessionKey e (PeerExchange 
 instance Hashable (Nonce (PeerExchange e)) => Hashable (SessionKey e (PeerExchange e))
 
 instance Expires (SessionKey e (PeerExchange e)) where
-  expiresIn _ = Just 10
-
+  expiresIn _ = Just 60
 
 instance Typeable (PeerExchangePeersEv e)
   => Hashable (EventKey e (PeerExchangePeersEv e)) where

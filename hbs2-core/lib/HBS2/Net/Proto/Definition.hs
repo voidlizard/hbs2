@@ -128,7 +128,7 @@ instance Expires (SessionKey UDP (KnownPeer UDP)) where
   expiresIn _ = Just 3600
 
 instance Expires (SessionKey UDP (PeerHandshake UDP)) where
-  expiresIn _ = Just 10
+  expiresIn _ = Just 60
 
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
   expiresIn _ = Nothing
