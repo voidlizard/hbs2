@@ -44,7 +44,7 @@ instance Serialise IPv6
 
 newtype IPAddrPort e =
   IPAddrPort (IP, Word16)
-  deriving (Generic)
+  deriving stock (Generic,Eq,Ord)
 
 instance Serialise (IPAddrPort e)
 
@@ -59,6 +59,13 @@ instance IsString (IPAddrPort e) where
   fromString s = IPAddrPort (read h, fromIntegral p)
     where
       (h,p) = fromMaybe (error "no parse IPAddrPort") (getHostPort (Text.pack s))
+
+instance FromStringMaybe (IPAddrPort e) where
+  fromStringMay x = IPAddrPort <$> ( (,) <$> ip <*> fmap fromIntegral po)
+    where
+      hp = getHostPort (Text.pack x)
+      ip = readMay . fst =<< hp
+      po = snd <$> hp
 
 getHostPort :: Text -> Maybe (String, PortNumber)
 getHostPort s =  parseOnly p s & either (const Nothing) Just

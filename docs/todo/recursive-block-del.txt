@@ -1,0 +1,4 @@
+TODO: implement-recursive-block-delete
+ В hbs2 del -r или del --recursure
+ Смотрит, если это дерево --- то пытается обойти
+ его рекурсивно и удалить все блоки.

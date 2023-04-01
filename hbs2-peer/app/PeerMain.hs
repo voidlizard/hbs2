@@ -403,7 +403,7 @@ instance ( Monad m
 
 
 -- runPeer :: forall e . (e ~ UDP, Nonce (RefLogUpdate e) ~ BS.ByteString) => PeerOpts -> IO ()
-runPeer :: forall e . (e ~ UDP) => PeerOpts -> IO ()
+runPeer :: forall e . (e ~ UDP, FromStringMaybe (PeerAddr e)) => PeerOpts -> IO ()
 
 runPeer opts = Exception.handle myException $ do
 
@@ -472,8 +472,6 @@ runPeer opts = Exception.handle myException $ do
   pc <- pure pc' `orDie` "can't parse credential file"
 
   notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
-
-
 
   s <- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
@@ -882,7 +880,7 @@ rpcClientMain opt action = do
   setLoggingOff @DEBUG
   action
 
-withRPC :: RPCOpt -> RPC UDP -> IO ()
+withRPC :: FromStringMaybe (PeerAddr UDP) => RPCOpt -> RPC UDP -> IO ()
 withRPC o cmd = rpcClientMain o $ do
 
   hSetBuffering stdout LineBuffering
@@ -992,7 +990,7 @@ withRPC o cmd = rpcClientMain o $ do
 
   void $ waitAnyCatchCancel [mrpc, prpc]
 
-runRpcCommand :: RPCOpt -> RPCCommand -> IO ()
+runRpcCommand :: FromStringMaybe (IPAddrPort UDP) => RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)

@@ -45,6 +45,7 @@ common common-deps
         , split
         , stm
         , streaming
+        , sqlite-simple
         , temporary
         , text
         , timeit

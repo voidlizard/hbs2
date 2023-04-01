@@ -4,7 +4,6 @@
 module BlockDownload where
 
 import HBS2.Actors.Peer
-import HBS2.Base58
 import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
@@ -39,64 +38,56 @@ import Data.IntMap qualified as IntMap
 import Data.IntSet qualified as IntSet
 import Data.List qualified as List
 import Data.Maybe
-import Data.Set qualified as Set
 import Lens.Micro.Platform
-import Control.Concurrent
+import System.Random (randomRIO)
+import System.Random.Shuffle (shuffleM)
 
-getBlockForDownload :: MonadIO m => BlockDownloadM e m (Hash HbSync)
-getBlockForDownload = do
-  q <- asks (view downloadQ)
-  inq <- asks (view blockInQ)
-  liftIO $ atomically $ do
-     h <- readTQueue q
-     modifyTVar' inq (HashMap.delete h)
-     pure h
-
-withBlockForDownload :: forall e m . (MonadIO m, MyPeer e, HasStorage m, HasPeerLocator e m)
+getBlockForDownload :: forall e m . (MonadIO m, IsPeerAddr e m, MyPeer e)
                      => Peer e
-                     -> BlockDownloadM e m ()
-                     -> (Hash HbSync -> BlockDownloadM e m ())
-                     -> BlockDownloadM e m ()
+                     -> BlockDownloadM e m (Maybe (Hash HbSync))
 
-withBlockForDownload p noBlockAction action = do
-  -- FIXME: busyloop-e46ad5e0
-  --
-  sto <- lift getStorage
-
-  h <- getBlockForDownload
-
-  here <- liftIO $ hasBlock sto h <&> isJust
-
+getBlockForDownload peer = do
+  pa <- lift $ toPeerAddr peer
+  tinq <- asks (view blockInQ)
   brains <- asks (view downloadBrains)
+  prop <- asks (view blockProposed)
 
-  should <- shouldDownloadBlock brains p h
+  inq <- liftIO $ readTVarIO tinq
+  let size = HashMap.size inq
 
-  if | here      -> processBlock h
-     | should    -> onBlockDownloadAttempt brains p h >> action h
-     | otherwise -> noBlockAction >> addDownload mzero h
+  if size == 0 then
+    pure Nothing
+  else do
+    i <- randomRIO (0, size - 1)
+    let blk = HashMap.keys inq !! i
+    peers <- advisePeersForBlock @e brains blk
 
-addBlockInfo :: (MonadIO m, MyPeer e)
-             => Peer e
-             -> Hash HbSync
-             -> Integer
-             -> BlockDownloadM e m ()
+    proposed <- liftIO $ Cache.lookup prop (blk, peer) <&> isJust
 
-addBlockInfo pip h size = do
-  -- debug $ "addBlockInfo" <+> pretty h <+> pretty pip <+> pretty size
-  tv <- asks (view blockPeers)
-  let mySize = HashMap.singleton pip size
-  liftIO $ atomically
-         $ modifyTVar tv (HashMap.insertWith (<>) h mySize)
+    r <- if | proposed -> do
+              pure Nothing
 
-getPeersForBlock :: (MonadIO m, MyPeer e)
-                => Hash HbSync
-                -> BlockDownloadM e m [(Peer e, Integer)]
+            | List.null peers -> do
+                pure $ Just blk
 
-getPeersForBlock h = do
-  tv <- asks (view blockPeers)
-  liftIO $ readTVarIO tv <&> foldMap HashMap.toList
-                                            . maybeToList
-                                            . HashMap.lookup h
+            | pa `elem` peers -> do
+               pure $ Just blk
+
+            | otherwise -> do
+               newOne <- shouldDownloadBlock @e brains peer blk
+               let chance = if newOne then 1 else 5
+               lucky <- liftIO $ shuffleM (True : replicate chance False) <&> headDef False
+               if lucky then
+                 pure $ Just blk
+               else do
+                 pure Nothing
+
+    case r of
+      Nothing -> none
+      Just h -> do
+        liftIO $ Cache.insert prop (h, peer) ()
+
+    pure r
 
 processBlock :: forall e m . ( MonadIO m
                              , HasStorage m
@@ -152,14 +143,15 @@ processBlock h = do
 
       addDownload parent (fromHashRef b)
 
-     Just (AnnRef h) -> do
-       addDownload parent h
+     Just (AnnRef (AnnotatedHashRef ann hx)) -> do
+       maybe1 ann none $ addDownload parent . fromHashRef
+       addDownload parent (fromHashRef hx)
 
      Just (MerkleAnn ann) -> do
-       case (_mtaMeta ann) of
+       case _mtaMeta ann of
           NoMetaData -> pure ()
           ShortMetadata {} -> pure ()
-          AnnHashRef h -> addDownload parent h
+          AnnHashRef hx -> addDownload parent hx
 
        case (_mtaCrypt ann) of
           NullEncryption -> pure ()
@@ -389,6 +381,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , Pretty (Peer e)
                                    , Block ByteString ~ ByteString
                                    , PeerMessaging e
+                                   , IsPeerAddr e m
                                    )
                   => DownloadEnv e -> m ()
 blockDownloadLoop env0 = do
@@ -398,6 +391,8 @@ blockDownloadLoop env0 = do
   let blks = mempty
 
   pl <- getPeerLocator @e
+
+  pause @'Seconds 3.81
 
   void $ liftIO $ async $ forever $ withPeerM e $ withDownload env0 do
     pause @'Seconds 60
@@ -424,11 +419,11 @@ blockDownloadLoop env0 = do
 
     debug $ "peers to delete" <+> pretty (length r)
 
-    for_ r $ delPeerThread . fst
+    for_ r $ killPeerThread . fst
 
   void $ liftIO $ async $ forever $ withPeerM e do
-    pause @'Seconds 5
-    debug "I'm a peer maintaining thread"
+    pause @'Seconds 1
+    -- debug "I'm a peer maintaining thread"
 
     brains <- withDownload env0 $ asks (view downloadBrains)
     pee <- knownPeers @e pl
@@ -454,8 +449,7 @@ blockDownloadLoop env0 = do
               withDownload env0 $ newPeerThread p runPeer
 
            | not auth -> do
-              withDownload env0 $ delPeerThread p
-              -- pure ()
+              pure ()
 
            | otherwise -> pure ()
 
@@ -508,24 +502,8 @@ blockDownloadLoop env0 = do
     pause @'Seconds 5 -- FIXME: put to defaults
                       --        we need to show download stats
 
-    tinfo   <- asks (view blockPeers)
-    binfo   <- liftIO $ readTVarIO tinfo
-    wip     <- asks (view blockWip)
-
-    liftIO $ Cache.purgeExpired wip
-
-    aliveWip <- Set.fromList <$> liftIO (Cache.keys wip)
-
-    let alive = HashMap.fromList [ (h,i)
-                                   | (h,i) <- HashMap.toList binfo
-                                   , Set.member h aliveWip
-                                 ]
-
-    liftIO $ atomically $ writeTVar tinfo alive
-
-    po <- postponedNum
-
-    wipNum <- liftIO $ Cache.size wip
+    wipNum  <- asks (view blockInQ) >>= liftIO . readTVarIO <&> HashMap.size
+    let po = 0
 
     notice $ "maintain blocks wip" <+> pretty wipNum
                                    <+> "postponed"
@@ -535,10 +513,12 @@ blockDownloadLoop env0 = do
 
     mapM_ processBlock blks
 
-    fix \next -> do
-      pause @'Seconds 30
-      debug "I'm a download loop. I don't do anything anymore"
-      next
+    proposed <- asks (view blockProposed)
+
+    forever do
+      pause @'Seconds 20
+      debug "block download loop. does not do anything"
+      liftIO $ Cache.purgeExpired proposed
 
 
 postponedLoop :: forall e m . ( MyPeer e
@@ -553,41 +533,26 @@ postponedLoop :: forall e m . ( MyPeer e
 postponedLoop env0 = do
   e <- ask
 
-  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
-    forever do
-      pause @'Seconds 10
-      mt <- asks (view downloadQ) >>= liftIO . atomically . isEmptyTQueue
-      debug $ "queue monitor thread" <+> "EMPTY:" <+> pretty mt
+  pause @'Seconds 2.57
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
-    -- wip <- asks (blockWip) >>= liftIO . Cache.keys
-      wip0 <- asks (view blockWip) >>= liftIO . Cache.keys <&> length
-      twip <- liftIO $ newTVarIO wip0
-
-      forever do
-        pause @'Seconds 10
-        wip1 <- asks (view blockWip) >>= liftIO . Cache.keys
-        wip2 <- liftIO $ readTVarIO twip
-        trace $ "download stuck check" <+> pretty (length wip1) <+> pretty wip2
-
-        when (length wip1 == wip2 && not (null wip1)) do
-          debug "download stuck"
-          for_ wip1 $ \h -> do
-            removeFromWip h
-            addDownload Nothing h
-
-        wip3 <- asks (view blockWip) >>= liftIO . Cache.keys
-        liftIO $ atomically $ writeTVar twip (length wip3)
+    q <- asks (view blockDelayTo)
+    fix \next -> do
+      w <- liftIO $ atomically $ readTQueue q
+      pause defInterBlockDelay
+      addDownload mzero w
+      -- ws <- liftIO $ atomically $ flushTQueue q
+      -- for_ (w:ws) $ addDownload mzero
+      next
 
   void $ liftIO $ async $ withPeerM e $ withDownload env0 do
     forever do
-      pause @'Seconds 30
+      pause @'Seconds 20
       trace "UNPOSTPONE LOOP"
       po <- asks (view blockPostponedTo) >>= liftIO . Cache.toList
       for_ po $ \(h, _, expired) -> do
         when (isJust expired) do
           unpostponeBlock h
-
 
 peerDownloadLoop :: forall e m . ( MyPeer e
                                  , Sessions e (KnownPeer e) m
@@ -595,6 +560,7 @@ peerDownloadLoop :: forall e m . ( MyPeer e
                                  , EventListener e (BlockInfo e) m
                                  , DownloadFromPeerStuff e m
                                  , HasPeerLocator e m
+                                 , IsPeerAddr e m
                                  , m ~ PeerM e IO
                                  ) => Peer e -> BlockDownloadM e m ()
 peerDownloadLoop peer = do
@@ -604,6 +570,8 @@ peerDownloadLoop peer = do
 
   pe <- lift ask
   e <- ask
+
+  brains <- asks (view downloadBrains)
 
   let doBlockSizeRequest h = do
         q <- liftIO newTQueueIO
@@ -653,20 +621,24 @@ peerDownloadLoop peer = do
 
             Right{} -> do
               trace $ "OK" <+> pretty peer <+> "dowloaded block" <+> pretty h
+              onBlockDownloaded brains peer h
               processBlock h
               liftIO $ atomically do
                 writeTVar  downFail 0
                 modifyTVar downBlk succ
 
-  let noBlkAction = do
-        liftIO yield
+  let warnExit = warn $ "peer loop exit" <+> pretty peer
+  -- let stopLoop = none
 
-  forever do
+  idle  <- liftIO $ newTVarIO 0
+
+  fix \next -> do
+
+    let thenNext m = m >> next
 
     liftIO do
       Cache.purgeExpired sizeCache
       Cache.purgeExpired noBlock
-
 
     npi <- newPeerInfo
 
@@ -678,53 +650,68 @@ peerDownloadLoop peer = do
     let noAuth = do
           let authNone = if isNothing auth' then "noauth" else ""
           warn ( "lost peer auth"  <+> pretty peer <+> pretty authNone  )
-          pause @'Seconds 1
-          -- liftIO $ withPeerM pe $ sendPing @e peer
-          -- -- FIXME: time-hardcode
-          -- pause @'Seconds 3
-          -- found <- lift $ find (KnownPeerKey peer) id  <&> isJust
-          -- unless found do
-          --   warn ( "peer lost. stopping peer loop"  <+> pretty peer )
+          warnExit
 
-    maybe1 mbauth noAuth $ \(_,_) -> do
+    maybe1 mbauth noAuth $ \_ -> do
 
-      withBlockForDownload peer noBlkAction $ \h -> do
-        -- TODO: insert-busyloop-counter-for-block-request
-        -- trace $ "withBlockForDownload" <+> pretty peer <+> pretty h
+      pt' <- getPeerThread peer
 
-        mbSize <- liftIO $ Cache.lookup sizeCache h
-        noBlk <- liftIO $ Cache.lookup noBlock h <&> isJust
+      maybe1 pt' warnExit $ \pt -> do
 
-        case mbSize of
-          Just size -> do
-            trace $ "HAS SIZE:" <+> pretty peer <+> pretty h <+> pretty size
-            updateBlockPeerSize h peer size
-            tryDownload pinfo h size
+        liftIO $ atomically $ modifyTVar (view peerBlocksWip pt) (max 0 . pred)
 
-          Nothing | noBlk -> do
-            trace $ pretty peer <+> "does not have block" <+> pretty h
-            addDownload mzero h
+        mbh <- getBlockForDownload peer
 
-          Nothing -> do
-            incBlockSizeReqCount h
+        case mbh of
+          Nothing -> thenNext do
+            idleNum <- liftIO $ atomically $ stateTVar idle $ \x -> (x, succ x)
 
-            r <- doBlockSizeRequest h
+            when (idleNum > 5) do
+              trace $ "peer IDLE" <+> pretty peer
+              liftIO $ atomically $ writeTVar idle 0
+              x <- lift $ randomRIO (2.85, 10.47)
+              pause @'Seconds (realToFrac x)
 
-            case r of
-              Left{}         -> failedDownload peer h
+          Just h -> thenNext do
 
-              Right Nothing  -> do
-                -- FIXME: non-existent-block-ruins-all
-                here <- liftIO $ Cache.lookup noBlock h <&> isJust
+              liftIO $ atomically $ writeTVar idle 0
 
-                unless here $
-                  liftIO $ Cache.insert noBlock h ()
+              lift $ onBlockDownloadAttempt brains peer h
 
-                addDownload mzero h
+              trace $ "start download block" <+> pretty peer <+> pretty h
 
-              Right (Just s) -> do
-                updateBlockPeerSize h peer s
-                tryDownload pinfo h s
+              mbSize <- liftIO $ Cache.lookup sizeCache h
+              noBlk <- liftIO $ Cache.lookup noBlock h <&> isJust
+
+              case mbSize of
+                Just size -> do
+                  trace $ "HAS SIZE:" <+> pretty peer <+> pretty h <+> pretty size
+                  tryDownload pinfo h size
+
+                Nothing | noBlk -> do
+                  trace $ pretty peer <+> "does not have block" <+> pretty h
+                  addDownload mzero h
+
+                Nothing -> do
+
+                  r <- doBlockSizeRequest h
+
+                  case r of
+                    Left{}         -> failedDownload peer h
+
+                    Right Nothing  -> do
+                      here <- liftIO $ Cache.lookup noBlock h <&> isJust
+
+                      unless here $
+                        liftIO $ Cache.insert noBlock h ()
+
+                      addDownload mzero h
+
+                    Right (Just s) -> do
+                      tryDownload pinfo h s
+
+        warnExit
+        void $ delPeerThreadData peer
 
 -- NOTE: this is an adapter for a ResponseM monad
 --       because response is working in ResponseM monad (ha!)

@@ -9,7 +9,6 @@ import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
@@ -17,41 +16,54 @@ import HBS2.OrDie
 import HBS2.Net.Proto.ACB
 
 
-import Control.Arrow ((&&&))
+import HBS2.System.Logger.Simple hiding (info)
+import HBS2.System.Logger.Simple qualified as Log
+
 import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.State.Strict
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
-import Data.Either
 import Data.Function
 import Data.Functor
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Monoid qualified as Monoid
-import Data.Text (Text)
 import Data.Set qualified as Set
-import Data.UUID qualified as UUID
-import Data.UUID.V4 qualified as UUID
 import Options.Applicative
-import Prettyprinter
 import System.Directory
 import Data.Maybe
 import Lens.Micro.Platform
 -- import System.FilePath.Posix
 import System.IO
 import System.Exit
-import System.ProgressBar
 
 import Codec.Serialise
 
 import Streaming.Prelude qualified as S
 -- import Streaming qualified as S
+
+
+logPrefix s = set loggerTr (s <>)
+
+tracePrefix :: SetLoggerEntry
+tracePrefix  = logPrefix "[trace] "
+
+debugPrefix :: SetLoggerEntry
+debugPrefix  = logPrefix "[debug] "
+
+errorPrefix :: SetLoggerEntry
+errorPrefix  = logPrefix "[error] "
+
+warnPrefix :: SetLoggerEntry
+warnPrefix   = logPrefix "[warn] "
+
+noticePrefix :: SetLoggerEntry
+noticePrefix = logPrefix "[notice] "
 
 
 newtype CommonOpts =
@@ -142,7 +154,7 @@ runCat opts ss = do
 
     liftIO $ do
 
-      let walk h = walkMerkle h (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+      let stepInside hr =
             case hr of
               Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
               Right (hrr :: [HashRef]) -> do
@@ -155,6 +167,9 @@ runCat opts ss = do
                        Nothing  -> die $ show $ "missed block: " <+> pretty hx
                        Just blk -> LBS.putStr blk
 
+      let walk h = walkMerkle h (getBlock ss) stepInside
+
+      -- FIXME: switch-to-deep-scan
       -- TODO: to-the-library
       let walkAnn :: MTreeAnn [HashRef] -> IO ()
           walkAnn ann = do
@@ -202,7 +217,8 @@ runCat opts ss = do
 
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
-        Merkle h -> walk h
+        Merkle t -> walkMerkleTree t (getBlock ss) stepInside
+
         MerkleAnn ann -> walkAnn ann
 
         -- FIXME: what-if-multiple-seq-ref-?
@@ -483,6 +499,15 @@ runRefLogGet s ss = do
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
+
+  setLogging @DEBUG  debugPrefix
+  setLogging @INFO   defLog
+  setLogging @ERROR  errorPrefix
+  setLogging @WARN   warnPrefix
+  setLogging @NOTICE noticePrefix
+
+  setLoggingOff @TRACE
+
   xdg <- getXdgDirectory XdgData defStorePath <&> fromString
 
   let pref = uniLastDef xdg opts :: StoragePrefix
@@ -495,6 +520,13 @@ withStore opts f = do
   simpleStorageStop s
 
   _ <-  waitAnyCatch w
+
+  setLoggingOff @DEBUG
+  setLoggingOff @INFO
+  setLoggingOff @ERROR
+  setLoggingOff @WARN
+  setLoggingOff @NOTICE
+  setLoggingOff @TRACE
 
   pure ()
 
@@ -511,7 +543,8 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "cat"             (info pCat (progDesc "cat block"))
                         <> command "hash"            (info pHash (progDesc "calculates hash"))
                         <> command "fsck"            (info pFsck (progDesc "check storage constistency"))
-                        <> command "del"            ( info pDel (progDesc "del block"))
+                        <> command "deps"            ( info pDeps (progDesc "print dependencies"))
+                        <> command "del"             ( info pDel (progDesc "del block"))
                         <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
                         <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
                         <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
@@ -626,12 +659,53 @@ main = join . customExecParser (prefs showHelpOnError) $
         forM_ rs $ \(h,f) -> do
           print $ fill 24 (pretty f) <+> pretty h
 
-
-        -- TODO: reflog-del-command-- TODO: reflog-del-command
-    pDel = do
+    pDeps = do
       o <- common
       h <- strArgument ( metavar "HASH" )
-      pure $ withStore o $ \sto -> do
-        delBlock sto h
 
+      pure $ withStore o $ \sto -> do
+        deepScan ScanDeep (const none) h (getBlock sto) $ \ha -> do
+          print $ pretty ha
+
+    -- TODO: reflog-del-command-- TODO: reflog-del-command
+    pDel = do
+      o <- common
+      recurse <- optional (flag' True ( short 'r' <> long "recursive" <> help "try to delete all blocks recursively" )
+                          ) <&> fromMaybe False
+
+      dontAsk <- optional ( flag' True ( short 'y' <> long "yes" <> help "don't ask permission to delete block")
+                          ) <&> fromMaybe False
+
+      h <- strArgument ( metavar "HASH" )
+
+      pure $ withStore o $ \sto -> do
+
+        setLogging @TRACE tracePrefix
+        hSetBuffering stdin NoBuffering
+
+        q <- liftIO newTQueueIO
+
+        if not recurse then
+          liftIO $ atomically $ writeTQueue q h
+        else do
+          -- hPrint stderr $ "recurse" <+> pretty h
+          deepScan ScanDeep (const none) h (getBlock sto) $ \ha -> do
+            liftIO $ atomically $ writeTQueue q ha
+
+        deps <- liftIO $ atomically $ flushTQueue q
+
+        forM_ deps $ \d -> do
+          doDelete <- if dontAsk then do
+                        pure True
+                      else do
+                        hPutStr stderr $ show $ "Are you sure to delete block" <+> pretty d <+> "[y/n]: "
+                        y <- getChar
+                        hPutStrLn stderr ""
+                        pure $ y `elem` ['y','Y']
+
+          when doDelete do
+            delBlock sto d
+            hFlush stderr
+            print $ "deleted" <+> pretty d
+            hFlush stdout
 

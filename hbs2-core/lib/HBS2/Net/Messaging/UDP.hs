@@ -1,4 +1,5 @@
 {-# Language TemplateHaskell #-}
+{-# Language UndecidableInstances #-}
 module HBS2.Net.Messaging.UDP where
 
 import HBS2.Clock
@@ -58,7 +59,7 @@ instance Pretty (Peer UDP) where
 makeLenses 'PeerUDP
 
 
-instance MonadIO m => IsPeerAddr UDP m where
+instance (FromStringMaybe (IPAddrPort UDP), MonadIO m) => IsPeerAddr UDP m where
   type instance PeerAddr UDP = IPAddrPort UDP
   toPeerAddr p = pure $ fromString $ show $ pretty p
 

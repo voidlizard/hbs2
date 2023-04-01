@@ -148,8 +148,9 @@ reflogWorker conf adapter = do
             SeqRef (SequentialRef _ (AnnotatedHashRef _ ref)) -> do
               liftIO $ reflogDownload adapter (fromHashRef ref)
 
-            AnnRef ref -> do
-              liftIO $ reflogDownload adapter ref
+            -- TODO: asap-download-annotation-as-well
+            AnnRef (AnnotatedHashRef _ ref) -> do
+              liftIO $ reflogDownload adapter (fromHashRef ref)
 
             -- TODO: support-other-data-structures
             _ -> pure ()

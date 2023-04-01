@@ -31,6 +31,7 @@ blockSizeProto :: forall e m  . ( MonadIO m
                -> BlockInfo e
                -> m ()
 
+-- FIXME: with-auth-combinator
 blockSizeProto getBlockSize evHasBlock =
   \case
     GetBlockSize h -> do

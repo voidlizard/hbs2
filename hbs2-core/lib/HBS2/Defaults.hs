@@ -60,10 +60,10 @@ defBlockBanTime :: TimeSpec
 defBlockBanTime = toTimeSpec defBlockBanTimeSec
 
 defBlockPostponeTime :: TimeSpec
-defBlockPostponeTime = toTimeSpec ( 60 :: Timeout 'Seconds)
+defBlockPostponeTime = toTimeSpec ( 45 :: Timeout 'Seconds)
 
 defBlockBanTimeSec :: Timeout 'Seconds
-defBlockBanTimeSec = 60 :: Timeout 'Seconds
+defBlockBanTimeSec = 30 :: Timeout 'Seconds
 
 defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
@@ -103,4 +103,9 @@ defDownloadFails = 100
 defUsefulLimit :: Double
 defUsefulLimit = 0.25
 
+defInterBlockDelay :: Timeout 'Seconds
+defInterBlockDelay = 0.0085
+
+defBlockReqNum :: Integral a => a
+defBlockReqNum = 2
 

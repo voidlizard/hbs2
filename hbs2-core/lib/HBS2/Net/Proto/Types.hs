@@ -6,6 +6,7 @@ module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where
 
+import HBS2.Prelude (FromStringMaybe(..))
 import HBS2.Clock
 
 import Data.Kind
@@ -43,13 +44,15 @@ class HasPeerNonce e m where
   peerNonce :: m PeerNonce
 
 
-
 data WithCookie e p = WithCookie (Cookie e) p
 
 class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
-class Monad m => IsPeerAddr e m where
+class ( FromStringMaybe (PeerAddr e)
+      , Eq (PeerAddr e)
+      , Monad m
+      ) => IsPeerAddr e m where
   type family PeerAddr e :: Type
 
   toPeerAddr   :: Peer e -> m (PeerAddr e)
