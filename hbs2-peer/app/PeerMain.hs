@@ -591,6 +591,25 @@ runPeer opts = Exception.handle myException $ do
 
                 banned <- peerBanned p d
 
+                let doAddPeer p = do
+                        addPeers pl [p]
+
+                        -- TODO: better-handling-for-new-peers
+                        npi    <- newPeerInfo
+
+                        here <- find @e (KnownPeerKey p) id <&> isJust
+
+                        pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                        liftIO $ atomically $ writeTVar pfails 0
+                        -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+
+                        unless here do
+                          -- liftIO $ atomically $ writeTVar pdownfails 0
+
+                          debug $ "Got authorized peer!" <+> pretty p
+                                                         <+> pretty (AsBase58 (view peerSignKey d))
+
+
                 -- FIXME: check if we've got a reference to ourselves
                 if | pnonce == thatNonce -> do
                     delPeers pl [p]
@@ -616,25 +635,29 @@ runPeer opts = Exception.handle myException $ do
                       -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
                       --   remove remote peer
                       --   add local peer
-                      Just p0 | p0 /= p -> debug "Same peer, different address"
-                      _ -> do
+                      Just p0 | p0 /= p -> do
+                        debug "Same peer, different address"
 
-                        addPeers pl [p]
+                        void $ runMaybeT do
+                          tv0 <- MaybeT $ find (PeerInfoKey p0) (view peerRTT)
+                          tv1 <- MaybeT $ find (PeerInfoKey p) (view peerRTT)
 
-                        -- TODO: better-handling-for-new-peers
-                        npi    <- newPeerInfo
+                          rtt0 <- MaybeT $ liftIO $ readTVarIO tv0
+                          rtt1 <- MaybeT $ liftIO $ readTVarIO tv1
 
-                        here <- find @e (KnownPeerKey p) id <&> isJust
+                          when ( rtt1 < rtt0 ) do
+                            debug $ "Better rtt!" <+> pretty p0
+                                                  <+> pretty p
+                                                  <+> pretty rtt0
+                                                  <+> pretty rtt1
 
-                        pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                        liftIO $ atomically $ writeTVar pfails 0
-                        -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+                            lift $ do
+                              expire (KnownPeerKey p0)
+                              delPeers pl [p]
+                              doAddPeer p
 
-                        unless here do
-                          -- liftIO $ atomically $ writeTVar pdownfails 0
+                      _ -> doAddPeer p
 
-                          debug $ "Got authorized peer!" <+> pretty p
-                                                         <+> pretty (AsBase58 (view peerSignKey d))
 
               void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1
