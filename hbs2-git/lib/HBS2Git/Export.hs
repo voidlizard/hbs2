@@ -91,7 +91,6 @@ export h repoHead = do
     for_ els $ \(k,vs,_) -> do
       updateProgress mon1 1
       for_ (Set.toList vs) $ \ha -> do
-        trace $ "stateAdDep" <+> pretty k <+> pretty ha
         stateAddDep k ha
 
   deps <- withDB db $ do
