@@ -77,8 +77,8 @@ export h repoHead = do
 
   notice "calculate dependencies"
 
-  for_ refs $ \(_, h) -> do
-    liftIO $ gitGetTransitiveClosure cache mempty h <&> Set.toList
+  for_ refs $ \(_, r) -> do
+    liftIO $ gitGetTransitiveClosure cache mempty r <&> Set.toList
 
   -- notice "store dependencies to state"
   -- hashes <- readHashesFromBlock undefined
@@ -90,8 +90,9 @@ export h repoHead = do
     els <- liftIO $ Cache.toList (hCache cache)
     for_ els $ \(k,vs,_) -> do
       updateProgress mon1 1
-      for_ (Set.toList vs) $ \h -> do
-        stateAddDep k h
+      for_ (Set.toList vs) $ \ha -> do
+        trace $ "stateAdDep" <+> pretty k <+> pretty ha
+        stateAddDep k ha
 
   deps <- withDB db $ do
             x <- forM refs $ stateGetDeps . snd

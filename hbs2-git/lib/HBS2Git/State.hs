@@ -173,6 +173,7 @@ transactional action = do
       throwM e
 
     Right x -> do
+      savepointRelease sp
       pure x
 
 -- TODO: backlog-head-history
