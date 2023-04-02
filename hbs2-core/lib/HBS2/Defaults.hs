@@ -13,7 +13,7 @@ defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536*10
 
 defBurst :: Integral a => a
-defBurst = 8
+defBurst = 2
 
 defBurstMax :: Integral a => a
 defBurstMax = 64
@@ -70,18 +70,18 @@ defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 60
+defBlockInfoTimeout = 20
 
 defBlockInfoTimeoutSpec :: TimeSpec
 defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 120 :: Timeout 'Seconds
+defBlockWaitMax = 20 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 60  :: Timeout 'Seconds
+defChunkWaitMax = 10  :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 60 -- FIXME: only for debug!
