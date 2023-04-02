@@ -5,6 +5,8 @@ import HBS2.Data.Types.Refs
 import HBS2.Git.Types
 import HBS2.Hash
 
+import HBS2.System.Logger.Simple
+
 import Data.Functor
 import Data.Function
 import Database.SQLite.Simple
@@ -22,6 +24,8 @@ import Data.Text (Text)
 import Prettyprinter
 import Data.UUID.V4 qualified as UUID
 import Control.Monad.Catch
+import Control.Concurrent.STM
+import System.IO.Unsafe
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -59,13 +63,25 @@ instance (HasRefCredentials m) => HasRefCredentials (DB m) where
   getCredentials = lift . getCredentials
   setCredentials r s  = lift (setCredentials r s)
 
+dbConnTV :: TVar (Maybe DBEnv)
+dbConnTV = unsafePerformIO $ newTVarIO Nothing
+{-# NOINLINE dbConnTV #-}
+
 dbEnv :: MonadIO m => FilePath -> m DBEnv
 dbEnv fp = do
+  trace  "dbEnv called"
   let dir = takeDirectory fp
   liftIO $ createDirectoryIfMissing True dir
-  co <- liftIO $ open fp
-  withDB co stateInit
-  pure co
+  mbDb <- liftIO $ readTVarIO dbConnTV
+
+  case mbDb of
+    Nothing -> do
+      co <- liftIO $ open fp
+      liftIO $ atomically $ writeTVar dbConnTV (Just co)
+      withDB co stateInit
+      pure co
+
+    Just db -> pure db
 
 withDB :: DBEnv -> DB m a -> m a
 withDB env action = runReaderT (fromDB action) env

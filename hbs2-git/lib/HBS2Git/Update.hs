@@ -23,6 +23,8 @@ updateLocalState ref = do
 
   db <- dbEnv dbPath
 
+  withDB db stateInit
+
   trace $ "updateLocalState" <+> pretty ref
 
   sp <- withDB db savepointNew
