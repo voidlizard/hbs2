@@ -544,6 +544,7 @@ runPeer opts = Exception.handle myException $ do
               reflogAdapter <- RefLog.mkAdapter
               reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e
 
+
               let doDownload h = do
                     withPeerM penv $ withDownload denv (addDownload mzero h)
 
@@ -556,6 +557,13 @@ runPeer opts = Exception.handle myException $ do
                    { RefLog.reflogDownload = doDownload
                    , RefLog.reflogFetch = doFetchRef
                    }
+
+              let doUpdateRtt (p,rttNew) = withPeerM penv $ void $ runMaybeT do
+                    def <- newPeerInfo
+                    tv <- lift $ fetch True def (PeerInfoKey p) (view peerRTT)
+                    void $ liftIO $ atomically $ writeTVar tv (Just rttNew)
+
+              let hshakeAdapter = PeerHandshakeAdapter doUpdateRtt
 
               env <- ask
 
@@ -758,7 +766,7 @@ runPeer opts = Exception.handle myException $ do
                     [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
-                    , makeResponse (withCredentials pc . peerHandShakeProto)
+                    , makeResponse (withCredentials pc . peerHandShakeProto hshakeAdapter)
                     , makeResponse peerExchangeProto
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)

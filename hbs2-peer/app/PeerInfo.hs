@@ -52,6 +52,7 @@ data PeerInfo e =
   , _peerDownloadedBlk  :: TVar Int
   , _peerDownloadFail   :: TVar Int
   , _peerUsefulness     :: TVar Double
+  , _peerRTT            :: TVar (Maybe Integer) -- ^ nanosec
   }
   deriving stock (Generic,Typeable)
 
@@ -73,6 +74,7 @@ newPeerInfo = liftIO do
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
+           <*> newTVarIO Nothing
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 

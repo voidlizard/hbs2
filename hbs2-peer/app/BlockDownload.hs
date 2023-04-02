@@ -490,12 +490,15 @@ blockDownloadLoop env0 = do
       errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
       downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
       down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
-      useful    <- liftIO $ readTVarIO (view peerUsefulness pinfo)
+      rtt       <- liftIO $ readTVarIO (view peerRTT pinfo) <&> fmap realToFrac
+
+      let rttMs = (/1e6) <$> rtt  <&> floor
+
       notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
                                    <+> "burst-max:" <+> pretty buM
                                    <+> "errors:" <+> pretty (downFails + errors)
                                    <+> "down:" <+> pretty down
-                                   <+> "useful:" <+> pretty useful
+                                   <+> "rtt:" <+> pretty rttMs <> "ms"
       pure ()
 
   void $ liftIO $ async $ forever $ withPeerM e $ withDownload env0 do

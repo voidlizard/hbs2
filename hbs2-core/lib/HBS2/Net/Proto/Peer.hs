@@ -44,13 +44,22 @@ newtype instance SessionKey e  (KnownPeer e) =
   KnownPeerKey (Peer e)
   deriving stock (Generic,Typeable)
 
+data PeerPingData e =
+  PeerPingData
+  { _peerPingNonce :: PingNonce
+  , _peerPingSent  :: TimeSpec
+  }
+  deriving stock (Generic,Typeable)
+
+makeLenses 'PeerPingData
+
 type instance SessionData e (KnownPeer e) = PeerData e
 
 newtype instance SessionKey e (PeerHandshake e) =
   PeerHandshakeKey (PingNonce, Peer e)
   deriving stock (Generic, Typeable)
 
-type instance SessionData e (PeerHandshake e) = PingNonce
+type instance SessionData e (PeerHandshake e) = PeerPingData e
 
 
 -- FIXME: enormous-request-amount-during-handshake-2
@@ -71,8 +80,16 @@ sendPing :: forall e m . ( MonadIO m
 
 sendPing pip = do
   nonce <- newNonce @(PeerHandshake e)
-  update nonce (PeerHandshakeKey (nonce,pip)) id
+  tt <- liftIO $ getTimeCoarse
+  let pdd = PeerPingData nonce tt
+  update pdd (PeerHandshakeKey (nonce,pip)) id
   request pip (PeerPing @e nonce)
+
+newtype PeerHandshakeAdapter e m =
+  PeerHandshakeAdapter
+  { onPeerRTT :: (Peer e, Integer) -> m ()
+  }
+
 
 peerHandShakeProto :: forall e m . ( MonadIO m
                                    , Response e (PeerHandshake e) m
@@ -88,9 +105,10 @@ peerHandShakeProto :: forall e m . ( MonadIO m
                                    , EventEmitter e (PeerHandshake e) m
                                    , EventEmitter e (ConcretePeer e) m
                                    )
-                   => PeerHandshake e -> m ()
+                   => PeerHandshakeAdapter e m
+                   -> PeerHandshake e -> m ()
 
-peerHandShakeProto =
+peerHandShakeProto adapter =
   \case
     PeerPing nonce  -> do
       pip <- thatPeer proto
@@ -117,13 +135,18 @@ peerHandShakeProto =
 
       se' <- find @e (PeerHandshakeKey (nonce0,pip)) id
 
-      maybe1 se' (pure ()) $ \nonce -> do
+      maybe1 se' (pure ()) $ \(PeerPingData nonce t0) -> do
 
         let pk = view peerSignKey d
 
         let signed = verifySign @e pk sign nonce
 
         when signed $ do
+
+          now <- liftIO getTimeCoarse
+          let rtt = toNanoSecs $ now - t0
+
+          onPeerRTT adapter (pip,rtt)
 
           expire (PeerHandshakeKey (nonce0,pip))
 
