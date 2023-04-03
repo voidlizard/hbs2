@@ -1,4 +1,10 @@
 
+## 2023-04-01
+
+TODO: hbs2-peer-dump-wip-blocks
+
+TODO: hbs2-peer-del-block-from-wip
+
 ## 2023-03-29
 
 TODO: smart-peer-choice-on-download
