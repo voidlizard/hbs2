@@ -569,9 +569,6 @@ peerDownloadLoop :: forall e m . ( MyPeer e
                                  ) => Peer e -> BlockDownloadM e m ()
 peerDownloadLoop peer = do
 
-  sizeCache   <- liftIO $ Cache.newCache @_ @Integer (Just defBlockSizeCacheTime)
-  noBlock     <- liftIO $ Cache.newCache (Just defBlockBanTime)
-
   pe <- lift ask
   e <- ask
 
@@ -583,8 +580,8 @@ peerDownloadLoop peer = do
           subscribe @e (BlockSizeEventKey h) $ \case
             BlockSizeEvent (p1,_,s) -> do
               when (p1 == peer) do
-                liftIO $ Cache.insert sizeCache h s
                 liftIO $ atomically $ writeTQueue q (Just s)
+                onBlockSize brains peer h s
 
             NoBlockEvent{} -> do
               -- TODO: ban-block-for-some-seconds
@@ -610,6 +607,7 @@ peerDownloadLoop peer = do
           trace $ pretty peer <+> "block" <+> pretty h <+> "is already here"
           processBlock h
         else do
+          lift $ onBlockDownloadAttempt brains peer h
           let downFail = view peerDownloadFail pinfo
           let downBlk  = view peerDownloadedBlk pinfo
 
@@ -639,10 +637,6 @@ peerDownloadLoop peer = do
   fix \next -> do
 
     let thenNext m = m >> next
-
-    liftIO do
-      Cache.purgeExpired sizeCache
-      Cache.purgeExpired noBlock
 
     npi <- newPeerInfo
 
@@ -680,39 +674,24 @@ peerDownloadLoop peer = do
 
               liftIO $ atomically $ writeTVar idle 0
 
-              lift $ onBlockDownloadAttempt brains peer h
-
               trace $ "start download block" <+> pretty peer <+> pretty h
 
-              mbSize <- liftIO $ Cache.lookup sizeCache h
-              noBlk <- liftIO $ Cache.lookup noBlock h <&> isJust
+              mbSize2 <- blockSize brains peer h
 
-              case mbSize of
+              case mbSize2 of
                 Just size -> do
                   trace $ "HAS SIZE:" <+> pretty peer <+> pretty h <+> pretty size
                   tryDownload pinfo h size
 
-                Nothing | noBlk -> do
-                  trace $ pretty peer <+> "does not have block" <+> pretty h
-                  addDownload mzero h
-
                 Nothing -> do
-
                   r <- doBlockSizeRequest h
-
                   case r of
-                    Left{}         -> failedDownload peer h
-
-                    Right Nothing  -> do
-                      here <- liftIO $ Cache.lookup noBlock h <&> isJust
-
-                      unless here $
-                        liftIO $ Cache.insert noBlock h ()
-
-                      addDownload mzero h
-
-                    Right (Just s) -> do
+                    (Right (Just s)) -> do
                       tryDownload pinfo h s
+                      pure ()
+
+                    _ -> pure ()
+
 
         warnExit
         void $ delPeerThreadData peer
