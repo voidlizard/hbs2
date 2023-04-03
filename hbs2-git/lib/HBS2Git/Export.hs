@@ -16,6 +16,7 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Update
+import HBS2Git.Config
 
 import Data.Functor
 import Data.List (sortBy)
@@ -25,6 +26,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Cache as Cache
 import Data.Foldable (for_)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
@@ -32,6 +34,10 @@ import Lens.Micro.Platform
 import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Control.Monad.Catch
+import Text.InterpolatedString.Perl6 (qc)
+import System.Directory
+import System.FilePath
+import Prettyprinter.Render.Terminal
 
 data HashCache =
   HashCache
@@ -73,115 +79,145 @@ export h repoHead = do
 
   db <- dbEnv dbPath
 
-  cache <- newHashCache db
+  sp <- withDB db savepointNew
 
-  notice "calculate dependencies"
+  withDB db $ savepointBegin sp
 
-  for_ refs $ \(_, r) -> do
-    liftIO $ gitGetTransitiveClosure cache mempty r <&> Set.toList
+  rr <- try $ do
 
-  -- notice "store dependencies to state"
-  -- hashes <- readHashesFromBlock undefined
+    skip <- withDB db stateGetExported <&> HashSet.fromList
 
-  sz   <- liftIO $ Cache.size (hCache cache)
-  mon1 <- newProgressMonitor "storing dependencies" sz
+    -- TODO: process-only-commits-to-make-first-run-faster
+    ooo <- gitListAllObjects <&> filter (not . (`HashSet.member` skip))
 
-  withDB db $ transactional do
-    els <- liftIO $ Cache.toList (hCache cache)
-    for_ els $ \(k,vs,_) -> do
-      updateProgress mon1 1
-      for_ (Set.toList vs) $ \ha -> do
-        stateAddDep k ha
+    cached0 <- withDB db stateGetAllDeps
+    let cached  = HashMap.fromListWith (<>) [ (k, [v]) | (k,v) <- cached0 ]
+    let lookup h = pure $ HashMap.lookup h cached & fromMaybe mempty
 
-  deps <- withDB db $ do
-            x <- forM refs $ stateGetDeps . snd
-            pure $ mconcat x
+    monDep <- newProgressMonitor "calculate dependencies" (length ooo)
 
-  withDB db $ transactional do -- to speedup inserts
+    allDeps <- gitGetAllDependencies 4 ooo lookup (const $ updateProgress monDep 1)
 
-    let metaApp = "application:" <+> "hbs2-git" <> line
+    let sz  = length allDeps
+    mon1 <- newProgressMonitor "storing dependencies" sz
 
-    let metaHead = fromString $ show
-                              $ metaApp <> "type:" <+> "head" <> line
+    withDB db $ transactional do
+      for_ allDeps $ \(obj,dep) -> do
+        updateProgress mon1 1
+        stateAddDep dep obj
 
-    -- let gha = gitHashObject (GitObject Blob repoHead)
-    hh  <- lift $ storeObject metaHead repoHeadStr `orDie` "cant save repo head"
+    deps <- withDB db $ do
+              x <- forM refs $ stateGetDepsRec . snd
+              pure $ mconcat x
 
-    mon3 <- newProgressMonitor "export objects from repo" (length deps)
+    withDB db $ transactional do -- to speedup inserts
 
-    for_ deps $ \d -> do
-      here <- stateGetHash d <&> isJust
-      -- FIXME: asap-check-if-objects-is-in-hbs2
-      unless here do
-        lbs <- gitReadObject Nothing d
+      let metaApp = "application:" <+> "hbs2-git" <> line
 
-        -- TODO: why-not-default-blob
-        --   anything is blob
-        tp <- gitGetObjectType d <&> fromMaybe Blob --
+      let metaHead = fromString $ show
+                                $ metaApp <> "type:" <+> "head" <> line
 
-        let metaO = fromString $ show
-                               $ metaApp
-                               <> "type:" <+> pretty tp <+> pretty d
-                               <> line
+      -- let gha = gitHashObject (GitObject Blob repoHead)
+      hh  <- lift $ storeObject metaHead repoHeadStr `orDie` "cant save repo head"
 
-        hr' <- lift $ storeObject metaO lbs
+      mon3 <- newProgressMonitor "export objects from repo" (length deps)
 
-        maybe1 hr' (pure ()) $ \hr -> do
-          statePutHash tp d hr
+      for_ deps $ \d -> do
+        here <- stateGetHash d <&> isJust
+        -- FIXME: asap-check-if-objects-is-in-hbs2
+        unless here do
+          lbs <- gitReadObject Nothing d
 
-        updateProgress mon3 1
+          -- TODO: why-not-default-blob
+          --   anything is blob
+          tp <- gitGetObjectType d <&> fromMaybe Blob --
 
-    hashes <- (hh : ) <$> stateGetAllHashes
+          let metaO = fromString $ show
+                                 $ metaApp
+                                 <> "type:" <+> pretty tp <+> pretty d
+                                 <> line
 
-    let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
+          hr' <- lift $ storeObject metaO lbs
 
-    tobj <- liftIO newTQueueIO
-    -- FIXME: progress-indicator
-    root <- makeMerkle 0 pt $ \(ha,_,bss) -> do
-      liftIO $ atomically $ writeTQueue tobj (ha,bss)
+          maybe1 hr' (pure ()) $ \hr -> do
+            statePutHash tp d hr
 
-    objs <- liftIO $ atomically $ flushTQueue tobj
+          updateProgress mon3 1
 
-    mon2 <- newProgressMonitor "store objects" (length objs)
+      hashes <- (hh : ) <$> stateGetAllHashes
 
-    for_ objs $ \(ha,bss) -> do
-      updateProgress mon2 1
-      here <- lift $ getBlockSize (HashRef ha) <&> isJust
-      unless here do
-        void $ lift $ storeObject (fromString (show metaApp)) bss
+      let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
 
-    trace "generate update transaction"
+      tobj <- liftIO newTQueueIO
+      -- FIXME: progress-indicator
+      root <- makeMerkle 0 pt $ \(ha,_,bss) -> do
+        liftIO $ atomically $ writeTQueue tobj (ha,bss)
 
-    trace $ "objects:" <+> pretty (length hashes)
+      objs <- liftIO $ atomically $ flushTQueue tobj
 
-    seqno <- stateGetSequence <&> succ
-    -- FIXME: same-transaction-different-seqno
+      mon2 <- newProgressMonitor "store objects" (length objs)
 
-    postRefUpdate h seqno (HashRef root)
+      for_ objs $ \(ha,bss) -> do
+        updateProgress mon2 1
+        here <- lift $ getBlockSize (HashRef ha) <&> isJust
+        unless here do
+          void $ lift $ storeObject (fromString (show metaApp)) bss
 
-    let noRef = do
-          pause @'Seconds 20
-          shutUp
-          die $ show $ pretty "No reference appeared for" <+> pretty h
+      trace "generate update transaction"
 
-    wmon <- newProgressMonitor "waiting for ref" 20
-    void $ liftIO $ race noRef $ do
-            runApp NoLog do
-              fix \next -> do
-                v <- readRefHttp h
-                updateProgress wmon 1
-                case v of
-                  Nothing -> pause @'Seconds 1 >> next
-                  Just{}  -> pure ()
+      trace $ "objects:" <+> pretty (length hashes)
 
-    pure (HashRef root, hh)
+      seqno <- stateGetSequence <&> succ
+      -- FIXME: same-transaction-different-seqno
+
+      postRefUpdate h seqno (HashRef root)
+
+      let noRef = do
+            pause @'Seconds 20
+            shutUp
+            die $ show $ pretty "No reference appeared for" <+> pretty h
+
+      wmon <- newProgressMonitor "waiting for ref" 20
+      void $ liftIO $ race noRef $ do
+              runApp NoLog do
+                fix \next -> do
+                  v <- readRefHttp h
+                  updateProgress wmon 1
+                  case v of
+                    Nothing -> pause @'Seconds 1 >> next
+                    Just{}  -> pure ()
+
+
+      withDB db $ transactional $ mapM_ statePutExported ooo
+
+      pure (HashRef root, hh)
+
+  case rr of
+    Left ( e :: SomeException ) -> do
+      withDB db (savepointRollback sp)
+      err $ viaShow e
+      shutUp
+      die "aborted"
+
+    Right r -> do
+      withDB db (savepointRelease sp)
+      pure r
 
 
 runExport :: forall m . (MonadIO m, MonadCatch m, HasProgress (App m))
           => Maybe FilePath -> RepoRef -> App m ()
 runExport fp h = do
 
-  trace $ "Export" <+> pretty (AsBase58 h)
+  let green = annotate (color Green)
+  let yellow = annotate (color Yellow)
+  let section = line <> line
+
+  liftIO $ putDoc $
+       line
+    <> green "Exporting to reflog" <+> pretty (AsBase58 h)
+    <> section
+    <> "it may take some time on the first run"
+    <> section
 
   git <- asks (view appGitDir)
 
@@ -189,26 +225,13 @@ runExport fp h = do
 
   loadCredentials (maybeToList fp)
 
-  branches   <- cfgValue @ConfBranch
-
   -- FIXME: wtf-runExport
   branchesGr <- cfgValue @ConfBranch <&> Set.map normalizeRef
-  headBranch' <- cfgValue @HeadBranch
 
-  trace $ "BRANCHES" <+> pretty (Set.toList branches)
-
-  let defSort a b = case (a,b) of
-        ("master",_) -> LT
-        ("main", _)  -> LT
-        _            -> GT
-
-  let sortedBr = sortBy defSort $ Set.toList branches
-
-  let headBranch = fromMaybe "master"
-                     $ headBranch' <|> (fromString <$> headMay sortedBr)
+  headBranch <- gitGetBranchHEAD `orDie` "undefined HEAD for repo"
 
   refs <- gitListLocalBranches
-             <&> filter (\x -> Set.member (fst x) branchesGr)
+             <&> filter (\x -> Set.null branchesGr ||  Set.member (fst x) branchesGr)
 
   trace $ "REFS" <+> pretty refs
 
@@ -225,6 +248,37 @@ runExport fp h = do
 
   updateLocalState h
 
-  info  $ "head:" <+> pretty hhh
-  info  $ "merkle:" <+> pretty root
+  shutUp
+
+  cwd <- liftIO getCurrentDirectory
+  cfgPath <- configPath cwd
+  let krf = fromMaybe "keyring-file" fp & takeFileName
+
+
+  liftIO $ putStrLn ""
+  liftIO $ putDoc $
+    "exported" <+> pretty hhh
+    <> section
+    <> green "Repository config:" <+> pretty (cfgPath </> "config")
+    <> section
+    <>  "Put the keyring file" <+> yellow (pretty krf) <+> "into a safe place," <> line
+    <> "like encrypted directory or volume."
+    <> section
+    <> "You will need this keyring to push into the repository."
+    <> section
+    <> green "Add keyring into the repo's config:"
+    <> section
+    <> "keyring" <+> pretty [qc|"/my/safe/place/{krf}"|]
+    <> section
+    <> green "Add git remote:"
+    <> section
+    <> pretty [qc|git remote add remotename hbs2://{pretty h}|]
+    <> section
+    <> green "Work with git as usual:"
+    <> section
+    <> "git pull remotename" <> line
+    <> "(or git fetch remotename && git reset --hard remotename/branch)" <> line
+    <> "git push remotename" <> line
+    <> line
+
 

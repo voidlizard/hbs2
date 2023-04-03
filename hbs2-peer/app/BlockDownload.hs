@@ -396,7 +396,7 @@ blockDownloadLoop env0 = do
   pause @'Seconds 3.81
 
   void $ liftIO $ async $ forever $ withPeerM e $ withDownload env0 do
-    pause @'Seconds 60
+    pause @'Seconds 10
     debug "I'm peer thread sweeping thread"
 
     known <- knownPeers @e pl

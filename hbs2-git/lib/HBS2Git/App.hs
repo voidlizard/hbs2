@@ -356,8 +356,6 @@ storeObjectHttpPut meta bs = do
 
   let chu = chunks (fromIntegral defBlockSize) bs
 
-  trace $ length chu
-
   rt <- liftIO $ Cache.newCache Nothing
 
   -- FIXME: run-concurrently
@@ -367,7 +365,7 @@ storeObjectHttpPut meta bs = do
 
   let pt = toPTree (MaxSize 1024) (MaxNum 1024) hashes -- FIXME: settings
 
-  trace $ viaShow pt
+  -- trace $ viaShow pt
 
   root <- makeMerkle 0 pt $ \(h,t,bss) -> do
             liftIO $ Cache.insert rt h (t,bss)

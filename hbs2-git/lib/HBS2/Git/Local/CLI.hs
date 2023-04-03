@@ -6,11 +6,17 @@ import HBS2.Git.Types
 import HBS2.System.Logger.Simple
 
 import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Control.Monad.Writer
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Functor
 import Data.Function
 import Data.Maybe
 import Data.Set qualified as Set
@@ -99,6 +105,64 @@ gitGetDependencies hash = do
     _           -> pure mempty
 
 
+gitGetAllDependencies :: MonadIO m
+                       => Int
+                       -> [ GitHash ]
+                       -> ( GitHash -> IO [GitHash] )
+                       -> ( GitHash -> IO () )
+                       -> m [(GitHash, GitHash)]
+
+gitGetAllDependencies n objects lookup progress = liftIO do
+  input <- newTQueueIO
+  output <- newTQueueIO
+
+  memo  <- newTVarIO ( mempty :: HashSet GitHash )
+  work  <- newTVarIO ( mempty :: HashMap Int Int )
+  num   <- newTVarIO 1
+
+  atomically $ mapM_ (writeTQueue input) objects
+
+  replicateConcurrently_ n $ do
+
+    i <- atomically $ stateTVar num ( \x -> (x, succ x) )
+
+    fix \next -> do
+      o <- atomically $ tryReadTQueue input
+      case o of
+        Nothing -> do
+          todo <- atomically $ do
+            modifyTVar work (HashMap.delete i)
+            readTVar work <&> HashMap.elems <&> sum
+
+          when (todo > 0) next
+
+        Just h -> do
+
+          progress h
+
+          done <- atomically $ do
+            here <- readTVar memo <&> HashSet.member h
+            modifyTVar memo (HashSet.insert h)
+            pure here
+
+          unless done do
+            cached <- lookup h
+
+            deps <- if null cached then do
+                      gitGetDependencies h
+                    else
+                      pure cached
+
+            forM_ deps $ \d -> do
+              atomically $ writeTQueue output (h,d)
+
+            atomically $ modifyTVar work (HashMap.insert i (length deps))
+
+          next
+
+  liftIO $ atomically $ flushTQueue output
+
+
 gitGetTransitiveClosure :: forall cache . (HasCache cache GitHash (Set GitHash) IO)
                         => cache
                         -> Set GitHash
@@ -112,7 +176,7 @@ gitGetTransitiveClosure cache exclude hash = do
       Just xs -> pure xs
       Nothing -> do
         deps <- gitGetDependencies hash
-        clos <- mapConcurrently (gitGetTransitiveClosure cache exclude) deps
+        clos <- mapM (gitGetTransitiveClosure cache exclude) deps
         let res = (Set.fromList (hash:deps) <> Set.unions clos) `Set.difference` exclude
         cacheInsert cache hash res
         pure res
@@ -234,6 +298,16 @@ gitGetHash ref = do
   trace $ "gitGetHash" <+> [qc|git rev-parse {pretty ref}|]
 
   (code, out, _) <- readProcess (shell [qc|git rev-parse {pretty ref}|])
+
+  if code == ExitSuccess then do
+    let hash = fromString . LBS.unpack <$> headMay (LBS.lines out)
+    pure hash
+  else
+    pure Nothing
+
+gitGetBranchHEAD :: MonadIO m => m (Maybe GitRef)
+gitGetBranchHEAD = do
+  (code, out, _) <- readProcess (shell [qc|git rev-parse --abbrev-ref HEAD|])
 
   if code == ExitSuccess then do
     let hash = fromString . LBS.unpack <$> headMay (LBS.lines out)

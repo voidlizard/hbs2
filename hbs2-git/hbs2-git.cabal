@@ -69,6 +69,7 @@ common shared-properties
                , microlens-platform
                , mtl
                , prettyprinter
+               , prettyprinter-ansi-terminal
                , safe
                , serialise
                , suckless-conf

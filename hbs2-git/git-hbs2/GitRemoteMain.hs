@@ -257,4 +257,6 @@ main = do
 
   shutUp
 
+  hPutStrLn stdout ""
+  hPutStrLn stderr ""
 

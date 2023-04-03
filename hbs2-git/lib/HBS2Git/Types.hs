@@ -113,7 +113,9 @@ instance {-# OVERLAPPABLE #-} MonadIO m => HasProgress m where
   updateProgress bar n = liftIO (incProgress bar n)
   newProgressMonitor s total = liftIO $ liftIO $ newProgressBar st 10 (Progress 0 total ())
     where
-      st = defStyle { stylePrefix = msg (fromString s) }
+      st = defStyle { stylePrefix = msg (fromString s)
+                    , styleWidth   = ConstantWidth 60
+                    }
 
 class MonadIO m => HasCatAPI m where
   getHttpCatAPI  :: m API

@@ -132,6 +132,12 @@ stateInit = do
   )
   |]
 
+  liftIO $ execute_ conn [qc|
+  create table if not exists exported
+  ( githash text not null primary key
+  )
+  |]
+
 
 newtype Savepoint =
   Savepoint String
@@ -181,6 +187,22 @@ transactional action = do
 --   писать журнал всех изменений голов.
 --   тогда можно будет откатиться на любое предыдущее
 --   состояние репозитория
+
+
+statePutExported :: MonadIO m => GitHash -> DB m ()
+statePutExported h = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into exported (githash) values(?)
+  on conflict (githash) do nothing
+  |] (Only h)
+
+stateGetExported :: MonadIO m => DB m [GitHash]
+stateGetExported = do
+  conn <- ask
+  liftIO $ query_ conn [qc|
+  select githash from exported
+  |] <&> fmap fromOnly
 
 statePutImported :: MonadIO m => HashRef -> HashRef -> DB m ()
 statePutImported merkle hd = do
@@ -232,11 +254,54 @@ stateAddDep h1 h2 = do
     on conflict (object,parent) do nothing
     |] (h1,h2)
 
+
+stateGetDepsRec :: MonadIO m => GitHash -> DB m [GitHash]
+stateGetDepsRec h = do
+  conn <- ask
+  liftIO $ query conn [qc|
+
+WITH RECURSIVE find_children(object, parent) AS (
+  SELECT object, parent FROM dep WHERE parent = ?
+  UNION
+  SELECT d.object, d.parent FROM dep d INNER JOIN find_children fc
+    ON d.parent = fc.object
+)
+SELECT object FROM find_children group by object;
+
+  |] (Only h) <&> mappend [h] . fmap fromOnly
+
+stateGetAllDeps :: MonadIO m => DB m [(GitHash,GitHash)]
+stateGetAllDeps = do
+  conn <- ask
+  liftIO $ query_ conn [qc|
+  select parent, object from dep where parent = ?
+  |]
+
+
+stateDepFilterAll :: MonadIO m => DB m [GitHash]
+stateDepFilterAll  = do
+  conn <- ask
+  liftIO $ query_ conn [qc|
+  select distinct(parent) from dep
+  union
+  select githash from object o where o.type = 'blob'
+  |] <&> fmap fromOnly
+
+stateDepFilter :: MonadIO m => GitHash -> DB m Bool
+stateDepFilter h = do
+  conn <- ask
+  liftIO $ query @_ @[Int] conn [qc|
+  select 1 from dep
+  where parent = ?
+    or exists (select null from object where githash = ? and type = 'blob')
+  limit 1
+  |] (h,h) <&> isJust . listToMaybe
+
 stateGetDeps :: MonadIO m => GitHash -> DB m [GitHash]
 stateGetDeps h = do
   conn <- ask
   liftIO $ query conn [qc|
-  select parent from dep where object = ?
+  select object from dep where parent = ?
   |] (Only h) <&> fmap fromOnly
 
 
