@@ -1,3 +1,10 @@
+
+## 2023-04-04
+
+FIXME: hbs2-peer-send-does-not-save-transaction
+ При посылке транзации через hbs2-peer он не сохраняет
+ её сам у себя. Это уже привело к коллизии.
+
 ## 2023-04-03
 
 TODO: hbs2-peer-meidan-rtt
