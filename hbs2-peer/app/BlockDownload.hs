@@ -491,7 +491,7 @@ blockDownloadLoop env0 = do
       errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
       downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
       down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
-      rtt       <- liftIO $ readTVarIO (view peerRTT pinfo) <&> fmap realToFrac
+      rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
 
       let rttMs = (/1e6) <$> rtt <&> (\x -> showGFloat (Just 2) x "") <&> (<> "ms")
 

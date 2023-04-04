@@ -52,12 +52,43 @@ data PeerInfo e =
   , _peerDownloadedBlk  :: TVar Int
   , _peerDownloadFail   :: TVar Int
   , _peerUsefulness     :: TVar Double
-  , _peerRTT            :: TVar (Maybe Integer) -- ^ nanosec
+  , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
+                                          -- Acts like a circular buffer.
   }
   deriving stock (Generic,Typeable)
 
 makeLenses 'PeerInfo
 
+-- | Compute the median of a list
+median :: (Ord a, Integral a) => [a] -> Maybe a
+median [] = Nothing
+median xs = Just
+  if odd n
+    then sorted !! half
+    else ((sorted !! (half - 1)) + (sorted !! half)) `div` 2
+  where n = length xs
+        sorted = List.sort xs
+        half = n `div` 2
+
+-- | Get the median RTT for a given peer.
+medianPeerRTT :: MonadIO m => PeerInfo e -> m (Maybe Integer)
+medianPeerRTT pinfo = do
+  rttBuffer <- liftIO $ readTVarIO (view peerRTTBuffer pinfo)
+  pure $ median rttBuffer
+
+rttBufferCapacity :: Int
+rttBufferCapacity = 10
+
+-- | New values are added to the head of the list, old values are discarded when the list is full.
+insertRTT :: MonadIO m => Integer -> TVar [Integer] -> m ()
+insertRTT x rttList = do
+  liftIO $ atomically $ modifyTVar rttList (\xs ->
+    if rttBufferCapacity < 1
+      then xs
+      else if length xs < rttBufferCapacity
+        then x:xs
+        else x:init xs
+    )
 
 newPeerInfo :: MonadIO m => m (PeerInfo e)
 newPeerInfo = liftIO do
@@ -74,7 +105,7 @@ newPeerInfo = liftIO do
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
-           <*> newTVarIO Nothing
+           <*> newTVarIO []
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 

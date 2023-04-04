@@ -1,3 +1,12 @@
+## 2023-04-03
+
+TODO: hbs2-peer-meidan-rtt
+  вычислять и выводить медианный rtt вместо последнего
+
+PR: hbs2-peer-meidan-rtt
+  branch: calculate-median-rtt
+  commit: a9874a5727c3c16eb37e01b39832a4dfd3418c9c
+  Вычисление и отображение медианного RTT вместо последнего.
 
 ## 2023-04-01
 

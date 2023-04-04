@@ -558,12 +558,11 @@ runPeer opts = Exception.handle myException $ do
                    , RefLog.reflogFetch = doFetchRef
                    }
 
-              let doUpdateRtt (p,rttNew) = withPeerM penv $ void $ runMaybeT do
+              let addNewRtt (p,rttNew) = withPeerM penv $ void $ runMaybeT do
                     def <- newPeerInfo
-                    tv <- lift $ fetch True def (PeerInfoKey p) (view peerRTT)
-                    void $ liftIO $ atomically $ writeTVar tv (Just rttNew)
-
-              let hshakeAdapter = PeerHandshakeAdapter doUpdateRtt
+                    tv <- lift $ fetch True def (PeerInfoKey p) (view peerRTTBuffer)
+                    insertRTT rttNew tv 
+              let hshakeAdapter = PeerHandshakeAdapter addNewRtt
 
               env <- ask
 
@@ -639,11 +638,12 @@ runPeer opts = Exception.handle myException $ do
                         debug "Same peer, different address"
 
                         void $ runMaybeT do
-                          tv0 <- MaybeT $ find (PeerInfoKey p0) (view peerRTT)
-                          tv1 <- MaybeT $ find (PeerInfoKey p) (view peerRTT)
+                          
+                          pinfo0 <- MaybeT $ find (PeerInfoKey p0) id
+                          pinfo1 <- MaybeT $ find (PeerInfoKey p) id
 
-                          rtt0 <- MaybeT $ liftIO $ readTVarIO tv0
-                          rtt1 <- MaybeT $ liftIO $ readTVarIO tv1
+                          rtt0 <- MaybeT $ medianPeerRTT pinfo0
+                          rtt1 <- MaybeT $ medianPeerRTT pinfo1
 
                           when ( rtt1 < rtt0 ) do
                             debug $ "Better rtt!" <+> pretty p0
