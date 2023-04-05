@@ -20,8 +20,10 @@ import System.Directory
 appName :: FilePath
 appName = "hbs2-git"
 
+-- Finds .git dir inside given directory moving upwards
 findGitDir :: MonadIO m => FilePath -> m (Maybe FilePath)
 findGitDir dir = liftIO do
+  trace "locating .git directory"
   let gitDir = dir </> ".git"
   exists <- doesDirectoryExist gitDir
   if exists
@@ -31,48 +33,51 @@ findGitDir dir = liftIO do
                then return Nothing
                else findGitDir parentDir
 
+-- Finds .git dir inside current directory moving upwards
+findWorkingGitDir :: MonadIO m => m FilePath
+findWorkingGitDir = do
+  this <- liftIO getCurrentDirectory
+  findGitDir this `orDie` ".git directory not found"
 
 configPath :: MonadIO m => FilePath -> m FilePath
 configPath pwd = liftIO do
   xdg <- liftIO $ getXdgDirectory XdgConfig appName
   home <- liftIO getHomeDirectory
-  gitDir <- findGitDir pwd `orDie` ".git directory not found"
   pure $ xdg </> makeRelative home pwd
+
+data ConfigPathInfo = ConfigPathInfo {
+  configRepoParentDir :: FilePath,
+  configDir :: FilePath,
+  configFilePath :: FilePath
+} deriving (Eq, Show)
+
+-- returns git repository parent dir, config directory and config file path 
+getConfigPathInfo :: MonadIO m => m ConfigPathInfo
+getConfigPathInfo = do
+  trace "getConfigPathInfo"
+  gitDir <- findWorkingGitDir
+  let pwd = takeDirectory gitDir
+  confP <- configPath pwd
+  let confFile = confP </> "config"
+  trace $ "git dir" <+> pretty gitDir
+  trace $ "confPath:" <+> pretty confP
+  pure ConfigPathInfo {
+      configRepoParentDir = pwd,
+      configDir = confP,
+      configFilePath = confFile
+    }
 
 -- returns current directory, where found .git directory
 configInit :: MonadIO m => m (FilePath, [Syntax C])
 configInit = liftIO do
   trace "configInit"
-
-  trace "locating .git directory"
-
-  this <- getCurrentDirectory
-
-  gitDir <- findGitDir this `orDie` ".git directory not found"
-
-  let pwd = takeDirectory gitDir
-
-  confP <- configPath pwd
-
-  trace $ "git dir" <+> pretty gitDir
-  trace $ "confPath:" <+> pretty confP
-
-  here <- doesDirectoryExist confP
-
+  ConfigPathInfo{..} <- getConfigPathInfo
+  here <- doesDirectoryExist configDir
   unless here do
-    debug $ "create directory" <+> pretty confP
-    createDirectoryIfMissing True confP
-
-  let confFile = confP </> "config"
-
-  confHere <- doesFileExist confFile
-
+    debug $ "create directory" <+> pretty configDir
+    createDirectoryIfMissing True configDir
+  confHere <- doesFileExist configFilePath
   unless confHere do
-    appendFile confFile ""
-
-  cfg <- readFile confFile <&> parseTop <&> either mempty id
-
-  pure (pwd, cfg)
-
-
-
+    appendFile configFilePath ""
+  cfg <- readFile configFilePath <&> parseTop <&> either mempty id
+  pure (configRepoParentDir, cfg)

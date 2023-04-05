@@ -1,7 +1,6 @@
 module Main where
 
 import HBS2.Prelude
-import HBS2.System.Logger.Simple hiding (info)
 
 import HBS2Git.App
 import HBS2Git.Export
@@ -23,7 +22,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser ::  Parser (IO ())
     parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
-                        <> command "show"      (info pShow  (progDesc "show current state"))
+                        <> command "show"      (info pShow (progDesc "show various types of objects"))
                         )
 
     pExport = do
@@ -34,7 +33,11 @@ main = join . customExecParser (prefs showHelpOnError) $
     pListRefs = do
       pure $ runApp NoLog runListRefs
 
-    pShow = do
-      ref <- strArgument (metavar "HASH-REF")
-      pure $ runApp NoLog (runShow ref)
+    showReader s = if s == "config"
+      then Just ShowConfig
+      else ShowRef <$> fromStringMay s
 
+    pShow = do
+      object <- optional $
+        argument (maybeReader showReader) (metavar "object" <> help "<HASH-REF> | config")
+      pure $ runApp NoLog (runShow object)
