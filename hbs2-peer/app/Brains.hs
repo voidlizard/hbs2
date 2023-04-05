@@ -164,11 +164,11 @@ instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) whe
     commitNow b True
     -- FIXME: wait-till-really-commited
     sz <- liftIO $ selectBlockSize b p h
-    trace $ "BRAINS: onBlockSize" <+> pretty p <+> pretty h <+> pretty sz
+    -- trace $ "BRAINS: onBlockSize" <+> pretty p <+> pretty h <+> pretty sz
     pure ()
 
   onBlockDownloadAttempt b peer h = do
-    -- trace "BRAINS: onBlockDownloadAttempt"
+    -- trace $ "BRAINS: onBlockDownloadAttempt" <+> pretty peer <+> pretty h
     noPeers <- liftIO $ readTVarIO (view brainsPeers b) <&> List.null
     unless noPeers do
       let cache = view brainsExpire b
@@ -182,7 +182,7 @@ instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) whe
     updateOP b $ insertPeer b h p
 
   onBlockPostponed b h  = do
-    trace $ "BRAINS: onBlockPostponed" <+> pretty h
+    -- trace $ "BRAINS: onBlockPostponed" <+> pretty h
     cleanupPostponed b h
 
   claimBlockCameFrom b f t = do
@@ -204,6 +204,8 @@ instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) whe
   shouldDownloadBlock b p h = do
     noPeers <- liftIO $ readTVarIO (view brainsPeers b) <&> List.null
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
+    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<2)
+    -- trace $ "shouldDownloadBlock" <+> pretty noPeers <+> pretty doo
     pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<2))
 
   advisePeersForBlock b h = do

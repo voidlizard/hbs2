@@ -30,13 +30,13 @@ import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
+import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe
 import Lens.Micro.Platform
 import Data.Hashable
 import Type.Reflection
-import Numeric (showGFloat)
 
 
 type MyPeer e = ( Eq (Peer e)
@@ -135,22 +135,10 @@ data BlockState =
 makeLenses 'BlockState
 
 
-newtype PeerTask e = DoDownload (Hash HbSync)
-                     deriving newtype (Pretty)
-
-data PeerThread e =
-  PeerThread
-  { _peerThreadAsync   :: Async ()
-  , _peerThreadMailbox :: TQueue (PeerTask e)
-  , _peerBlocksWip     :: TVar Int
-  }
-
-makeLenses 'PeerThread
 
 data DownloadEnv e =
   DownloadEnv
   { _blockInQ       :: TVar   (HashMap (Hash HbSync) ())
-  , _peerThreads    :: TVar   (HashMap (Peer e) (PeerThread e))
   , _blockPostponed :: TVar   (HashMap (Hash HbSync) () )
   , _blockPostponedTo :: Cache  (Hash HbSync) ()
   , _blockDelayTo   :: TQueue (Hash HbSync)
@@ -164,7 +152,6 @@ makeLenses 'DownloadEnv
 newDownloadEnv :: (MonadIO m, MyPeer e, HasBrains e brains) => brains -> m (DownloadEnv e)
 newDownloadEnv brains = liftIO do
   DownloadEnv <$> newTVarIO mempty
-              <*> newTVarIO mempty
               <*> newTVarIO mempty
               <*> Cache.newCache (Just defBlockBanTime)
               <*> newTQueueIO
@@ -219,11 +206,7 @@ addDownload mbh h = do
     removeFromWip h
   else do
     maybe1 mbh none $ \hp -> claimBlockCameFrom @e brains hp h
-    postpone <- shouldPostponeBlock @e brains h
-    if postpone then do
-      postponeBlock h
-    else do
-      liftIO $ atomically $ modifyTVar tinq $ HashMap.insert h ()
+    liftIO $ atomically $ modifyTVar tinq $ HashMap.insert h ()
 
 postponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int
 postponedNum = do
@@ -249,11 +232,16 @@ postponeBlock h = do
   tto <- asks (view blockPostponedTo)
   tinq <- asks (view blockInQ)
 
+
   liftIO $ do
-    liftIO $ atomically $ modifyTVar tinq $ HashMap.delete h
-    already <- atomically $ readTVar po <&> HashMap.member h
-    unless already do
-      atomically $ modifyTVar po (HashMap.insert h ())
+    postponed <- atomically $ do
+      already <- readTVar po <&> HashMap.member h
+      unless already do
+        modifyTVar tinq $ HashMap.delete h
+        modifyTVar po (HashMap.insert h ())
+      pure $ not already
+
+    when postponed do
       Cache.insert tto h ()
       onBlockPostponed @e brains h
 
@@ -275,87 +263,6 @@ removeFromWip h = do
   tinq <- asks (view blockInQ)
   liftIO $ atomically $ do
     modifyTVar' tinq (HashMap.delete h)
-
-hasPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m Bool
-hasPeerThread p = do
-  threads <- asks (view peerThreads)
-  liftIO $ readTVarIO threads <&> HashMap.member p
-
-getPeerThreads :: (MyPeer e, MonadIO m) => BlockDownloadM e m [(Peer e, PeerThread e)]
-getPeerThreads = do
-  threads <- asks (view peerThreads)
-  liftIO $ atomically $ readTVar threads <&> HashMap.toList
-
-getPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m (Maybe (PeerThread e))
-getPeerThread p = do
-  threads <- asks (view peerThreads)
-  liftIO $ atomically $ readTVar threads <&> HashMap.lookup p
-
-getPeerTask :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m (Maybe (PeerTask e))
-getPeerTask p = do
-  threads <- asks (view peerThreads)
-  pt' <- liftIO $ atomically $ readTVar threads <&> HashMap.lookup p
-  maybe1 pt' (pure Nothing) $ \pt -> do
-    liftIO $ atomically $ readTQueue (view peerThreadMailbox pt) <&> Just
-
-addPeerTask :: (MyPeer e, MonadIO m)
-            => Peer e
-            -> PeerTask e
-            -> BlockDownloadM e m ()
-addPeerTask p t = do
-  trace $ "ADD-PEER-TASK" <+> pretty p <+> pretty t
-  threads <- asks (view peerThreads)
-  liftIO $ atomically $ do
-    pt' <- readTVar threads <&> HashMap.lookup p
-    maybe1 pt' none $ \pt -> do
-      writeTQueue (view peerThreadMailbox pt) t
-      modifyTVar (view peerBlocksWip pt) succ
-
-delPeerThreadData :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m (Maybe (PeerThread e))
-delPeerThreadData p = do
-  debug $ "delPeerThreadData"  <+> pretty p
-  threads <- asks (view peerThreads)
-  liftIO $ atomically $ stateTVar threads (\x -> let t = HashMap.lookup p x
-                                                  in  (t, HashMap.delete p x))
-
-killPeerThread :: (MyPeer e, MonadIO m) => Peer e -> BlockDownloadM e m ()
-killPeerThread p = do
-  debug $ "delPeerThread"  <+> pretty p
-  pt <- delPeerThreadData p
-  maybe1 pt (pure ()) $ liftIO . cancel . view peerThreadAsync
-
-newPeerThread :: ( MyPeer e
-                 , MonadIO m
-                 , Sessions e (PeerInfo e) m
-                 -- , Sessions e (PeerInfo e) (BlockDownloadM e m)
-                 )
-              => Peer e
-              -> Async ()
-              -> BlockDownloadM e m ()
-
-newPeerThread p m = do
-
-  npi <- newPeerInfo
-  void $ lift $ fetch True npi (PeerInfoKey p) id
-
-  q <- liftIO  newTQueueIO
-  tnum <- liftIO $ newTVarIO 0
-  let pt = PeerThread m q tnum
-  threads <- asks (view peerThreads)
-  liftIO $ atomically $ modifyTVar threads $ HashMap.insert p pt
-
-getPeerTaskWip :: ( MyPeer e
-                 , MonadIO m
-                 -- , Sessions e (PeerInfo e) m
-                 -- , Sessions e (PeerInfo e) (BlockDownloadM e m)
-                 )
-              => Peer e
-              -> BlockDownloadM e m Int
-getPeerTaskWip p = do
-  threads <- asks (view peerThreads)
-  pt' <- liftIO $ atomically $ readTVar threads <&> HashMap.lookup p
-  maybe1 pt' (pure 0) $ \pt -> do
-    liftIO $ readTVarIO (view peerBlocksWip pt)
 
 failedDownload :: forall e m . ( MyPeer e
                                , MonadIO m
@@ -385,5 +292,20 @@ forKnownPeers m = do
   for_ pips $ \p -> do
     pd' <- find (KnownPeerKey p) id
     maybe1 pd' (pure ()) (m p)
+
+getKnownPeers :: forall e  m . ( MonadIO m
+                               , HasPeerLocator e m
+                               , Sessions e (KnownPeer e) m
+                               , HasPeer e
+                               )
+               =>  m [Peer e]
+
+getKnownPeers  = do
+  pl <- getPeerLocator @e
+  pips <- knownPeers @e pl
+  r <- forM pips $ \p -> do
+    pd' <- find (KnownPeerKey p) id
+    maybe1 pd' (pure mempty) (const $ pure [p])
+  pure $ mconcat r
 
 

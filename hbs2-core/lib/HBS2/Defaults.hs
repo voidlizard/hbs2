@@ -13,7 +13,7 @@ defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536*10
 
 defBurst :: Integral a => a
-defBurst = 2
+defBurst = 4
 
 defBurstMax :: Integral a => a
 defBurstMax = 64
@@ -64,7 +64,7 @@ defBlockPostponeTime :: TimeSpec
 defBlockPostponeTime = toTimeSpec ( 45 :: Timeout 'Seconds)
 
 defBlockBanTimeSec :: Timeout 'Seconds
-defBlockBanTimeSec = 30 :: Timeout 'Seconds
+defBlockBanTimeSec = 60 :: Timeout 'Seconds
 
 defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout

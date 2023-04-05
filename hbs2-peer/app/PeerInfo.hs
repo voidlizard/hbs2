@@ -17,18 +17,17 @@ import HBS2.System.Logger.Simple
 
 import PeerConfig
 
-import Data.Maybe
-import Data.Set qualified as Set
-import Data.List qualified as List
-import Data.Foldable hiding (find)
-import Lens.Micro.Platform
-import Control.Concurrent.STM.TVar
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
-import Control.Concurrent.Async
-import System.Random.Shuffle
+import Control.Monad.Reader
+import Data.Foldable hiding (find)
 import Data.IntSet (IntSet)
-import Prettyprinter
+import Data.List qualified as List
+import Data.Maybe
+import Lens.Micro.Platform
+import Numeric (showGFloat)
+import System.Random.Shuffle
 
 
 data PeerPingIntervalKey
@@ -51,6 +50,7 @@ data PeerInfo e =
   , _peerPingFailed     :: TVar Int
   , _peerDownloadedBlk  :: TVar Int
   , _peerDownloadFail   :: TVar Int
+  , _peerDownloadMiss   :: TVar Int
   , _peerUsefulness     :: TVar Double
   , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
                                           -- Acts like a circular buffer.
@@ -95,6 +95,7 @@ newPeerInfo = liftIO do
   PeerInfo <$> newTVarIO defBurst
            <*> newTVarIO Nothing
            <*> newTVarIO mempty
+           <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO 0
@@ -160,9 +161,14 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , EventListener e (PeerHandshake e) m
                              , Pretty (Peer e)
                              , MonadIO m
+                             , m ~ PeerM e IO
                              )
              => PeerConfig -> m ()
 peerPingLoop cfg = do
+
+  e <- ask
+
+  pl <- getPeerLocator @e
 
   let pingTime = cfgValue @PeerPingIntervalKey cfg
                       & fromMaybe 30
@@ -178,6 +184,38 @@ peerPingLoop cfg = do
   -- subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p _) -> do
   --   liftIO $ atomically $ writeTQueue wake [p]
 
+
+  -- TODO: peer info loop
+  void $ liftIO $ async $ forever $ withPeerM e $ do
+    pause @'Seconds 10
+    pee <- knownPeers @e pl
+
+    npi <- newPeerInfo
+
+    debug $ "known peers" <+> pretty pee
+
+    for_ pee $ \p -> do
+      pinfo <- fetch True npi (PeerInfoKey p) id
+      burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
+      buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
+      errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
+      downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
+      downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
+      down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
+      rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
+
+      let rttMs = (/1e6) <$> rtt <&> (\x -> showGFloat (Just 2) x "") <&> (<> "ms")
+
+      notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
+                                   <+> "burst-max:" <+> pretty buM
+                                   <+> "errors:" <+> pretty (downFails + errors)
+                                   <+> "down:" <+> pretty down
+                                   <+> "miss:" <+> pretty downMiss
+                                   <+> "rtt:" <+> pretty rttMs
+      pure ()
+
+
+
   forever do
 
     -- FIXME: defaults
@@ -192,7 +230,6 @@ peerPingLoop cfg = do
 
     debug "peerPingLoop"
 
-    pl <- getPeerLocator @e
     pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
 
     for_ pips $ \p -> do
