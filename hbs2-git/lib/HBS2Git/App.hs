@@ -52,7 +52,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Data.Cache qualified as Cache
 import Control.Concurrent.Async
 import System.Environment
-import Control.Monad.Catch
+import Prettyprinter.Render.Terminal
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
@@ -463,4 +463,10 @@ loadCredentials fp = do
     setCredentials (RefLogKey puk) cred
     pure ()
 
+
+green = annotate (color Green)
+
+yellow = annotate (color Yellow)
+
+section = line <> line
 

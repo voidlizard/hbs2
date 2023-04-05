@@ -208,9 +208,6 @@ runExport :: forall m . (MonadIO m, MonadCatch m, HasProgress (App m))
           => Maybe FilePath -> RepoRef -> App m ()
 runExport fp h = do
 
-  let green = annotate (color Green)
-  let yellow = annotate (color Yellow)
-  let section = line <> line
 
   liftIO $ putDoc $
        line

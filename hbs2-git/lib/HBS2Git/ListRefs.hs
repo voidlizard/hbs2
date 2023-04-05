@@ -10,6 +10,7 @@ import HBS2.Git.Local.CLI
 import Data.Functor
 import Data.Text qualified as Text
 import Data.Traversable
+import Prettyprinter.Render.Terminal
 
 data AsRemoteEntry = AsRemoteEntry
   { remoteName :: Text,
@@ -56,11 +57,11 @@ runListRefs = do
               }
       )
   let header =
-        fill remoteNameColWidth "Name"
-          <+> fill remoteURLColWidth "URL"
-          <+> fill remoteRefValueColWidth "Reference value"
-  liftIO $ print header
-  liftIO $ print $ vcat $ pretty <$> remoteEntries
+        fill remoteNameColWidth (green "Name")
+          <+> fill remoteURLColWidth (green "URL")
+          <+> fill remoteRefValueColWidth (green "Reference value")
+  liftIO $ putDoc $ header <> line
+  liftIO $ putDoc $ vcat $ pretty <$> remoteEntries
   where
     isHbs2 (_, b) = Text.isPrefixOf hbs2Prefix b
 
