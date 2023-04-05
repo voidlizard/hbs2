@@ -41,15 +41,6 @@ import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
 import Lens.Micro.Platform
 
-doRefLogUpdate :: forall e m . ( MonadIO m
-                               , Pretty (AsBase58 (PubKey 'Sign e))
-                               )
-               => (PubKey 'Sign e, RefLogUpdate e) -> m ()
-
-doRefLogUpdate (reflog, _) = do
-  trace $ "doRefLogUpdate" <+> pretty (AsBase58 reflog)
-  pure ()
-
 doRefLogBroadCast :: forall e m . ( MonadIO m
                                   , MyPeer e
                                   , HasPeerLocator e m
@@ -100,8 +91,7 @@ mkAdapter :: forall e m . ( MonadIO m
 
 mkAdapter = do
   let bcast = lift . doRefLogBroadCast @e
-  let upd   = lift . doRefLogUpdate @e
-  pure $ RefLogUpdateI upd bcast
+  pure $ RefLogUpdateI bcast
 
 
 data RefLogWorkerAdapter e =

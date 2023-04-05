@@ -37,10 +37,9 @@ data RefLogUpdate e =
 
 makeLenses 'RefLogUpdate
 
-data RefLogUpdateI e m =
+newtype RefLogUpdateI e m =
   RefLogUpdateI
-  { refLogUpdate     :: (PubKey 'Sign e, RefLogUpdate e) -> m ()
-  , refLogBroadcast  :: RefLogUpdate e -> m ()
+  { refLogBroadcast  :: RefLogUpdate e -> m ()
   }
 
 data RefLogUpdateEv e
@@ -188,7 +187,6 @@ refLogUpdateProto adapter =
           -- FIXME: refactor:use-type-application-for-deferred
           deferred proto do
             emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e))
-            refLogUpdate adapter (pubk, e)
             refLogBroadcast adapter e
             pure ()
 

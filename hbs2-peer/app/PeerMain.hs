@@ -561,7 +561,7 @@ runPeer opts = Exception.handle myException $ do
               let addNewRtt (p,rttNew) = withPeerM penv $ void $ runMaybeT do
                     def <- newPeerInfo
                     tv <- lift $ fetch True def (PeerInfoKey p) (view peerRTTBuffer)
-                    insertRTT rttNew tv 
+                    insertRTT rttNew tv
               let hshakeAdapter = PeerHandshakeAdapter addNewRtt
 
               env <- ask
@@ -638,7 +638,7 @@ runPeer opts = Exception.handle myException $ do
                         debug "Same peer, different address"
 
                         void $ runMaybeT do
-                          
+
                           pinfo0 <- MaybeT $ find (PeerInfoKey p0) id
                           pinfo1 <- MaybeT $ find (PeerInfoKey p) id
 
@@ -778,7 +778,8 @@ runPeer opts = Exception.handle myException $ do
                                 warn "unable to parse RefLogUpdate message"
 
                               maybe1 msg' none $ \msg -> do
-                                RefLog.doRefLogUpdate (view refLogId msg, msg)
+                                let pubk = view refLogId msg
+                                emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, msg))
                                 RefLog.doRefLogBroadCast msg
 
                             _ -> pure ()
