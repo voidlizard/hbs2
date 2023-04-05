@@ -1,4 +1,10 @@
 
+## 2023-04-05
+
+FIXME: refactor-crypto-remove-l4-protocol-dependency
+ Удалить нерелевантную зависимость от транспортного протокола
+ в криптографии и зарефакторить все ссылки.
+
 ## 2023-04-04
 
 FIXME: hbs2-peer-send-does-not-save-transaction
