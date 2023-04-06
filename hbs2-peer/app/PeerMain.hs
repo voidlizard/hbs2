@@ -53,8 +53,6 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
-import Data.Either
-import Data.Foldable (for_)
 import Data.Function
 import Data.List qualified  as L
 import Data.Map qualified as Map
@@ -62,13 +60,9 @@ import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.Text qualified as Text
-import Data.Text (Text)
-import GHC.Stats
-import GHC.TypeLits
 import Lens.Micro.Platform
 import Network.Socket
 import Options.Applicative
-import Prettyprinter
 import System.Directory
 import System.Exit
 import System.IO
@@ -101,7 +95,7 @@ data PeerTraceKey
 data PeerProxyFetchKey
 
 data AcceptAnnounce = AcceptAnnounceAll
-                    | AcceptAnnounceFrom (Set (PubKey 'Sign UDP))
+                    | AcceptAnnounceFrom (Set (PubKey 'Sign (Encryption UDP)))
 
 instance Pretty AcceptAnnounce where
   pretty = \case
@@ -142,7 +136,7 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
     where
       fromAll = headMay [ AcceptAnnounceAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
       lst = Set.fromList $
-                catMaybes [ fromStringMay @(PubKey 'Sign UDP) (Text.unpack e)
+                catMaybes [ fromStringMay @(PubKey 'Sign (Encryption UDP)) (Text.unpack e)
                           | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
                           ]
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
@@ -166,8 +160,8 @@ data RPCCommand =
   | PEERS
   | SETLOG SetLogging
   | REFLOGUPDATE ByteString
-  | REFLOGFETCH (PubKey 'Sign UDP)
-  | REFLOGGET (PubKey 'Sign UDP)
+  | REFLOGFETCH (PubKey 'Sign (Encryption UDP))
+  | REFLOGGET (PubKey 'Sign (Encryption UDP))
 
 data PeerOpts =
   PeerOpts
@@ -315,7 +309,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
         trace "pRefLogSend"
         s <- BS.readFile kr
         -- FIXME: UDP is weird here
-        creds <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+        creds <- pure (parseCredentials @(Encryption UDP) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
         let privk = view peerSignSk creds
@@ -352,63 +346,67 @@ myException :: SomeException -> IO ()
 myException e = die ( show e ) >> exitFailure
 
 
-newtype CredentialsM e m a =
-  CredentialsM { fromCredentials :: ReaderT (PeerCredentials e) m a }
+newtype CredentialsM e s m a =
+  CredentialsM { fromCredentials :: ReaderT (PeerCredentials s) m a }
   deriving newtype ( Functor
                    , Applicative
                    , Monad
                    , MonadIO
-                   , MonadReader (PeerCredentials e)
+                   , MonadReader (PeerCredentials s)
                    , MonadTrans)
 
-withCredentials :: forall e m a . (HasOwnPeer e m, Monad m)
-                => PeerCredentials e
-                -> CredentialsM e m a -> m a
+withCredentials :: forall e s m a . (HasOwnPeer e m, Monad m, s ~ Encryption e)
+                => PeerCredentials s
+                -> CredentialsM e s m a -> m a
 
 withCredentials pc m = runReaderT (fromCredentials m) pc
 
 
-instance (Monad m, HasTimeLimits e p m) => HasTimeLimits  e p (CredentialsM e m) where
+instance (Monad m, HasTimeLimits e p m, s ~ Encryption e) => HasTimeLimits  e p (CredentialsM e s m) where
   tryLockForPeriod p m = lift $ tryLockForPeriod p m
 
-instance (HasOwnPeer e m) => HasOwnPeer e (CredentialsM e m) where
+instance (HasOwnPeer e m) => HasOwnPeer e (CredentialsM e s m) where
   ownPeer = lift ownPeer
 
-instance (Monad m, HasFabriq e m) => HasFabriq e (CredentialsM e m)  where
+instance (Monad m, HasFabriq e m, s ~ Encryption e) => HasFabriq e (CredentialsM e s m)  where
   getFabriq = lift getFabriq
 
-instance (Sessions e p m ) => Sessions e p (CredentialsM e m)  where
+instance (Sessions e p m, s ~ Encryption e) => Sessions e p (CredentialsM e s m)  where
   find k f = lift (find k f)
   fetch i d k f = lift (fetch i d k f)
   update d k f = lift (update d k f)
   expire k = lift (expire  k)
 
-instance (Monad m, HasPeerNonce e m) => HasPeerNonce e (CredentialsM e m) where
+instance (Monad m, HasPeerNonce e m, s ~ Encryption e) => HasPeerNonce e (CredentialsM e s m) where
   peerNonce = lift $ peerNonce @e
 
-instance Monad m => HasCredentials e (CredentialsM e m) where
+instance (Monad m, s ~ Encryption e) => HasCredentials s (CredentialsM e s m) where
   getCredentials = ask
 
-instance Monad m => HasCredentials e (ResponseM e (CredentialsM e m)) where
+instance (Monad m, s ~ Encryption e) => HasCredentials s (ResponseM e (CredentialsM e s m)) where
   getCredentials = lift getCredentials
 
-instance (Monad m, HasThatPeer e p m) => HasThatPeer e p (CredentialsM e m) where
+instance (Monad m, HasThatPeer e p m, s ~ Encryption e) => HasThatPeer e p (CredentialsM e s m) where
   thatPeer = lift . thatPeer
 
 instance ( EventEmitter e p m
-         ) => EventEmitter e p (CredentialsM e m) where
+         ) => EventEmitter e p (CredentialsM e s m) where
 
   emit k d = lift $ emit k d
 
 instance ( Monad m
          , Response e p m
-         ) => Response e p (CredentialsM e m) where
+         , s ~ Encryption e
+         ) => Response e p (CredentialsM e s m) where
 
   response = lift . response
 
 
 -- runPeer :: forall e . (e ~ UDP, Nonce (RefLogUpdate e) ~ BS.ByteString) => PeerOpts -> IO ()
-runPeer :: forall e . (e ~ UDP, FromStringMaybe (PeerAddr e)) => PeerOpts -> IO ()
+runPeer :: forall e s . ( e ~ UDP
+                        , FromStringMaybe (PeerAddr e)
+                        , s ~ Encryption e
+                        ) => PeerOpts -> IO ()
 
 runPeer opts = Exception.handle myException $ do
 
@@ -445,7 +443,7 @@ runPeer opts = Exception.handle myException $ do
   let whs = cfgValue @PeerWhiteListKey conf :: Set String
   let toKeys xs = Set.fromList
                     $ catMaybes [ fromStringMay x | x <- Set.toList xs
-                                ] :: Set (PubKey 'Sign UDP)
+                                ]
   let blkeys = toKeys bls
   let wlkeys = toKeys (whs `Set.difference` bls)
   let helpFetchKeys = cfgValue @PeerProxyFetchKey conf & toKeys
@@ -471,9 +469,9 @@ runPeer opts = Exception.handle myException $ do
   let ps = mempty
 
   pc' <- LBS.readFile credFile
-            <&> parseCredentials @e . AsCredFile
-                                    . LBS.toStrict
-                                    . LBS.take 4096
+            <&> parseCredentials @(Encryption e) . AsCredFile
+                                                 . LBS.toStrict
+                                                 . LBS.take 4096
 
   pc <- pure pc' `orDie` "can't parse credential file"
 
@@ -790,7 +788,7 @@ runPeer opts = Exception.handle myException $ do
                     [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
-                    , makeResponse (withCredentials pc . peerHandShakeProto hshakeAdapter)
+                    , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter)
                     , makeResponse peerExchangeProto
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
@@ -872,7 +870,7 @@ runPeer opts = Exception.handle myException $ do
         who <- thatPeer (Proxy @(RPC e))
         void $ liftIO $ async $ withPeerM penv $ do
           sto <- getStorage
-          h <- liftIO $ getRef sto (RefLogKey puk)
+          h <- liftIO $ getRef sto (RefLogKey @(Encryption e) puk)
           request who (RPCRefLogGetAnswer @e  h)
 
   let arpc = RpcAdapter pokeAction

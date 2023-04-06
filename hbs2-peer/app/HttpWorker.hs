@@ -3,18 +3,15 @@ module HttpWorker where
 import HBS2.Prelude
 import HBS2.Actors.Peer
 import HBS2.Storage
-import HBS2.Hash
 import HBS2.Data.Types.Refs
+import HBS2.Net.Proto.Types
 
 import HBS2.System.Logger.Simple
 
 import PeerTypes
 import PeerConfig
 
-import Data.Maybe
-import Data.Function
 import Data.Functor
-import Data.Text.Lazy qualified as Text
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
@@ -25,10 +22,12 @@ import Web.Scotty
 
 -- TODO: introduce-http-of-off-feature
 
-httpWorker :: forall e m . ( MyPeer e
-                           , MonadIO m
-                           , HasStorage m
-                           ) => PeerConfig -> DownloadEnv e -> m ()
+httpWorker :: forall e s m . ( MyPeer e
+                             , MonadIO m
+                             , HasStorage m
+                             , IsRefPubKey s
+                             , s ~ Encryption e
+                             ) => PeerConfig -> DownloadEnv e -> m ()
 
 httpWorker conf e = do
 
@@ -63,7 +62,7 @@ httpWorker conf e = do
         case re of
           Nothing -> status status404
           Just ref -> do
-            va <- liftIO $ getRef sto (RefLogKey ref)
+            va <- liftIO $ getRef sto (RefLogKey @s ref)
             maybe1 va (status status404) $ \val -> do
               text [qc|{pretty val}|]
 

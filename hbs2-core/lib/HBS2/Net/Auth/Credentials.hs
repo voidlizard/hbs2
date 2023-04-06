@@ -6,6 +6,7 @@
 module HBS2.Net.Auth.Credentials where
 
 import HBS2.Prelude.Plated
+import HBS2.Net.Proto.Types
 import HBS2.Base58
 
 import Codec.Serialise
@@ -19,11 +20,10 @@ import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Char8 (ByteString)
 import Data.Function
 import Data.List.Split (chunksOf)
-import Data.Text (Text)
 import Data.List qualified as List
 import Lens.Micro.Platform
 import Data.Kind
-import Prettyprinter
+
 
 
 type family EncryptPubKey e :: Type
@@ -39,8 +39,8 @@ class Signatures e where
   verifySign :: PubKey 'Sign e  -> Signature e -> ByteString -> Bool
 
 
-class HasCredentials e m where
-  getCredentials :: m (PeerCredentials e)
+class HasCredentials s m where
+  getCredentials :: m (PeerCredentials s)
 
 data KeyringEntry e =
   KeyringEntry
@@ -53,16 +53,23 @@ data KeyringEntry e =
 deriving stock instance (Eq (PubKey 'Encrypt e), Eq (PrivKey 'Encrypt e))
   => Eq (KeyringEntry e)
 
-data PeerCredentials e =
+data PeerCredentials s =
   PeerCredentials
-  { _peerSignSk   :: PrivKey 'Sign e
-  , _peerSignPk   :: PubKey 'Sign e
-  , _peerKeyring  :: [KeyringEntry e]
+  { _peerSignSk   :: PrivKey 'Sign s
+  , _peerSignPk   :: PubKey 'Sign s
+  , _peerKeyring  :: [KeyringEntry s]
   }
   deriving Generic
 
 makeLenses 'KeyringEntry
 makeLenses 'PeerCredentials
+
+type ForHBS2Basic s = ( Signatures s
+                      , PrivKey 'Sign s ~ Sign.SecretKey
+                      , PubKey 'Sign s ~ Sign.PublicKey
+                      , IsEncoding (PubKey 'Encrypt s)
+                      , s ~ HBS2Basic
+                      )
 
 type SerialisedCredentials e = ( Serialise (PrivKey 'Sign e)
                                , Serialise (PubKey 'Sign e)
@@ -79,24 +86,24 @@ newtype AsCredFile a = AsCredFile a
 -- FIXME: integration-regression-test-for-keyring
 --   Добавить тест: сгенерировали keypair/распарсили keypair
 
-newCredentials :: forall e m . ( MonadIO m
-                               , Signatures e
-                               , PrivKey 'Sign e ~ Sign.SecretKey
-                               , PubKey 'Sign e ~ Sign.PublicKey
-                               ) => m (PeerCredentials e)
+newCredentials :: forall s m . ( MonadIO m
+                               , Signatures s
+                               , PrivKey 'Sign s ~ Sign.SecretKey
+                               , PubKey 'Sign s ~ Sign.PublicKey
+                               ) => m (PeerCredentials s)
 newCredentials = do
   pair <- liftIO Sign.newKeypair
-  pure $ PeerCredentials @e (secretKey pair) (publicKey pair) mempty
+  pure $ PeerCredentials @s (secretKey pair) (publicKey pair) mempty
 
 
-newKeypair :: forall e m . ( MonadIO m
-                           , PrivKey 'Encrypt e ~ Encrypt.SecretKey
-                           , PubKey 'Encrypt e ~ Encrypt.PublicKey
+newKeypair :: forall s m . ( MonadIO m
+                           , PrivKey 'Encrypt s ~ Encrypt.SecretKey
+                           , PubKey 'Encrypt s ~ Encrypt.PublicKey
                            )
-          => Maybe Text -> m (KeyringEntry e)
+          => Maybe Text -> m (KeyringEntry s)
 newKeypair txt = do
   pair <- liftIO Encrypt.newKeypair
-  pure $ KeyringEntry @e (Encrypt.publicKey pair) (Encrypt.secretKey pair) txt
+  pure $ KeyringEntry @s (Encrypt.publicKey pair) (Encrypt.secretKey pair) txt
 
 addKeyPair :: forall e m . ( MonadIO m
                            , PrivKey 'Encrypt e ~ Encrypt.SecretKey
@@ -109,8 +116,7 @@ addKeyPair txt cred = do
   pure $ cred & over peerKeyring (List.nub . (<> [kp]))
 
 delKeyPair :: forall e m . ( MonadIO m
-                           , PrivKey 'Encrypt e ~ Encrypt.SecretKey
-                           , PubKey 'Encrypt e ~ Encrypt.PublicKey
+                           , ForHBS2Basic e
                            )
            => AsBase58 String -> PeerCredentials e -> m (PeerCredentials e)
 delKeyPair (AsBase58 pks) cred = do
@@ -119,12 +125,11 @@ delKeyPair (AsBase58 pks) cred = do
   let rest = [ e | e <- kring, asStr e /= pks ]
   pure $ cred & set peerKeyring rest
 
-parseCredentials :: forall e . ( Signatures e
-                               , PrivKey 'Sign e ~ Sign.SecretKey
-                               , PubKey 'Sign e ~ Sign.PublicKey
-                               , SerialisedCredentials e
+
+parseCredentials :: forall s . ( ForHBS2Basic s
+                               , SerialisedCredentials s
                                )
-                 =>  AsCredFile ByteString -> Maybe (PeerCredentials e)
+                 =>  AsCredFile ByteString -> Maybe (PeerCredentials s)
 parseCredentials (AsCredFile bs) = parseSerialisableFromBase58 bs
 
 parseSerialisableFromBase58 :: Serialise a => ByteString -> Maybe a

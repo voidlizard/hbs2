@@ -12,6 +12,7 @@ import HBS2.Prelude.Plated
 import HBS2.Git.Types
 import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Data.Types.Refs
+import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
 
 import Data.Config.Suckless
@@ -35,7 +36,9 @@ import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch
 
-type Schema = UDP
+-- FIXME: remove-udp-hardcode-asap
+type Schema = HBS2Basic
+type HBS2L4Proto = UDP
 
 -- FIXME: introduce-API-type
 type API = String

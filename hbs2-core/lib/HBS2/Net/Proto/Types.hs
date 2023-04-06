@@ -16,12 +16,16 @@ import Data.Hashable
 import Control.Monad.IO.Class
 import System.Random qualified as Random
 import Data.Digest.Murmur32
-import Data.ByteString (ByteString)
-import Lens.Micro.Platform
-import Data.Text (Text)
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
+
+type family Encryption e :: Type
+
+-- FIXME: move-to-a-crypto-definition-modules
+data HBS2Basic
+
+-- type family Encryption e :: Type
 
 class Monad m => GenCookie e m where
   genCookie :: Hashable salt => salt -> m (Cookie e)

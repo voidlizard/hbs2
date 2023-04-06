@@ -70,7 +70,7 @@ importRefLog db ref = do
 
     runMaybeT $ do
       bs <- MaybeT $ readBlock e
-      refupd <- MaybeT $ pure $ deserialiseOrFail @(RefLogUpdate Schema) bs & either (const Nothing) Just
+      refupd <- MaybeT $ pure $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs & either (const Nothing) Just
       e <- MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd) & either (const Nothing) Just
       let (SequentialRef n (AnnotatedHashRef _ h)) = e
       withDB db $ stateUpdateRefLog n h

@@ -8,15 +8,13 @@ module HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.Hash
 import HBS2.Merkle
+import HBS2.Net.Proto.Types (Encryption)
 import HBS2.Net.Auth.Credentials
 import HBS2.Prelude
 
 import Codec.Serialise(serialise)
 import Data.Data
-import Data.Functor.Identity
-import Data.String(IsString)
 import GHC.Generics
-import Prettyprinter
 import Data.Hashable hiding (Hashed)
 import Data.Maybe (fromMaybe)
 
@@ -65,14 +63,14 @@ instance Serialise HashRefObject
 
 ---
 
-data RefGenesis e = RefGenesis
-  { refOwner :: !(PubKey 'Sign e)
+data RefGenesis s = RefGenesis
+  { refOwner :: !(PubKey 'Sign s)
   , refName :: !Text
   , refMeta :: !AnnMetaData
   }
   deriving stock (Generic)
 
-instance (Serialise (PubKey 'Sign e)) => Serialise (RefGenesis e)
+instance Serialise (PubKey 'Sign s) => Serialise (RefGenesis s)
 
 data RefForm
   = LinearRef
@@ -92,7 +90,7 @@ instance Serialise (Refs e 'LinearRef)
 
 data family MutableRef e ( f :: RefForm )
 
-data instance MutableRef e 'LinearRef
+data instance MutableRef s 'LinearRef
   = LinearMutableRef
   { lrefId :: !(Hash HbSync)
   , lrefHeight :: !Int
@@ -101,7 +99,7 @@ data instance MutableRef e 'LinearRef
   }
   deriving stock (Generic, Show)
 
-instance Serialise (MutableRef e 'LinearRef)
+instance Serialise (MutableRef s 'LinearRef)
 
 ---
 
@@ -109,27 +107,27 @@ data SignPhase = SignaturePresent | SignatureVerified
 
 data family Signed ( p :: SignPhase ) a
 
-data instance Signed SignaturePresent (MutableRef e 'LinearRef)
+data instance Signed SignaturePresent (MutableRef s 'LinearRef)
   = LinearMutableRefSigned
-  { signature :: Signature e
-  , signedRef :: MutableRef e 'LinearRef
+  { signature :: Signature s
+  , signedRef :: MutableRef s 'LinearRef
   }
   deriving stock (Generic)
 
-instance Serialise (Signature e) =>
-    Serialise (Signed 'SignaturePresent (MutableRef e 'LinearRef))
+instance Serialise (Signature s) =>
+    Serialise (Signed 'SignaturePresent (MutableRef s 'LinearRef))
 
-data instance Signed 'SignatureVerified (MutableRef e 'LinearRef)
+data instance Signed 'SignatureVerified (MutableRef s 'LinearRef)
   = LinearMutableRefSignatureVerified
-  { signature :: Signature e
-  , signedRef :: MutableRef e 'LinearRef
-  , signer :: PubKey 'Sign e
+  { signature :: Signature s
+  , signedRef :: MutableRef s 'LinearRef
+  , signer :: PubKey 'Sign s
   }
   deriving stock (Generic)
 
 ---
 
-nodeLinearRefsRef :: PubKey 'Sign e -> RefGenesis e
+nodeLinearRefsRef :: PubKey 'Sign s -> RefGenesis s
 nodeLinearRefsRef pk = RefGenesis
   { refOwner = pk
   , refName = "List of node linear refs"
@@ -137,27 +135,33 @@ nodeLinearRefsRef pk = RefGenesis
   }
 
 
-newtype RefLogKey e = RefLogKey (PubKey 'Sign e)
+type IsRefPubKey s =  ( Eq (PubKey 'Sign s)
+                      , Serialise (PubKey 'Sign s)
+                      , FromStringMaybe (PubKey 'Sign s)
+                      , Hashable (PubKey 'Sign s)
+                      )
 
-deriving stock instance Eq (PubKey 'Sign e) => Eq (RefLogKey e)
+newtype RefLogKey s = RefLogKey (PubKey 'Sign s)
 
-instance (Eq (PubKey 'Sign e), Serialise (PubKey 'Sign e)) => Hashable (RefLogKey e) where
+deriving stock instance IsRefPubKey s => Eq (RefLogKey s)
+
+instance IsRefPubKey s => Hashable (RefLogKey s) where
   hashWithSalt s k = hashWithSalt s (hashObject @HbSync k)
 
-instance Serialise (PubKey 'Sign e) => Hashed HbSync (RefLogKey e) where
+instance IsRefPubKey s => Hashed HbSync (RefLogKey s) where
   hashObject (RefLogKey pk) = hashObject ("reflogkey|" <> serialise pk)
 
-instance FromStringMaybe (PubKey 'Sign e) => FromStringMaybe (RefLogKey e) where
+instance IsRefPubKey s => FromStringMaybe (RefLogKey s) where
   fromStringMay s = RefLogKey <$> fromStringMay s
 
-instance FromStringMaybe (PubKey 'Sign e) =>  IsString (RefLogKey e) where
+instance IsRefPubKey s =>  IsString (RefLogKey s) where
   fromString s = fromMaybe (error "bad public key base58") (fromStringMay s)
 
 
-instance Pretty (AsBase58 (PubKey 'Sign e) ) => Pretty (AsBase58 (RefLogKey e)) where
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (RefLogKey s)) where
   pretty (AsBase58 (RefLogKey k)) = pretty (AsBase58 k)
 
-instance Pretty (AsBase58 (PubKey 'Sign e) ) => Pretty (RefLogKey e) where
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefLogKey s) where
   pretty (RefLogKey k) = pretty (AsBase58 k)
 
 

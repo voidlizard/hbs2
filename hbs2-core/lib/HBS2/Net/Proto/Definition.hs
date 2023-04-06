@@ -33,10 +33,13 @@ import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
 
 
-type instance PubKey  'Sign e = Sign.PublicKey
-type instance PrivKey 'Sign e = Sign.SecretKey
-type instance PubKey  'Encrypt e = Encrypt.PublicKey
-type instance PrivKey 'Encrypt e = Encrypt.SecretKey
+
+type instance Encryption UDP = HBS2Basic
+
+type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
+type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
+type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
+type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 
 -- FIXME: proper-serialise-for-keys
 --   Возможно, нужно написать ручные инстансы Serialise
@@ -160,13 +163,8 @@ instance MonadIO m => HasNonces () m where
 
 instance Serialise Sign.Signature
 
-instance Signatures UDP where
-  type Signature UDP = Sign.Signature
-  makeSign = Sign.signDetached
-  verifySign = Sign.signVerifyDetached
-
-instance Signatures MerkleEncryptionType where
-  type Signature MerkleEncryptionType = Sign.Signature
+instance Signatures HBS2Basic where
+  type Signature HBS2Basic = Sign.Signature
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
 

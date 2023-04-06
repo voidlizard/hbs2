@@ -20,12 +20,12 @@ import Data.Hashable
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
 
-type PingSign  e = Signature e
+type PingSign e = Signature (Encryption e)
 type PingNonce = BS.ByteString
 
 data PeerData e =
   PeerData
-  { _peerSignKey  :: PubKey 'Sign e
+  { _peerSignKey  :: PubKey 'Sign (Encryption e)
   , _peerOwnNonce :: PeerNonce -- TODO: to use this field to detect if it's own peer to avoid loops
   }
   deriving stock (Typeable,Generic)
@@ -34,7 +34,7 @@ makeLenses 'PeerData
 
 data PeerHandshake e =
     PeerPing  PingNonce
-  | PeerPong  PingNonce (Signature e) (PeerData e)
+  | PeerPong  PingNonce (Signature (Encryption e)) (PeerData e)
   deriving stock (Generic)
 
 newtype KnownPeer e = KnownPeer (PeerData e)
@@ -91,20 +91,21 @@ newtype PeerHandshakeAdapter e m =
   }
 
 
-peerHandShakeProto :: forall e m . ( MonadIO m
-                                   , Response e (PeerHandshake e) m
-                                   , Request e (PeerHandshake e) m
-                                   , Sessions e (PeerHandshake e) m
-                                   , Sessions e (KnownPeer e) m
-                                   , HasNonces (PeerHandshake e) m
-                                   , HasPeerNonce e m
-                                   , Nonce (PeerHandshake e) ~ PingNonce
-                                   , Signatures e
-                                   , Pretty (Peer e)
-                                   , HasCredentials e m
-                                   , EventEmitter e (PeerHandshake e) m
-                                   , EventEmitter e (ConcretePeer e) m
-                                   )
+peerHandShakeProto :: forall e s m . ( MonadIO m
+                                     , Response e (PeerHandshake e) m
+                                     , Request e (PeerHandshake e) m
+                                     , Sessions e (PeerHandshake e) m
+                                     , Sessions e (KnownPeer e) m
+                                     , HasNonces (PeerHandshake e) m
+                                     , HasPeerNonce e m
+                                     , Nonce (PeerHandshake e) ~ PingNonce
+                                     , Pretty (Peer e)
+                                     , EventEmitter e (PeerHandshake e) m
+                                     , EventEmitter e (ConcretePeer e) m
+                                     , HasCredentials s m
+                                     , Signatures s
+                                     , s ~ Encryption e
+                                     )
                    => PeerHandshakeAdapter e m
                    -> PeerHandshake e -> m ()
 
@@ -113,10 +114,10 @@ peerHandShakeProto adapter =
     PeerPing nonce  -> do
       pip <- thatPeer proto
       -- взять свои ключи
-      creds <- getCredentials @e
+      creds <- getCredentials @s
 
       -- подписать нонс
-      let sign = makeSign @e (view peerSignSk creds) nonce
+      let sign = makeSign @s (view peerSignSk creds) nonce
 
       own <- peerNonce @e
 
@@ -139,7 +140,7 @@ peerHandShakeProto adapter =
 
         let pk = view peerSignKey d
 
-        let signed = verifySign @e pk sign nonce
+        let signed = verifySign @s pk sign nonce
 
         when signed $ do
 
@@ -205,15 +206,15 @@ instance Hashable (Peer e) => Hashable (SessionKey e (KnownPeer e))
 deriving instance Eq (Peer e) => Eq (SessionKey e (PeerHandshake e))
 instance Hashable (Peer e) => Hashable (SessionKey e (PeerHandshake e))
 
-instance ( Serialise (PubKey 'Sign e)
-         , Serialise (Signature e)
+instance ( Serialise (PubKey 'Sign (Encryption e))
+         , Serialise (Signature (Encryption e))
          , Serialise PeerNonce
          )
 
   => Serialise (PeerData e)
 
-instance ( Serialise (PubKey 'Sign e)
-         , Serialise (Signature e)
+instance ( Serialise (PubKey 'Sign (Encryption e))
+         , Serialise (Signature (Encryption e))
          , Serialise PeerNonce
          )
 

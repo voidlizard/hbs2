@@ -57,36 +57,37 @@ doRefLogBroadCast msg = do
     request @e pip msg
 
 
-mkRefLogRequestAdapter :: forall e m . ( MonadIO m
-                                       , HasPeerLocator e m
-                                       , MyPeer e
-                                       , HasStorage m
-                                       , Pretty (AsBase58 (PubKey 'Sign e))
-                                       )
+mkRefLogRequestAdapter :: forall e s m . ( MonadIO m
+                                         , HasPeerLocator e m
+                                         , MyPeer e
+                                         , HasStorage m
+                                         , IsRefPubKey s
+                                         , Pretty (AsBase58 (PubKey 'Sign s))
+                                         , s ~ Encryption e
+                                         )
           => m (RefLogRequestI e (ResponseM e m ))
 mkRefLogRequestAdapter = do
   sto <- getStorage
   pure $ RefLogRequestI (doOnRefLogRequest sto) dontHandle
 
 
-doOnRefLogRequest :: forall e m . ( MonadIO m
-                                  , MyPeer e
-                                  )
-                   =>  AnyStorage -> (Peer e, PubKey 'Sign e) -> m (Maybe (Hash HbSync))
+doOnRefLogRequest :: forall e s m . ( MonadIO m
+                                    , MyPeer e
+                                    , s ~ Encryption e
+                                    , IsRefPubKey s
+                                    )
+                   =>  AnyStorage -> (Peer e, PubKey 'Sign s) -> m (Maybe (Hash HbSync))
 
-doOnRefLogRequest sto (_,pk) = do
-  r <- liftIO $ getRef sto (RefLogKey pk)
-  trace $ "doOnRefLogRequest" <+> pretty (AsBase58 pk) <+> pretty r
-  pure r
+doOnRefLogRequest sto (_,pk) = liftIO $ getRef sto (RefLogKey @s pk)
 
-
-mkAdapter :: forall e m . ( MonadIO m
-                          , HasPeerLocator e m
-                          , Sessions e (KnownPeer e) m
-                          , Request e (RefLogUpdate e) m
-                          , MyPeer e
-                          , Pretty (AsBase58 (PubKey 'Sign e))
-                          )
+mkAdapter :: forall e s m . ( MonadIO m
+                           , HasPeerLocator e m
+                           , Sessions e (KnownPeer e) m
+                           , Request e (RefLogUpdate e) m
+                           , MyPeer e
+                           -- , Pretty (AsBase58 (PubKey 'Sign s))
+                           , s ~ Encryption e
+                           )
           => m (RefLogUpdateI e (ResponseM e m ))
 
 mkAdapter = do
@@ -97,19 +98,22 @@ mkAdapter = do
 data RefLogWorkerAdapter e =
  RefLogWorkerAdapter
  { reflogDownload :: Hash HbSync -> IO ()
- , reflogFetch    :: PubKey 'Sign e -> IO ()
+ , reflogFetch    :: PubKey 'Sign (Encryption e) -> IO ()
  }
 
-reflogWorker :: forall e m . ( MonadIO m, MyPeer e
-                             , EventListener e (RefLogUpdateEv e) m
-                             , EventListener e (RefLogRequestAnswer e) m
+reflogWorker :: forall e s m . ( MonadIO m, MyPeer e
+                               , EventListener e (RefLogUpdateEv e) m
+                               , EventListener e (RefLogRequestAnswer e) m
                              -- , Request e (RefLogRequest e) (Peerm
-                             , HasStorage m
-                             , Nonce (RefLogUpdate e) ~ BS.ByteString
-                             , Signatures e
-                             , Serialise (RefLogUpdate e)
-                             , EventEmitter e (RefLogUpdateEv e) m -- (PeerM e m)
-                             )
+                               , HasStorage m
+                               , Nonce (RefLogUpdate e) ~ BS.ByteString
+                               , Serialise (RefLogUpdate e)
+                               , EventEmitter e (RefLogUpdateEv e) m -- (PeerM e m)
+                               , Signatures s
+                               , s ~ Encryption e
+                               , IsRefPubKey s
+                               , Pretty (AsBase58 (PubKey 'Sign s))
+                              )
              => PeerConfig
              -> RefLogWorkerAdapter e
              -> m ()
@@ -193,7 +197,7 @@ reflogWorker conf adapter = do
 
   let (PeerConfig syn) = conf
 
-  let mkRef = fromStringMay . Text.unpack :: (Text -> Maybe (PubKey 'Sign e))
+  let mkRef = fromStringMay . Text.unpack :: (Text -> Maybe (PubKey 'Sign s))
 
   let defPoll = lastDef 10 [ x
                            | ListVal @C (Key "poll-default" [SymbolVal "reflog", LitIntVal x]) <- syn
@@ -232,8 +236,8 @@ reflogWorker conf adapter = do
           let byRef = HashMap.fromListWith (<>) els
 
           for_ (HashMap.toList byRef) $ \(r,x) -> do
-            let reflogkey = RefLogKey r
-            h' <- liftIO $! getRef sto (RefLogKey r)
+            let reflogkey = RefLogKey @s r
+            h' <- liftIO $! getRef sto (RefLogKey @s r)
 
             hashes <- liftIO $ readHashesFromBlock sto h' <&> HashSet.fromList
 

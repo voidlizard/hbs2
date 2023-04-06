@@ -6,34 +6,28 @@
 module HBS2.Net.Auth.AccessKey where
 
 import HBS2.Base58
-import HBS2.Data.Detect
 import HBS2.Data.Types
-import HBS2.Defaults
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Messaging.UDP (UDP)
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.Types
-import HBS2.OrDie
+import HBS2.Net.Proto.Definition
 import HBS2.Prelude.Plated
 
 import Codec.Serialise
 import Control.Monad ((<=<))
-import Crypto.Saltine.Core.Sign (Keypair(..))
-import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Crypto.Saltine.Class qualified as Crypto
-import Crypto.Saltine.Class (IsEncoding)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Char8 (ByteString)
-import Data.Function
 import Data.List.Split (chunksOf)
-import Data.Text (Text)
-import Data.List qualified as List
-import Lens.Micro.Platform
-import Data.Kind
-import Prettyprinter
+
+
+type ForAccessKey s = ( Crypto.IsEncoding (PubKey 'Encrypt s)
+                      , Serialise (PubKey 'Encrypt s)
+                      , Serialise (PubKey 'Sign s)
+                      , Serialise (PrivKey 'Sign s)
+                      , Serialise (PrivKey 'Encrypt s)
+                      )
 
 
 newtype EncryptedBox = EncryptedBox { unEncryptedBox :: ByteString }
@@ -41,32 +35,30 @@ newtype EncryptedBox = EncryptedBox { unEncryptedBox :: ByteString }
 
 instance Serialise EncryptedBox
 
-data EncryptionSchema = NaClAsymm
-
 ---
 
-data family AccessKey e ( s :: EncryptionSchema )
+data family AccessKey s
 
-newtype instance AccessKey e 'NaClAsymm =
+newtype instance AccessKey s =
   AccessKeyNaClAsymm
-  { permitted :: [(PubKey 'Encrypt e, EncryptedBox)]
+  { permitted :: [(PubKey 'Encrypt s, EncryptedBox)]
   }
   deriving stock (Generic)
 
-instance Serialise (AccessKey e 'NaClAsymm)
+instance ForAccessKey s => Serialise (AccessKey s)
 
 ---
 
-data family GroupKey e ( s :: EncryptionSchema )
+data family GroupKey s
 
-data instance GroupKey e 'NaClAsymm =
+data instance GroupKey s =
   GroupKeyNaClAsymm
-  { recipientPk :: PubKey 'Encrypt e
-  , accessKey :: AccessKey e 'NaClAsymm
+  { recipientPk :: PubKey 'Encrypt s
+  , accessKey :: AccessKey s
   }
   deriving stock (Generic)
 
-instance Serialise (GroupKey e 'NaClAsymm)
+instance ForAccessKey s => Serialise (GroupKey s)
 
 ---
 
@@ -75,14 +67,14 @@ newtype AsGroupKeyFile a = AsGroupKeyFile a
 -- FIXME: integration-regression-test-for-groupkey
 --   Добавить тест: сгенерировали groupkey/распарсили groupkey
 
-parseGroupKey :: forall e . ()
-                 =>  AsGroupKeyFile ByteString -> Maybe (GroupKey e 'NaClAsymm)
+parseGroupKey :: forall s . ForAccessKey s
+                 =>  AsGroupKeyFile ByteString -> Maybe (GroupKey s)
 parseGroupKey (AsGroupKeyFile bs) = parseSerialisableFromBase58 bs
 
-instance ( Serialise  (GroupKey e s)
+instance ( Serialise  (GroupKey s)
          )
 
-  =>  Pretty (AsBase58 (GroupKey e s)) where
+  =>  Pretty (AsBase58 (GroupKey s)) where
   pretty (AsBase58 c) =
     pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
 
@@ -96,28 +88,30 @@ instance Pretty (AsBase58 a) => Pretty (AsGroupKeyFile (AsBase58 a)) where
                 $ pretty pc
 
 
--- newtype ListGroupKeyKeys e s = ListGroupKeyKeys (GroupKey e s)
-
--- instance ()
---   => Pretty (ListGroupKeyKeys e 'NaClAsymm) where
---   pretty (ListGroupKeyKeys (GroupKeyNaClAsymm keypair pubkeys)) =
---     fill 10 "recipient public keys:"
---     <+> vcat (pretty . AsBase58 . Crypto.encode <$> pubkeys)
---     <> line
---     <> pretty keypair
-
----
-
-parsePubKeys :: forall e . ()
-                 =>  ByteString -> Maybe [PubKey 'Encrypt e]
+parsePubKeys :: forall s . ForAccessKey s
+             =>  ByteString
+             -> Maybe [PubKey 'Encrypt s]
 
 parsePubKeys = sequenceA . fmap (Crypto.decode <=< fromBase58) . B8.lines
 
----
 
-mkEncryptedKey :: KeyringEntry MerkleEncryptionType -> PubKey 'Encrypt MerkleEncryptionType -> IO EncryptedBox
+-- FIXME: public-key-type-hardcode
+--  Это нужно переместить в тайпкласс от s, аналогично Signatures
+mkEncryptedKey :: forall s . (ForAccessKey s, PubKey 'Encrypt s ~ Encrypt.PublicKey)
+               => KeyringEntry s
+               -> PubKey 'Encrypt s
+               -> IO EncryptedBox
+
 mkEncryptedKey kr pk = EncryptedBox <$> Encrypt.boxSeal pk ((LBS.toStrict . serialise) kr)
 
-openEncryptedKey :: EncryptedBox -> KeyringEntry MerkleEncryptionType -> Maybe (KeyringEntry MerkleEncryptionType)
+openEncryptedKey :: forall s . ( ForAccessKey s
+                               , PrivKey 'Encrypt s ~ Encrypt.SecretKey
+                               , PubKey 'Encrypt s ~ Encrypt.PublicKey
+                               )
+                 => EncryptedBox
+                 -> KeyringEntry s
+                 -> Maybe (KeyringEntry s)
+
 openEncryptedKey (EncryptedBox bs) kr =
     either (const Nothing) Just . deserialiseOrFail . LBS.fromStrict =<< Encrypt.boxSealOpen (_krPk kr) (_krSk kr) bs
+

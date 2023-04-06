@@ -10,9 +10,6 @@ import HBS2.Actors.Peer
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
 
-import PeerConfig
-
-import Data.Text (Text)
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise (serialise,deserialiseOrFail)
@@ -29,21 +26,20 @@ data RPC e =
     RPCPoke
   | RPCPing (PeerAddr e)
   | RPCPong (PeerAddr e)
-  | RPCPokeAnswer (PubKey 'Sign e)
+  | RPCPokeAnswer (PubKey 'Sign (Encryption e))
   | RPCPokeAnswerFull Text
   | RPCAnnounce (Hash HbSync)
   | RPCFetch (Hash HbSync)
   | RPCPeers
-  | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign e)
+  | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign (Encryption e))
   | RPCLogLevel SetLogging
   | RPCRefLogUpdate ByteString
-  | RPCRefLogFetch (PubKey 'Sign e)
-  | RPCRefLogGet (PubKey 'Sign e)
+  | RPCRefLogFetch (PubKey 'Sign (Encryption e))
+  | RPCRefLogGet (PubKey 'Sign (Encryption e))
   | RPCRefLogGetAnswer (Maybe (Hash HbSync))
   deriving stock (Generic)
 
-
-instance Serialise (PeerAddr e) => Serialise (RPC e)
+instance (Serialise (PeerAddr e), Serialise (PubKey 'Sign (Encryption e))) => Serialise (RPC e)
 
 instance HasProtocol UDP (RPC UDP) where
   type instance ProtocolId (RPC UDP) = 0xFFFFFFE0
@@ -63,18 +59,18 @@ makeLenses 'RPCEnv
 data RpcAdapter e m =
   RpcAdapter
   { rpcOnPoke          :: RPC e -> m ()
-  , rpcOnPokeAnswer    :: PubKey 'Sign e -> m ()
+  , rpcOnPokeAnswer    :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnPokeAnswerFull :: Text -> m ()
   , rpcOnAnnounce      :: Hash HbSync -> m ()
   , rpcOnPing          :: PeerAddr e -> m ()
   , rpcOnPong          :: PeerAddr e -> m ()
   , rpcOnFetch         :: Hash HbSync -> m ()
   , rpcOnPeers         :: RPC e -> m ()
-  , rpcOnPeersAnswer   :: (PeerAddr e, PubKey 'Sign e) -> m ()
+  , rpcOnPeersAnswer   :: (PeerAddr e, PubKey 'Sign (Encryption e)) -> m ()
   , rpcOnLogLevel      :: SetLogging -> m ()
   , rpcOnRefLogUpdate  :: ByteString -> m ()
-  , rpcOnRefLogFetch   :: PubKey 'Sign e -> m ()
-  , rpcOnRefLogGet     :: PubKey 'Sign e -> m ()
+  , rpcOnRefLogFetch   :: PubKey 'Sign (Encryption e) -> m ()
+  , rpcOnRefLogGet     :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefLogGetAnsw :: Maybe (Hash HbSync) -> m ()
   }
 

@@ -5,6 +5,7 @@ import HBS2.Data.Detect
 import HBS2.Data.Types
 import HBS2.Defaults
 import HBS2.Merkle
+import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.UDP (UDP)
@@ -129,7 +130,7 @@ runHash opts ss = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
-runCat :: CatOpts -> SimpleStorage HbSync -> IO ()
+runCat :: forall s . ForHBS2Basic s => CatOpts -> SimpleStorage HbSync -> IO ()
 
 runCat opts ss | catRaw opts == Just True = do
 
@@ -181,11 +182,11 @@ runCat opts ss = do
                       `orDie` "block encrypted. keyring required"
                   s <- BS.readFile keyringFile
                   ourKeys <- _peerKeyring
-                      <$> pure (parseCredentials @MerkleEncryptionType (AsCredFile s))
+                      <$> pure (parseCredentials @s (AsCredFile s))
                       `orDie` "bad keyring file"
 
                   blkc <- getBlock ss crypth `orDie` (show $ "missed block: " <+> pretty crypth)
-                  recipientKeys :: [(PubKey 'Encrypt MerkleEncryptionType, EncryptedBox)]
+                  recipientKeys :: [(PubKey 'Encrypt s, EncryptedBox)]
                     <- pure (deserialiseMay blkc)
                       `orDie` "can not deserialise access key"
 
@@ -266,7 +267,7 @@ runStore opts ss = do
         print $ "merkle-root: " <+> pretty root
 
     Just gkfile -> do
-        gk :: GroupKey MerkleEncryptionType 'NaClAsymm
+        gk :: GroupKey HBS2Basic
             <- (parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile))
             `orDie` "bad groupkey file"
 
@@ -290,92 +291,93 @@ runStore opts ss = do
 
         print $ "merkle-ann-root: " <+> pretty mannh
 
-runNewGroupkey :: FilePath -> IO ()
+runNewGroupkey :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
 runNewGroupkey pubkeysFile = do
   s <- BS.readFile pubkeysFile
-  pubkeys <- pure (parsePubKeys s) `orDie` "bad pubkeys file"
-  keypair <- newKeypair @MerkleEncryptionType Nothing
-  accesskey <- AccessKeyNaClAsymm <$> do
+  pubkeys <- pure (parsePubKeys @s s) `orDie` "bad pubkeys file"
+  keypair <- newKeypair @s Nothing
+  accesskey <- AccessKeyNaClAsymm @s <$> do
       List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
   print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
 
-runNewKey :: IO ()
+runNewKey :: forall s . (s ~ HBS2Basic) => IO ()
 runNewKey = do
-  cred <- newCredentials @UDP
+  cred <- newCredentials @s
   print $ pretty $ AsCredFile $ AsBase58 cred
 
-runListKeys :: FilePath -> IO ()
+runListKeys :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
 runListKeys fp = do
   s <- BS.readFile fp
-  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  cred <- pure (parseCredentials @s (AsCredFile s)) `orDie` "bad keyring file"
   print $ pretty (ListKeyringKeys cred)
 
 
-runKeyAdd :: FilePath -> IO ()
+runKeyAdd :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
 runKeyAdd fp = do
   hPrint stderr $ "adding a key into keyring" <+> pretty fp
   s <- BS.readFile fp
-  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  cred <- pure (parseCredentials @s (AsCredFile s)) `orDie` "bad keyring file"
   credNew <- addKeyPair Nothing cred
   print $ pretty $ AsCredFile $ AsBase58 credNew
 
-runKeyDel :: String -> FilePath -> IO ()
+runKeyDel :: forall s . (s ~ HBS2Basic) => String -> FilePath -> IO ()
 runKeyDel n fp = do
   hPrint stderr $ "removing key" <+> pretty n <+> "from keyring" <+> pretty fp
   s <- BS.readFile fp
-  cred <- pure (parseCredentials @UDP (AsCredFile s)) `orDie` "bad keyring file"
+  cred <- pure (parseCredentials @s (AsCredFile s)) `orDie` "bad keyring file"
   credNew <- delKeyPair (AsBase58 n) cred
   print $ pretty $ AsCredFile $ AsBase58 credNew
 
 
-runShowPeerKey :: Maybe FilePath -> IO ()
+runShowPeerKey :: forall s . ( s ~ HBS2Basic) => Maybe FilePath -> IO ()
 runShowPeerKey fp = do
   handle <- maybe (pure stdin) (`openFile` ReadMode) fp
   bs <- LBS.hGet handle 4096 <&> LBS.toStrict
-  let cred' = parseCredentials @UDP (AsCredFile bs)
+  let cred' = parseCredentials @s (AsCredFile bs)
 
   maybe1 cred' exitFailure $ \cred -> do
     print $ pretty $ AsBase58 (view peerSignPk cred)
 
+-- FIXME: hardcoded-encryption-schema
 runGenACB :: Maybe FilePath -> Maybe FilePath -> IO ()
 runGenACB inFile outFile = do
   inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
   s <- hGetContents inf
-  acb <- pure (fromStringMay s :: Maybe (ACBSimple UDP)) `orDie` "invalid ACB syntax"
+  acb <- pure (fromStringMay s :: Maybe (ACBSimple HBS2Basic)) `orDie` "invalid ACB syntax"
   let bin = serialise acb
   out <- maybe (pure stdout) (`openFile` WriteMode) outFile
   LBS.hPutStr out bin
   hClose out
   hClose inf
 
-
 runDumpACB :: Maybe FilePath -> IO ()
 runDumpACB inFile = do
   inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
-  acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple UDP)
+  acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple HBS2Basic)
   print $ pretty (AsSyntax (DefineACB "a1" acb))
 
 ---
 
-runNewLRef :: FilePath -> FilePath -> Text -> SimpleStorage HbSync -> IO ()
+
+runNewLRef :: forall s . ( ForHBS2Basic s ) => FilePath -> FilePath -> Text -> SimpleStorage HbSync -> IO ()
 runNewLRef nf uf refName ss = do
   hPrint stderr $ "adding a new channel ref" <+> pretty nf <+> pretty uf
-  nodeCred <- (parseCredentials @UDP . AsCredFile <$> BS.readFile nf)
+  nodeCred <- (parseCredentials @s . AsCredFile <$> BS.readFile nf)
       `orDie` "bad node keyring file"
-  ownerCred <- (parseCredentials @MerkleEncryptionType . AsCredFile <$> BS.readFile uf)
+  ownerCred <- (parseCredentials @s . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
   -- FIXME: extract reusable functions
   -- полученный хэш будет хэшем ссылки на список референсов ноды
-  lrh <- (putBlock ss . serialise) (nodeLinearRefsRef @[HashRef] (_peerSignPk nodeCred))
+  lrh <- (putBlock ss . serialise) (nodeLinearRefsRef @s (_peerSignPk nodeCred))
       `orDie` "can not create node refs genesis"
   -- полученный хэш будет хэшем ссылки на созданный канал владельца c ownerCred
-  chh <- (putBlock ss . serialise) (RefGenesis (_peerSignPk ownerCred) refName NoMetaData)
+  chh <- (putBlock ss . serialise) (RefGenesis @s (_peerSignPk ownerCred) refName NoMetaData)
       `orDie` "can not put channel genesis block"
   modifyNodeLinearRefList ss nodeCred lrh $ Set.toList . Set.insert chh . Set.fromList
   print $ "channel ref:" <+> pretty chh
 
-modifyNodeLinearRefList :: (Signatures e, Serialise (Signature e))
-    => SimpleStorage HbSync -> PeerCredentials e -> Hash HbSync -> ([Hash HbSync] -> [Hash HbSync]) -> IO ()
+modifyNodeLinearRefList :: forall s . (ForHBS2Basic s)
+    => SimpleStorage HbSync -> PeerCredentials s -> Hash HbSync -> ([Hash HbSync] -> [Hash HbSync]) -> IO ()
 modifyNodeLinearRefList ss kr chh f =
     modifyLinearRef ss kr chh \mh -> do
         v <- case mh of
@@ -384,16 +386,16 @@ modifyNodeLinearRefList ss kr chh f =
         (putBlock ss . serialise) (f v)
             `orDie` "can not put new node channel list block"
 
-runListLRef :: FilePath -> SimpleStorage HbSync -> IO ()
+runListLRef :: forall s . ( ForHBS2Basic s ) => FilePath -> SimpleStorage HbSync -> IO ()
 runListLRef nf ss = do
   hPrint stderr $ "listing node channels" <+> pretty nf
-  nodeCred <- (parseCredentials @UDP . AsCredFile <$> BS.readFile nf)
+  nodeCred <- (parseCredentials @s . AsCredFile <$> BS.readFile nf)
       `orDie` "bad node keyring file"
   hs :: [Hash HbSync] <- readNodeLinearRefList ss (_peerSignPk nodeCred)
   forM_ hs \chh -> do
       putStrLn ""
       print $ pretty chh
-      mg <- (mdeserialiseMay @(RefGenesis [Hash HbSync]) <$> getBlock ss chh)
+      mg <- (mdeserialiseMay @(RefGenesis s) <$> getBlock ss chh)
       forM_ mg \g -> do
           print $ "owner:" <+> viaShow (refOwner g)
           print $ "title:" <+> viaShow (refName g)
@@ -403,33 +405,33 @@ runListLRef nf ss = do
               print $ "empty"
           Just refvalraw -> do
               LinearMutableRefSigned _ ref
-                  <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef UDP 'LinearRef)) refvalraw)
+                  <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef s 'LinearRef)) refvalraw)
                     `orDie` "can not parse linear ref"
               print $ "height: " <+> viaShow (lrefHeight ref)
               print $ "val: " <+> pretty (lrefVal ref)
 
-readNodeLinearRefList :: forall e. (e ~ UDP)
-    => SimpleStorage HbSync -> PubKey 'Sign e -> IO [Hash HbSync]
+readNodeLinearRefList :: forall s . (ForHBS2Basic s)
+    => SimpleStorage HbSync -> PubKey 'Sign s -> IO [Hash HbSync]
 readNodeLinearRefList ss pk = do
     -- полученный хэш будет хэшем ссылки на список референсов ноды
     lrh :: Hash HbSync <- pure do
-        (hashObject . serialise) (nodeLinearRefsRef @e pk)
+        (hashObject . serialise) (nodeLinearRefsRef @s pk)
     simpleReadLinkVal ss lrh >>= \case
       Nothing -> pure []
       Just refvalraw -> do
           LinearMutableRefSigned _ ref
-              <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef e 'LinearRef)) refvalraw)
+              <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef s 'LinearRef)) refvalraw)
               `orDie` "can not parse channel ref"
           fromMaybe mempty . mdeserialiseMay <$> getBlock ss (lrefVal ref)
 
-modifyLinearRef :: forall e. (Signatures e, Serialise (Signature e))
+modifyLinearRef :: forall s. ( ForHBS2Basic s )
   => SimpleStorage HbSync
-  -> PeerCredentials e   -- owner keyring
+  -> PeerCredentials s   -- owner keyring
   -> Hash HbSync         -- channel id
   -> (Maybe (Hash HbSync) -> IO (Hash HbSync))
   -> IO ()
 modifyLinearRef ss kr chh modIO = do
-    g :: RefGenesis [Hash HbSync] <- (mdeserialiseMay <$> getBlock ss chh)
+    g :: RefGenesis s <- (mdeserialiseMay <$> getBlock ss chh)
       `orDie` "can not read channel ref genesis"
     when (refOwner g /= _peerSignPk kr) do
       (pure Nothing) `orDie` "channel ref owner does not match genesis owner"
@@ -444,7 +446,7 @@ modifyLinearRef ss kr chh modIO = do
                 }
         Just refvalraw -> do
         -- assert lrefId == h
-            LinearMutableRefSigned _ ref :: Signed SignaturePresent (MutableRef e 'LinearRef)
+            LinearMutableRefSigned _ ref :: Signed SignaturePresent (MutableRef s 'LinearRef)
                 <- pure (deserialiseMay refvalraw)
                 `orDie` "can not parse channel ref"
             val <- modIO (Just (lrefVal ref))
@@ -454,25 +456,31 @@ modifyLinearRef ss kr chh modIO = do
                 , lrefVal = val
                 }
     (simpleWriteLinkRaw ss chh . serialise)
-      (LinearMutableRefSigned @e ((makeSign @e (_peerSignSk kr) . LBS.toStrict . serialise) lmr) lmr)
+      (LinearMutableRefSigned @s ((makeSign @s (_peerSignSk kr) . LBS.toStrict . serialise) lmr) lmr)
       `orDie` "can not write link"
     pure ()
 
-runGetLRef :: Hash HbSync -> SimpleStorage HbSync -> IO ()
+runGetLRef :: forall s . ForHBS2Basic s => Hash HbSync -> SimpleStorage HbSync -> IO ()
 runGetLRef refh ss = do
     hPrint stderr $ "getting ref value" <+> pretty refh
     refvalraw <- simpleReadLinkVal ss refh
         `orDie` "error reading ref val"
     LinearMutableRefSigned _ ref
-        <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef UDP 'LinearRef)) refvalraw)
+        <- pure (deserialiseMay @(Signed SignaturePresent (MutableRef s 'LinearRef)) refvalraw)
         `orDie` "can not parse channel ref"
     hPrint stderr $ "channel ref height: " <+> viaShow (lrefHeight ref)
     print $ pretty (lrefVal ref)
 
-runUpdateLRef :: FilePath -> Hash HbSync -> Hash HbSync -> SimpleStorage HbSync -> IO ()
+runUpdateLRef :: forall s . (ForHBS2Basic s)
+              => FilePath
+              -> Hash HbSync
+              -> Hash HbSync
+              -> SimpleStorage HbSync
+              -> IO ()
+
 runUpdateLRef uf refh valh ss = do
   hPrint stderr $ "updating channel" <+> pretty refh <+> "with value" <+> pretty valh
-  ownerCred <- (parseCredentials @MerkleEncryptionType . AsCredFile <$> BS.readFile uf)
+  ownerCred <- (parseCredentials @s . AsCredFile <$> BS.readFile uf)
       `orDie` "bad ref owner keyring file"
   modifyLinearRef ss ownerCred refh \_ -> pure valh
 
@@ -490,7 +498,7 @@ runEnc58 = do
    s <- LBS.hGetContents stdin  <&> LBS.toStrict
    print $ pretty (AsBase58 s)
 
-runRefLogGet :: RefLogKey e -> SimpleStorage HbSync -> IO ()
+runRefLogGet :: forall s . IsRefPubKey s => RefLogKey s -> SimpleStorage HbSync -> IO ()
 runRefLogGet s ss = do
   ref' <- getRef ss s
   maybe1 ref' exitFailure $ \ref -> do
@@ -647,10 +655,11 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pReflog = hsubparser ( command "get" (info pRefLogGet (progDesc "get reflog root") )  )
 
+    -- FIXME: only-for-hbs2-basic-encryption
     pRefLogGet = do
       o <- common
       reflogs <- strArgument ( metavar "REFLOG" )
-      pure $ withStore o (runRefLogGet reflogs)
+      pure $ withStore o (runRefLogGet @HBS2Basic reflogs)
 
     pFsck = do
       o <- common

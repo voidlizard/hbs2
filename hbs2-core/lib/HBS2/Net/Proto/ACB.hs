@@ -5,37 +5,31 @@ module HBS2.Net.Proto.ACB where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
-import HBS2.Data.Types.Refs (HashRef)
 import HBS2.Base58
 import HBS2.Data.Types
-import HBS2.Net.Proto.Definition
-import HBS2.Net.Auth.AccessKey
 
 import Data.Config.Suckless
 
 import Control.Applicative
 import Lens.Micro.Platform
 import Codec.Serialise()
-import Prettyprinter
 import Data.List qualified as L
 import Data.Text qualified as Text
-import Data.Text (Text)
 import Data.Maybe
 import Data.Either
 
+data family ACB s
 
-data family ACB ( s :: EncryptionSchema ) e
+data DefineACB s  = DefineACB Text (ACB s)
 
-data DefineACB s e  = DefineACB Text (ACB s e)
+type ACBSimple s = ACB s
 
-type ACBSimple = ACB 'NaClAsymm
-
-data instance ACB 'NaClAsymm e =
+data instance ACB s =
   ACB1
-  { _acbRoot     :: !(Maybe (PubKey  'Sign e)) -- it's monoid. no choice but Maybe
-  , _acbOwners   :: ![PubKey 'Sign e]
-  , _acbReaders  :: ![PubKey 'Encrypt e]
-  , _acbWriters  :: ![PubKey 'Sign e]
+  { _acbRoot     :: !(Maybe (PubKey  'Sign s)) -- it's monoid. no choice but Maybe
+  , _acbOwners   :: ![PubKey 'Sign s]
+  , _acbReaders  :: ![PubKey 'Encrypt s]
+  , _acbWriters  :: ![PubKey 'Sign s]
   , _acbPrev     :: !(Maybe HashRef)
   }
   deriving stock (Generic)
@@ -43,20 +37,22 @@ data instance ACB 'NaClAsymm e =
 
 makeLenses 'ACB1
 
-type IsACB e = ( Serialise (PubKey 'Sign e)
-               , Serialise (PubKey 'Encrypt e)
-               , Eq (PubKey 'Sign e)
-               , Eq (PubKey 'Encrypt e)
-               )
+type ForACB e = ( Serialise (PubKey 'Sign e)
+                , Serialise (PubKey 'Encrypt e)
+                , Eq (PubKey 'Sign e)
+                , Eq (PubKey 'Encrypt e)
+                , FromStringMaybe (PubKey 'Sign e)
+                , FromStringMaybe (PubKey 'Encrypt e)
+                )
 
-deriving instance IsACB e => Eq (ACBSimple e)
+deriving instance ForACB e => Eq (ACBSimple e)
 
-instance IsACB e => Serialise (ACBSimple e)
+instance ForACB e => Serialise (ACBSimple e)
 
-instance IsACB e => Monoid (ACBSimple e) where
+instance ForACB e => Monoid (ACBSimple e) where
   mempty = ACB1 Nothing mempty mempty mempty Nothing
 
-instance IsACB e => Semigroup (ACBSimple e) where
+instance ForACB e => Semigroup (ACBSimple e) where
   (<>) a b = ACB1 (view acbRoot a <|> view acbRoot b)
                   (L.nub (view acbOwners a <> view acbOwners b))
                   (L.nub (view acbReaders a <> view acbReaders b))
@@ -64,9 +60,9 @@ instance IsACB e => Semigroup (ACBSimple e) where
                   (view acbPrev a <|> view acbPrev b)
 
 
-instance ( Pretty (AsBase58 (PubKey 'Sign e))
-         , Pretty (AsBase58 (PubKey 'Encrypt e) )
-         ) => Pretty (AsSyntax (DefineACB 'NaClAsymm e)) where
+instance ( Pretty (AsBase58 (PubKey 'Sign s))
+         , Pretty (AsBase58 (PubKey 'Encrypt s) )
+         ) => Pretty (AsSyntax (DefineACB s)) where
   pretty (AsSyntax (DefineACB nacb' acb)) = vcat [
          "define-acb"  <+> nacb
       ,  prev
@@ -99,7 +95,7 @@ instance ( Pretty (AsBase58 (PubKey 'Sign e))
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
 
-instance FromStringMaybe (ACB 'NaClAsymm e) where
+instance ForACB s => FromStringMaybe (ACB s) where
   fromStringMay s = Just $ ACB1 root owners readers writers prev
 
     where

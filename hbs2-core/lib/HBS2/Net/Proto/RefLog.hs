@@ -12,6 +12,7 @@ import HBS2.Base58
 import HBS2.Events
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
+import HBS2.Data.Types.Refs
 
 import HBS2.System.Logger.Simple
 
@@ -22,16 +23,16 @@ import Type.Reflection (someTypeRep)
 import Lens.Micro.Platform
 
 data RefLogRequest e =
-    RefLogRequest  (PubKey 'Sign e)
-  | RefLogResponse (PubKey 'Sign e) (Hash HbSync)
+    RefLogRequest  (PubKey 'Sign (Encryption e))
+  | RefLogResponse (PubKey 'Sign (Encryption e)) (Hash HbSync)
   deriving stock (Generic)
 
 data RefLogUpdate e =
   RefLogUpdate
-  { _refLogId           :: PubKey 'Sign e
+  { _refLogId           :: PubKey 'Sign (Encryption e)
   , _refLogUpdNonce     :: Nonce (RefLogUpdate e)
   , _refLogUpdData      :: ByteString
-  , _refLogUpdSign      :: Signature e
+  , _refLogUpdSign      :: Signature (Encryption e)
   }
   deriving stock (Generic)
 
@@ -55,7 +56,7 @@ instance Typeable (RefLogUpdateEv e) => Hashable (EventKey e (RefLogUpdateEv e))
       p = Proxy @RefLogUpdateEv
 
 newtype instance Event e (RefLogUpdateEv e) =
-  RefLogUpdateEvData (PubKey 'Sign e, RefLogUpdate e)
+  RefLogUpdateEvData (PubKey 'Sign (Encryption e), RefLogUpdate e)
   deriving (Typeable)
 
 instance EventType ( Event e (RefLogUpdateEv e) ) where
@@ -74,7 +75,7 @@ instance Typeable (RefLogRequestAnswer e) => Hashable (EventKey e (RefLogRequest
       p = Proxy @(RefLogRequestAnswer e)
 
 data instance Event e (RefLogRequestAnswer e) =
-  RefLogReqAnswerData (PubKey 'Sign e) (Hash HbSync)
+  RefLogReqAnswerData (PubKey 'Sign (Encryption e)) (Hash HbSync)
   deriving (Typeable)
 
 instance EventType ( Event e (RefLogRequestAnswer e) ) where
@@ -83,50 +84,53 @@ instance EventType ( Event e (RefLogRequestAnswer e) ) where
 instance Expires (EventKey e (RefLogRequestAnswer e)) where
   expiresIn = const Nothing
 
-makeRefLogUpdate :: forall e m . ( MonadIO m
-                                 , HasNonces (RefLogUpdate e) m
-                                 , Nonce (RefLogUpdate e) ~ ByteString
-                                 , Signatures e
-                                 )
-                 => PubKey 'Sign e
-                 -> PrivKey 'Sign e
+makeRefLogUpdate :: forall e s m . ( MonadIO m
+                                   , HasNonces (RefLogUpdate e) m
+                                   , Nonce (RefLogUpdate e) ~ ByteString
+                                   , Signatures s
+                                   , s ~ Encryption e
+                                   , IsRefPubKey s
+                                   )
+                 => PubKey 'Sign s
+                 -> PrivKey 'Sign s
                  -> ByteString
                  -> m (RefLogUpdate e)
 
 makeRefLogUpdate pubk privk bs = do
   nonce <- newNonce @(RefLogUpdate e)
   let noncebs = nonce <> bs
-  let sign = makeSign @e privk noncebs
+  let sign = makeSign @s privk noncebs
   pure $ RefLogUpdate pubk nonce bs sign
 
-verifyRefLogUpdate :: forall e m . ( MonadIO m
-                                   -- , HasNonces (RefLogUpdate e) m
-                                   , Nonce (RefLogUpdate e) ~ ByteString
-                                   , Signatures e
-                                  )
+verifyRefLogUpdate :: forall e s m . ( MonadIO m
+                                     , Nonce (RefLogUpdate e) ~ ByteString
+                                     , Signatures s
+                                     , s ~ Encryption e
+                                     )
                  => RefLogUpdate e -> m Bool
 verifyRefLogUpdate msg = do
   let pubk = view refLogId msg
   let noncebs = view refLogUpdNonce msg <> view refLogUpdData msg
   let sign = view refLogUpdSign msg
-  pure $ verifySign @e pubk sign noncebs
+  pure $ verifySign @s pubk sign noncebs
 
 data RefLogRequestI e m =
   RefLogRequestI
-  { onRefLogRequest :: (Peer e, PubKey 'Sign e) -> m (Maybe (Hash HbSync))
-  , onRefLogResponse :: (Peer e, PubKey 'Sign e, Hash HbSync) -> m ()
+  { onRefLogRequest :: (Peer e, PubKey 'Sign (Encryption e)) -> m (Maybe (Hash HbSync))
+  , onRefLogResponse :: (Peer e, PubKey 'Sign (Encryption e), Hash HbSync) -> m ()
   }
 
-refLogRequestProto :: forall e m . ( MonadIO m
-                                   , Request e (RefLogRequest e) m
-                                   , Response e (RefLogRequest e) m
-                                   , HasDeferred e (RefLogRequest e) m
-                                   , Sessions e (KnownPeer e) m
-                                   , IsPeerAddr e m
-                                   , Pretty (AsBase58 (PubKey 'Sign e))
-                                   , EventEmitter e (RefLogRequestAnswer e) m
-                                   , Pretty (Peer e)
-                                   )
+refLogRequestProto :: forall e s m . ( MonadIO m
+                                     , Request e (RefLogRequest e) m
+                                     , Response e (RefLogRequest e) m
+                                     , HasDeferred e (RefLogRequest e) m
+                                     , Sessions e (KnownPeer e) m
+                                     , IsPeerAddr e m
+                                     , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+                                     , EventEmitter e (RefLogRequestAnswer e) m
+                                     , Pretty (Peer e)
+                                     , s ~ Encryption e
+                                     )
                   => RefLogRequestI e m -> RefLogRequest e -> m ()
 
 refLogRequestProto adapter cmd = do
@@ -155,18 +159,19 @@ refLogRequestProto adapter cmd = do
   where
     proto = Proxy @(RefLogRequest e)
 
-refLogUpdateProto :: forall e m . ( MonadIO m
-                                  , Request e (RefLogUpdate e) m
-                                  , Response e (RefLogUpdate e) m
-                                  , HasDeferred e (RefLogUpdate e) m
-                                  , IsPeerAddr e m
-                                  , Pretty (Peer e)
-                                  , Signatures e
-                                  , Nonce (RefLogUpdate e) ~ ByteString
-                                  , Sessions e (KnownPeer e) m
-                                  , Pretty (AsBase58 (PubKey 'Sign e))
-                                  , EventEmitter e (RefLogUpdateEv e) m
-                                  )
+refLogUpdateProto :: forall e s m . ( MonadIO m
+                                    , Request e (RefLogUpdate e) m
+                                    , Response e (RefLogUpdate e) m
+                                    , HasDeferred e (RefLogUpdate e) m
+                                    , IsPeerAddr e m
+                                    , Pretty (Peer e)
+                                    , Nonce (RefLogUpdate e) ~ ByteString
+                                    , Sessions e (KnownPeer e) m
+                                    , Signatures s
+                                    , Pretty (AsBase58 (PubKey 'Sign s))
+                                    , EventEmitter e (RefLogUpdateEv e) m
+                                    , s ~ Encryption e
+                                    )
                   => RefLogUpdateI e m -> RefLogUpdate e -> m ()
 
 refLogUpdateProto adapter =
@@ -193,12 +198,12 @@ refLogUpdateProto adapter =
     where
       proto = Proxy @(RefLogUpdate e)
 
-instance  ( Serialise (PubKey 'Sign e)
+instance  ( Serialise (PubKey 'Sign (Encryption e))
           , Serialise (Nonce (RefLogUpdate e))
-          , Serialise (Signature e)
+          , Serialise (Signature (Encryption e))
           ) => Serialise (RefLogUpdate e)
 
 
-instance  ( Serialise (PubKey 'Sign e)
+instance  ( Serialise (PubKey 'Sign (Encryption e))
           ) => Serialise (RefLogRequest e)
 
