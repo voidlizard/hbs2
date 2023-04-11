@@ -60,7 +60,8 @@ calcChunks :: forall a b . (Integral a, Integral b)
 
 calcChunks s1 s2 = fmap (over _1 fromIntegral . over _2 fromIntegral)  chu
   where
-    chu = fmap (,s2) (takeWhile (<s1) $ iterate (+s2) 0)
+    (n,rest) = s1 `divMod` s2
+    chu = [ (x*s2,s2) | x <- [0..n-1] ] <> [(n * s2, rest) | rest > 0]
 
 
 
