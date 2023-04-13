@@ -1,8 +1,5 @@
-(fixme-set "workflow" "test" "3qQz3NXAeX")
 
-(fixme-set "assigned" "3qQz3NXAeX" "voidlizard")
-(fixme-set "workflow" "test" "3DXN69bQq8")
-(fixme-set "workflow" "backlog" "C5oCY8togB")
-(fixme-set "workflow" "test" "DjWb6SFghZ")
-(fixme-set "assigned" "fastpok" "DjWb6SFghZ")
-(fixme-set "assigned" "fastpok" "3DXN69bQq8")
+fixme-del "Hwmrzssg8X"
+fixme-del "Cos1uYVyys"
+fixme-del "6KCMs4gLkt"
+fixme-del "AiKNngFjfk"
