@@ -29,7 +29,7 @@ fixme-value-set cat bug feat refactor
 [ fixme-report all json
   (render builtin:microstache report-wip.tpl)
   (post builtin:columns | 10 10 8 12 _)
-  (query ~workflow:backlog)
+;  (query ~workflow:backlog)
 ]
 
 
