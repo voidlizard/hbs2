@@ -12,6 +12,7 @@ import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Data.Types.Refs (RefLogKey(..))
+import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
@@ -21,6 +22,7 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
@@ -34,6 +36,7 @@ import Brains
 import RPC
 import PeerTypes
 import BlockDownload
+import BlockHttpDownload
 import DownloadQ
 import PeerInfo
 import PeerConfig
@@ -60,6 +63,10 @@ import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.Text qualified as Text
+import Data.Text (Text)
+import Data.Text.Encoding qualified as TE
+import GHC.Stats
+import GHC.TypeLits
 import Lens.Micro.Platform
 import Network.Socket
 import Options.Applicative
@@ -448,6 +455,8 @@ runPeer opts = Exception.handle myException $ do
   let wlkeys = toKeys (whs `Set.difference` bls)
   let helpFetchKeys = cfgValue @PeerProxyFetchKey conf & toKeys
 
+  let useHttpDownload = cfgValue @PeerUseHttpDownload conf & (== FeatureOn)
+
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
   print $ pretty accptAnn
@@ -517,6 +526,12 @@ runPeer opts = Exception.handle myException $ do
   penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
 
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
+
+  let mkPeerMeta = do
+        let mport = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
+        pure $ annMetaFromPeerMeta . PeerMeta . catMaybes $
+          [ mport <&> \port -> ("http-port", TE.encodeUtf8 . Text.pack . show $ port)
+          ]
 
   void $ async $ forever do
     pause @'Seconds 600
@@ -686,6 +701,12 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (blockDownloadLoop denv)
 
+                if useHttpDownload
+                  then do
+                      peerThread updatePeerHttpAddrs
+                      peerThread (blockHttpDownloadLoop denv)
+                  else pure mempty
+
                 peerThread (postponedLoop denv)
 
                 peerThread (downloadQueue conf denv)
@@ -792,6 +813,7 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse peerExchangeProto
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
+                    , makeResponse (peerMetaProto mkPeerMeta)
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers

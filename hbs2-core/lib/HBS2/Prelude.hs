@@ -4,6 +4,7 @@ module HBS2.Prelude
   , MonadIO(..)
   , void, guard, when, unless
   , maybe1
+  , eitherToMaybe
   , Hashable
   , lift
   , AsFileName(..)
@@ -36,6 +37,8 @@ none = pure ()
 maybe1 :: Maybe a -> b -> (a -> b) -> b
 maybe1 mb n j = maybe n j mb
 
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe = either (const Nothing) Just
 
 newtype AsFileName a = AsFileName a
 

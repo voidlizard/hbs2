@@ -95,6 +95,9 @@ defPexMaxPeers = 50
 defDownloadFails :: Int
 defDownloadFails = 100
 
+defGetPeerMetaTimeout :: Timeout 'Seconds
+defGetPeerMetaTimeout = 10
+
 -- TODO: peer-does-not-have-a-block-ok
 --  Это нормально, когда у пира нет блока.
 --  У него может не быть каких-то блоков,

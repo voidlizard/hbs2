@@ -43,9 +43,13 @@ pattern Key n ns <- SymbolVal  n : ns
 
 data PeerDownloadLogKey
 data PeerHttpPortKey
+data PeerUseHttpDownload
 
 instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
   key = "http-port"
+
+instance HasCfgKey PeerUseHttpDownload FeatureSwitch where
+  key = "http-download"
 
 instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"

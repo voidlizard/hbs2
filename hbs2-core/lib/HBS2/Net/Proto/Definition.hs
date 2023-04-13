@@ -19,6 +19,7 @@ import HBS2.Net.Proto.BlockInfo
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
+import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Prelude
 
@@ -112,6 +113,12 @@ instance HasProtocol UDP (RefLogRequest UDP) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance HasProtocol UDP (PeerMetaProto UDP) where
+  type instance ProtocolId (PeerMetaProto UDP) = 9
+  type instance Encoded UDP = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
   -- FIXME: real-period
   requestPeriodLim = ReqLimPerMessage 1
 
@@ -135,6 +142,9 @@ instance Expires (SessionKey UDP (PeerHandshake UDP)) where
 
 instance Expires (EventKey UDP (PeerAnnounce UDP)) where
   expiresIn _ = Nothing
+
+instance Expires (EventKey UDP (PeerMetaProto UDP)) where
+  expiresIn _ = Just 600
 
 
 instance MonadIO m => HasNonces (PeerHandshake UDP) m where

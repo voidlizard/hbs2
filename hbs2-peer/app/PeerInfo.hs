@@ -54,6 +54,7 @@ data PeerInfo e =
   , _peerUsefulness     :: TVar Double
   , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
                                           -- Acts like a circular buffer.
+  , _peerHttpApiAddress :: TVar (Either Int (Maybe String))
   }
   deriving stock (Generic,Typeable)
 
@@ -107,6 +108,7 @@ newPeerInfo = liftIO do
            <*> newTVarIO 0
            <*> newTVarIO 0
            <*> newTVarIO []
+           <*> newTVarIO (Left 0)
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 

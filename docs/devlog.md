@@ -1254,4 +1254,11 @@ FIXME: Обработка ошибок в асинхронном приложе�
        всё еще 0.
 
 
+## 2023-04-03
+
+PR: implement-http-block-download-worker
+  branch: iv/http-block-download-worker-5
+  commit: c1b32d9b7d4ad46f1924bf340374d64c29cefb67
+  Скачивание блока по http.
+  Решение 7gN8M32Ugm (http-block-download-worker)
 

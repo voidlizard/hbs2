@@ -2,6 +2,7 @@ module HttpWorker where
 
 import HBS2.Prelude
 import HBS2.Actors.Peer
+import HBS2.Net.Proto.PeerMeta
 import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Types
@@ -12,6 +13,9 @@ import PeerTypes
 import PeerConfig
 
 import Data.Functor
+import Data.Maybe
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
@@ -65,6 +69,12 @@ httpWorker conf e = do
             va <- liftIO $ getRef sto (RefLogKey @s ref)
             maybe1 va (status status404) $ \val -> do
               text [qc|{pretty val}|]
+
+      get "/metadata" do
+          let mport = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
+          raw $ serialise . annMetaFromPeerMeta . PeerMeta . catMaybes $
+            [ mport <&> \port -> ("http-port", TE.encodeUtf8 . Text.pack . show $ port)
+            ]
 
       put "/" do
         -- FIXME: optional-header-based-authorization

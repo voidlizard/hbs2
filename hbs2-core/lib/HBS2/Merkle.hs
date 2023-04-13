@@ -78,7 +78,7 @@ makeLenses ''MNodeData
 instance Serialise MNodeData
 
 data AnnMetaData = NoMetaData | ShortMetadata Text | AnnHashRef (Hash HbSync)
-  deriving stock (Generic,Data,Show)
+  deriving stock (Generic,Data,Show,Eq)
 
 instance Serialise AnnMetaData
 

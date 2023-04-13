@@ -58,6 +58,7 @@ common common-deps
         , ekg-core
         , scotty
         , warp
+        , http-conduit
         , http-types
         , wai-extra
 
@@ -112,6 +113,7 @@ executable hbs2-peer
     main-is:          PeerMain.hs
 
     other-modules:    BlockDownload
+                    , BlockHttpDownload
                     , DownloadQ
                     , Bootstrap
                     , PeerInfo
