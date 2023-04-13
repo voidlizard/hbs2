@@ -4,8 +4,8 @@ module RPC where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
-import HBS2.Hash
 import HBS2.Net.Messaging.UDP
+import HBS2.Hash
 import HBS2.Actors.Peer
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
@@ -41,17 +41,17 @@ data RPC e =
 
 instance (Serialise (PeerAddr e), Serialise (PubKey 'Sign (Encryption e))) => Serialise (RPC e)
 
-instance HasProtocol UDP (RPC UDP) where
-  type instance ProtocolId (RPC UDP) = 0xFFFFFFE0
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (RPC L4Proto) where
+  type instance ProtocolId (RPC L4Proto) = 0xFFFFFFE0
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
 
 data RPCEnv =
   RPCEnv
-  { _rpcSelf :: Peer UDP
-  , _rpcFab  :: Fabriq UDP
+  { _rpcSelf :: Peer L4Proto
+  , _rpcFab  :: Fabriq L4Proto
   }
 
 makeLenses 'RPCEnv
@@ -84,7 +84,7 @@ newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
                                          )
 
 runRPC :: ( MonadIO m
-          , PeerMessaging UDP
+          , PeerMessaging L4Proto
           )
        => MessagingUDP -> RpcM m a -> m a
 
@@ -95,13 +95,13 @@ runRPC udp m = runReaderT (fromRpcM m) (RPCEnv pip (Fabriq udp))
 continueWithRPC :: RPCEnv -> RpcM m a -> m a
 continueWithRPC e m = runReaderT (fromRpcM m) e
 
-instance Monad m => HasFabriq UDP (RpcM m) where
+instance Monad m => HasFabriq L4Proto (RpcM m) where
   getFabriq = asks (view rpcFab)
 
-instance Monad m => HasOwnPeer UDP (RpcM m) where
+instance Monad m => HasOwnPeer L4Proto (RpcM m) where
   ownPeer = asks (view rpcSelf)
 
-instance (Monad m, HasProtocol UDP p) => HasTimeLimits UDP p (RpcM m) where
+instance (Monad m, HasProtocol L4Proto p) => HasTimeLimits L4Proto p (RpcM m) where
   tryLockForPeriod _ _ = pure True
 
 rpcHandler :: forall e m  . ( MonadIO m

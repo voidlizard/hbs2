@@ -9,21 +9,26 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Events
 import HBS2.Clock
 import HBS2.Defaults
+import HBS2.Net.IP.Addr
 
-import Data.ByteString qualified as BS
-import Data.Traversable
+import Control.Monad
 import Data.Functor
 import Data.Maybe
 import Codec.Serialise
 import Data.Hashable
 import Type.Reflection
+import Data.List qualified as L
 
 import HBS2.System.Logger.Simple
-import Prettyprinter
+
+
+data PexVersion = PEX1 | PEX2
 
 data PeerExchange e =
     PeerExchangeGet (Nonce (PeerExchange e))
-  | PeerExchangePeers (Nonce (PeerExchange e)) [PeerAddr e]
+  | PeerExchangePeers (Nonce (PeerExchange e)) [IPAddrPort e]
+  | PeerExchangeGet2 (Nonce (PeerExchange e))
+  | PeerExchangePeers2 (Nonce (PeerExchange e)) [PeerAddr e]
   deriving stock (Generic, Typeable)
 
 data PeerExchangePeersEv e
@@ -40,7 +45,9 @@ sendPeerExchangeGet :: forall e m . ( MonadIO m
 sendPeerExchangeGet pip = do
   nonce <- newNonce @(PeerExchange e)
   update nonce (PeerExchangeKey @e nonce) id
+  -- FIXME: about-to-delete
   request pip (PeerExchangeGet @e nonce)
+  request pip (PeerExchangeGet2 @e nonce)
 
 peerExchangeProto :: forall e m . ( MonadIO m
                                   , Response e (PeerExchange e) m
@@ -53,14 +60,45 @@ peerExchangeProto :: forall e m . ( MonadIO m
                                   , EventEmitter e (PeerExchangePeersEv e) m
                                   , Eq (Nonce (PeerExchange e))
                                   , Pretty (Peer e)
+                                  , e ~ L4Proto
                                   )
                   => PeerExchange e -> m ()
 
-peerExchangeProto =
-  \case
-    PeerExchangeGet n -> deferred proto do
-      -- TODO:  sort peers by their usefulness
+peerExchangeProto msg = do
+  case msg of
+    PeerExchangeGet n -> peerExchangeGet PEX1 n
+    PeerExchangeGet2 n -> peerExchangeGet PEX2 n
+    PeerExchangePeers nonce pips -> peerExchangePeers1 nonce pips
+    PeerExchangePeers2 nonce pips -> peerExchangePeers2 nonce pips
 
+   where
+    proto = Proxy @(PeerExchange e)
+
+    fromPEXAddr1 = fromPeerAddr . L4Address UDP
+
+    peerExchangePeers1 nonce pips = do
+      pip <- thatPeer proto
+
+      ok <- find (PeerExchangeKey @e nonce) id <&> isJust
+
+      when ok do
+        sa <- mapM fromPEXAddr1 pips
+        debug $ "got pex" <+> "from" <+> pretty pip <+> pretty sa
+        expire @e (PeerExchangeKey nonce)
+        emit @e PeerExchangePeersKey (PeerExchangePeersData  sa)
+
+    peerExchangePeers2 nonce pips = do
+      pip <- thatPeer proto
+
+      ok <- find (PeerExchangeKey @e nonce) id <&> isJust
+
+      when ok do
+        sa <- mapM fromPeerAddr pips
+        debug $ "got pex" <+> "from" <+> pretty pip <+> pretty sa
+        expire @e (PeerExchangeKey nonce)
+        emit @e PeerExchangePeersKey (PeerExchangePeersData  sa)
+
+    peerExchangeGet pex n = deferred proto do
       that <- thatPeer proto
 
       debug $ "PeerExchangeGet" <+> "from" <+> pretty that
@@ -68,32 +106,31 @@ peerExchangeProto =
       pl   <- getPeerLocator @e
       pips <- knownPeers @e pl
 
-      pa'   <- forM pips $ \p -> do
-                 auth <- find (KnownPeerKey p) id <&> isJust
-                 if auth then do
-                   a <- toPeerAddr p
-                   pure [a]
-                 else
-                   pure mempty
+      case pex of
+        PEX1 -> do
 
-      let pa = take defPexMaxPeers $ mconcat pa'
+          -- TODO: tcp-peer-support-in-pex
+          pa'   <- forM pips $ \p -> do
+                     auth <- find (KnownPeerKey p) id <&> isJust
+                     pa <- toPeerAddr p
+                     case pa of
+                      (L4Address UDP x) | auth -> pure [x]
+                      _ -> pure mempty
 
-      response (PeerExchangePeers @e n pa)
+          let pa = take defPexMaxPeers $ mconcat pa'
 
-    PeerExchangePeers nonce pips -> do
+          response (PeerExchangePeers @e n pa)
 
-      pip <- thatPeer proto
+        PEX2 -> do
 
-      ok <- find (PeerExchangeKey @e nonce) id <&> isJust
+          pa'   <- forM pips $ \p -> do
+                     auth <- find (KnownPeerKey p) id
+                     maybe1 auth (pure mempty) ( const $ fmap L.singleton (toPeerAddr p) )
 
-      when ok do
-        sa <- mapM (fromPeerAddr @e) pips
-        debug $ "got pex" <+> "from" <+> pretty pip <+> pretty sa
-        expire @e (PeerExchangeKey nonce)
-        emit @e PeerExchangePeersKey (PeerExchangePeersData sa)
+          -- FIXME: asap-random-shuffle-peers
+          let pa = take defPexMaxPeers $ mconcat pa'
 
-   where
-    proto = Proxy @(PeerExchange e)
+          response (PeerExchangePeers2 @e n pa)
 
 
 newtype instance SessionKey e (PeerExchange e) =

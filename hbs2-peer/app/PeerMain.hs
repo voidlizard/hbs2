@@ -16,6 +16,7 @@ import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
+import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Definition
@@ -45,6 +46,7 @@ import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
+import ProxyMessaging
 
 import Codec.Serialise
 import Control.Concurrent.Async
@@ -90,8 +92,8 @@ defRpcUDP = "localhost:13331"
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
-
 data PeerListenKey
+data PeerListenTCPKey
 data PeerRpcKey
 data PeerKeyFileKey
 data PeerBlackListKey
@@ -102,7 +104,7 @@ data PeerTraceKey
 data PeerProxyFetchKey
 
 data AcceptAnnounce = AcceptAnnounceAll
-                    | AcceptAnnounceFrom (Set (PubKey 'Sign (Encryption UDP)))
+                    | AcceptAnnounceFrom (Set (PubKey 'Sign (Encryption L4Proto)))
 
 instance Pretty AcceptAnnounce where
   pretty = \case
@@ -116,6 +118,9 @@ instance HasCfgKey PeerTraceKey FeatureSwitch where
 
 instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
+
+instance HasCfgKey PeerListenTCPKey (Maybe String) where
+  key = "listen-tcp"
 
 instance HasCfgKey PeerRpcKey (Maybe String) where
   key = "rpc"
@@ -143,7 +148,7 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
     where
       fromAll = headMay [ AcceptAnnounceAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
       lst = Set.fromList $
-                catMaybes [ fromStringMay @(PubKey 'Sign (Encryption UDP)) (Text.unpack e)
+                catMaybes [ fromStringMay @(PubKey 'Sign (Encryption L4Proto)) (Text.unpack e)
                           | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
                           ]
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
@@ -161,14 +166,14 @@ makeLenses 'RPCOpt
 data RPCCommand =
     POKE
   | ANNOUNCE (Hash HbSync)
-  | PING (PeerAddr UDP) (Maybe (Peer UDP))
-  | CHECK PeerNonce (PeerAddr UDP) (Hash HbSync)
+  | PING (PeerAddr L4Proto) (Maybe (Peer L4Proto))
+  | CHECK PeerNonce (PeerAddr L4Proto) (Hash HbSync)
   | FETCH (Hash HbSync)
   | PEERS
   | SETLOG SetLogging
   | REFLOGUPDATE ByteString
-  | REFLOGFETCH (PubKey 'Sign (Encryption UDP))
-  | REFLOGGET (PubKey 'Sign (Encryption UDP))
+  | REFLOGFETCH (PubKey 'Sign (Encryption L4Proto))
+  | REFLOGGET (PubKey 'Sign (Encryption L4Proto))
 
 data PeerOpts =
   PeerOpts
@@ -316,11 +321,11 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
         trace "pRefLogSend"
         s <- BS.readFile kr
         -- FIXME: UDP is weird here
-        creds <- pure (parseCredentials @(Encryption UDP) (AsCredFile s)) `orDie` "bad keyring file"
+        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
         let privk = view peerSignSk creds
-        msg <- makeRefLogUpdate @UDP pubk privk bs <&> serialise
+        msg <- makeRefLogUpdate @L4Proto pubk privk bs <&> serialise
         runRpcCommand rpc (REFLOGUPDATE msg)
 
     pRefLogSendRaw = do
@@ -410,7 +415,7 @@ instance ( Monad m
 
 
 -- runPeer :: forall e . (e ~ UDP, Nonce (RefLogUpdate e) ~ BS.ByteString) => PeerOpts -> IO ()
-runPeer :: forall e s . ( e ~ UDP
+runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
                         ) => PeerOpts -> IO ()
@@ -492,8 +497,8 @@ runPeer opts = Exception.handle myException $ do
 
   w <- replicateM defStorageThreads $ async $ simpleStorageWorker s
 
-  localMulticast <- (headMay <$> parseAddr (fromString defLocalMulticast)
-                                      <&> fmap (PeerUDP . addrAddress))
+  localMulticast <- (headMay <$> parseAddrUDP (fromString defLocalMulticast)
+                                      <&> fmap (fromSockAddr @'UDP . addrAddress) )
 
                            `orDie` "assertion: localMulticastPeer not set"
 
@@ -523,7 +528,24 @@ runPeer opts = Exception.handle myException $ do
 
   denv <- newDownloadEnv brains
 
-  penv <- newPeerEnv (AnyStorage s) (Fabriq mess) (getOwnPeer mess)
+  let tcpListen = cfgValue @PeerListenTCPKey conf & fromMaybe ""
+  let addr' = fromStringMay @(PeerAddr L4Proto) tcpListen
+
+  trace $ "TCP addr:" <+> pretty tcpListen <+> pretty addr'
+
+  tcp <- maybe1 addr' (pure Nothing) $ \addr -> do
+           tcpEnv <- newMessagingTCP addr
+           -- FIXME: handle-tcp-thread-somehow
+           void $ async $ runMessagingTCP tcpEnv
+                   `catch` (\(e::SomeException) -> throwIO e )
+           pure $ Just tcpEnv
+
+  proxy <- newProxyMessaging mess tcp
+
+  proxyThread <- async $ runProxyMessaging proxy
+                  `catch` (\(e::SomeException) -> throwIO e )
+
+  penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
 
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
 
@@ -604,26 +626,27 @@ runPeer opts = Exception.handle myException $ do
                 banned <- peerBanned p d
 
                 let doAddPeer p = do
-                        addPeers pl [p]
+                      addPeers pl [p]
 
-                        -- TODO: better-handling-for-new-peers
-                        npi    <- newPeerInfo
+                      -- TODO: better-handling-for-new-peers
+                      npi    <- newPeerInfo
 
-                        here <- find @e (KnownPeerKey p) id <&> isJust
+                      here <- find @e (KnownPeerKey p) id <&> isJust
 
-                        pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                        liftIO $ atomically $ writeTVar pfails 0
-                        -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
+                      pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
+                      liftIO $ atomically $ writeTVar pfails 0
+                      -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
 
-                        unless here do
-                          -- liftIO $ atomically $ writeTVar pdownfails 0
+                      unless here do
+                        -- liftIO $ atomically $ writeTVar pdownfails 0
 
-                          debug $ "Got authorized peer!" <+> pretty p
-                                                         <+> pretty (AsBase58 (view peerSignKey d))
+                        debug $ "Got authorized peer!" <+> pretty p
+                                                       <+> pretty (AsBase58 (view peerSignKey d))
 
 
                 -- FIXME: check if we've got a reference to ourselves
                 if | pnonce == thatNonce -> do
+                    debug $ "GOT OWN NONCE FROM" <+> pretty p
                     delPeers pl [p]
                     addExcluded pl [p]
                     expire (KnownPeerKey p)
@@ -642,34 +665,51 @@ runPeer opts = Exception.handle myException $ do
 
                     let pd = Map.fromList $ catMaybes pd'
 
+                    let proto1 = view sockType p
+
                     case Map.lookup thatNonce pd of
 
                       -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
                       --   remove remote peer
                       --   add local peer
-                      Just p0 | p0 /= p -> do
-                        debug "Same peer, different address"
 
-                        void $ runMaybeT do
+                      -- FIXME: move-protocol-comparison-to-peer-nonce
+                      --
 
-                          pinfo0 <- MaybeT $ find (PeerInfoKey p0) id
-                          pinfo1 <- MaybeT $ find (PeerInfoKey p) id
+                      Nothing -> doAddPeer p
 
-                          rtt0 <- MaybeT $ medianPeerRTT pinfo0
-                          rtt1 <- MaybeT $ medianPeerRTT pinfo1
+                      Just p0 -> do
 
-                          when ( rtt1 < rtt0 ) do
-                            debug $ "Better rtt!" <+> pretty p0
-                                                  <+> pretty p
-                                                  <+> pretty rtt0
-                                                  <+> pretty rtt1
+                        pa0 <- toPeerAddr p0
+                        pa1 <- toPeerAddr p
 
-                            lift $ do
-                              expire (KnownPeerKey p0)
-                              delPeers pl [p]
+                        if | pa0 == pa1 -> none
+                           | view sockType p0 /= view sockType p -> do
                               doAddPeer p
 
-                      _ -> doAddPeer p
+                           | otherwise -> do
+
+                              debug "Same peer, different address"
+
+                              void $ runMaybeT do
+
+                                pinfo0 <- MaybeT $ find (PeerInfoKey p0) id
+                                pinfo1 <- MaybeT $ find (PeerInfoKey p) id
+
+                                rtt0 <- MaybeT $ medianPeerRTT pinfo0
+                                rtt1 <- MaybeT $ medianPeerRTT pinfo1
+
+                                when ( rtt1 < rtt0 ) do
+                                  debug $ "Better rtt!" <+> pretty p0
+                                                        <+> pretty p
+                                                        <+> pretty rtt0
+                                                        <+> pretty rtt1
+
+                                  lift $ do
+                                    expire (KnownPeerKey p0)
+                                    delPeers pl [p0]
+                                    -- addExcluded pl [p0]
+                                    doAddPeer p
 
 
               void $ liftIO $ async $ withPeerM env do
@@ -687,6 +727,8 @@ runPeer opts = Exception.handle myException $ do
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
+                -- peerThread (tcpWorker conf)
+
                 peerThread (httpWorker conf denv)
 
                 peerThread (checkMetrics metrics)
@@ -703,7 +745,7 @@ runPeer opts = Exception.handle myException $ do
 
                 if useHttpDownload
                   then do
-                      peerThread updatePeerHttpAddrs
+                      peerThread (updatePeerHttpAddrs)
                       peerThread (blockHttpDownloadLoop denv)
                   else pure mempty
 
@@ -790,7 +832,7 @@ runPeer opts = Exception.handle myException $ do
 
                               trace "REFLOGUPDATE"
 
-                              let msg' = deserialiseOrFail @(RefLogUpdate UDP) bs
+                              let msg' = deserialiseOrFail @(RefLogUpdate L4Proto) bs
                                           & either (const Nothing) Just
 
                               when (isNothing msg') do
@@ -956,7 +998,7 @@ rpcClientMain opt action = do
   setLoggingOff @DEBUG
   action
 
-withRPC :: FromStringMaybe (PeerAddr UDP) => RPCOpt -> RPC UDP -> IO ()
+withRPC :: FromStringMaybe (PeerAddr L4Proto) => RPCOpt -> RPC L4Proto -> IO ()
 withRPC o cmd = rpcClientMain o $ do
 
   hSetBuffering stdout LineBuffering
@@ -967,7 +1009,7 @@ withRPC o cmd = rpcClientMain o $ do
 
   saddr <- pure  (view rpcOptAddr o <|> rpcConf) `orDie` "RPC endpoint not set"
 
-  as <- parseAddr (fromString saddr) <&> fmap (PeerUDP . addrAddress)
+  as <- parseAddrUDP (fromString saddr) <&> fmap (fromSockAddr @'UDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
 
   rpc <- pure rpc' `orDie` "Can't parse RPC endpoint"
@@ -1007,7 +1049,7 @@ withRPC o cmd = rpcClientMain o $ do
   prpc <- async $ runRPC udp1 do
                     env <- ask
                     proto <- liftIO $ async $ continueWithRPC env $ do
-                      runProto @UDP
+                      runProto @L4Proto
                         [ makeResponse (rpcHandler adapter)
                         ]
 
@@ -1066,7 +1108,7 @@ withRPC o cmd = rpcClientMain o $ do
 
   void $ waitAnyCatchCancel [mrpc, prpc]
 
-runRpcCommand :: FromStringMaybe (IPAddrPort UDP) => RPCOpt -> RPCCommand -> IO ()
+runRpcCommand :: FromStringMaybe (IPAddrPort L4Proto) => RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)

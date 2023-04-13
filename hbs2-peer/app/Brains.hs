@@ -194,7 +194,7 @@ instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) whe
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
 
     r <- forM peers $ \p -> do
-           let v = HashMap.lookup (p,h) downs & fromMaybe 0 & (<2)
+           let v = HashMap.lookup (p,h) downs & fromMaybe 0 & (<4)
            pure [v]
 
     let postpone = not (List.null r || or (mconcat r) )
@@ -204,9 +204,9 @@ instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) whe
   shouldDownloadBlock b p h = do
     noPeers <- liftIO $ readTVarIO (view brainsPeers b) <&> List.null
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
-    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<2)
+    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<4)
     -- trace $ "shouldDownloadBlock" <+> pretty noPeers <+> pretty doo
-    pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<2))
+    pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<4))
 
   advisePeersForBlock b h = do
     r <- liftIO $ findPeers b h

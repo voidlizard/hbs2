@@ -82,6 +82,7 @@ library
                     , HBS2.Net.Messaging
                     , HBS2.Net.Messaging.Fake
                     , HBS2.Net.Messaging.UDP
+                    , HBS2.Net.Messaging.TCP
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
@@ -133,6 +134,8 @@ library
                     , murmur-hash
                     , network
                     , network-multicast
+                    , network-simple
+                    , network-byte-order
                     , prettyprinter
                     , random
                     , random-shuffle
@@ -143,6 +146,7 @@ library
                     , split
                     , stm
                     , stm-chans
+                    , streaming
                     , suckless-conf
                     , temporary
                     , text

@@ -146,7 +146,8 @@ updatePeerHttpAddrs :: forall e  m .
     , IsPeerAddr e m
     , Pretty (Peer e)
     , Pretty (PeerAddr e)
-    , EventListener e( PeerMetaProto e) m
+    , EventListener e ( PeerMetaProto e) m
+    -- , e ~ L4Proto
     )
     => m ()
 updatePeerHttpAddrs = do
@@ -154,11 +155,6 @@ updatePeerHttpAddrs = do
   pl <- getPeerLocator @e
   forever do
 
-    -- REVIEW: isnt-it-too-often
-    --  Не слишком ли часто обновлять http адрес?
-    --  Зачем раз в пять секунд?
-    --  -- Это попытка узнать адрес. Если раз определили его, то уже не будем снова пытаться.
-    -- При этом всего будет не более трёх попыток.
     pause @'Seconds 5
     ps <- knownPeers @e pl
     debug $ "updatePeerHttpAddrs peers:" <+> pretty ps

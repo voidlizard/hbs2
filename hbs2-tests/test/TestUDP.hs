@@ -16,6 +16,8 @@ import Lens.Micro.Platform
 import Codec.Serialise
 import Control.Concurrent.Async
 
+type UDP = L4Proto
+
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
 
@@ -38,14 +40,15 @@ pingPongHandler :: forall e m  . ( MonadIO m
                                  , Response e (PingPong e) m
                                  , HasProtocol e (PingPong e)
                                  )
-                => PingPong e
+                => Int
+                -> PingPong e
                 -> m ()
 
-pingPongHandler = \case
+pingPongHandler n = \case
 
     Ping c -> debug ("Ping" <+> pretty c) >> response (Pong @e c)
 
-    Pong c | c < 100000 -> debug ("Pong" <+> pretty c) >> response (Ping @e (succ c))
+    Pong c | c < n -> debug ("Pong" <+> pretty c) >> response (Ping @e (succ c))
            | otherwise -> pure ()
 
 data PPEnv =
@@ -89,15 +92,15 @@ main = do
   m2 <- async $ runMessagingUDP udp2
 
   p1 <- async $ runPingPong udp1 do
-                  request (getOwnPeer udp2) (Ping @UDP (-10000))
+                  request (getOwnPeer udp2) (Ping @UDP 0)
                   runProto @UDP
-                    [ makeResponse pingPongHandler
+                    [ makeResponse (pingPongHandler 3)
                     ]
 
   p2 <- async $ runPingPong udp2 do
-                  request (getOwnPeer udp1) (Ping @UDP 0)
+                  -- request (getOwnPeer udp1) (Ping @UDP 0)
                   runProto @UDP
-                    [ makeResponse pingPongHandler
+                    [ makeResponse (pingPongHandler 3)
                     ]
 
   mapM_ wait [p1,p2,m1,m2]

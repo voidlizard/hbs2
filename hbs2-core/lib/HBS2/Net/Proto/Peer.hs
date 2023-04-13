@@ -75,6 +75,7 @@ sendPing :: forall e m . ( MonadIO m
                          , HasNonces (PeerHandshake e) m
                          , Nonce (PeerHandshake e) ~ PingNonce
                          , Pretty (Peer e)
+                         , e ~ L4Proto
                          )
          => Peer e -> m ()
 
@@ -105,6 +106,7 @@ peerHandShakeProto :: forall e s m . ( MonadIO m
                                      , HasCredentials s m
                                      , Signatures s
                                      , s ~ Encryption e
+                                     , e ~ L4Proto
                                      )
                    => PeerHandshakeAdapter e m
                    -> PeerHandshake e -> m ()

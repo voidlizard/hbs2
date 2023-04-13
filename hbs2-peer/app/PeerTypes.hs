@@ -9,7 +9,6 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
-import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.BlockInfo
@@ -37,6 +36,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Data.Hashable
 import Type.Reflection
+import Data.IntMap (IntMap)
 
 
 type MyPeer e = ( Eq (Peer e)
@@ -105,14 +105,15 @@ data BlockDownload =
   , _sBlockSize      :: Size
   , _sBlockChunkSize :: ChunkSize
   , _sBlockChunks    :: TQueue (ChunkNum, ByteString)
+  , _sBlockChunks2   :: TVar (IntMap ByteString)
   }
   deriving stock (Typeable)
 
 makeLenses 'BlockDownload
 
 newBlockDownload :: MonadIO m => Hash HbSync -> m BlockDownload
-newBlockDownload h = do
-  BlockDownload h 0 0 <$> liftIO newTQueueIO
+newBlockDownload h = liftIO do
+  BlockDownload h 0 0 <$> newTQueueIO <*> newTVarIO mempty
 
 
 type instance SessionData e (BlockChunks e) = BlockDownload
@@ -121,8 +122,8 @@ newtype instance SessionKey e (BlockChunks e) =
   DownloadSessionKey (Peer e, Cookie e)
   deriving stock (Generic,Typeable)
 
-deriving newtype instance Hashable (SessionKey UDP (BlockChunks UDP))
-deriving stock instance Eq (SessionKey UDP (BlockChunks UDP))
+deriving newtype instance Hashable (SessionKey L4Proto (BlockChunks L4Proto))
+deriving stock instance Eq (SessionKey L4Proto (BlockChunks L4Proto))
 
 data BlockState =
   BlockState

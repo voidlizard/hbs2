@@ -12,15 +12,15 @@ defMaxDatagramRPC = 4096
 defMessageQueueSize :: Integral a => a
 defMessageQueueSize = 65536*10
 
-defBurst :: Integral a => a
-defBurst = 4
-
 defBurstMax :: Integral a => a
-defBurstMax = 64
+defBurstMax = 128
+
+defBurst :: Integral a => a
+defBurst = defBurstMax `div` 2
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
-defChunkSize = 1400
+defChunkSize = 1420
 -- defChunkSize = 480
 
 defBlockSize :: Integer
@@ -70,18 +70,18 @@ defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 5
+defBlockInfoTimeout = 20
 
 defBlockInfoTimeoutSpec :: TimeSpec
 defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout
 
 -- how much time wait for block from peer?
 defBlockWaitMax :: Timeout 'Seconds
-defBlockWaitMax = 20 :: Timeout 'Seconds
+defBlockWaitMax = 60 :: Timeout 'Seconds
 
 -- how much time wait for block from peer?
 defChunkWaitMax :: Timeout 'Seconds
-defChunkWaitMax = 10  :: Timeout 'Seconds
+defChunkWaitMax = 30  :: Timeout 'Seconds
 
 defSweepTimeout :: Timeout 'Seconds
 defSweepTimeout = 60 -- FIXME: only for debug!

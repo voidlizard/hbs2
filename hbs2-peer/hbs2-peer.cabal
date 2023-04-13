@@ -26,6 +26,7 @@ common common-deps
         , data-default
         , deepseq
         , directory
+        , dns
         , filepath
         , hashable
         , microlens-platform
@@ -37,7 +38,7 @@ common common-deps
         , prettyprinter
         , random
         , random-shuffle
-        , resolv
+        -- , resolv
         , safe
         , saltine >=0.2.0.1
         , suckless-conf
@@ -124,6 +125,7 @@ executable hbs2-peer
                     , CheckMetrics
                     , HttpWorker
                     , Brains
+                    , ProxyMessaging
 
     -- other-extensions:
     build-depends:    base

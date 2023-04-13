@@ -115,11 +115,11 @@ type instance SessionData e (PeerInfo e) = PeerInfo e
 newtype instance SessionKey e  (PeerInfo e) =
   PeerInfoKey (Peer e)
 
-deriving newtype instance Hashable (SessionKey UDP (PeerInfo UDP))
-deriving stock instance Eq (SessionKey UDP (PeerInfo UDP))
+deriving newtype instance Hashable (SessionKey L4Proto (PeerInfo L4Proto))
+deriving stock instance Eq (SessionKey L4Proto (PeerInfo L4Proto))
 
 -- FIXME: this?
-instance Expires (SessionKey UDP (PeerInfo UDP)) where
+instance Expires (SessionKey L4Proto (PeerInfo L4Proto)) where
   expiresIn = const (Just defCookieTimeoutSec)
 
 pexLoop :: forall e m . ( HasPeerLocator e m
@@ -164,6 +164,7 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , Pretty (Peer e)
                              , MonadIO m
                              , m ~ PeerM e IO
+                             , e ~ L4Proto
                              )
              => PeerConfig -> m ()
 peerPingLoop cfg = do

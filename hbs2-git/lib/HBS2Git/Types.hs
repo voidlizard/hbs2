@@ -10,7 +10,7 @@ module HBS2Git.Types
 
 import HBS2.Prelude.Plated
 import HBS2.Git.Types
-import HBS2.Net.Messaging.UDP (UDP)
+import HBS2.Net.Proto.Types(L4Proto)
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
@@ -38,7 +38,7 @@ import Control.Monad.Catch
 
 -- FIXME: remove-udp-hardcode-asap
 type Schema = HBS2Basic
-type HBS2L4Proto = UDP
+type HBS2L4Proto = L4Proto
 
 -- FIXME: introduce-API-type
 type API = String

@@ -15,7 +15,6 @@ import HBS2.Hash
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
 import HBS2.Git.Types
-import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
 import HBS2.Net.Proto.RefLog

@@ -8,7 +8,6 @@ import HBS2.Merkle
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Messaging.UDP (UDP)
 import HBS2.Net.Proto.Definition()
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple

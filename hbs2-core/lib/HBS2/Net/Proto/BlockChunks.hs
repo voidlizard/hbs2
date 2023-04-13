@@ -152,7 +152,7 @@ blockChunksProto adapter (BlockChunks c p) = do
       pure ()
 
     BlockLost{} -> do
-      liftIO $ print "GOT BLOCK LOST MESSAGE - means IO ERROR"
+      -- liftIO $ print "GOT BLOCK LOST MESSAGE - means IO ERROR"
       pure ()
 
     _ -> do

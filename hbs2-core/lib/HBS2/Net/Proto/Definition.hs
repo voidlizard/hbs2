@@ -8,10 +8,8 @@ module HBS2.Net.Proto.Definition
 
 import HBS2.Clock
 import HBS2.Defaults
-import HBS2.Merkle
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Messaging.UDP
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
@@ -26,7 +24,7 @@ import HBS2.Prelude
 import Data.Functor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
-import Codec.Serialise (deserialiseOrFail,serialise,Serialise(..))
+import Codec.Serialise (deserialiseOrFail,serialise)
 
 import Crypto.Saltine.Core.Box qualified as Crypto
 import Crypto.Saltine.Class qualified as Crypto
@@ -35,7 +33,7 @@ import Crypto.Saltine.Core.Box qualified as Encrypt
 
 
 
-type instance Encryption UDP = HBS2Basic
+type instance Encryption L4Proto = HBS2Basic
 
 type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
 type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
@@ -54,9 +52,9 @@ instance Serialise Encrypt.PublicKey
 instance Serialise Sign.SecretKey
 instance Serialise Encrypt.SecretKey
 
-instance HasProtocol UDP (BlockInfo UDP) where
-  type instance ProtocolId (BlockInfo UDP) = 1
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (BlockInfo L4Proto) where
+  type instance ProtocolId (BlockInfo L4Proto) = 1
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
@@ -64,103 +62,108 @@ instance HasProtocol UDP (BlockInfo UDP) where
   --
   requestPeriodLim = ReqLimPerMessage 1
 
-instance HasProtocol UDP (BlockChunks UDP) where
-  type instance ProtocolId (BlockChunks UDP) = 2
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (BlockChunks L4Proto) where
+  type instance ProtocolId (BlockChunks L4Proto) = 2
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance Expires (SessionKey UDP (BlockChunks UDP)) where
+instance Expires (SessionKey L4Proto (BlockChunks L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec
 
-instance HasProtocol UDP (BlockAnnounce UDP) where
-  type instance ProtocolId (BlockAnnounce UDP) = 3
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (BlockAnnounce L4Proto) where
+  type instance ProtocolId (BlockAnnounce L4Proto) = 3
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (PeerHandshake UDP) where
-  type instance ProtocolId (PeerHandshake UDP) = 4
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (PeerHandshake L4Proto) where
+  type instance ProtocolId (PeerHandshake L4Proto) = 4
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
   requestPeriodLim = ReqLimPerProto 2
 
-instance HasProtocol UDP (PeerAnnounce UDP) where
-  type instance ProtocolId (PeerAnnounce UDP) = 5
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (PeerAnnounce L4Proto) where
+  type instance ProtocolId (PeerAnnounce L4Proto) = 5
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (PeerExchange UDP) where
-  type instance ProtocolId (PeerExchange UDP) = 6
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (PeerExchange L4Proto) where
+  type instance ProtocolId (PeerExchange L4Proto) = 6
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (RefLogUpdate UDP) where
-  type instance ProtocolId (RefLogUpdate UDP) = 7
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (RefLogUpdate L4Proto) where
+  type instance ProtocolId (RefLogUpdate L4Proto) = 7
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
   requestPeriodLim = ReqLimPerMessage 600
 
-instance HasProtocol UDP (RefLogRequest UDP) where
-  type instance ProtocolId (RefLogRequest UDP) = 8
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (RefLogRequest L4Proto) where
+  type instance ProtocolId (RefLogRequest L4Proto) = 8
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance HasProtocol UDP (PeerMetaProto UDP) where
-  type instance ProtocolId (PeerMetaProto UDP) = 9
-  type instance Encoded UDP = ByteString
+instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
+  type instance ProtocolId (PeerMetaProto L4Proto) = 9
+  type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
   -- FIXME: real-period
   requestPeriodLim = ReqLimPerMessage 1
 
-instance Expires (SessionKey UDP (BlockInfo UDP)) where
+instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec
 
-instance Expires (EventKey UDP (BlockInfo UDP)) where
+instance Expires (EventKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _  = Just 600
 
-instance Expires (EventKey UDP (BlockChunks UDP)) where
+instance Expires (EventKey L4Proto (BlockChunks L4Proto)) where
   expiresIn _ = Just 600
 
-instance Expires (EventKey UDP (BlockAnnounce UDP)) where
+instance Expires (EventKey L4Proto (BlockAnnounce L4Proto)) where
   expiresIn _ = Nothing
 
-instance Expires (SessionKey UDP (KnownPeer UDP)) where
+instance Expires (SessionKey L4Proto (KnownPeer L4Proto)) where
   expiresIn _ = Just 3600
 
-instance Expires (SessionKey UDP (PeerHandshake UDP)) where
+instance Expires (SessionKey L4Proto (PeerHandshake L4Proto)) where
   expiresIn _ = Just 60
 
-instance Expires (EventKey UDP (PeerAnnounce UDP)) where
+instance Expires (EventKey L4Proto (PeerAnnounce L4Proto)) where
   expiresIn _ = Nothing
 
-instance Expires (EventKey UDP (PeerMetaProto UDP)) where
+instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
   expiresIn _ = Just 600
 
+-- instance MonadIO m => HasNonces () m where
+--   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
+--   newNonce = do
+--     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+--     pure $ BS.take 32 n
 
-instance MonadIO m => HasNonces (PeerHandshake UDP) m where
-  type instance Nonce (PeerHandshake UDP) = BS.ByteString
+instance MonadIO m => HasNonces (PeerHandshake L4Proto) m where
+  type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
-instance MonadIO m => HasNonces (PeerExchange UDP) m where
-  type instance Nonce (PeerExchange UDP) = BS.ByteString
+instance MonadIO m => HasNonces (PeerExchange L4Proto) m where
+  type instance Nonce (PeerExchange L4Proto) = BS.ByteString
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
-instance MonadIO m => HasNonces (RefLogUpdate UDP) m where
-  type instance Nonce (RefLogUpdate UDP) = BS.ByteString
+instance MonadIO m => HasNonces (RefLogUpdate L4Proto) m where
+  type instance Nonce (RefLogUpdate L4Proto) = BS.ByteString
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n

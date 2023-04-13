@@ -31,6 +31,7 @@ import Control.Concurrent.STM.TSem
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Cache qualified as Cache
 import Data.Foldable hiding (find)
 import Data.HashMap.Strict qualified as HashMap
@@ -172,6 +173,7 @@ processBlock h = do
 
 
 downloadFromWithPeer :: forall e m . ( DownloadFromPeerStuff e m
+                                     , e ~ L4Proto
                                      , HasPeerLocator e (BlockDownloadM e m) )
                      => Peer e
                      -> Integer
@@ -186,14 +188,20 @@ downloadFromWithPeer peer thisBkSize h = do
 
   sto <- lift getStorage
 
+  let chunkSize = case view sockType peer of
+        UDP -> defChunkSize
+        TCP -> defChunkSize
+
   coo <- genCookie (peer,h)
   let key = DownloadSessionKey (peer, coo)
-  let chusz = defChunkSize
+  let chusz = fromIntegral chunkSize -- defChunkSize
   dnwld <- newBlockDownload h
   let chuQ = view sBlockChunks dnwld
   let new =   set sBlockChunkSize chusz
             . set sBlockSize (fromIntegral thisBkSize)
               $ dnwld
+
+  trace $ "downloadFromWithPeer STARTED" <+> pretty coo
 
   lift $ update @e new key id
 
@@ -207,11 +215,16 @@ downloadFromWithPeer peer thisBkSize h = do
 
   let bursts = calcBursts burstSize chunkNums
 
-  let w = max defChunkWaitMax $ realToFrac (toNanoSeconds defBlockWaitMax)  / realToFrac  (length bursts) / 1e9 * 2
+  rtt <- medianPeerRTT pinfo <&> fmap ( (/1e9) . realToFrac )
+                             <&> fromMaybe defChunkWaitMax
 
-  let burstTime = realToFrac w :: Timeout 'Seconds -- defChunkWaitMax  -- min defBlockWaitMax (0.8 * realToFrac burstSize * defChunkWaitMax)
+  let w = 4 * rtt * realToFrac (length bursts)
 
-  r  <- liftIO $ newTVarIO (mempty :: IntMap ByteString)
+  let burstTime = max defChunkWaitMax $ realToFrac w :: Timeout 'Seconds
+
+  trace $ "BURST TIME" <+> pretty burstTime
+
+  let r = view sBlockChunks2 new
   rq <- liftIO newTQueueIO
 
   for_ bursts $ liftIO . atomically . writeTQueue rq
@@ -223,44 +236,56 @@ downloadFromWithPeer peer thisBkSize h = do
 
       Just (i,chunksN) -> do
         let req = BlockGetChunks h chusz (fromIntegral i) (fromIntegral chunksN)
+
+        void $ liftIO $ atomically $ flushTQueue chuQ
+
         lift $ request peer (BlockChunks @e coo req)
 
-        -- TODO: here wait for all requested chunks!
-        -- FIXME: it may blocks forever, so must be timeout and retry
+        let waity = liftIO $ race ( pause burstTime >> pure False ) do
+              fix \zzz -> do
+                hc <- atomically do
+                  forM [i .. i + chunksN-1 ] $ \j -> do
+                    m <- readTVar r
+                    pure (j, IntMap.member j m)
 
-        catched <- either id id <$> liftIO ( race ( pause burstTime >> pure mempty )
-                                                  ( replicateM chunksN
-                                                       $ atomically
-                                                          $ readTQueue chuQ )
+                let here = and $ fmap snd hc
+                if here then do
+                    pure here
 
-                                           )
-        if not (null catched) then do
+                else do
+                    pause rtt
+                    zzz
+
+        void $ liftIO $ race ( pause (2 * rtt)  ) $ atomically do
+                 void $ peekTQueue chuQ
+                 flushTQueue chuQ
+
+        catched <- waity <&> either id id
+
+        if catched then do
           liftIO $ atomically do
             modifyTVar (view peerDownloaded pinfo) (+chunksN)
             writeTVar  (view peerPingFailed pinfo) 0
 
         else do
 
-            -- liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
-            updatePeerInfo True pinfo
+          liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
+          updatePeerInfo True peer pinfo
 
-            newBurst <- liftIO $ readTVarIO burstSizeT
-            -- let newBurst = max defBurst $ floor (realToFrac newBurst' * 0.5 )
+          newBurst <- liftIO $ readTVarIO burstSizeT
+          -- let newBurst = max defBurst $ floor (realToFrac newBurst' * 0.5 )
 
-            liftIO $ atomically $ modifyTVar (view peerDownloaded pinfo) (+chunksN)
+          liftIO $ atomically $ modifyTVar (view peerDownloaded pinfo) (+chunksN)
 
-            let chuchu = calcBursts newBurst [ i + n | n <- [0 .. chunksN] ]
+          let chuchu = calcBursts newBurst [ i + n | n <- [0 .. chunksN] ]
 
-            liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
+          liftIO $ atomically $ modifyTVar (view peerErrors pinfo) succ
 
-            trace $ "new burst: " <+> pretty newBurst
-            trace $ "missed chunks for request" <+> pretty (i,chunksN)
-            trace $ "burst time" <+> pretty burstTime
+          trace $ "new burst: " <+> pretty newBurst
+          trace $ "missed chunks for request" <+> pretty (i,chunksN)
+          trace $ "burst time" <+> pretty burstTime
 
-            for_ chuchu $ liftIO . atomically . writeTQueue rq
-
-        for_ catched $ \(num,bs) -> do
-          liftIO $ atomically $ modifyTVar' r (IntMap.insert (fromIntegral num) bs)
+          for_ chuchu $ liftIO . atomically . writeTQueue rq
 
         next
 
@@ -268,13 +293,13 @@ downloadFromWithPeer peer thisBkSize h = do
 
         sz <- liftIO $ readTVarIO r <&> IntMap.size
 
-        if sz == length offsets then do
+        if sz >= length offsets then do
           pieces <- liftIO $ readTVarIO r <&> IntMap.elems
           let block = mconcat pieces
           let h1 = hashObject @HbSync block
 
           if h1 == h then do
-            -- debug "PROCESS BLOCK"
+            trace $ "PROCESS BLOCK" <+> pretty coo <+> pretty h
             lift $ expire @e key
             void $ liftIO $ putBlock sto block
             onBlockDownloaded brains peer h
@@ -293,7 +318,13 @@ downloadFromWithPeer peer thisBkSize h = do
           -- however, let's try do download the tails
           -- by one chunk a time
           for_ missed $ \n -> do
+            trace $ "MISSED CHUNK" <+> pretty coo <+> pretty n
             liftIO $ atomically $ writeTQueue rq (n,1)
+
+          next
+
+  lift $ expire @e key
+  trace $ "downloadFromWithPeer EXIT" <+> pretty coo
 
 
 instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
@@ -303,8 +334,12 @@ instance HasPeerLocator e m => HasPeerLocator e (BlockDownloadM e m) where
 -- NOTE: updatePeerInfo is CC
 --   updatePeerInfo is actuall doing CC (congestion control)
 
-updatePeerInfo :: MonadIO m => Bool -> PeerInfo e -> m ()
-updatePeerInfo onError pinfo = do
+updatePeerInfo :: forall e m . (e ~ L4Proto, MonadIO m) => Bool -> Peer e -> PeerInfo e -> m ()
+
+updatePeerInfo _ p pinfo | view sockType p == TCP = do
+  liftIO $ atomically $ writeTVar (view peerBurst pinfo) 256
+
+updatePeerInfo onError _ pinfo = do
 
   t1 <- liftIO getTimeCoarse
 
@@ -332,12 +367,12 @@ updatePeerInfo onError pinfo = do
 
             (bu1, bus) <- if  eps == 0 && not onError then do
                             let bmm = fromMaybe defBurstMax buMax
-                            let buN = min bmm (ceiling (realToFrac bu * 1.05))
+                            let buN = min bmm (ceiling (realToFrac bu * 1.25))
                             pure (buN, trimUp win $ IntSet.insert buN buSet)
                           else do
-                            let buM = headMay $ drop 2 $ IntSet.toDescList buSet
+                            let buM = headMay $ drop 1 $ IntSet.toDescList buSet
                             writeTVar (view peerBurstMax pinfo) buM
-                            let buN = headDef defBurst $ drop 4 $ IntSet.toDescList buSet
+                            let buN = headDef defBurst $ drop 2 $ IntSet.toDescList buSet
                             pure (buN, trimDown win $ IntSet.insert buN buSet)
 
 
@@ -381,6 +416,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , PeerMessaging e
                                    , IsPeerAddr e m
                                    , HasPeerLocator e m
+                                   , e ~ L4Proto
                                    )
                   => DownloadEnv e -> m ()
 blockDownloadLoop env0 = do
@@ -414,7 +450,7 @@ blockDownloadLoop env0 = do
 
     for_ pee $ \p -> do
       pinfo <- fetch True npi (PeerInfoKey p) id
-      updatePeerInfo False pinfo
+      updatePeerInfo False p pinfo
 
 
   void $ liftIO $ async $ forever $ withAllStuff do
@@ -454,6 +490,7 @@ blockDownloadLoop env0 = do
 
       when (List.null pips) do
         void $ liftIO $ race (pause @'Seconds 5) $ do
+          trace "ALL PEERS BUSY"
           void $ liftIO $ atomically $ do
             p <- readTQueue released
             ps <- flushTQueue released
@@ -501,6 +538,9 @@ blockDownloadLoop env0 = do
                 r <- liftIO $ race ( pause defBlockWaitMax )
                                 $ withAllStuff
                                 $ downloadFromWithPeer p size h
+
+                liftIO $ atomically $ writeTQueue released p
+
                 case r of
                   Left{} -> do
                     liftIO $ atomically $ modifyTVar downFail succ
@@ -508,7 +548,7 @@ blockDownloadLoop env0 = do
 
                   Right{} -> do
                     onBlockDownloaded brains p h
-                    processBlock h
+                    liftIO $ withAllStuff $ processBlock h
                     liftIO $ atomically do
                       writeTVar  downFail 0
                       modifyTVar downBlk succ
@@ -633,8 +673,17 @@ mkAdapter = do
         unless (isJust dodo) $ do
           debug $ "session lost for peer !" <+> pretty p
 
-        dwnld <- MaybeT $ find cKey (view sBlockChunks)
-        liftIO $ atomically $ writeTQueue dwnld (n, bs)
+--        debug $ "FINDING-SESSION:" <+> pretty c <+> pretty n
+--        debug $ "GOT SHIT" <+> pretty c <+> pretty n
+
+        se <- MaybeT $ find cKey id
+        let dwnld  = view sBlockChunks se
+        let dwnld2 = view sBlockChunks2 se
+
+        -- debug $ "WRITE SHIT" <+> pretty c <+> pretty n
+        liftIO $ atomically do
+          writeTQueue dwnld (n, bs)
+          modifyTVar' dwnld2 (IntMap.insert (fromIntegral n) bs)
     }
 
 

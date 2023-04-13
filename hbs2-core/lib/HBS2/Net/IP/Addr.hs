@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.Net.IP.Addr
-  ( parseAddr
+  ( parseAddrUDP
+  , parseAddrTCP
   , getHostPort
   , Pretty
   , IPAddrPort(..)
@@ -20,11 +21,8 @@ import Data.Functor
 import Data.IP
 import Data.Maybe
 import Data.Text qualified as Text
-import Data.Text (Text)
-import Network.SockAddr
 import Network.Socket
 import Data.Word (Word16)
-import Prettyprinter
 
 class AddrPriority a where
   addrPriority :: a -> Int
@@ -44,7 +42,12 @@ instance Serialise IPv6
 
 newtype IPAddrPort e =
   IPAddrPort (IP, Word16)
-  deriving stock (Generic,Eq,Ord)
+  deriving stock (Generic,Eq,Ord,Show)
+
+instance Hashable IPv4
+instance Hashable IPv6
+instance Hashable IP
+instance Hashable (IPAddrPort e)
 
 instance Serialise (IPAddrPort e)
 
@@ -74,15 +77,22 @@ getHostPort s =  parseOnly p s & either (const Nothing) Just
       (h, p) <- pAddr
       pure (Text.unpack h, read (Text.unpack p))
 
-parseAddr :: Text -> IO [AddrInfo]
-parseAddr s = fromMaybe mempty <$> runMaybeT do
+
+parseAddrUDP ::  Text -> IO [AddrInfo]
+parseAddrUDP = parseAddr Datagram
+
+parseAddrTCP ::  Text -> IO [AddrInfo]
+parseAddrTCP = parseAddr Stream
+
+parseAddr :: SocketType -> Text -> IO [AddrInfo]
+parseAddr tp s = fromMaybe mempty <$> runMaybeT do
   (host,port) <- MaybeT $ pure $ parseOnly pAddr s & either (const Nothing) Just
   let hostS = Text.unpack host & Just
   let portS = Text.unpack port & Just
   MaybeT $ liftIO $ getAddrInfo (Just udp) hostS portS <&> Just
 
   where
-    udp = defaultHints { addrSocketType = Datagram }
+    udp = defaultHints { addrSocketType = tp }
 
 pAddr :: Parser (Text, Text)
 pAddr = pIP6 <|> pIP4 <|> pHostName

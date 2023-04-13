@@ -1,0 +1,27 @@
+
+TODO: tcp-run-proto
+
+TODO: tcp-add-ping
+
+TODO: tcp-check-ping-work
+
+TODO: tcp-messaging-filter-addr-on-udp
+
+TODO: tcp-extend-pex
+
+TODO: tcp-drop-deffered-after-timeout
+
+TODO: tcp-test-different-hosts
+
+TODO: tcp-test-nat
+
+TODO: tcp-test-vpn
+
+TODO: tcp-only-client-connections-to-pex
+ В pex возвращать только те соединения, к которым
+ мы сами смогли сделать, то есть как клиенты.
+ Это немного не прикольно, так как если мы не успели
+ соединиться клиентом, до того, как открыли серверное
+ соединение - мы не узнаем. Так что надо вести где-то
+ ( brains?) статистику, что смогли соединиться, как
+ клиент.

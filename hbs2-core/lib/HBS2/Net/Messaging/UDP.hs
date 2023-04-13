@@ -1,4 +1,3 @@
-{-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Messaging.UDP where
 
@@ -9,20 +8,16 @@ import HBS2.Net.Messaging
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 
-import Data.Foldable
 import Data.Function
 import Control.Exception
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TBQueue qualified as Q
 import Control.Concurrent.STM.TQueue qualified as Q0
 import Control.Monad
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified  as LBS
 import Data.Functor
-import Data.Hashable
 import Data.List qualified as L
 import Data.Maybe
 -- import Data.Text (Text)
@@ -31,55 +26,22 @@ import Lens.Micro.Platform
 import Network.Socket
 import Network.Socket.ByteString
 import Network.Multicast
-import Prettyprinter
-
-data UDP
-
--- FIXME: #ASAP change SockAddr to PeerAddr !!!
-instance HasPeer UDP where
-  newtype instance Peer UDP =
-    PeerUDP
-    { _sockAddr :: SockAddr
-    }
-    deriving stock (Eq,Ord,Show,Generic)
 
 
-instance AddrPriority (Peer UDP) where
-  addrPriority (PeerUDP sa) = addrPriority sa
-
-instance Hashable (Peer UDP) where
-  hashWithSalt salt p = case _sockAddr p of
-    SockAddrInet  pn h     -> hashWithSalt salt (4, fromIntegral pn, h)
-    SockAddrInet6 pn _ h _ -> hashWithSalt salt (6, fromIntegral pn, h)
-    SockAddrUnix s         -> hashWithSalt salt ("unix", s)
-
-instance Pretty (Peer UDP) where
-  pretty p = pretty (_sockAddr p)
-
-makeLenses 'PeerUDP
-
-
-instance (FromStringMaybe (IPAddrPort UDP), MonadIO m) => IsPeerAddr UDP m where
-  type instance PeerAddr UDP = IPAddrPort UDP
-  toPeerAddr p = pure $ fromString $ show $ pretty p
-
-  fromPeerAddr iap = do
-    ai <- liftIO $ parseAddr $ fromString (show (pretty iap))
-    pure $ PeerUDP $ addrAddress (head ai) -- FIXME: errors?!
 
 -- One address - one peer - one messaging
 data MessagingUDP =
   MessagingUDP
   { listenAddr :: SockAddr
-  , sink       :: TQueue (From UDP, ByteString)
-  , inbox      :: TQueue (To UDP, ByteString)
+  , sink       :: TQueue (From L4Proto, ByteString)
+  , inbox      :: TQueue (To L4Proto, ByteString)
   , sock       :: TVar Socket
   , mcast      :: Bool
   }
 
 
-getOwnPeer :: MessagingUDP -> Peer UDP
-getOwnPeer mess = PeerUDP (listenAddr mess)
+getOwnPeer :: MessagingUDP -> Peer L4Proto
+getOwnPeer mess = PeerL4 UDP (listenAddr mess)
 
 newMessagingUDPMulticast :: MonadIO m => String -> m (Maybe MessagingUDP)
 newMessagingUDPMulticast s = runMaybeT $ do
@@ -103,7 +65,7 @@ newMessagingUDP reuse saddr =
     Just s -> do
 
       runMaybeT $ do
-        l  <- MaybeT $ liftIO $ parseAddr (Text.pack s) <&> listToMaybe . sorted
+        l  <- MaybeT $ liftIO $ parseAddrUDP (Text.pack s) <&> listToMaybe . sorted
         let a = addrAddress l
         so <- liftIO $ socket (addrFamily l) (addrSocketType l) (addrProtocol l)
 
@@ -144,7 +106,8 @@ udpWorker env tso = do
     -- pause ( 10 :: Timeout 'Seconds )
     (msg, from) <- recvFrom so defMaxDatagram
   -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
-    liftIO $ atomically $ Q0.writeTQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
+  -- FIXME: ASAP-check-addr-type
+    liftIO $ atomically $ Q0.writeTQueue (sink env) (From (PeerL4 UDP from), LBS.fromStrict msg)
 
   sndLoop <- async $ forever $ do
     pause ( 10 :: Timeout 'Seconds )
@@ -171,7 +134,7 @@ runMessagingUDP udpMess = liftIO $ do
   w <- async $ udpWorker udpMess (sock udpMess)
   waitCatch w >>= either throwIO (const $ pure ())
 
-instance Messaging MessagingUDP UDP ByteString where
+instance Messaging MessagingUDP L4Proto ByteString where
 
   sendTo bus (To whom) _ msg = liftIO do
     -- atomically $ Q0.writeTQueue (inbox bus) (To whom, msg)

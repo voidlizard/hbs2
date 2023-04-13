@@ -2,20 +2,27 @@
 {-# Language FunctionalDependencies #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
+{-# Language TemplateHaskell #-}
+{-# Language MultiWayIf #-}
 module HBS2.Net.Proto.Types
   ( module HBS2.Net.Proto.Types
   ) where
 
-import HBS2.Prelude (FromStringMaybe(..))
+import HBS2.Prelude.Plated
 import HBS2.Clock
+import HBS2.Net.IP.Addr
 
-import Data.Kind
-import GHC.TypeLits
-import Data.Proxy
-import Data.Hashable
-import Control.Monad.IO.Class
-import System.Random qualified as Random
+import Control.Applicative
 import Data.Digest.Murmur32
+import Data.Hashable
+import Data.Kind
+import Data.Text qualified as Text
+import GHC.TypeLits
+import Lens.Micro.Platform
+import Network.Socket
+import System.Random qualified as Random
+import Codec.Serialise
+import Data.Maybe
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -24,6 +31,17 @@ type family Encryption e :: Type
 
 -- FIXME: move-to-a-crypto-definition-modules
 data HBS2Basic
+
+data L4Proto = UDP | TCP
+               deriving stock (Eq,Ord,Generic)
+               deriving stock (Enum,Bounded)
+
+instance Hashable L4Proto where
+  hashWithSalt s l = hashWithSalt s ("l4proto", fromEnum l)
+
+instance Show L4Proto where
+  show UDP = "udp"
+  show TCP = "tcp"
 
 -- type family Encryption e :: Type
 
@@ -36,7 +54,6 @@ class Monad m => HasNonces p m where
   newNonce :: m (Nonce p)
 
 
-
 class HasCookie e p | p -> e where
   type family Cookie e :: Type
   getCookie :: p -> Maybe (Cookie e)
@@ -47,17 +64,20 @@ type PeerNonce = Nonce ()
 class HasPeerNonce e m where
   peerNonce :: m PeerNonce
 
+-- instance {-# OVERLAPPABLE #-} HasPeerNonce e IO where
+--   peerNonce = newNonce @()
+
 
 data WithCookie e p = WithCookie (Cookie e) p
 
 class (Hashable (Peer e), Eq (Peer e)) => HasPeer e where
   data family (Peer e) :: Type
 
-class ( FromStringMaybe (PeerAddr e)
-      , Eq (PeerAddr e)
+class ( Eq (PeerAddr e)
       , Monad m
+      , Hashable (PeerAddr e)
       ) => IsPeerAddr e m where
-  type family PeerAddr e :: Type
+  data family PeerAddr e :: Type
 
   toPeerAddr   :: Peer e -> m (PeerAddr e)
   fromPeerAddr :: PeerAddr e -> m (Peer e)
@@ -101,4 +121,81 @@ instance {-# OVERLAPPABLE #-} (MonadIO m, Num (Cookie e)) => GenCookie e m where
   genCookie salt = do
     r <- liftIO $ Random.randomIO @Int
     pure $ fromInteger $ fromIntegral $ asWord32 $ hash32 (hash salt + r)
+
+class FromSockAddr ( t :: L4Proto)  a where
+  fromSockAddr :: SockAddr -> a
+
+instance HasPeer L4Proto where
+  data instance Peer L4Proto =
+    PeerL4
+    { _sockType :: L4Proto
+    , _sockAddr :: SockAddr
+    }
+    deriving stock (Eq,Ord,Show,Generic)
+
+
+instance AddrPriority (Peer L4Proto) where
+  addrPriority (PeerL4 _ sa) = addrPriority sa
+
+instance Hashable (Peer L4Proto) where
+  hashWithSalt salt p = case _sockAddr p of
+    SockAddrInet  pn h     -> hashWithSalt salt (4, fromEnum (_sockType p), fromIntegral pn, h)
+    SockAddrInet6 pn _ h _ -> hashWithSalt salt (6, fromEnum (_sockType p), fromIntegral pn, h)
+    SockAddrUnix s         -> hashWithSalt salt ("unix", s)
+
+-- FIXME: support-udp-prefix
+instance Pretty (Peer L4Proto) where
+  pretty (PeerL4 UDP p) = pretty p
+  pretty (PeerL4 TCP p) = "tcp://" <> pretty p
+
+instance FromSockAddr 'UDP (Peer L4Proto) where
+  fromSockAddr = PeerL4 UDP
+
+instance FromSockAddr 'TCP (Peer L4Proto) where
+  fromSockAddr = PeerL4 TCP
+
+makeLenses 'PeerL4
+
+newtype FromIP a = FromIP { fromIP :: a }
+
+
+-- FIXME: tcp-and-udp-support
+instance (MonadIO m) => IsPeerAddr L4Proto m where
+-- instance MonadIO m => IsPeerAddr L4Proto m where
+  data instance PeerAddr L4Proto =
+    L4Address L4Proto (IPAddrPort L4Proto)
+    deriving stock (Eq,Ord,Show,Generic)
+
+  -- FIXME: backlog-fix-addr-conversion
+  toPeerAddr (PeerL4 t p) = pure $ L4Address t (fromString $ show $ pretty p)
+  --
+
+  -- FIXME: ASAP-tcp-support
+  fromPeerAddr (L4Address UDP iap) = do
+    ai <- liftIO $ parseAddrUDP $ fromString (show (pretty iap))
+    pure $ PeerL4 UDP $ addrAddress (head ai)
+
+  fromPeerAddr (L4Address TCP iap) = do
+    ai <- liftIO $ parseAddrTCP $ fromString (show (pretty iap))
+    pure $ PeerL4 TCP $ addrAddress (head ai)
+
+instance Hashable (PeerAddr L4Proto)
+
+instance Pretty (PeerAddr L4Proto) where
+  pretty (L4Address UDP a) = pretty a
+  pretty (L4Address TCP a) = "tcp://" <> pretty a
+
+instance IsString (PeerAddr L4Proto) where
+  fromString s = fromMaybe (error "invalid address") (fromStringMay s)
+
+instance FromStringMaybe (PeerAddr L4Proto) where
+  fromStringMay s | Text.isPrefixOf "tcp://" txt = L4Address TCP <$> fromStringMay addr
+                  | otherwise                    = L4Address UDP <$> fromStringMay addr
+    where
+      txt = fromString s :: Text
+      addr = Text.unpack $ fromMaybe txt (Text.stripPrefix "tcp://" txt <|> Text.stripPrefix "udp://" txt)
+
+instance Serialise L4Proto
+instance Serialise (PeerAddr L4Proto)
+
 
