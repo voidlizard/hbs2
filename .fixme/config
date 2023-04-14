@@ -19,23 +19,25 @@ fixme-files-ignore .direnv/** dist-newstyle/**
 fixme-id-show-len 10
 
 
-fixme-attribs assigned workflow resolution cat
+fixme-attribs assigned workflow resolution cat scope
 
 fixme-value-set workflow new backlog wip test fixed done
 
 fixme-value-set cat bug feat refactor
 
+fixme-value-set scope mvp-0 mvp-1 backlog
+
 
 [ fixme-report all json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 10 8 12 _)
+  (post builtin:columns | 10 8 8 10 12 _)
 ;  (query ~workflow:backlog)
 ]
 
 
 [ fixme-report open json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 10 8 12 _)
+  (post builtin:columns | 10 8 8 10 12 _)
   (query ~workflow:backlog)
   (query ~workflow:done)
   (query ~workflow:test)
@@ -43,14 +45,14 @@ fixme-value-set cat bug feat refactor
 
 [ fixme-report backlog json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 10 8 12 _)
+  (post builtin:columns | 10 8 8 10 12 _)
   (query workflow:backlog)
 ]
 
 
 [ fixme-report wip json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 10 8 12 _)
+  (post builtin:columns | 10 8 8 10 12 _)
   (query ?workflow:test)
   (query ?workflow:wip)
   (query ?workflow:fixed)
@@ -59,7 +61,7 @@ fixme-value-set cat bug feat refactor
 
 [ fixme-report review json
   (render builtin:microstache report-wip.tpl)
-  (post builtin:columns | 10 10 8 12 _)
+  (post builtin:columns | 10 8 8 10 12 _)
   (query tag:REVIEW:)
 ]
 
@@ -71,4 +73,6 @@ fixme-log-macro test    (fixme-set "workflow" "test" "$1")
 fixme-log-macro wip     (fixme-set "workflow" "wip" "$1")
 fixme-log-macro done    (fixme-set "workflow" "done" "$1")
 fixme-log-macro assign  (fixme-set "assigned" "$1" "$2")
+
+fixme-log-macro scope  (fixme-set "scope" "$1" "$2")
 

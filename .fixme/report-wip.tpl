@@ -1,3 +1,3 @@
 {{#items}}
-{{&id}}|[{{&workflow}}]|{{&tag}}|{{&assigned}}|{{&title}}
+{{&id}}|{{&tag}}|{{&scope}}|[{{&workflow}}]|{{&assigned}}|{{&title}}
 {{/items}}
