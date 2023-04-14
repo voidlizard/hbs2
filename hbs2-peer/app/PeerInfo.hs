@@ -4,9 +4,7 @@ module PeerInfo where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
-import HBS2.Defaults
 import HBS2.Events
-import HBS2.Net.Messaging.UDP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerExchange
@@ -16,13 +14,13 @@ import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
 
 import PeerConfig
+import PeerTypes
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
 import Data.Foldable hiding (find)
-import Data.IntSet (IntSet)
 import Data.List qualified as List
 import Data.Maybe
 import Lens.Micro.Platform
@@ -36,29 +34,6 @@ data PeerPingIntervalKey
 instance HasCfgKey PeerPingIntervalKey (Maybe Integer) where
   key = "ping-interval"
 
-data PeerInfo e =
-  PeerInfo
-  { _peerBurst          :: TVar Int
-  , _peerBurstMax       :: TVar (Maybe Int)
-  , _peerBurstSet       :: TVar IntSet
-  , _peerErrors         :: TVar Int
-  , _peerErrorsLast     :: TVar Int
-  , _peerErrorsPerSec   :: TVar Int
-  , _peerLastWatched    :: TVar TimeSpec
-  , _peerDownloaded     :: TVar Int
-  , _peerDownloadedLast :: TVar Int
-  , _peerPingFailed     :: TVar Int
-  , _peerDownloadedBlk  :: TVar Int
-  , _peerDownloadFail   :: TVar Int
-  , _peerDownloadMiss   :: TVar Int
-  , _peerUsefulness     :: TVar Double
-  , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
-                                          -- Acts like a circular buffer.
-  , _peerHttpApiAddress :: TVar (Either Int (Maybe String))
-  }
-  deriving stock (Generic,Typeable)
-
-makeLenses 'PeerInfo
 
 -- | Compute the median of a list
 median :: (Ord a, Integral a) => [a] -> Maybe a
@@ -90,37 +65,6 @@ insertRTT x rttList = do
         then x:xs
         else x:init xs
     )
-
-newPeerInfo :: MonadIO m => m (PeerInfo e)
-newPeerInfo = liftIO do
-  PeerInfo <$> newTVarIO defBurst
-           <*> newTVarIO Nothing
-           <*> newTVarIO mempty
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO []
-           <*> newTVarIO (Left 0)
-
-type instance SessionData e (PeerInfo e) = PeerInfo e
-
-newtype instance SessionKey e  (PeerInfo e) =
-  PeerInfoKey (Peer e)
-
-deriving newtype instance Hashable (SessionKey L4Proto (PeerInfo L4Proto))
-deriving stock instance Eq (SessionKey L4Proto (PeerInfo L4Proto))
-
--- FIXME: this?
-instance Expires (SessionKey L4Proto (PeerInfo L4Proto)) where
-  expiresIn = const (Just defCookieTimeoutSec)
 
 pexLoop :: forall e m . ( HasPeerLocator e m
                         , HasPeer e
@@ -195,6 +139,8 @@ peerPingLoop cfg = do
 
     npi <- newPeerInfo
 
+    now <- getTimeCoarse
+
     debug $ "known peers" <+> pretty pee
 
     for_ pee $ \p -> do
@@ -206,8 +152,11 @@ peerPingLoop cfg = do
       downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
       down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
       rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
+      seen      <- liftIO $ readTVarIO (view peerLastWatched pinfo)
+      let l = realToFrac (toNanoSecs $ now - seen) / 1e9
 
       let rttMs = (/1e6) <$> rtt <&> (\x -> showGFloat (Just 2) x "") <&> (<> "ms")
+      let ls = showGFloat (Just 2) l "" <> "s"
 
       notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
                                    <+> "burst-max:" <+> pretty buM
@@ -215,9 +164,27 @@ peerPingLoop cfg = do
                                    <+> "down:" <+> pretty down
                                    <+> "miss:" <+> pretty downMiss
                                    <+> "rtt:" <+> pretty rttMs
+                                   <+> "seen" <+> pretty ls
       pure ()
 
 
+  watch <- liftIO $ async $ forever $ withPeerM e $ do
+             pause @'Seconds 120
+             pips <- getKnownPeers @e
+             now <- getTimeCoarse
+             for_ pips $ \p -> do
+               pinfo' <- find (PeerInfoKey p) id
+               maybe1 pinfo' none $ \pinfo -> do
+                seen <- liftIO $ readTVarIO (view peerLastWatched pinfo)
+                -- FIXME: do-something-with-this-nanosec-boilerplate-everywhere
+                let l = realToFrac (toNanoSecs $ now - seen) / 1e9
+                -- FIXME: time-hardcode
+                when ( l > 300 ) do
+                  delPeers pl [p]
+                  expire (PeerInfoKey p)
+                  expire (KnownPeerKey p)
+
+  liftIO $ link watch
 
   forever do
 
@@ -236,27 +203,7 @@ peerPingLoop cfg = do
     pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
 
     for_ pips $ \p -> do
-      npi <- newPeerInfo
-
-      here <- find @e (KnownPeerKey p) id
-
-      pinfo <- fetch True npi (PeerInfoKey p) id
-      let pfails = view peerPingFailed pinfo
-      let pdownfails = view peerDownloadFail pinfo
-
-      -- FIXME: seems-like-a-bad-idea
-      --   Кажется, вызывает гонки
-      liftIO $ atomically $ modifyTVar pfails succ
-
+      trace $ "SEND PING TO" <+> pretty p
       sendPing @e p
-
-      fnum <- liftIO $ readTVarIO pfails
-      fdown <- liftIO $ readTVarIO pdownfails
-
-      when (fnum > 4) do -- FIXME: hardcode!
-        warn $ "removing peer" <+> pretty p <+> "for not responding to our pings"
-        delPeers pl [p]
-        expire (PeerInfoKey p)
-        expire (KnownPeerKey p)
 
 

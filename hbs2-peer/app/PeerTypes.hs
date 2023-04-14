@@ -19,7 +19,7 @@ import HBS2.Storage
 import HBS2.Net.PeerLocator
 import HBS2.System.Logger.Simple
 
-import PeerInfo
+-- import PeerInfo
 import Brains
 
 import Data.Foldable (for_)
@@ -37,6 +37,62 @@ import Lens.Micro.Platform
 import Data.Hashable
 import Type.Reflection
 import Data.IntMap (IntMap)
+import Data.IntSet (IntSet)
+
+
+data PeerInfo e =
+  PeerInfo
+  { _peerBurst          :: TVar Int
+  , _peerBurstMax       :: TVar (Maybe Int)
+  , _peerBurstSet       :: TVar IntSet
+  , _peerErrors         :: TVar Int
+  , _peerErrorsLast     :: TVar Int
+  , _peerErrorsPerSec   :: TVar Int
+  , _peerLastWatched    :: TVar TimeSpec
+  , _peerDownloaded     :: TVar Int
+  , _peerDownloadedLast :: TVar Int
+  , _peerPingFailed     :: TVar Int
+  , _peerDownloadedBlk  :: TVar Int
+  , _peerDownloadFail   :: TVar Int
+  , _peerDownloadMiss   :: TVar Int
+  , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
+                                          -- Acts like a circular buffer.
+  , _peerHttpApiAddress :: TVar (Either Int (Maybe String))
+  }
+  deriving stock (Generic,Typeable)
+
+makeLenses 'PeerInfo
+
+newPeerInfo :: MonadIO m => m (PeerInfo e)
+newPeerInfo = liftIO do
+  PeerInfo <$> newTVarIO defBurst
+           <*> newTVarIO Nothing
+           <*> newTVarIO mempty
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO 0
+           <*> newTVarIO []
+           <*> newTVarIO (Left 0)
+
+type instance SessionData e (PeerInfo e) = PeerInfo e
+
+newtype instance SessionKey e  (PeerInfo e) =
+  PeerInfoKey (Peer e)
+
+deriving newtype instance Hashable (SessionKey L4Proto (PeerInfo L4Proto))
+deriving stock instance Eq (SessionKey L4Proto (PeerInfo L4Proto))
+
+-- FIXME: this?
+instance Expires (SessionKey L4Proto (PeerInfo L4Proto)) where
+  expiresIn = const (Just defCookieTimeoutSec)
+
 
 
 type MyPeer e = ( Eq (Peer e)

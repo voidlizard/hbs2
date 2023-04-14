@@ -75,10 +75,10 @@ class Expires a where
 -- | Use coarse clock timer. This timer has 1ms resolution but is much
 -- faster comparing to the ordinary one. Is used on Linux, on MacOS
 -- provides ordinary one.
-getTimeCoarse :: IO TimeSpec
+getTimeCoarse :: MonadIO m => m TimeSpec
 #ifdef linux_HOST_OS
-getTimeCoarse = getTime MonotonicCoarse
+getTimeCoarse = liftIO $ getTime MonotonicCoarse
 #else
-getTimeCoarse = getTime Monotonic
+getTimeCoarse = liftIO $ getTime Monotonic
 #endif
 

@@ -623,6 +623,12 @@ runPeer opts = Exception.handle myException $ do
 
                 let thatNonce = view peerOwnNonce d
 
+                now <- liftIO getTimeCoarse
+                pinfo' <- find (PeerInfoKey p) id -- (view peerPingFailed)
+                maybe1 pinfo' none $ \pinfo -> do
+                  liftIO $ atomically $ writeTVar (view peerPingFailed pinfo) 0
+                  liftIO $ atomically $ writeTVar (view peerLastWatched pinfo) now
+
                 banned <- peerBanned p d
 
                 let doAddPeer p = do
@@ -633,13 +639,7 @@ runPeer opts = Exception.handle myException $ do
 
                       here <- find @e (KnownPeerKey p) id <&> isJust
 
-                      pfails <- fetch True npi (PeerInfoKey p) (view peerPingFailed)
-                      liftIO $ atomically $ writeTVar pfails 0
-                      -- pdownfails <- fetch True npi (PeerInfoKey p) (view peerDownloadFail)
-
                       unless here do
-                        -- liftIO $ atomically $ writeTVar pdownfails 0
-
                         debug $ "Got authorized peer!" <+> pretty p
                                                        <+> pretty (AsBase58 (view peerSignKey d))
 
@@ -743,9 +743,11 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (blockDownloadLoop denv)
 
+                -- FIXME: clumsy-code
                 if useHttpDownload
                   then do
-                      peerThread (updatePeerHttpAddrs)
+                      -- FIXME: discarded-async-value-for-updatePeerHttpAddrs
+                      peerThread updatePeerHttpAddrs
                       peerThread (blockHttpDownloadLoop denv)
                   else pure mempty
 

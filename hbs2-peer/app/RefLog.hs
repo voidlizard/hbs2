@@ -172,7 +172,8 @@ reflogWorker conf adapter = do
           reflogDownload adapter h
           fix \next -> do
             missed <- missedEntries sto h
-            if missed /= 0 then do
+            if not (null missed) then do
+              for_ missed $ reflogDownload adapter
               pause @'Seconds 1
               trace $ "reflogWorker: missed refs for" <+> pretty h <+> pretty missed
               next
@@ -284,10 +285,11 @@ reflogWorker conf adapter = do
       pure $ mconcat re
 
     missedEntries sto h = do
-      missed <- liftIO $ newTVarIO 0
+      missed <- liftIO $ newTVarIO mempty
       walkMerkle h (getBlock sto) $ \hr -> do
         case hr of
-          Left{} -> atomically $ modifyTVar missed succ
+          Left ha -> do
+            atomically $ modifyTVar missed (ha:)
           Right (_ :: [HashRef]) -> pure ()
       liftIO $ readTVarIO missed
 
