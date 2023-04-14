@@ -152,6 +152,7 @@ peerPingLoop cfg = do
       downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
       down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
       rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
+      httpDownloaded <- liftIO $ readTVarIO (_peerHttpDownloaded pinfo)
       seen      <- liftIO $ readTVarIO (view peerLastWatched pinfo)
       let l = realToFrac (toNanoSecs $ now - seen) / 1e9
 
@@ -164,6 +165,7 @@ peerPingLoop cfg = do
                                    <+> "down:" <+> pretty down
                                    <+> "miss:" <+> pretty downMiss
                                    <+> "rtt:" <+> pretty rttMs
+                                   <+> "http:" <+> pretty httpDownloaded
                                    <+> "seen" <+> pretty ls
       pure ()
 

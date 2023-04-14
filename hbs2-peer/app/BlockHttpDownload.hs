@@ -127,6 +127,7 @@ blockHttpDownloadLoop denv = do
         case r of
           Right (Just block) -> do
               trace $ "SUCCESS" <+> pretty peer <+> "http-download block" <+> pretty h
+              liftIO $ atomically $ modifyTVar (_peerHttpDownloaded pinfo) (+1)
               sto <- getStorage
               liftIO $ putBlock sto block
               withDownload denv $ processBlock h
