@@ -9,6 +9,7 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Net.IP.Addr
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.BlockInfo
@@ -17,10 +18,12 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Net.PeerLocator
+import HBS2.Net.Proto.PeerMeta
 import HBS2.System.Logger.Simple
 
 -- import PeerInfo
 import Brains
+import PeerConfig
 
 import Data.Foldable (for_)
 import Control.Concurrent.Async
@@ -38,6 +41,8 @@ import Data.Hashable
 import Type.Reflection
 import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 
 
 data PeerInfo e =
@@ -367,4 +372,16 @@ getKnownPeers  = do
     maybe1 pd' (pure mempty) (const $ pure [p])
   pure $ mconcat r
 
+mkPeerMeta conf = do
+    let mHttpPort = cfgValue @PeerHttpPortKey conf  <&> fromIntegral
+    let mTcpPort =
+          (
+          fmap (\(L4Address _ (IPAddrPort (_, p))) -> p)
+            . fromStringMay @(PeerAddr L4Proto)
+          )
+          =<< cfgValue @PeerListenTCPKey conf
+    annMetaFromPeerMeta . PeerMeta . catMaybes $
+      [ mHttpPort <&> \p -> ("http-port", TE.encodeUtf8 . Text.pack . show $ p)
+      , mTcpPort <&> \p -> ("listen-tcp", TE.encodeUtf8 . Text.pack . show $ p)
+      ]
 

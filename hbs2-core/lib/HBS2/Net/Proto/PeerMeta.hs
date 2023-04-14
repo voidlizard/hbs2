@@ -31,18 +31,18 @@ peerMetaProto :: forall e m  . ( MonadIO m
                                 , EventEmitter e (PeerMetaProto e) m
                                 , Sessions e (KnownPeer e) m
                                 )
-               => m AnnMetaData
+               => AnnMetaData
                -> PeerMetaProto e
                -> m ()
 
-peerMetaProto getPeerMeta =
+peerMetaProto peerMeta =
   \case
     GetPeerMeta -> do
       p <- thatPeer (Proxy @(PeerMetaProto e))
       auth <- find (KnownPeerKey p) id <&> isJust
       when auth do
         deferred (Proxy @(PeerMetaProto e)) do
-          getPeerMeta >>= \meta -> response (ThePeerMeta @e meta)
+          response (ThePeerMeta @e peerMeta)
 
     ThePeerMeta meta -> do
       that <- thatPeer (Proxy @(PeerMetaProto e))

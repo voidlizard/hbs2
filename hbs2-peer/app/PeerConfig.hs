@@ -41,9 +41,13 @@ type C = MegaParsec
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
 pattern Key n ns <- SymbolVal  n : ns
 
+data PeerListenTCPKey
 data PeerDownloadLogKey
 data PeerHttpPortKey
 data PeerUseHttpDownload
+
+instance HasCfgKey PeerListenTCPKey (Maybe String) where
+  key = "listen-tcp"
 
 instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
   key = "http-port"

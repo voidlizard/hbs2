@@ -93,7 +93,6 @@ defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
 data PeerListenKey
-data PeerListenTCPKey
 data PeerRpcKey
 data PeerKeyFileKey
 data PeerBlackListKey
@@ -118,9 +117,6 @@ instance HasCfgKey PeerTraceKey FeatureSwitch where
 
 instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
-
-instance HasCfgKey PeerListenTCPKey (Maybe String) where
-  key = "listen-tcp"
 
 instance HasCfgKey PeerRpcKey (Maybe String) where
   key = "rpc"
@@ -549,12 +545,6 @@ runPeer opts = Exception.handle myException $ do
 
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
 
-  let mkPeerMeta = do
-        let mport = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
-        pure $ annMetaFromPeerMeta . PeerMeta . catMaybes $
-          [ mport <&> \port -> ("http-port", TE.encodeUtf8 . Text.pack . show $ port)
-          ]
-
   void $ async $ forever do
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
@@ -857,7 +847,7 @@ runPeer opts = Exception.handle myException $ do
                     , makeResponse peerExchangeProto
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
-                    , makeResponse (peerMetaProto mkPeerMeta)
+                    , makeResponse (peerMetaProto (mkPeerMeta conf))
                     ]
 
               void $ liftIO $ waitAnyCatchCancel workers

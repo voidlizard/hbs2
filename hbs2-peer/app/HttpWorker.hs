@@ -71,10 +71,7 @@ httpWorker conf e = do
               text [qc|{pretty val}|]
 
       get "/metadata" do
-          let mport = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
-          raw $ serialise . annMetaFromPeerMeta . PeerMeta . catMaybes $
-            [ mport <&> \port -> ("http-port", TE.encodeUtf8 . Text.pack . show $ port)
-            ]
+          raw $ serialise $ mkPeerMeta conf
 
       put "/" do
         -- FIXME: optional-header-based-authorization
