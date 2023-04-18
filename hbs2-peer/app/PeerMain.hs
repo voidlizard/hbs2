@@ -518,7 +518,7 @@ runPeer opts = Exception.handle myException $ do
   messMcast <- async $ runMessagingUDP mcast
                  `catch` (\(e::SomeException) -> throwIO e )
 
-  brains <- newBasicBrains @e
+  brains <- newBasicBrains @e conf
 
   brainsThread <- async $ runBasicBrains brains
 
@@ -571,7 +571,12 @@ runPeer opts = Exception.handle myException $ do
 
 
               let doDownload h = do
-                    withPeerM penv $ withDownload denv (addDownload mzero h)
+                    pro <- isReflogProcessed @e brains h
+                    if pro then do
+                      withPeerM penv $ withDownload denv (addDownload mzero h)
+                    else do
+                      withPeerM penv $ withDownload denv (processBlock h)
+                      setReflogProcessed @e brains h
 
               let doFetchRef puk = do
                    withPeerM penv $ do

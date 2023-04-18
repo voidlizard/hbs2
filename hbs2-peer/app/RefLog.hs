@@ -290,7 +290,11 @@ reflogWorker conf adapter = do
         case hr of
           Left ha -> do
             atomically $ modifyTVar missed (ha:)
-          Right (_ :: [HashRef]) -> pure ()
+          Right (hs :: [HashRef]) -> do
+            w <- mapM ( hasBlock sto . fromHashRef ) hs <&> fmap isJust
+            let mi = [ hx | (False,hx) <- zip w hs ]
+            for_ mi $ \hx -> liftIO $ atomically $ modifyTVar missed (fromHashRef hx:)
+
       liftIO $ readTVarIO missed
 
 

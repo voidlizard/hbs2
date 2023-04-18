@@ -80,6 +80,9 @@ peerConfigDefault = liftIO $
     catchAny :: IO a -> (SomeException -> IO a) -> IO a
     catchAny = Control.Exception.catch
 
+peerStateDirDefault :: MonadIO m => m FilePath
+peerStateDirDefault = liftIO $ getXdgDirectory XdgData "hbs2-peer"
+
 defConfigData :: String
 defConfigData = [qc|
 
@@ -155,7 +158,7 @@ peerConfigRead mbfp = do
 
     -- debug $ pretty confData
 
-    config <- transformBiM (canonicalizeConfPaths ["key", "storage", "download-log"] dir) confData
+    config <- transformBiM (canonicalizeConfPaths ["key", "storage", "download-log", "state-dir"] dir) confData
 
     pure $ PeerConfig config
     where
