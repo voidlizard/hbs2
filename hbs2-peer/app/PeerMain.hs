@@ -54,6 +54,7 @@ import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Writer.CPS qualified as W
 import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -712,10 +713,9 @@ runPeer opts = Exception.handle myException $ do
                 debug "sending first peer announce"
                 request localMulticast (PeerAnnounce @e pnonce)
 
-              let wo = fmap L.singleton
-              let peerThread = wo . liftIO . async . withPeerM env
+              let peerThread = W.tell . L.singleton <=< liftIO . async . withPeerM env
 
-              workers <- do
+              workers <- W.execWriterT do
 
                 peerThread $ forever $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
@@ -738,13 +738,12 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread (blockDownloadLoop denv)
 
+                peerThread fillPeerMeta
+
                 -- FIXME: clumsy-code
-                if useHttpDownload
-                  then do
-                      -- FIXME: discarded-async-value-for-updatePeerHttpAddrs
-                      peerThread updatePeerHttpAddrs
-                      peerThread (blockHttpDownloadLoop denv)
-                  else pure mempty
+                -- Is it better now ?
+                when useHttpDownload do
+                  peerThread (blockHttpDownloadLoop denv)
 
                 peerThread (postponedLoop denv)
 

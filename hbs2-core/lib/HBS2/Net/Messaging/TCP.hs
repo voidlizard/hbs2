@@ -202,6 +202,8 @@ spawnConnection tp env so sa = liftIO do
   let newP = fromSockAddr @'TCP sa
 
   theirCookie <- handshake tp env  so
+  -- TCP address available
+  -- FIXME: how to use this info
 
   let connId = connectionId myCookie theirCookie
 
@@ -341,6 +343,7 @@ connectPeerTCP env peer = liftIO do
 
   connect (show i) (show p) $ \(sock, remoteAddr) -> do
     spawnConnection Client env sock remoteAddr
+    -- FIXME: tcp-pex. Где-то здесь добавить этих пиров в пекс ?
     shutdown sock ShutdownBoth
 
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()

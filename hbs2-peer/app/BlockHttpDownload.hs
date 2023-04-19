@@ -33,7 +33,8 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Cache qualified as Cache
 import Data.Foldable hiding (find)
 import Data.HashMap.Strict qualified as HashMap
@@ -44,6 +45,7 @@ import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Word
 import Lens.Micro.Platform
 import Network.HTTP.Simple (getResponseBody, httpLbs, parseRequest, getResponseStatus)
 import Network.HTTP.Types.Status
@@ -65,7 +67,7 @@ blockHttpDownloadLoop :: forall e  m .
     -- FIXME: backlog-do-something-with-that
     --   это не ревью, это надо что-то с этим
     --   сделать, неудачное решение
-    , Block ByteString ~ ByteString
+    , Block LBS.ByteString ~ LBS.ByteString
     )
     => DownloadEnv e -> m ()
 blockHttpDownloadLoop denv = do
@@ -138,7 +140,7 @@ blockHttpDownloadLoop denv = do
 
 ---
 
-updatePeerHttpAddrs :: forall e  m .
+fillPeerMeta :: forall e  m .
     ( m ~ PeerM e IO
     , MonadIO m
     , HasProtocol e (PeerMetaProto e)
@@ -148,24 +150,24 @@ updatePeerHttpAddrs :: forall e  m .
     , Pretty (Peer e)
     , Pretty (PeerAddr e)
     , EventListener e ( PeerMetaProto e) m
-    -- , e ~ L4Proto
+    , e ~ L4Proto
     )
     => m ()
-updatePeerHttpAddrs = do
-  debug "I'm updatePeerHttpAddrs"
+fillPeerMeta = do
+  debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
   forever do
 
     pause @'Seconds 5
     ps <- knownPeers @e pl
-    debug $ "updatePeerHttpAddrs peers:" <+> pretty ps
+    debug $ "fillPeerMeta peers:" <+> pretty ps
     npi <- newPeerInfo
     for_ ps $ \p -> do
 
         pinfo <- fetch True npi (PeerInfoKey p) id
         mmApiAddr <- liftIO $ readTVarIO (_peerHttpApiAddress pinfo)
 
-        debug $ "Find peer http address" <+> pretty p <+> "current:" <+> viaShow mmApiAddr
+        debug $ "Find peer meta and http address" <+> pretty p <+> "current:" <+> viaShow mmApiAddr
         case mmApiAddr of
           Left attemptn -> do
 
@@ -187,16 +189,29 @@ updatePeerHttpAddrs = do
                       liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $
                           if attemptn < 3 then (Left (attemptn + 1)) else (Right Nothing)
                   Right (Just meta) -> (void . runMaybeT) do
-                      port <- case meta of
+                      peerMeta <- case meta of
                           NoMetaData -> (MaybeT . pure) Nothing
                           ShortMetadata t -> do
-                              PeerMeta d <- (MaybeT . pure) (parsePeerMeta t)
-                              httpPortBS <- (MaybeT . pure) (lookup "http-port" d)
-                              (MaybeT . pure . readMay . Text.unpack . TE.decodeUtf8) httpPortBS
+                              (MaybeT . pure) (parsePeerMeta t)
                           AnnHashRef h -> (MaybeT . pure) Nothing
+                      liftIO $ atomically $ writeTVar (_peerMeta pinfo) (Just peerMeta)
+
+                      -- 3) пробить, что есть tcp
+                      forM_ (lookupDecode "listen-tcp" (unPeerMeta peerMeta)) \listenTCPPort -> lift do
+                          peerTCPAddrPort <- replacePort p listenTCPPort
+                          -- 4) выяснить, можно ли к нему открыть соединение на этот порт
+                          -- возможно, с ним уже открыто соединение
+                          -- или попробовать открыть или запомнить, что было открыто
+                          -- connectPeerTCP  ?
+                          -- 5) добавить этих пиров в пекс
+                          -- p :: Peer e <- fromPeerAddr (L4Address TCP (peerTCPAddrPort :: IPAddrPort L4Proto) :: PeerAddr e)
+                          sendPing =<< fromPeerAddr (L4Address TCP peerTCPAddrPort)
+
+                      port <- (MaybeT . pure) (lookupDecode "http-port" (unPeerMeta peerMeta))
+
                       lift do
-                          IPAddrPort (ip,_port) <- fromString @(IPAddrPort e) . show . pretty <$> toPeerAddr p
-                          let peerHttpApiAddr = show . pretty $ IPAddrPort (ip,port)
+
+                          peerHttpApiAddr <- show . pretty <$> replacePort p port
 
                           -- check peerHttpApiAddr
                           r <- liftIO $ race ( pause defBlockWaitMax ) do
@@ -213,3 +228,13 @@ updatePeerHttpAddrs = do
                           liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $ Right Nothing
 
           _ -> pure ()
+
+  where
+    replacePort :: Peer e -> Word16 -> PeerM e IO (IPAddrPort e)
+    replacePort peer port = do
+        IPAddrPort (ip,_port) <- fromString @(IPAddrPort e) . show . pretty <$> toPeerAddr peer
+        pure $ IPAddrPort (ip,port)
+
+    lookupDecode :: (Eq k, Read v) => k -> [(k, ByteString)] -> Maybe v
+    lookupDecode k d =
+        readMay . Text.unpack . TE.decodeUtf8 =<< lookup k d

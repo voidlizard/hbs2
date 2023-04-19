@@ -64,6 +64,7 @@ data PeerInfo e =
                                           -- Acts like a circular buffer.
   , _peerHttpApiAddress :: TVar (Either Int (Maybe String))
   , _peerHttpDownloaded :: TVar Int
+  , _peerMeta           :: TVar (Maybe PeerMeta)
   }
   deriving stock (Generic,Typeable)
 
@@ -87,6 +88,7 @@ newPeerInfo = liftIO do
            <*> newTVarIO []
            <*> newTVarIO (Left 0)
            <*> newTVarIO 0
+           <*> newTVarIO Nothing
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 

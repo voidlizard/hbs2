@@ -59,8 +59,9 @@ newtype instance Event e (PeerMetaProto e)
   = PeerMetaEvent AnnMetaData
   deriving stock (Typeable)
 
-newtype PeerMeta = PeerMeta [(Text, ByteString)]
+newtype PeerMeta = PeerMeta { unPeerMeta :: [(Text, ByteString)] }
   deriving stock (Generic)
+  deriving newtype (Semigroup, Monoid)
 
 instance Serialise PeerMeta
 
