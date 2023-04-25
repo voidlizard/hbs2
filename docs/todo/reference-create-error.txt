@@ -1,4 +1,4 @@
-#FIXME: asap-reference-does-not-appear-on-new-repo-create
+FIXME: asap-reference-does-not-appear-on-new-repo-create
   и кажется, вообще какие-то проблемы создания ссылок.
   Вручную создаются.
 
