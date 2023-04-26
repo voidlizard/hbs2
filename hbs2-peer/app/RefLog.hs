@@ -227,13 +227,14 @@ reflogWorker conf adapter = do
 
                     pause (fromIntegral i :: Timeout 'Minutes)
 
-  w1 <- liftIO $ async $ forever $ do
+  w1 <- liftIO $ async $ forever $ replicateConcurrently_ 4 do
 
           -- TODO: reflog-process-period-to-config
-          pause @'Seconds 10
+          -- pause @'Seconds 10
+
+          _ <- liftIO $ atomically $ peekTQueue pQ
 
           els <- liftIO $ atomically $ flushTQueue pQ
-
           let byRef = HashMap.fromListWith (<>) els
 
           for_ (HashMap.toList byRef) $ \(r,x) -> do
@@ -267,7 +268,7 @@ reflogWorker conf adapter = do
 
               trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty newRoot
 
-          trace  "I'm a reflog update worker"
+          -- trace  "I'm a reflog update worker"
 
   pollers <- liftIO $ wait pollers'
   void $ liftIO $ waitAnyCatchCancel $ w1 : pollers
