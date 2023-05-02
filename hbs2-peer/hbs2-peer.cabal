@@ -62,6 +62,7 @@ common common-deps
         , http-conduit
         , http-types
         , wai-extra
+        , unliftio
 
 common shared-properties
   ghc-options:
