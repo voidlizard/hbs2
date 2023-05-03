@@ -750,7 +750,7 @@ runPeer opts = Exception.handle myException $ do
                 when useHttpDownload do
                   peerThread "blockHttpDownloadLoop " (blockHttpDownloadLoop denv)
 
-                peerThread "postponedLoop" (postponedLoop denv)
+                -- peerThread "postponedLoop" (postponedLoop denv)
 
                 peerThread "downloadQueue" (downloadQueue conf denv)
 

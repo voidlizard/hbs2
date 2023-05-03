@@ -55,6 +55,7 @@ import Streaming.Prelude qualified as S
 import System.Random (randomRIO)
 import System.Random.Shuffle (shuffleM)
 import Text.InterpolatedString.Perl6 (qc)
+import UnliftIO.Exception
 
 blockHttpDownloadLoop :: forall e  m .
     ( m ~ PeerM e IO
@@ -212,18 +213,25 @@ fillPeerMeta = do
                       lift do
 
                           peerHttpApiAddr <- show . pretty <$> replacePort p port
-
                           -- check peerHttpApiAddr
-                          r <- liftIO $ race ( pause defBlockWaitMax ) do
-                                req  <- liftIO $ parseRequest [qc|http://{peerHttpApiAddr}/metadata|]
-                                resp <- httpLbs req
-                                case statusCode (getResponseStatus resp) of
-                                  200 -> pure True
-                                  _   -> pure False
-                          liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $ Right $
-                            case r of
-                                  Right True -> Just peerHttpApiAddr
-                                  _ -> Nothing
+
+                          r :: Maybe () <- runMaybeT do
+                              resp <- MaybeT (liftIO $ fmap eitherToMaybe
+                                        $ race ( pause defBlockWaitMax )
+                                        (do
+                                            req  <- liftIO $ parseRequest [qc|http://{peerHttpApiAddr}/metadata|]
+                                            httpLbs req
+                                         )
+                                          `catch` (\(e :: SomeException) -> debug (viaShow e) >> pure (Left ()))
+                                    )
+                              MaybeT . pure $ case statusCode (getResponseStatus resp) of
+                                  200 -> Just ()
+                                  _   -> Nothing
+
+                          liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $ Right $ peerHttpApiAddr <$ r
+                          mapM_ (liftIO . atomically . writeTVar (_peerMeta pinfo) . Just) $ peerMeta <$ r
+                          debug $ "Got peer meta from" <+> pretty p <+> ":" <+> viaShow peerMeta
+
                   _ -> do
                           liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $ Right Nothing
 

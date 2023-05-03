@@ -61,7 +61,8 @@ instance Pretty (IPAddrPort e) where
 instance IsString (IPAddrPort e) where
   fromString s = IPAddrPort (read h, fromIntegral p)
     where
-      (h,p) = fromMaybe (error "no parse IPAddrPort") (getHostPort (Text.pack s))
+      (h,p) = fromMaybe (error $ "no parse IPAddrPort: " <> show s)
+                (getHostPort (Text.pack s))
 
 instance FromStringMaybe (IPAddrPort e) where
   fromStringMay x = IPAddrPort <$> ( (,) <$> ip <*> fmap fromIntegral po)
@@ -74,7 +75,7 @@ getHostPort :: Text -> Maybe (String, PortNumber)
 getHostPort s =  parseOnly p s & either (const Nothing) Just
   where
     p = do
-      (h, p) <- pAddr
+      (h, p) <- pAddr <|> tcppAddr
       pure (Text.unpack h, read (Text.unpack p))
 
 
@@ -93,6 +94,9 @@ parseAddr tp s = fromMaybe mempty <$> runMaybeT do
 
   where
     udp = defaultHints { addrSocketType = tp }
+
+tcppAddr :: Parser (Text, Text)
+tcppAddr = "tcp://" *> pAddr
 
 pAddr :: Parser (Text, Text)
 pAddr = pIP6 <|> pIP4 <|> pHostName

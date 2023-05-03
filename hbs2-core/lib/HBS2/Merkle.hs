@@ -5,7 +5,7 @@ module HBS2.Merkle where
 import HBS2.Prelude
 import HBS2.Hash
 
-import Codec.Serialise
+import Codec.Serialise (serialise, deserialiseOrFail)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -165,7 +165,8 @@ walkMerkle' :: (Serialise (MTree a), Monad m)
 walkMerkle' root flookup sink = go root
   where
     go hash = do
-      t <- (deserialise <$>) <$> flookup hash
+      -- t <- (either (error . show) id . deserialiseOrFail <$>) <$> flookup hash
+      t <- ((either (const Nothing) Just . deserialiseOrFail) =<<) <$> flookup hash
       case t of
         Just n@(MLeaf _) -> sink (Right n)
         Just n@(MNode _ hashes) -> sink (Right n) >> traverse_ go hashes

@@ -20,6 +20,7 @@ common shared-properties
   ghc-options:
         -Wall
         -fno-warn-type-defaults
+        -- -prof -fprof-auto
         -- -fno-warn-unused-matches
         -- -fno-warn-unused-do-bind
         -- -Werror=missing-methods

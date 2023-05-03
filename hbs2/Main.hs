@@ -226,7 +226,7 @@ runCat opts ss = do
           walk (fromHashRef h)
 
         AnnRef h -> do
-          let lnk = deserialise @AnnotatedHashRef obj
+          let lnk = _ $ deserialiseOrFail @AnnotatedHashRef obj
           let mbHead =  headMay [ h
                                 | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
                                 ]
@@ -353,6 +353,7 @@ runDumpACB :: Maybe FilePath -> IO ()
 runDumpACB inFile = do
   inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
   acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple HBS2Basic)
+  -- acb <- LBS.hGetContents inf <&> (either (error . show) id .  deserialiseOrFail @(ACBSimple HBS2Basic))
   print $ pretty (AsSyntax (DefineACB "a1" acb))
 
 ---
