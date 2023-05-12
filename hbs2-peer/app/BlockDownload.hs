@@ -594,7 +594,7 @@ postponedLoop env0 = do
       -- for_ (w:ws) $ addDownload mzero
       next
 
-  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
+  void $ liftIO $ withPeerM e $ withDownload env0 do
     forever do
       pause @'Seconds 30
       trace "UNPOSTPONE LOOP"
