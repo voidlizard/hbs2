@@ -12,6 +12,7 @@ import HBS2.Events
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.IP.Addr
+import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Definition
@@ -153,8 +154,8 @@ fillPeerMeta :: forall e  m .
     , EventListener e ( PeerMetaProto e) m
     , e ~ L4Proto
     )
-    => m ()
-fillPeerMeta = do
+    => Maybe MessagingTCP -> m ()
+fillPeerMeta mtcp = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
   forever do
@@ -200,13 +201,19 @@ fillPeerMeta = do
                       -- 3) пробить, что есть tcp
                       forM_ (lookupDecode "listen-tcp" (unPeerMeta peerMeta)) \listenTCPPort -> lift do
                           peerTCPAddrPort <- replacePort p listenTCPPort
-                          -- 4) выяснить, можно ли к нему открыть соединение на этот порт
-                          -- возможно, с ним уже открыто соединение
-                          -- или попробовать открыть или запомнить, что было открыто
-                          -- connectPeerTCP  ?
-                          -- 5) добавить этих пиров в пекс
-                          -- p :: Peer e <- fromPeerAddr (L4Address TCP (peerTCPAddrPort :: IPAddrPort L4Proto) :: PeerAddr e)
-                          sendPing =<< fromPeerAddr (L4Address TCP peerTCPAddrPort)
+                          p <- fromPeerAddr (L4Address TCP peerTCPAddrPort)
+                          sendPing p
+
+                          forM_ mtcp \(tcp :: MessagingTCP) -> do
+                              -- 4) выяснить, можно ли к нему открыть соединение на этот порт
+                              -- возможно, с ним уже открыто соединение
+                              -- или попробовать открыть или запомнить, что было открыто
+                              -- connectPeerTCP  ?
+                              tcpAddressIsAvailable <- isJust <$> do
+                                  liftIO $ atomically $ readTVar (view tcpPeerConn tcp) <&> HashMap.lookup p
+                              when tcpAddressIsAvailable do
+                                  -- добавить этого пира в pex
+                                  addPeers pl [p]
 
                       port <- (MaybeT . pure) (lookupDecode "http-port" (unPeerMeta peerMeta))
 

@@ -33,12 +33,6 @@ instance (Ord (Peer e), Pretty (Peer e)) => PeerLocator  e (StaticPeerLocator e)
     excl <- liftIO $ readTVarIO e
     pure $ Set.toList (ps `Set.difference` excl)
 
-  -- knownListeningPeers (StaticPeerLocator peers e) = do
-  --   -- pips <- knownPeers @e pl >>= filterM (liftIO . atomically . readTVar . _peerTcpAvailable)
-  --   ps <- liftIO $ readTVarIO  peers
-  --   excl <- liftIO $ readTVarIO e
-  --   pure $ Set.toList (ps `Set.difference` excl)
-
   addPeers (StaticPeerLocator peers te) new = do
     excl <- liftIO $ readTVarIO te
     liftIO $ atomically $ modifyTVar' peers ((`Set.difference` excl) . (<> Set.fromList new))

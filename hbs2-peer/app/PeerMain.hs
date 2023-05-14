@@ -743,7 +743,7 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread "blockDownloadLoop " (blockDownloadLoop denv)
 
-                peerThread "fillPeerMeta" (fillPeerMeta)
+                peerThread "fillPeerMeta" (fillPeerMeta tcp)
 
                 -- FIXME: clumsy-code
                 -- Is it better now ?

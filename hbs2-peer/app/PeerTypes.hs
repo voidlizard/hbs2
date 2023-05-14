@@ -65,7 +65,6 @@ data PeerInfo e =
   , _peerHttpApiAddress :: TVar (Either Int (Maybe String))
   , _peerHttpDownloaded :: TVar Int
   , _peerMeta           :: TVar (Maybe PeerMeta)
-  , _peerTcpAvailable   :: TVar Bool
   }
   deriving stock (Generic,Typeable)
 
@@ -90,7 +89,6 @@ newPeerInfo = liftIO do
            <*> newTVarIO (Left 0)
            <*> newTVarIO 0
            <*> newTVarIO Nothing
-           <*> newTVarIO False
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 

@@ -105,7 +105,6 @@ peerExchangeProto msg = do
 
       pl   <- getPeerLocator @e
       pips <- knownPeers @e pl
-      -- pips <- knownListeningPeers @e pl
 
       case pex of
         PEX1 -> do

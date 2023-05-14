@@ -4,6 +4,7 @@ module HBS2.Net.Messaging.TCP
   , runMessagingTCP
   , newMessagingTCP
   , tcpOwnPeer
+  , tcpPeerConn
   , tcpCookie
   ) where
 
@@ -202,8 +203,6 @@ spawnConnection tp env so sa = liftIO do
   let newP = fromSockAddr @'TCP sa
 
   theirCookie <- handshake tp env  so
-  -- TCP address available
-  -- FIXME: how to use this info
 
   let connId = connectionId myCookie theirCookie
 
