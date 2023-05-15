@@ -1270,4 +1270,4 @@ PR: implement-http-block-download-worker
 
 PR: tcp-pex
   branch: iv/tcp-pex_3
-  commit: 536382b69aeff04d8bf86a08f3df2997152f0a0c
+  commit: f1de7c58d5dc36dec5c318a3297733791de9a3d8
