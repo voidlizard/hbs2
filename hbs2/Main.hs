@@ -226,7 +226,8 @@ runCat opts ss = do
           walk (fromHashRef h)
 
         AnnRef h -> do
-          let lnk = _ $ deserialiseOrFail @AnnotatedHashRef obj
+          let lnk = either (error . ("Deserialise AnnotatedHashRef: " <>) . show) id $
+                  deserialiseOrFail @AnnotatedHashRef obj
           let mbHead =  headMay [ h
                                 | HashRefMerkle (HashRefObject (HashRef h) _) <- universeBi lnk
                                 ]
