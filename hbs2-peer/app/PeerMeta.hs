@@ -49,11 +49,11 @@ fillPeerMeta :: forall e  m t .
     , IsTimeout t
     )
     => Maybe MessagingTCP -> Timeout t -> m ()
-fillPeerMeta mtcp propPeriod = do
+fillPeerMeta mtcp probePeriod = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
 
-  forever $ (>> (pause propPeriod)) $ do
+  forever $ (>> pause probePeriod) $ do
     pause @'Seconds 5 -- wait 'till everything calm down
 
     ps <- knownPeers @e pl

@@ -743,9 +743,10 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread "blockDownloadLoop " (blockDownloadLoop denv)
 
-                let tcpPropWait :: Timeout 'Seconds
-                    tcpPropWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpPropWaitKey conf)
-                peerThread "fillPeerMeta" (fillPeerMeta tcp tcpPropWait)
+                let tcpProbeWait :: Timeout 'Seconds
+                    tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)
+
+                peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
                 -- FIXME: clumsy-code
                 -- Is it better now ?
