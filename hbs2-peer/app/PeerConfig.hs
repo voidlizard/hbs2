@@ -44,6 +44,7 @@ pattern Key n ns <- SymbolVal  n : ns
 data PeerListenTCPKey
 data PeerDownloadLogKey
 data PeerHttpPortKey
+data PeerTcpPropWaitKey
 data PeerUseHttpDownload
 
 instance HasCfgKey PeerListenTCPKey (Maybe String) where
@@ -51,6 +52,9 @@ instance HasCfgKey PeerListenTCPKey (Maybe String) where
 
 instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
   key = "http-port"
+
+instance HasCfgKey PeerTcpPropWaitKey (Maybe Integer) where
+  key = "tcp-prop-wait"
 
 instance HasCfgKey PeerUseHttpDownload FeatureSwitch where
   key = "http-download"

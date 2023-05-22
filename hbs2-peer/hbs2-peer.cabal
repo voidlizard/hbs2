@@ -119,6 +119,7 @@ executable hbs2-peer
                     , DownloadQ
                     , Bootstrap
                     , PeerInfo
+                    , PeerMeta
                     , RPC
                     , PeerTypes
                     , PeerConfig

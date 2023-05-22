@@ -47,6 +47,7 @@ import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
 import ProxyMessaging
+import PeerMeta
 
 import Codec.Serialise
 import Control.Concurrent.Async
@@ -150,7 +151,6 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
                           | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
                           ]
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
-
 
 data RPCOpt =
   RPCOpt
@@ -743,7 +743,9 @@ runPeer opts = Exception.handle myException $ do
 
                 peerThread "blockDownloadLoop " (blockDownloadLoop denv)
 
-                peerThread "fillPeerMeta" (fillPeerMeta tcp)
+                let tcpPropWait :: Timeout 'Seconds
+                    tcpPropWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpPropWaitKey conf)
+                peerThread "fillPeerMeta" (fillPeerMeta tcp tcpPropWait)
 
                 -- FIXME: clumsy-code
                 -- Is it better now ?
