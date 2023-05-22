@@ -142,6 +142,7 @@ blockHttpDownloadLoop denv = do
 
 ---
 
+-- FIXME: move-fillPeerMeta-to-separate-module
 fillPeerMeta :: forall e  m .
     ( m ~ PeerM e IO
     , MonadIO m
@@ -158,9 +159,10 @@ fillPeerMeta :: forall e  m .
 fillPeerMeta mtcp = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
+
+  pause @'Seconds 20 -- wait 'till everything calm down
   forever do
 
-    pause @'Seconds 5
     ps <- knownPeers @e pl
     debug $ "fillPeerMeta peers:" <+> pretty ps
     npi <- newPeerInfo
@@ -243,6 +245,9 @@ fillPeerMeta mtcp = do
                           liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $ Right Nothing
 
           _ -> pure ()
+
+        -- FIXME: move-hardcode-to-a-config
+        pause @'Seconds 300
 
   where
     replacePort :: Peer e -> Word16 -> PeerM e IO (IPAddrPort e)
