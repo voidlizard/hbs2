@@ -343,6 +343,7 @@ connectPeerTCP env peer = liftIO do
   connect (show i) (show p) $ \(sock, remoteAddr) -> do
     spawnConnection Client env sock remoteAddr
     -- FIXME: tcp-pex. Где-то здесь добавить этих пиров в пекс ?
+    -- REVIEW: так что в итоге? где-то здесь?
     shutdown sock ShutdownBoth
 
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()
