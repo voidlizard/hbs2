@@ -160,7 +160,7 @@ fillPeerMeta mtcp = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
 
-  pause @'Seconds 20 -- wait 'till everything calm down
+  pause @'Seconds 5 -- wait 'till everything calm down
   forever do
 
     ps <- knownPeers @e pl
