@@ -729,19 +729,19 @@ runPeer opts = Exception.handle myException $ do
 
                 -- peerThread "tcpWorker" (tcpWorker conf)
 
-                peerThread "httpWorker " (httpWorker conf denv)
+                peerThread "httpWorker" (httpWorker conf denv)
 
-                peerThread "checkMetrics " (checkMetrics metrics)
+                peerThread "checkMetrics" (checkMetrics metrics)
 
-                peerThread "peerPingLoop " (peerPingLoop @e conf)
+                peerThread "peerPingLoop" (peerPingLoop @e conf)
 
-                peerThread "knownPeersPingLoop " (knownPeersPingLoop @e conf)
+                peerThread "knownPeersPingLoop" (knownPeersPingLoop @e conf)
 
-                peerThread "bootstrapDnsLoop " (bootstrapDnsLoop @e conf)
+                peerThread "bootstrapDnsLoop" (bootstrapDnsLoop @e conf)
 
-                peerThread "pexLoop " (pexLoop @e)
+                peerThread "pexLoop" (pexLoop @e)
 
-                peerThread "blockDownloadLoop " (blockDownloadLoop denv)
+                peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 let tcpProbeWait :: Timeout 'Seconds
                     tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)
@@ -751,13 +751,13 @@ runPeer opts = Exception.handle myException $ do
                 -- FIXME: clumsy-code
                 -- Is it better now ?
                 when useHttpDownload do
-                  peerThread "blockHttpDownloadLoop " (blockHttpDownloadLoop denv)
+                  peerThread "blockHttpDownloadLoop" (blockHttpDownloadLoop denv)
 
                 peerThread "postponedLoop" (postponedLoop denv)
 
                 peerThread "downloadQueue" (downloadQueue conf denv)
 
-                peerThread "reflogWorker " (reflogWorker @e conf rwa)
+                peerThread "reflogWorker" (reflogWorker @e conf rwa)
 
                 peerThread "ping pong" $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
