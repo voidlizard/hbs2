@@ -1,0 +1,11 @@
+FIXME: sendto-network-unreachable-fatal
+
+  С новым кодом обработки ошибок происходит следующее падение:
+  ```
+  [error] peerThread peerPingLoop  Failed with Network.Socket.sendBufTo: does not exist (Network is unreachable)
+    Network.Socket.sendBufTo: does not exist (Network is unreachable)
+  ```
+  Как воспроизвести: запускаем hbs2-peer, отключаем сеть, какое-то время ждём.
+  Предлагаемый фикс: вероятно, рестарт всего приложения целиком.
+
+
