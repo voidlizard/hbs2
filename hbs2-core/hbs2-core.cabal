@@ -140,6 +140,7 @@ library
                     , prettyprinter
                     , random
                     , random-shuffle
+                    , resourcet
                     , safe
                     , saltine ^>=0.2.0.1
                     , serialise
@@ -154,6 +155,7 @@ library
                     , transformers
                     , uniplate
                     , unordered-containers
+                    , unliftio
 
 
     hs-source-dirs:   lib

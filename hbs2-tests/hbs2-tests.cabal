@@ -35,6 +35,7 @@ common common-deps
         , QuickCheck
         , random
         , random-shuffle
+        , resourcet
         , safe
         , serialise
         , split
@@ -51,6 +52,7 @@ common common-deps
         , vector
         , prettyprinter-ansi-terminal
         , interpolatedstring-perl6
+        , unliftio
 
 common shared-properties
   ghc-options:

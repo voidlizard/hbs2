@@ -14,7 +14,10 @@ import System.IO
 import Lens.Micro.Platform
 
 import Codec.Serialise
-import Control.Concurrent.Async
+-- import Control.Concurrent.Async
+
+import Control.Monad.Trans.Resource
+import UnliftIO.Async
 
 type UDP = L4Proto
 
@@ -81,9 +84,9 @@ instance HasTimeLimits UDP (PingPong UDP) IO where
   tryLockForPeriod _ _ = pure True
 
 main :: IO ()
-main = do
-  hSetBuffering stdout LineBuffering
-  hSetBuffering stderr LineBuffering
+main = runResourceT do
+  liftIO $ hSetBuffering stdout LineBuffering
+  liftIO $ hSetBuffering stderr LineBuffering
 
   udp1 <- newMessagingUDP False (Just "127.0.0.1:10001") `orDie` "Can't start listener on 10001"
   udp2 <- newMessagingUDP False (Just "127.0.0.1:10002") `orDie` "Can't start listener on 10002"

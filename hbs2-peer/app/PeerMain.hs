@@ -50,7 +50,7 @@ import ProxyMessaging
 import PeerMeta
 
 import Codec.Serialise
-import Control.Concurrent.Async
+-- import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
@@ -77,9 +77,14 @@ import Options.Applicative
 import System.Directory
 import System.Exit
 import System.IO
+import System.Mem
 import System.Metrics
 import Data.Cache qualified as Cache
+
 import UnliftIO.Exception qualified as U
+-- import UnliftIO.STM
+import UnliftIO.Async as U
+import Control.Monad.Trans.Resource
 
 
 -- TODO: write-workers-to-config
@@ -353,7 +358,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
 
 myException :: SomeException -> IO ()
-myException e = die ( show e ) >> exitFailure
+myException e = err ( show e ) >> notice "RESTARTING..."
 
 
 newtype CredentialsM e s m a =
@@ -418,17 +423,20 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , s ~ Encryption e
                         ) => PeerOpts -> IO ()
 
-runPeer opts = Exception.handle myException $ do
+runPeer opts = fix \me -> U.handle (\e -> myException e
+                                          >> performGC
+                                          >> pause @'Seconds 10
+                                          >> me
+                                          ) $ runResourceT do
 
-  metrics <- newStore
+  metrics <- liftIO newStore
 
-
-  xdg <- getXdgDirectory XdgData defStorePath <&> fromString
+  xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
 
   conf <- peerConfigRead (view peerConfig opts)
 
   -- let (PeerConfig syn) = conf
-  print $ pretty conf
+  liftIO $ print $ pretty conf
 
   let listenConf = cfgValue @PeerListenKey conf
   let rpcConf = cfgValue @PeerRpcKey conf
@@ -462,7 +470,7 @@ runPeer opts = Exception.handle myException $ do
 
   let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
 
-  print $ pretty accptAnn
+  liftIO $ print $ pretty accptAnn
 
   -- FIXME: move-peerBanned-somewhere
   let peerBanned p d = do
@@ -476,11 +484,11 @@ runPeer opts = Exception.handle myException $ do
           AcceptAnnounceAll    -> pure True
           AcceptAnnounceFrom s -> pure $ view peerSignKey d `Set.member` s
 
-  rpcQ <- newTQueueIO @RPCCommand
+  rpcQ <- liftIO $ newTQueueIO @RPCCommand
 
   let ps = mempty
 
-  pc' <- LBS.readFile credFile
+  pc' <- liftIO $ LBS.readFile credFile
             <&> parseCredentials @(Encryption e) . AsCredFile
                                                  . LBS.toStrict
                                                  . LBS.take 4096
@@ -493,9 +501,9 @@ runPeer opts = Exception.handle myException $ do
   let blk = liftIO . hasBlock s
 
 
-  w <- replicateM defStorageThreads $ async $ simpleStorageWorker s
+  w <- replicateM defStorageThreads $ async $ liftIO $ simpleStorageWorker s
 
-  localMulticast <- (headMay <$> parseAddrUDP (fromString defLocalMulticast)
+  localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )
 
                            `orDie` "assertion: localMulticastPeer not set"
@@ -506,19 +514,16 @@ runPeer opts = Exception.handle myException $ do
             `orDie` "unable listen on the given addr"
 
   udp <- async $ runMessagingUDP mess
-                   `catch` (\(e::SomeException) -> throwIO e )
 
   udp1 <- newMessagingUDP False rpcSa
             `orDie` "Can't start RPC listener"
 
   mrpc <- async $ runMessagingUDP udp1
-                   `catch` (\(e::SomeException) -> throwIO e )
 
   mcast <- newMessagingUDPMulticast defLocalMulticast
             `orDie` "Can't start RPC listener"
 
   messMcast <- async $ runMessagingUDP mcast
-                 `catch` (\(e::SomeException) -> throwIO e )
 
   brains <- newBasicBrains @e conf
 
@@ -535,13 +540,11 @@ runPeer opts = Exception.handle myException $ do
            tcpEnv <- newMessagingTCP addr
            -- FIXME: handle-tcp-thread-somehow
            void $ async $ runMessagingTCP tcpEnv
-                   `catch` (\(e::SomeException) -> throwIO e )
            pure $ Just tcpEnv
 
   proxy <- newProxyMessaging mess tcp
 
   proxyThread <- async $ runProxyMessaging proxy
-                  `catch` (\(e::SomeException) -> throwIO e )
 
   penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
 
@@ -562,7 +565,7 @@ runPeer opts = Exception.handle myException $ do
               -- debug  $ "onNoBlock" <+> pretty p <+> pretty h
               withPeerM penv $ withDownload denv (addDownload mzero h)
 
-  loop <- async do
+  loop <- liftIO $ async do
 
             runPeerM penv $ do
               adapter <- mkAdapter
@@ -963,7 +966,7 @@ runPeer opts = Exception.handle myException $ do
 
   menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
 
-  ann <- async $ runPeerM menv $ do
+  ann <- liftIO $ async $ runPeerM menv $ do
 
                    self <- ownPeer @e
 
@@ -983,7 +986,7 @@ runPeer opts = Exception.handle myException $ do
 
   void $ waitAnyCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast,brainsThread]
 
-  simpleStorageStop s
+  liftIO $ simpleStorageStop s
 
 
 
@@ -1003,9 +1006,9 @@ rpcClientMain opt action = do
   action
 
 withRPC :: FromStringMaybe (PeerAddr L4Proto) => RPCOpt -> RPC L4Proto -> IO ()
-withRPC o cmd = rpcClientMain o $ do
+withRPC o cmd = rpcClientMain o $ runResourceT do
 
-  hSetBuffering stdout LineBuffering
+  liftIO $ hSetBuffering stdout LineBuffering
 
   conf <- peerConfigRead (view rpcOptConf o)
 
@@ -1013,7 +1016,7 @@ withRPC o cmd = rpcClientMain o $ do
 
   saddr <- pure  (view rpcOptAddr o <|> rpcConf) `orDie` "RPC endpoint not set"
 
-  as <- parseAddrUDP (fromString saddr) <&> fmap (fromSockAddr @'UDP . addrAddress)
+  as <- liftIO $ parseAddrUDP (fromString saddr) <&> fmap (fromSockAddr @'UDP . addrAddress)
   let rpc' = headMay $ L.sortBy (compare `on` addrPriority) as
 
   rpc <- pure rpc' `orDie` "Can't parse RPC endpoint"
@@ -1022,13 +1025,13 @@ withRPC o cmd = rpcClientMain o $ do
 
   mrpc <- async $ runMessagingUDP udp1
 
-  pingQ <- newTQueueIO
+  pingQ <- liftIO newTQueueIO
 
-  pokeQ <- newTQueueIO
+  pokeQ <- liftIO newTQueueIO
 
-  pokeFQ <- newTQueueIO
+  pokeFQ <- liftIO newTQueueIO
 
-  refQ <- newTQueueIO
+  refQ <- liftIO newTQueueIO
 
   let  adapter =
         RpcAdapter dontHandle

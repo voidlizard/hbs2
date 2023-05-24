@@ -38,6 +38,7 @@ common common-deps
         , prettyprinter
         , random
         , random-shuffle
+        , resourcet
         -- , resolv
         , safe
         , saltine >=0.2.0.1

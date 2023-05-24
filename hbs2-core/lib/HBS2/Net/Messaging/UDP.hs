@@ -8,6 +8,8 @@ import HBS2.Net.Messaging
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 
+import HBS2.System.Logger.Simple
+
 import Data.Function
 import Control.Exception
 import Control.Monad.Trans.Maybe
@@ -27,6 +29,7 @@ import Network.Socket
 import Network.Socket.ByteString
 import Network.Multicast
 
+import Control.Monad.Trans.Resource
 
 
 -- One address - one peer - one messaging
@@ -59,7 +62,9 @@ newMessagingUDPMulticast s = runMaybeT $ do
                           <*> newTVarIO so
                           <*> pure True
 
-newMessagingUDP :: MonadIO m => Bool -> Maybe String -> m (Maybe MessagingUDP)
+close_ so = trace "closing fuckin socket!!" >> close so
+
+newMessagingUDP :: (MonadIO m, MonadResource m) => Bool -> Maybe String -> m (Maybe MessagingUDP)
 newMessagingUDP reuse saddr =
   case saddr of
     Just s -> do
@@ -68,6 +73,8 @@ newMessagingUDP reuse saddr =
         l  <- MaybeT $ liftIO $ parseAddrUDP (Text.pack s) <&> listToMaybe . sorted
         let a = addrAddress l
         so <- liftIO $ socket (addrFamily l) (addrSocketType l) (addrProtocol l)
+
+        _ <- register $ close_ so
 
         when reuse $ do
           liftIO $ setSocketOption so ReuseAddr 1
@@ -80,6 +87,9 @@ newMessagingUDP reuse saddr =
 
     Nothing -> do
         so <- liftIO $ socket AF_INET Datagram defaultProtocol
+
+        _ <- register $ close_ so
+
         sa <- liftIO $ getSocketName so
 
         liftIO $ Just <$> ( MessagingUDP sa <$> Q0.newTQueueIO
