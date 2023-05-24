@@ -46,12 +46,14 @@ data MessagingUDP =
 getOwnPeer :: MessagingUDP -> Peer L4Proto
 getOwnPeer mess = PeerL4 UDP (listenAddr mess)
 
-newMessagingUDPMulticast :: MonadIO m => String -> m (Maybe MessagingUDP)
+newMessagingUDPMulticast :: MonadResource m => String -> m (Maybe MessagingUDP)
 newMessagingUDPMulticast s = runMaybeT $ do
 
   (host, port)  <- MaybeT $ pure $ getHostPort (Text.pack s)
 
   so <- liftIO $ multicastReceiver host port
+
+  _ <- register $ close so
 
   liftIO $ setSocketOption so ReuseAddr 1
 
@@ -62,7 +64,6 @@ newMessagingUDPMulticast s = runMaybeT $ do
                           <*> newTVarIO so
                           <*> pure True
 
-close_ so = trace "closing fuckin socket!!" >> close so
 
 newMessagingUDP :: (MonadIO m, MonadResource m) => Bool -> Maybe String -> m (Maybe MessagingUDP)
 newMessagingUDP reuse saddr =
@@ -74,7 +75,7 @@ newMessagingUDP reuse saddr =
         let a = addrAddress l
         so <- liftIO $ socket (addrFamily l) (addrSocketType l) (addrProtocol l)
 
-        _ <- register $ close_ so
+        _ <- register $ close so
 
         when reuse $ do
           liftIO $ setSocketOption so ReuseAddr 1
@@ -88,7 +89,7 @@ newMessagingUDP reuse saddr =
     Nothing -> do
         so <- liftIO $ socket AF_INET Datagram defaultProtocol
 
-        _ <- register $ close_ so
+        _ <- register $ close so
 
         sa <- liftIO $ getSocketName so
 
@@ -129,7 +130,7 @@ udpWorker env tso = do
   -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
     -- atomically $ Q.writeTBQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
 
-  mapM_ wait [rcvLoop,sndLoop]
+  void $ waitAnyCatchCancel [rcvLoop,sndLoop]
 
 -- FIXME: stopping
 

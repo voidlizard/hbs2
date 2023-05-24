@@ -16,9 +16,9 @@ import HBS2.Prelude.Plated
 
 import HBS2.System.Logger.Simple
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.Exception
+-- import Control.Concurrent.Async
+import Control.Concurrent.STM (flushTQueue,stateTVar)
+import Control.Exception (try,Exception,SomeException,throwIO)
 import Control.Monad
 import Data.Bits
 import Data.ByteString.Lazy (ByteString)
@@ -35,9 +35,13 @@ import Lens.Micro.Platform
 import Network.ByteOrder hiding (ByteString)
 import Network.Simple.TCP
 import Network.Socket hiding (listen,connect)
-import Network.Socket.ByteString.Lazy hiding (send,recv)
+-- import Network.Socket.ByteString.Lazy hiding (send,recv)
 import Streaming.Prelude qualified as S
 import System.Random hiding (next)
+
+import UnliftIO.Async
+import UnliftIO.STM
+import UnliftIO.Exception qualified as U
 
 data SocketClosedException =
     SocketClosedException
@@ -142,7 +146,6 @@ readFromSocket sock size = LBS.fromChunks <$> (go size & S.toList_)
         go (max 0 (n - nread))
 
     eos = do
-      debug "SOCKET FUCKING CLOSED!"
       liftIO $ throwIO SocketClosedException
 
 connectionId :: Word32 -> Word32 -> Word64
@@ -346,14 +349,18 @@ connectPeerTCP env peer = liftIO do
     -- REVIEW: так что в итоге? где-то здесь?
     shutdown sock ShutdownBoth
 
+
+-- FIXME: link-all-asyncs
+
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()
 runMessagingTCP env = liftIO do
+
   own <- toPeerAddr $ view tcpOwnPeer env
   let (L4Address _ (IPAddrPort (i,p))) = own
 
   let defs = view tcpDefer env
 
-  void $ async $ forever do
+  mon <- async $ forever do
     pause @'Seconds 30
     now <- getTimeCoarse
 
@@ -366,7 +373,7 @@ runMessagingTCP env = liftIO do
                              [] -> Nothing
                              xs -> Just xs
 
-  void $ async $ forever do
+  con <- async $ forever do
 
     let ev = view tcpDeferEv env
 
@@ -400,7 +407,7 @@ runMessagingTCP env = liftIO do
 
         pure ()
 
-  void $ async $ forever do
+  stat <- async $ forever do
     pause @'Seconds 120
     ps <- readTVarIO $ view tcpConnPeer env
     let peers = HashMap.toList ps
@@ -411,28 +418,31 @@ runMessagingTCP env = liftIO do
                     <+> pretty c
                     <+> parens ("used:" <+> pretty used)
 
-  listen (Host (show i)) (show p) $ \(sock, sa) -> do
-    debug $ "Listening on" <+> pretty sa
+  mapM_ link [mon,con,stat]
 
-    forever do
-      void $ acceptFork sock $ \(so, remote) -> do
-        trace $ "GOT INCOMING CONNECTION FROM"
-          <+> brackets (pretty own)
-          <+> brackets (pretty sa)
-          <+> pretty remote
+  liftIO (
+    listen (Host (show i)) (show p) $ \(sock, sa) -> do
+      debug $ "Listening on" <+> pretty sa
 
-        void $ try @SomeException $ do
+      forever do
+        void $ acceptFork sock $ \(so, remote) -> do
+          trace $ "GOT INCOMING CONNECTION FROM"
+            <+> brackets (pretty own)
+            <+> brackets (pretty sa)
+            <+> pretty remote
 
-          spawnConnection Server env so remote
+          void $ try @SomeException $ do
 
-          -- gracefulClose so 1000
+            spawnConnection Server env so remote
 
-        -- TODO: probably-cleanup-peer
-        -- TODO: periodically-drop-inactive-connections
+            -- gracefulClose so 1000
 
-        debug $ "CLOSING CONNECTION" <+> pretty remote
-        shutdown so ShutdownBoth
-        close so
+          -- TODO: probably-cleanup-peer
+          -- TODO: periodically-drop-inactive-connections
+
+          debug $ "CLOSING CONNECTION" <+> pretty remote
+          shutdown so ShutdownBoth
+          close so ) `U.finally` mapM_ cancel [mon,con,stat]
 
 
 traceCmd :: forall a ann b m . ( Pretty a

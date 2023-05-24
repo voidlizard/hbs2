@@ -133,7 +133,7 @@ peerPingLoop cfg = do
 
 
   -- TODO: peer info loop
-  void $ liftIO $ async $ forever $ withPeerM e $ do
+  infoLoop <- liftIO $ async $ forever $ withPeerM e $ do
     pause @'Seconds 10
     pee <- knownPeers @e pl
 
@@ -186,7 +186,7 @@ peerPingLoop cfg = do
                   expire (PeerInfoKey p)
                   expire (KnownPeerKey p)
 
-  liftIO $ link watch
+  liftIO $ mapM_ link [watch, infoLoop]
 
   forever do
 
