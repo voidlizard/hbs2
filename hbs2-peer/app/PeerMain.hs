@@ -267,7 +267,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
       c <- optional confOpt
 
-      resp <- optional $ flag' True ( long "respawn" <> short 'r' <> help "respawn process")
+      resp <- optional $ flag' True ( long "respawn" <> short 'R' <> help "respawn process")
 
       pure $ PeerOpts pref l r k c resp
 

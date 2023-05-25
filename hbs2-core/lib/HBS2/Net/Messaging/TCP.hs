@@ -422,10 +422,12 @@ runMessagingTCP env = liftIO do
 
   liftIO (
     listen (Host (show i)) (show p) $ \(sock, sa) -> do
+      withFdSocket sock setCloseOnExecIfNeeded
       debug $ "Listening on" <+> pretty sa
 
       forever do
         void $ acceptFork sock $ \(so, remote) -> do
+          withFdSocket so setCloseOnExecIfNeeded
           trace $ "GOT INCOMING CONNECTION FROM"
             <+> brackets (pretty own)
             <+> brackets (pretty sa)
