@@ -60,15 +60,16 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.Cache qualified as Cache
 import Data.Function
 import Data.List qualified  as L
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 import Data.Text (Text)
-import Data.Text.Encoding qualified as TE
 import GHC.Stats
 import GHC.TypeLits
 import Lens.Micro.Platform
@@ -79,7 +80,8 @@ import System.Exit
 import System.IO
 import System.Mem
 import System.Metrics
-import Data.Cache qualified as Cache
+import System.Posix.Process
+import System.Environment
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -167,7 +169,8 @@ makeLenses 'RPCOpt
 
 
 data RPCCommand =
-    POKE
+    DIE
+  | POKE
   | ANNOUNCE (Hash HbSync)
   | PING (PeerAddr L4Proto) (Maybe (Peer L4Proto))
   | CHECK PeerNonce (PeerAddr L4Proto) (Hash HbSync)
@@ -185,6 +188,7 @@ data PeerOpts =
   , _listenRpc     :: Maybe String
   , _peerCredFile  :: Maybe FilePath
   , _peerConfig    :: Maybe FilePath
+  , _peerRespawn   :: Maybe Bool
   }
   deriving stock (Data)
 
@@ -234,6 +238,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     parser = hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
                         <> command "run"       (info pRun  (progDesc "run peer"))
                         <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
+                        <> command "die"       (info pDie (progDesc "die cmd"))
                         <> command "announce"  (info pAnnounce (progDesc "announce block"))
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
@@ -262,7 +267,9 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
       c <- optional confOpt
 
-      pure $ PeerOpts pref l r k c
+      resp <- optional $ flag' True ( long "respawn" <> short 'r' <> help "respawn process")
+
+      pure $ PeerOpts pref l r k c resp
 
     pRun = do
       runPeer <$> common
@@ -270,6 +277,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pRpcCommon = do
       RPCOpt <$> optional confOpt
              <*> optional rpcOpt
+
+    pDie = do
+      rpc <- pRpcCommon
+      pure $ runRpcCommand rpc DIE
 
     pPoke = do
       rpc <- pRpcCommon
@@ -358,7 +369,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
 
 myException :: SomeException -> IO ()
-myException e = err ( show e ) >> notice "RESTARTING..."
+myException e = err ( show e )
 
 
 newtype CredentialsM e s m a =
@@ -417,17 +428,28 @@ instance ( Monad m
   response = lift . response
 
 
--- runPeer :: forall e . (e ~ UDP, Nonce (RefLogUpdate e) ~ BS.ByteString) => PeerOpts -> IO ()
+respawn :: PeerOpts -> IO ()
+respawn opts = case view peerRespawn opts of
+  Just True -> do
+    let secs = 5
+    notice $ "RESPAWNING in" <+> viaShow secs <> "s"
+    pause @'Seconds secs
+    self <- getExecutablePath
+    args <- getArgs
+    print (self, args)
+    executeFile self False args Nothing
+
+  _ -> exitFailure
+
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
                         ) => PeerOpts -> IO ()
 
-runPeer opts = fix \me -> U.handle (\e -> myException e
-                                          >> performGC
-                                          >> pause @'Seconds 10
-                                          >> me
-                                          ) $ runResourceT do
+runPeer opts = U.handle (\e -> myException e
+                        >> performGC
+                        >> respawn opts
+                        ) $ runResourceT do
 
   metrics <- liftIO newStore
 
@@ -867,6 +889,8 @@ runPeer opts = fix \me -> U.handle (\e -> myException e
 
               void $ liftIO $ waitAnyCancel workers
 
+  let dieAction _ = do
+        liftIO $ die "received die command"
 
   let pokeAction _ = do
         who <- thatPeer (Proxy @(RPC e))
@@ -945,6 +969,7 @@ runPeer opts = fix \me -> U.handle (\e -> myException e
           request who (RPCRefLogGetAnswer @e  h)
 
   let arpc = RpcAdapter pokeAction
+                        dieAction
                         dontHandle
                         dontHandle
                         annAction
@@ -1035,6 +1060,7 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
   let  adapter =
         RpcAdapter dontHandle
+                   dontHandle
                    (liftIO . atomically . writeTQueue pokeQ)
                    (liftIO . atomically . writeTQueue pokeFQ)
                    (const $ liftIO exitSuccess)
@@ -1073,6 +1099,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                                  Log.info $ "pong from" <+> pretty pa
                                  exitSuccess
 
+
+                      RPCDie{} -> do
+                        pause @'Seconds 0.25
+                        liftIO exitSuccess
 
                       RPCPoke{} -> do
                         let onTimeout = do pause @'Seconds 1.5
@@ -1117,6 +1147,7 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
 runRpcCommand :: FromStringMaybe (IPAddrPort L4Proto) => RPCOpt -> RPCCommand -> IO ()
 runRpcCommand opt = \case
+  DIE  -> withRPC opt RPCDie
   POKE -> withRPC opt RPCPoke
   PING s _ -> withRPC opt (RPCPing s)
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)

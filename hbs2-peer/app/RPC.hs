@@ -23,7 +23,8 @@ data SetLogging =
 instance Serialise SetLogging
 
 data RPC e =
-    RPCPoke
+    RPCDie
+  | RPCPoke
   | RPCPing (PeerAddr e)
   | RPCPong (PeerAddr e)
   | RPCPokeAnswer (PubKey 'Sign (Encryption e))
@@ -59,6 +60,7 @@ makeLenses 'RPCEnv
 data RpcAdapter e m =
   RpcAdapter
   { rpcOnPoke          :: RPC e -> m ()
+  , rpcOnDie           :: RPC e -> m ()
   , rpcOnPokeAnswer    :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnPokeAnswerFull :: Text -> m ()
   , rpcOnAnnounce      :: Hash HbSync -> m ()
@@ -112,6 +114,7 @@ rpcHandler :: forall e m  . ( MonadIO m
            => RpcAdapter e m -> RPC e -> m ()
 
 rpcHandler adapter = \case
+    p@RPCDie{}         -> rpcOnDie adapter p
     p@RPCPoke{}        -> rpcOnPoke adapter p
     (RPCPokeAnswer k)  -> rpcOnPokeAnswer adapter k
     (RPCPokeAnswerFull k)  -> rpcOnPokeAnswerFull adapter k
