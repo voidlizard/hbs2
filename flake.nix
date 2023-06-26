@@ -39,6 +39,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"
      "hbs2-storage-simple"
      "hbs2-git"
+     "hbs2-consensus"
    ];
 
    packageDirs = {
@@ -47,6 +48,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core" = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer" = "./hbs2-peer";
+     "hbs2-consensus" = "./hbs2-consensus";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
