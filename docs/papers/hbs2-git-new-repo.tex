@@ -1,0 +1,537 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{polyglossia}
+\usepackage{xltxtra}
+\usepackage[margin=2cm,a4paper]{geometry}% http://ctan.org/pkg/geometry
+\usepackage{pdfpages}
+\usepackage{graphicx}
+\usepackage[ddmmyyyy]{datetime}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage[nomessages]{fp}
+\usepackage{caption}
+\usepackage{url}
+\usepackage{indentfirst}
+\usepackage[parfill]{parskip}
+\usepackage[ colorlinks=true
+           , linkcolor=black
+		   , anchorcolor=black
+		   , citecolor=black
+		   , filecolor=black
+		   , menucolor=black
+		   , runcolor=black
+		   , urlcolor=blue]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows,snakes,shapes,backgrounds,positioning,calc}
+\usepackage{marvosym}
+\usepackage{pifont}
+\usepackage{fontspec}
+\usepackage{fontawesome5}
+\usepackage{listings}
+\usepackage{verbatim}
+\usepackage{xcolor}
+\usepackage{float} % Needed for the floating environment
+
+\setmainlanguage{russian}
+\defaultfontfeatures{Ligatures=TeX,Mapping=tex-text}
+\setmainfont{Liberation Serif}
+\newfontfamily\cyrillicfont{Liberation Serif}[Script=Cyrillic]
+\newfontfamily{\cyrillicfonttt}{Liberation Mono}[Scale=0.8]
+
+\setlist{noitemsep}
+\setlength{\intextsep}{2cm}
+
+\newcommand{\term}[2]{\textit{#2}}
+\renewcommand{\dateseparator}{.}
+\renewcommand*\contentsname{Содержание}
+
+\lstset{
+  language=Haskell,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{green},
+  stringstyle=\color{red},
+  % numberstyle=\tiny\color{gray},
+  % numbers=left,
+  % stepnumber=1,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+}
+
+\newfloat{Code}{t}{myc}
+
+\graphicspath{ {img/}}
+
+\title{Репозиторий hbs2-git}
+
+\begin{document}
+
+\maketitle
+
+\section{Идея}
+
+hbs2-git это адаптер, позволяющий git работать с HBS2 в качестве бекенда для сохранения и получения
+объектов. HBS2 это распределённый P2P CAS, позволяющий обмениваться данными, синхронизировать их,
+подписываться на специфические источники при помощи механизма \term{reflog}{ссылок}.
+
+Таким образом, hbs2-git позволяет производить децентрализованную синхронизацию репозиториев без
+участия какого-то выделенного сервера/сервиса, используя вместо него множество пиров, которые
+находят друг-друга при помощи механизма \term{pex}{PEX} (Peer Exchange) --- то есть находят друг
+друга при помощи broadcast сообщений, DNS бутстрапа и списка известных пиров, то есть примерно  теми
+же способами, что используются в прочих децентрализованных сетях.
+
+Авторизация и аутентификация осуществляются при помощи криптографических механизмов: криптоподписи
+и шифрования.
+
+Механизмы эти работают на уровне ссылок, блоков, протоколов и можно еще дополнительно шифровать
+собственный контент, если будет такое желание и необходимость.
+
+Вместо того, что бы делать $git~push$ в remote на каком-то сервере с доменным именем, доступом и
+прочее, $git~push$ происходит в \term{reflog}{ссылку/рефлог}, который поддерживается всеми пирами,
+которые согласны поддерживать этот рефлог.
+
+Узел hbs2-peer может постить \term{transaction}{транзакции} обновления ссылок и получать их, а так же
+получать журнал транзакций в виде дерева Меркля.
+
+Как было сказано выше, hbs2-git использует механизм \term{reflog}{рефлога} или же просто
+\term{reflog}{ссылки} для своей работы. Рефлог представляет собой некий уникальный идентификатор,
+ассоциированный с публичным ключом шифрования (фактически: публичный ключ и есть), а обладание
+приватным ключом от этого публичного ключа является доказательством права записи в эту ссылку.
+
+Ссылки могут быть разных типов, рефлог --- это условное название ссылки определенного, конкретного
+вида, который реализован, как примитив в HBS2 (hbs2-peer будет точнее).
+
+Рефлог есть список транзакций, упорядоченный по хэшам их контента, представленный в виде хэш-ссылки
+на \term{ann-merkle-tree}{дерево Меркля} журнала (лога) транзакций.
+
+Предполагается, что у рефлога есть один писатель --- владелец приватного ключа.
+
+Никакого консенсуса с рефлогом не ассоциировано, однако, он может возникать на уровне данных
+транзакций и стейта.
+
+Например, в случае git есть порядок объектов, определяемый DAG ссылки (в смысле git. т.е в основном
+это бранч). Имея порядок объектов, можно вывести и порядок операций, т.к. в логе операции
+упорядочены последовательно, а сами логи имеют ссылку на коммиты, для которых тоже есть порядок.
+
+Таким образом, даже имея несколько писателей в одну ссылку, которые, вроде бы, могут <<портить>>
+ссылки git друг другу, мы можем добавить в стейт идентификатор пользователя в ключ для таблицы
+ссылок, и, таким образом, каждый будет видеть только <<своё>> значение ссылки, кроме того, можно
+генерировать уникальные ссылки из объединения ключа пользователя и названия бранча.
+
+На текущий момент это не реализовано (но возможно).
+
+Содержимое транзакций может быть произвольным, но есть специальные виды транзакций,
+которые поддерживаются hbs2-peer и содержат ссылку на какое-то \term{ann-merkle-tree}{дерево
+Меркля}. Смысл поддержки заключается в том, что если hbs2-peer получает транзакцию такого
+типа, он заодно автоматически скачивает и дерево, на которое она ссылается.
+
+Транзакции содержат числовое поле, которое призвано их упорядочивать, однако оно может
+использоваться или не использоваться, по усмотрению. Внутри списка они упорядочиваются по хэшам, а
+приложение может их упорядочивать, как ему хочется или даже несколькими способами сразу.
+
+В нашем конкретном случае, каждая транзакция ссылается на \term{log}{лог} объектов git,
+соответственно, лог содержит коммиты, каждый коммит может быть упорядочен относительно прочих,
+значит, и логи могут быть упорядочены, например, по максимальной высоте (глубине?) коммита,
+который в нём содержится.
+
+Теоретически, тут могут быть краевые случаи, но поскольку мы для создания этого лога
+используем функциональность git, мы считаем, что содержимое лога разумно.
+
+Можно сказать, что порядок транзакций задаётся порядком логов, на которые они ссылаются,
+который определяется порядком следования коммитов в git.
+
+При своей работе hbs2-git формирует логи git в виде файлов, содержащих заголовки секций
+и секции, в которых содержатся объекты разного типа, и помещает их в HBS2 при помощи API hbs2-peer.
+
+Далее, полученные хэш-ссылки на деревья помещаются в транзакции, после чего транзакции подписываются
+и публикуются.
+
+И обратно, что бы получить новые объекты при $git~fetch$  hbs2-git получает текущее значение
+хэш-ссылки рефлога, скачивает данные рефлога, получает список транзакций, обрабатывает те, которые
+до сих пор не обработаны, получает логи, сканирует логи и импортирует объекты в репозиторий git
+и обновляет стейт.
+
+\section{Компоненты}
+
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                    db/.style={ cylinder
+                              , draw
+                              , fill=gray!10
+                              , minimum height=1cm
+                              , minimum width=1.5cm
+                              , shape border rotate=90
+                              , aspect=0.5
+                              }
+                   ]
+
+  \node[box,minimum height=3cm] (peer) {hbs2-peer};
+
+  \node[ box
+       , minimum height=1cm
+       , text width=6em
+       , left=5cm of peer.north west
+       , anchor = north east
+       ] (git-remote-hbs2) {git-remote-hbs2};
+
+  \node[ box
+       , minimum height=1cm
+       , text width=6em
+       , below=1cm of git-remote-hbs2.south east, anchor = north east
+       ] (git-hbs2) {git-hbs2};
+
+  \node[ rectangle
+       , draw
+       , dashed
+       , above = 2mm of git-remote-hbs2.north west
+       , xshift = -2mm
+       , text width=2.8cm
+       , minimum height=3.6cm
+       , anchor=north west] (tools) {};
+
+  \node[box, minimum height=1cm, below=2cm of git-hbs2.south, anchor=north] (git) {git};
+
+  \node[db,below=1.6cm of git.north,anchor=north] (repo) {git repo};
+
+  \draw[->] (git.south) -- ($(repo.north) - (0,+2mm)$) ;
+
+  \draw[->] (git.north) -- ($(tools.south west)!(git.north)!(tools.south east)$)
+    node[midway,right] {CLI/PIPE};
+
+  \node[ db
+       , left=1cm of git-remote-hbs2.north west, anchor=north east
+       , yshift=-1cm
+       ] (state) {State};
+
+  \draw[->] (git-remote-hbs2.west) -| ($(state.north) - (0,+2mm)$) ;
+  \draw[->] (git-hbs2.west) -| (state.south);
+
+  \node[handle,left=3cm of peer.130] (catAPI) {};
+  \node[handle,below=5mm of catAPI] (putAPI) {};
+  \node[handle,below=5mm of putAPI] (refLogGetAPI) {};
+  \node[handle,below=5mm of refLogGetAPI] (reflogSendRaw) {};
+
+
+  \draw[->] (catAPI) -- ($(peer.north west)!(catAPI)!(peer.south west)$) node[above,midway] {HTTP: Cat};
+
+  \draw[->] (putAPI) -- ($(peer.north west)!(putAPI)!(peer.south west)$) node[above,midway] {HTTP: Put};
+
+  \draw[->] (refLogGetAPI) -- ($(peer.north west)!(refLogGetAPI)!(peer.south west)$)
+    node[above, midway] {HTTP: RefLogGet};
+
+  \draw[->] (reflogSendRaw) -- ($(peer.north west)!(reflogSendRaw)!(peer.south west)$)
+    node[above, midway] {CLI: RefLogSendRaw};
+
+  \draw[dashed] (catAPI) -- (putAPI) -- (refLogGetAPI) -- (reflogSendRaw)
+  node[circle,midway,yshift=0.7cm,inner sep=2pt] (m1) {};
+
+  \draw[->] (git-remote-hbs2.east) -- (m1);
+
+  \draw[->] (git-hbs2.east) -- (m1);
+
+  \node[ db
+       , below=1cm of peer.south
+       ] (store) {Store};
+
+  \draw[->] (peer.south) -- ($(store.north) - (0,+2mm)$) ;
+
+\end{tikzpicture}
+\end{figure}
+
+\subsection*{git-remote-hbs2}
+
+Исполняемый файл, git-remote-helper, хэлпер git для протокола hbs2://
+
+\subsection*{git-hbs2}
+
+Исполняемый файл, различные функции для работы с hbs2-git, например,
+export для первоначальной  инициализации \term{reflog}{рефлога}, или
+scan для перестройки \term{state}{стейта}.
+
+\subsection*{git}
+
+Процесс git
+
+\subsection*{hbs2-peer}
+
+Процесс hbs2-peer
+
+\subsection*{Store}
+
+Хранилище объектов HBS2 (меркл-деревья, блоки, ссылки, ...)
+
+\subsection*{State}
+
+Вычисляемый \term{state}{стейт} для \term{reflog}{рефлога} репозитория.
+
+\section{Отсортированный по времени/высоте сегментированный лог}
+
+\begin{figure}[h!]
+\centering
+  \begin{tikzpicture}[every node/.append style={font=\scriptsize}]
+
+  \node[ rectangle split
+       , rectangle split parts=3
+       , draw
+       , font=\scriptsize
+       , text width=3cm
+       , label={above:Reflog}
+       ] (reflog)
+  {
+    Transaction~N
+    \nodepart{two}...
+    \nodepart{three}Transaction~1
+  };
+
+
+  \node[ draw
+       , right = 2cm of reflog.north east, anchor=north west
+       , rectangle split, rectangle split horizontal, rectangle split parts=3
+       , label={below:PUSH log}
+       ] (pushlog)
+       { \nodepart{one}$S_1$
+         \nodepart{two}...
+         \nodepart{three}$S_n$
+       };
+
+  \draw[-latex] (reflog.12) -- (pushlog) node[midway,above] {merkle~tree};
+
+\end{tikzpicture}
+\end{figure}
+
+Данный формат использует механизм \term{reflog}{reflog} hbs2, который является Merkle-деревом
+списка транзакций. Каждая транзакция имеет стандартный вид, и содержит ссылку на
+\term{log}{лог} (хэш \term{ann-merkle-tree}{аннотированного merkle-дерева} лога).
+
+Каждая секция $S_n$ \term{log}{лога} имеет вид:
+
+\begin{figure}[h!]
+\centering
+  \begin{tikzpicture}[every node/.append style={font=\scriptsize}]
+
+  \node[ rectangle split,  rectangle split horizontal
+       , rectangle split parts=2
+       , draw
+       , font=\scriptsize
+       , text width=3cm
+       , label={above:$S_n$}
+       ] (reflog)
+  {
+    HEAD(64)
+    \nodepart{two}DATA(LogEntrySize)
+  };
+
+  \node[ rectangle split
+       , rectangle split parts=3
+       , draw
+       , font=\scriptsize
+       , text width=3cm
+       , label={above:HEAD}
+       , below=1cm of reflog.south west, anchor=north west
+       ] (head)
+  {
+
+    \nodepart{one}LogEntryType
+    \nodepart{two}LogEntryHash
+    \nodepart{three}LogEntrySize : W32
+  };
+
+    \draw[->] (reflog.186) -- ($(head.north west)!(reflog.186)!(head.north east)$);
+
+\end{tikzpicture}
+\end{figure}
+
+Где HEAD это заголовок фиксированного размера 64~байта, DATA -- байтовая строка размера (LogEntrySize)~байт
+произвольного формата, зависящего от LogEntryType.
+
+Формат HEAD:  сериализованное в CBOR значение вида $(Type, GitHash?, Size)$, где GitHash --
+опционален (соответствует типу $Maybe GitHash$).
+
+Формат DATA: сжатая GZip произвольная строка, размером LogEntrySize \textbf{в сжатом виде}.
+
+Таким образом, данный формат может быть расширен добавлением новых конструкторов в тип
+$LogEntryType$.
+
+Текущие основные типы секций:
+
+\begin{description}
+ \item[GitLogEntryCommit] объект git типа Commit
+ \item[GitLogEntryTree]   объект git типа Tree
+ \item[GitLogEntryBlob]   объект git типа Blob
+ \item[GitLogEntryHead]   объект типа RepoHead, сериализованный в CBOR
+\end{description}
+
+\textbf{RepoHead}
+
+\begin{lstlisting}
+data RepoHead =
+  RepoHead
+  { _repoHEAD  :: Maybe GitRef
+  , _repoHeads :: HashMap GitRef GitHash
+  }
+\end{lstlisting}
+
+
+\section{Операции}
+
+\subsection{EXPORT}
+
+\begin{enumerate}
+  \item Перечислить все объекты git в порядке следования коммитов, так, что после каждого коммита
+           идут его непосредственные зависимости (tree, blob)
+  \item Писать данные объекты в \term{log}{лог}
+  \item Писать лог в hbs2 как \term{ann-merkle-tree}{аннотированное дерево}
+  \item Порождать \term{reflog-tran}{транзакцию} для \term{reflog}{рефлога} со ссылкой на дерево из
+    предыдущего пункта
+\end{enumerate}
+
+\subsection{PUSH}
+
+\begin{enumerate}
+  \item Перечислить все объекты git в порядке следования коммитов начиная с последнего известного
+    для данной ветки, аналогично EXPORT.
+  \item Далее аналогично 2--4 EXPORT
+\end{enumerate}
+
+\subsection{FETCH}
+
+\begin{enumerate}
+  \item Получить \term{hashref}{значение HashRef} для \term{reflog}{рефлога}
+  \item Обойти все необработанные \term{transaction}{транзакции} \term{reflog}{рефлога}
+  \item Для каждой такой транзакции извлечь ссылку на \term{merkle-tree}{дерево}
+  \item Получить \term{log}{лог} для этого \term{merkle-tree}{дерева}
+  \item Обойти секции лога, импортировать объекты в репозиторий git, устанавливать
+        ссылки (в \term{state}{стейте})
+  \item Обновлять \term{state}{стейт}
+\end{enumerate}
+
+Поскольку одна операция $git~push$ устанавливает одну ссылку в заданное значение коммита,
+у нас есть соответствие $refname \leftrightarrow commit$ для каждого лога.
+
+Поскольку для коммитов определен порядок, мы можем вычислить порядок логов в журнале транзакций
+и порядок следования операций установления ссылки.
+к
+Таким образом, мы можем вычислить актуальные (последние) значения для каждой ссылки для
+объединения логов.
+
+\subsection{DELETE}
+
+Удалять ссылку. Удаление ссылки производится путем установки её в значение
+'0\{40\}' (хэш из сорока нулей) а не в пустую строку, как это происхоит в git,
+что бы не рассматривать частный случай при разборе объектов типа RepoHead.
+
+В \term{state}{стейте} происходит фильтрация и ссылки, установленные в
+данное значение --- не выводятся.
+
+\section{Стейт}
+
+Каждому \term{reflog}{рефлогу} соответствует  \term{state}{стейт}, который вычисляется и
+синхронизируется при операциях FETCH и PUSH.
+
+\term{state}{Стейт} представляет собой БД SQLite которая содержит необходимую для функционирования
+hbs2-git информацию (объекты, отношения, логи, индексы).
+
+\term{state}{Стейт} может быть в любой момент пересоздан из рефлога.
+
+Операции из рефлога над \term{state}{стейтом} идемпотентны.
+
+Порядок существенных операций не играет роли, однако стейт содержит временные метки,
+которые будут меняться в зависимости от времени.
+
+То есть, существенная часть стейта определяется только операциями из рефлога, причем,
+порядок неважен, так как значимые сущности имеют порядок, определяемый репозиторием git
+(топологический).
+
+\section{Замечания}
+
+\subsection*{Перечисление объектов репозитория}
+
+Перечисление объектов репозитория осуществляется при помощи команды
+
+\begin{verbatim}
+git rev-list --objects --in-commit-order --reverse --date-order
+\end{verbatim}
+
+и введение явной сортировки приводит к тому, что на больших репозиториях
+данная команда сначала перечисляет все объекты, и потом их сортирует, что
+происходит очень долго.
+
+Явно заданный порядок нужен для возможности повторного использования
+частей логов для уменьшения оверхеда по данным, однако эффективность
+данной меры пока не оценена, а замедление на больших репозиториях очень
+значительное.
+
+Цель частичного повторного использования сегментов лога может быть
+достигнута, если одному \term{PUSH}{PUSH} или \term{EXPORT}{EXPORT} будет
+соответствовать не один лог, а некоторое количество логов, с ограничением
+каждого или по размеру, или по количеству объектов.
+
+Это не создаёт никаких дополнительных расходов, следовательно, должно
+быть реализовано.
+
+Тогда существует вероятность, что некоторые последовательности коммитов
+будут повторно использоваться в системе, и кажется, это лучше, чем текущая
+ситуация с попыткой переиспользования частей лога.
+
+Откуда берётся переиспользование вообще: так как лог сохраняется, как
+\term{merkle}{дерево Меркля}, он разбивается на сегменты фиксированного
+размера ($\approx{}256K$) и эти сегменты могут не скачиваться повторно, если они
+уже есть, или же скачиваться у разных участников сети, если у них они
+есть.
+
+\subsection*{Использование fast-export/fast-import}
+
+Хотя чтение и импорт объектов при помощи fast-export/fast-import
+может быть быстрее, а сжатие такого лога полностью при помощи
+gzip --- лучше, надо заметить следующее:
+
+\begin{enumerate}
+  \item Отсутствие хэшей в этом формате,
+        которые заменены короткими уникальными идентификаторами
+  \item Очень сильное замедление сжатия с ростом объема лога fast-export
+  \item Быстрое чтение объектов при помощи fast-export
+  \item Вероятно, более быстрый импорт объектов при помощи fast-import
+\end{enumerate}
+
+\subsubsection*{Следствия}
+
+На больших логах будет работать очень медленно, так же медленно, как и сейчас.
+
+На маленьких логах всё работает достаточно быстро и сейчас, нет смысла утруждаться.
+
+Хэши нужны, что бы контролировать целостность логов, то есть придется парсить формат fast-import
+и их считать, что еще больше замедлит.
+
+Если хэши объектов не считать, то есть опасность постинга по сути мусора в репозиторий git, т.к.
+нет возможности контролировать и сопоставлять объекты.
+
+Текущий формат лога позволяет добавить секции, где будут логи формата fast-import.
+
+Это может привести к некоторому ускорению, если у нас не будет огромных логов, а логи будут нарезаны
+по некоему разумному размеру.
+
+Выглядит так, что можно попробовать сделать это в дальнейшем, когда другие способы оптимизации
+скорости будут исчерпаны.
+
+\end{document}
+
+

@@ -6,8 +6,6 @@ import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
--- import HBS2.Merkle
--- import HBS2.Hash
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -16,22 +14,17 @@ import HBS2Git.Config as Config
 import HBS2Git.Types
 import HBS2Git.State
 import HBS2Git.App
-import HBS2Git.Export (export)
+import HBS2Git.Export (exportRefOnly,exportRefDeleted)
+import HBS2Git.Import (importRefLogNew)
 
 import GitRemoteTypes
 
-import Data.Maybe
 import Control.Monad.Reader
 import Data.Functor
 import Data.Set (Set)
-import Data.Set qualified as Set
-import Lens.Micro.Platform
-import Data.HashMap.Strict qualified as HashMap
 import Text.InterpolatedString.Perl6 (qc)
-import Data.ByteString qualified as BS
-import Control.Concurrent.STM.TVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource
 
 newtype RunWithConfig m a =
   WithConfig { fromWithConf :: ReaderT [Syntax C] m a }
@@ -43,6 +36,8 @@ newtype RunWithConfig m a =
                    , MonadTrans
                    , MonadThrow
                    , MonadCatch
+                   -- , MonadMask
+                   , MonadUnliftIO
                    )
 
 
@@ -65,43 +60,37 @@ instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
 push :: forall  m . ( MonadIO m
                     , MonadCatch m
                     , HasProgress (RunWithConfig (GitRemoteApp m))
+                    , MonadUnliftIO m
                     )
 
      => RepoRef -> [Maybe GitRef] -> GitRemoteApp m (Maybe GitRef)
 
-push remote [bFrom , Just br] = do
 
+
+push remote what@[Just bFrom , Just br] = do
   (_, syn) <- Config.configInit
 
   dbPath <- makeDbPath remote
   db <- dbEnv dbPath
 
   runWithConfig syn do
-
-    brCfg <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
-
+    _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
     loadCredentials mempty
+    trace $ "PUSH PARAMS" <+> pretty what
+    gh <- gitGetHash (normalizeRef bFrom) `orDie` [qc|can't read hash for ref {pretty br}|]
+    _ <- traceTime "TIME: exportRefOnly" $ exportRefOnly () remote (Just bFrom) br gh
+    importRefLogNew False remote
+    pure (Just br)
 
-    oldHead <- readHead db <&> fromMaybe mempty
+push remote [Nothing, Just br]  = do
+  (_, syn) <- Config.configInit
 
-    newHead <- case bFrom of
-                Just newBr -> do
-                   gh <- gitGetHash (normalizeRef newBr) `orDie` [qc|can't read hash for ref {pretty newBr}|]
-                   pure $ over repoHeads (HashMap.insert br gh) oldHead
-
-                Nothing -> do
-                  warn $ "about to delete branch" <+> pretty br <+> pretty "in" <+> pretty remote
-
-                  when ( br `Set.member` brCfg ) do
-                    err $ "remove" <+> pretty br <+> "from config first"
-                    exitFailure
-
-                  pure $ over repoHeads (HashMap.delete br) oldHead
-
-    (root, hh) <- export remote newHead
-
-    info  $ "head:" <+> pretty hh
-    info  $ "merkle:" <+> pretty root
+  runWithConfig syn do
+    _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
+    loadCredentials mempty
+    trace $ "deleting remote reference" <+> pretty br
+    exportRefDeleted () remote br
+    importRefLogNew False remote
     pure (Just br)
 
 push r w = do

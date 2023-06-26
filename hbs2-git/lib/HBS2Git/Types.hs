@@ -15,6 +15,8 @@ import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
 
+import HBS2.System.Logger.Simple
+
 import Data.Config.Suckless
 
 import System.ProgressBar
@@ -24,8 +26,11 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Database.SQLite.Simple (Connection)
+import Data.Char (isSpace)
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.List qualified as List
+import Data.Maybe
 import Lens.Micro.Platform
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -35,6 +40,9 @@ import System.IO qualified as IO
 import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch
+import Control.Monad.IO.Unlift
+
+import System.TimeIt
 
 -- FIXME: remove-udp-hardcode-asap
 type Schema = HBS2Basic
@@ -77,7 +85,7 @@ data RepoHead =
   { _repoHEAD  :: Maybe GitRef
   , _repoHeads :: HashMap GitRef GitHash
   }
-  deriving stock (Generic)
+  deriving stock (Generic,Show)
 
 makeLenses 'RepoHead
 
@@ -90,16 +98,39 @@ instance Semigroup RepoHead where
                     & set repoHeads ( view repoHeads a <> view repoHeads b )
 
 instance Pretty (AsGitRefsFile RepoHead) where
-  pretty (AsGitRefsFile h) = vcat (hhead : fmap fmt els)
+  pretty (AsGitRefsFile h) = hhead <> vcat (fmap fmt els)
     where
       hhead = case view repoHEAD h of
                Nothing -> mempty
-               Just r -> "@" <> pretty r <+> "HEAD"
+               Just r -> "@" <> pretty r <+> "HEAD"  <> line
 
       els = HashMap.toList (view repoHeads h)
       fmt (r,hx) = pretty hx <+> pretty (normalizeRef r)
 
+
 instance Serialise RepoHead
+
+-- FIXME: test-for-from-string-maybe-repohead
+--   Нужно написать или сгенерировать тест
+instance FromStringMaybe RepoHead where
+  fromStringMay "" = Nothing
+  fromStringMay s =
+    case traverse decodePair (take 2 . words <$> lines trimmed) of
+      Right xs -> Just $ mconcat xs
+      _        -> Nothing
+    where
+      trimmed = dropWhile isSpace s
+      hbranch x = fromString <$> List.stripPrefix "@" x
+      decodePair :: [String] -> Either [String] RepoHead
+      decodePair [x, "HEAD"] | "@" `List.isPrefixOf` x = Right $ RepoHead (hbranch x) mempty
+
+      -- special case: deleted branch. should be handled somehow
+      decodePair [_] = Right $ RepoHead Nothing mempty
+
+      decodePair [x,r] = case fromStringMay x of
+                            Just h  -> Right $ RepoHead Nothing (HashMap.singleton (fromString r) h)
+                            Nothing -> Left [r,x]
+      decodePair other  = Left other
 
 
 pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
@@ -136,6 +167,12 @@ instance (HasCatAPI m, MonadIO m) => HasCatAPI (MaybeT m) where
   getHttpPutAPI = lift getHttpPutAPI
   getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
+-- instance (HasCatAPI (App m), MonadIO m) => HasCatAPI (ResourceT (App m)) where
+--   getHttpCatAPI = lift getHttpCatAPI
+--   getHttpSizeAPI = lift getHttpSizeAPI
+--   getHttpPutAPI = lift getHttpPutAPI
+--   getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
+
 class Monad m => HasCfgKey a b m where
   -- type family CfgValue a :: Type
   key :: Id
@@ -155,6 +192,8 @@ newtype App m a =
                    , MonadReader AppEnv
                    , MonadThrow
                    , MonadCatch
+                   , MonadUnliftIO
+                   , MonadTrans
                    )
 
 instance MonadIO m => HasConf (App m) where
@@ -193,4 +232,10 @@ exitFailure = do
 die :: MonadIO m => String -> m a
 die s = do
   liftIO $ Exit.die s
+
+traceTime :: MonadIO m => String -> m a -> m a
+traceTime s action = do
+  (t, x) <- timeItT action
+  trace $ "time" <+> pretty s <+> pretty t
+  pure x
 

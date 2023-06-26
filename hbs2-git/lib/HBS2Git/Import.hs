@@ -11,25 +11,30 @@ import HBS2.Net.Proto.RefLog
 import Text.InterpolatedString.Perl6 (qc)
 import HBS2.Data.Detect hiding (Blob)
 
-import Data.Config.Suckless
-
 import HBS2.Git.Local
-
+import HBS2Git.GitRepoLog
 import HBS2Git.App
 import HBS2Git.State
+import HBS2.Git.Local.CLI
 
+import Data.Fixed
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue qualified as Q
 import Control.Monad.Reader
-import Data.Foldable (for_)
 import Data.Maybe
-import Data.Text qualified as Text
-import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import Lens.Micro.Platform
--- import System.Exit
+import Data.Set qualified as Set
 import Codec.Serialise
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource
+import System.Directory
+import System.IO.Temp
+import UnliftIO.IO
+import System.IO (openBinaryFile)
+import System.FilePath.Posix
+import Data.HashMap.Strict qualified as HashMap
 
 data RunImportOpts =
   RunImportOpts
@@ -42,123 +47,177 @@ makeLenses 'RunImportOpts
 isRunImportDry :: RunImportOpts -> Bool
 isRunImportDry o = view runImportDry o == Just True
 
-
+walkHashes :: HasCatAPI m => TQueue HashRef -> Hash HbSync -> m ()
 walkHashes q h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
   case hr of
     Left hx -> die $ show $ pretty "missed block:" <+> pretty hx
     Right (hrr :: [HashRef]) -> do
        forM_ hrr $ liftIO . atomically . Q.writeTQueue q
 
-importRefLog :: (MonadIO m, HasCatAPI m) => DBEnv -> RepoRef -> m ()
-importRefLog db ref = do
 
-  logRoot <- readRef ref `orDie` [qc|can't read ref {pretty ref}|]
+data ImportCmd = ImportCmd GitObjectType FilePath
+               | ImportStop
+               deriving (Show)
 
-  trace $ pretty logRoot
+importRefLogNew :: ( MonadIO m
+                   , MonadUnliftIO m
+                   , MonadCatch m
+                   , HasCatAPI m
+                   )
+                => Bool -> RepoRef -> m ()
 
-  logQ <- liftIO newTQueueIO
-  walkHashes logQ (fromHashRef logRoot)
+importRefLogNew force ref = runResourceT do
+  let myTempDir = "hbs-git"
+  temp <- liftIO getCanonicalTemporaryDirectory
+  (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
 
-  entries <- liftIO $ atomically $ flushTQueue logQ
+  db <- makeDbPath ref >>= dbEnv
 
-  forM_ entries $ \e -> do
+  do
+    trace $ "importRefLogNew" <+> pretty ref
+    logRoot <- lift $ readRef ref `orDie` [qc|can't read ref {pretty ref}|]
+    trace $ "ROOT" <+> pretty logRoot
 
-    missed <- readBlock e <&> isNothing
+    trans <- withDB db $ stateGetAllTranImported <&> Set.fromList
+    done <- withDB db $ stateGetRefImported logRoot
 
-    when missed do
-      debug $ "MISSED BLOCK" <+> pretty e
+    when (not done || force) do
 
-    runMaybeT $ do
-      bs <- MaybeT $ readBlock e
-      refupd <- MaybeT $ pure $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs & either (const Nothing) Just
-      e <- MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd) & either (const Nothing) Just
-      let (SequentialRef n (AnnotatedHashRef _ h)) = e
-      withDB db $ stateUpdateRefLog n h
+      logQ <- liftIO newTQueueIO
 
-  new <- withDB db stateGetHead <&> isNothing
+      lift $ walkHashes logQ (fromHashRef logRoot)
 
-  when new do
-    pure ()
+      let notSkip n = force || not (Set.member n trans)
+      entries <- liftIO $ atomically $ flushTQueue logQ <&> filter notSkip
 
-importObjects :: (MonadIO m, MonadCatch m, HasCatAPI m) => DBEnv -> HashRef -> m ()
-importObjects db root = do
+      pCommit <- liftIO $ startGitHashObject Commit
+      pTree <- liftIO $ startGitHashObject Tree
+      pBlob <- liftIO $ startGitHashObject Blob
 
-  q <- liftIO newTQueueIO
+      let hCommits = getStdin pCommit
+      let hTrees = getStdin pTree
+      let hBlobs = getStdin pBlob
 
-  walkHashes q (fromHashRef root)
+      let handles = [hCommits, hTrees, hBlobs]
 
-  entries <- liftIO $ atomically $ Q.flushTQueue q
+      sp0 <- withDB db savepointNew
+      withDB db $ savepointBegin sp0
 
-  hd <- pure (headMay entries) `orDie` "no head block found"
+      forM_ entries $ \e -> do
 
-  -- TODO: what-if-metadata-is-really-big?
-  hdData <- readBlock hd `orDie` "empty head block"
+        missed <- lift $ readBlock e <&> isNothing
 
-  let hdBlk = tryDetect (fromHashRef hd) hdData
+        when missed do
+          debug $ "MISSED BLOCK" <+> pretty e
 
-  let meta = headDef "" [ Text.unpack s | ShortMetadata s <- universeBi hdBlk ]
+        let fname = show (pretty e)
+        let fpath = dir </> fname
 
-  syn <- liftIO $ parseTop meta & either (const $ die "invalid head block meta") pure
+        (keyFh, fh) <- allocate (openBinaryFile fpath AppendMode) hClose
 
-  let app sy = headDef False
-               [ True
-               | ListVal @C (Key "application:" [SymbolVal "hbs2-git"]) <- sy
-               ]
+        runMaybeT $ do
+          bs <- MaybeT $ lift $ readBlock e
+          refupd <- MaybeT $ pure $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs & either (const Nothing) Just
+          payload <- MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd) & either (const Nothing) Just
+          let (SequentialRef _ (AnnotatedHashRef _ h)) = payload
+          trace $ "PUSH LOG HASH" <+> pretty h
 
-  let hdd = headDef False
-            [ True
-            | ListVal @C (Key "type:" [SymbolVal "head"]) <- syn
-            ]
+          here <- withDB db $ stateGetLogImported h
 
-  unless ( app syn  && hdd ) do
-    liftIO $ die "invalid head block meta"
+          unless (here && not force) do
 
-  let rest = drop 1 entries
+            lift $ deepScan ScanDeep (const none) (fromHashRef h) (lift . readBlock . HashRef) $ \ha -> do
+              sec <- lift $ readBlock (HashRef ha) `orDie` [qc|missed block {pretty ha}|]
+              -- skip merkle tree head block, write only the data
+              when (h /= HashRef ha) do
+                liftIO $ LBS.hPutStr fh sec
 
+            release keyFh
 
-  withDB db $ transactional $ do
+            tnum <- liftIO $ newTVarIO 0
+            liftIO $ gitRepoLogScan True fpath $ \_ _ -> do
+              liftIO $ atomically $ modifyTVar tnum succ
 
-    trace "ABOUT TO UPDATE HEAD"
+            num <- liftIO $ readTVarIO tnum
+            trace $ "LOG ENTRY COUNT" <+> pretty  num
 
-    statePutHead hd
-    statePutImported root hd
+            let pref = take 16 (show (pretty e))
+            sz <- liftIO $ getFileSize fpath <&> realToFrac
+            let name = [qc|import {pref}... {sz / (1024*1024) :: Fixed E3}|]
 
-    mon <- newProgressMonitor "importing objects" (length rest)
+            oMon  <- newProgressMonitor name  num
 
-    for_ rest $ \r -> do
+            lift $ gitRepoLogScan True fpath $ \entry s -> do
+              updateProgress oMon 1
 
-      updateProgress mon 1
+              lbs <- pure s `orDie` [qc|git object not read from log|]
 
-      gh <- stateGetGitHash r <&> isJust
+              withDB db do
 
-      unless gh do
+                case view gitLogEntryType entry of
+                  GitLogEntryCommit -> do
+                    bss <- lift (pure s) `orDie` [qc|git object not read from log|]
+                    let co = view gitLogEntryHash entry
+                    hx <- pure (view gitLogEntryHash entry) `orDie` [qc|empty git hash|]
 
-        blk <- lift $ readBlock r `orDie` "empty data block"
+                    trace $ "logobject" <+> pretty h <+> "commit" <+> pretty (view gitLogEntryHash entry)
 
-        let what = tryDetect (fromHashRef r) blk
+                    writeIfNew hCommits dir hx (GitObject Commit lbs)
+                    statePutLogObject (h, Commit, hx)
 
-        let short = headDef "" [ s | ShortMetadata s <- universeBi what ]
+                    let parents = gitCommitGetParentsPure bss
 
-        let fields = Text.lines short & fmap Text.words
+                    forM_ parents $ \p -> do
+                      trace $ "fact" <+> "commit-parent" <+> pretty co <+> pretty p
+                      statePutLogCommitParent (hx,p)
 
-        let fromTxt =  fromString . Text.unpack
-        let fromRec t = Just . (t,) . fromTxt
+                  GitLogEntryBlob   -> do
+                    trace $ "logobject" <+> pretty h <+> "blob" <+> pretty (view gitLogEntryHash entry)
+                    hx <- pure (view gitLogEntryHash entry) `orDie` [qc|empty git hash|]
+                    writeIfNew hBlobs dir hx (GitObject Blob lbs)
+                    statePutLogObject (h, Blob, hx)
 
-        hm <- forM fields $ \case
-                ["type:", "blob", x]   -> pure $ fromRec Blob x
-                ["type:", "commit", x] -> pure $ fromRec Commit x
-                ["type:", "tree", x]   -> pure $ fromRec Tree x
-                _                      -> pure Nothing
+                  GitLogEntryTree   -> do
+                    trace $ "logobject" <+> pretty h <+> "tree" <+> pretty (view gitLogEntryHash entry)
+                    hx <- pure (view gitLogEntryHash entry) `orDie` [qc|empty git hash|]
+                    writeIfNew hTrees dir hx (GitObject Tree lbs)
+                    statePutLogObject (h, Tree, hx)
 
-        case catMaybes hm of
-          [(t,sha1)] -> do
-            trace $ "statePutHash" <+> pretty t <+> pretty sha1
+                  GitLogContext -> do
+                    trace $ "logobject" <+> pretty h <+> "context" <+> pretty (view gitLogEntryHash entry)
 
-            -- FIXME: return-dry?
-            statePutHash t sha1 r
+                    let co = fromMaybe mempty $ deserialiseOrFail @GitLogContextEntry
+                                <$> s >>= either (const Nothing) Just <&> commitsOfGitLogContextEntry
 
-          _          -> err $ "skipping bad object" <+> pretty r
+                    forM_ co  (statePutLogContextCommit h)
 
-  pure ()
+                  GitLogEntryHead   -> do
+                    trace $ "HEAD ENTRY" <+> viaShow s
+                    let mbrh = fromStringMay @RepoHead (maybe mempty LBS.unpack s)
+                    rh <- pure mbrh `orDie` [qc|invalid log header in {pretty h} {s}|]
 
+                    forM_ (HashMap.toList $ view repoHeads rh) $ \(re,ha) -> do
+                      trace $ "logrefval" <+> pretty h <+> pretty re <+> pretty ha
+                      statePutLogRefVal (h,re,ha)
+
+                  _ -> pure ()
+
+                statePutLogImported h
+                statePutTranImported e
+
+      withDB db $ do
+        statePutRefImported logRoot
+        stateUpdateCommitDepths
+        savepointRelease sp0
+
+      mapM_ hClose handles
+
+  where
+
+    writeIfNew gitHandle dir h (GitObject tp s) = do
+      let nf = dir </> show (pretty h)
+      liftIO $ LBS.writeFile nf s
+      hPutStrLn gitHandle nf
+      hFlush gitHandle
+      trace $ "WRITTEN OBJECT" <+> pretty tp <+> pretty h <+> pretty nf
 

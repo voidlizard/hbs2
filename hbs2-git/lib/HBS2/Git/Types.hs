@@ -41,6 +41,11 @@ instance Serialise GitHash
 instance IsString GitHash where
   fromString s = GitHash (B16.decodeLenient (BS.pack s))
 
+instance FromStringMaybe GitHash where
+  fromStringMay s = either (const Nothing) pure (GitHash <$> B16.decode bs)
+    where
+      bs = BS.pack s
+
 instance Pretty GitHash where
   pretty (GitHash s) = pretty @String [qc|{B16.encode s}|]
 
@@ -57,6 +62,13 @@ instance IsString GitObjectType where
     "tree"   -> Tree
     "blob"   -> Blob
     x        -> error [qc|invalid git object type {x}|]
+
+instance FromStringMaybe GitObjectType where
+  fromStringMay = \case
+    "commit" -> Just Commit
+    "tree"   -> Just Tree
+    "blob"   -> Just Blob
+    _        -> Nothing
 
 instance Pretty GitObjectType where
   pretty = \case

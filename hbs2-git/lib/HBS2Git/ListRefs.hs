@@ -5,12 +5,20 @@ import HBS2.Prelude
 import HBS2Git.App
 import HBS2.Data.Types.Refs (HashRef)
 
+import HBS2.System.Logger.Simple
 import HBS2.Git.Local.CLI
+import HBS2.Git.Types
+import HBS2Git.Import (importRefLogNew)
+import HBS2Git.State
 
+import Data.HashMap.Strict qualified as HashMap
 import Data.Functor
 import Data.Text qualified as Text
 import Data.Traversable
 import Prettyprinter.Render.Terminal
+import Control.Monad.IO.Unlift
+import Control.Monad.Catch
+import System.IO (stdout)
 
 data AsRemoteEntry = AsRemoteEntry
   { remoteName :: Text,
@@ -64,6 +72,21 @@ runListRefs = do
   liftIO $ putDoc $ vcat $ pretty <$> remoteEntries
   where
     isHbs2 (_, b) = Text.isPrefixOf hbs2Prefix b
+
+runToolsScan :: (MonadUnliftIO m,MonadCatch m) => RepoRef -> App m ()
+runToolsScan ref = do
+  trace $ "runToolsScan" <+> pretty ref
+  importRefLogNew False ref
+  shutUp
+  pure ()
+
+runToolsGetRefs :: (MonadUnliftIO m,MonadCatch m) => RepoRef -> App m ()
+runToolsGetRefs ref = do
+  db <- makeDbPath ref >>= dbEnv
+  refs <- withDB db stateGetActualRefs
+  let rh = RepoHead Nothing (HashMap.fromList refs)
+  hPrint stdout $ pretty (AsGitRefsFile rh)
+  shutUp
 
 getRefVal :: (MonadIO m, HasCatAPI m) => Text -> m (Maybe HashRef)
 getRefVal url =

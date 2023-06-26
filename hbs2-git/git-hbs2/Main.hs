@@ -23,6 +23,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
                         <> command "show"      (info pShow (progDesc "show various types of objects"))
+                        <> command "tools"     (info pTools (progDesc "misc tools"))
                         )
 
     pExport = do
@@ -40,4 +41,19 @@ main = join . customExecParser (prefs showHelpOnError) $
     pShow = do
       object <- optional $
         argument (maybeReader showReader) (metavar "object" <> help "<HASH-REF> | config")
+
       pure $ runApp NoLog (runShow object)
+
+    pTools = hsubparser (    command "scan" (info pToolsScan (progDesc "scan reference"))
+                          <> command "refs" (info pToolsGetRefs (progDesc "list references"))
+
+                        )
+
+    pToolsScan = do
+      ref  <- strArgument (metavar "HASH-REF")
+      pure $ runApp WithLog (runToolsScan ref)
+
+    pToolsGetRefs = do
+      ref  <- strArgument (metavar "HASH-REF")
+      pure $ runApp WithLog (runToolsGetRefs ref)
+

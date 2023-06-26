@@ -1,13 +1,17 @@
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Git.Local.CLI where
+module HBS2.Git.Local.CLI
+  ( module HBS2.Git.Local.CLI
+  , getStdin
+  , stopProcess
+  ) where
 
+import HBS2.Prelude.Plated
 import HBS2.Git.Types
 
 import HBS2.System.Logger.Simple
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Monad.IO.Class
 import Control.Monad.Writer
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
@@ -21,15 +25,13 @@ import Data.Function
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.String
+import Data.List qualified as List
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding (decodeLatin1)
 import Data.Text qualified as Text
-import Data.Text (Text)
-import Prettyprinter
-import Safe
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
+import System.IO
 
 -- FIXME: specify-git-dir
 
@@ -68,9 +70,31 @@ gitGetDepsPure (GitObject Commit bs) = Set.fromList (recurse ls)
 
 gitGetDepsPure _ = mempty
 
+gitCommitGetParentsPure :: LBS.ByteString -> [GitHash]
+gitCommitGetParentsPure bs = foldMap seek pairs
+  where
+    pairs = take 2 . LBS.words <$> LBS.lines bs
+    seek = \case
+      ["parent", x] -> [fromString (LBS.unpack x)]
+      _             -> mempty
 
+data GitParsedRef = GitCommitRef GitHash
+                  | GitTreeRef GitHash
+                    deriving stock (Data,Eq,Ord)
 
+gitGetParsedCommit :: MonadIO m => GitObject -> m [GitParsedRef]
+gitGetParsedCommit (GitObject Commit bs)  = do
+  let ws = fmap LBS.words (LBS.lines bs)
+  oo <- forM ws $ \case
+          ["tree", s]   -> pure [GitTreeRef (fromString (LBS.unpack s))]
+          ["commit", s] -> pure [GitCommitRef (fromString (LBS.unpack s))]
+          _             -> pure mempty
 
+  pure $ mconcat oo
+
+gitGetParsedCommit _ = pure mempty
+
+-- FIXME: use-fromStringMay
 gitGetObjectType :: MonadIO m => GitHash -> m (Maybe GitObjectType)
 gitGetObjectType hash = do
   (_, out, _) <- readProcess (shell [qc|git cat-file -t {pretty hash}|])
@@ -105,11 +129,13 @@ gitGetDependencies hash = do
     _           -> pure mempty
 
 
+-- | calculates all dependencies of given list
+--   of git objects
 gitGetAllDependencies :: MonadIO m
-                       => Int
-                       -> [ GitHash ]
-                       -> ( GitHash -> IO [GitHash] )
-                       -> ( GitHash -> IO () )
+                       => Int  -- ^ number of threads
+                       -> [ GitHash ] -- ^ initial list of objects to calculate deps
+                       -> ( GitHash -> IO [GitHash] ) -- ^ lookup function
+                       -> ( GitHash -> IO () ) -- ^ progress update function
                        -> m [(GitHash, GitHash)]
 
 gitGetAllDependencies n objects lookup progress = liftIO do
@@ -181,6 +207,24 @@ gitGetTransitiveClosure cache exclude hash = do
         cacheInsert cache hash res
         pure res
 
+
+-- gitGetAllDepsByCommit :: GitHash -> IO [GitHash]
+-- gitGetAllDepsByCommit h = do
+-- -- FIXME: error-handling
+--   (_, out, _) <- liftIO $ readProcess (shell [qc|git rev-list {pretty h}|])
+--   let ls =  LBS.lines out & fmap ( fromString . LBS.unpack )
+
+--   forM ls $ \l -> do
+--     o <- liftIO $ gitReadObject (Just Commit) l
+--     let tree = gitGetDepsPure (GitObject Commit o)
+--     (_, out, _) <- liftIO $ readProcess (shell [qc|git rev-list {pretty h}|])
+
+--     print tree
+
+--   -- mapM_ (print.pretty) ls
+--   pure []
+  -- deps <- mapM gitGetDependencies ls <&> mconcat
+  -- pure $ List.nub $ ls <> deps
 
 -- FIXME: inject-git-working-dir-via-typeclass
 
@@ -277,8 +321,16 @@ gitStoreObject (GitObject t s) = do
     ExitSuccess -> pure $ Just (parseHashLazy out)
     ExitFailure{} -> pure Nothing
 
+gitCheckObject :: MonadIO m => GitHash -> m Bool
+gitCheckObject gh = do
+  let cmd = [qc|git cat-file -e {pretty gh}|]
+  let procCfg = setStderr closed (shell cmd)
+  (code, _, _) <- readProcess procCfg
+  case code of
+    ExitSuccess -> pure True
+    ExitFailure{} -> pure False
 
-gitListAllObjects :: MonadIO m => m [GitHash]
+gitListAllObjects :: MonadIO m => m [(GitObjectType, GitHash)]
 gitListAllObjects = do
   let cmd = [qc|git cat-file --batch-check --batch-all-objects|]
   let procCfg = setStdin closed $ setStderr closed (shell cmd)
@@ -288,7 +340,7 @@ gitListAllObjects = do
 
   where
     fromLine = \case
-      [ha, _, _] -> [fromString (LBS.unpack ha)]
+      [ha, tp, _] -> [(fromString (LBS.unpack tp), fromString (LBS.unpack ha))]
       _          -> []
 
 -- FIXME: better error handling
@@ -328,5 +380,84 @@ gitListLocalBranches  = do
     fromLine = \case
       [h, n] -> [(fromString (LBS.unpack n), fromString (LBS.unpack h))]
       _      -> []
+
+
+gitListAllCommits :: MonadIO m => m [GitHash]
+gitListAllCommits = do
+  let cmd = [qc|git log --all --pretty=format:'%H'|]
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+  pure $ fmap (fromString . LBS.unpack) (LBS.lines out)
+
+gitRunCommand :: MonadIO m => String -> m (Either ExitCode ByteString)
+gitRunCommand cmd = do
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (code, out, _) <- readProcess procCfg
+  case code of
+    ExitSuccess -> pure (Right out)
+    e           -> pure (Left e)
+
+-- | list all commits from the given one in order of date
+gitListAllCommitsExceptBy :: MonadIO m => Set GitHash -> Maybe GitHash -> GitHash -> m [GitHash]
+gitListAllCommitsExceptBy excl l h = do
+  let from = maybe mempty (\r -> [qc|{pretty r}..|] ) l
+  let cmd = [qc|git rev-list --reverse --date-order {from}{pretty h}|]
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+  let res = fmap (fromString . LBS.unpack) (LBS.lines out)
+  pure $ List.reverse $ filter ( not . flip Set.member excl) res
+
+-- | list all objects for the given commit range in order of date
+gitRevList :: MonadIO m => Maybe GitHash -> GitHash -> m [GitHash]
+gitRevList l h = do
+  let from = maybe mempty (\r -> [qc|{pretty r}..|] ) l
+  -- let cmd = [qc|git rev-list --objects --in-commit-order --reverse --date-order {from}{pretty h}|]
+  let cmd = [qc|git rev-list --objects --reverse --in-commit-order {from}{pretty h}|]
+  let procCfg = setStdin closed $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+  pure $ mapMaybe (fmap (fromString . LBS.unpack) . headMay . LBS.words) (LBS.lines out)
+
+-- TODO: handle-invalid-input-somehow
+gitGetObjectTypeMany :: MonadIO m =>  [GitHash] -> m [(GitHash, GitObjectType)]
+gitGetObjectTypeMany hashes = do
+  let hss = LBS.unlines $ fmap (LBS.pack.show.pretty) hashes
+  let cmd = [qc|git cat-file --batch-check='%(objectname) %(objecttype)'|]
+  let procCfg = setStdin (byteStringInput hss) $ setStderr closed (shell cmd)
+  (_, out, _) <- readProcess procCfg
+  pure $ mapMaybe (parse . fmap LBS.unpack . LBS.words) (LBS.lines out)
+  where
+    parse [h,tp] = (,) <$> fromStringMay h <*> fromStringMay tp
+    parse _ = Nothing
+
+gitGetCommitImmediateDeps :: MonadIO m => GitHash -> m [GitHash]
+gitGetCommitImmediateDeps h = do
+  o <- gitReadObject (Just Commit) h
+  let lws = LBS.lines o & fmap LBS.words
+
+  t <- forM lws $ \case
+        ["tree", hs]  -> pure (Just ( fromString @GitHash (LBS.unpack hs) ))
+        _             -> pure Nothing
+
+  let tree = take 1 $ catMaybes t
+
+  deps <- gitRunCommand [qc|git rev-list --objects {pretty (headMay tree)}|]
+            >>= either (const $ pure mempty)
+                       (pure . mapMaybe withLine . LBS.lines)
+
+  pure $ List.nub $ tree <> deps
+  where
+    withLine :: LBS.ByteString -> Maybe GitHash
+    withLine l = do
+      let wordsInLine = LBS.words l
+      firstWord <- listToMaybe wordsInLine
+      pure $ fromString @GitHash $ LBS.unpack firstWord
+
+
+startGitHashObject :: GitObjectType -> IO (Process Handle () ())
+startGitHashObject objType = do
+  let cmd = "git"
+  let args = ["hash-object", "-w", "-t", show (pretty objType), "--stdin-paths"]
+  let config = setStdin createPipe $ setStdout closed $ setStderr inherit $ proc cmd args
+  startProcess config
 
 

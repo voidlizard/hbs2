@@ -27,8 +27,16 @@ import Control.Monad.Catch
 import Control.Concurrent.STM
 import System.IO.Unsafe
 
+-- FIXME: move-orphans-to-separate-module
+
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
+
+instance ToField GitRef where
+  toField h = toField (show $ pretty h)
+
+instance FromField GitRef where
+  fromField = fmap fromString . fromField @String
 
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
@@ -38,7 +46,6 @@ instance FromField GitObjectType where
 
 instance ToField HashRef where
   toField h = toField (show $ pretty h)
-
 
 instance ToField GitObjectType where
   toField h = toField (show $ pretty h)
@@ -90,52 +97,95 @@ stateInit :: MonadIO m => DB m ()
 stateInit = do
   conn <- ask
   liftIO $ execute_ conn [qc|
-  create table if not exists dep
-  ( object text not null
-  , parent text not null
-  , primary key (object, parent)
+  create table if not exists logrefval
+  ( loghash text not null
+  , refname text not null
+  , refval  text not null
+  , primary key (loghash, refname)
   )
   |]
 
   liftIO $ execute_ conn [qc|
-  create table if not exists object
-  ( githash text not null
-  , hash text not null unique
+  create table if not exists logobject
+  ( loghash text not null
   , type text not null
-  , primary key (githash,hash)
+  , githash text not null
+  , primary key (loghash, githash)
   )
   |]
 
   liftIO $ execute_ conn [qc|
-  create table if not exists head
-  ( key text not null primary key
-  , hash text not null unique
+  create table if not exists logcommitparent
+  ( kommit text not null
+  , parent text not null
+  , primary key (kommit,parent)
   )
   |]
 
   liftIO $ execute_ conn [qc|
-  create table if not exists imported
-  ( seq integer primary key autoincrement
-  , ts DATE DEFAULT (datetime('now','localtime'))
-  , merkle text not null
-  , head text not null
-  , unique (merkle,head)
+  create table if not exists logimported
+  ( hash text not null
+  , primary key (hash)
   )
   |]
 
   liftIO $ execute_ conn [qc|
-  create table if not exists reflog
-  ( seq integer primary key
-  , ts DATE DEFAULT (datetime('now','localtime'))
-  , merkle text not null
-  , unique (merkle)
+  create table if not exists refimported
+  ( hash text not null
+  , timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  , primary key (hash)
   )
   |]
 
   liftIO $ execute_ conn [qc|
-  create table if not exists exported
-  ( githash text not null primary key
+  create table if not exists tranimported
+  ( hash text not null
+  , timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  , primary key (hash)
   )
+  |]
+
+  liftIO $ execute_ conn [qc|
+  DROP VIEW IF EXISTS v_refval_actual;
+  |]
+
+  liftIO $ execute_ conn [qc|
+    CREATE view v_refval_actual AS
+    WITH a1 as (
+      SELECT
+         l.refname
+       , l.refval
+       , vd.depth
+
+      FROM logrefval l
+      JOIN v_log_depth vd on vd.loghash = l.loghash )
+
+    SELECT a1.refname, a1.refval, MAX(a1.depth) from a1
+    GROUP by a1.refname
+    HAVING a1.refval <> '0000000000000000000000000000000000000000' ;
+  |]
+
+  liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS logcommitdepth
+  ( kommit text not null
+  , depth integer not null
+  , primary key (kommit)
+  );
+  |]
+
+  liftIO $ execute_ conn [qc|
+  DROP VIEW IF EXISTS v_log_depth;
+  |]
+
+  liftIO $ execute_ conn [qc|
+  CREATE VIEW v_log_depth AS
+  SELECT
+      lo.loghash,
+      MAX(ld.depth) AS depth
+  FROM logobject lo
+  JOIN logcommitdepth ld ON lo.githash = ld.kommit
+  WHERE lo.type in ( 'commit', 'context' )
+  GROUP BY lo.loghash;
   |]
 
 
@@ -189,179 +239,157 @@ transactional action = do
 --   состояние репозитория
 
 
-statePutExported :: MonadIO m => GitHash -> DB m ()
-statePutExported h = do
+statePutLogRefVal :: MonadIO m => (HashRef, GitRef, GitHash) -> DB m ()
+statePutLogRefVal row = do
   conn <- ask
   liftIO $ execute conn [qc|
-  insert into exported (githash) values(?)
-  on conflict (githash) do nothing
+  insert into logrefval (loghash,refname,refval) values(?,?,?)
+  on conflict (loghash,refname) do nothing
+  |] row
+
+
+statePutLogObject :: MonadIO m => (HashRef, GitObjectType, GitHash) -> DB m ()
+statePutLogObject row = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into logobject (loghash,type,githash) values(?,?,?)
+  on conflict (loghash,githash) do nothing
+  |] row
+
+stateIsLogObjectExists :: MonadIO m => GitHash -> DB m Bool
+stateIsLogObjectExists h = do
+  conn <- ask
+  liftIO $ query conn [qc|
+  SELECT NULL FROM logobject WHERE githash = ? LIMIT 1
+  |] (Only h) <&> isJust . listToMaybe . fmap (fromOnly @(Maybe Int))
+
+statePutLogContextCommit :: MonadIO m => HashRef -> GitHash -> DB m ()
+statePutLogContextCommit loghash ctx = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into logobject (loghash,type,githash) values(?,'context',?)
+  on conflict (loghash,githash) do nothing
+  |] (loghash,ctx)
+
+statePutLogCommitParent :: MonadIO m => (GitHash, GitHash) -> DB m ()
+statePutLogCommitParent row = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into logcommitparent (kommit,parent) values(?,?)
+  on conflict (kommit,parent) do nothing
+  |] row
+
+
+statePutLogImported :: MonadIO m => HashRef -> DB m ()
+statePutLogImported h = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into logimported (hash) values(?)
+  on conflict (hash) do nothing
   |] (Only h)
 
-stateGetExported :: MonadIO m => DB m [GitHash]
-stateGetExported = do
+
+stateGetLogImported :: MonadIO m => HashRef -> DB m Bool
+stateGetLogImported h = do
+  conn <- ask
+  r <- liftIO $ query @_ @(Only Int) conn [qc|
+    select 1 from logimported where hash = ? limit 1
+  |] (Only h)
+  pure $ not $ null r
+
+
+statePutRefImported :: MonadIO m => HashRef -> DB m ()
+statePutRefImported h = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into refimported (hash) values(?)
+  on conflict (hash) do nothing
+  |] (Only h)
+
+stateGetRefImported :: MonadIO m => HashRef -> DB m Bool
+stateGetRefImported h = do
+  conn <- ask
+  r <- liftIO $ query @_ @(Only Int) conn [qc|
+    select 1 from refimported where hash = ? limit 1
+  |] (Only h)
+  pure $ not $ null r
+
+statePutTranImported :: MonadIO m => HashRef -> DB m ()
+statePutTranImported h = do
+  conn <- ask
+  liftIO $ execute conn [qc|
+  insert into tranimported (hash) values(?)
+  on conflict (hash) do nothing
+  |] (Only h)
+
+stateGetTranImported :: MonadIO m => HashRef -> DB m Bool
+stateGetTranImported h = do
+  conn <- ask
+  r <- liftIO $ query @_ @(Only Int) conn [qc|
+    select 1 from tranimported where hash = ? limit 1
+  |] (Only h)
+  pure $ not $ null r
+
+stateGetAllTranImported :: MonadIO m => DB m [HashRef]
+stateGetAllTranImported = do
+  conn <- ask
+  results <- liftIO $ query_ conn [qc|
+    select hash from tranimported
+  |]
+  pure $ map fromOnly results
+
+stateGetImportedCommits :: MonadIO m => DB m [GitHash]
+stateGetImportedCommits = do
   conn <- ask
   liftIO $ query_ conn [qc|
-  select githash from exported
+    select distinct(githash) from logobject where type = 'commit'
   |] <&> fmap fromOnly
 
-statePutImported :: MonadIO m => HashRef -> HashRef -> DB m ()
-statePutImported merkle hd = do
-  conn <- ask
-  liftIO $ execute conn [qc|
-  insert into imported (merkle,head) values(?,?)
-  on conflict (merkle,head) do nothing
-  |] (merkle,hd)
-
-stateUpdateRefLog :: MonadIO m => Integer -> HashRef -> DB m ()
-stateUpdateRefLog seqno merkle = do
-  conn <- ask
-  liftIO $ execute conn [qc|
-  insert into reflog (seq,merkle) values(?,?)
-  on conflict (merkle) do nothing
-  on conflict (seq) do nothing
-  |] (seqno,merkle)
-
-stateGetRefLogLast :: MonadIO m => DB m (Maybe (Integer, HashRef))
-stateGetRefLogLast = do
+stateGetActualRefs :: MonadIO m => DB m [(GitRef, GitHash)]
+stateGetActualRefs = do
   conn <- ask
   liftIO $ query_ conn [qc|
-  select seq, merkle from reflog
-  order by seq desc
-  limit 1
-  |] <&> listToMaybe
-
-statePutHead :: MonadIO m => HashRef -> DB m ()
-statePutHead h = do
-  conn <- ask
-  liftIO $ execute conn [qc|
-  insert into head (key,hash) values('head',?)
-  on conflict (key) do update set hash = ?
-  |] (h,h)
-
-stateGetHead :: MonadIO m => DB m (Maybe HashRef)
-stateGetHead = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-  select hash from head where key = 'head'
-  limit 1
-  |] <&> listToMaybe . fmap fromOnly
-
-stateAddDep :: MonadIO m => GitHash -> GitHash -> DB m ()
-stateAddDep h1 h2 = do
-  conn <- ask
-  void $ liftIO $ execute conn [qc|
-    insert into dep (object,parent) values(?,?)
-    on conflict (object,parent) do nothing
-    |] (h1,h2)
-
-
-stateGetDepsRec :: MonadIO m => GitHash -> DB m [GitHash]
-stateGetDepsRec h = do
-  conn <- ask
-  liftIO $ query conn [qc|
-
-WITH RECURSIVE find_children(object, parent) AS (
-  SELECT object, parent FROM dep WHERE parent = ?
-  UNION
-  SELECT d.object, d.parent FROM dep d INNER JOIN find_children fc
-    ON d.parent = fc.object
-)
-SELECT object FROM find_children group by object;
-
-  |] (Only h) <&> mappend [h] . fmap fromOnly
-
-stateGetAllDeps :: MonadIO m => DB m [(GitHash,GitHash)]
-stateGetAllDeps = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-  select parent, object from dep where parent = ?
+    select refname,refval from v_refval_actual
   |]
 
-
-stateDepFilterAll :: MonadIO m => DB m [GitHash]
-stateDepFilterAll  = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-  select distinct(parent) from dep
-  union
-  select githash from object o where o.type = 'blob'
-  |] <&> fmap fromOnly
-
-stateDepFilter :: MonadIO m => GitHash -> DB m Bool
-stateDepFilter h = do
-  conn <- ask
-  liftIO $ query @_ @[Int] conn [qc|
-  select 1 from dep
-  where parent = ?
-    or exists (select null from object where githash = ? and type = 'blob')
-  limit 1
-  |] (h,h) <&> isJust . listToMaybe
-
-stateGetDeps :: MonadIO m => GitHash -> DB m [GitHash]
-stateGetDeps h = do
+stateGetActualRefValue :: MonadIO m => GitRef -> DB m (Maybe GitHash)
+stateGetActualRefValue ref = do
   conn <- ask
   liftIO $ query conn [qc|
-  select object from dep where parent = ?
-  |] (Only h) <&> fmap fromOnly
+    select refval from v_refval_actual
+    where refname = ?
+  |] (Only ref) <&> fmap fromOnly . listToMaybe
 
-
-statePutHash :: MonadIO m => GitObjectType -> GitHash -> HashRef -> DB m ()
-statePutHash t g h = do
+stateUpdateCommitDepths :: MonadIO m => DB m ()
+stateUpdateCommitDepths = do
   conn <- ask
-  liftIO $ execute conn [qc|
-  insert into object (githash,hash,type) values(?,?,?)
-  on conflict (githash,hash) do nothing
-  |] (g,h,t)
+  sp <- savepointNew
+  savepointBegin sp
+  -- TODO: check-if-delete-logcommitdepth-is-needed
+  liftIO $ execute_ conn [qc|DELETE FROM logcommitdepth|]
+  liftIO $ execute_ conn [qc|
+  INSERT INTO logcommitdepth (kommit, depth)
+  WITH RECURSIVE depths(kommit, level) AS (
+      SELECT
+          kommit,
+          0
+      FROM logcommitparent
 
-stateGetHash :: MonadIO m => GitHash -> DB m (Maybe HashRef)
-stateGetHash h = do
-  conn <- ask
-  liftIO $ query conn [qc|
-  select hash from object where githash = ?
-  limit 1
-  |] (Only h) <&> fmap fromOnly <&> listToMaybe
+      UNION ALL
 
-
-stateGetGitHash :: MonadIO m => HashRef -> DB m (Maybe GitHash)
-stateGetGitHash h = do
-  conn <- ask
-  liftIO $ query conn [qc|
-  select githash from object where hash = ?
-  limit 1
-  |] (Only h) <&> fmap fromOnly <&> listToMaybe
-
-stateGetAllHashes :: MonadIO m => DB m [HashRef]
-stateGetAllHashes = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-  select distinct(hash) from object
-  |] <&> fmap fromOnly
-
-stateGetAllObjects:: MonadIO m => DB m [(HashRef,GitHash,GitObjectType)]
-stateGetAllObjects = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-  select hash, githash, type from object
+      SELECT
+          p.kommit,
+          d.level + 1
+      FROM logcommitparent p
+      INNER JOIN depths d ON p.parent = d.kommit
+  )
+  SELECT
+      kommit,
+      MAX(level)
+  FROM depths
+  WHERE kommit NOT IN (SELECT kommit FROM logcommitdepth)
+  GROUP BY kommit;
   |]
-
-stateGetLastImported :: MonadIO m => Int -> DB m [(Text,HashRef,HashRef)]
-stateGetLastImported n = do
-  conn <- ask
-  liftIO $ query conn [qc|
-  select ts, merkle, head from imported
-  order by seq desc
-  limit  ?
-  |] (Only n)
-
-stateGetSequence :: MonadIO m => DB m Integer
-stateGetSequence = do
-  conn <- ask
-  liftIO $ query_ conn [qc|
-    select coalesce(max(seq),0) from reflog;
-  |] <&> fmap fromOnly
-     <&> listToMaybe
-     <&> fromMaybe 0
-
-
+  savepointRelease sp
 
 

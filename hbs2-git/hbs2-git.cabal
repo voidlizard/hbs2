@@ -63,27 +63,33 @@ common shared-properties
                , containers
                , cryptonite
                , directory
+               , exceptions
+               , filelock
                , filepath
+               , hashable
+               , http-conduit
                , interpolatedstring-perl6
                , memory
                , microlens-platform
                , mtl
                , prettyprinter
                , prettyprinter-ansi-terminal
+               , resourcet
                , safe
                , serialise
+               , sqlite-simple
+               , stm
                , suckless-conf
+               , temporary
                , text
+               , time
+               , timeit
                , transformers
                , typed-process
                , uniplate
-               , hashable
-               , sqlite-simple
-               , stm
+               , unliftio
+               , unliftio-core
                , unordered-containers
-               , filelock
-               , http-conduit
-               , exceptions
 
 library
     import:           shared-properties
@@ -99,7 +105,7 @@ library
       HBS2Git.Config
       HBS2Git.App
       HBS2Git.State
-      HBS2Git.Update
+      HBS2Git.GitRepoLog
 
     -- other-modules:
     -- other-extensions:
@@ -108,6 +114,7 @@ library
                    , terminal-progress-bar
                    , http-types
                    , uuid
+                   , zlib
 
     hs-source-dirs:   lib
     default-language: Haskell2010

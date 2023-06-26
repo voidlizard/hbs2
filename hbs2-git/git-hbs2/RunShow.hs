@@ -16,14 +16,16 @@ data ShowObject = ShowRef RepoRef | ShowConfig
 showRef :: MonadIO m => RepoRef -> App m ()
 showRef h = do
   db <- makeDbPath h >>= dbEnv
-  withDB db do
-    hd <- stateGetHead
-    imported <- stateGetLastImported 10
-    liftIO $ do
-      print $ "current state for" <+> pretty (AsBase58 h)
-      print $ "head:" <+> pretty hd
-      print $ pretty "last operations:"
-      for_ imported (\(t,h1,h2) -> print $ pretty t <+> pretty h1 <+> pretty h2)
+  -- FIXME: re-implement-showRef
+  pure ()
+  -- withDB db do
+  --   hd <- stateGetHead
+  --   imported <- stateGetLastImported 10
+  --   liftIO $ do
+  --     print $ "current state for" <+> pretty (AsBase58 h)
+  --     print $ "head:" <+> pretty hd
+  --     print $ pretty "last operations:"
+  --     for_ imported (\(t,h1,h2) -> print $ pretty t <+> pretty h1 <+> pretty h2)
 
 showRefs :: MonadIO m => App m ()
 showRefs = do

@@ -2,11 +2,9 @@
 module HBS2Git.Export where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
 import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
-import HBS2.Merkle
 import HBS2.Net.Proto.Definition()
 import HBS2.Base58
 
@@ -15,203 +13,258 @@ import HBS2.Git.Local.CLI
 
 import HBS2Git.App
 import HBS2Git.State
-import HBS2Git.Update
 import HBS2Git.Config
+import HBS2Git.GitRepoLog
 
-import Data.Functor
-import Data.List (sortBy)
 import Control.Applicative
+import Control.Monad.Catch
 import Control.Monad.Reader
+import UnliftIO.Async
+import Control.Concurrent.STM
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.Cache as Cache
 import Data.Foldable (for_)
+import Data.Functor
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
+import Data.HashSet (HashSet)
 import Data.Maybe
 import Data.Set qualified as Set
-import Data.Set (Set)
+import Data.Map qualified as Map
+import Data.List qualified as List
 import Lens.Micro.Platform
-import Control.Concurrent.STM
-import Control.Concurrent.Async
-import Control.Monad.Catch
-import Text.InterpolatedString.Perl6 (qc)
+import Prettyprinter.Render.Terminal
 import System.Directory
 import System.FilePath
-import Prettyprinter.Render.Terminal
+import Text.InterpolatedString.Perl6 (qc)
+import UnliftIO.IO
+import System.IO hiding (hClose,hPrint)
+import System.IO.Temp
+import Control.Monad.Trans.Resource
 
-data HashCache =
-  HashCache
-  { hCache :: Cache GitHash (Set GitHash)
-  , hDb    :: DBEnv
-  }
+class ExportRepoOps a where
 
-instance Hashable GitHash => HasCache HashCache GitHash (Set GitHash) IO where
-  cacheInsert (HashCache cache _) = Cache.insert cache
+instance ExportRepoOps ()
 
-  cacheLookup (HashCache cache db) k = do
-    refs <- withDB db (stateGetDeps k)
-    case refs of
-      [] -> Cache.lookup' cache k
-      xs -> pure $ Just $ Set.fromList xs
+exportRefDeleted :: forall  o m . ( MonadIO m
+                               , MonadCatch m
+                               -- , MonadMask m
+                               , MonadUnliftIO m
+                               , HasCatAPI m
+                               , HasConf m
+                               , HasRefCredentials m
+                               , HasProgress m
+                               , ExportRepoOps o
+                               )
+              => o
+              -> RepoRef
+              -> GitRef
+              -> m HashRef
+exportRefDeleted _ repo ref = do
+  trace $ "exportRefDeleted" <+> pretty repo <+> pretty ref
 
-newHashCache :: MonadIO m => DBEnv -> m HashCache
-newHashCache db = do
-  ca <- liftIO $ Cache.newCache Nothing
-  pure $ HashCache ca db
+  dbPath <- makeDbPath repo
+  db <- dbEnv dbPath
 
+  -- это "ненормальный" лог, т.е удаление ссылки в текущем контексте
+  --  мы удаляем ссылку "там", то есть нам нужно "то" значение ссылки
+  --  удалить её локально мы можем и так, просто гитом.
+  --  NOTE: empty-log-post
+  --    мы тут  постим пустой лог (не содержащий коммитов)
+  --    нам нужно будет найти его позицию относитеьлно прочих логов.
+  --    его контекст = текущее значение ссылки, которое мы удаляем
+  --    но вот если мы удаляем уже удаленную ссылку, то для ссылки 00..0
+  --    будет ошибка где-то.
 
-export :: forall  m . ( MonadIO m
-                      , MonadCatch m
-                      , HasCatAPI m
-                      , HasConf m
-                      , HasRefCredentials m
-                      , HasProgress m
-                      ) => RepoRef -> RepoHead -> m (HashRef, HashRef)
-export h repoHead = do
+  vals <- withDB db $ stateGetActualRefs <&> List.nub . fmap snd
 
-  let refs = HashMap.toList (view repoHeads repoHead)
+  let (ctxHead, ctxBs) = makeContextEntry vals
+
+  trace $ "DELETING REF CONTEXT" <+> pretty vals
+
+  let repoHead = RepoHead Nothing (HashMap.fromList [(ref,"0000000000000000000000000000000000000000")])
+  let repoHeadStr =  (LBS.pack . show . pretty . AsGitRefsFile) repoHead
+  let ha = gitHashObject (GitObject Blob repoHeadStr)
+  let headEntry = GitLogEntry GitLogEntryHead (Just ha) ( fromIntegral $ LBS.length repoHeadStr )
+
+  let content  =  gitRepoLogMakeEntry ctxHead ctxBs
+                   <>  gitRepoLogMakeEntry headEntry repoHeadStr
+
+  -- FIXME: remove-code-dup
+  let meta = fromString $ show
+                          $    "hbs2-git" <> line
+                            <> "type:" <+> "hbs2-git-push-log"
+                            <> line
+
+  logMerkle <- storeObject meta content `orDie` [qc|Can't store push log|]
+  postRefUpdate repo 0 logMerkle
+  pure logMerkle
+
+makeContextEntry :: [GitHash] -> (GitLogEntry, LBS.ByteString)
+makeContextEntry hashes = (entryHead, payload)
+  where
+    ha = Nothing
+    payload = GitLogContextCommits (HashSet.fromList hashes) & serialise
+    entryHead = GitLogEntry GitLogContext ha undefined
+
+-- | Exports only one ref to the repo.
+--   Corresponds to a single ```git push``` operation
+exportRefOnly :: forall  o m . ( MonadIO m
+                               , MonadCatch m
+                               -- , MonadMask m
+                               , MonadUnliftIO m
+                               , HasCatAPI m
+                               , HasConf m
+                               , HasRefCredentials m
+                               , HasProgress m
+                               , ExportRepoOps o
+                               )
+              => o
+              -> RepoRef
+              -> Maybe GitRef
+              -> GitRef
+              -> GitHash
+              -> m HashRef
+
+exportRefOnly _ remote rfrom ref val = do
+
+  let repoHead = RepoHead Nothing (HashMap.fromList [(ref,val)])
 
   let repoHeadStr =  (LBS.pack . show . pretty . AsGitRefsFile) repoHead
 
-  dbPath <- makeDbPath h
-
-  trace $ "dbPath" <+> pretty dbPath
-
+  dbPath <- makeDbPath remote
   db <- dbEnv dbPath
 
-  sp <- withDB db savepointNew
+  trace $ "exportRefOnly" <+> pretty remote <+> pretty ref <+> pretty val
 
-  withDB db $ savepointBegin sp
+  -- 1. get max ref value for known REMOTE branch
+  -- 2. if unkwnown - get max branch ref value for known LOCAL branch (known from the state)
+  -- 3. if unkwnown - then Nothing
+  -- therefore, we export only the delta for the objects for push between known state and current
+  -- git repot state
+  -- if it's a new branch push without any objects commited -- then empty log
+  -- only with HEAD section should be created
+  lastKnownRev <- withDB db do
+                    rThat <- stateGetActualRefValue  ref
+                    rThis <- maybe1 rfrom (pure Nothing) stateGetActualRefValue
+                    pure $ rThat  <|> rThis
 
-  rr <- try $ do
+  trace $ "LAST_KNOWN_REV" <+> braces (pretty rfrom) <+> braces (pretty ref) <+> braces (pretty lastKnownRev)
 
-    skip <- withDB db stateGetExported <&> HashSet.fromList
+  entries <- gitRevList lastKnownRev val
 
-    -- TODO: process-only-commits-to-make-first-run-faster
-    ooo <- gitListAllObjects <&> filter (not . (`HashSet.member` skip))
+  -- NOTE: just-for-test-new-non-empty-push-to-another-branch-112
 
-    cached0 <- withDB db stateGetAllDeps
-    let cached  = HashMap.fromListWith (<>) [ (k, [v]) | (k,v) <- cached0 ]
-    let lookup h = pure $ HashMap.lookup h cached & fromMaybe mempty
+  -- FIXME: may-blow-on-huge-repo-export
+  types <- gitGetObjectTypeMany entries <&> Map.fromList
 
-    monDep <- newProgressMonitor "calculate dependencies" (length ooo)
+  let lookupType t = Map.lookup t types
+  let justOrDie msg x = pure x `orDie` msg
 
-    allDeps <- gitGetAllDependencies 4 ooo lookup (const $ updateProgress monDep 1)
+  trace $ "ENTRIES:" <+> pretty (length entries)
 
-    let sz  = length allDeps
-    mon1 <- newProgressMonitor "storing dependencies" sz
+  trace "MAKING OBJECTS LOG"
 
-    withDB db $ transactional do
-      for_ allDeps $ \(obj,dep) -> do
-        updateProgress mon1 1
-        stateAddDep dep obj
+  let fname = [qc|{pretty val}.data|]
 
-    deps <- withDB db $ do
-              x <- forM refs $ stateGetDepsRec . snd
-              pure $ mconcat x
+  runResourceT $ do
 
-    withDB db $ transactional do -- to speedup inserts
+    written <- liftIO $ newTVarIO (HashSet.empty :: HashSet GitHash)
 
-      let metaApp = "application:" <+> "hbs2-git" <> line
+    let myTempDir = "hbs-git"
+    temp <- liftIO getCanonicalTemporaryDirectory
+    (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
 
-      let metaHead = fromString $ show
-                                $ metaApp <> "type:" <+> "head" <> line
+    let fpath = dir </> fname
+    fh <-  liftIO $ openBinaryFile fpath AppendMode
 
-      -- let gha = gitHashObject (GitObject Blob repoHead)
-      hh  <- lift $ storeObject metaHead repoHeadStr `orDie` "cant save repo head"
+    expMon <- newProgressMonitor "export objects"  (length entries)
 
-      mon3 <- newProgressMonitor "export objects from repo" (length deps)
+    enq <- liftIO newTQueueIO
 
-      for_ deps $ \d -> do
-        here <- stateGetHash d <&> isJust
-        -- FIXME: asap-check-if-objects-is-in-hbs2
-        unless here do
-          lbs <- gitReadObject Nothing d
+    -- FIXME: export-wtf?
 
-          -- TODO: why-not-default-blob
-          --   anything is blob
-          tp <- gitGetObjectType d <&> fromMaybe Blob --
+    aread <- async $ do
+                for_ entries $ \d -> do
+                  here <- liftIO $ readTVarIO written <&> HashSet.member d
+                  inState <- withDB db (stateIsLogObjectExists d)
+                  updateProgress expMon 1
+                  unless (here || inState) do
+                    tp <- lookupType d & justOrDie [qc|no object type for {pretty d}|]
+                    o <- gitReadObject (Just tp) d
+                    let entry = GitLogEntry ( gitLogEntryTypeOf tp ) (Just d) ( fromIntegral $ LBS.length o )
+                    liftIO $ atomically $ writeTQueue enq (Just (d,tp,entry,o))
 
-          let metaO = fromString $ show
-                                 $ metaApp
-                                 <> "type:" <+> pretty tp <+> pretty d
-                                 <> line
+                liftIO $ atomically $ writeTQueue enq Nothing
 
-          hr' <- lift $ storeObject metaO lbs
+    fix \next -> do
+      mbEntry <- liftIO $ atomically $ readTQueue enq
+      case mbEntry of
+        Nothing -> pure ()
+        Just (d,tp,entry,o)  -> do
+          gitRepoLogWriteEntry fh entry o
+          liftIO $ atomically $ modifyTVar written (HashSet.insert d)
+          trace $ "writing" <+> pretty tp <+> pretty d
+          -- TODO: here-split-log-to-parts
+          next
 
-          maybe1 hr' (pure ()) $ \hr -> do
-            statePutHash tp d hr
+    mapM_ wait [aread]
 
-          updateProgress mon3 1
+    -- FIXME: problem-log-is-not-assotiated-with-commit
+    --  Если так получилось, что в журнале подъехала только ссылка,
+    --  и больше нет никакой информации -- мы не можем определить
+    --  глубину(высоту?) этой ссылки, и, соответственно, вычислить
+    --  её depth в стейте.
+    --  Решение: в этом (или иных) случаях добавлять информацию о контексте,
+    --  например, состояние других известных ссылок в моменте. Список ссылок
+    --  берём из state, полагая, что раз ссылка в стейте, значит, она является
+    --  важной. Имея эту информацию, мы можем хоть как-то вычислять depth
+    --  этого лога. Похоже на векторные часы, кстати.
 
-      hashes <- (hh : ) <$> stateGetAllHashes
+    -- это "нормальный" лог. даже если хвост его приедет пустым (не будет коммитов)
+    -- тут мы запомним, что его контекст = коммит, на который он устанавливает ссылку
+    -- и этот коммит должен быть в секциях лога, которые приехали перед ним.
+    -- следствие: у предыдущего лога будет такая же глубина, как и у этого.
 
-      let pt = toPTree (MaxSize 512) (MaxNum 512) hashes -- FIXME: settings
+    vals <- withDB db $ stateGetActualRefs <&> List.nub . fmap snd
+    let (e, bs) = makeContextEntry (val:vals)
+    trace $ "writing context entry" <+> pretty [val]
+    gitRepoLogWriteEntry fh e bs
 
-      tobj <- liftIO newTQueueIO
-      -- FIXME: progress-indicator
-      root <- makeMerkle 0 pt $ \(ha,_,bss) -> do
-        liftIO $ atomically $ writeTQueue tobj (ha,bss)
+    let ha = gitHashObject (GitObject Blob repoHeadStr)
+    let headEntry = GitLogEntry GitLogEntryHead (Just ha) ( fromIntegral $ LBS.length repoHeadStr )
+    gitRepoLogWriteEntry fh headEntry repoHeadStr
 
-      objs <- liftIO $ atomically $ flushTQueue tobj
+    -- TODO: find-prev-push-log-and-make-ref
+    gitRepoLogWriteHead fh (GitLogHeadEntry Nothing)
 
-      mon2 <- newProgressMonitor "store objects" (length objs)
+    hClose fh
 
-      for_ objs $ \(ha,bss) -> do
-        updateProgress mon2 1
-        here <- lift $ getBlockSize (HashRef ha) <&> isJust
-        unless here do
-          void $ lift $ storeObject (fromString (show metaApp)) bss
+    trace "STORING PUSH LOG"
 
-      trace "generate update transaction"
+    let meta = fromString $ show
+                          $     "hbs2-git" <> line
+                             <> "type:" <+> "hbs2-git-push-log"
+                             <> line
 
-      trace $ "objects:" <+> pretty (length hashes)
+    content <- liftIO $ LBS.readFile fpath
+    logMerkle <- lift $ storeObject meta content `orDie` [qc|Can't store push log|]
 
-      seqno <- stateGetSequence <&> succ
-      -- FIXME: same-transaction-different-seqno
+    trace $ "PUSH LOG HASH: " <+> pretty logMerkle
+    trace $ "POSTING REFERENCE UPDATE TRANSACTION" <+> pretty remote <+> pretty logMerkle
 
-      postRefUpdate h seqno (HashRef root)
+    -- FIXME: calculate-seqno-as-topsort-order
+    lift $ postRefUpdate remote 0 logMerkle
 
-      let noRef = do
-            pause @'Seconds 20
-            shutUp
-            die $ show $ pretty "No reference appeared for" <+> pretty h
+    pure logMerkle
 
-      wmon <- newProgressMonitor "waiting for ref" 20
-      void $ liftIO $ race noRef $ do
-              runApp NoLog do
-                fix \next -> do
-                  v <- readRefHttp h
-                  updateProgress wmon 1
-                  case v of
-                    Nothing -> pause @'Seconds 1 >> next
-                    Just{}  -> pure ()
-
-
-      withDB db $ transactional $ mapM_ statePutExported ooo
-
-      pure (HashRef root, hh)
-
-  case rr of
-    Left ( e :: SomeException ) -> do
-      withDB db (savepointRollback sp)
-      err $ viaShow e
-      shutUp
-      die "aborted"
-
-    Right r -> do
-      withDB db (savepointRelease sp)
-      pure r
-
-
-runExport :: forall m . (MonadIO m, MonadCatch m, HasProgress (App m))
+runExport :: forall m . (MonadIO m, MonadUnliftIO m, MonadCatch m, HasProgress (App m))
           => Maybe FilePath -> RepoRef -> App m ()
-runExport fp h = do
+runExport fp repo = do
 
 
   liftIO $ putDoc $
        line
-    <> green "Exporting to reflog" <+> pretty (AsBase58 h)
+    <> green "Exporting to reflog" <+> pretty (AsBase58 repo)
     <> section
     <> "it may take some time on the first run"
     <> section
@@ -234,23 +287,26 @@ runExport fp h = do
 
   fullHead <- gitHeadFullName headBranch
 
-  debug $ "HEAD" <+> pretty fullHead
+  -- debug $ "HEAD" <+> pretty fullHead
 
-  let repoHead = RepoHead (Just fullHead)
-                          (HashMap.fromList refs)
+  -- let repoHead = RepoHead (Just fullHead)
+  --                         (HashMap.fromList refs)
 
-  trace $ "NEW REPO HEAD" <+> pretty (AsGitRefsFile repoHead)
+  -- trace $ "NEW REPO HEAD" <+> pretty (AsGitRefsFile repoHead)
 
-  (root, hhh) <- export h repoHead
+  val <- gitGetHash fullHead `orDie` [qc|Can't resolve ref {pretty fullHead}|]
 
-  updateLocalState h
+   -- _ <- exportRefOnly () remote br gh
+  hhh <- exportRefOnly () repo Nothing fullHead val
+
+  -- NOTE: ???
+  -- traceTime "importRefLogNew (export)" $ importRefLogNew False repo
 
   shutUp
 
   cwd <- liftIO getCurrentDirectory
   cfgPath <- configPath cwd
   let krf = fromMaybe "keyring-file" fp & takeFileName
-
 
   liftIO $ putStrLn ""
   liftIO $ putDoc $
@@ -269,7 +325,7 @@ runExport fp h = do
     <> section
     <> green "Add git remote:"
     <> section
-    <> pretty [qc|git remote add remotename hbs2://{pretty h}|]
+    <> pretty [qc|git remote add remotename hbs2://{pretty repo}|]
     <> section
     <> green "Work with git as usual:"
     <> section

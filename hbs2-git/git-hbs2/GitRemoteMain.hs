@@ -1,46 +1,44 @@
 module Main where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.OrDie
 import HBS2.Git.Types
-import HBS2.Git.Local.CLI
-import HBS2.Clock
 
 import HBS2.System.Logger.Simple
 
-import HBS2Git.Types()
-import HBS2Git.Types qualified as G
+import HBS2Git.Types(traceTime)
 import HBS2Git.App
 import HBS2Git.State
-import HBS2Git.Update
-import HBS2Git.Export
-import HBS2Git.Config as Config
+import HBS2Git.Import
+import HBS2.Git.Local.CLI
+
+import HBS2Git.Export (runExport)
 
 import GitRemoteTypes
 import GitRemotePush
 
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Attoparsec.Text
+import Data.Attoparsec.Text hiding (try)
 import Data.Attoparsec.Text qualified as Atto
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Foldable
 import Data.Functor
-import Data.HashSet qualified as HashSet
+import Data.Function ((&))
+import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe
 import Data.Text qualified as Text
+import Data.List qualified as List
 import System.Environment
-import System.Exit qualified as Exit
 import System.Posix.Signals
-import System.ProgressBar
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO as UIO
-import Control.Monad.Trans.Maybe
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource
+
 
 send :: MonadIO m => BS.ByteString -> m ()
 send = liftIO . BS.hPutStr stdout
@@ -73,14 +71,16 @@ parseRepoURL url' = either (const Nothing) Just (parseOnly p url)
 capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
-readHeadDef :: HasCatAPI m => DBEnv -> m LBS.ByteString
-readHeadDef db  =
-  withDB db stateGetHead >>=
-   \r' -> maybe1 r' (pure "\n") \r -> do
-          readObject r <&> fromMaybe "\n"
+
+guessHead :: GitRef -> Integer
+guessHead = \case
+  "refs/heads/master" -> 0
+  "refs/heads/main"   -> 0
+  _                   -> 1
 
 loop :: forall m . ( MonadIO m
                    , MonadCatch m
+                   , MonadUnliftIO m
                    , HasProgress (RunWithConfig (GitRemoteApp m))
                    ) => [String] -> GitRemoteApp m ()
 loop args = do
@@ -104,8 +104,7 @@ loop args = do
 
   db <- dbEnv dbPath
 
-  --FIXME: git-fetch-second-time
-  -- Разобраться, почему git fetch срабатывает со второго раза
+  -- TODO: hbs2-peer-fetch-reference-and-wait
 
   checkRef <- readRef ref <&> isJust
 
@@ -114,30 +113,27 @@ loop args = do
     warn "trying to init reference --- may be it's ours"
     liftIO $ runApp NoLog (runExport Nothing ref)
 
-  hdRefOld <- readHeadDef db
+  refs <- withDB db stateGetActualRefs
 
-  updateLocalState ref
+  let heads = [ h | h@GitHash{} <- universeBi refs ]
 
-  hd <- readHeadDef db
+  missed <- try (mapM (gitReadObject Nothing) heads) <&> either (\(_::SomeException) -> True) (const False)
 
-  hashes <- withDB db stateGetAllObjects
+  let force = missed || List.null heads
 
-  -- FIXME: asap-get-all-existing-objects-or-all-if-clone
-  --   если clone - доставать всё
-  --   если fetch - брать список объектов и импортировать
-  --   только те, которых нет в репо
+  debug $ "THIS MIGHT BE CLONE!" <+> pretty force
 
-  existed <- gitListAllObjects <&> HashSet.fromList
+  -- sync state first
+  traceTime "TIMING: importRefLogNew" $ importRefLogNew force ref
 
-  jobz <- liftIO newTQueueIO
+  refsNew <- withDB db stateGetActualRefs
+  let possibleHead = listToMaybe $ List.take 1 $ List.sortOn guessHead (fmap fst refsNew)
 
-  jobNumT <- liftIO $ newTVarIO 0
-  liftIO $ atomically $ for_ hashes $ \o@(_,gh,_) -> do
-    unless (HashSet.member gh existed) do
-      modifyTVar' jobNumT succ
-      writeTQueue jobz o
-
-  env <- ask
+  let hd = refsNew & LBS.pack . show
+                              . pretty
+                              . AsGitRefsFile
+                              . RepoHead possibleHead
+                              . HashMap.fromList
 
   batch <- liftIO $ newTVarIO False
 
@@ -152,10 +148,6 @@ loop args = do
 
     let str = BS.unwords (BS.words s)
     let cmd = BS.words str
-
-    -- trace $ pretty (fmap BS.unpack cmd)
-    -- hPrint stderr $ show $ pretty (fmap BS.unpack cmd)
-    --
 
     isBatch <- liftIO $ readTVarIO batch
 
@@ -172,26 +164,6 @@ loop args = do
           next
 
       ["list"] -> do
-
-        hl <- liftIO $ readTVarIO jobNumT
-        pb <- newProgressMonitor "storing git objects" hl
-
-        -- FIXME: thread-num-hardcoded
-        liftIO $ replicateConcurrently_ 4 $ fix \nl -> do
-          atomically (tryReadTQueue jobz) >>= \case
-            Nothing -> pure ()
-            Just (h,_,t) -> do
-              runRemoteM env do
-                -- FIXME: proper-error-handling
-                o <- readObject h `orDie` [qc|unable to fetch object {pretty t} {pretty h}|]
-                r <- gitStoreObject (GitObject t o)
-
-                when (isNothing r) do
-                  err $ "can't write object to git" <+> pretty h
-
-              G.updateProgress pb 1
-              nl
-
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
@@ -211,15 +183,15 @@ loop args = do
         let bra = BS.split ':' rr
         let pu = fmap (fromString' . BS.unpack) bra
         liftIO $ atomically $ writeTVar batch True
+        -- debug $ "FUCKING PUSH" <> viaShow rr <+> pretty pu
+        -- shutUp
         pushed <- push ref pu
         case pushed of
-          Nothing  -> hPrint stderr "fucked!" >> sendEol
+          Nothing  -> hPrint stderr "oopsie!" >> sendEol >> shutUp
           Just re -> sendLn [qc|ok {pretty re}|]
         next
 
       other -> die $ show other
-
-    -- updateLocalState ref
 
   where
     fromString' "" = Nothing
