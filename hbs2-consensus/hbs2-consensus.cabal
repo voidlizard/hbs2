@@ -1,12 +1,12 @@
 cabal-version:      3.0
-name:               hbs2-git
+name:               hbs2-consensus
 version:            0.1.0.0
 -- synopsis:
 -- description:
 license:            BSD-3-Clause
 license-file:       LICENSE
-author:             Dmitry Zuikov
-maintainer:         dzuikov@gmail.com
+author:             Serguey Zefirov
+maintainer:         sergueyz@gmail.com
 -- copyright:
 category:           Development
 build-type:         Simple
@@ -107,43 +107,15 @@ executable consensus-kv
         -rtsopts
         "-with-rtsopts=-N4 -A64m -AL256m -I0"
 
-    other-modules:
-      RunShow
+    -- other-modules:
 
     -- other-extensions:
     build-depends:
-        base, hbs2-git
+        base, hbs2-consensus
       , optparse-applicative
       , http-types
 
-    hs-source-dirs:   git-hbs2
+    -- hs-source-dirs:   git-hbs2
     default-language: Haskell2010
 
-
-executable git-remote-hbs2
-    import:           shared-properties
-    main-is:          GitRemoteMain.hs
-
-    ghc-options:
-        -threaded
-        -rtsopts
-        "-with-rtsopts=-N4 -A64m -AL256m -I0"
-
-    other-modules:
-      GitRemoteTypes
-      GitRemotePush
-
-    -- other-extensions:
-    build-depends:
-        base, hbs2-git
-      , async
-      , attoparsec
-      , optparse-applicative
-      , unix
-      , unliftio
-      , terminal-progress-bar
-      , http-types
-
-    hs-source-dirs:   git-hbs2
-    default-language: Haskell2010
 

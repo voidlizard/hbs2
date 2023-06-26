@@ -4,7 +4,7 @@
 --
 -- Copyright (C) Serguey Zefirov, 2023.
 
-module Consensus where
+module Main where
 
 main = do
 	putStrLn "consensus!"
