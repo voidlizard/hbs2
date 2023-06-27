@@ -54,11 +54,6 @@ walkHashes q h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSyn
     Right (hrr :: [HashRef]) -> do
        forM_ hrr $ liftIO . atomically . Q.writeTQueue q
 
-
-data ImportCmd = ImportCmd GitObjectType FilePath
-               | ImportStop
-               deriving (Show)
-
 importRefLogNew :: ( MonadIO m
                    , MonadUnliftIO m
                    , MonadCatch m
