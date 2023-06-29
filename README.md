@@ -624,7 +624,7 @@ telegram: @voidlizard
 
 # Download
 
-hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
 Note! This is not a bitcoin address. If you want a bitcoin
 address to donate, use the other one (TBD).
