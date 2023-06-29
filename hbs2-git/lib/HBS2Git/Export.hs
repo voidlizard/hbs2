@@ -48,6 +48,7 @@ import System.IO hiding (hClose,hPrint,hPutStrLn,hFlush)
 import System.IO.Temp
 import Control.Monad.Trans.Resource
 import Data.List.Split (chunksOf)
+import Codec.Compression.GZip
 
 class ExportRepoOps a where
 
@@ -86,6 +87,8 @@ exportRefDeleted _ repo ref = do
   dbPath <- makeDbPath repo
   db <- dbEnv dbPath
 
+  let opts = ()
+
   -- это "ненормальный" лог, т.е удаление ссылки в текущем контексте
   --  мы удаляем ссылку "там", то есть нам нужно "то" значение ссылки
   --  удалить её локально мы можем и так, просто гитом.
@@ -106,8 +109,8 @@ exportRefDeleted _ repo ref = do
   let ha = gitHashObject (GitObject Blob repoHeadStr)
   let headEntry = GitLogEntry GitLogEntryHead (Just ha) ( fromIntegral $ LBS.length repoHeadStr )
 
-  let content  =  gitRepoLogMakeEntry ctxHead ctxBs
-                   <>  gitRepoLogMakeEntry headEntry repoHeadStr
+  let content  =  gitRepoLogMakeEntry opts ctxHead ctxBs
+                   <>  gitRepoLogMakeEntry opts headEntry repoHeadStr
 
   -- FIXME: remove-code-dup
   let meta = fromString $ show
@@ -164,10 +167,20 @@ writeLogSegments onProgress val objs chunkSize trailing = do
   remote      <- asks $ view exportRepo
   readGit     <- asks $ view exportReadObject
 
+  let opts = CompressWholeLog
+
+  -- TODO: options-for-compression-level
+  --   помним, что всё иммутабельное. как один раз запостим,
+  --   такое и будет жить всегда
+  let compressOpts = defaultCompressParams { compressLevel = bestSpeed }
+
   -- FIXME: fix-code-dup
   let meta = fromString $ show
-                        $     "hbs2-git" <> line
-                           <> "type:" <+> "hbs2-git-push-log"
+                        $     "hbs2-git"
+                           <> line
+                           <> "type:"    <+> "hbs2-git-push-log"
+                           <> line
+                           <> "flags:"   <+> "gz:sgmt"
                            <> line
 
   let segments = chunksOf chunkSize objs
@@ -188,7 +201,7 @@ writeLogSegments onProgress val objs chunkSize trailing = do
           GitObject tp o  <- liftIO $ readGit d `orDie` [qc|error reading object {pretty d}|]
 
           let entry = GitLogEntry ( gitLogEntryTypeOf tp ) (Just d) ( fromIntegral $ LBS.length o )
-          gitRepoLogWriteEntry fh entry o
+          gitRepoLogWriteEntry opts fh entry o
           liftIO $ atomically $ modifyTVar written (HashSet.insert d)
 
           -- gitRepoLogWriteEntry fh ctx ctxBs
@@ -197,13 +210,16 @@ writeLogSegments onProgress val objs chunkSize trailing = do
 
       when (segmentIndex == totalSegments) $ do
         for_ trailing $ \(e, bs) -> do
-          gitRepoLogWriteEntry fh e bs
+          gitRepoLogWriteEntry opts fh e bs
 
       -- finalize log section
       hClose fh
 
       content   <- liftIO $ LBS.readFile fpath
-      logMerkle <- lift $ storeObject meta content `orDie` [qc|Can't store push log|]
+
+      let gzipped = compressWith compressOpts content
+
+      logMerkle <- lift $ storeObject meta gzipped `orDie` [qc|Can't store push log|]
 
       trace $ "PUSH LOG HASH: " <+> pretty logMerkle
       trace $ "POSTING REFERENCE UPDATE TRANSACTION" <+> pretty remote <+> pretty logMerkle
@@ -301,7 +317,7 @@ exportRefOnly _ remote rfrom ref val = do
     let (commits, others) = List.partition (\e -> fst (onEntryType e) == 2) notTrees
 
     -- FIXME: hbs2-git-size-hardcode-to-args
-    let batch = 10000
+    let batch = 20000
     let objects = blobs <> trees <> others <> commits
     mon <- newProgressMonitor "write objects"   (length objects)
 
@@ -333,7 +349,13 @@ exportRefOnly _ remote rfrom ref val = do
     --       что бы оставить совместимость
     pure $ lastMay logz
 
-runExport :: forall m . (MonadIO m, MonadUnliftIO m, MonadCatch m, HasProgress (App m), MonadMask (App m))
+runExport :: forall m . ( MonadIO m
+                        , MonadUnliftIO m
+                        , MonadCatch m
+                        , HasProgress (App m)
+                        , MonadMask (App m)
+                        )
+
           => Maybe FilePath -> RepoRef -> App m ()
 runExport fp repo = do
 

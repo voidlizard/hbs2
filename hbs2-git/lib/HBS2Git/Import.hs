@@ -35,6 +35,12 @@ import UnliftIO.IO
 import System.IO (openBinaryFile)
 import System.FilePath.Posix
 import Data.HashMap.Strict qualified as HashMap
+import Data.Text qualified as Text
+import Data.Config.Suckless
+import Data.Either
+
+import Streaming.ByteString qualified as SB
+import Streaming.Zip qualified as SZip
 
 data RunImportOpts =
   RunImportOpts
@@ -53,6 +59,18 @@ walkHashes q h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSyn
     Left hx -> die $ show $ pretty "missed block:" <+> pretty hx
     Right (hrr :: [HashRef]) -> do
        forM_ hrr $ liftIO . atomically . Q.writeTQueue q
+
+blockSource :: (MonadIO m, HasCatAPI m) => HashRef -> SB.ByteStream m Integer
+blockSource h = do
+  tsize <- liftIO $ newTVarIO 0
+  deepScan ScanDeep (const none) (fromHashRef h) (lift . readBlock . HashRef) $ \ha -> do
+    sec <- lift $ readBlock (HashRef ha) `orDie` [qc|missed block {pretty ha}|]
+    -- skip merkle tree head block, write only the data
+    liftIO $ atomically $ modifyTVar tsize (+ LBS.length sec)
+    when (h /= HashRef ha) do
+      SB.fromLazy sec
+
+  liftIO $ readTVarIO tsize <&> fromIntegral
 
 importRefLogNew :: ( MonadIO m
                    , MonadUnliftIO m
@@ -117,32 +135,49 @@ importRefLogNew force ref = runResourceT do
           let (SequentialRef _ (AnnotatedHashRef _ h)) = payload
           trace $ "PUSH LOG HASH" <+> pretty h
 
+          treeBs   <- MaybeT $ lift $ readBlock h
+
+          let something =  tryDetect (fromHashRef h) treeBs
+          let meta = mconcat $ rights [ parseTop (Text.unpack s) | ShortMetadata s <- universeBi something ]
+
+          -- TODO: check-if-it-is-hbs2-git-log
+
+          let flags = mconcat [ Text.splitOn ":" (Text.pack (show $ pretty s))
+                              | (ListVal (Key "flags:" [SymbolVal s]) ) <- meta
+                              ]
+
+          let gzipped = "gz" `elem` flags
+
+          debug $ "FOUND LOG METADATA " <+> pretty flags
+                                        <+> pretty "gzipped:" <+> pretty gzipped
+
           here <- withDB db $ stateGetLogImported h
 
           unless (here && not force) do
 
-            lift $ deepScan ScanDeep (const none) (fromHashRef h) (lift . readBlock . HashRef) $ \ha -> do
-              sec <- lift $ readBlock (HashRef ha) `orDie` [qc|missed block {pretty ha}|]
-              -- skip merkle tree head block, write only the data
-              when (h /= HashRef ha) do
-                liftIO $ LBS.hPutStr fh sec
+            sz <- if gzipped then do
+              SB.toHandle fh $ SZip.gunzip (blockSource h)
+            else
+              SB.toHandle fh (blockSource h)
 
             release keyFh
 
+            let fpathReal = fpath
+
             tnum <- liftIO $ newTVarIO 0
-            liftIO $ gitRepoLogScan True fpath $ \_ _ -> do
+            liftIO $ gitRepoLogScan True fpathReal $ \_ _ -> do
               liftIO $ atomically $ modifyTVar tnum succ
 
             num <- liftIO $ readTVarIO tnum
             trace $ "LOG ENTRY COUNT" <+> pretty  num
 
             let pref = take 16 (show (pretty e))
-            sz <- liftIO $ getFileSize fpath <&> realToFrac
-            let name = [qc|import {pref}... {sz / (1024*1024) :: Fixed E3}|]
+            let name = [qc|import {pref}... {realToFrac sz / (1024*1024) :: Fixed E3}|]
 
             oMon  <- newProgressMonitor name  num
 
-            lift $ gitRepoLogScan True fpath $ \entry s -> do
+            lift $ gitRepoLogScan True fpathReal $ \entry s -> do
+
               updateProgress oMon 1
 
               lbs <- pure s `orDie` [qc|git object not read from log|]

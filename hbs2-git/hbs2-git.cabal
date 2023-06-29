@@ -61,6 +61,10 @@ common shared-properties
                , bytestring
                , cache
                , containers
+               , streaming
+               , streaming-bytestring
+               , streaming-commons
+               , streaming-utils
                , cryptonite
                , directory
                , exceptions

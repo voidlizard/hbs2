@@ -23,6 +23,22 @@ import Data.HashSet qualified as HashSet
 import Control.Concurrent.STM
 import Data.Maybe
 
+class HasGitLogOptions a where
+  compressEntries  :: a -> Bool
+  compressWholeLog :: a -> Bool
+
+
+-- | default GitLogOptions
+instance HasGitLogOptions () where
+  compressEntries = const True
+  compressWholeLog = const False
+
+data CompressWholeLog = CompressWholeLog
+
+instance HasGitLogOptions CompressWholeLog where
+  compressEntries = const False
+  compressWholeLog = const True
+
 data GitLogEntryType = GitLogEntryCommit
                      | GitLogEntryBlob
                      | GitLogEntryTree
@@ -128,7 +144,8 @@ gitRepoLogScan r fn cb = do
   where
     go _ 0 = pure ()
     go h size = do
-      es <- liftIO $ LBS.hGet h entryHeadSize <&> deserialise @GitLogEntry
+      ss <- liftIO $ LBS.hGet h entryHeadSize
+      let es = deserialise @GitLogEntry ss
       let esize = es ^. gitLogEntrySize
       let consumed = entryHeadSize + fromIntegral esize
       if r then do
@@ -139,30 +156,43 @@ gitRepoLogScan r fn cb = do
         cb es Nothing
       go h ( max 0 (size - consumed) )
 
-gitRepoLogWriteHead :: forall m . MonadIO m => Handle -> GitLogHeadEntry -> m ()
-gitRepoLogWriteHead fh e = do
+gitRepoLogWriteHead :: forall o m . (HasGitLogOptions o, MonadIO m)
+                    => o
+                    -> Handle
+                    -> GitLogHeadEntry
+                    -> m ()
+
+gitRepoLogWriteHead opt fh e = do
   let s = serialise e
   let entry = GitLogEntry GitLogHead Nothing (fromIntegral $ LBS.length s)
-  gitRepoLogWriteEntry fh entry s
+  gitRepoLogWriteEntry opt fh entry s
 
-gitRepoLogMakeEntry :: GitLogEntry -> ByteString -> ByteString
-gitRepoLogMakeEntry entry' o = bs <> ss
+
+
+gitRepoLogMakeEntry :: forall o . (HasGitLogOptions o)
+                    => o
+                    -> GitLogEntry
+                    -> ByteString
+                    -> ByteString
+
+gitRepoLogMakeEntry opts entry' o = bs <> ss
   where
-    bs = LBS.take entryHeadSize $ serialise entry <> LBS.replicate entryHeadSize 0
     ss = compressWith co o
     entry = entry' & set gitLogEntrySize (fromIntegral $ LBS.length ss)
-    co = defaultCompressParams { compressLevel = bestSpeed }
+    bs = LBS.take entryHeadSize $ serialise entry <> LBS.replicate entryHeadSize 0
+    co | compressEntries opts = defaultCompressParams { compressLevel = bestSpeed }
+       | otherwise            = defaultCompressParams { compressLevel = noCompression }
 
--- TODO: use-gitRepoLogMakeEntry-in-body
-gitRepoLogWriteEntry :: forall m . MonadIO m => Handle -> GitLogEntry -> ByteString -> m ()
-gitRepoLogWriteEntry fh entry' o = do
-  let ss = compressWith co o
-  let entry = entry' & set gitLogEntrySize (fromIntegral $ LBS.length ss)
-  let bs = LBS.take entryHeadSize $ serialise entry <> LBS.replicate entryHeadSize 0
-  liftIO $ LBS.hPutStr fh bs
-  liftIO $ LBS.hPutStr fh ss
-  where
-    co = defaultCompressParams { compressLevel = bestSpeed }
+gitRepoLogWriteEntry :: forall o m . (MonadIO m, HasGitLogOptions o)
+                     => o
+                     -> Handle
+                     -> GitLogEntry
+                     -> ByteString
+                     -> m ()
+
+gitRepoLogWriteEntry opts fh entry' o = do
+  let entryWithSize = gitRepoLogMakeEntry opts entry' o
+  liftIO $ LBS.hPutStr fh entryWithSize
 
 gitRepoMakeIndex :: FilePath -> IO (HashSet GitHash)
 gitRepoMakeIndex fp = do
