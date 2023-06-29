@@ -200,12 +200,13 @@ importRefLogNew force ref = runResourceT do
                 statePutLogImported h
                 statePutTranImported e
 
+      mapM_ hClose handles
+
       withDB db $ do
-        statePutRefImported logRoot
         stateUpdateCommitDepths
+        statePutRefImported logRoot
         savepointRelease sp0
 
-      mapM_ hClose handles
 
   where
 

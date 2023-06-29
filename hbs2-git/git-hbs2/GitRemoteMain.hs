@@ -81,6 +81,7 @@ guessHead = \case
 loop :: forall m . ( MonadIO m
                    , MonadCatch m
                    , MonadUnliftIO m
+                   , MonadMask m
                    , HasProgress (RunWithConfig (GitRemoteApp m))
                    ) => [String] -> GitRemoteApp m ()
 loop args = do
@@ -164,16 +165,19 @@ loop args = do
           next
 
       ["list"] -> do
+        importRefLogNew False ref
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
 
       ["list","for-push"] -> do
+        importRefLogNew False ref
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
 
       ["fetch", sha1, x] -> do
+        importRefLogNew False ref
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         liftIO $ atomically $ writeTVar batch True
         -- sendEol

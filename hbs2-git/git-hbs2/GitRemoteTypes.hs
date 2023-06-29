@@ -37,6 +37,8 @@ newtype GitRemoteApp m a =
                    , MonadThrow
                    , MonadCatch
                    , MonadUnliftIO
+                   , MonadMask
+                   , MonadTrans
                    )
 
 runRemoteM :: MonadIO m => RemoteEnv -> GitRemoteApp m a -> m a

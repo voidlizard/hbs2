@@ -37,10 +37,12 @@ import Data.HashMap.Strict qualified as HashMap
 import Codec.Serialise
 import Control.Concurrent.STM
 import System.IO qualified as IO
+import UnliftIO.IO qualified as UIO
 import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch
 import Control.Monad.IO.Unlift
+import Control.Monad.Trans.Resource
 
 import System.TimeIt
 
@@ -167,6 +169,13 @@ instance (HasCatAPI m, MonadIO m) => HasCatAPI (MaybeT m) where
   getHttpPutAPI = lift getHttpPutAPI
   getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
+
+instance (HasCatAPI m, MonadIO m) => HasCatAPI (ResourceT m) where
+  getHttpCatAPI = lift getHttpCatAPI
+  getHttpSizeAPI = lift getHttpSizeAPI
+  getHttpPutAPI = lift getHttpPutAPI
+  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
+
 -- instance (HasCatAPI (App m), MonadIO m) => HasCatAPI (ResourceT (App m)) where
 --   getHttpCatAPI = lift getHttpCatAPI
 --   getHttpSizeAPI = lift getHttpSizeAPI
@@ -192,6 +201,7 @@ newtype App m a =
                    , MonadReader AppEnv
                    , MonadThrow
                    , MonadCatch
+                   , MonadMask
                    , MonadUnliftIO
                    , MonadTrans
                    )

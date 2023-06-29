@@ -12,7 +12,6 @@ import Data.Function
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
-import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
 import Data.String
@@ -26,6 +25,8 @@ import Data.UUID.V4 qualified as UUID
 import Control.Monad.Catch
 import Control.Concurrent.STM
 import System.IO.Unsafe
+import Data.Graph (graphFromEdges, topSort)
+import Data.Map qualified as Map
 
 -- FIXME: move-orphans-to-separate-module
 
@@ -360,36 +361,36 @@ stateGetActualRefValue ref = do
     where refname = ?
   |] (Only ref) <&> fmap fromOnly . listToMaybe
 
+stateGetLastKnownCommits :: MonadIO m => Int -> DB m [GitHash]
+stateGetLastKnownCommits n  = do
+  conn <- ask
+  liftIO $ query conn [qc|
+    select kommit from logcommitdepth order by depth asc limit ?;
+  |] (Only n) <&> fmap fromOnly
+
 stateUpdateCommitDepths :: MonadIO m => DB m ()
 stateUpdateCommitDepths = do
   conn <- ask
   sp <- savepointNew
+
+  rows <- liftIO $ query_ @(GitHash, GitHash) conn [qc|SELECT kommit, parent FROM logcommitparent|]
+
+  -- TODO: check-it-works-on-huge-graphs
+  let commitEdges = rows
+  let (graph, nodeFromVertex, _) = graphFromEdges [(commit, commit, [parent]) | (commit, parent) <- commitEdges]
+  let sortedVertices = topSort graph
+  let sortedCommits = reverse [commit | vertex <- sortedVertices, let (commit, _, _) = nodeFromVertex vertex]
+  let ordered = zip sortedCommits [1..]
+
   savepointBegin sp
-  -- TODO: check-if-delete-logcommitdepth-is-needed
   liftIO $ execute_ conn [qc|DELETE FROM logcommitdepth|]
-  liftIO $ execute_ conn [qc|
-  INSERT INTO logcommitdepth (kommit, depth)
-  WITH RECURSIVE depths(kommit, level) AS (
-      SELECT
-          kommit,
-          0
-      FROM logcommitparent
-
-      UNION ALL
-
-      SELECT
-          p.kommit,
-          d.level + 1
-      FROM logcommitparent p
-      INNER JOIN depths d ON p.parent = d.kommit
-  )
-  SELECT
-      kommit,
-      MAX(level)
-  FROM depths
-  WHERE kommit NOT IN (SELECT kommit FROM logcommitdepth)
-  GROUP BY kommit;
-  |]
+  forM_ ordered $ \(co, n) -> do
+    liftIO $ execute conn
+      [qc| INSERT INTO logcommitdepth(kommit,depth)
+           VALUES(?,?)
+           ON CONFLICT(kommit)
+           DO UPDATE SET depth = ?
+      |] (co,n,n)
+    pure ()
   savepointRelease sp
-
 

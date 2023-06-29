@@ -2,6 +2,7 @@
 module HBS2.Git.Local.CLI
   ( module HBS2.Git.Local.CLI
   , getStdin
+  , getStdout
   , stopProcess
   ) where
 
@@ -31,6 +32,8 @@ import Data.Text.Encoding (decodeLatin1)
 import Data.Text qualified as Text
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
+import Lens.Micro.Platform
+import Control.Monad.Trans.Maybe
 import System.IO
 
 -- FIXME: specify-git-dir
@@ -412,7 +415,8 @@ gitRevList :: MonadIO m => Maybe GitHash -> GitHash -> m [GitHash]
 gitRevList l h = do
   let from = maybe mempty (\r -> [qc|{pretty r}..|] ) l
   -- let cmd = [qc|git rev-list --objects --in-commit-order --reverse --date-order {from}{pretty h}|]
-  let cmd = [qc|git rev-list --objects --reverse --in-commit-order {from}{pretty h}|]
+  -- let cmd = [qc|git rev-list --objects --reverse --in-commit-order {from}{pretty h}|]
+  let cmd = [qc|git rev-list --reverse --in-commit-order --objects {from}{pretty h}|]
   let procCfg = setStdin closed $ setStderr closed (shell cmd)
   (_, out, _) <- readProcess procCfg
   pure $ mapMaybe (fmap (fromString . LBS.unpack) . headMay . LBS.words) (LBS.lines out)
@@ -453,11 +457,59 @@ gitGetCommitImmediateDeps h = do
       pure $ fromString @GitHash $ LBS.unpack firstWord
 
 
-startGitHashObject :: GitObjectType -> IO (Process Handle () ())
+startGitHashObject :: MonadIO m => GitObjectType -> m (Process Handle () ())
 startGitHashObject objType = do
   let cmd = "git"
   let args = ["hash-object", "-w", "-t", show (pretty objType), "--stdin-paths"]
   let config = setStdin createPipe $ setStdout closed $ setStderr inherit $ proc cmd args
   startProcess config
+
+startGitCatFile :: MonadIO m => m (Process Handle Handle ())
+startGitCatFile = do
+  let cmd = "git"
+  let args = ["cat-file", "--batch"]
+  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
+  startProcess config
+
+gitReadFromCatFileBatch :: MonadIO m
+                        => Process Handle Handle a
+                        -> GitHash
+                        -> m (Maybe GitObject)
+
+gitReadFromCatFileBatch prc gh = do
+
+    let ssin = getStdin prc
+    let sout = getStdout prc
+
+    liftIO $ hPrint  ssin (pretty gh) >> hFlush ssin
+
+    runMaybeT do
+
+      here <- liftIO $ hWaitForInput sout 1000
+
+      guard here
+
+      header <- liftIO $ BS8.hGetLine sout
+
+      case BS8.unpack <$> BS8.words header of
+        [ha, t, s] -> do
+          (_, tp, size) <- MaybeT $ pure $ (,,) <$> fromStringMay @GitHash ha
+                                                <*> fromStringMay @GitObjectType t
+                                                <*> readMay s
+
+          content <- liftIO $ LBS.hGet sout size
+
+          guard (LBS.length content == fromIntegral size)
+
+          void $ liftIO $ LBS.hGet sout 1
+
+          let object = GitObject tp content
+
+          -- TODO: optionally-check-hash
+          -- guard (gh== gitHashObject object)
+
+          pure object
+
+        _                -> MaybeT $ pure Nothing
 
 

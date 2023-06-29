@@ -77,6 +77,7 @@ common shared-properties
                , resourcet
                , safe
                , serialise
+               , split
                , sqlite-simple
                , stm
                , suckless-conf

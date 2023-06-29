@@ -36,7 +36,7 @@ newtype RunWithConfig m a =
                    , MonadTrans
                    , MonadThrow
                    , MonadCatch
-                   -- , MonadMask
+                   , MonadMask
                    , MonadUnliftIO
                    )
 
@@ -60,7 +60,9 @@ instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
 push :: forall  m . ( MonadIO m
                     , MonadCatch m
                     , HasProgress (RunWithConfig (GitRemoteApp m))
+                    , MonadMask (RunWithConfig (GitRemoteApp m))
                     , MonadUnliftIO m
+                    , MonadMask m
                     )
 
      => RepoRef -> [Maybe GitRef] -> GitRemoteApp m (Maybe GitRef)
@@ -79,7 +81,7 @@ push remote what@[Just bFrom , Just br] = do
     trace $ "PUSH PARAMS" <+> pretty what
     gh <- gitGetHash (normalizeRef bFrom) `orDie` [qc|can't read hash for ref {pretty br}|]
     _ <- traceTime "TIME: exportRefOnly" $ exportRefOnly () remote (Just bFrom) br gh
-    importRefLogNew False remote
+    -- importRefLogNew False remote
     pure (Just br)
 
 push remote [Nothing, Just br]  = do
@@ -90,7 +92,7 @@ push remote [Nothing, Just br]  = do
     loadCredentials mempty
     trace $ "deleting remote reference" <+> pretty br
     exportRefDeleted () remote br
-    importRefLogNew False remote
+    -- importRefLogNew False remote
     pure (Just br)
 
 push r w = do
