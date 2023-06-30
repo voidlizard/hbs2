@@ -83,7 +83,7 @@ instance HasProtocol L4Proto (PeerHandshake L4Proto) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-  requestPeriodLim = ReqLimPerProto 2
+  requestPeriodLim = ReqLimPerProto 0.5
 
 instance HasProtocol L4Proto (PeerAnnounce L4Proto) where
   type instance ProtocolId (PeerAnnounce L4Proto) = 5
@@ -118,7 +118,7 @@ instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
   encode = serialise
 
   -- FIXME: real-period
-  requestPeriodLim = ReqLimPerMessage 1
+  requestPeriodLim = ReqLimPerMessage 0.25
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

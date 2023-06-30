@@ -6,6 +6,7 @@ module HBS2.Net.Messaging.TCP
   , tcpOwnPeer
   , tcpPeerConn
   , tcpCookie
+  , tcpOnClientStarted
   ) where
 
 import HBS2.Clock
@@ -16,8 +17,7 @@ import HBS2.Prelude.Plated
 
 import HBS2.System.Logger.Simple
 
--- import Control.Concurrent.Async
-import Control.Concurrent.STM (flushTQueue,stateTVar)
+import Control.Concurrent.STM (flushTQueue)
 import Control.Exception (try,Exception,SomeException,throwIO)
 import Control.Monad
 import Data.Bits
@@ -51,19 +51,22 @@ instance Exception SocketClosedException
 
 
 -- FIXME: control-recv-capacity-to-avoid-leaks
+
+-- | TCP Messaging environment
 data MessagingTCP =
   MessagingTCP
-  { _tcpOwnPeer        :: Peer L4Proto
-  , _tcpCookie         :: Word32
-  , _tcpConnPeer       :: TVar (HashMap Word64 (Peer L4Proto))
-  , _tcpPeerConn       :: TVar (HashMap (Peer L4Proto) Word64)
-  , _tcpConnUsed       :: TVar (HashMap Word64 Int)
-  , _tcpConnQ          :: TVar (HashMap Word64 (TQueue (Peer L4Proto, ByteString)))
-  , _tcpPeerPx         :: TVar (HashMap Word32 (Peer L4Proto))
-  , _tcpPeerXp         :: TVar (HashMap (Peer L4Proto) Word32)
-  , _tcpRecv           :: TQueue (Peer L4Proto, ByteString)
-  , _tcpDefer          :: TVar (HashMap (Peer L4Proto) [(TimeSpec, ByteString)])
-  , _tcpDeferEv        :: TQueue ()
+  { _tcpOwnPeer          :: Peer L4Proto
+  , _tcpCookie           :: Word32
+  , _tcpConnPeer         :: TVar (HashMap Word64 (Peer L4Proto))
+  , _tcpPeerConn         :: TVar (HashMap (Peer L4Proto) Word64)
+  , _tcpConnUsed         :: TVar (HashMap Word64 Int)
+  , _tcpConnQ            :: TVar (HashMap Word64 (TQueue (Peer L4Proto, ByteString)))
+  , _tcpPeerPx           :: TVar (HashMap Word32 (Peer L4Proto))
+  , _tcpPeerXp           :: TVar (HashMap (Peer L4Proto) Word32)
+  , _tcpRecv             :: TQueue (Peer L4Proto, ByteString)
+  , _tcpDefer            :: TVar (HashMap (Peer L4Proto) [(TimeSpec, ByteString)])
+  , _tcpDeferEv          :: TQueue ()
+  , _tcpOnClientStarted  :: PeerAddr L4Proto -> Word64 -> IO () -- ^ Cient TCP connection succeed
   }
 
 makeLenses 'MessagingTCP
@@ -86,6 +89,7 @@ newMessagingTCP pa = liftIO do
                <*> newTQueueIO
                <*> newTVarIO mempty
                <*> newTQueueIO
+               <*> pure (\_ _ -> none) -- do nothing by default
 
 instance Messaging MessagingTCP L4Proto ByteString where
 
@@ -208,6 +212,10 @@ spawnConnection tp env so sa = liftIO do
   theirCookie <- handshake tp env  so
 
   let connId = connectionId myCookie theirCookie
+
+  when (tp == Client && theirCookie /= myCookie) do
+    pa <- toPeerAddr newP
+    liftIO $ view tcpOnClientStarted env pa connId -- notify if we opened client tcp connection
 
   traceCmd own
            ( "spawnConnection "
@@ -345,10 +353,7 @@ connectPeerTCP env peer = liftIO do
 
   connect (show i) (show p) $ \(sock, remoteAddr) -> do
     spawnConnection Client env sock remoteAddr
-    -- FIXME: tcp-pex. Где-то здесь добавить этих пиров в пекс ?
-    -- REVIEW: так что в итоге? где-то здесь?
     shutdown sock ShutdownBoth
-
 
 -- FIXME: link-all-asyncs
 

@@ -51,12 +51,15 @@ instance Hashable (IPAddrPort e)
 
 instance Serialise (IPAddrPort e)
 
+instance Pretty IP where
+  pretty ip = case ip of
+              i4@(IPv4{}) -> pretty (show i4)
+              i6@(IPv6{}) -> brackets $ pretty (show i6)
+
 instance Pretty (IPAddrPort e) where
   pretty (IPAddrPort (ip,p)) = pretty (show pip) <> colon <> pretty p
     where
-      pip = case ip of
-              i4@(IPv4{}) -> pretty (show i4)
-              i6@(IPv6{}) -> brackets $ pretty (show i6)
+      pip = pretty ip
 
 instance IsString (IPAddrPort e) where
   fromString s = IPAddrPort (read h, fromIntegral p)

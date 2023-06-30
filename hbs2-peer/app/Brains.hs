@@ -7,6 +7,7 @@ import HBS2.Prelude.Plated
 import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Hash
+import HBS2.Net.IP.Addr
 
 import HBS2.System.Logger.Simple
 
@@ -32,9 +33,27 @@ import Data.Either
 import System.Directory
 import System.FilePath
 
+data PeerBrainsDb
+
+instance HasCfgKey PeerBrainsDb (Maybe String) where
+  key = "brains"
+
 class HasBrains e a where
 
+  onClientTCPConnected :: MonadIO m => a -> PeerAddr e -> Word64 -> m ()
+  onClientTCPConnected _ _ = const none
+
+  getClientTCP :: MonadIO m => a -> m [(PeerAddr e,Word64)]
+  getClientTCP = const $ pure mempty
+
+  setActiveTCPSessions :: MonadIO m => a -> [(PeerAddr e, Word64)] -> m ()
+  setActiveTCPSessions _ _ = none
+
+  listTCPPexCandidates :: MonadIO m => a -> m [PeerAddr e]
+  listTCPPexCandidates _ = pure mempty
+
   onKnownPeers :: MonadIO m => a -> [Peer e] -> m ()
+  onKnownPeers _ _ = none
 
   onBlockSize :: ( MonadIO m
                  , IsPeerAddr e m
@@ -44,6 +63,7 @@ class HasBrains e a where
               -> Hash HbSync
               -> Integer
               -> m ()
+  onBlockSize _ _ _ _ = none
 
   onBlockDownloadAttempt :: ( MonadIO m
                             , IsPeerAddr e m
@@ -53,16 +73,22 @@ class HasBrains e a where
                          -> Hash HbSync
                          -> m ()
 
+  onBlockDownloadAttempt _ _ _ = none
+
   onBlockDownloaded :: MonadIO m
                     => a
                     -> Peer e
                     -> Hash HbSync
                     -> m ()
 
+  onBlockDownloaded _ _ _ = none
+
   onBlockPostponed :: MonadIO m
                    => a
                    -> Hash HbSync
                    -> m ()
+
+  onBlockPostponed _ _ = none
 
   claimBlockCameFrom :: MonadIO m
                      => a
@@ -70,10 +96,13 @@ class HasBrains e a where
                      -> Hash HbSync
                      -> m ()
 
+  claimBlockCameFrom _ _ _ = none
+
   shouldPostponeBlock :: MonadIO m
                      => a
                      -> Hash HbSync
                      -> m Bool
+  shouldPostponeBlock _ _ = pure False
 
 
   shouldDownloadBlock :: MonadIO m
@@ -81,11 +110,13 @@ class HasBrains e a where
                       -> Peer e
                       -> Hash HbSync
                       -> m Bool
+  shouldDownloadBlock _ _ _ = pure False
 
   advisePeersForBlock :: (MonadIO m, FromStringMaybe (PeerAddr e))
                        => a
                        -> Hash HbSync
                        -> m [PeerAddr e]
+  advisePeersForBlock  _ _ = pure  mempty
 
   blockSize :: forall m . MonadIO m
             => a
@@ -109,35 +140,18 @@ class HasBrains e a where
 
   setReflogProcessed _ _ = pure ()
 
+
 type NoBrains = ()
 
 instance Pretty (Peer e) => HasBrains e NoBrains  where
 
-  onKnownPeers _ ps = pure ()
-
-  onBlockSize _ _ _ _ = do
-    pure ()
-
-  onBlockDownloadAttempt _ p h = do
-    pure ()
-
-  onBlockDownloaded _ p h = do
-    pure ()
-
-  onBlockPostponed _ h = do
-    pure ()
-
-  claimBlockCameFrom _ _ _ = do pure ()
-
-  shouldPostponeBlock _ _ = pure False
-
-  shouldDownloadBlock _ _ _ = pure True
-
-  advisePeersForBlock _ _ = pure mempty
-
 data SomeBrains e = forall a . HasBrains e a => SomeBrains a
 
 instance HasBrains e (SomeBrains e) where
+  onClientTCPConnected (SomeBrains a) = onClientTCPConnected @e a
+  getClientTCP (SomeBrains a) = getClientTCP @e a
+  setActiveTCPSessions (SomeBrains a) = setActiveTCPSessions @e a
+  listTCPPexCandidates (SomeBrains a) = listTCPPexCandidates @e a
   onKnownPeers (SomeBrains a) = onKnownPeers a
   onBlockSize (SomeBrains a) = onBlockSize a
   onBlockDownloadAttempt (SomeBrains a) = onBlockDownloadAttempt a
@@ -172,12 +186,36 @@ cleanupPostponed b h =  do
     let flt (_,h1) _ = h1 /= h
     liftIO $ atomically $ modifyTVar po $ HashMap.filterWithKey flt
 
-instance (Hashable (Peer e), Pretty (Peer e)) => HasBrains e (BasicBrains e) where
+instance ( Hashable (Peer e)
+         , Pretty (Peer e), Pretty (PeerAddr e)
+         , e ~ L4Proto
+         ) => HasBrains e (BasicBrains e) where
+
+  onClientTCPConnected br pa@(L4Address proto _) ssid = do
+    debug $ "BRAINS: onClientTCPConnected" <+> pretty proto <+> pretty pa <+> pretty ssid
+    updateOP br $ insertClientTCP br pa ssid
+    commitNow br True
+
+  getClientTCP br = liftIO (selectClientTCP br)
+
+  setActiveTCPSessions br ssids = do
+    trace $ "BRAINS: setActiveTCPSessions" <+> pretty ssids
+    updateOP br $ updateTCPSessions br ssids
+    commitNow br True
+
+  listTCPPexCandidates = liftIO . selectTCPPexCandidates
 
   onKnownPeers br ps = do
-    -- trace "BRAINS: onKnownPeers"
+    trace $ "BRAINS: onKnownPeers" <+> pretty ps
     let tv = view brainsPeers br
     liftIO $ atomically $ writeTVar tv ps
+    updateOP br $ do
+      transactional br $ do
+        deleteKnownPeers br
+        forM_ ps $ \pip -> do
+          pa <- toPeerAddr pip
+          insertKnownPeer br pa
+    commitNow br True
 
   onBlockSize b p h size = do
     updateOP b $ insertSize b p h size
@@ -282,6 +320,35 @@ insertSize br p h s = do
   |] (show $ pretty h, show $ pretty p, s, s)
 
 
+insertClientTCP :: forall e . (Pretty (Peer e), e ~ L4Proto)
+                => BasicBrains e
+                -> PeerAddr e
+                -> Word64
+                -> IO ()
+
+-- | only stores TCP address
+insertClientTCP br pa@(L4Address TCP (IPAddrPort (h,p))) ssid  = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute conn [qc|
+    insert into tcpclient (peer,ssid,ip,port) values (?,?,?,?)
+    on conflict (peer) do update set ssid = excluded.ssid
+  |] (show $ pretty pa, ssid, show (pretty h), p)
+
+insertClientTCP _ _ _ = pure ()
+
+selectClientTCP :: BasicBrains L4Proto -> IO [(PeerAddr L4Proto, Word64)]
+selectClientTCP br = do
+  let conn = view brainsDb br
+  rows <- liftIO $ query_ @(String, Word64) conn [qc|
+    select peer,ssid from tcpclient limit 200
+    |]
+
+  pas <- forM rows $ \(speer,ssid) -> do
+           pure $ (,) <$> fromStringMay speer
+                      <*> pure ssid
+
+  pure $ catMaybes pas
+
 insertReflogProcessed :: BasicBrains e
                       -> Hash HbSync
                       -> IO ()
@@ -365,6 +432,77 @@ insertPeer br blk peer = do
     on conflict (block,peer) do nothing
   |] (show $ pretty blk, show $ pretty peer)
 
+
+insertKnownPeer :: forall e . e ~ L4Proto
+                => BasicBrains e
+                -> PeerAddr e
+                -> IO ()
+
+insertKnownPeer br peer@(L4Address _ (IPAddrPort (i,a))) = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute conn [qc|
+    INSERT INTO knownpeer (peer,ip,port)
+    VALUES (?,?,?)
+    ON CONFLICT (peer)
+    DO NOTHING
+  |] (show $ pretty peer, show (pretty i), a)
+
+
+deleteKnownPeers :: forall e . e ~ L4Proto
+                 => BasicBrains e
+                 -> IO ()
+
+deleteKnownPeers br = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute_ conn [qc|
+    DELETE FROM knownpeer;
+  |]
+
+selectKnownPeers :: forall e . e ~ L4Proto
+                 => BasicBrains e
+                 -> IO [PeerAddr e]  -- ^ list of peers
+
+selectKnownPeers br = do
+  let conn = view brainsDb br
+  liftIO $ query_ conn [qc|SELECT peer FROM knownpeer|]
+   <&> fmap (fromStringMay . fromOnly)
+   <&> catMaybes
+
+
+selectTCPPexCandidates :: forall e . e ~ L4Proto
+                       => BasicBrains e
+                       -> IO [PeerAddr e]  -- ^ list of peers
+
+selectTCPPexCandidates br = do
+  let conn = view brainsDb br
+  liftIO $ query_ conn
+    [qc| SELECT distinct(cl.peer)
+         FROM tcpclient cl JOIN knownpeer p on p.ip = cl.ip
+    |] <&> fmap (fromStringMay . fromOnly)
+       <&> catMaybes
+
+updateTCPSessions :: forall e . e ~ L4Proto
+                 => BasicBrains e
+                 -> [(PeerAddr e, Word64)]
+                 -> IO ()
+
+updateTCPSessions br ssids = do
+  let conn = view brainsDb br
+  let sss = fmap (over _1 (show . pretty) . ip) ssids
+  transactional br $ do
+    void $ liftIO $ execute_ conn [qc|DELETE FROM tcpsession|]
+    void $ liftIO $ executeMany conn [qc|
+      INSERT INTO tcpsession (peer, ssid, ip, port)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (ssid)
+      DO UPDATE SET
+          peer = excluded.peer,
+          ip = excluded.ip,
+          port = excluded.port
+    |] sss
+
+  where
+    ip (a@(L4Address _ (IPAddrPort (i,p))), s) = (a,s,show $ pretty i,p)
 
 newtype DBData a = DBData { fromDBData :: a }
 
@@ -477,7 +615,13 @@ newBasicBrains cfg = liftIO do
 
   let stateDb = sdir </> "brains.db"
 
-  conn <- open ":memory:"
+  let brains = fromMaybe ":memory:" $ cfgValue @PeerBrainsDb cfg
+
+  unless ( brains == ":memory:" ) do
+    here <- doesFileExist brains
+    when here $ do removeFile brains
+
+  conn <- open brains
 
   execute_ conn [qc|ATTACH DATABASE '{stateDb}' as statedb|]
 
@@ -516,6 +660,34 @@ newBasicBrains cfg = liftIO do
     , size int
     , ts DATE DEFAULT (datetime('now','localtime'))
     , primary key (block,peer))
+  |]
+
+  execute_ conn [qc|
+    create table if not exists tcpclient
+    ( peer text not null
+    , ssid unsigned big int not null
+    , ip text not null
+    , port int not null
+    , primary key (peer) )
+  |]
+
+  execute_ conn [qc|
+    create table if not exists knownpeer
+    ( peer text not null
+    , ip text not null
+    , port int not null
+    , primary key (peer)
+    )
+  |]
+
+  execute_ conn [qc|
+    create table if not exists tcpsession
+    ( ssid unsigned bin int not null
+    , peer text not null
+    , ip text not null
+    , port int not null
+    , primary key (ssid)
+    )
   |]
 
   BasicBrains <$> newTVarIO mempty

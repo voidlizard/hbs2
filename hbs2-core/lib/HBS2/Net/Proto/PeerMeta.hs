@@ -9,6 +9,8 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 
+import HBS2.System.Logger.Simple
+
 import Codec.Serialise
 import Control.Monad
 import Data.ByteString ( ByteString )
@@ -30,6 +32,7 @@ peerMetaProto :: forall e m  . ( MonadIO m
                                 , HasDeferred e (PeerMetaProto e) m
                                 , EventEmitter e (PeerMetaProto e) m
                                 , Sessions e (KnownPeer e) m
+                                , Pretty (Peer e)
                                 )
                => AnnMetaData
                -> PeerMetaProto e
@@ -41,11 +44,13 @@ peerMetaProto peerMeta =
       p <- thatPeer (Proxy @(PeerMetaProto e))
       auth <- find (KnownPeerKey p) id <&> isJust
       when auth do
+        debug $ "PEER META: ANSWERING" <+> pretty p <+> viaShow peerMeta
         deferred (Proxy @(PeerMetaProto e)) do
           response (ThePeerMeta @e peerMeta)
 
     ThePeerMeta meta -> do
       that <- thatPeer (Proxy @(PeerMetaProto e))
+      debug $ "GOT PEER META FROM" <+> pretty that <+> viaShow meta
       emit @e (PeerMetaEventKey that) (PeerMetaEvent meta)
 
 newtype instance EventKey e (PeerMetaProto e) =

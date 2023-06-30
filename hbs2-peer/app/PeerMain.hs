@@ -70,6 +70,7 @@ import Data.Set (Set)
 import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 import Data.Text (Text)
+import Data.HashSet qualified as HashSet
 import GHC.Stats
 import GHC.TypeLits
 import Lens.Micro.Platform
@@ -559,7 +560,7 @@ runPeer opts = U.handle (\e -> myException e
   trace $ "TCP addr:" <+> pretty tcpListen <+> pretty addr'
 
   tcp <- maybe1 addr' (pure Nothing) $ \addr -> do
-           tcpEnv <- newMessagingTCP addr
+           tcpEnv <- newMessagingTCP addr <&> set tcpOnClientStarted (onClientTCPConnected brains)
            -- FIXME: handle-tcp-thread-somehow
            void $ async $ runMessagingTCP tcpEnv
            pure $ Just tcpEnv
@@ -575,6 +576,16 @@ runPeer opts = U.handle (\e -> myException e
   void $ async $ forever do
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
+
+  let pexFilt pips = do
+        tcpex <- listTCPPexCandidates @e brains <&> HashSet.fromList
+        fset  <- forM pips $ \p -> do
+                   toPeerAddr p >>= \case
+                    (L4Address UDP _) -> pure $ Just p
+                    pa@(L4Address TCP _) | HashSet.member pa tcpex -> pure $ Just p
+                    _ -> pure Nothing
+
+        pure (catMaybes fset)
 
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
@@ -619,6 +630,7 @@ runPeer opts = U.handle (\e -> myException e
                     def <- newPeerInfo
                     tv <- lift $ fetch True def (PeerInfoKey p) (view peerRTTBuffer)
                     insertRTT rttNew tv
+
               let hshakeAdapter = PeerHandshakeAdapter addNewRtt
 
               env <- ask
@@ -664,6 +676,7 @@ runPeer opts = U.handle (\e -> myException e
                       unless here do
                         debug $ "Got authorized peer!" <+> pretty p
                                                        <+> pretty (AsBase58 (view peerSignKey d))
+                        request @e p (GetPeerMeta @e)
 
 
                 -- FIXME: check if we've got a reference to ourselves
@@ -764,7 +777,7 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "bootstrapDnsLoop" (bootstrapDnsLoop @e conf)
 
-                peerThread "pexLoop" (pexLoop @e)
+                peerThread "pexLoop" (pexLoop @e brains tcp)
 
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
@@ -881,7 +894,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter)
-                    , makeResponse peerExchangeProto
+                    , makeResponse (peerExchangeProto pexFilt)
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto (mkPeerMeta conf))

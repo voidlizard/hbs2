@@ -43,6 +43,10 @@ instance Show L4Proto where
   show UDP = "udp"
   show TCP = "tcp"
 
+instance Pretty L4Proto where
+  pretty UDP = "udp"
+  pretty TCP = "tcp"
+
 -- type family Encryption e :: Type
 
 class Monad m => GenCookie e m where

@@ -13,8 +13,11 @@ import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
 
+import HBS2.Net.Messaging.TCP
+
 import PeerConfig
 import PeerTypes
+import Brains
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -26,6 +29,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Numeric (showGFloat)
 import System.Random.Shuffle
+import Data.HashMap.Strict qualified as HashMap
 
 
 data PeerPingIntervalKey
@@ -66,20 +70,51 @@ insertRTT x rttList = do
         else x:init xs
     )
 
-pexLoop :: forall e m . ( HasPeerLocator e m
-                        , HasPeer e
-                        , Sessions e (KnownPeer e) m
-                        , HasNonces (PeerExchange e) m
-                        , Request e (PeerExchange e) m
-                        , Sessions e (PeerExchange e) m
-                        , MonadIO m
-                        ) => m ()
+pexLoop :: forall e brains m . ( HasPeerLocator e m
+                               , HasPeer e
+                               , HasBrains e brains
+                               , Sessions e (KnownPeer e) m
+                               , HasNonces (PeerExchange e) m
+                               , Request e (PeerExchange e) m
+                               , Sessions e (PeerExchange e) m
+                               , MonadIO m
+                               , e ~ L4Proto
+                               ) => brains -> Maybe MessagingTCP -> m ()
 
-pexLoop = do
+pexLoop brains tcpEnv = do
 
   pause @'Seconds 5
 
   pl <- getPeerLocator @e
+
+  tcpPexInfo <- liftIO $ async $ forever do
+    -- FIXME: fix-hardcode
+    pause @'Seconds 20
+
+    pips <- knownPeers @e pl
+    onKnownPeers brains pips
+
+    conns <- maybe1 (view tcpPeerConn <$> tcpEnv) (pure mempty)  $ \tconn -> do
+               liftIO $ readTVarIO tconn <&> HashMap.toList
+
+    ssids <- forM conns $ \(p,coo) -> do
+                debug $ "ACTUAL TCP SESSIONS" <+> pretty p <+> pretty coo
+                pa <- toPeerAddr p
+                pure (pa, coo)
+
+    setActiveTCPSessions @e brains ssids
+
+    tcp <- getClientTCP @e brains
+
+    forM_ tcp $ \(pa, ssid) -> do
+      debug $ "TCP PEX CANDIDATE" <+> pretty pa <+> pretty ssid
+
+    pex <- listTCPPexCandidates @e brains
+
+    forM_ pex $ \pa -> do
+      debug $ "BRAINS: TCP PEX CANDIDATE" <+> pretty pa
+
+  liftIO $ mapM_ link [tcpPexInfo]
 
   forever do
 

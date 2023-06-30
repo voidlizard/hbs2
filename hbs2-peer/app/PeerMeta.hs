@@ -53,8 +53,9 @@ fillPeerMeta mtcp probePeriod = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
 
+  pause @'Seconds 10 -- wait 'till everything calm down
+
   forever $ (>> pause probePeriod) $ do
-    pause @'Seconds 5 -- wait 'till everything calm down
 
     ps <- knownPeers @e pl
     debug $ "fillPeerMeta peers:" <+> pretty ps
@@ -73,6 +74,7 @@ fillPeerMeta mtcp probePeriod = do
               subscribe @e (PeerMetaEventKey p) $ \case
                 PeerMetaEvent meta -> do
                     liftIO $ atomically $ writeTQueue q (Just meta)
+
               request p (GetPeerMeta @e)
 
               r <- liftIO $ race ( pause defGetPeerMetaTimeout )
@@ -85,7 +87,11 @@ fillPeerMeta mtcp probePeriod = do
                   Left _ ->
                       liftIO $ atomically $ writeTVar (_peerHttpApiAddress pinfo) $
                           if attemptn < 3 then (Left (attemptn + 1)) else (Right Nothing)
+
                   Right (Just meta) -> (void . runMaybeT) do
+
+                      debug $ "*** GOT GOOD META *** " <+> pretty p <+> viaShow meta
+
                       peerMeta <- case meta of
                           NoMetaData -> (MaybeT . pure) Nothing
                           ShortMetadata t -> do
@@ -93,11 +99,18 @@ fillPeerMeta mtcp probePeriod = do
                           AnnHashRef h -> (MaybeT . pure) Nothing
                       liftIO $ atomically $ writeTVar (_peerMeta pinfo) (Just peerMeta)
 
+                      debug $ "*** GOT VERY GOOD META *** " <+> pretty p <+> viaShow peerMeta
+
                       -- 3) пробить, что есть tcp
                       forM_ (lookupDecode "listen-tcp" (unPeerMeta peerMeta)) \listenTCPPort -> lift do
                           peerTCPAddrPort <- replacePort p listenTCPPort
-                          p <- fromPeerAddr (L4Address TCP peerTCPAddrPort)
-                          sendPing p
+                          candidate <- fromPeerAddr (L4Address TCP peerTCPAddrPort)
+
+                          debug $ "** SENDING PING BASE ON META ** " <+> pretty candidate
+
+                          sendPing candidate
+                          -- если пинг на этот адрес уйдет, то пир сам добавится
+                          -- в knownPeers, делать ничего не надо
 
                           forM_ mtcp \(tcp :: MessagingTCP) -> do
                               -- 4) выяснить, можно ли к нему открыть соединение на этот порт

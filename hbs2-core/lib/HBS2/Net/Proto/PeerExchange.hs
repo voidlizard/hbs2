@@ -62,9 +62,11 @@ peerExchangeProto :: forall e m . ( MonadIO m
                                   , Pretty (Peer e)
                                   , e ~ L4Proto
                                   )
-                  => PeerExchange e -> m ()
+                  => ( [Peer e] -> m [Peer e] )
+                  ->  PeerExchange e
+                  -> m ()
 
-peerExchangeProto msg = do
+peerExchangeProto pexFilt  msg = do
   case msg of
     PeerExchangeGet n -> peerExchangeGet PEX1 n
     PeerExchangeGet2 n -> peerExchangeGet PEX2 n
@@ -104,7 +106,7 @@ peerExchangeProto msg = do
       debug $ "PeerExchangeGet" <+> "from" <+> pretty that
 
       pl   <- getPeerLocator @e
-      pips <- knownPeers @e pl
+      pips <- knownPeers @e pl >>= pexFilt
 
       case pex of
         PEX1 -> do
