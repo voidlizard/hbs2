@@ -1,0 +1,26 @@
+FIXME: multiple-tcp-sessions-for-peer
+  В какой-то момент возникает следующая ситуация:
+  ```
+  [debug] metric rts.gc.bytes_allocated: 4149977728
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:55116 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:39554 17628241823858668608
+  ...
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:39618 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:50466 17628241823858668608
+  ...
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:33538 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:55042 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:50592 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:43872 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:43808 17628241823858668608
+  [debug] ACTUAL TCP SESSIONS tcp://116.203.210.151:33568 17628241823858668608
+  ```
+  То есть сессия одна, а вот соединений в таблице очень много, причем, актуальных
+  их них много быть не может. Нужно как-то
+  1. Чистить
+  2. Не допускать такого
+
+FIXME: ban-host-for-a-while-on-shitting-over-tcp
+  Вести таблицу подозрительных действий хоста,
+  и в случае превышения норм --- банить на какое-то время.
+
