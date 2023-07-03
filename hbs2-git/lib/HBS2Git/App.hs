@@ -241,7 +241,11 @@ writeBlockIO api bs = do
 readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
 readBlock h = do
   req1 <-  getHttpCatAPI
-  let reqs = req1 <> "/" <> show (pretty h)
+  readBlockFrom req1 h
+
+readBlockFrom :: forall m . (MonadIO m) => API -> HashRef -> m (Maybe ByteString)
+readBlockFrom api h = do
+  let reqs = api <> "/" <> show (pretty h)
   req  <- liftIO $ parseRequest reqs
   resp <- httpLBS req
 

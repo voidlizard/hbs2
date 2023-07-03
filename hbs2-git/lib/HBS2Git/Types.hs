@@ -53,7 +53,12 @@ type HBS2L4Proto = L4Proto
 -- FIXME: introduce-API-type
 type API = String
 
-type DBEnv = Connection
+data DBEnv =
+  DBEnv { _dbFilePath :: FilePath
+        , _dbConn     :: TVar (Maybe Connection)
+        }
+
+makeLenses 'DBEnv
 
 type RepoRef = RefLogKey Schema
 

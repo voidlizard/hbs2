@@ -72,14 +72,87 @@ blockSource h = do
 
   liftIO $ readTVarIO tsize <&> fromIntegral
 
+getLogFlags :: MonadIO m
+            => (HashRef -> m (Maybe LBS.ByteString))
+            -> HashRef
+            -> m (Maybe [Text])
+
+getLogFlags doRead h = do
+
+  runMaybeT do
+
+    treeBs   <- MaybeT $ doRead h
+
+    let something =  tryDetect (fromHashRef h) treeBs
+    let meta = mconcat $ rights [ parseTop (Text.unpack s) | ShortMetadata s <- universeBi something ]
+
+    -- TODO: check-if-it-is-hbs2-git-log
+    let tp = lastMay [ "hbs2-git-push-log"
+                     | (ListVal (Key "type:" [SymbolVal "hbs2-git-push-log"]) ) <- meta
+                     ]
+
+    guard ( tp == Just "hbs2-git-push-log" )
+
+    pure $ mconcat [ Text.splitOn ":" (Text.pack (show $ pretty s))
+                   | (ListVal (Key "flags:" [SymbolVal s]) ) <- meta
+                   ]
+
+class HasImportOpts a where
+  importForce :: a -> Bool
+  importDontWriteGit :: a -> Bool
+
+instance HasImportOpts Bool where
+  importForce f = f
+  importDontWriteGit = const False
+
+instance HasImportOpts (Bool, Bool) where
+  importForce = fst
+  importDontWriteGit = snd
+
+-- FIXME: ASAP-will-work-only-for-one-repo
+--  сейчас все транзакции помечаются, как обработанные
+--  в глобальном стейте для ссылки. таким образом,
+--  если мы вызвали для одного репозитория,
+--  то import не будет работать для остальных, т.к. решит,
+--  что всё обработано.
+--
+--  Решение:
+--    Вариант N1. Держать стейт локально в каждом
+--    каталоге git.
+--    Минусы:
+--      - большой оверхед по данным
+--      - мусор в каталоге git
+--      - например, git-hbs2-http вообще работает без "репозитория",
+--        как ему быть
+--
+--    Вариант N2. сделать развязку через какой-то ID
+--    репозитория или путь к нему.
+--    Минусы:
+--      - выглядит хрупко
+--      - например, git-hbs2-http вообще работает без "репозитория",
+--        как ему быть
+--
+--    Вариант N3. БД обновлять отдельно, объекты git - отдельно
+--    для каждого репозитория, запоминать (где?) проигранные для
+--    него логи.
+--    Минусы:
+--      - двойное сканирование файлов логов - получение, распаковка,
+--        сканирование и т.п. сначала для БД, потом для непосредственно
+--        репозитория
+--
 importRefLogNew :: ( MonadIO m
                    , MonadUnliftIO m
                    , MonadCatch m
+                   , MonadMask m
                    , HasCatAPI m
+                   , HasImportOpts opts
                    )
-                => Bool -> RepoRef -> m ()
+                => opts -> RepoRef -> m ()
 
-importRefLogNew force ref = runResourceT do
+importRefLogNew opts ref = runResourceT do
+
+  let force = importForce opts
+
   let myTempDir = "hbs-git"
   temp <- liftIO getCanonicalTemporaryDirectory
   (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
@@ -232,8 +305,10 @@ importRefLogNew force ref = runResourceT do
 
                   _ -> pure ()
 
-                statePutLogImported h
-                statePutTranImported e
+                -- otherwise we wan't process those logs next time.
+                unless (importDontWriteGit opts) do
+                  statePutLogImported h
+                  statePutTranImported e
 
       mapM_ hClose handles
 
@@ -242,13 +317,13 @@ importRefLogNew force ref = runResourceT do
         statePutRefImported logRoot
         savepointRelease sp0
 
-
   where
 
     writeIfNew gitHandle dir h (GitObject tp s) = do
-      let nf = dir </> show (pretty h)
-      liftIO $ LBS.writeFile nf s
-      hPutStrLn gitHandle nf
-      hFlush gitHandle
-      trace $ "WRITTEN OBJECT" <+> pretty tp <+> pretty h <+> pretty nf
+      unless (importDontWriteGit opts) do
+        let nf = dir </> show (pretty h)
+        liftIO $ LBS.writeFile nf s
+        hPutStrLn gitHandle nf
+        hFlush gitHandle
+        trace $ "WRITTEN OBJECT" <+> pretty tp <+> pretty h <+> pretty nf
 

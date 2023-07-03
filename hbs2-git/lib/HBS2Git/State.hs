@@ -1,5 +1,6 @@
 module HBS2Git.State where
 
+import HBS2.Prelude
 import HBS2Git.Types
 import HBS2.Data.Types.Refs
 import HBS2.Git.Types
@@ -7,6 +8,7 @@ import HBS2.Hash
 
 import HBS2.System.Logger.Simple
 
+import Control.Monad.Trans.Resource
 import Data.Functor
 import Data.Function
 import Database.SQLite.Simple
@@ -27,6 +29,7 @@ import Control.Concurrent.STM
 import System.IO.Unsafe
 import Data.Graph (graphFromEdges, topSort)
 import Data.Map qualified as Map
+import Lens.Micro.Platform
 
 -- FIXME: move-orphans-to-separate-module
 
@@ -61,7 +64,7 @@ newtype DB m a =
                    , Functor
                    , Monad
                    , MonadIO
-                   , MonadReader Connection
+                   , MonadReader DBEnv
                    , MonadTrans
                    , MonadThrow
                    , MonadCatch
@@ -71,32 +74,54 @@ instance (HasRefCredentials m) => HasRefCredentials (DB m) where
   getCredentials = lift . getCredentials
   setCredentials r s  = lift (setCredentials r s)
 
-dbConnTV :: TVar (Maybe DBEnv)
-dbConnTV = unsafePerformIO $ newTVarIO Nothing
-{-# NOINLINE dbConnTV #-}
+stateConnection :: MonadIO m => DB m Connection
+stateConnection = do
+  env <- ask
+  initConnection env
 
-dbEnv :: MonadIO m => FilePath -> m DBEnv
-dbEnv fp = do
+initConnection :: MonadIO m => DBEnv -> m Connection
+initConnection env = do
+  mco <- liftIO $ readTVarIO (view dbConn env)
+  case mco of
+    Just co -> pure co
+    Nothing -> do
+      co <- liftIO $ open (view dbFilePath env)
+      liftIO $ atomically $ writeTVar (view dbConn env) (Just co)
+      pure co
+
+dbEnv0 :: (MonadIO m, MonadMask m) => DB m () -> FilePath -> m DBEnv
+dbEnv0 dbInit fp = do
   trace  "dbEnv called"
   let dir = takeDirectory fp
   liftIO $ createDirectoryIfMissing True dir
-  mbDb <- liftIO $ readTVarIO dbConnTV
+  env <- DBEnv fp <$> liftIO (newTVarIO Nothing)
+  void $ withDB env dbInit
+  pure env
 
-  case mbDb of
-    Nothing -> do
-      co <- liftIO $ open fp
-      liftIO $ atomically $ writeTVar dbConnTV (Just co)
-      withDB co stateInit
-      pure co
+dbEnv :: (MonadIO m, MonadMask m) => FilePath -> m DBEnv
+dbEnv = dbEnv0 stateInit
 
-    Just db -> pure db
+dbEnvReadOnly :: (MonadIO m, MonadMask m) => FilePath -> m DBEnv
+dbEnvReadOnly = dbEnv0 none
 
-withDB :: DBEnv -> DB m a -> m a
-withDB env action = runReaderT (fromDB action) env
+withDB :: (MonadIO m, MonadMask m) => DBEnv -> DB m a -> m a
+withDB env action = do
+  conn <- initConnection env
+  finally (runReaderT (fromDB action) env) $ do
+    -- NOTE: we could not close connection here.
+    pure ()
+
+shutdownDB :: MonadIO m => DBEnv -> m ()
+shutdownDB env = liftIO do
+  co <- atomically do
+    conn <- readTVar (view dbConn env)
+    writeTVar (view dbConn env) Nothing
+    pure conn
+  maybe1 co none close
 
 stateInit :: MonadIO m => DB m ()
 stateInit = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute_ conn [qc|
   create table if not exists logrefval
   ( loghash text not null
@@ -203,17 +228,17 @@ savepointNew  = do
 
 savepointBegin :: forall m . MonadIO m => Savepoint -> DB m ()
 savepointBegin (Savepoint sp) = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute_ conn [qc|SAVEPOINT {sp}|]
 
 savepointRelease:: forall m . MonadIO m => Savepoint -> DB m ()
 savepointRelease (Savepoint sp) = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute_ conn [qc|RELEASE SAVEPOINT {sp}|]
 
 savepointRollback :: forall m . MonadIO m => Savepoint -> DB m ()
 savepointRollback (Savepoint sp) = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute_ conn [qc|ROLLBACK TO SAVEPOINT {sp}|]
 
 transactional :: forall a m . (MonadCatch m, MonadIO m) => DB m a -> DB m a
@@ -242,7 +267,7 @@ transactional action = do
 
 statePutLogRefVal :: MonadIO m => (HashRef, GitRef, GitHash) -> DB m ()
 statePutLogRefVal row = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into logrefval (loghash,refname,refval) values(?,?,?)
   on conflict (loghash,refname) do nothing
@@ -251,7 +276,7 @@ statePutLogRefVal row = do
 
 statePutLogObject :: MonadIO m => (HashRef, GitObjectType, GitHash) -> DB m ()
 statePutLogObject row = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into logobject (loghash,type,githash) values(?,?,?)
   on conflict (loghash,githash) do nothing
@@ -259,14 +284,24 @@ statePutLogObject row = do
 
 stateIsLogObjectExists :: MonadIO m => GitHash -> DB m Bool
 stateIsLogObjectExists h = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ query conn [qc|
   SELECT NULL FROM logobject WHERE githash = ? LIMIT 1
   |] (Only h) <&> isJust . listToMaybe . fmap (fromOnly @(Maybe Int))
 
+
+stateGetGitLogObject :: MonadIO m => GitHash -> DB m (Maybe HashRef)
+stateGetGitLogObject h = do
+  conn <- stateConnection
+  liftIO $ query conn [qc|
+  SELECT loghash FROM logobject
+  WHERE githash = ? and type in ('commit', 'tree', 'blob')
+  LIMIT 1
+  |] (Only h) <&> listToMaybe . fmap fromOnly
+
 statePutLogContextCommit :: MonadIO m => HashRef -> GitHash -> DB m ()
 statePutLogContextCommit loghash ctx = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into logobject (loghash,type,githash) values(?,'context',?)
   on conflict (loghash,githash) do nothing
@@ -274,7 +309,7 @@ statePutLogContextCommit loghash ctx = do
 
 statePutLogCommitParent :: MonadIO m => (GitHash, GitHash) -> DB m ()
 statePutLogCommitParent row = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into logcommitparent (kommit,parent) values(?,?)
   on conflict (kommit,parent) do nothing
@@ -283,7 +318,7 @@ statePutLogCommitParent row = do
 
 statePutLogImported :: MonadIO m => HashRef -> DB m ()
 statePutLogImported h = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into logimported (hash) values(?)
   on conflict (hash) do nothing
@@ -292,7 +327,7 @@ statePutLogImported h = do
 
 stateGetLogImported :: MonadIO m => HashRef -> DB m Bool
 stateGetLogImported h = do
-  conn <- ask
+  conn <- stateConnection
   r <- liftIO $ query @_ @(Only Int) conn [qc|
     select 1 from logimported where hash = ? limit 1
   |] (Only h)
@@ -301,7 +336,7 @@ stateGetLogImported h = do
 
 statePutRefImported :: MonadIO m => HashRef -> DB m ()
 statePutRefImported h = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into refimported (hash) values(?)
   on conflict (hash) do nothing
@@ -309,7 +344,7 @@ statePutRefImported h = do
 
 stateGetRefImported :: MonadIO m => HashRef -> DB m Bool
 stateGetRefImported h = do
-  conn <- ask
+  conn <- stateConnection
   r <- liftIO $ query @_ @(Only Int) conn [qc|
     select 1 from refimported where hash = ? limit 1
   |] (Only h)
@@ -317,7 +352,7 @@ stateGetRefImported h = do
 
 statePutTranImported :: MonadIO m => HashRef -> DB m ()
 statePutTranImported h = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ execute conn [qc|
   insert into tranimported (hash) values(?)
   on conflict (hash) do nothing
@@ -325,7 +360,7 @@ statePutTranImported h = do
 
 stateGetTranImported :: MonadIO m => HashRef -> DB m Bool
 stateGetTranImported h = do
-  conn <- ask
+  conn <- stateConnection
   r <- liftIO $ query @_ @(Only Int) conn [qc|
     select 1 from tranimported where hash = ? limit 1
   |] (Only h)
@@ -333,7 +368,7 @@ stateGetTranImported h = do
 
 stateGetAllTranImported :: MonadIO m => DB m [HashRef]
 stateGetAllTranImported = do
-  conn <- ask
+  conn <- stateConnection
   results <- liftIO $ query_ conn [qc|
     select hash from tranimported
   |]
@@ -341,21 +376,21 @@ stateGetAllTranImported = do
 
 stateGetImportedCommits :: MonadIO m => DB m [GitHash]
 stateGetImportedCommits = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ query_ conn [qc|
     select distinct(githash) from logobject where type = 'commit'
   |] <&> fmap fromOnly
 
 stateGetActualRefs :: MonadIO m => DB m [(GitRef, GitHash)]
 stateGetActualRefs = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ query_ conn [qc|
     select refname,refval from v_refval_actual
   |]
 
 stateGetActualRefValue :: MonadIO m => GitRef -> DB m (Maybe GitHash)
 stateGetActualRefValue ref = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ query conn [qc|
     select refval from v_refval_actual
     where refname = ?
@@ -363,14 +398,14 @@ stateGetActualRefValue ref = do
 
 stateGetLastKnownCommits :: MonadIO m => Int -> DB m [GitHash]
 stateGetLastKnownCommits n  = do
-  conn <- ask
+  conn <- stateConnection
   liftIO $ query conn [qc|
     select kommit from logcommitdepth order by depth asc limit ?;
   |] (Only n) <&> fmap fromOnly
 
 stateUpdateCommitDepths :: MonadIO m => DB m ()
 stateUpdateCommitDepths = do
-  conn <- ask
+  conn <- stateConnection
   sp <- savepointNew
 
   rows <- liftIO $ query_ @(GitHash, GitHash) conn [qc|SELECT kommit, parent FROM logcommitparent|]

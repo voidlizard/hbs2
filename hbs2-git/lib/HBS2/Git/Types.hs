@@ -116,6 +116,11 @@ normalizeRef (GitRef x) = GitRef "refs/heads/" <> GitRef (fromMaybe x (Text.stri
   where
     strip = Text.dropWhile (=='+')
 
+guessHead :: GitRef -> Integer
+guessHead = \case
+  "refs/heads/master" -> 0
+  "refs/heads/main"   -> 0
+  _                   -> 1
 
 shutUp :: MonadIO m => m ()
 shutUp = do

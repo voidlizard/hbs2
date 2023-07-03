@@ -72,11 +72,6 @@ capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
 
-guessHead :: GitRef -> Integer
-guessHead = \case
-  "refs/heads/master" -> 0
-  "refs/heads/main"   -> 0
-  _                   -> 1
 
 loop :: forall m . ( MonadIO m
                    , MonadCatch m

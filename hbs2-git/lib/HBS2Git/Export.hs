@@ -68,15 +68,15 @@ makeLenses 'ExportEnv
 
 
 exportRefDeleted :: forall  o m . ( MonadIO m
-                               , MonadCatch m
-                               -- , MonadMask m
-                               , MonadUnliftIO m
-                               , HasCatAPI m
-                               , HasConf m
-                               , HasRefCredentials m
-                               , HasProgress m
-                               , ExportRepoOps o
-                               )
+                                  , MonadCatch m
+                                  , MonadMask m
+                                  , MonadUnliftIO m
+                                  , HasCatAPI m
+                                  , HasConf m
+                                  , HasRefCredentials m
+                                  , HasProgress m
+                                  , ExportRepoOps o
+                                  )
               => o
               -> RepoRef
               -> GitRef

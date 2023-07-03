@@ -8,12 +8,13 @@ import HBS2Git.State
 import HBS2Git.Config
 import HBS2Git.ListRefs
 
+import Control.Monad.Catch (MonadMask)
 import Data.Foldable
 import Prettyprinter.Render.Terminal
 
 data ShowObject = ShowRef RepoRef | ShowConfig
 
-showRef :: MonadIO m => RepoRef -> App m ()
+showRef :: (MonadIO m, MonadMask m) => RepoRef -> App m ()
 showRef h = do
   db <- makeDbPath h >>= dbEnv
   -- FIXME: re-implement-showRef
@@ -27,25 +28,25 @@ showRef h = do
   --     print $ pretty "last operations:"
   --     for_ imported (\(t,h1,h2) -> print $ pretty t <+> pretty h1 <+> pretty h2)
 
-showRefs :: MonadIO m => App m ()
+showRefs :: (MonadIO m, MonadMask m) => App m ()
 showRefs = do
   liftIO $ putDoc $ line <> green "References:" <> section
   runListRefs
 
-showConfig :: MonadIO m => App m ()
+showConfig :: (MonadIO m, MonadMask m) => App m ()
 showConfig = liftIO do
   ConfigPathInfo{..} <- getConfigPathInfo
   cfg <- readFile configFilePath
   putDoc $ green "Config file location:" <> section <> pretty configFilePath <> section
   putDoc $ green "Config contents:" <> line <> pretty cfg
 
-showSummary :: MonadIO m => App m ()
+showSummary :: (MonadIO m, MonadMask m) => App m ()
 showSummary = do
   showRefs
   liftIO $ putDoc section
   showConfig
 
-runShow :: MonadIO m => Maybe ShowObject -> App m ()
+runShow :: (MonadIO m, MonadMask m) => Maybe ShowObject -> App m ()
 runShow (Just (ShowRef h)) = showRef h
 runShow (Just ShowConfig) = showConfig
 runShow Nothing = showSummary

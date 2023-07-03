@@ -73,14 +73,14 @@ runListRefs = do
   where
     isHbs2 (_, b) = Text.isPrefixOf hbs2Prefix b
 
-runToolsScan :: (MonadUnliftIO m,MonadCatch m) => RepoRef -> App m ()
+runToolsScan :: (MonadUnliftIO m,MonadCatch m,MonadMask m) => RepoRef -> App m ()
 runToolsScan ref = do
   trace $ "runToolsScan" <+> pretty ref
   importRefLogNew False ref
   shutUp
   pure ()
 
-runToolsGetRefs :: (MonadUnliftIO m,MonadCatch m) => RepoRef -> App m ()
+runToolsGetRefs :: (MonadUnliftIO m,MonadCatch m,MonadMask m) => RepoRef -> App m ()
 runToolsGetRefs ref = do
   db <- makeDbPath ref >>= dbEnv
   refs <- withDB db stateGetActualRefs
