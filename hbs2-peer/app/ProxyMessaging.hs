@@ -94,89 +94,90 @@ runProxyMessaging env = liftIO do
 
   liftIO $ mapM_ waitCatch [u,t]
 
-instance Messaging PlainProxyMessaging L4Proto LBS.ByteString where
+instance Messaging ProxyMessaging L4Proto LBS.ByteString where
   sendTo = sendToPlainProxyMessaging
-  receive (PlainProxyMessaging bus) = receive bus
+  receive = receiveFromProxyMessaging
 
 sendToPlainProxyMessaging :: (MonadIO m)
-  => PlainProxyMessaging
+  => ProxyMessaging
   -> To L4Proto
   -> From L4Proto
   -> LBS.ByteString
-  -- -> AnyMessage LBS.ByteString L4Proto
   -> m ()
-sendToPlainProxyMessaging (PlainProxyMessaging bus) t@(To whom) proto msg = do
+sendToPlainProxyMessaging bus t@(To whom) proto msg = do
     let udp = view proxyUDP bus
     case view sockType whom of
       UDP -> sendTo udp  t proto msg
       TCP -> maybe1 (view proxyTCP bus) none $ \tcp -> do
                sendTo tcp t proto msg
 
-instance Messaging ProxyMessaging L4Proto LBS.ByteString where
-  sendTo = sendToProxyMessaging
-  receive = receiveFromProxyMessaging
+-- sendToProxyMessaging :: (MonadIO m)
+--   => ProxyMessaging
+--   -> To L4Proto
+--   -> From L4Proto
+--   -> LBS.ByteString
+--   -> m ()
+-- sendToProxyMessaging bus t@(To whom) proto msg = do
+--     -- sendTo (view proxyUDP bus)  t proto msg
+--     -- trace $ "PROXY: SEND" <+> pretty whom
+--     encKey <- Map.lookup whom <$> (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
+--     cf <- case encKey of
+--         Nothing -> do
+--             trace $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
+--             pure id
+--         Just k -> do
+--             trace $ "ENCRYPTION SEND: sending encrypted message to" <+> pretty whom <+> "with key" <+> viaShow k
+--             boxAfterNMLazy k <$> liftIO Encrypt.newNonce
+--     sendTo (PlainProxyMessaging bus) t proto (cf msg)
 
-sendToProxyMessaging bus t@(To whom) proto msg = do
-    -- sendTo (view proxyUDP bus)  t proto msg
-    -- trace $ "PROXY: SEND" <+> pretty whom
-    encKey <- Map.lookup whom <$> (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
-    cf <- case encKey of
-        Nothing -> do
-            trace $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
-            pure id
-        Just k -> do
-            trace $ "ENCRYPTION SEND: sending encrypted message to" <+> pretty whom <+> "with key" <+> viaShow k
-            boxAfterNMLazy k <$> liftIO Encrypt.newNonce
-    sendTo (PlainProxyMessaging bus) t proto (cf msg)
+-- receiveFromProxyMessaging :: MonadIO m
+--   => ProxyMessaging -> To L4Proto -> m [(From L4Proto, LBS.ByteString)]
+-- receiveFromProxyMessaging bus _ = liftIO do
+--     -- trace "PROXY: RECEIVE"
+--     -- receive (view proxyUDP bus) w
+--     let answ = view proxyAnswers bus
+--     rs <- atomically $ liftM2 (:) (readTQueue answ) (flushTQueue answ)
+--     fmap catMaybes $ forM rs \(w@(From whom), msg) -> do
+--         encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
+--         fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
 
-receiveFromProxyMessaging :: MonadIO m
-  => ProxyMessaging -> To L4Proto -> m [(From L4Proto, LBS.ByteString)]
-receiveFromProxyMessaging bus _ = liftIO do
-    -- trace "PROXY: RECEIVE"
-    -- receive (view proxyUDP bus) w
-    let answ = view proxyAnswers bus
-    rs <- atomically $ liftM2 (:) (readTQueue answ) (flushTQueue answ)
-    fmap catMaybes $ forM rs \(w@(From whom), msg) -> do
-        encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
-        fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
+--     where
+--       dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
+--       dfm = \whom mk msg -> case mk of
+--           Nothing -> do
+--               trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
+--               pure (Just msg)
+--           Just k -> runMaybeT $
+--             -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
+--             (<|> (do
+--                 -- И сотрём ключ из памяти
+--                 -- liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys bus) $ Lens.at whom .~ Nothing
+--                 trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
+--                 pure msg
+--                 )) $
+--             do
+--               trace $ "ENCRYPTION RECEIVE: we have a key to decode from" <+> pretty whom <+> ":" <+> viaShow k
+--               case ((extractNonce . cs) msg) of
+--                   Nothing -> do
+--                       trace $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
+--                       fail ""
 
-    where
-      dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
-      dfm = \whom mk msg -> case mk of
-          Nothing -> do
-              trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
-              pure (Just msg)
-          Just k -> runMaybeT $
-            -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
-            (<|> (do
-                -- И сотрём ключ из памяти
-                liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys bus) $ Lens.at whom .~ Nothing
-                trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
-                pure msg
-                )) $
-            do
-              trace $ "ENCRYPTION RECEIVE: we have a key to decode from" <+> pretty whom <+> ":" <+> viaShow k
-              case ((extractNonce . cs) msg) of
-                  Nothing -> do
-                      trace $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
-                      fail ""
+--                   Just (nonce, msg') ->
+--                       ((MaybeT . pure) (boxOpenAfterNMLazy k nonce msg')
+--                           <* (trace $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
+--                       )
+--                     <|>
+--                       (do
+--                           (trace $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
+--                           fail ""
 
-                  Just (nonce, msg') ->
-                      ((MaybeT . pure) (boxOpenAfterNMLazy k nonce msg')
-                          <* (trace $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
-                      )
-                    <|>
-                      (do
-                          (trace $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
-                          fail ""
+--                           -- -- Попытаться десериализовать сообщение как PeerPing или PeerPingCrypted
+--                           -- case deserialiseOrFail msg of
+--                           --   Right (_ :: PeerHandshake L4Proto) -> do
+--                           --       trace $ "ENCRYPTION RECEIVE: plain message decoded as PeerHandshake" <+> pretty whom
+--                           --       fail ""
+--                           --   Left _ -> do
+--                           --       trace $ "ENCRYPTION RECEIVE: failed" <+> pretty whom
+--                           --       mzero
 
-                          -- -- Попытаться десериализовать сообщение как PeerPing или PeerPingCrypted
-                          -- case deserialiseOrFail msg of
-                          --   Right (_ :: PeerHandshake L4Proto) -> do
-                          --       trace $ "ENCRYPTION RECEIVE: plain message decoded as PeerHandshake" <+> pretty whom
-                          --       fail ""
-                          --   Left _ -> do
-                          --       trace $ "ENCRYPTION RECEIVE: failed" <+> pretty whom
-                          --       mzero
-
-                      )
+--                       )

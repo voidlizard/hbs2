@@ -836,58 +836,7 @@ runPeer opts = U.handle (\e -> myException e
                                   --     Nothing -> unencrypted ping
                                   --     Just pubkey -> encryptengd
 
-                              let
-                                  requestPlain :: forall m msg .
-                                    ( MonadIO m
-                                    -- , HasProtocol L4Proto msg
-                                    , msg ~ PeerHandshake L4Proto
-                                    , HasOwnPeer L4Proto m
-                                    -- , Messaging MessagingTCP L4Proto (AnyMessage ByteString L4Proto)
-                                    -- , Messaging MessagingUDP L4Proto (AnyMessage ByteString L4Proto)
-                                    , HasTimeLimits L4Proto (PeerHandshake L4Proto) m
-                                    ) => Peer e -> msg -> m ()
-                                  requestPlain peer_e msg = do
-                                      let protoN = protoId @e @msg (Proxy @msg)
-                                      me <- ownPeer @e
-
-                                      allowed <- tryLockForPeriod peer_e msg
-
-                                      when (not allowed) do
-                                          trace $ "REQUEST: not allowed to send" <+> viaShow msg
-
-                                      -- when allowed do
-                                      --     sendTo proxy (To peer_e) (From me) (AnyMessage @(Encoded e) @e protoN (encode msg))
-
-                                      -- when allowed do
-                                      do
-                                          sendToPlainProxyMessaging (PlainProxyMessaging proxy) (To peer_e) (From me)
-                                              -- (AnyMessage @(Encoded e) @e protoN (Proto.encode msg))
-                                              (serialise (protoN, (Proto.encode msg)))
-
-                              -- let
-                              --     sendPingCrypted' pip pubkey = do
-                              --         nonce <- newNonce @(PeerHandshake e)
-                              --         tt <- liftIO $ getTimeCoarse
-                              --         let pdd = PeerPingData nonce tt (Just pubkey)
-                              --         update pdd (PeerHandshakeKey (nonce,pip)) id
-                              --         requestPlain pip (PeerPingCrypted @e nonce pubkey)
-
-                              -- let
-                              --     sendPing' pip = do
-                              --         nonce <- newNonce @(PeerHandshake e)
-                              --         tt <- liftIO $ getTimeCoarse
-                              --         let pdd = PeerPingData nonce tt Nothing
-                              --         update pdd (PeerHandshakeKey (nonce,pip)) id
-                              --         requestPlain pip (PeerPing @e nonce)
-
-                              -- sendPingCrypted' pip (pubKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                               sendPing pip
-                              pause $ case (requestPeriodLim @e @(PeerHandshake e)) of
-                                  NoLimit -> 0
-                                  ReqLimPerProto   t -> t + 0.1
-                                  ReqLimPerMessage t -> t + 0.1
-                              -- sendPing' pip
-                              sendPingCrypted pip (pubKeyFromKeypair @s (view envAsymmetricKeyPair penv))
 
                             ANNOUNCE h  -> do
                               debug $ "got announce rpc" <+> pretty h

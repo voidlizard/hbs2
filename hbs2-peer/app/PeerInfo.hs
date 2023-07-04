@@ -244,15 +244,3 @@ peerPingLoop cfg penv = do
       -- trace $ "SEND PING TO" <+> pretty p
       sendPing @e p
       -- trace $ "SENT PING TO" <+> pretty p
-      pause dt
-      sendPingCrypted @e p
-          (pubKeyFromKeypair @(Encryption e) (view envAsymmetricKeyPair penv))
-      -- trace $ "SENT PING CRYPTED TO" <+> pretty p
-
-  where
-    dt = case (requestPeriodLim @e @(PeerHandshake e)) of
-        NoLimit -> 0
-        ReqLimPerProto   t -> t + 0.1
-        ReqLimPerMessage t -> t + 0.1
-
-
