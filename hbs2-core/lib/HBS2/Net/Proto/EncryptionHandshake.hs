@@ -2,28 +2,32 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Net.Proto.EncryptionHandshake where
 
--- import HBS2.Base58
 import HBS2.Actors.Peer
+import HBS2.Base58
+import HBS2.Clock
 import HBS2.Data.Types
 import HBS2.Events
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
-import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
-import HBS2.Net.Auth.Credentials
 import HBS2.System.Logger.Simple
 
-import Control.Monad
-import Crypto.Saltine.Core.Box qualified as Encrypt
-import Data.Maybe
 import Codec.Serialise()
+import Control.Monad
+import Crypto.Saltine.Class qualified as Crypto
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString qualified as BS
 import Data.Hashable
+import Data.Maybe
 import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
 
 newtype EENonce = EENonce { unEENonce :: BS.ByteString }
+  deriving stock (Generic)
+  deriving newtype (Eq, Serialise, Hashable)
+  deriving (Pretty, Show) via AsBase58 BS.ByteString
 
 data EncryptionHandshake e =
     BeginEncryptionExchange EENonce (PubKey 'Encrypt (Encryption e))
@@ -67,8 +71,7 @@ encryptionHandshakeProto :: forall e s m . ( MonadIO m
                    -> EncryptionHandshake e
                    -> m ()
 
-encryptionHandshakeProto penv =
-  \case
+encryptionHandshakeProto penv = \case
 
     BeginEncryptionExchange nonce theirpubkey -> do
       pip <- thatPeer proto
@@ -107,8 +110,7 @@ encryptionHandshakeProto penv =
 
 data PeerAsymmInfo e = PeerAsymmInfo
 
-data instance EventKey e (PeerAsymmInfo e) =
-  PeerAsymmInfoKey
+data instance EventKey e (PeerAsymmInfo e) = PeerAsymmInfoKey
   deriving stock (Generic)
 
 deriving stock instance (Eq (Peer e)) => Eq (EventKey e (PeerAsymmInfo e))
@@ -120,3 +122,35 @@ data instance Event e (PeerAsymmInfo e) =
 
 instance Expires (EventKey e (PeerAsymmInfo e)) where
   expiresIn _ = Nothing
+
+instance MonadIO m => HasNonces (EncryptionHandshake L4Proto) m where
+  type instance Nonce (EncryptionHandshake L4Proto) = EENonce
+  newNonce = EENonce . BS.take 32 . Crypto.encode <$> liftIO Encrypt.newNonce
+
+instance
+  ( Serialise (PubKey 'Sign (Encryption e))
+  , Serialise (PubKey 'Encrypt (Encryption e))
+  , Serialise (Signature (Encryption e))
+  )
+  => Serialise (EncryptionHandshake e)
+
+deriving instance
+  ( Show (PubKey 'Encrypt (Encryption e))
+  , Show (Signature (Encryption e))
+  )
+  => Show (EncryptionHandshake e)
+
+type instance SessionData e (EncryptionHandshake e) = ()
+
+newtype instance SessionKey e (EncryptionHandshake e) =
+  KnownPeerAsymmInfoKey (EENonce, Peer e)
+  deriving stock (Generic, Typeable)
+
+deriving instance Eq (Peer e) => Eq (SessionKey e (EncryptionHandshake e))
+instance Hashable (Peer e) => Hashable (SessionKey e (EncryptionHandshake e))
+
+data instance EventKey e (EncryptionHandshake e) =
+  AnyKnownPeerEncryptionHandshakeEventKey
+  deriving stock (Typeable, Eq,Generic)
+
+instance Hashable (EventKey e (EncryptionHandshake e))

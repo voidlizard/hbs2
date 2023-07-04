@@ -21,6 +21,7 @@ import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
+import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
@@ -908,6 +909,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
+                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto penv)
                     , makeResponse (peerExchangeProto pexFilt)
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)

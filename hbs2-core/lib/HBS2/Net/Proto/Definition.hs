@@ -14,6 +14,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
+import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
@@ -125,6 +126,14 @@ instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
   -- FIXME: real-period
   requestPeriodLim = ReqLimPerMessage 0.25
 
+instance HasProtocol L4Proto (EncryptionHandshake L4Proto) where
+  type instance ProtocolId (EncryptionHandshake L4Proto) = 10
+  type instance Encoded L4Proto = ByteString
+  decode = deserialiseCustom
+  encode = serialise
+
+  requestPeriodLim = ReqLimPerProto 0.5
+
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec
 
@@ -143,11 +152,17 @@ instance Expires (SessionKey L4Proto (KnownPeer L4Proto)) where
 instance Expires (SessionKey L4Proto (PeerHandshake L4Proto)) where
   expiresIn _ = Just 60
 
+instance Expires (SessionKey L4Proto (EncryptionHandshake L4Proto)) where
+  expiresIn _ = Just 60
+
 instance Expires (EventKey L4Proto (PeerAnnounce L4Proto)) where
   expiresIn _ = Nothing
 
 instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
   expiresIn _ = Just 600
+
+-- instance Expires (EventKey L4Proto (EncryptionHandshake L4Proto)) where
+--   expiresIn _ = Just 600
 
 -- instance MonadIO m => HasNonces () m where
 --   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
