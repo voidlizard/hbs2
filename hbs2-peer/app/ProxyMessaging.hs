@@ -39,7 +39,7 @@ import Data.String.Conversions (cs)
 import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Lens.Micro.Platform
+import Lens.Micro.Platform as Lens
 import Control.Monad
 
 -- TODO: protocol-encryption-goes-here
@@ -146,12 +146,21 @@ receiveFromProxyMessaging bus _ = liftIO do
           Nothing -> do
               trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
               pure (Just msg)
-          Just k -> runMaybeT $ (<|> pure msg) $ do
+          Just k -> runMaybeT $
+            -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
+            (<|> (do
+                -- И сотрём ключ из памяти
+                liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys bus) $ Lens.at whom .~ Nothing
+                trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
+                pure msg
+                )) $
+            do
               trace $ "ENCRYPTION RECEIVE: we have a key to decode from" <+> pretty whom <+> ":" <+> viaShow k
               case ((extractNonce . cs) msg) of
                   Nothing -> do
                       trace $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
-                      pure msg
+                      fail ""
+
                   Just (nonce, msg') ->
                       ((MaybeT . pure) (boxOpenAfterNMLazy k nonce msg')
                           <* (trace $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
@@ -159,15 +168,13 @@ receiveFromProxyMessaging bus _ = liftIO do
                     <|>
                       (do
                           (trace $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
-
-                          -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
-                          pure msg
+                          fail ""
 
                           -- -- Попытаться десериализовать сообщение как PeerPing или PeerPingCrypted
                           -- case deserialiseOrFail msg of
                           --   Right (_ :: PeerHandshake L4Proto) -> do
                           --       trace $ "ENCRYPTION RECEIVE: plain message decoded as PeerHandshake" <+> pretty whom
-                          --       pure msg
+                          --       fail ""
                           --   Left _ -> do
                           --       trace $ "ENCRYPTION RECEIVE: failed" <+> pretty whom
                           --       mzero
