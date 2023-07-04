@@ -94,6 +94,7 @@ library
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
                     , HBS2.Net.Proto.Definition
+                    , HBS2.Net.Proto.EncryptionHandshake
                     , HBS2.Net.Proto.Peer
                     , HBS2.Net.Proto.PeerAnnounce
                     , HBS2.Net.Proto.PeerExchange

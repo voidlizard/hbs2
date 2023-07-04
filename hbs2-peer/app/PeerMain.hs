@@ -602,7 +602,7 @@ runPeer opts = U.handle (\e -> myException e
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
         unless already do
           mpde <- find (KnownPeerKey p) id
-          maybe1 mpde none $ \pde@(PeerDataExt {_peerData = pd}) -> do
+          maybe1 mpde none $ \pd -> do
             let pk = view peerSignKey pd
             when (Set.member pk helpFetchKeys) do
               liftIO $ Cache.insert nbcache (p,h) ()
@@ -655,38 +655,27 @@ runPeer opts = U.handle (\e -> myException e
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do
                  debug $ "Got peer announce!" <+> pretty pip
-                 mpde :: Maybe (PeerDataExt e) <- find (KnownPeerKey pip) id
-                 banned <- maybe (pure False) (peerBanned pip . view peerData) mpde
-                 let known = isJust mpde && not banned
+                 mpd :: Maybe (PeerData e) <- find (KnownPeerKey pip) id
+                 banned <- maybe (pure False) (peerBanned pip) mpd
+                 let known = isJust mpd && not banned
                  sendPing pip
 
               subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                  pa <- toPeerAddr p
                  liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
 
-              subscribe @e PeerAsymmInfoKey $ \(PeerAsymmPubKey p peerpubkey) -> do
-                defPeerInfo <- newPeerInfo
-                fetch True defPeerInfo (PeerInfoKey p) id >>= \pinfo -> do
-                      let updj = genCommonSecret @s (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
-                              $ peerpubkey
-                      liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys proxy) $ Lens.at p .~ Just updj
-                      liftIO $ trace [qc| UPDJust from PeerAsymmInfoKey at {p} {updj} |]
-
-              subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p pde@(PeerDataExt{_peerData = pd})) -> do
+              subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p pd) -> do
 
                 let thatNonce = view peerOwnNonce pd
 
                 now <- liftIO getTimeCoarse
 
-                defPeerInfo <- newPeerInfo
-                fetch True defPeerInfo (PeerInfoKey p) id >>= \pinfo -> do
+                -- defPeerInfo <- newPeerInfo
+                -- fetch True defPeerInfo (PeerInfoKey p) id >>= \pinfo -> do
+
+                find (PeerInfoKey p) id >>= mapM_ \pinfo -> do
                       liftIO $ atomically $ writeTVar (view peerPingFailed pinfo) 0
                       liftIO $ atomically $ writeTVar (view peerLastWatched pinfo) now
-                      let mupd = genCommonSecret @s (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
-                              <$> view peerEncPubKey pde
-                      forM_ mupd \upd -> do
-                          liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys proxy) $ Lens.at p .~ Just upd
-                          liftIO $ trace [qc| UPDJust from AnyKnownPeerEventKey at {p} {upd} |]
 
                 banned <- peerBanned p pd
 
@@ -716,15 +705,15 @@ runPeer opts = U.handle (\e -> myException e
 
                    | otherwise -> do
 
-                    update pde (KnownPeerKey p) id
+                    update pd (KnownPeerKey p) id
 
-                    pd :: Map BS.ByteString (Peer L4Proto) <- fmap (Map.fromList . catMaybes)
+                    pdkv :: Map BS.ByteString (Peer L4Proto) <- fmap (Map.fromList . catMaybes)
                         $ knownPeers @e pl >>= mapM \pip ->
-                              fmap (, pip) <$> find (KnownPeerKey pip) (view (peerData . peerOwnNonce))
+                              fmap (, pip) <$> find (KnownPeerKey pip) (view peerOwnNonce)
 
                     let proto1 = view sockType p
 
-                    case Map.lookup thatNonce pd of
+                    case Map.lookup thatNonce pdkv of
 
                       -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
                       --   remove remote peer
@@ -875,7 +864,7 @@ runPeer opts = U.handle (\e -> myException e
                                     sendPing @e pip
                                     -- TODO: enqueue-announce-from-unknown-peer?
 
-                                  Just (pde@(PeerDataExt {_peerData = pd}))  -> do
+                                  Just pd  -> do
 
                                     banned <- peerBanned pip pd
 
@@ -968,7 +957,7 @@ runPeer opts = U.handle (\e -> myException e
         void $ liftIO $ async $ withPeerM penv $ do
           forKnownPeers @e $ \p pde -> do
               pa <- toPeerAddr p
-              let k = view (peerData . peerSignKey) pde
+              let k = view peerSignKey pde
               request who (RPCPeersAnswer @e pa k)
 
   let pexInfoAction :: RPC L4Proto -> ResponseM L4Proto (RpcM (ResourceT IO)) ()

@@ -359,7 +359,7 @@ forKnownPeers :: forall e  m . ( MonadIO m
                                , Sessions e (KnownPeer e) m
                                , HasPeer e
                                )
-               =>  ( Peer e -> PeerDataExt e -> m () ) -> m ()
+               =>  ( Peer e -> PeerData e -> m () ) -> m ()
 forKnownPeers m = do
   pl <- getPeerLocator @e
   pips <- knownPeers @e pl

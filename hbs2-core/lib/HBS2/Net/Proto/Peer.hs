@@ -41,19 +41,9 @@ deriving instance
 
 makeLenses 'PeerData
 
-data PeerDataExt e = PeerDataExt
-  { _peerData :: PeerData e
-  , _peerEncPubKey :: Maybe (PubKey 'Encrypt (Encryption e))
-  }
-  deriving stock (Typeable,Generic)
-
-makeLenses 'PeerDataExt
-
 data PeerHandshake e =
     PeerPing  PingNonce
   | PeerPong  PingNonce (Signature (Encryption e)) (PeerData e)
-  | PeerPingCrypted PingNonce (PubKey 'Encrypt (Encryption e))
-  | PeerPongCrypted PingNonce (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e)) (PeerData e)
   deriving stock (Generic)
 
 deriving instance
@@ -74,13 +64,12 @@ data PeerPingData e =
   PeerPingData
   { _peerPingNonce :: PingNonce
   , _peerPingSent  :: TimeSpec
-  , _peerPingEncPubKey :: Maybe (PubKey 'Encrypt (Encryption e))
   }
   deriving stock (Generic,Typeable)
 
 makeLenses 'PeerPingData
 
-type instance SessionData e (KnownPeer e) = PeerDataExt e
+type instance SessionData e (KnownPeer e) = PeerData e
 
 newtype instance SessionKey e (PeerHandshake e) =
   PeerHandshakeKey (PingNonce, Peer e)
@@ -109,27 +98,9 @@ sendPing :: forall e m . ( MonadIO m
 sendPing pip = do
   nonce <- newNonce @(PeerHandshake e)
   tt <- liftIO $ getTimeCoarse
-  let pdd = PeerPingData nonce tt Nothing
+  let pdd = PeerPingData nonce tt
   update pdd (PeerHandshakeKey (nonce,pip)) id
   request pip (PeerPing @e nonce)
-
-sendPingCrypted :: forall e m . ( MonadIO m
-                         , Request e (PeerHandshake e) m
-                         , Sessions e (PeerHandshake e) m
-                         , HasNonces (PeerHandshake e) m
-                         , Nonce (PeerHandshake e) ~ PingNonce
-                         , Pretty (Peer e)
-                         , HasProtocol e (PeerHandshake e)
-                         , e ~ L4Proto
-                         )
-         => Peer e -> PubKey 'Encrypt (Encryption e) -> m ()
-
-sendPingCrypted pip pubkey = do
-  nonce <- newNonce @(PeerHandshake e)
-  tt <- liftIO $ getTimeCoarse
-  let pdd = PeerPingData nonce tt (Just pubkey)
-  update pdd (PeerHandshakeKey (nonce,pip)) id
-  request pip (PeerPingCrypted @e nonce pubkey)
 
 newtype PeerHandshakeAdapter e m =
   PeerHandshakeAdapter
@@ -148,7 +119,6 @@ peerHandShakeProto :: forall e s m . ( MonadIO m
                                      , Pretty (Peer e)
                                      , EventEmitter e (PeerHandshake e) m
                                      , EventEmitter e (ConcretePeer e) m
-                                     , EventEmitter e (PeerAsymmInfo e) m
                                      , HasCredentials s m
                                      , Asymm s
                                      , Signatures s
@@ -188,11 +158,7 @@ peerHandShakeProto adapter penv =
 
       se' <- find @e (PeerHandshakeKey (nonce0,pip)) id
 
-      maybe1 se' (pure ()) $ \(PeerPingData nonce t0 mpubkey) -> do
-
-        -- Мы отправляли ключ шифрования, но собеседник отказался
-        -- от шифрованной сессии
-        -- when (isJust mpubkey) do
+      maybe1 se' (pure ()) $ \(PeerPingData nonce t0) -> do
 
         let pk = view peerSignKey d
 
@@ -209,76 +175,10 @@ peerHandShakeProto adapter penv =
 
           -- FIXME: check if peer is blacklisted
           --        right here
-          let pde = PeerDataExt d Nothing
-          update pde (KnownPeerKey pip) id
+          update d (KnownPeerKey pip) id
 
-          emit AnyKnownPeerEventKey (KnownPeerEvent pip pde)
-          emit (ConcretePeerKey pip) (ConcretePeerData pip pde)
-
-    ---- Crypted
-    PeerPingCrypted nonce theirpubkey -> do
-      pip <- thatPeer proto
-      trace $ "GOT PING CRYPTED from" <+> pretty pip
-
-      -- взять свои ключи
-      creds <- getCredentials @s
-
-      let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
-
-      -- подписать нонс
-      let sign = makeSign @s (view peerSignSk creds) (nonce <> (cs . serialise) ourpubkey)
-
-      own <- peerNonce @e
-
-      -- отправить обратно вместе с публичным ключом
-      response (PeerPongCrypted @e nonce sign ourpubkey (PeerData (view peerSignPk creds) own))
-
-      -- да и пингануть того самим
-
-      se <- find (KnownPeerKey pip) id <&> isJust
-
-      -- Нужно ли запомнить его theirpubkey или достаточно того, что будет
-      -- получено в обратном PeerPongCrypted?
-      -- Нужно!
-      emit PeerAsymmInfoKey (PeerAsymmPubKey pip theirpubkey)
-
-      unless se $ do
-        sendPingCrypted pip ourpubkey
-
-    PeerPongCrypted nonce0 sign theirpubkey pd -> do
-      pip <- thatPeer proto
-      trace $ "GOT PONG CRYPTED from" <+> pretty pip
-
-      se' <- find @e (PeerHandshakeKey (nonce0,pip)) id
-
-      maybe1 se' (pure ()) $ \(PeerPingData nonce t0 mpubkey) -> do
-
-        -- TODO: Мы не отправляли ключ шифрования, а собеседник ответил как будто
-        -- отправляли. Как тут поступать?
-        -- guard (isNothing mpubkey)
-
-        let pk = view peerSignKey pd
-            pde = PeerDataExt pd (Just theirpubkey)
-
-        let signed = verifySign @s pk sign (nonce <> (cs . serialise) theirpubkey)
-
-        when signed $ do
-
-          now <- liftIO getTimeCoarse
-          let rtt = toNanoSecs $ now - t0
-
-          onPeerRTT adapter (pip,rtt)
-
-          expire (PeerHandshakeKey (nonce0,pip))
-
-          -- FIXME: check if peer is blacklisted
-          --        right here
-          update pde (KnownPeerKey pip) id
-
-          emit AnyKnownPeerEventKey (KnownPeerEvent pip pde)
-          emit (ConcretePeerKey pip) (ConcretePeerData pip pde)
-
-    ---- /Crypted
+          emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
+          emit (ConcretePeerKey pip) (ConcretePeerData pip d)
 
   where
     proto = Proxy @(PeerHandshake e)
@@ -293,22 +193,7 @@ deriving stock instance (Eq (Peer e)) => Eq (EventKey e (ConcretePeer e))
 instance (Hashable (Peer e)) => Hashable (EventKey e (ConcretePeer e))
 
 data instance Event e (ConcretePeer e) =
-  ConcretePeerData (Peer e) (PeerDataExt e)
-  deriving stock (Typeable)
-
----
-
-data PeerAsymmInfo e = PeerAsymmInfo
-
-data instance EventKey e (PeerAsymmInfo e) =
-  PeerAsymmInfoKey
-  deriving stock (Generic)
-
-deriving stock instance (Eq (Peer e)) => Eq (EventKey e (PeerAsymmInfo e))
-instance (Hashable (Peer e)) => Hashable (EventKey e (PeerAsymmInfo e))
-
-data instance Event e (PeerAsymmInfo e) =
-  PeerAsymmPubKey (Peer e) (AsymmPubKey (Encryption e))
+  ConcretePeerData (Peer e) (PeerData e)
   deriving stock (Typeable)
 
 ---
@@ -318,7 +203,7 @@ data instance EventKey e (PeerHandshake e) =
   deriving stock (Typeable, Eq,Generic)
 
 data instance Event e (PeerHandshake e) =
-  KnownPeerEvent (Peer e) (PeerDataExt e)
+  KnownPeerEvent (Peer e) (PeerData e)
   deriving stock (Typeable)
 
 instance ( Typeable (KnownPeer e)
@@ -332,9 +217,6 @@ instance EventType ( Event e ( PeerHandshake e) ) where
   isPersistent = True
 
 instance Expires (EventKey e (PeerHandshake e)) where
-  expiresIn _ = Nothing
-
-instance Expires (EventKey e (PeerAsymmInfo e)) where
   expiresIn _ = Nothing
 
 instance Expires (EventKey e (ConcretePeer e)) where
