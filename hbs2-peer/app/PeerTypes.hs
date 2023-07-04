@@ -9,6 +9,8 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Merkle (AnnMetaData)
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
@@ -29,12 +31,15 @@ import Data.Foldable (for_)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
+import Control.Monad.Writer qualified as W
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.List qualified as L
 import Data.Maybe
 import Lens.Micro.Platform
 import Data.Hashable
@@ -43,6 +48,7 @@ import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Word
 
 
 data PeerInfo e =
@@ -72,23 +78,25 @@ makeLenses 'PeerInfo
 
 newPeerInfo :: MonadIO m => m (PeerInfo e)
 newPeerInfo = liftIO do
-  PeerInfo <$> newTVarIO defBurst
-           <*> newTVarIO Nothing
-           <*> newTVarIO mempty
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO 0
-           <*> newTVarIO []
-           <*> newTVarIO (Left 0)
-           <*> newTVarIO 0
-           <*> newTVarIO Nothing
+  _peerBurst          <- newTVarIO defBurst
+  _peerBurstMax       <- newTVarIO Nothing
+  _peerBurstSet       <- newTVarIO mempty
+  _peerErrors         <- newTVarIO 0
+  _peerErrorsLast     <- newTVarIO 0
+  _peerErrorsPerSec   <- newTVarIO 0
+  _peerLastWatched    <- newTVarIO 0
+  _peerDownloaded     <- newTVarIO 0
+  _peerDownloadedLast <- newTVarIO 0
+  _peerPingFailed     <- newTVarIO 0
+  _peerDownloadedBlk  <- newTVarIO 0
+  _peerDownloadFail   <- newTVarIO 0
+  _peerDownloadMiss   <- newTVarIO 0
+  _peerRTTBuffer      <- newTVarIO []
+                                          -- Acts like a circular buffer.
+  _peerHttpApiAddress <- newTVarIO (Left 0)
+  _peerHttpDownloaded <- newTVarIO 0
+  _peerMeta           <- newTVarIO Nothing
+  pure PeerInfo {..}
 
 type instance SessionData e (PeerInfo e) = PeerInfo e
 
@@ -351,13 +359,13 @@ forKnownPeers :: forall e  m . ( MonadIO m
                                , Sessions e (KnownPeer e) m
                                , HasPeer e
                                )
-               =>  ( Peer e -> PeerData e -> m () ) -> m ()
+               =>  ( Peer e -> PeerDataExt e -> m () ) -> m ()
 forKnownPeers m = do
   pl <- getPeerLocator @e
   pips <- knownPeers @e pl
   for_ pips $ \p -> do
-    pd' <- find (KnownPeerKey p) id
-    maybe1 pd' (pure ()) (m p)
+    mpde <- find (KnownPeerKey p) id
+    maybe1 mpde (pure ()) (m p)
 
 getKnownPeers :: forall e  m . ( MonadIO m
                                , HasPeerLocator e m
@@ -374,16 +382,27 @@ getKnownPeers  = do
     maybe1 pd' (pure mempty) (const $ pure [p])
   pure $ mconcat r
 
-mkPeerMeta conf = do
-    let mHttpPort = cfgValue @PeerHttpPortKey conf  <&> fromIntegral
-    let mTcpPort =
+mkPeerMeta :: PeerConfig -> PeerEnv e -> AnnMetaData
+mkPeerMeta conf penv = do
+    let mHttpPort :: Maybe Integer
+        mHttpPort = cfgValue @PeerHttpPortKey conf <&> fromIntegral
+    let mTcpPort :: Maybe Word16
+        mTcpPort =
           (
           fmap (\(L4Address _ (IPAddrPort (_, p))) -> p)
             . fromStringMay @(PeerAddr L4Proto)
           )
           =<< cfgValue @PeerListenTCPKey conf
-    annMetaFromPeerMeta . PeerMeta . catMaybes $
-      [ mHttpPort <&> \p -> ("http-port", TE.encodeUtf8 . Text.pack . show $ p)
-      , mTcpPort <&> \p -> ("listen-tcp", TE.encodeUtf8 . Text.pack . show $ p)
-      ]
+    -- let useEncryption = True  -- move to config
+    annMetaFromPeerMeta . PeerMeta $ W.execWriter do
+      mHttpPort `forM` \p -> elem "http-port" (TE.encodeUtf8 . Text.pack . show $ p)
+      mTcpPort `forM` \p -> elem "listen-tcp" (TE.encodeUtf8 . Text.pack . show $ p)
+      -- when useEncryption do
+      --     elem "ekey" (TE.encodeUtf8 . Text.pack . show $
+      --         (Encrypt.publicKey . _envAsymmetricKeyPair) penv
+      --         -- mayby sign this pubkey by node key ?
+      --         )
+
+  where
+    elem k = W.tell . L.singleton . (k ,)
 

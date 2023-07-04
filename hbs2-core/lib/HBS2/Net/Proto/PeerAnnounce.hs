@@ -30,6 +30,8 @@ newtype PeerAnnounce e =
   PeerAnnounce PeerNonce
   deriving stock (Typeable, Generic)
 
+deriving instance Show (Nonce ()) => Show (PeerAnnounce e)
+
 
 peerAnnounceProto :: forall e m  . ( MonadIO m
                                    , EventEmitter e (PeerAnnounce e) m

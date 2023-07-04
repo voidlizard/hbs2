@@ -107,7 +107,8 @@ data ReqLimPeriod = NoLimit
                   | ReqLimPerProto   (Timeout 'Seconds)
                   | ReqLimPerMessage (Timeout 'Seconds)
 
-class (KnownNat (ProtocolId p), HasPeer e) => HasProtocol e p | p -> e  where
+class (KnownNat (ProtocolId p), HasPeer e, Show (Encoded e)
+    ) => HasProtocol e p | p -> e  where
   type family ProtocolId p = (id :: Nat) | id -> p
   type family Encoded e :: Type
 

@@ -5,6 +5,7 @@ module PeerInfo where
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Events
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerExchange
@@ -145,8 +146,8 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , m ~ PeerM e IO
                              , e ~ L4Proto
                              )
-             => PeerConfig -> m ()
-peerPingLoop cfg = do
+             => PeerConfig -> PeerEnv e -> m ()
+peerPingLoop cfg penv = do
 
   e <- ask
 
@@ -240,7 +241,18 @@ peerPingLoop cfg = do
     pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
 
     for_ pips $ \p -> do
-      trace $ "SEND PING TO" <+> pretty p
+      -- trace $ "SEND PING TO" <+> pretty p
       sendPing @e p
+      -- trace $ "SENT PING TO" <+> pretty p
+      pause dt
+      sendPingCrypted @e p
+          (pubKeyFromKeypair @(Encryption e) (view envAsymmetricKeyPair penv))
+      -- trace $ "SENT PING CRYPTED TO" <+> pretty p
+
+  where
+    dt = case (requestPeriodLim @e @(PeerHandshake e)) of
+        NoLimit -> 0
+        ReqLimPerProto   t -> t + 0.1
+        ReqLimPerMessage t -> t + 0.1
 
 

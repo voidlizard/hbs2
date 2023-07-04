@@ -15,10 +15,11 @@ import HBS2.Data.Types.Refs (RefLogKey(..))
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
+import HBS2.Net.Messaging
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
-import HBS2.Net.Proto
+import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
@@ -49,7 +50,7 @@ import HttpWorker
 import ProxyMessaging
 import PeerMeta
 
-import Codec.Serialise
+import Codec.Serialise as Serialise
 -- import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
@@ -62,7 +63,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
 import Data.Function
-import Data.List qualified  as L
+import Data.List qualified as L
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
@@ -73,7 +75,7 @@ import Data.Text (Text)
 import Data.HashSet qualified as HashSet
 import GHC.Stats
 import GHC.TypeLits
-import Lens.Micro.Platform
+import Lens.Micro.Platform as Lens
 import Network.Socket
 import Options.Applicative
 import System.Directory
@@ -83,6 +85,7 @@ import System.Mem
 import System.Metrics
 import System.Posix.Process
 import System.Environment
+import Text.InterpolatedString.Perl6 (qc)
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -177,6 +180,7 @@ data RPCCommand =
   | CHECK PeerNonce (PeerAddr L4Proto) (Hash HbSync)
   | FETCH (Hash HbSync)
   | PEERS
+  | PEXINFO
   | SETLOG SetLogging
   | REFLOGUPDATE ByteString
   | REFLOGFETCH (PubKey 'Sign (Encryption L4Proto))
@@ -245,6 +249,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
+                        <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         )
 
@@ -305,6 +310,10 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pPeers = do
       rpc <- pRpcCommon
       pure $ runRpcCommand rpc PEERS
+
+    pPexInfo = do
+      rpc <- pRpcCommon
+      pure $ runRpcCommand rpc PEXINFO
 
     onOff l =
             hsubparser ( command "on" (info (pure (l True) ) (progDesc "on")  ) )
@@ -496,16 +505,16 @@ runPeer opts = U.handle (\e -> myException e
   liftIO $ print $ pretty accptAnn
 
   -- FIXME: move-peerBanned-somewhere
-  let peerBanned p d = do
-        let k = view peerSignKey d
+  let peerBanned p pd = do
+        let k = view peerSignKey pd
         let blacklisted = k `Set.member` blkeys
         let whitelisted = Set.null wlkeys || (k `Set.member` wlkeys)
         pure $ blacklisted || not whitelisted
 
-  let acceptAnnounce p d = do
+  let acceptAnnounce p pd = do
         case accptAnn of
           AcceptAnnounceAll    -> pure True
-          AcceptAnnounceFrom s -> pure $ view peerSignKey d `Set.member` s
+          AcceptAnnounceFrom s -> pure $ view peerSignKey pd `Set.member` s
 
   rpcQ <- liftIO $ newTQueueIO @RPCCommand
 
@@ -571,6 +580,8 @@ runPeer opts = U.handle (\e -> myException e
 
   penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
 
+  let peerMeta = mkPeerMeta conf penv
+
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
 
   void $ async $ forever do
@@ -590,8 +601,8 @@ runPeer opts = U.handle (\e -> myException e
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
         unless already do
-          pd' <- find (KnownPeerKey p) id
-          maybe1 pd' none $ \pd -> do
+          mpde <- find (KnownPeerKey p) id
+          maybe1 mpde none $ \pde@(PeerDataExt {_peerData = pd}) -> do
             let pk = view peerSignKey pd
             when (Set.member pk helpFetchKeys) do
               liftIO $ Cache.insert nbcache (p,h) ()
@@ -644,26 +655,40 @@ runPeer opts = U.handle (\e -> myException e
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do
                  debug $ "Got peer announce!" <+> pretty pip
-                 pd <- find (KnownPeerKey pip) id -- <&> isJust
-                 banned <- maybe (pure False) (peerBanned pip) pd
-                 let known = isJust pd && not banned
+                 mpde :: Maybe (PeerDataExt e) <- find (KnownPeerKey pip) id
+                 banned <- maybe (pure False) (peerBanned pip . view peerData) mpde
+                 let known = isJust mpde && not banned
                  sendPing pip
 
               subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                  pa <- toPeerAddr p
                  liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
 
-              subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p d) -> do
+              subscribe @e PeerAsymmInfoKey $ \(PeerAsymmPubKey p peerpubkey) -> do
+                defPeerInfo <- newPeerInfo
+                fetch True defPeerInfo (PeerInfoKey p) id >>= \pinfo -> do
+                      let updj = genCommonSecret @s (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                              $ peerpubkey
+                      liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys proxy) $ Lens.at p .~ Just updj
+                      liftIO $ trace [qc| UPDJust from PeerAsymmInfoKey at {p} {updj} |]
 
-                let thatNonce = view peerOwnNonce d
+              subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p pde@(PeerDataExt{_peerData = pd})) -> do
+
+                let thatNonce = view peerOwnNonce pd
 
                 now <- liftIO getTimeCoarse
-                pinfo' <- find (PeerInfoKey p) id -- (view peerPingFailed)
-                maybe1 pinfo' none $ \pinfo -> do
-                  liftIO $ atomically $ writeTVar (view peerPingFailed pinfo) 0
-                  liftIO $ atomically $ writeTVar (view peerLastWatched pinfo) now
 
-                banned <- peerBanned p d
+                defPeerInfo <- newPeerInfo
+                fetch True defPeerInfo (PeerInfoKey p) id >>= \pinfo -> do
+                      liftIO $ atomically $ writeTVar (view peerPingFailed pinfo) 0
+                      liftIO $ atomically $ writeTVar (view peerLastWatched pinfo) now
+                      let mupd = genCommonSecret @s (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                              <$> view peerEncPubKey pde
+                      forM_ mupd \upd -> do
+                          liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys proxy) $ Lens.at p .~ Just upd
+                          liftIO $ trace [qc| UPDJust from AnyKnownPeerEventKey at {p} {upd} |]
+
+                banned <- peerBanned p pd
 
                 let doAddPeer p = do
                       addPeers pl [p]
@@ -675,7 +700,7 @@ runPeer opts = U.handle (\e -> myException e
 
                       unless here do
                         debug $ "Got authorized peer!" <+> pretty p
-                                                       <+> pretty (AsBase58 (view peerSignKey d))
+                                                       <+> pretty (AsBase58 (view peerSignKey pd))
                         request @e p (GetPeerMeta @e)
 
 
@@ -691,14 +716,11 @@ runPeer opts = U.handle (\e -> myException e
 
                    | otherwise -> do
 
-                    update d (KnownPeerKey p) id
+                    update pde (KnownPeerKey p) id
 
-                    pd' <- knownPeers @e pl >>=
-                              \peers -> forM peers $ \pip -> do
-                                          pd <- find (KnownPeerKey pip) (view peerOwnNonce)
-                                          pure $ (,pip) <$> pd
-
-                    let pd = Map.fromList $ catMaybes pd'
+                    pd :: Map BS.ByteString (Peer L4Proto) <- fmap (Map.fromList . catMaybes)
+                        $ knownPeers @e pl >>= mapM \pip ->
+                              fmap (, pip) <$> find (KnownPeerKey pip) (view (peerData . peerOwnNonce))
 
                     let proto1 = view sockType p
 
@@ -767,11 +789,11 @@ runPeer opts = U.handle (\e -> myException e
 
                 -- peerThread "tcpWorker" (tcpWorker conf)
 
-                peerThread "httpWorker" (httpWorker conf denv)
+                peerThread "httpWorker" (httpWorker conf peerMeta denv)
 
                 peerThread "checkMetrics" (checkMetrics metrics)
 
-                peerThread "peerPingLoop" (peerPingLoop @e conf)
+                peerThread "peerPingLoop" (peerPingLoop @e conf penv)
 
                 peerThread "knownPeersPingLoop" (knownPeersPingLoop @e conf)
 
@@ -805,13 +827,64 @@ runPeer opts = U.handle (\e -> myException e
                             PING pa r -> do
                               debug $ "ping" <+> pretty pa
                               pip <- fromPeerAddr @e pa
-                              subscribe (ConcretePeerKey pip) $ \(ConcretePeerData{}) -> do
+                              subscribe (ConcretePeerKey pip) $ \(ConcretePeerData _ pde) -> do
 
                                 maybe1 r (pure ()) $ \rpcPeer -> do
                                   pinged <- toPeerAddr pip
                                   request rpcPeer (RPCPong @e pinged)
+                                  -- case (view peerEncPubKey pde) of
+                                  --     Nothing -> unencrypted ping
+                                  --     Just pubkey -> encryptengd
 
-                              sendPing pip
+                              let
+                                  requestPlain :: forall m msg .
+                                    ( MonadIO m
+                                    -- , HasProtocol L4Proto msg
+                                    , msg ~ PeerHandshake L4Proto
+                                    , HasOwnPeer L4Proto m
+                                    -- , Messaging MessagingTCP L4Proto (AnyMessage ByteString L4Proto)
+                                    -- , Messaging MessagingUDP L4Proto (AnyMessage ByteString L4Proto)
+                                    , HasTimeLimits L4Proto (PeerHandshake L4Proto) m
+                                    ) => Peer e -> msg -> m ()
+                                  requestPlain peer_e msg = do
+                                      let protoN = protoId @e @msg (Proxy @msg)
+                                      me <- ownPeer @e
+
+                                      allowed <- tryLockForPeriod peer_e msg
+
+                                      when (not allowed) do
+                                          trace $ "REQUEST: not allowed to send" <+> viaShow msg
+
+                                      -- when allowed do
+                                      --     sendTo proxy (To peer_e) (From me) (AnyMessage @(Encoded e) @e protoN (encode msg))
+
+                                      when allowed do
+                                          sendToPlainProxyMessaging (PlainProxyMessaging proxy) (To peer_e) (From me)
+                                              -- (AnyMessage @(Encoded e) @e protoN (Proto.encode msg))
+                                              (serialise (protoN, (Proto.encode msg)))
+
+                              let
+                                  sendPingCrypted' pip pubkey = do
+                                      nonce <- newNonce @(PeerHandshake e)
+                                      tt <- liftIO $ getTimeCoarse
+                                      let pdd = PeerPingData nonce tt (Just pubkey)
+                                      update pdd (PeerHandshakeKey (nonce,pip)) id
+                                      requestPlain pip (PeerPingCrypted @e nonce pubkey)
+
+                              let
+                                  sendPing' pip = do
+                                      nonce <- newNonce @(PeerHandshake e)
+                                      tt <- liftIO $ getTimeCoarse
+                                      let pdd = PeerPingData nonce tt Nothing
+                                      update pdd (PeerHandshakeKey (nonce,pip)) id
+                                      requestPlain pip (PeerPing @e nonce)
+
+                              sendPingCrypted' pip (pubKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                              pause $ case (requestPeriodLim @e @(PeerHandshake e)) of
+                                  NoLimit -> 0
+                                  ReqLimPerProto   t -> t + 0.1
+                                  ReqLimPerMessage t -> t + 0.1
+                              sendPing' pip
 
                             ANNOUNCE h  -> do
                               debug $ "got announce rpc" <+> pretty h
@@ -839,18 +912,18 @@ runPeer opts = U.handle (\e -> myException e
 
                               unless (nonce == n1) do
 
-                                peer <- find @e (KnownPeerKey pip) id
+                                mpde <- find @e (KnownPeerKey pip) id
 
                                 debug $ "received announce from"
                                               <+> pretty pip
                                               <+> pretty h
 
-                                case peer of
+                                case mpde of
                                   Nothing -> do
                                     sendPing @e pip
                                     -- TODO: enqueue-announce-from-unknown-peer?
 
-                                  Just pd  -> do
+                                  Just (pde@(PeerDataExt {_peerData = pd}))  -> do
 
                                     banned <- peerBanned pip pd
 
@@ -893,11 +966,11 @@ runPeer opts = U.handle (\e -> myException e
                     [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
-                    , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter)
+                    , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
                     , makeResponse (peerExchangeProto pexFilt)
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
-                    , makeResponse (peerMetaProto (mkPeerMeta conf))
+                    , makeResponse (peerMetaProto peerMeta)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -941,10 +1014,18 @@ runPeer opts = U.handle (\e -> myException e
   let peersAction _ = do
         who <- thatPeer (Proxy @(RPC e))
         void $ liftIO $ async $ withPeerM penv $ do
-          forKnownPeers @e $ \p pd -> do
+          forKnownPeers @e $ \p pde -> do
               pa <- toPeerAddr p
-              let k = view peerSignKey pd
+              let k = view (peerData . peerSignKey) pde
               request who (RPCPeersAnswer @e pa k)
+
+  let pexInfoAction :: RPC L4Proto -> ResponseM L4Proto (RpcM (ResourceT IO)) ()
+      pexInfoAction _ = do
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+            -- FIXME: filter-pexinfo-entries
+            ps <- getAllPex2Peers
+            request who (RPCPexInfoAnswer @e ps)
 
   let logLevelAction = \case
         DebugOn True  -> do
@@ -981,21 +1062,25 @@ runPeer opts = U.handle (\e -> myException e
           h <- liftIO $ getRef sto (RefLogKey @(Encryption e) puk)
           request who (RPCRefLogGetAnswer @e  h)
 
-  let arpc = RpcAdapter pokeAction
-                        dieAction
-                        dontHandle
-                        dontHandle
-                        annAction
-                        pingAction
-                        dontHandle
-                        fetchAction
-                        peersAction
-                        dontHandle
-                        logLevelAction
-                        reflogUpdateAction
-                        reflogFetchAction
-                        reflogGetAction
-                        dontHandle
+  let arpc = RpcAdapter
+          { rpcOnPoke          = pokeAction
+          , rpcOnDie           = dieAction
+          , rpcOnPokeAnswer    = dontHandle
+          , rpcOnPokeAnswerFull = dontHandle
+          , rpcOnAnnounce      = annAction
+          , rpcOnPing          = pingAction
+          , rpcOnPong          = dontHandle
+          , rpcOnFetch         = fetchAction
+          , rpcOnPeers         = peersAction
+          , rpcOnPeersAnswer   = dontHandle
+          , rpcOnPexInfo       = pexInfoAction
+          , rpcOnPexInfoAnswer = dontHandle
+          , rpcOnLogLevel      = logLevelAction
+          , rpcOnRefLogUpdate  = reflogUpdateAction
+          , rpcOnRefLogFetch   = reflogFetchAction
+          , rpcOnRefLogGet     = reflogGetAction
+          , rpcOnRefLogGetAnsw = dontHandle
+          }
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
@@ -1071,26 +1156,25 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
   refQ <- liftIO newTQueueIO
 
-  let  adapter =
-        RpcAdapter dontHandle
-                   dontHandle
-                   (liftIO . atomically . writeTQueue pokeQ)
-                   (liftIO . atomically . writeTQueue pokeFQ)
-                   (const $ liftIO exitSuccess)
-                   (const $ notice "ping?")
-                   (liftIO . atomically . writeTQueue pingQ)
-                   dontHandle
-                   dontHandle
-
-                   (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
-                   )
-
-                   dontHandle
-                   dontHandle
-                   dontHandle
-                   dontHandle
-
-                   ( liftIO . atomically . writeTQueue refQ )
+  let  adapter = RpcAdapter
+            { rpcOnPoke          = dontHandle
+            , rpcOnDie           = dontHandle
+            , rpcOnPokeAnswer    = (liftIO . atomically . writeTQueue pokeQ)
+            , rpcOnPokeAnswerFull = (liftIO . atomically . writeTQueue pokeFQ)
+            , rpcOnAnnounce      = (const $ liftIO exitSuccess)
+            , rpcOnPing          = (const $ notice "ping?")
+            , rpcOnPong          = (liftIO . atomically . writeTQueue pingQ)
+            , rpcOnFetch         = dontHandle
+            , rpcOnPeers         = dontHandle
+            , rpcOnPeersAnswer   = (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa)
+            , rpcOnPexInfo       = dontHandle
+            , rpcOnPexInfoAnswer = (\ps -> mapM_ (Log.info . pretty) ps)
+            , rpcOnLogLevel      = dontHandle
+            , rpcOnRefLogUpdate  = dontHandle
+            , rpcOnRefLogFetch   = dontHandle
+            , rpcOnRefLogGet     = dontHandle
+            , rpcOnRefLogGetAnsw = ( liftIO . atomically . writeTQueue refQ )
+            }
 
   prpc <- async $ runRPC udp1 do
                     env <- ask
@@ -1132,6 +1216,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                         pause @'Seconds 1
                         exitSuccess
 
+                      RPCPexInfo{} -> liftIO do
+                        pause @'Seconds 1
+                        exitSuccess
+
                       RPCLogLevel{} -> liftIO exitSuccess
 
                       RPCRefLogUpdate{} -> liftIO do
@@ -1166,6 +1254,7 @@ runRpcCommand opt = \case
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
+  PEXINFO -> withRPC opt RPCPexInfo
   SETLOG s -> withRPC opt (RPCLogLevel s)
   REFLOGUPDATE bs -> withRPC opt (RPCRefLogUpdate bs)
   REFLOGFETCH k -> withRPC opt (RPCRefLogFetch k)

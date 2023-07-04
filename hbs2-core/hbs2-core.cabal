@@ -53,6 +53,7 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
@@ -69,6 +70,7 @@ library
                     , HBS2.Actors.Peer
                     , HBS2.Base58
                     , HBS2.Clock
+                    , HBS2.Crypto
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Crypto
@@ -149,9 +151,11 @@ library
                     , stm
                     , stm-chans
                     , streaming
+                    , string-conversions
                     , suckless-conf
                     , temporary
                     , text
+                    , time
                     , transformers
                     , uniplate
                     , unordered-containers
@@ -188,17 +192,21 @@ test-suite test
         , mtl
         , prettyprinter
         , QuickCheck
+        , quickcheck-instances
         , random
         , safe
         , serialise
         , stm
         , streaming
         , tasty
+        , tasty-quickcheck
         , tasty-hunit
         , transformers
         , uniplate
         , vector
+        , saltine
         , simple-logger
+        , string-conversions
 
 
 

@@ -38,6 +38,15 @@ class Signatures e where
   makeSign   :: PrivKey 'Sign e -> ByteString  -> Signature e
   verifySign :: PubKey 'Sign e  -> Signature e -> ByteString -> Bool
 
+class AsymmPubKey e ~ PubKey 'Encrypt e => Asymm e where
+  type family AsymmKeypair e :: Type
+  type family AsymmPrivKey e :: Type
+  type family AsymmPubKey e :: Type
+  type family CommonSecret e :: Type
+  asymmNewKeypair :: MonadIO m => m (AsymmKeypair e)
+  privKeyFromKeypair :: AsymmKeypair e -> AsymmPrivKey e
+  pubKeyFromKeypair :: AsymmKeypair e -> AsymmPubKey e
+  genCommonSecret :: Asymm e => AsymmPrivKey e -> AsymmPubKey e -> CommonSecret e
 
 class HasCredentials s m where
   getCredentials :: m (PeerCredentials s)

@@ -1,36 +1,63 @@
 {-# Language TemplateHaskell #-}
 module ProxyMessaging
   ( ProxyMessaging
+  , PlainProxyMessaging(..)
   , newProxyMessaging
   , runProxyMessaging
+  , proxyEncryptionKeys
+  , sendToPlainProxyMessaging
   ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Messaging
 import HBS2.Clock
+import HBS2.Crypto
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Proto.Definition ()
+import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Types
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
 
 import HBS2.System.Logger.Simple
 
+import Crypto.Saltine.Class as SCl
+import Crypto.Saltine.Core.Box qualified as Encrypt
+
+import Codec.Serialise
+import Control.Applicative
+import Control.Arrow hiding ((<+>))
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue
-import Data.ByteString.Lazy (ByteString)
+import Control.Monad.Trans.Maybe
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Maybe
+import Data.String.Conversions (cs)
 import Data.List qualified as L
+import Data.Map (Map)
+import Data.Map qualified as Map
 import Lens.Micro.Platform
 import Control.Monad
 
 -- TODO: protocol-encryption-goes-here
 
-data ProxyMessaging  =
+data ProxyMessaging =
   ProxyMessaging
   { _proxyUDP :: MessagingUDP
   , _proxyTCP  :: Maybe MessagingTCP
-  , _proxyAnswers :: TQueue (From L4Proto, ByteString)
+  , _proxyAnswers :: TQueue (From L4Proto, LBS.ByteString)
+  , _proxyEncryptionKeys :: TVar (Map (Peer L4Proto) (CommonSecret (Encryption L4Proto)))
   }
+
+newtype PlainProxyMessaging = PlainProxyMessaging ProxyMessaging
+
+-- 1 нода X создаёт себе Encrypt.Keypair
+-- 2 подписывает из него публичный ключ ключом подписи ноды X и отправляет ноде Y
+-- 3 нода Y получила Публичный ключ ноды X, создала симметричный Key,
+--   зашифровала его для полученного Публичного ключа ноды X и отравила ей
 
 makeLenses 'ProxyMessaging
 
@@ -42,6 +69,7 @@ newProxyMessaging :: forall m . MonadIO m
 newProxyMessaging u t = liftIO do
   ProxyMessaging u t
     <$> newTQueueIO
+    <*> newTVarIO mempty
 
 runProxyMessaging :: forall m . MonadIO  m
                   => ProxyMessaging
@@ -66,23 +94,82 @@ runProxyMessaging env = liftIO do
 
   liftIO $ mapM_ waitCatch [u,t]
 
-instance Messaging ProxyMessaging L4Proto ByteString where
+instance Messaging PlainProxyMessaging L4Proto LBS.ByteString where
+  sendTo = sendToPlainProxyMessaging
+  receive (PlainProxyMessaging bus) = receive bus
 
-  sendTo bus t@(To whom) f m = do
-    -- sendTo (view proxyUDP bus)  t f m
-    -- trace $ "PROXY: SEND" <+> pretty whom
+sendToPlainProxyMessaging :: (MonadIO m)
+  => PlainProxyMessaging
+  -> To L4Proto
+  -> From L4Proto
+  -> LBS.ByteString
+  -- -> AnyMessage LBS.ByteString L4Proto
+  -> m ()
+sendToPlainProxyMessaging (PlainProxyMessaging bus) t@(To whom) proto msg = do
     let udp = view proxyUDP bus
     case view sockType whom of
-      UDP -> sendTo udp  t f m
+      UDP -> sendTo udp  t proto msg
       TCP -> maybe1 (view proxyTCP bus) none $ \tcp -> do
-               sendTo tcp t f m
+               sendTo tcp t proto msg
 
-  receive bus _ = liftIO do
+instance Messaging ProxyMessaging L4Proto LBS.ByteString where
+  sendTo = sendToProxyMessaging
+  receive = receiveFromProxyMessaging
+
+sendToProxyMessaging bus t@(To whom) proto msg = do
+    -- sendTo (view proxyUDP bus)  t proto msg
+    -- trace $ "PROXY: SEND" <+> pretty whom
+    encKey <- Map.lookup whom <$> (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
+    cf <- case encKey of
+        Nothing -> do
+            trace $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
+            pure id
+        Just k -> do
+            trace $ "ENCRYPTION SEND: sending encrypted message to" <+> pretty whom <+> "with key" <+> viaShow k
+            boxAfterNMLazy k <$> liftIO Encrypt.newNonce
+    sendTo (PlainProxyMessaging bus) t proto (cf msg)
+
+receiveFromProxyMessaging :: MonadIO m
+  => ProxyMessaging -> To L4Proto -> m [(From L4Proto, LBS.ByteString)]
+receiveFromProxyMessaging bus _ = liftIO do
     -- trace "PROXY: RECEIVE"
     -- receive (view proxyUDP bus) w
     let answ = view proxyAnswers bus
-    atomically $ do
-      r <- readTQueue answ
-      rs <- flushTQueue answ
-      pure (r:rs)
+    rs <- atomically $ liftM2 (:) (readTQueue answ) (flushTQueue answ)
+    fmap catMaybes $ forM rs \(w@(From whom), msg) -> do
+        encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
+        fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
 
+    where
+      dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
+      dfm = \whom mk msg -> case mk of
+          Nothing -> do
+              trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
+              pure (Just msg)
+          Just k -> runMaybeT $ (<|> pure msg) $ do
+              trace $ "ENCRYPTION RECEIVE: we have a key to decode from" <+> pretty whom <+> ":" <+> viaShow k
+              case ((extractNonce . cs) msg) of
+                  Nothing -> do
+                      trace $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
+                      pure msg
+                  Just (nonce, msg') ->
+                      ((MaybeT . pure) (boxOpenAfterNMLazy k nonce msg')
+                          <* (trace $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
+                      )
+                    <|>
+                      (do
+                          (trace $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
+
+                          -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
+                          pure msg
+
+                          -- -- Попытаться десериализовать сообщение как PeerPing или PeerPingCrypted
+                          -- case deserialiseOrFail msg of
+                          --   Right (_ :: PeerHandshake L4Proto) -> do
+                          --       trace $ "ENCRYPTION RECEIVE: plain message decoded as PeerHandshake" <+> pretty whom
+                          --       pure msg
+                          --   Left _ -> do
+                          --       trace $ "ENCRYPTION RECEIVE: failed" <+> pretty whom
+                          --       mzero
+
+                      )

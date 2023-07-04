@@ -21,12 +21,16 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.State.Strict qualified as State
 import Data.ByteString (ByteString)
 import Data.Foldable hiding (find)
 import Data.HashMap.Strict qualified as HashMap
+import Data.Map.Strict qualified as Map
 import Data.Maybe
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Time
 import Data.Word
 import Lens.Micro.Platform
 import Network.HTTP.Simple (getResponseBody, httpLbs, parseRequest, getResponseStatus)
@@ -53,14 +57,24 @@ fillPeerMeta mtcp probePeriod = do
   debug "I'm fillPeerMeta"
   pl <- getPeerLocator @e
 
-  pause @'Seconds 10 -- wait 'till everything calm down
+  pause @'Seconds 5 -- wait 'till everything calm down
+  flip State.evalStateT Map.empty $ forever do
+    pause @'Seconds 12
 
-  forever $ (>> pause probePeriod) $ do
+    ps <- knownPeers pl
+    now <- liftIO getCurrentTime
+    let pss = Set.fromList ps
+    psActual <- Map.filterWithKey (\k _ -> k `Set.member` pss) <$> State.get
+    let psNew = pss Set.\\ (Map.keysSet psActual)
+    let psReady = Map.keysSet . Map.filter (\t -> t < now) $ psActual
+    let ps' = Set.toList (psNew <> psReady)
+    (State.put . (<> psActual) . Map.fromList) $
+        (, now & addUTCTime (toNominalDiffTime probePeriod)) <$> ps'
 
-    ps <- knownPeers @e pl
-    debug $ "fillPeerMeta peers:" <+> pretty ps
-    npi <- newPeerInfo
-    for_ ps $ \p -> do
+    when ((not . null) ps') $ lift do
+      debug $ "fillPeerMeta peers:" <+> pretty ps'
+      for_ ps' $ \p -> do
+        npi <- newPeerInfo
 
         pinfo <- fetch True npi (PeerInfoKey p) id
         mmApiAddr <- liftIO $ readTVarIO (_peerHttpApiAddress pinfo)

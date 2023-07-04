@@ -31,6 +31,11 @@ data PeerExchange e =
   | PeerExchangePeers2 (Nonce (PeerExchange e)) [PeerAddr e]
   deriving stock (Generic, Typeable)
 
+deriving instance
+  ( Show (Nonce (PeerExchange e))
+  , Show (PeerAddr e)
+  ) => Show (PeerExchange e)
+
 data PeerExchangePeersEv e
 
 
@@ -110,30 +115,47 @@ peerExchangeProto pexFilt  msg = do
 
       case pex of
         PEX1 -> do
-
-          -- TODO: tcp-peer-support-in-pex
-          pa'   <- forM pips $ \p -> do
-                     auth <- find (KnownPeerKey p) id <&> isJust
-                     pa <- toPeerAddr p
-                     case pa of
-                      (L4Address UDP x) | auth -> pure [x]
-                      _ -> pure mempty
-
-          let pa = take defPexMaxPeers $ mconcat pa'
-
+          pa <- take defPexMaxPeers <$> getAllPex1Peers
           response (PeerExchangePeers @e n pa)
 
         PEX2 -> do
-
-          pa'   <- forM pips $ \p -> do
-                     auth <- find (KnownPeerKey p) id
-                     maybe1 auth (pure mempty) ( const $ fmap L.singleton (toPeerAddr p) )
-
-          -- FIXME: asap-random-shuffle-peers
-          let pa = take defPexMaxPeers $ mconcat pa'
-
+          pa <- take defPexMaxPeers <$> getAllPex2Peers
           response (PeerExchangePeers2 @e n pa)
 
+getAllPex1Peers :: forall e m .
+  ( MonadIO m
+  , Sessions e (KnownPeer e) m
+  , HasPeerLocator L4Proto m
+  , e ~ L4Proto
+  )
+  => m [IPAddrPort L4Proto]
+getAllPex1Peers = do
+    pl   <- getPeerLocator @e
+    pips <- knownPeers @e pl
+    -- TODO: tcp-peer-support-in-pex
+    pa' <- forM pips $ \p -> do
+                auth <- find (KnownPeerKey p) id <&> isJust
+                pa <- toPeerAddr p
+                case pa of
+                    (L4Address UDP x) | auth -> pure [x]
+                    _ -> pure mempty
+    pure $ mconcat pa'
+
+getAllPex2Peers :: forall e m .
+  ( MonadIO m
+  , Sessions e (KnownPeer e) m
+  , HasPeerLocator L4Proto m
+  , e ~ L4Proto
+  )
+  => m [PeerAddr L4Proto]
+getAllPex2Peers = do
+    pl   <- getPeerLocator @e
+    pips <- knownPeers @e pl
+    pa' <- forM pips $ \p -> do
+                auth <- find (KnownPeerKey p) id
+                maybe1 auth (pure mempty) ( const $ fmap L.singleton (toPeerAddr p) )
+    -- FIXME: asap-random-shuffle-peers
+    pure $ mconcat pa'
 
 newtype instance SessionKey e (PeerExchange e) =
   PeerExchangeKey (Nonce (PeerExchange e))

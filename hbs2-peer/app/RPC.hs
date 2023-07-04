@@ -33,12 +33,19 @@ data RPC e =
   | RPCFetch (Hash HbSync)
   | RPCPeers
   | RPCPeersAnswer (PeerAddr e) (PubKey 'Sign (Encryption e))
+  | RPCPexInfo
+  | RPCPexInfoAnswer [PeerAddr L4Proto]
   | RPCLogLevel SetLogging
   | RPCRefLogUpdate ByteString
   | RPCRefLogFetch (PubKey 'Sign (Encryption e))
   | RPCRefLogGet (PubKey 'Sign (Encryption e))
   | RPCRefLogGetAnswer (Maybe (Hash HbSync))
   deriving stock (Generic)
+
+deriving instance
+  ( Show (PubKey 'Sign (Encryption e))
+  , Show (PeerAddr e)
+  ) => Show (RPC e)
 
 instance (Serialise (PeerAddr e), Serialise (PubKey 'Sign (Encryption e))) => Serialise (RPC e)
 
@@ -69,6 +76,8 @@ data RpcAdapter e m =
   , rpcOnFetch         :: Hash HbSync -> m ()
   , rpcOnPeers         :: RPC e -> m ()
   , rpcOnPeersAnswer   :: (PeerAddr e, PubKey 'Sign (Encryption e)) -> m ()
+  , rpcOnPexInfo       :: RPC e -> m ()
+  , rpcOnPexInfoAnswer :: [PeerAddr L4Proto] -> m ()
   , rpcOnLogLevel      :: SetLogging -> m ()
   , rpcOnRefLogUpdate  :: ByteString -> m ()
   , rpcOnRefLogFetch   :: PubKey 'Sign (Encryption e) -> m ()
@@ -124,6 +133,8 @@ rpcHandler adapter = \case
     (RPCFetch h)       -> rpcOnFetch adapter h
     p@RPCPeers{}       -> rpcOnPeers adapter p
     (RPCPeersAnswer pa k) -> rpcOnPeersAnswer adapter (pa,k)
+    p@RPCPexInfo{}     -> rpcOnPexInfo adapter p
+    (RPCPexInfoAnswer pa) -> rpcOnPexInfoAnswer adapter pa
     (RPCLogLevel l)    -> rpcOnLogLevel adapter l
     (RPCRefLogUpdate bs)  -> rpcOnRefLogUpdate adapter bs
     (RPCRefLogFetch e) -> rpcOnRefLogFetch adapter e

@@ -48,6 +48,7 @@ common common-deps
         , stm
         , streaming
         , sqlite-simple
+        , time
         , temporary
         , text
         , timeit
@@ -59,6 +60,7 @@ common common-deps
         , filelock
         , ekg-core
         , scotty
+        , string-conversions
         , warp
         , http-conduit
         , http-types
@@ -103,6 +105,7 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
