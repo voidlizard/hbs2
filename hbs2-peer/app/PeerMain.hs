@@ -45,6 +45,7 @@ import PeerInfo
 import PeerConfig
 import Bootstrap
 import CheckMetrics
+import EncryptionKeys
 import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
@@ -645,6 +646,18 @@ runPeer opts = U.handle (\e -> myException e
 
               let hshakeAdapter = PeerHandshakeAdapter addNewRtt
 
+              let encryptionHshakeAdapter ::
+                      ( MonadIO m
+                      ) => EncryptionHandshakeAdapter L4Proto m s
+                  encryptionHshakeAdapter = EncryptionHandshakeAdapter
+                    { encHandshake_considerPeerAsymmKey = \addr pk -> do
+                          insertPeerAsymmKey brains addr pk
+                          insertPeerSymmKey brains addr $
+                              genCommonSecret @s
+                                  (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                                  pk
+                    }
+
               env <- ask
 
               pnonce <- peerNonce @e
@@ -793,6 +806,9 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
+                peerThread "encryptionHandshakeWorker"
+                    (EncryptionKeys.encryptionHandshakeWorker @e conf penv encryptionHshakeAdapter)
+
                 let tcpProbeWait :: Timeout 'Seconds
                     tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)
 
@@ -909,7 +925,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
-                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto penv)
+                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter penv)
                     , makeResponse (peerExchangeProto pexFilt)
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)

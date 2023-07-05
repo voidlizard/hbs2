@@ -1,5 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
+
 module HBS2.Net.Proto.EncryptionHandshake where
 
 import HBS2.Actors.Peer
@@ -50,6 +51,11 @@ sendEncryptionPubKey pip pubkey = do
   tt <- liftIO $ getTimeCoarse
   request pip (BeginEncryptionExchange @e nonce pubkey)
 
+data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
+  { encHandshake_considerPeerAsymmKey :: PeerAddr e -> Encrypt.PublicKey -> m ()
+  }
+
+
 encryptionHandshakeProto :: forall e s m . ( MonadIO m
                                      , Response e (EncryptionHandshake e) m
                                      , Request e (EncryptionHandshake e) m
@@ -66,16 +72,21 @@ encryptionHandshakeProto :: forall e s m . ( MonadIO m
                                      , Serialise (PubKey 'Encrypt (Encryption e))
                                      , s ~ Encryption e
                                      , e ~ L4Proto
+                                     , PubKey Encrypt s ~ Encrypt.PublicKey
                                      )
-                   => PeerEnv e
+                   => EncryptionHandshakeAdapter e m s
+                   -> PeerEnv e
                    -> EncryptionHandshake e
                    -> m ()
 
-encryptionHandshakeProto penv = \case
+encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
     BeginEncryptionExchange nonce theirpubkey -> do
       pip <- thatPeer proto
       trace $ "GOT BeginEncryptionExchange from" <+> pretty pip
+
+      paddr <- toPeerAddr pip
+      encHandshake_considerPeerAsymmKey paddr theirpubkey
 
       -- взять свои ключи
       creds <- getCredentials @s
@@ -86,7 +97,7 @@ encryptionHandshakeProto penv = \case
       let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce <> (cs . serialise) ourpubkey)
 
       -- отправить обратно вместе с публичным ключом
-      -- response (AckEncryptionExchange @e nonce sign ourpubkey (PeerData (view peerSignPk creds)))
+      response (AckEncryptionExchange @e nonce sign ourpubkey)
 
       -- Нужно ли запомнить его theirpubkey или достаточно того, что будет
       -- получено в обратном AckEncryptionExchange?
@@ -100,6 +111,9 @@ encryptionHandshakeProto penv = \case
     AckEncryptionExchange nonce0 sign theirpubkey -> do
       pip <- thatPeer proto
       -- trace $ "AckEncryptionExchange" <+> pretty pip
+
+      paddr <- toPeerAddr pip
+      encHandshake_considerPeerAsymmKey paddr theirpubkey
 
       emit PeerAsymmInfoKey (PeerAsymmPubKey pip theirpubkey)
 

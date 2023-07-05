@@ -13,6 +13,7 @@ import HBS2.System.Logger.Simple
 
 import PeerConfig
 
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.Maybe
 import Control.Monad
 import Control.Exception
@@ -602,6 +603,46 @@ transactional brains action = do
       err $ "BRAINS: " <+> viaShow e
       execute_ conn [qc|ROLLBACK TO SAVEPOINT {sp}|]
 
+insertPeerAsymmKey :: forall e m .
+    ( e ~ L4Proto
+    , MonadIO m
+    )
+    => BasicBrains e
+    -> PeerAddr e
+    -> Encrypt.PublicKey
+    -> m ()
+
+insertPeerAsymmKey br peer hAsymmKey = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute conn [qc|
+        INSERT INTO peer_asymmkey (peer,asymmkey)
+        VALUES (?,?)
+        ON CONFLICT (peer)
+        DO UPDATE SET
+          asymmkey = excluded.asymmkey
+
+    |] (show $ pretty peer, show hAsymmKey)
+
+insertPeerSymmKey :: forall e m .
+    ( e ~ L4Proto
+    , MonadIO m
+    )
+    => BasicBrains e
+    -> PeerAddr e
+    -> Encrypt.CombinedKey
+    -> m ()
+
+insertPeerSymmKey br peer hSymmKey = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute conn [qc|
+        INSERT INTO peer_symmkey (peer,symmkey)
+        VALUES (?,?)
+        ON CONFLICT (peer)
+        DO UPDATE SET
+          symmkey = excluded.symmkey
+
+    |] (show $ pretty peer, show hSymmKey)
+
 -- FIXME: eventually-close-db
 newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
                => PeerConfig
@@ -687,6 +728,22 @@ newBasicBrains cfg = liftIO do
     , ip text not null
     , port int not null
     , primary key (ssid)
+    )
+  |]
+
+  execute_ conn [qc|
+    create table if not exists peer_asymmkey
+    ( peer text not null
+    , asymmkey text not null
+    , primary key (peer)
+    )
+  |]
+
+  execute_ conn [qc|
+    create table if not exists peer_symmkey
+    ( peer text not null
+    , symmkey text not null
+    , primary key (peer)
     )
   |]
 
