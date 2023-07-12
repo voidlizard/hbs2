@@ -154,31 +154,31 @@ receiveFromProxyMessaging bus _ = liftIO do
     -- Здесь:
     -- 1. У нас есть ключ сессии и мы не смогли расшифровать -> do
     --     удаляем у себя ключ
-    --     отправляем sendResetEncryptionKeys
-    -- 2. У нас нет ключа сессии -> do
+    --     отправляем sendBeginEncryptionExchange
+    -- 2. У нас (до сих пор, даже если мы давно стартовали) нет ключа сессии -> do
+    --     sendResetEncryptionKeys
     --     просто передаём сообщение как есть
 
     -- В протоколе пингов:
     -- 1. Если слишком долго нет ответа на ping, то удаляем у себя ключ, отправляем sendResetEncryptionKeys
-
-    -- TODO:
-    -- Если мы не смогли, по любой причине, расшифровать сообщение,
-    --   то нужно стереть у себя ключ
-    -- Если мы не смогли, по любой причине, расшифровать сообщение,
-    --   но уверены что оно зашифровано, то нужно отправить
-    -- sendResetEncryptionKeys
 
     where
       dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
       dfm = \whom mk msg -> case mk of
           Nothing -> do
               trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
+              -- TODO: run sendResetEncryptionKeys
               pure (Just msg)
           Just k -> runMaybeT $
             -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
             (<|> (do
-                -- И сотрём ключ из памяти
+
+                -- сотрём ключ из памяти
                 -- liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys bus) $ Lens.at whom .~ Nothing
+
+                -- TODO: удаляем у себя ключ
+                -- TODO: run sendBeginEncryptionExchange
+
                 trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
                 pure msg
                 )) $
