@@ -2,28 +2,28 @@ module HttpWorker where
 
 import HBS2.Prelude
 import HBS2.Actors.Peer
-import HBS2.Net.Proto.PeerMeta
 import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Merkle (AnnMetaData)
 import HBS2.Net.Proto.Types
-
-import HBS2.System.Logger.Simple
+import HBS2.Net.Proto.RefLog
+import HBS2.Events
 
 import PeerTypes
 import PeerConfig
+import RefLog ( doRefLogBroadCast ) 
 
 import Data.Functor
-import Data.Maybe
-import Data.Text qualified as Text
-import Data.Text.Encoding qualified as TE
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
-
-
+import Codec.Serialise (deserialiseOrFail)
+import Data.Function ((&))
+import Data.Aeson (object, (.=))
+import Control.Monad.Reader
+import Lens.Micro.Platform (view)
 
 -- TODO: introduce-http-of-off-feature
 
@@ -32,13 +32,15 @@ httpWorker :: forall e s m . ( MyPeer e
                              , HasStorage m
                              , IsRefPubKey s
                              , s ~ Encryption e
-                             )
-  => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
+                             , m ~ PeerM e IO
+                             , e ~ L4Proto
+                             ) => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
 
 httpWorker conf pmeta e = do
 
   sto <- getStorage
   let port' = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
+  penv <- ask
 
   maybe1 port' none $ \port -> liftIO do
 
@@ -71,6 +73,22 @@ httpWorker conf pmeta e = do
             va <- liftIO $ getRef sto (RefLogKey @s ref)
             maybe1 va (status status404) $ \val -> do
               text [qc|{pretty val}|]
+      
+      post "/reflog" do
+        bs <- LBS.take 4194304 <$> body
+        let msg' =
+              deserialiseOrFail @(RefLogUpdate L4Proto) bs
+                & either (const Nothing) Just
+        case msg' of
+          Nothing -> do
+            status status400
+            json $ object ["error" .= "unable to parse RefLogUpdate message"]
+          Just msg -> do
+            let pubk = view refLogId msg
+            liftIO $ withPeerM penv $ do
+              emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, msg))
+              doRefLogBroadCast msg
+            status status200
 
       get "/metadata" do
           raw $ serialise $ pmeta
