@@ -198,5 +198,3 @@ instance Hashable (Peer e) => Hashable (SessionKey e (EncryptionHandshake e))
 data instance EventKey e (EncryptionHandshake e) =
   AnyKnownPeerEncryptionHandshakeEventKey
   deriving stock (Typeable, Eq,Generic)
-
-instance Hashable (EventKey e (EncryptionHandshake e))
