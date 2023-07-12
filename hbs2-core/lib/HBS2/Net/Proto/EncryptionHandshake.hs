@@ -26,11 +26,6 @@ import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
 
-newtype EENonce = EENonce { unEENonce :: BS.ByteString }
-  deriving stock (Generic)
-  deriving newtype (Eq, Serialise, Hashable)
-  deriving (Pretty, Show) via AsBase58 BS.ByteString
-
 instance
     ( Show (PubKey 'Encrypt (Encryption e))
     , Show (PubKey 'Sign (Encryption e))
@@ -40,8 +35,8 @@ instance
   pretty = viaShow
 
 data EncryptionHandshake e =
-    BeginEncryptionExchange EENonce (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
-  | AckEncryptionExchange EENonce (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
+    BeginEncryptionExchange (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
+  | AckEncryptionExchange (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
   | ResetEncryptionKeys
   deriving stock (Generic)
 
@@ -61,12 +56,10 @@ sendBeginEncryptionExchange :: forall e s m .
     ( MonadIO m
     , Request e (EncryptionHandshake e) m
     , Sessions e (EncryptionHandshake e) m
-    , HasNonces (EncryptionHandshake e) m
     -- , HasCredentials s m
     , Asymm s
     , Signatures s
     , Serialise (PubKey 'Encrypt s)
-    , Nonce (EncryptionHandshake e) ~ EENonce
     , Pretty (Peer e)
     , HasProtocol e (EncryptionHandshake e)
     , e ~ L4Proto
@@ -79,10 +72,9 @@ sendBeginEncryptionExchange :: forall e s m .
   -> m ()
 
 sendBeginEncryptionExchange penv creds peer pubkey = do
-    nonce0 <- newNonce @(EncryptionHandshake e)
     let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
-    let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
-    request peer (BeginEncryptionExchange @e nonce0 sign pubkey)
+    let sign = makeSign @s (view peerSignSk creds) ((cs . serialise) ourpubkey)
+    request peer (BeginEncryptionExchange @e sign pubkey)
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
   { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
@@ -125,7 +117,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
       sendBeginEncryptionExchange @e penv creds peer ourpubkey
 
-  BeginEncryptionExchange nonce0 theirsign theirpubkey -> do
+  BeginEncryptionExchange theirsign theirpubkey -> do
       peer <- thatPeer proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
@@ -138,19 +130,19 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
 
       -- подписать нонс
-      let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
+      let sign = makeSign @s (view peerSignSk creds) ((cs . serialise) ourpubkey)
 
       -- сначала удалим у себя его прошлый ключ
       encHandshake_considerPeerAsymmKey peer mpeerData Nothing
 
       -- отправить обратно свой публичный ключ
       -- отправится пока ещё в плоском виде
-      response (AckEncryptionExchange @e nonce0 sign ourpubkey)
+      response (AckEncryptionExchange @e sign ourpubkey)
 
       -- Только после этого прописываем его ключ у себя
       encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
 
-  AckEncryptionExchange nonce0 theirsign theirpubkey -> do
+  AckEncryptionExchange theirsign theirpubkey -> do
       peer <- thatPeer proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
@@ -181,10 +173,6 @@ data instance Event e (PeerAsymmInfo e) =
 instance Expires (EventKey e (PeerAsymmInfo e)) where
   expiresIn _ = Nothing
 
-instance MonadIO m => HasNonces (EncryptionHandshake L4Proto) m where
-  type instance Nonce (EncryptionHandshake L4Proto) = EENonce
-  newNonce = EENonce . BS.take 32 . Crypto.encode <$> liftIO Encrypt.newNonce
-
 instance
   ( Serialise (PubKey 'Sign (Encryption e))
   , Serialise (PubKey 'Encrypt (Encryption e))
@@ -201,7 +189,7 @@ deriving instance
 type instance SessionData e (EncryptionHandshake e) = ()
 
 newtype instance SessionKey e (EncryptionHandshake e) =
-  KnownPeerAsymmInfoKey (EENonce, Peer e)
+  KnownPeerAsymmInfoKey (Peer e)
   deriving stock (Generic, Typeable)
 
 deriving instance Eq (Peer e) => Eq (SessionKey e (EncryptionHandshake e))
