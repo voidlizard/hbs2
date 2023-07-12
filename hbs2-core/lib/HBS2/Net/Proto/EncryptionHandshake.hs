@@ -117,6 +117,8 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
       trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
+
+      -- сначала удалим у себя его прошлый ключ
       encHandshake_considerPeerAsymmKey peer mpeerData Nothing
 
       creds <- getCredentials @s
@@ -138,7 +140,10 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       -- подписать нонс
       let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
 
-      -- отправить обратно вместе с публичным ключом
+      -- сначала удалим у себя его прошлый ключ
+      encHandshake_considerPeerAsymmKey peer mpeerData Nothing
+
+      -- отправить обратно свой публичный ключ
       -- отправится пока ещё в плоском виде
       response (AckEncryptionExchange @e nonce0 sign ourpubkey)
 
@@ -152,6 +157,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
       trace $ "EHSP AckEncryptionExchange from" <+> viaShow (peer, mpeerData)
 
+      -- Он уже прописал у себя наш публичный ключ и готов общаться шифрованными сообщениями
       -- Прописываем его ключ у себя
       encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
 

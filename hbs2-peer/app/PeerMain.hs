@@ -656,7 +656,7 @@ runPeer opts = U.handle (\e -> myException e
                             deletePeerAsymmKey brains peer
                             deletePeerSymmKey brains peer
                         Just pk -> do
-                            emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
+                            -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
                             insertPeerAsymmKey brains peer pk
                             insertPeerSymmKey brains peer $
                                 genCommonSecret @s
