@@ -603,6 +603,8 @@ transactional brains action = do
       err $ "BRAINS: " <+> viaShow e
       execute_ conn [qc|ROLLBACK TO SAVEPOINT {sp}|]
 
+---
+
 insertPeerAsymmKey :: forall e m .
     ( e ~ L4Proto
     , MonadIO m
@@ -642,6 +644,26 @@ insertPeerSymmKey br peer hSymmKey = do
           symmkey = excluded.symmkey
 
     |] (show $ pretty peer, show hSymmKey)
+
+deletePeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e -> PeerAddr e -> m ()
+
+deletePeerAsymmKey br peer =
+    void $ liftIO $ execute (view brainsDb br) [qc|
+        DELETE FROM peer_symmkey
+        WHERE peer = ?
+    |] (Only (show $ pretty peer))
+
+deletePeerSymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e -> PeerAddr e -> m ()
+
+deletePeerSymmKey br peer =
+    void $ liftIO $ execute (view brainsDb br) [qc|
+        DELETE FROM peer_symmkey
+        WHERE peer = ?
+    |] (Only (show $ pretty peer))
+
+---
 
 -- FIXME: eventually-close-db
 newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
@@ -735,6 +757,7 @@ newBasicBrains cfg = liftIO do
     create table if not exists peer_asymmkey
     ( peer text not null
     , asymmkey text not null
+    , ts DATE DEFAULT (datetime('now','localtime'))
     , primary key (peer)
     )
   |]
@@ -743,6 +766,7 @@ newBasicBrains cfg = liftIO do
     create table if not exists peer_symmkey
     ( peer text not null
     , symmkey text not null
+    , ts DATE DEFAULT (datetime('now','localtime'))
     , primary key (peer)
     )
   |]

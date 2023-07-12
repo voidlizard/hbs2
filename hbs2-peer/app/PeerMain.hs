@@ -650,12 +650,16 @@ runPeer opts = U.handle (\e -> myException e
                       ( MonadIO m
                       ) => EncryptionHandshakeAdapter L4Proto m s
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
-                    { encHandshake_considerPeerAsymmKey = \addr pk -> do
-                          insertPeerAsymmKey brains addr pk
-                          insertPeerSymmKey brains addr $
-                              genCommonSecret @s
-                                  (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
-                                  pk
+                    { encHandshake_considerPeerAsymmKey = \addr mpeerData -> \case
+                        Nothing -> do
+                            deletePeerAsymmKey brains addr
+                            deletePeerSymmKey brains addr
+                        Just pk -> do
+                            insertPeerAsymmKey brains addr pk
+                            insertPeerSymmKey brains addr $
+                                genCommonSecret @s
+                                    (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                                    pk
                     }
 
               env <- ask
@@ -807,7 +811,7 @@ runPeer opts = U.handle (\e -> myException e
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 peerThread "encryptionHandshakeWorker"
-                    (EncryptionKeys.encryptionHandshakeWorker @e conf penv encryptionHshakeAdapter)
+                    (EncryptionKeys.encryptionHandshakeWorker @e conf penv pc encryptionHshakeAdapter)
 
                 let tcpProbeWait :: Timeout 'Seconds
                     tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)

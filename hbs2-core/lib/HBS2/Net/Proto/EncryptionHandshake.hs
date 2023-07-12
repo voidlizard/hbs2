@@ -10,6 +10,7 @@ import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
@@ -30,63 +31,115 @@ newtype EENonce = EENonce { unEENonce :: BS.ByteString }
   deriving newtype (Eq, Serialise, Hashable)
   deriving (Pretty, Show) via AsBase58 BS.ByteString
 
+instance
+    ( Show (PubKey 'Encrypt (Encryption e))
+    , Show (PubKey 'Sign (Encryption e))
+    , Show (Nonce ())
+    )
+    => Pretty (PeerData e) where
+  pretty = viaShow
+
 data EncryptionHandshake e =
-    BeginEncryptionExchange EENonce (PubKey 'Encrypt (Encryption e))
+    BeginEncryptionExchange EENonce (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
   | AckEncryptionExchange EENonce (Signature (Encryption e)) (PubKey 'Encrypt (Encryption e))
+  | ResetEncryptionKeys
   deriving stock (Generic)
 
-sendEncryptionPubKey :: forall e m . ( MonadIO m
-                         , Request e (EncryptionHandshake e) m
-                         , Sessions e (EncryptionHandshake e) m
-                         , HasNonces (EncryptionHandshake e) m
-                         , Nonce (EncryptionHandshake e) ~ EENonce
-                         , Pretty (Peer e)
-                         , HasProtocol e (EncryptionHandshake e)
-                         , e ~ L4Proto
-                         )
-         => Peer e -> PubKey 'Encrypt (Encryption e) -> m ()
+sendResetEncryptionKeys :: forall e s m .
+    ( MonadIO m
+    , Request e (EncryptionHandshake e) m
+    , e ~ L4Proto
+    , s ~ Encryption e
+    )
+  => Peer e
+  -> m ()
 
-sendEncryptionPubKey pip pubkey = do
-  nonce <- newNonce @(EncryptionHandshake e)
-  tt <- liftIO $ getTimeCoarse
-  request pip (BeginEncryptionExchange @e nonce pubkey)
+sendResetEncryptionKeys peer = do
+    request peer (ResetEncryptionKeys @e)
+
+sendBeginEncryptionExchange :: forall e s m .
+    ( MonadIO m
+    , Request e (EncryptionHandshake e) m
+    , Sessions e (EncryptionHandshake e) m
+    , HasNonces (EncryptionHandshake e) m
+    -- , HasCredentials s m
+    , Asymm s
+    , Signatures s
+    , Serialise (PubKey 'Encrypt s)
+    , Nonce (EncryptionHandshake e) ~ EENonce
+    , Pretty (Peer e)
+    , HasProtocol e (EncryptionHandshake e)
+    , e ~ L4Proto
+    , s ~ Encryption e
+    )
+  => PeerEnv e
+  -> PeerCredentials s
+  -> Peer e
+  -> PubKey 'Encrypt (Encryption e)
+  -> m ()
+
+sendBeginEncryptionExchange penv creds peer pubkey = do
+    nonce0 <- newNonce @(EncryptionHandshake e)
+    let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
+    let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
+    request peer (BeginEncryptionExchange @e nonce0 sign pubkey)
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
-  { encHandshake_considerPeerAsymmKey :: PeerAddr e -> Encrypt.PublicKey -> m ()
+  { encHandshake_considerPeerAsymmKey :: PeerAddr e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
   }
 
 
-encryptionHandshakeProto :: forall e s m . ( MonadIO m
-                                     , Response e (EncryptionHandshake e) m
-                                     , Request e (EncryptionHandshake e) m
-                                     , Sessions e (EncryptionHandshake e) m
-                                     , HasNonces (EncryptionHandshake e) m
-                                     , HasPeerNonce e m
-                                     , Nonce (EncryptionHandshake e) ~ EENonce
-                                     , Pretty (Peer e)
-                                     , EventEmitter e (EncryptionHandshake e) m
-                                     , EventEmitter e (PeerAsymmInfo e) m
-                                     , HasCredentials s m
-                                     , Asymm s
-                                     , Signatures s
-                                     , Serialise (PubKey 'Encrypt (Encryption e))
-                                     , s ~ Encryption e
-                                     , e ~ L4Proto
-                                     , PubKey Encrypt s ~ Encrypt.PublicKey
-                                     )
-                   => EncryptionHandshakeAdapter e m s
-                   -> PeerEnv e
-                   -> EncryptionHandshake e
-                   -> m ()
+encryptionHandshakeProto :: forall e s m .
+    ( MonadIO m
+    , Response e (EncryptionHandshake e) m
+    , Request e (EncryptionHandshake e) m
+    , Sessions e (KnownPeer e) m
+    -- , Sessions e (EncryptionHandshake e) m
+    -- , HasNonces (EncryptionHandshake e) m
+    -- , HasPeerNonce e m
+    -- , Nonce (EncryptionHandshake e) ~ EENonce
+    -- , Pretty (Peer e)
+    -- , EventEmitter e (EncryptionHandshake e) m
+    , EventEmitter e (PeerAsymmInfo e) m
+    , HasCredentials s m
+    , Asymm s
+    , Signatures s
+    , Sessions e (EncryptionHandshake e) m
+    , Serialise (PubKey 'Encrypt (Encryption e))
+    , s ~ Encryption e
+    , e ~ L4Proto
+    , PubKey Encrypt s ~ Encrypt.PublicKey
+    , Show (PubKey 'Sign s)
+    , Show (Nonce ())
+    )
+  => EncryptionHandshakeAdapter e m s
+  -> PeerEnv e
+  -> EncryptionHandshake e
+  -> m ()
 
 encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
-    BeginEncryptionExchange nonce theirpubkey -> do
-      pip <- thatPeer proto
-      trace $ "GOT BeginEncryptionExchange from" <+> pretty pip
+  ResetEncryptionKeys -> do
+      peer <- thatPeer proto
+      paddr <- toPeerAddr peer
+      mpeerData <- find (KnownPeerKey peer) id
+      -- TODO: check theirsign
+      trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, paddr, mpeerData)
+      encHandshake_considerPeerAsymmKey paddr mpeerData Nothing
 
-      paddr <- toPeerAddr pip
-      encHandshake_considerPeerAsymmKey paddr theirpubkey
+      creds <- getCredentials @s
+      let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
+      sendBeginEncryptionExchange @e penv creds peer ourpubkey
+
+  BeginEncryptionExchange nonce0 theirsign theirpubkey -> do
+      peer <- thatPeer proto
+      paddr <- toPeerAddr peer
+      mpeerData <- find (KnownPeerKey peer) id
+      -- TODO: check theirsign
+
+      trace $ "EHSP BeginEncryptionExchange from" <+> viaShow (peer, paddr, mpeerData)
+
+      encHandshake_considerPeerAsymmKey paddr mpeerData (Just theirpubkey)
 
       -- взять свои ключи
       creds <- getCredentials @s
@@ -94,28 +147,24 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
 
       -- подписать нонс
-      let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce <> (cs . serialise) ourpubkey)
+      let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
 
       -- отправить обратно вместе с публичным ключом
-      response (AckEncryptionExchange @e nonce sign ourpubkey)
+      response (AckEncryptionExchange @e nonce0 sign ourpubkey)
 
-      -- Нужно ли запомнить его theirpubkey или достаточно того, что будет
-      -- получено в обратном AckEncryptionExchange?
-      -- Нужно!
-      emit PeerAsymmInfoKey (PeerAsymmPubKey pip theirpubkey)
+      emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
-      -- se <- find (KnownPeerKey pip) id <&> isJust
-      -- unless se $ do
-      --   sendEncryptionPubKey pip ourpubkey
+  AckEncryptionExchange nonce0 theirsign theirpubkey -> do
+      peer <- thatPeer proto
+      paddr <- toPeerAddr peer
+      mpeerData <- find (KnownPeerKey peer) id
+      -- TODO: check theirsign
 
-    AckEncryptionExchange nonce0 sign theirpubkey -> do
-      pip <- thatPeer proto
-      -- trace $ "AckEncryptionExchange" <+> pretty pip
+      trace $ "EHSP AckEncryptionExchange from" <+> viaShow (peer, paddr, mpeerData)
 
-      paddr <- toPeerAddr pip
-      encHandshake_considerPeerAsymmKey paddr theirpubkey
+      encHandshake_considerPeerAsymmKey paddr mpeerData (Just theirpubkey)
 
-      emit PeerAsymmInfoKey (PeerAsymmPubKey pip theirpubkey)
+      emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
   where
     proto = Proxy @(EncryptionHandshake e)

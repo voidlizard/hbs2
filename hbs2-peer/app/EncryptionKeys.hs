@@ -52,15 +52,17 @@ encryptionHandshakeWorker :: forall e m s .
     -- , Sessions e (PeerInfo e) m
     -- , Sessions e (KnownPeer e) m
     -- , Pretty (Peer e)
+    -- , HasCredentials s m
     )
-    => PeerConfig
-    -> PeerEnv e
-    -> EncryptionHandshakeAdapter e m s
-    -> m ()
+  => PeerConfig
+  -> PeerEnv e
+  -> PeerCredentials s
+  -> EncryptionHandshakeAdapter e m s
+  -> m ()
 
-encryptionHandshakeWorker pconf penv EncryptionHandshakeAdapter{..} = do
+encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
 
-    -- e <- ask
+    -- e :: PeerEnv e <- ask
     let ourpubkey = pubKeyFromKeypair @s $ _envAsymmetricKeyPair penv
 
     pl <- getPeerLocator @e
@@ -68,7 +70,7 @@ encryptionHandshakeWorker pconf penv EncryptionHandshakeAdapter{..} = do
     forever do
         liftIO $ pause @'Seconds 10
 
-        pips <- knownPeers @e pl
+        peers <- knownPeers @e pl
 
-        forM_ pips \p -> do
-            sendEncryptionPubKey @e p ourpubkey
+        forM_ peers \peer -> do
+            sendBeginEncryptionExchange @e penv creds peer ourpubkey

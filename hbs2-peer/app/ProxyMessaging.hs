@@ -151,6 +151,13 @@ receiveFromProxyMessaging bus _ = liftIO do
         encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
         fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
 
+    -- TODO:
+    -- Если мы не смогли, по любой причине, расшифровать сообщение,
+    --   то нужно стереть у себя ключ
+    -- Если мы не смогли, по любой причине, расшифровать сообщение,
+    --   но уверены что оно зашифровано, то нужно отправить
+    -- sendResetEncryptionKeys
+
     where
       dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
       dfm = \whom mk msg -> case mk of
