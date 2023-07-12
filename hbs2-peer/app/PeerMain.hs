@@ -648,6 +648,7 @@ runPeer opts = U.handle (\e -> myException e
 
               let encryptionHshakeAdapter ::
                       ( MonadIO m
+                      , EventEmitter e (PeerAsymmInfo e) m
                       ) => EncryptionHandshakeAdapter L4Proto m s
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
                     { encHandshake_considerPeerAsymmKey = \peer mpeerData -> \case
@@ -655,6 +656,7 @@ runPeer opts = U.handle (\e -> myException e
                             deletePeerAsymmKey brains peer
                             deletePeerSymmKey brains peer
                         Just pk -> do
+                            emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
                             insertPeerAsymmKey brains peer pk
                             insertPeerSymmKey brains peer $
                                 genCommonSecret @s

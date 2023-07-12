@@ -94,13 +94,6 @@ encryptionHandshakeProto :: forall e s m .
     , Response e (EncryptionHandshake e) m
     , Request e (EncryptionHandshake e) m
     , Sessions e (KnownPeer e) m
-    -- , Sessions e (EncryptionHandshake e) m
-    -- , HasNonces (EncryptionHandshake e) m
-    -- , HasPeerNonce e m
-    -- , Nonce (EncryptionHandshake e) ~ EENonce
-    -- , Pretty (Peer e)
-    -- , EventEmitter e (EncryptionHandshake e) m
-    , EventEmitter e (PeerAsymmInfo e) m
     , HasCredentials s m
     , Asymm s
     , Signatures s
@@ -151,7 +144,6 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
       -- Только после этого прописываем его ключ у себя
       encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
-      -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
   AckEncryptionExchange nonce0 theirsign theirpubkey -> do
       peer <- thatPeer proto
@@ -162,7 +154,6 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
       -- Прописываем его ключ у себя
       encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
-      -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
   where
     proto = Proxy @(EncryptionHandshake e)
