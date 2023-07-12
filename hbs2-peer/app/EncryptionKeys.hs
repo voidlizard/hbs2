@@ -68,7 +68,7 @@ encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
     pl <- getPeerLocator @e
 
     forever do
-        liftIO $ pause @'Seconds 10
+        liftIO $ pause @'Seconds 30
 
         peers <- knownPeers @e pl
 
