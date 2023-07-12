@@ -605,63 +605,51 @@ transactional brains action = do
 
 ---
 
-insertPeerAsymmKey :: forall e m .
-    ( e ~ L4Proto
-    , MonadIO m
-    )
+insertPeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
     => BasicBrains e
     -> Peer e
     -> Encrypt.PublicKey
-    -> m ()
-
-insertPeerAsymmKey br peer hAsymmKey = do
-  let conn = view brainsDb br
-  void $ liftIO $ execute conn [qc|
-        INSERT INTO peer_asymmkey (peer,asymmkey)
-        VALUES (?,?)
-        ON CONFLICT (peer)
-        DO UPDATE SET
-          asymmkey = excluded.asymmkey
-
-    |] (show $ pretty peer, show hAsymmKey)
-
-insertPeerSymmKey :: forall e m .
-    ( e ~ L4Proto
-    , MonadIO m
-    )
-    => BasicBrains e
-    -> Peer e
     -> Encrypt.CombinedKey
     -> m ()
 
-insertPeerSymmKey br peer hSymmKey = do
+insertPeerAsymmKey br peer hAsymmKey hSymmKey = do
+    insertPeerAsymmKey br peer hAsymmKey hSymmKey
+    insertPeerAsymmKey' br (show $ pretty peer) hAsymmKey hSymmKey
+
+insertPeerAsymmKey' :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e
+    -> String
+    -> Encrypt.PublicKey
+    -> Encrypt.CombinedKey
+    -> m ()
+
+insertPeerAsymmKey' br key hAsymmKey hSymmKey = do
   let conn = view brainsDb br
   void $ liftIO $ execute conn [qc|
-        INSERT INTO peer_symmkey (peer,symmkey)
-        VALUES (?,?)
+        INSERT INTO peer_asymmkey (peer,asymmkey,symmkey)
+        VALUES (?,?,?)
         ON CONFLICT (peer)
         DO UPDATE SET
-          symmkey = excluded.symmkey
+          asymmkey = excluded.asymmkey
+        , symmkey = excluded.symmkey
+    |] (key, show hAsymmKey, show hSymmKey)
 
-    |] (show $ pretty peer, show hSymmKey)
+---
 
 deletePeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
     => BasicBrains e -> Peer e -> m ()
 
 deletePeerAsymmKey br peer =
-    void $ liftIO $ execute (view brainsDb br) [qc|
-        DELETE FROM peer_symmkey
-        WHERE peer = ?
-    |] (Only (show $ pretty peer))
+    deletePeerAsymmKey' br (show $ pretty peer)
 
-deletePeerSymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
-    => BasicBrains e -> Peer e -> m ()
+deletePeerAsymmKey' :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e -> String -> m ()
 
-deletePeerSymmKey br peer =
+deletePeerAsymmKey' br key =
     void $ liftIO $ execute (view brainsDb br) [qc|
-        DELETE FROM peer_symmkey
+        DELETE FROM peer_asymmkey
         WHERE peer = ?
-    |] (Only (show $ pretty peer))
+    |] (Only key)
 
 ---
 
@@ -757,14 +745,6 @@ newBasicBrains cfg = liftIO do
     create table if not exists peer_asymmkey
     ( peer text not null
     , asymmkey text not null
-    , ts DATE DEFAULT (datetime('now','localtime'))
-    , primary key (peer)
-    )
-  |]
-
-  execute_ conn [qc|
-    create table if not exists peer_symmkey
-    ( peer text not null
     , symmkey text not null
     , ts DATE DEFAULT (datetime('now','localtime'))
     , primary key (peer)

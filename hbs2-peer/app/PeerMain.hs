@@ -654,14 +654,17 @@ runPeer opts = U.handle (\e -> myException e
                     { encHandshake_considerPeerAsymmKey = \peer mpeerData -> \case
                         Nothing -> do
                             deletePeerAsymmKey brains peer
-                            deletePeerSymmKey brains peer
+                            forM_ mpeerData \peerData ->
+                                deletePeerAsymmKey' brains (show peerData)
                         Just pk -> do
                             -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
-                            insertPeerAsymmKey brains peer pk
-                            insertPeerSymmKey brains peer $
-                                genCommonSecret @s
+                            let symmk = genCommonSecret @s
                                     (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                                     pk
+                            case mpeerData of
+                                Nothing -> insertPeerAsymmKey brains peer pk symmk
+                                Just peerData ->
+                                    insertPeerAsymmKey' brains (show peerData) pk symmk
                     }
 
               env <- ask
