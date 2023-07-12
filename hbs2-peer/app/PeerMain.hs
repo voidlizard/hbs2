@@ -650,13 +650,13 @@ runPeer opts = U.handle (\e -> myException e
                       ( MonadIO m
                       ) => EncryptionHandshakeAdapter L4Proto m s
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
-                    { encHandshake_considerPeerAsymmKey = \addr mpeerData -> \case
+                    { encHandshake_considerPeerAsymmKey = \peer mpeerData -> \case
                         Nothing -> do
-                            deletePeerAsymmKey brains addr
-                            deletePeerSymmKey brains addr
+                            deletePeerAsymmKey brains peer
+                            deletePeerSymmKey brains peer
                         Just pk -> do
-                            insertPeerAsymmKey brains addr pk
-                            insertPeerSymmKey brains addr $
+                            insertPeerAsymmKey brains peer pk
+                            insertPeerSymmKey brains peer $
                                 genCommonSecret @s
                                     (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                                     pk

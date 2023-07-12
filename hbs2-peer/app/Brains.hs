@@ -610,7 +610,7 @@ insertPeerAsymmKey :: forall e m .
     , MonadIO m
     )
     => BasicBrains e
-    -> PeerAddr e
+    -> Peer e
     -> Encrypt.PublicKey
     -> m ()
 
@@ -630,7 +630,7 @@ insertPeerSymmKey :: forall e m .
     , MonadIO m
     )
     => BasicBrains e
-    -> PeerAddr e
+    -> Peer e
     -> Encrypt.CombinedKey
     -> m ()
 
@@ -646,7 +646,7 @@ insertPeerSymmKey br peer hSymmKey = do
     |] (show $ pretty peer, show hSymmKey)
 
 deletePeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
-    => BasicBrains e -> PeerAddr e -> m ()
+    => BasicBrains e -> Peer e -> m ()
 
 deletePeerAsymmKey br peer =
     void $ liftIO $ execute (view brainsDb br) [qc|
@@ -655,7 +655,7 @@ deletePeerAsymmKey br peer =
     |] (Only (show $ pretty peer))
 
 deletePeerSymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
-    => BasicBrains e -> PeerAddr e -> m ()
+    => BasicBrains e -> Peer e -> m ()
 
 deletePeerSymmKey br peer =
     void $ liftIO $ execute (view brainsDb br) [qc|

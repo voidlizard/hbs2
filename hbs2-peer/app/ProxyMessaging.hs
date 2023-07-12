@@ -151,6 +151,16 @@ receiveFromProxyMessaging bus _ = liftIO do
         encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
         fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
 
+    -- Здесь:
+    -- 1. У нас есть ключ сессии и мы не смогли расшифровать -> do
+    --     удаляем у себя ключ
+    --     отправляем sendResetEncryptionKeys
+    -- 2. У нас нет ключа сессии -> do
+    --     просто передаём сообщение как есть
+
+    -- В протоколе пингов:
+    -- 1. Если слишком долго нет ответа на ping, то удаляем у себя ключ, отправляем sendResetEncryptionKeys
+
     -- TODO:
     -- Если мы не смогли, по любой причине, расшифровать сообщение,
     --   то нужно стереть у себя ключ

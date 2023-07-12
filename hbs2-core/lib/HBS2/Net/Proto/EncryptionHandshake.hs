@@ -85,7 +85,7 @@ sendBeginEncryptionExchange penv creds peer pubkey = do
     request peer (BeginEncryptionExchange @e nonce0 sign pubkey)
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
-  { encHandshake_considerPeerAsymmKey :: PeerAddr e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
+  { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
   }
 
 
@@ -121,11 +121,10 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
   ResetEncryptionKeys -> do
       peer <- thatPeer proto
-      paddr <- toPeerAddr peer
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
-      trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, paddr, mpeerData)
-      encHandshake_considerPeerAsymmKey paddr mpeerData Nothing
+      trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
+      encHandshake_considerPeerAsymmKey peer mpeerData Nothing
 
       creds <- getCredentials @s
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
@@ -133,13 +132,10 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
   BeginEncryptionExchange nonce0 theirsign theirpubkey -> do
       peer <- thatPeer proto
-      paddr <- toPeerAddr peer
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 
-      trace $ "EHSP BeginEncryptionExchange from" <+> viaShow (peer, paddr, mpeerData)
-
-      encHandshake_considerPeerAsymmKey paddr mpeerData (Just theirpubkey)
+      trace $ "EHSP BeginEncryptionExchange from" <+> viaShow (peer, mpeerData)
 
       -- взять свои ключи
       creds <- getCredentials @s
@@ -150,21 +146,23 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       let sign = makeSign @s (view peerSignSk creds) (unEENonce nonce0 <> (cs . serialise) ourpubkey)
 
       -- отправить обратно вместе с публичным ключом
+      -- отправится пока ещё в плоском виде
       response (AckEncryptionExchange @e nonce0 sign ourpubkey)
 
-      emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
+      -- Только после этого прописываем его ключ у себя
+      encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
+      -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
   AckEncryptionExchange nonce0 theirsign theirpubkey -> do
       peer <- thatPeer proto
-      paddr <- toPeerAddr peer
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 
-      trace $ "EHSP AckEncryptionExchange from" <+> viaShow (peer, paddr, mpeerData)
+      trace $ "EHSP AckEncryptionExchange from" <+> viaShow (peer, mpeerData)
 
-      encHandshake_considerPeerAsymmKey paddr mpeerData (Just theirpubkey)
-
-      emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
+      -- Прописываем его ключ у себя
+      encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
+      -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer theirpubkey)
 
   where
     proto = Proxy @(EncryptionHandshake e)
