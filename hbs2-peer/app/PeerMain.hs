@@ -427,6 +427,7 @@ respawn opts = case view peerRespawn opts of
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
+                        , Block ByteString ~ ByteString
                         ) => PeerOpts -> IO ()
 
 runPeer opts = U.handle (\e -> myException e
@@ -991,6 +992,14 @@ runPeer opts = U.handle (\e -> myException e
               let msg = RefChanHead k (RefChanHeadBlockTran (HashRef h))
               runResponseM me $ refChanHeadProto @e True refChanHeadAdapter msg
 
+  let refChanHeadGetAction puk = do
+        trace $ "refChanHeadGetAction" <+> pretty (AsBase58 puk)
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+          sto <- getStorage
+          h <- liftIO $ getRef sto (RefChanHeadKey @(Encryption e) puk)
+          request who (RPCRefChanHeadGetAnsw @e  h)
+
   let arpc = RpcAdapter pokeAction
                         dieAction
                         dontHandle
@@ -1007,6 +1016,8 @@ runPeer opts = U.handle (\e -> myException e
                         reflogGetAction
                         dontHandle
                         refChanHeadSendAction -- rpcOnRefChanHeadSend
+                        refChanHeadGetAction
+                        dontHandle
 
   rpc <- async $ runRPC udp1 do
                    runProto @e

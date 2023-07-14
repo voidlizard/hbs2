@@ -35,6 +35,8 @@ import Network.Socket
 import System.Exit
 import System.IO
 import UnliftIO.Async as U
+import Control.Concurrent.MVar
+
 data PeerRpcKey
 
 instance HasCfgKey PeerRpcKey (Maybe String) where
@@ -60,6 +62,7 @@ data RPCCommand =
   | REFLOGFETCH (PubKey 'Sign (Encryption L4Proto))
   | REFLOGGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANHEADSEND (Hash HbSync)
+  | REFCHANHEADGET (PubKey 'Sign (Encryption L4Proto))
 
 data RPC e =
     RPCDie
@@ -78,6 +81,9 @@ data RPC e =
   | RPCRefLogGet (PubKey 'Sign (Encryption e))
   | RPCRefLogGetAnswer (Maybe (Hash HbSync))
   | RPCRefChanHeadSend (Hash HbSync)
+  | RPCRefChanHeadGet (PubKey 'Sign (Encryption e))
+  | RPCRefChanHeadGetAnsw (Maybe (Hash HbSync))
+
   deriving stock (Generic)
 
 instance (Serialise (PeerAddr e), Serialise (PubKey 'Sign (Encryption e))) => Serialise (RPC e)
@@ -115,6 +121,8 @@ data RpcAdapter e m =
   , rpcOnRefLogGet     :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefLogGetAnsw :: Maybe (Hash HbSync) -> m ()
   , rpcOnRefChanHeadSend :: Hash HbSync -> m ()
+  , rpcOnRefChanHeadGet :: PubKey 'Sign (Encryption e) -> m ()
+  , rpcOnRefChanHeadGetAnsw :: Maybe (Hash HbSync) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -171,6 +179,8 @@ rpcHandler adapter = \case
     (RPCRefLogGet e)   -> rpcOnRefLogGet adapter e
     (RPCRefLogGetAnswer s)   -> rpcOnRefLogGetAnsw adapter s
     (RPCRefChanHeadSend s)   -> rpcOnRefChanHeadSend adapter s
+    (RPCRefChanHeadGet s)   -> rpcOnRefChanHeadGet adapter s
+    (RPCRefChanHeadGetAnsw s)   -> rpcOnRefChanHeadGetAnsw adapter s
 
 data RPCOpt =
   RPCOpt
@@ -194,6 +204,7 @@ runRpcCommand opt = \case
   REFLOGFETCH k -> withRPC opt (RPCRefLogFetch k)
   REFLOGGET k -> withRPC opt (RPCRefLogGet k)
   REFCHANHEADSEND h -> withRPC opt (RPCRefChanHeadSend h)
+  REFCHANHEADGET s -> withRPC opt (RPCRefChanHeadGet s)
 
   _ -> pure ()
 
@@ -226,6 +237,8 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
   refQ <- liftIO newTQueueIO
 
+  rchanheadMVar <- liftIO newEmptyMVar
+
   let  adapter =
         RpcAdapter dontHandle
                    dontHandle
@@ -248,6 +261,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                    ( liftIO . atomically . writeTQueue refQ )
 
                    dontHandle
+
+                   dontHandle -- rpcOnRefChanHeadGet
+
+                   (liftIO . putMVar rchanheadMVar) -- rpcOnRefChanHeadGetAnsw
 
   prpc <- async $ runRPC udp1 do
                     env <- ask
@@ -312,6 +329,17 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                       RPCRefChanHeadSend {} -> liftIO do
                         pause @'Seconds 0.25
                         exitSuccess
+
+                      RPCRefChanHeadGet {} -> liftIO do
+
+                        r <- race (pause @'Seconds 2) do
+                                withMVar rchanheadMVar $ \v -> do
+                                  pure v
+
+                        case r of
+                          Right (Just x) -> print (pretty x) >> exitSuccess
+
+                          _ -> exitFailure
 
                       _ -> pure ()
 
