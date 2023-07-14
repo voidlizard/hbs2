@@ -53,7 +53,7 @@ data RefChanWorkerEnv e =
   RefChanWorkerEnv
   { _refChanWorkerEnvDownload :: DownloadEnv e
   , _refChanWorkerEnvHeadQ    :: TQueue (RefChanHeadBlockTran e)
-  , _refChaWorkerEnvDownload  :: TVar (HashMap HashRef ()) -- таймстемп можно
+  , _refChaWorkerEnvDownload  :: TVar (HashMap HashRef TimeSpec) -- таймстемп можно
   }
 
 makeLenses 'RefChanWorkerEnv
@@ -78,10 +78,11 @@ refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                    => RefChanWorkerEnv e -> HashRef -> m ()
 refChanAddDownload env r = do
   penv <- ask
+  t <- getTimeCoarse
   withPeerM penv $ withDownload (_refChanWorkerEnvDownload env)
                  $ processBlock @e (fromHashRef r)
 
-  atomically $ modifyTVar (view refChaWorkerEnvDownload env) (HashMap.insert r ())
+  atomically $ modifyTVar (view refChaWorkerEnvDownload env) (HashMap.insert r t)
 
 checkDownloaded :: forall m . (MonadIO m, HasStorage m, Block ByteString ~ ByteString) => HashRef -> m Bool
 checkDownloaded hr = do
@@ -140,16 +141,20 @@ refChanWorker env = do
 
     monitorDownloads = forever do
       pause @'Seconds 2
-      all <- atomically $ readTVar (view refChaWorkerEnvDownload env) <&> HashMap.keys
+      all <- atomically $ readTVar (view refChaWorkerEnvDownload env) <&> HashMap.toList
+
+      now <- getTimeCoarse
 
       -- FIXME: consider-timeouts-or-leak-is-possible
-      rest <- forM all $ \r -> do
+      rest <- forM all $ \(r,t) -> do
                 here <- checkDownloaded r
                 if here then do
                   refChanOnHead env (RefChanHeadBlockTran r)
                   pure mempty
                 else do
-                  pure [(r,())]
+                  -- FIXME: fix-timeout-hardcode
+                  let expired = realToFrac (toNanoSecs $ now - t) / 1e9 > 600
+                  if expired then pure mempty else pure [(r,t)]
 
       atomically $ writeTVar (view refChaWorkerEnvDownload env) (HashMap.fromList (mconcat rest))
 
