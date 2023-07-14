@@ -131,6 +131,7 @@ executable hbs2-peer
                     , HttpWorker
                     , Brains
                     , ProxyMessaging
+                    , CLI.RefChan
 
     -- other-extensions:
     build-depends:    base

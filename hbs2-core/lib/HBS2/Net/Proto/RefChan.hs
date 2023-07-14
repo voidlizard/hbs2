@@ -18,16 +18,15 @@ import Data.Config.Suckless
 
 -- import HBS2.System.Logger.Simple
 
--- import Data.Maybe
--- import Data.Hashable
-import Data.Text qualified as Text
+import Codec.Serialise
+import Control.Monad.Identity
+import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
--- import Type.Reflection (someTypeRep)
 import Data.Either
 import Data.Maybe
+import Data.Text qualified as Text
 import Lens.Micro.Platform
-import Codec.Serialise
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -56,7 +55,11 @@ makeLenses 'RefChanHeadBlockSmall
 type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
+                     , Serialise (Signature (Encryption e))
                      )
+
+instance ForRefChans e => Serialise (RefChanHeadBlock e)
+instance ForRefChans e => Serialise (SignedBox p e)
 
 -- блок головы может быть довольно большой.
 -- поэтому посылаем его, как merkle tree
@@ -116,6 +119,19 @@ makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
     bs = LBS.toStrict (serialise msg)
     sign = makeSign @(Encryption e) sk bs
 
+unboxSignedBox :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
+               => LBS.ByteString
+               -> Maybe p
+
+unboxSignedBox bs = runIdentity $ runMaybeT do
+
+  (SignedBox pk bs sign) <- MaybeT $ pure
+                                   $ deserialiseOrFail @(SignedBox p e) bs
+                                       & either (pure Nothing) Just
+
+  guard $ verifySign @(Encryption e) pk sign bs
+
+  MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version

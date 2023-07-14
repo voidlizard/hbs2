@@ -48,6 +48,7 @@ import RefLog (reflogWorker)
 import HttpWorker
 import ProxyMessaging
 import PeerMeta
+import CLI.RefChan
 
 import Codec.Serialise
 -- import Control.Concurrent.Async
@@ -244,6 +245,7 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "ping"      (info pPing (progDesc "ping another peer"))
                         <> command "fetch"     (info pFetch (progDesc "fetch block"))
                         <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
+                        <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
                         )
@@ -335,7 +337,6 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
         setLogging @TRACE tracePrefix
         trace "pRefLogSend"
         s <- BS.readFile kr
-        -- FIXME: UDP is weird here
         creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
