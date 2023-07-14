@@ -345,6 +345,21 @@ failedDownload p h = do
   addDownload mzero h
   -- FIXME: brains-download-fail
 
+broadCastMessage :: forall e p m . ( MonadIO m
+                                   , MyPeer e
+                                   , HasPeerLocator e m
+                                   , HasProtocol e p
+                                   , Request e p m
+                                   , Sessions e (KnownPeer e) m
+                                   )
+                   => p -> m ()
+
+broadCastMessage msg = do
+  -- TODO: broadcast-reflog-update
+  trace "broadCastMessage"
+  forKnownPeers $ \pip _ -> do
+    trace $ "send msg to peer" <+> pretty pip
+    request @e pip msg
 
 forKnownPeers :: forall e  m . ( MonadIO m
                                , HasPeerLocator e m

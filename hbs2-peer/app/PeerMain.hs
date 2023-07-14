@@ -559,10 +559,10 @@ runPeer opts = U.handle (\e -> myException e
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
-  rce <- refChanWorkerEnv conf
+  rce <- refChanWorkerEnv conf denv
 
   let refChanHeadAdapter = RefChanHeadAdapter
-                           { _refChanHeadOnHead = dontHandle
+                           { refChanHeadOnHead = refChanOnHead rce
                            }
 
   let pexFilt pips = do
@@ -785,7 +785,6 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "reflogWorker" (reflogWorker @e conf rwa)
 
-                -- FIXME: reflogWorker-env
                 peerThread "refChanWorker" (refChanWorker @e rce)
 
                 peerThread "ping pong" $ forever $ do

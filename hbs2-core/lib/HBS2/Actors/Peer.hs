@@ -36,10 +36,12 @@ import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
 import Data.Hashable (hash)
+import UnliftIO (MonadUnliftIO(..))
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
 import Prettyprinter hiding (pipe)
+
 
 
 data AnyStorage = forall zu . ( Block ByteString ~ ByteString
@@ -156,6 +158,7 @@ newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                                        , Monad
                                        , MonadReader (PeerEnv e)
                                        , MonadIO
+                                       , MonadUnliftIO
                                        )
 
 
@@ -166,6 +169,7 @@ newtype  ResponseM e m a = ResponseM { fromResponse :: ReaderT (ResponseEnv e) m
                                             , MonadReader (ResponseEnv e)
                                             , MonadIO
                                             , MonadTrans
+                                            , MonadUnliftIO
                                             )
 
 newtype ResponseEnv e =

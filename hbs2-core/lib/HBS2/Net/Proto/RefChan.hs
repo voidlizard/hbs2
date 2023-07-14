@@ -4,7 +4,7 @@
 module HBS2.Net.Proto.RefChan where
 
 import HBS2.Prelude.Plated
--- import HBS2.Hash
+import HBS2.Hash
 -- import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
@@ -27,6 +27,8 @@ import Data.Either
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
+
+import Data.Hashable hiding (Hashed)
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -61,10 +63,35 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
 instance ForRefChans e => Serialise (SignedBox p e)
 
+
+
+newtype RefChanHeadKey s = RefChanHeadKey (PubKey 'Sign s)
+
+deriving stock instance IsRefPubKey s => Eq (RefChanHeadKey s)
+
+instance IsRefPubKey s => Hashable (RefChanHeadKey s) where
+  hashWithSalt s k = hashWithSalt s (hashObject @HbSync k)
+
+instance IsRefPubKey s => Hashed HbSync (RefChanHeadKey s) where
+  hashObject (RefChanHeadKey pk) = hashObject ("refchanhead|" <> serialise pk)
+
+instance IsRefPubKey s => FromStringMaybe (RefChanHeadKey s) where
+  fromStringMay s = RefChanHeadKey <$> fromStringMay s
+
+instance IsRefPubKey s =>  IsString (RefChanHeadKey s) where
+  fromString s = fromMaybe (error "bad public key base58") (fromStringMay s)
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (RefChanHeadKey s)) where
+  pretty (AsBase58 (RefChanHeadKey k)) = pretty (AsBase58 k)
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanHeadKey s) where
+  pretty (RefChanHeadKey k) = pretty (AsBase58 k)
+
+
 -- блок головы может быть довольно большой.
 -- поэтому посылаем его, как merkle tree
 newtype RefChanHeadBlockTran e =
-  RefChanHeadBlockTran HashRef
+  RefChanHeadBlockTran { fromRefChanHeadBlockTran :: HashRef }
   deriving stock (Generic)
 
 instance Serialise (RefChanHeadBlockTran e)
@@ -78,7 +105,7 @@ instance ForRefChans e => Serialise (RefChanHead e)
 
 data RefChanHeadAdapter e m =
   RefChanHeadAdapter
-  { _refChanHeadOnHead :: RefChanHeadBlockTran e -> m ()
+  { refChanHeadOnHead   :: RefChanHeadBlockTran e -> m ()
   }
 
 refChanHeadProto :: forall e s m . ( MonadIO m
@@ -107,9 +134,9 @@ refChanHeadProto self adapter msg = do
     guard (auth || self)
 
     case msg of
-      RefChanHead pkt _ -> do
-        trace $ "RefChanHead" <+> pretty self
-        pure ()
+      RefChanHead chan pkt -> do
+        trace $ "RefChanHead" <+> pretty self <+> pretty (AsBase58 chan)
+        lift $ refChanHeadOnHead adapter pkt
 
       RefChanGetHead _ -> do
         -- прочитать ссылку
@@ -130,7 +157,7 @@ makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
 
 unboxSignedBox :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
                => LBS.ByteString
-               -> Maybe p
+               -> Maybe (PubKey 'Sign (Encryption e), p)
 
 unboxSignedBox bs = runIdentity $ runMaybeT do
 
@@ -140,7 +167,9 @@ unboxSignedBox bs = runIdentity $ runMaybeT do
 
   guard $ verifySign @(Encryption e) pk sign bs
 
-  MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
+  p <- MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
+
+  pure (pk, p)
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version
