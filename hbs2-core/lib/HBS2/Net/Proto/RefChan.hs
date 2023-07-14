@@ -22,6 +22,7 @@ import Data.Config.Suckless
 -- import Data.Hashable
 import Data.Text qualified as Text
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 -- import Type.Reflection (someTypeRep)
 import Data.Either
 import Data.Maybe
@@ -35,7 +36,7 @@ type RefChanOwner e = PubKey 'Sign (Encryption e)
 type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
 data SignedBox p e =
-  SignedBox (PubKey 'Sign e) ByteString (Signature (Encryption e))
+  SignedBox (PubKey 'Sign (Encryption e)) ByteString (Signature (Encryption e))
   deriving stock (Generic)
 
 type Weight = Integer
@@ -64,7 +65,6 @@ newtype RefChanHeadBlockTran e =
   deriving stock (Generic)
 
 instance Serialise (RefChanHeadBlockTran e)
-
 
 data RefChanHead e =
     RefChanHead (RefChanId e) (RefChanHeadBlockTran e)
@@ -105,6 +105,18 @@ refChanHeadProto adapter msg = do
       pure ()
 
 
+makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
+              => PubKey 'Sign (Encryption e)
+              -> PrivKey 'Sign (Encryption e)
+              -> p
+              -> SignedBox p e
+
+makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
+  where
+    bs = LBS.toStrict (serialise msg)
+    sign = makeSign @(Encryption e) sk bs
+
+
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version
                                           <*> quorum
@@ -116,8 +128,14 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
       version = lastMay [ n | (ListVal [SymbolVal "version", LitIntVal n] ) <- parsed ]
       quorum  = lastMay [ n | (ListVal [SymbolVal "quorum", LitIntVal n] ) <- parsed ]
       wait    = lastMay [ n | (ListVal [SymbolVal "wait", LitIntVal n] ) <- parsed ]
-      peers   = catMaybes [ (,) <$> fromStringMay (Text.unpack s) <*> pure w | (ListVal [SymbolVal "peer", LitStrVal s, LitIntVal w] ) <- parsed  ]
-      authors = catMaybes [ fromStringMay (Text.unpack s) | (ListVal [SymbolVal "author", LitStrVal s] ) <- parsed  ]
+
+      peers   = catMaybes [ (,) <$> fromStringMay (Text.unpack s) <*> pure w
+                          | (ListVal [SymbolVal "peer", LitStrVal s, LitIntVal w] ) <- parsed
+                          ]
+
+      authors = catMaybes [ fromStringMay (Text.unpack s)
+                          | (ListVal [SymbolVal "author", LitStrVal s] ) <- parsed
+                          ]
 
 instance ForRefChans e => Pretty (RefChanHeadBlock e) where
   pretty blk = parens ("version" <+> pretty (view refChanHeadVersion blk)) <> line
@@ -134,4 +152,11 @@ instance ForRefChans e => Pretty (RefChanHeadBlock e) where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
 
+
+-- TODO: implement-refchans-head
+--   Сгенерировать транзакцию RefHead
+--   Послать транзакцию RefHead
+--   Принять транзакцию RefHead
+--   Валидировать транзакцию RefHead
+--   Ответить на запрос RefChanGetHead
 
