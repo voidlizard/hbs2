@@ -103,17 +103,17 @@ readBlob hr = do
   sto <- getStorage
   let readBlock h = liftIO $ getBlock sto h
 
-  chunks <- S.toList_ $
-              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
-                unless (fromHashRef hr == ha) do
-                  readBlock ha >>= S.yield
-
   let mfo acc el = case (acc, el) of
        (Nothing, Just s) -> Just [s]
        (_, Nothing) -> Nothing
        (Just ss, Just s)  -> Just (s:ss)
 
-  pure $ LBS.concat . reverse <$> foldl mfo Nothing chunks
+  chunks <- S.fold_ mfo Nothing id $
+              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
+                unless (fromHashRef hr == ha) do
+                  readBlock ha >>= S.yield
+
+  pure $ LBS.concat . reverse <$> chunks
 
 refChanWorker :: forall e s m . ( MonadIO m
                                 , MonadUnliftIO m
