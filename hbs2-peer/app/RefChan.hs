@@ -19,6 +19,14 @@ import PeerConfig
 import Control.Monad
 
 
+data RefChanWorkerEnv e = RefChanWorkerEnv
+
+refChanWorkerEnv :: forall m e . MonadIO m
+                 => PeerConfig
+                 -> m (RefChanWorkerEnv e)
+
+refChanWorkerEnv _ = pure $ RefChanWorkerEnv @e
+
 refChanWorker :: forall e s m . ( MonadIO m, MyPeer e
                                 , HasStorage m
                                 , Signatures s
@@ -26,9 +34,10 @@ refChanWorker :: forall e s m . ( MonadIO m, MyPeer e
                                 , IsRefPubKey s
                                 , Pretty (AsBase58 (PubKey 'Sign s))
                                 )
-             => m ()
+             => RefChanWorkerEnv e
+             -> m ()
 
-refChanWorker = forever do
+refChanWorker _ = forever do
   pause @'Seconds 10
   debug "I'm refchan worker"
 

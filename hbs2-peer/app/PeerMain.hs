@@ -559,6 +559,8 @@ runPeer opts = U.handle (\e -> myException e
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
+  rce <- refChanWorkerEnv conf
+
   let refChanHeadAdapter = RefChanHeadAdapter
                            { _refChanHeadOnHead = dontHandle
                            }
@@ -784,7 +786,7 @@ runPeer opts = U.handle (\e -> myException e
                 peerThread "reflogWorker" (reflogWorker @e conf rwa)
 
                 -- FIXME: reflogWorker-env
-                peerThread "refChanWorker" (refChanWorker @e)
+                peerThread "refChanWorker" (refChanWorker @e rce)
 
                 peerThread "ping pong" $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
