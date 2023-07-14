@@ -16,7 +16,7 @@ import HBS2.Data.Types.Refs
 
 import Data.Config.Suckless
 
--- import HBS2.System.Logger.Simple
+import HBS2.System.Logger.Simple
 
 import Codec.Serialise
 import Control.Monad.Identity
@@ -91,15 +91,17 @@ refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Pretty (AsBase58 (PubKey 'Sign s))
                                    , s ~ Encryption e
                                    )
-                  => RefChanHeadAdapter e m
+                  => Bool
+                  -> RefChanHeadAdapter e m
                   -> RefChanHead e
                   -> m ()
 
-refChanHeadProto adapter msg = do
+refChanHeadProto self adapter msg = do
   -- авторизовать пира
 
   case msg of
     RefChanHead pkt _ -> do
+      trace $ "RefChanHead" <+> pretty self
       pure ()
 
     RefChanGetHead _ -> do

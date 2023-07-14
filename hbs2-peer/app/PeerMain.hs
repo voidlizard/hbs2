@@ -5,13 +5,15 @@
 {-# Language MultiWayIf #-}
 module Main where
 
+import HBS2.Prelude.Plated
+
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
-import HBS2.Data.Types.Refs (RefLogKey(..))
+import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
@@ -24,10 +26,11 @@ import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
+import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 import HBS2.OrDie
-import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
+import HBS2.Data.Detect
 
 import HBS2.System.Logger.Simple hiding (info)
 import HBS2.System.Logger.Simple qualified as Log
@@ -89,6 +92,8 @@ import UnliftIO.Exception qualified as U
 import UnliftIO.Async as U
 import Control.Monad.Trans.Resource
 
+import Streaming.Prelude qualified as S
+import Streaming qualified as S
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
@@ -553,6 +558,10 @@ runPeer opts = U.handle (\e -> myException e
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
+  let refChanHeadAdapter = RefChanHeadAdapter
+                           { _refChanHeadOnHead = dontHandle
+                           }
+
   let pexFilt pips = do
         tcpex <- listTCPPexCandidates @e brains <&> HashSet.fromList
         fset  <- forM pips $ \p -> do
@@ -959,7 +968,23 @@ runPeer opts = U.handle (\e -> myException e
 
   let refChanHeadSendAction h = do
         trace $ "refChanHeadSendAction" <+> pretty h
-        pure ()
+        void $ liftIO $ async $ withPeerM penv $ do
+          me <- ownPeer @e
+          sto <- getStorage
+
+          chunks <- S.toList_ $ do
+            deepScan ScanDeep (const none) h (liftIO . getBlock sto) $ \ha -> do
+              unless (ha == h) do
+                blk <- liftIO $ getBlock sto ha
+                maybe1 blk none S.yield
+
+          let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) e) (LBS.concat chunks)
+
+          case box of
+            Left{} -> err $ "can't read head block" <+> pretty h
+            Right (SignedBox k _ _) -> do
+              let msg = RefChanHead k (RefChanHeadBlockTran (HashRef h))
+              runResponseM me $ refChanHeadProto @e True refChanHeadAdapter msg
 
   let arpc = RpcAdapter pokeAction
                         dieAction
