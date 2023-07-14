@@ -127,6 +127,7 @@ executable hbs2-peer
                     , PeerTypes
                     , PeerConfig
                     , RefLog
+                    , RefChan
                     , CheckMetrics
                     , HttpWorker
                     , Brains

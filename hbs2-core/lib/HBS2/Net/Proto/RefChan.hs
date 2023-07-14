@@ -102,9 +102,9 @@ refChanHeadProto self adapter msg = do
 
   auth <- find (KnownPeerKey peer) id <&> isJust
 
-  guard (auth || self)
-
   void $ runMaybeT do
+
+    guard (auth || self)
 
     case msg of
       RefChanHead pkt _ -> do

@@ -51,6 +51,7 @@ import HttpWorker
 import ProxyMessaging
 import PeerMeta
 import CLI.RefChan
+import RefChan
 
 import Codec.Serialise
 -- import Control.Concurrent.Async
@@ -781,6 +782,9 @@ runPeer opts = U.handle (\e -> myException e
                 peerThread "downloadQueue" (downloadQueue conf denv)
 
                 peerThread "reflogWorker" (reflogWorker @e conf rwa)
+
+                -- FIXME: reflogWorker-env
+                peerThread "refChanWorker" (refChanWorker @e)
 
                 peerThread "ping pong" $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
