@@ -19,6 +19,7 @@ import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
+import HBS2.Net.Proto.RefChan
 import HBS2.Prelude
 
 import Data.Functor
@@ -119,6 +120,14 @@ instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
 
   -- FIXME: real-period
   requestPeriodLim = ReqLimPerMessage 0.25
+
+instance HasProtocol L4Proto (RefChanHead L4Proto) where
+  type instance ProtocolId (RefChanHead L4Proto) = 11001
+  type instance Encoded L4Proto = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+  -- requestPeriodLim = ReqLimPerMessage 600
+
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec
