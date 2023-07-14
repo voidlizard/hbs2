@@ -98,16 +98,23 @@ refChanHeadProto :: forall e s m . ( MonadIO m
 
 refChanHeadProto self adapter msg = do
   -- авторизовать пира
+  peer <- thatPeer (Proxy @(RefChanHead e))
 
-  case msg of
-    RefChanHead pkt _ -> do
-      trace $ "RefChanHead" <+> pretty self
-      pure ()
+  auth <- find (KnownPeerKey peer) id <&> isJust
 
-    RefChanGetHead _ -> do
-      -- прочитать ссылку
-      -- послать хэш головы
-      pure ()
+  guard (auth || self)
+
+  void $ runMaybeT do
+
+    case msg of
+      RefChanHead pkt _ -> do
+        trace $ "RefChanHead" <+> pretty self
+        pure ()
+
+      RefChanGetHead _ -> do
+        -- прочитать ссылку
+        -- послать хэш головы
+        pure ()
 
 
 makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
