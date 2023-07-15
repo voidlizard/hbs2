@@ -891,6 +891,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto (mkPeerMeta conf))
                     , makeResponse (refChanHeadProto False refChanHeadAdapter)
+                    , makeResponse (refChanUpdateProto False refChanHeadAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
