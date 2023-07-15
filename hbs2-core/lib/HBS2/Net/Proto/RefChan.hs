@@ -264,15 +264,17 @@ refChanUpdateProto self adapter msg = do
         -- итак, сначала достаём голову. как мы достаём голову?
         h <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
 
-        -- FIXME: cache-this
-        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
-
         -- смотрим, что у нас такая же голова.
         -- если нет -- значит, кто-то рассинхронизировался.
         -- может быть, потом попробуем головы запросить
         guard (HashRef h == headRef)
 
         -- теперь достаём голову
+
+        -- FIXME: cache-this
+        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
+
+        debug "OMG! OMG! We've got a transaction!!"
 
         pure ()
 
