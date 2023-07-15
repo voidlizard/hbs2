@@ -134,6 +134,7 @@ library
                     , microlens-platform
                     , mtl
                     , murmur-hash
+                    , time
                     , network
                     , network-multicast
                     , network-simple

@@ -417,7 +417,7 @@ polling :: forall a m . (MonadIO m, Hashable a)
 
 polling o listEntries action = do
 
-  pause (TimeoutSec (nominalDiffTimeToSeconds (waitBefore o)))
+  pause (TimeoutNDT (waitBefore o))
 
   now0 <- getTimeCoarse
   refs0 <- listEntries <&> fmap (set _2 now0) <&> HashMap.fromList
@@ -426,7 +426,7 @@ polling o listEntries action = do
     now <- getTimeCoarse
     refs <- listEntries <&> HashMap.fromList
     let mon' = mon `HashMap.union`
-                 HashMap.fromList [ (e, now + fromNanoSecs (round (realToFrac (nominalDiffTimeToSeconds t) * 1e9)))
+                 HashMap.fromList [ (e, now + toTimeSpec (TimeoutNDT t))
                                   | (e, t) <- HashMap.toList refs
                                   ]
 
@@ -440,11 +440,11 @@ polling o listEntries action = do
         next (HashMap.delete r mon')
 
       Just (Entry t _, _) | otherwise -> do
-        pause @'Seconds $ fromInteger $ round $ realToFrac (toNanoSecs (t - now)) / 1e9
+        pause (TimeoutTS (t - now))
         next mon'
 
       Nothing -> do
-        pause (TimeoutSec (nominalDiffTimeToSeconds (waitOnEmpty o)))
+        pause (TimeoutNDT (waitOnEmpty o))
         next mon'
 
     ) refs0

@@ -1,4 +1,3 @@
-{-# Language FunctionalDependencies #-}
 {-# LANGUAGE CPP #-}
 module HBS2.Clock
   ( module HBS2.Clock
@@ -12,8 +11,9 @@ import Data.Int (Int64)
 import Data.Proxy
 import Prettyprinter
 import System.Clock
+import Data.Time.Clock
 
-data TimeoutKind = MilliSeconds | Seconds | Minutes
+data TimeoutKind = MilliSeconds | Seconds | Minutes | NomDiffTime | TS
 
 data family Timeout ( a :: TimeoutKind )
 
@@ -23,7 +23,6 @@ newtype Wait a = Wait a
 
 newtype Delay a = Delay a
                   deriving newtype (Eq,Show,Pretty)
-
 
 
 class IsTimeout a where
@@ -56,6 +55,20 @@ newtype instance Timeout 'Minutes =
   TimeoutMin (Fixed E9)
   deriving newtype (Eq,Ord,Num,Real,Fractional,Show,Pretty)
 
+newtype instance Timeout 'NomDiffTime =
+  TimeoutNDT NominalDiffTime
+  deriving newtype (Eq,Ord,Num,Real,Fractional,Show,Pretty)
+
+newtype instance Timeout 'TS =
+  TimeoutTS TimeSpec
+  deriving newtype (Eq,Ord,Num,Real,Show,Pretty)
+
+instance Pretty NominalDiffTime where
+  pretty = viaShow
+
+instance Pretty TimeSpec where
+  pretty = viaShow
+
 instance IsTimeout 'MilliSeconds where
   toNanoSeconds (TimeoutMSec x) = round (x * 1e6)
 
@@ -64,6 +77,12 @@ instance IsTimeout 'Seconds where
 
 instance IsTimeout 'Minutes where
   toNanoSeconds (TimeoutMin x) = round (x * 60 * 1e9)
+
+instance IsTimeout 'NomDiffTime where
+  toNanoSeconds (TimeoutNDT t) = round (realToFrac (nominalDiffTimeToSeconds t) * 1e9)
+
+instance IsTimeout 'TS where
+  toNanoSeconds (TimeoutTS s) = fromIntegral $ toNanoSecs s
 
 class Expires a where
   expiresIn :: Proxy a -> Maybe (Timeout 'Seconds)
