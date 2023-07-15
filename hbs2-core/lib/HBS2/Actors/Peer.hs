@@ -3,9 +3,13 @@
 {-# Language UndecidableInstances #-}
 {-# Language FunctionalDependencies #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Actors.Peer where
+module HBS2.Actors.Peer
+  ( module HBS2.Actors.Peer
+  , module HBS2.Actors.Peer.Types
+  ) where
 
 import HBS2.Actors
+import HBS2.Actors.Peer.Types
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
@@ -22,7 +26,6 @@ import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString qualified as BS
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
@@ -35,30 +38,11 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
-import Data.Hashable (hash)
-import UnliftIO (MonadUnliftIO(..))
+import UnliftIO (MonadUnliftIO)
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
-import Prettyprinter hiding (pipe)
 
-
-
-data AnyStorage = forall zu . ( Block ByteString ~ ByteString
-                              , Storage zu HbSync ByteString IO
-                              ) => AnyStorage zu
-
-instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString) => Storage AnyStorage HbSync ByteString IO where
-
-  putBlock (AnyStorage s) = putBlock s
-  enqueueBlock (AnyStorage s) = enqueueBlock s
-  getBlock (AnyStorage s) = getBlock s
-  getChunk (AnyStorage s) = getChunk s
-  hasBlock (AnyStorage s) = hasBlock s
-  updateRef (AnyStorage s) = updateRef s
-  getRef (AnyStorage s) = getRef s
-  delBlock (AnyStorage s) = delBlock s
-  delRef (AnyStorage s) = delRef s
 
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)
@@ -66,8 +50,6 @@ data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
 class Monad m => HasOwnPeer e m where
   ownPeer :: m (Peer e)
 
-class HasStorage m where
-  getStorage :: m AnyStorage
 
 data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 
@@ -168,8 +150,8 @@ newtype  ResponseM e m a = ResponseM { fromResponse :: ReaderT (ResponseEnv e) m
                                             , Monad
                                             , MonadReader (ResponseEnv e)
                                             , MonadIO
-                                            , MonadTrans
                                             , MonadUnliftIO
+                                            , MonadTrans
                                             )
 
 newtype ResponseEnv e =

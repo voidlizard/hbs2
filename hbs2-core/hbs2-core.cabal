@@ -67,6 +67,7 @@ library
     exposed-modules:
                       HBS2.Actors
                     , HBS2.Actors.Peer
+                    , HBS2.Actors.Peer.Types
                     , HBS2.Base58
                     , HBS2.Clock
                     , HBS2.Data.Detect
