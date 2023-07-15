@@ -64,6 +64,7 @@ data RPCCommand =
   | REFCHANHEADSEND (Hash HbSync)
   | REFCHANHEADGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANHEADFETCH (PubKey 'Sign (Encryption L4Proto))
+  | REFCHANPROPOSE (PubKey 'Sign (Encryption L4Proto), ByteString)
 
 data RPC e =
     RPCDie
@@ -85,6 +86,7 @@ data RPC e =
   | RPCRefChanHeadGet (PubKey 'Sign (Encryption e))
   | RPCRefChanHeadGetAnsw (Maybe (Hash HbSync))
   | RPCRefChanHeadFetch (PubKey 'Sign (Encryption e))
+  | RPCRefChanPropose (PubKey 'Sign (Encryption e), ByteString)
 
   deriving stock (Generic)
 
@@ -126,6 +128,7 @@ data RpcAdapter e m =
   , rpcOnRefChanHeadGet :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefChanHeadGetAnsw :: Maybe (Hash HbSync) -> m ()
   , rpcOnRefChanHeadFetch :: PubKey 'Sign (Encryption e) -> m ()
+  , rpcOnRefChanPropose :: (PubKey 'Sign (Encryption e), ByteString) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -185,6 +188,7 @@ rpcHandler adapter = \case
     (RPCRefChanHeadGet s)   -> rpcOnRefChanHeadGet adapter s
     (RPCRefChanHeadGetAnsw s)   -> rpcOnRefChanHeadGetAnsw adapter s
     (RPCRefChanHeadFetch s)   -> rpcOnRefChanHeadFetch adapter s
+    (RPCRefChanPropose s)   -> rpcOnRefChanPropose adapter s
 
 data RPCOpt =
   RPCOpt
@@ -210,6 +214,7 @@ runRpcCommand opt = \case
   REFCHANHEADSEND h -> withRPC opt (RPCRefChanHeadSend h)
   REFCHANHEADGET s -> withRPC opt (RPCRefChanHeadGet s)
   REFCHANHEADFETCH s -> withRPC opt (RPCRefChanHeadFetch s)
+  REFCHANPROPOSE s -> withRPC opt (RPCRefChanPropose s)
 
   _ -> pure ()
 
@@ -272,6 +277,8 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                    (liftIO . putMVar rchanheadMVar) -- rpcOnRefChanHeadGetAnsw
 
                    dontHandle -- rpcOnRefChanHeadFetch
+
+                   dontHandle -- rpcOnRefChanPropose
 
 
   prpc <- async $ runRPC udp1 do
@@ -350,6 +357,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                           _ -> exitFailure
 
                       RPCRefChanHeadFetch {} -> liftIO do
+                        pause @'Seconds 0.25
+                        exitSuccess
+
+                      RPCRefChanPropose{} -> liftIO do
                         pause @'Seconds 0.25
                         exitSuccess
 

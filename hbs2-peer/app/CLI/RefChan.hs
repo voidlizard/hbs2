@@ -14,12 +14,15 @@ import RPC
 import Options.Applicative
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy (ByteString)
 import Lens.Micro.Platform
 import Codec.Serialise
+import Data.Maybe
 
 pRefChan :: Parser (IO ())
-pRefChan = hsubparser (  command "head" (info pRefChanHead (progDesc "head commands" ))
-                     )
+pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
+                       <> command "propose" (info pRefChanPropose (progDesc "post propose transaction"))
+                      )
 
 
 pRefChanHead :: Parser (IO ())
@@ -88,7 +91,29 @@ pRefChanHeadGet :: Parser (IO ())
 pRefChanHeadGet = do
   opts <- pRpcCommon
   ref <- strArgument (metavar "REFCHAH-HEAD-REF")
-  pure $ do
+  pure do
     href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
     runRpcCommand opts (REFCHANHEADGET href)
+
+
+pRefChanPropose :: Parser (IO ())
+pRefChanPropose = do
+  opts <- pRpcCommon
+  kra <- strOption (long "author" <> short 'a' <> help "author credentials")
+  fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
+  dry <- optional (flag' True (long "dry" <> short 'n' <> help "only dump transaction")) <&> fromMaybe False
+  sref <- strArgument (metavar "REFCHAH-REF")
+  pure do
+    sc <- BS.readFile kra
+    puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
+    creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+
+    lbs <- maybe1 fn LBS.getContents LBS.readFile
+
+    let box = makeSignedBox @L4Proto @ByteString (view peerSignPk creds) (view peerSignSk creds) lbs
+
+    if dry then do
+      LBS.putStr (serialise box)
+    else do
+      runRpcCommand opts (REFCHANPROPOSE (puk, serialise box))
 

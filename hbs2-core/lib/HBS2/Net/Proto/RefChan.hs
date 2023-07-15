@@ -282,6 +282,25 @@ refChanUpdateProto self adapter msg = do
   where
     proto = Proxy @(RefChanUpdate e)
 
+makeProposeTran :: forall e s m . ( MonadIO m
+                                  , ForRefChans e
+                                  , Signatures (Encryption e)
+                                  , HasStorage m
+                                  , s ~ Encryption e
+                                  )
+                => PeerCredentials s
+                -> RefChanId e
+                -> SignedBox ByteString e
+                -> m (Maybe (SignedBox (ProposeTran e) e))
+
+makeProposeTran creds chan box1 = do
+  sto <- getStorage
+  runMaybeT do
+    h <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
+    let tran = ProposeTran @e (HashRef h) box1
+    let pk = view peerSignPk creds
+    let sk = view peerSignSk creds
+    pure $ makeSignedBox @e pk sk tran
 
 makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
               => PubKey 'Sign (Encryption e)

@@ -427,6 +427,7 @@ respawn opts = case view peerRespawn opts of
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
+                        , HasStorage (PeerM e IO)
                         ) => PeerOpts -> IO ()
 
 runPeer opts = U.handle (\e -> myException e
@@ -1007,6 +1008,14 @@ runPeer opts = U.handle (\e -> myException e
         void $ liftIO $ async $ withPeerM penv $ do
           broadCastMessage (RefChanGetHead @e puk)
 
+  let refChanProposeAction (puk, lbs) = do
+        trace "reChanProposeAction"
+        void $ liftIO $ async $ withPeerM penv $ do
+          let mbox = deserialiseOrFail lbs & either (const Nothing) Just
+          maybe1 mbox (err "proposal: Can't read SignedBox") $ \box -> do
+            proposed <- makeProposeTran @e pc puk box
+            debug $ "PROPOSAL:" <+> pretty (LBS.length (serialise proposed))
+
   let arpc = RpcAdapter pokeAction
                         dieAction
                         dontHandle
@@ -1026,6 +1035,7 @@ runPeer opts = U.handle (\e -> myException e
                         refChanHeadGetAction
                         dontHandle
                         refChanHeadFetchAction
+                        refChanProposeAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
