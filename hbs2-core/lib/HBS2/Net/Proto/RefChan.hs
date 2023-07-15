@@ -28,6 +28,10 @@ import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
@@ -51,8 +55,8 @@ data RefChanHeadBlock e =
   { _refChanHeadVersion     :: Integer
   , _refChanHeadQuorum      :: Integer
   , _refChanHeadWaitAccept  :: Integer
-  , _refChanHeadPeers       :: [(PubKey 'Sign (Encryption e),Weight)]
-  , _refChanHeadAuthors     :: [PubKey 'Sign (Encryption e)]
+  , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+  , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
   }
   deriving stock (Generic)
 
@@ -280,12 +284,12 @@ refChanUpdateProto self adapter msg = do
 
         debug $ "OMG! Got trans" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
-        let pips = view refChanHeadPeers headBlock & fmap fst
+        let pips = view refChanHeadPeers headBlock
         let aus  = view refChanHeadAuthors headBlock
 
-        guard ( peerKey `elem` pips )
+        guard ( peerKey `HashMap.member` pips )
 
-        guard ( authorKey `elem` aus )
+        guard ( authorKey `HashSet.member` aus )
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
@@ -351,8 +355,8 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version
                                           <*> quorum
                                           <*> wait
-                                          <*> pure peers
-                                          <*> pure authors
+                                          <*> pure (HashMap.fromList peers)
+                                          <*> pure (HashSet.fromList authors)
     where
       parsed = parseTop str & fromRight mempty
       version = lastMay [ n | (ListVal [SymbolVal "version", LitIntVal n] ) <- parsed ]
@@ -374,9 +378,9 @@ instance ForRefChans e => Pretty (RefChanHeadBlock e) where
                <>
                parens ("wait" <+> pretty (view refChanHeadWaitAccept blk)) <> line
                <>
-               vcat (fmap peer (view refChanHeadPeers blk)) <> line
+               vcat (fmap peer (HashMap.toList $ view refChanHeadPeers blk)) <> line
                <>
-               vcat (fmap author (view refChanHeadAuthors blk)) <> line
+               vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
 
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
