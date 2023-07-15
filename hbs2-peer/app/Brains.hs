@@ -782,7 +782,7 @@ runBasicBrains cfg brains = do
        ] )
 
   void $ async $ do
-    pause @'Seconds 5
+    -- pause @'Seconds 5
     forM_ polls $ \(t,mi,x) -> do
       trace $ "BRAINS: poll" <+> pretty t <+> pretty (AsBase58 x) <+> pretty mi
       updateOP brains $ do

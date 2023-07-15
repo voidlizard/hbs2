@@ -173,7 +173,7 @@ refChanWorker env brains = do
   where
 
     refChanHeadPoll = do
-      pause @'Seconds 10
+      pause @'Seconds 2
 
       now0 <- getTimeCoarse
       refs0 <- listPolledRefs @e brains "refchan" <&> fmap (set _2 now0) <&> HashMap.fromList
