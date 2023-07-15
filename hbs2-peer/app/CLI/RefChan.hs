@@ -110,7 +110,7 @@ pRefChanPropose = do
 
     lbs <- maybe1 fn LBS.getContents LBS.readFile
 
-    let box = makeSignedBox @L4Proto @ByteString (view peerSignPk creds) (view peerSignSk creds) lbs
+    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
 
     if dry then do
       LBS.putStr (serialise box)

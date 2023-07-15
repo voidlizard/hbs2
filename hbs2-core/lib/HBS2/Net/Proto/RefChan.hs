@@ -224,8 +224,7 @@ refChanUpdateProto self adapter msg = do
 
   void $ runMaybeT do
 
-    guard auth
-
+    guard (auth || self)
 
     case msg of
      Propose chan box -> do
@@ -259,7 +258,10 @@ refChanUpdateProto self adapter msg = do
        deferred proto do
 
         -- проверили подпись пира
-        (peerKey, (ProposeTran headRef bs)) <- MaybeT $ pure $ unboxSignedBox0 box
+        (peerKey, ProposeTran headRef abox) <- MaybeT $ pure $ unboxSignedBox0 box
+
+        -- проверили подпись автора
+        (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 abox
 
         -- итак, сначала достаём голову. как мы достаём голову?
         h <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
@@ -274,7 +276,18 @@ refChanUpdateProto self adapter msg = do
         -- FIXME: cache-this
         hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
 
-        debug "OMG! OMG! We've got a transaction!!"
+        (_, headBlock) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+
+        debug $ "OMG! Got trans" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
+
+        let pips = view refChanHeadPeers headBlock & fmap fst
+        let aus  = view refChanHeadAuthors headBlock
+
+        guard ( peerKey `elem` pips )
+
+        guard ( authorKey `elem` aus )
+
+        debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
         pure ()
 

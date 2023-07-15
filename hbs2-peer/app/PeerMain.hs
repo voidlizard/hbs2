@@ -963,8 +963,7 @@ runPeer opts = U.handle (\e -> myException e
   let reflogFetchAction puk = do
         trace "reflogFetchAction"
         void $ liftIO $ async $ withPeerM penv $ do
-          forKnownPeers @e $ \p _ -> do
-            request p (RefLogRequest @e puk)
+          broadCastMessage (RefLogRequest @e puk)
 
   let reflogGetAction puk = do
         trace $ "reflogGetAction" <+> pretty (AsBase58 puk)
@@ -1011,10 +1010,18 @@ runPeer opts = U.handle (\e -> myException e
   let refChanProposeAction (puk, lbs) = do
         trace "reChanProposeAction"
         void $ liftIO $ async $ withPeerM penv $ do
-          let mbox = deserialiseOrFail lbs & either (const Nothing) Just
-          maybe1 mbox (err "proposal: Can't read SignedBox") $ \box -> do
-            proposed <- makeProposeTran @e pc puk box
+          me <- ownPeer @e
+          runMaybeT do
+            box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
+            proposed <- MaybeT $ makeProposeTran @e pc puk box
+
             debug $ "PROPOSAL:" <+> pretty (LBS.length (serialise proposed))
+            lift $ broadCastMessage (Propose @e puk proposed)
+
+            -- FIXME: remove-this-debug-stuff
+            --   или оставить? нода будет сама себе
+            --   консенсус слать тогда. может, и оставить
+            lift $ runResponseM me $ refChanUpdateProto @e True refChanHeadAdapter (Propose @e puk proposed)
 
   let arpc = RpcAdapter pokeAction
                         dieAction
