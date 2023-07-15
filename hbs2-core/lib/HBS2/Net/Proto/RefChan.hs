@@ -136,13 +136,13 @@ refChanHeadProto self adapter msg = do
     case msg of
       RefChanHead chan pkt -> do
         trace $ "RefChanHead" <+> pretty self <+> pretty (AsBase58 chan)
+        -- FIXME: check-chan-is-listened
         lift $ refChanHeadOnHead adapter pkt
 
       RefChanGetHead _ -> do
         -- прочитать ссылку
         -- послать хэш головы
         pure ()
-
 
 makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
               => PubKey 'Sign (Encryption e)
