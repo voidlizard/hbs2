@@ -88,7 +88,12 @@ checkDownloaded :: forall m . (MonadIO m, HasStorage m, Block ByteString ~ ByteS
 checkDownloaded hr = do
   sto <- getStorage
   let readBlock h = liftIO $ getBlock sto h
-  result <- runExceptT $ deepScan ScanDeep (const $ throwError DataNotReady) (fromHashRef hr) readBlock dontHandle
+
+  result <- runExceptT $
+              deepScan ScanDeep (const $ throwError DataNotReady) (fromHashRef hr) readBlock $ \ha -> do
+                here <- liftIO $ hasBlock sto ha <&> isJust
+                unless here $ throwError DataNotReady
+
   pure $ either (const False) (const True) result
 
 
