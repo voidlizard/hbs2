@@ -11,6 +11,7 @@ import Data.Foldable (for_)
 import Control.Monad.Trans.Maybe
 import Codec.Serialise (deserialiseOrFail)
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.Function
 import Data.Functor
@@ -19,6 +20,9 @@ import Data.Maybe
 import Control.Concurrent.STM
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
+
+import Streaming.Prelude qualified as S
+import Streaming qualified as S
 
 data BlobType =  Merkle (MTree [HashRef])
                | MerkleAnn (MTreeAnn [HashRef])
@@ -124,4 +128,18 @@ deepScan l miss from reader sink = do
           walkMerkleTree t reader stepInside
 
         walk h = walkMerkle h reader stepInside
+
+readBlobFromTree :: forall m . ( MonadIO m )
+                 => ( Hash HbSync -> IO (Maybe ByteString) )
+                 -> HashRef
+                 -> m (Maybe ByteString)
+
+readBlobFromTree readBlock hr = do
+
+  pieces <- S.toList_ $
+              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) (liftIO . readBlock) $ \ha -> do
+                unless (fromHashRef hr == ha) do
+                  liftIO (readBlock ha) >>= S.yield
+
+  pure $ LBS.concat <$> sequence pieces
 

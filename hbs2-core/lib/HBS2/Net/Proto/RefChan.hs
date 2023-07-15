@@ -5,6 +5,7 @@ module HBS2.Net.Proto.RefChan where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
+import HBS2.Data.Detect
 -- import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
@@ -108,6 +109,26 @@ data RefChanHead e =
 instance ForRefChans e => Serialise (RefChanHead e)
 
 
+data ProposeTran e = ProposeTran HashRef (SignedBox ByteString e) -- произвольная бинарная транзакция,
+                     deriving stock (Generic)                     -- подписанная ключом **АВТОРА**, который её рассылает
+
+instance ForRefChans e => Serialise (ProposeTran e)
+
+-- TODO: find-out-sure-transaction-size
+--   транзакция должна быть маленькая!
+--   хочешь что-то большое просунуть -- шли хэши.
+--   черт его знает, какой там останется пайлоад.
+--   надо посмотреть. байт, небось, 400
+data RefChanUpdate e =
+  Propose (RefChanId e) (SignedBox (ProposeTran e) e) -- подписано ключом пира
+  deriving stock (Generic)
+
+instance ForRefChans e => Serialise (RefChanUpdate e)
+
+-- data RefChanNotifyMsg e =
+--   Notify (SignedBox ByteString e)
+--   deriving stock (Generic)
+
 data RefChanHeadAdapter e m =
   RefChanHeadAdapter
   { refChanHeadOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
@@ -171,6 +192,95 @@ refChanHeadProto self adapter msg = do
   where
     proto = Proxy @(RefChanHead e)
 
+
+
+refChanUpdateProto :: forall e s m . ( MonadIO m
+                                     , Request e (RefChanUpdate e) m
+                                     , Response e (RefChanUpdate e) m
+                                     , HasDeferred e (RefChanUpdate e) m
+                                     , IsPeerAddr e m
+                                     , Pretty (Peer e)
+                                     , Sessions e (KnownPeer e) m
+                                     , HasStorage m
+                                     , Signatures s
+                                     , IsRefPubKey s
+                                     , Pretty (AsBase58 (PubKey 'Sign s))
+                                     -- , Serialise (Signature s)
+                                     , ForRefChans e
+                                     , s ~ Encryption e
+                                     )
+                   => Bool
+                   -> RefChanHeadAdapter e m
+                   -> RefChanUpdate e
+                   -> m ()
+
+refChanUpdateProto self adapter msg = do
+  -- авторизовать пира
+  peer <- thatPeer proto
+
+  auth <- find (KnownPeerKey peer) id <&> isJust
+
+  sto <- getStorage
+
+  void $ runMaybeT do
+
+    guard auth
+
+
+    case msg of
+     Propose chan box -> do
+       guard =<< lift (refChanHeadSubscribed adapter chan)
+
+       -- TODO: implement-propose-reaction
+       --   достать голову если есть
+       --   если нет - увы. ничего не делать
+       --   достать голову, которую прислали, если она есть
+       --   если нет -- это может значить, что  либо она левая,
+       --   либо у нас еще не обновилось.
+       --   ну короче, по факту можем поддержать разговор,
+       --   только если у нас такая же голова.
+       --   в любом другом случае ничего не делаем.
+       --
+       --   короче. такое:
+       --   смотрим, что голова == нашей голове
+       --   если да, то достаём
+       --   смотрим, что пир вообще может сюда писать
+       --   если нет - то ничего не делаем.
+       --   смотрим, что автор вообще может сюда писать.
+       --   если нет - то ничего не делаем.
+       --
+       --   если же пир может писать, автор может писать,
+       --   то рассылаем всем участникам Accept, свой Accept
+       --   тоже куда-то запоминаем (куда?)
+       --   ну или шлём его себе сами - просто вызываем эту
+       --   же функцию в этом же контексте с Accept
+
+       debug "RefChanUpdate/Propose"
+       deferred proto do
+
+        -- проверили подпись пира
+        (peerKey, (ProposeTran headRef bs)) <- MaybeT $ pure $ unboxSignedBox0 box
+
+        -- итак, сначала достаём голову. как мы достаём голову?
+        h <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
+
+        -- FIXME: cache-this
+        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
+
+        -- смотрим, что у нас такая же голова.
+        -- если нет -- значит, кто-то рассинхронизировался.
+        -- может быть, потом попробуем головы запросить
+        guard (HashRef h == headRef)
+
+        -- теперь достаём голову
+
+        pure ()
+
+
+  where
+    proto = Proxy @(RefChanUpdate e)
+
+
 makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
               => PubKey 'Sign (Encryption e)
               -> PrivKey 'Sign (Encryption e)
@@ -182,21 +292,26 @@ makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
     bs = LBS.toStrict (serialise msg)
     sign = makeSign @(Encryption e) sk bs
 
+
+unboxSignedBox0 :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
+               => SignedBox p e
+               -> Maybe (PubKey 'Sign (Encryption e), p)
+
+unboxSignedBox0 (SignedBox pk bs sign) = runIdentity $ runMaybeT do
+  guard $ verifySign @(Encryption e) pk sign bs
+  p <- MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
+  pure (pk, p)
+
 unboxSignedBox :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
                => LBS.ByteString
                -> Maybe (PubKey 'Sign (Encryption e), p)
 
 unboxSignedBox bs = runIdentity $ runMaybeT do
 
-  (SignedBox pk bs sign) <- MaybeT $ pure
-                                   $ deserialiseOrFail @(SignedBox p e) bs
-                                       & either (pure Nothing) Just
+  box <- MaybeT $ pure $ deserialiseOrFail @(SignedBox p e) bs
+                          & either (pure Nothing) Just
 
-  guard $ verifySign @(Encryption e) pk sign bs
-
-  p <- MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
-
-  pure (pk, p)
+  MaybeT $ pure $ unboxSignedBox0 box
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version

@@ -24,7 +24,7 @@ data AnyStorage = forall zu . ( Block ByteString ~ ByteString
                               , Storage zu HbSync ByteString IO
                               ) => AnyStorage zu
 
-class HasStorage m where
+class Block ByteString ~ ByteString => HasStorage m where
   getStorage :: m AnyStorage
 
 

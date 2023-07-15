@@ -115,24 +115,6 @@ checkDownloaded hr = do
 
   pure $ maybe False (not . List.null)  $ sequence result
 
--- FIXME: move-to-library
-readBlob :: forall m . ( MonadIO m
-                       , HasStorage m
-                       , Block ByteString ~ ByteString
-                       )
-         => HashRef
-         -> m (Maybe ByteString)
-
-readBlob hr = do
-  sto <- getStorage
-  let readBlock h = liftIO $ getBlock sto h
-
-  chunks <- S.toList_ $
-              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
-                unless (fromHashRef hr == ha) do
-                  readBlock ha >>= S.yield
-
-  pure $ LBS.concat <$> sequence chunks
 
 refChanWorker :: forall e s m . ( MonadIO m
                                 , MonadUnliftIO m
@@ -212,9 +194,10 @@ refChanWorker env brains = do
           refChanAddDownload env chan hr
           trace $ "BLOCK IS NOT HERE" <+> pretty hr
         else do
+          sto <- getStorage
           trace $ "BLOCK IS HERE" <+> pretty hr
           -- читаем блок
-          lbs <- readBlob hr <&> fromMaybe mempty
+          lbs <- readBlobFromTree (getBlock sto) hr <&> fromMaybe mempty
           let what = unboxSignedBox @(RefChanHeadBlock e) @e lbs
 
           notify <- atomically $ do
@@ -228,8 +211,6 @@ refChanWorker env brains = do
             Just (pk,blk) | pk == chan ->  do
               let rkey = RefChanHeadKey @s pk
 
-              sto <- getStorage
-
               debug $ "Good head block" <+> pretty hr <+> "processing..."
 
               ourVersion <- runMaybeT do
@@ -237,7 +218,7 @@ refChanWorker env brains = do
 
                 cur <- MaybeT $ liftIO $ getRef sto rkey
 
-                lbss <- MaybeT $ readBlob (HashRef cur)
+                lbss <- MaybeT $ readBlobFromTree (getBlock sto) (HashRef cur)
 
                 (_, blkOur) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e lbss
 

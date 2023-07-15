@@ -131,6 +131,12 @@ instance HasProtocol L4Proto (RefChanHead L4Proto) where
   -- TODO: find-out-optimal-max-frequency
   requestPeriodLim = ReqLimPerMessage 60
 
+instance HasProtocol L4Proto (RefChanUpdate L4Proto) where
+  type instance ProtocolId (RefChanUpdate L4Proto) = 11002
+  type instance Encoded L4Proto = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

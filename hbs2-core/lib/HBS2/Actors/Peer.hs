@@ -180,7 +180,7 @@ instance Monad m => HasPeerLocator e (PeerM e m) where
 instance Monad m => HasFabriq e (PeerM e m) where
   getFabriq = asks (view envFab)
 
-instance Monad m => HasStorage (PeerM e m) where
+instance (Block ByteString ~ ByteString, Monad m) => HasStorage (PeerM e m) where
   getStorage = asks (view envStorage)
 
 instance Monad m => HasPeerNonce e (PeerM e m) where
