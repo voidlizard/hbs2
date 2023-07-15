@@ -61,6 +61,7 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , Serialise (Signature (Encryption e))
+                     , Hashable (PubKey 'Sign (Encryption e))
                      )
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
@@ -105,6 +106,7 @@ data RefChanHead e =
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanHead e)
+
 
 data RefChanHeadAdapter e m =
   RefChanHeadAdapter

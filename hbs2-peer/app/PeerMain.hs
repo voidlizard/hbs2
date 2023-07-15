@@ -992,6 +992,7 @@ runPeer opts = U.handle (\e -> myException e
             Left{} -> err $ "can't read head block" <+> pretty h
             Right (SignedBox k _ _) -> do
               let msg = RefChanHead k (RefChanHeadBlockTran (HashRef h))
+              refChanNotifyOnUpdated rce k
               runResponseM me $ refChanHeadProto @e True refChanHeadAdapter msg
 
   let refChanHeadGetAction puk = do
