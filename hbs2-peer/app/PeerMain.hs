@@ -427,7 +427,6 @@ respawn opts = case view peerRespawn opts of
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
-                        , Block ByteString ~ ByteString
                         ) => PeerOpts -> IO ()
 
 runPeer opts = U.handle (\e -> myException e

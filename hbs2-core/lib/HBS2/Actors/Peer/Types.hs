@@ -8,7 +8,6 @@ import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
 
 
--- instance (IsKey HbSync, Key HbSync ~ Hash HbSync, Block ByteString ~ ByteString) => Storage AnyStorage HbSync ByteString IO where
 instance (IsKey HbSync) => Storage AnyStorage HbSync ByteString IO where
   putBlock (AnyStorage s) = putBlock s
   enqueueBlock (AnyStorage s) = enqueueBlock s
@@ -20,11 +19,10 @@ instance (IsKey HbSync) => Storage AnyStorage HbSync ByteString IO where
   delBlock (AnyStorage s) = delBlock s
   delRef (AnyStorage s) = delRef s
 
-data AnyStorage = forall zu . ( Block ByteString ~ ByteString
-                              , Storage zu HbSync ByteString IO
+data AnyStorage = forall zu . ( Storage zu HbSync ByteString IO
                               ) => AnyStorage zu
 
-class Block ByteString ~ ByteString => HasStorage m where
+class HasStorage m where
   getStorage :: m AnyStorage
 
 

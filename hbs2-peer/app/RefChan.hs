@@ -90,7 +90,6 @@ refChanNotifyOnUpdated env chan = do
 
 refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                                    , MyPeer e
-                                   , Block ByteString ~ ByteString
                                    )
                    => RefChanWorkerEnv e -> RefChanId e -> HashRef -> m ()
 refChanAddDownload env chan r = do
@@ -102,7 +101,7 @@ refChanAddDownload env chan r = do
   atomically $ modifyTVar (view refChanWorkerEnvDownload env) (HashMap.insert r (chan,t))
 
 -- FIXME: slow-deep-scan-exception-seems-not-working
-checkDownloaded :: forall m . (MonadIO m, HasStorage m, Block ByteString ~ ByteString) => HashRef -> m Bool
+checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
 checkDownloaded hr = do
   sto <- getStorage
   let readBlock h = liftIO $ getBlock sto h
@@ -127,7 +126,6 @@ refChanWorker :: forall e s m . ( MonadIO m
                                 , s ~ Encryption e
                                 , IsRefPubKey s
                                 , Pretty (AsBase58 (PubKey 'Sign s))
-                                , Block ByteString ~ ByteString
                                 , ForRefChans e
                                 , m ~ PeerM e IO
                                 )

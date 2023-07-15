@@ -66,10 +66,6 @@ blockHttpDownloadLoop :: forall e  m .
     , PeerSessionKey e (PeerInfo e)
     , Pretty (Peer e)
     , IsPeerAddr e m
-    -- FIXME: backlog-do-something-with-that
-    --   это не ревью, это надо что-то с этим
-    --   сделать, неудачное решение
-    , Block LBS.ByteString ~ LBS.ByteString
     )
     => DownloadEnv e -> m ()
 blockHttpDownloadLoop denv = do

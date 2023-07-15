@@ -5,7 +5,6 @@ module HBS2.Storage.Simple
   ( module HBS2.Storage.Simple
   , StoragePrefix(..)
   , Storage(..)
-  , Block
   ) where
 
 import HBS2.Clock
@@ -67,9 +66,6 @@ type IsSimpleStorageKey h  = ( Eq (Key h)
                              , ToByteString (AsBase58 (Hash h))
                              , FromByteString (AsBase58 (Hash h))
                              )
-
-type instance Block LBS.ByteString = LBS.ByteString
-
 
 newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
                            deriving stock   (Data,Show)
@@ -411,7 +407,6 @@ instance ( MonadIO m, IsKey hash
          , Hashed hash LBS.ByteString
          , Key hash ~ Hash hash
          , IsSimpleStorageKey hash
-         , Block LBS.ByteString ~ LBS.ByteString
          )
   => Storage (SimpleStorage hash) hash LBS.ByteString m where
 

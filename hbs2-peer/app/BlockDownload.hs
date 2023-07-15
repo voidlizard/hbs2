@@ -92,7 +92,6 @@ processBlock :: forall e m . ( MonadIO m
                              , HasStorage m
                              , MyPeer e
                              , HasPeerLocator e (BlockDownloadM e m)
-                             , Block ByteString ~ ByteString
                              )
              => Hash HbSync
              -> BlockDownloadM e m ()
@@ -412,7 +411,6 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    , PeerSessionKey e (PeerInfo e)
                                    , HasStorage m
                                    , Pretty (Peer e)
-                                   , Block ByteString ~ ByteString
                                    , PeerMessaging e
                                    , IsPeerAddr e m
                                    , HasPeerLocator e m
@@ -654,7 +652,6 @@ mkAdapter :: forall e m . ( m ~  PeerM e IO
                           , Typeable (SessionKey e (BlockChunks e))
                           , EventEmitter e (BlockChunks e) m
                           , Pretty (Peer e)
-                          , Block ByteString ~ ByteString
                           )
           => m (BlockChunksI e (ResponseM e m ))
 mkAdapter = do

@@ -111,7 +111,6 @@ type MyPeer e = ( Eq (Peer e)
                 , Hashable (Peer e)
                 , Pretty (Peer e)
                 , HasPeer e
-                , Block ByteString ~ ByteString
                 )
 
 data DownloadReq e
@@ -150,7 +149,6 @@ type DownloadFromPeerStuff e m = ( MyPeer e
                                  , EventListener e (BlockChunks e) m
                                  , Sessions e (BlockChunks e) m
                                  , Sessions e (PeerInfo e) m
-                                 , Block ByteString ~ ByteString
                                  , HasStorage m
                                  )
 
@@ -256,7 +254,6 @@ type DownloadConstr e m = ( MyPeer e
                           , MonadIO m
                           , HasPeerLocator e (BlockDownloadM e m)
                           , HasStorage m -- (BlockDownloadM e m)
-                          , Block ByteString ~ ByteString
                           )
 
 addDownload :: forall e m . ( DownloadConstr e m

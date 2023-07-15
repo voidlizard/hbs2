@@ -74,7 +74,7 @@ instance SimpleStorageExtra [HashRef] where
 
     pure (MerkleHash root)
 
-instance Block ByteString ~ ByteString => SimpleStorageExtra ByteString where
+instance SimpleStorageExtra ByteString where
   putAsMerkle ss bs = do
 
     hashes <- S.each (B.unpack bs)

@@ -20,8 +20,6 @@ newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
                         deriving stock (Data,Show)
                         deriving newtype (IsString,Pretty)
 
-type family Block block :: Type
-
 newtype Offset = Offset Integer
                  deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty)
                  deriving stock (Show)
@@ -35,15 +33,15 @@ class ( Monad m
       , Hashed h block
       ) => Storage a h block m | a -> block, a -> h where
 
-  putBlock :: a -> Block block -> m (Maybe (Key h))
+  putBlock :: a -> block -> m (Maybe (Key h))
 
-  enqueueBlock :: a -> Block block -> m (Maybe (Key h))
+  enqueueBlock :: a -> block -> m (Maybe (Key h))
 
-  getBlock :: a -> Key h -> m (Maybe (Block block))
+  getBlock :: a -> Key h -> m (Maybe block)
 
   delBlock :: a -> Key h -> m ()
 
-  getChunk :: a -> Key h -> Offset -> Size -> m (Maybe (Block block))
+  getChunk :: a -> Key h -> Offset -> Size -> m (Maybe block)
 
   hasBlock :: a -> Key h -> m (Maybe Integer)
 
