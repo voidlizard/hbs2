@@ -176,7 +176,7 @@ refChanWorker env brains = do
 
       let listRefs = listPolledRefs @e brains "refchan" <&> fmap (over _2 ( (*60) . fromIntegral) )
 
-      polling (Polling 2 5) listRefs $ \ref -> do
+      polling (Polling 5 5) listRefs $ \ref -> do
         debug $ "POLLING REFCHAN" <+> pretty (AsBase58 ref)
         broadCastMessage (RefChanGetHead @e ref)
 
