@@ -513,3 +513,7 @@ instance (Monad m, HasPeerNonce e m) => HasPeerNonce e (ResponseM e m) where
 instance (Monad m, HasPeerLocator e m) => HasPeerLocator e (ResponseM e m) where
   getPeerLocator = lift getPeerLocator
 
+instance (Monad m, HasStorage m) => HasStorage (ResponseM e m) where
+  getStorage = lift getStorage
+
+

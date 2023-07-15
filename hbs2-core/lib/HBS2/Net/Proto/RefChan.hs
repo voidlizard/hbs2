@@ -11,8 +11,11 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Base58
 -- import HBS2.Events
 import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
+import HBS2.Actors.Peer.Types
+import HBS2.Storage
 
 import Data.Config.Suckless
 
@@ -111,11 +114,16 @@ data RefChanHeadAdapter e m =
 
 refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Request e (RefChanHead e) m
+                                   , Request e (BlockAnnounce e) m
                                    , Response e (RefChanHead e) m
+                                   , HasPeerNonce e m
+                                   , HasDeferred e (RefChanHead e) m
                                    , IsPeerAddr e m
                                    , Pretty (Peer e)
                                    , Sessions e (KnownPeer e) m
+                                   , HasStorage m
                                    , Signatures s
+                                   , IsRefPubKey s
                                    , Pretty (AsBase58 (PubKey 'Sign s))
                                    , s ~ Encryption e
                                    )
@@ -126,9 +134,11 @@ refChanHeadProto :: forall e s m . ( MonadIO m
 
 refChanHeadProto self adapter msg = do
   -- авторизовать пира
-  peer <- thatPeer (Proxy @(RefChanHead e))
+  peer <- thatPeer proto
 
   auth <- find (KnownPeerKey peer) id <&> isJust
+
+  no <- peerNonce @e
 
   void $ runMaybeT do
 
@@ -141,10 +151,20 @@ refChanHeadProto self adapter msg = do
         -- FIXME: check-chan-is-listened
         lift $ refChanHeadOnHead adapter chan pkt
 
-      RefChanGetHead _ -> do
-        -- прочитать ссылку
-        -- послать хэш головы
-        pure ()
+      RefChanGetHead chan -> deferred proto do
+        trace $ "RefChanGetHead" <+> pretty self <+> pretty (AsBase58 chan)
+
+        sto <- getStorage
+        ref <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
+        sz  <- MaybeT $ liftIO $ hasBlock sto ref
+
+        let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta sz ref
+        let announce = BlockAnnounce @e no annInfo
+        lift $ request peer announce
+        lift $ request peer (RefChanHead @e chan (RefChanHeadBlockTran (HashRef ref)))
+
+  where
+    proto = Proxy @(RefChanHead e)
 
 makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
               => PubKey 'Sign (Encryption e)

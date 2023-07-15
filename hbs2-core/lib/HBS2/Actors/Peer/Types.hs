@@ -3,6 +3,8 @@ module HBS2.Actors.Peer.Types where
 import HBS2.Storage
 import HBS2.Hash
 
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
 
 
@@ -24,5 +26,9 @@ data AnyStorage = forall zu . ( Block ByteString ~ ByteString
 
 class HasStorage m where
   getStorage :: m AnyStorage
+
+
+instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
+  getStorage = lift getStorage
 
 

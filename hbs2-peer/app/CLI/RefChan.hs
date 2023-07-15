@@ -26,6 +26,7 @@ pRefChanHead :: Parser (IO ())
 pRefChanHead = hsubparser (   command "gen"  (info pRefChanHeadGen (progDesc "generate head blob"))
                            <> command "dump" (info pRefChanHeadDump (progDesc "dump head blob"))
                            <> command "post" (info pRefChanHeadPost (progDesc "post head transaction"))
+                           <> command "fetch" (info pRefChanHeadFetch (progDesc "fetch head from neighbours"))
                            <> command "get"  (info pRefChanHeadGet (progDesc "get head value"))
                           )
 
@@ -66,7 +67,6 @@ pRpcCommon = do
   RPCOpt <$> optional confOpt
          <*> optional rpcOpt
 
-
 pRefChanHeadPost :: Parser (IO ())
 pRefChanHeadPost = do
   opts <- pRpcCommon
@@ -74,6 +74,14 @@ pRefChanHeadPost = do
   pure $ do
     href <- pure (fromStringMay ref) `orDie` "HEAD-BLOCK-TREE-HASH"
     runRpcCommand opts (REFCHANHEADSEND href)
+
+pRefChanHeadFetch :: Parser (IO ())
+pRefChanHeadFetch = do
+  opts <- pRpcCommon
+  ref <- strArgument (metavar "REFCHAH-HEAD-REF")
+  pure $ do
+    href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
+    runRpcCommand opts (REFCHANHEADFETCH href)
 
 
 pRefChanHeadGet :: Parser (IO ())

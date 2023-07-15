@@ -6,6 +6,7 @@ module Brains where
 import HBS2.Prelude.Plated
 import HBS2.Clock
 import HBS2.Data.Types.Refs
+import HBS2.Net.Proto.RefChan(ForRefChans)
 import HBS2.Net.Proto
 import HBS2.Hash
 import HBS2.Base58
@@ -201,6 +202,7 @@ cleanupPostponed b h =  do
 instance ( Hashable (Peer e)
          , Pretty (Peer e), Pretty (PeerAddr e)
          , e ~ L4Proto
+         , ForRefChans e
          ) => HasBrains e (BasicBrains e) where
 
   onClientTCPConnected br pa@(L4Address proto _) ssid = do
@@ -736,7 +738,10 @@ newBasicBrains cfg = liftIO do
               <*> newTQueueIO
               <*> newTQueueIO
 
-runBasicBrains :: forall e m . ( e ~ L4Proto, MonadUnliftIO m )
+runBasicBrains :: forall e m . ( e ~ L4Proto
+                               , MonadUnliftIO m
+                               , ForRefChans e
+                               )
                =>  PeerConfig
                -> BasicBrains e
                -> m ()

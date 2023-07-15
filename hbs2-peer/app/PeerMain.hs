@@ -890,6 +890,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto (mkPeerMeta conf))
+                    , makeResponse (refChanHeadProto False refChanHeadAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -1001,6 +1002,11 @@ runPeer opts = U.handle (\e -> myException e
           h <- liftIO $ getRef sto (RefChanHeadKey @(Encryption e) puk)
           request who (RPCRefChanHeadGetAnsw @e  h)
 
+  let refChanHeadFetchAction puk = do
+        trace "reChanFetchAction"
+        void $ liftIO $ async $ withPeerM penv $ do
+          broadCastMessage (RefChanGetHead @e puk)
+
   let arpc = RpcAdapter pokeAction
                         dieAction
                         dontHandle
@@ -1019,6 +1025,7 @@ runPeer opts = U.handle (\e -> myException e
                         refChanHeadSendAction -- rpcOnRefChanHeadSend
                         refChanHeadGetAction
                         dontHandle
+                        refChanHeadFetchAction
 
   rpc <- async $ runRPC udp1 do
                    runProto @e

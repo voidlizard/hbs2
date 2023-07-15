@@ -23,6 +23,7 @@ import Network.Socket
 import System.Random qualified as Random
 import Codec.Serialise
 import Data.Maybe
+import Control.Monad.Trans.Maybe
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -92,6 +93,9 @@ class (Monad m, HasProtocol e p) => HasThatPeer e p (m :: Type -> Type) where
 class (MonadIO m, HasProtocol e p) => HasDeferred e p m | p -> e where
   deferred :: Proxy p -> m () -> m ()
 
+-- TODO: actually-no-idea-if-it-works
+instance (HasDeferred e p m, Monad m) => HasDeferred e p (MaybeT m) where
+  deferred p a = lift $ deferred p (void $ runMaybeT a)
 
 class ( MonadIO m
       , HasProtocol e p

@@ -63,6 +63,7 @@ data RPCCommand =
   | REFLOGGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANHEADSEND (Hash HbSync)
   | REFCHANHEADGET (PubKey 'Sign (Encryption L4Proto))
+  | REFCHANHEADFETCH (PubKey 'Sign (Encryption L4Proto))
 
 data RPC e =
     RPCDie
@@ -83,6 +84,7 @@ data RPC e =
   | RPCRefChanHeadSend (Hash HbSync)
   | RPCRefChanHeadGet (PubKey 'Sign (Encryption e))
   | RPCRefChanHeadGetAnsw (Maybe (Hash HbSync))
+  | RPCRefChanHeadFetch (PubKey 'Sign (Encryption e))
 
   deriving stock (Generic)
 
@@ -123,6 +125,7 @@ data RpcAdapter e m =
   , rpcOnRefChanHeadSend :: Hash HbSync -> m ()
   , rpcOnRefChanHeadGet :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefChanHeadGetAnsw :: Maybe (Hash HbSync) -> m ()
+  , rpcOnRefChanHeadFetch :: PubKey 'Sign (Encryption e) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -181,6 +184,7 @@ rpcHandler adapter = \case
     (RPCRefChanHeadSend s)   -> rpcOnRefChanHeadSend adapter s
     (RPCRefChanHeadGet s)   -> rpcOnRefChanHeadGet adapter s
     (RPCRefChanHeadGetAnsw s)   -> rpcOnRefChanHeadGetAnsw adapter s
+    (RPCRefChanHeadFetch s)   -> rpcOnRefChanHeadFetch adapter s
 
 data RPCOpt =
   RPCOpt
@@ -205,6 +209,7 @@ runRpcCommand opt = \case
   REFLOGGET k -> withRPC opt (RPCRefLogGet k)
   REFCHANHEADSEND h -> withRPC opt (RPCRefChanHeadSend h)
   REFCHANHEADGET s -> withRPC opt (RPCRefChanHeadGet s)
+  REFCHANHEADFETCH s -> withRPC opt (RPCRefChanHeadFetch s)
 
   _ -> pure ()
 
@@ -265,6 +270,9 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                    dontHandle -- rpcOnRefChanHeadGet
 
                    (liftIO . putMVar rchanheadMVar) -- rpcOnRefChanHeadGetAnsw
+
+                   dontHandle -- rpcOnRefChanHeadFetch
+
 
   prpc <- async $ runRPC udp1 do
                     env <- ask
@@ -340,6 +348,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                           Right (Just x) -> print (pretty x) >> exitSuccess
 
                           _ -> exitFailure
+
+                      RPCRefChanHeadFetch {} -> liftIO do
+                        pause @'Seconds 0.25
+                        exitSuccess
 
                       _ -> pure ()
 
