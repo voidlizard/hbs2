@@ -104,7 +104,8 @@ instance HasProtocol L4Proto (RefLogUpdate L4Proto) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-  requestPeriodLim = ReqLimPerMessage 600
+  -- TODO: find-out-optimal-max-safe-frequency
+  requestPeriodLim = ReqLimPerMessage 60
 
 instance HasProtocol L4Proto (RefLogRequest L4Proto) where
   type instance ProtocolId (RefLogRequest L4Proto) = 8
@@ -126,7 +127,9 @@ instance HasProtocol L4Proto (RefChanHead L4Proto) where
   type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
-  -- requestPeriodLim = ReqLimPerMessage 600
+
+  -- TODO: find-out-optimal-max-frequency
+  requestPeriodLim = ReqLimPerMessage 60
 
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where

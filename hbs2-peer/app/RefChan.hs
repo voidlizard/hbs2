@@ -31,6 +31,7 @@ import HBS2.System.Logger.Simple
 import PeerTypes
 import PeerConfig
 import BlockDownload
+import Brains
 
 import Control.Exception ()
 import Control.Monad.Except (throwError, runExceptT)
@@ -40,9 +41,13 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.Maybe
 import Lens.Micro.Platform
+import Data.Heap qualified as Heap
+import Data.Heap (Heap,Entry(..))
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -145,9 +150,10 @@ refChanWorker :: forall e s m . ( MonadIO m
                                 , m ~ PeerM e IO
                                 )
              => RefChanWorkerEnv e
+             -> SomeBrains e
              -> m ()
 
-refChanWorker env = do
+refChanWorker env brains = do
 
   penv <- ask
 
@@ -156,13 +162,48 @@ refChanWorker env = do
 
   downloads <- async monitorDownloads
 
+  polls <- async refChanHeadPoll
+
   forever do
    pause @'Seconds 10
    debug "I'm refchan worker"
 
-  mapM_ waitCatch [hw,downloads]
+  mapM_ waitCatch [hw,downloads,polls]
 
   where
+
+    refChanHeadPoll = do
+      pause @'Seconds 2
+
+      fix (\next mon -> do
+        now <- getTimeCoarse
+        refs <- listPolledRefs @e brains "refchan" <&> HashMap.fromList
+        let mon' = mon `HashMap.union`
+                     HashMap.fromList [ (e, now + fromNanoSecs (floor (1e9 * 60 * realToFrac t)))
+                                      | (e, t) <- HashMap.toList refs
+                                      ]
+
+        let q = Heap.fromList [ Entry t e
+                              | (e, t) <- HashMap.toList mon'
+                              ]
+
+        case Heap.uncons q of
+          Just (Entry t (r :: RefChanId e), rest) | t <= now -> do
+            debug $ "POLLING REFCHAN" <+> pretty (AsBase58 r)
+            broadCastMessage (RefChanGetHead @e r)
+            -- TODO: send-poll-request
+            next (HashMap.delete r mon')
+
+          Just (Entry t (r :: RefChanId e), _) | otherwise -> do
+            pause @'Seconds $ fromInteger $ floor $ realToFrac (toNanoSecs (t - now)) / 1e9
+            next mon'
+
+          Nothing -> do
+            pause @'Seconds 5
+            next mon'
+
+        ) mempty
+
 
     monitorDownloads = forever do
       pause @'Seconds 2
@@ -237,7 +278,6 @@ refChanWorker env = do
                 when notify do
                   debug $ "NOTIFY-ALL-HEAD-UPDATED" <+> pretty (AsBase58 pk) <+> pretty hr
                   broadCastMessage (RefChanHead @e pk (RefChanHeadBlockTran hr))
-                  pure ()
 
               else do
                 debug $ "LEAVING HEAD BLOCK" <+> pretty (v1, v0)

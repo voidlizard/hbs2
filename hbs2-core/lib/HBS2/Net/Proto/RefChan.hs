@@ -150,7 +150,10 @@ refChanHeadProto self adapter msg = do
       RefChanHead chan pkt -> do
         guard =<< lift (refChanHeadSubscribed adapter chan)
         trace $ "RefChanHead" <+> pretty self <+> pretty (AsBase58 chan)
-        -- FIXME: check-chan-is-listened
+        -- TODO: notify-others-for-new-head
+        --   нужно ли уведомить остальных, что голова поменялась?
+        --   всех, от кого мы еще не получали данное сообщение
+        --   откуда мы знаем, от кого мы получали данное сообщение?
         lift $ refChanHeadOnHead adapter chan pkt
 
       RefChanGetHead chan -> deferred proto do

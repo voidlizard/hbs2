@@ -787,7 +787,7 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "reflogWorker" (reflogWorker @e conf rwa)
 
-                peerThread "refChanWorker" (refChanWorker @e rce)
+                peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
 
                 peerThread "ping pong" $ forever $ do
                           cmd <- liftIO $ atomically $ readTQueue rpcQ
