@@ -95,18 +95,18 @@ refChanAddDownload env chan r = do
 
   atomically $ modifyTVar (view refChanWorkerEnvDownload env) (HashMap.insert r (chan,t))
 
+-- FIXME: slow-deep-scan-exception-seems-not-working
 checkDownloaded :: forall m . (MonadIO m, HasStorage m, Block ByteString ~ ByteString) => HashRef -> m Bool
 checkDownloaded hr = do
   sto <- getStorage
   let readBlock h = liftIO $ getBlock sto h
 
-  result <- runExceptT $
-              deepScan ScanDeep (const $ throwError DataNotReady) (fromHashRef hr) readBlock $ \ha -> do
-                here <- liftIO $ hasBlock sto ha <&> isJust
-                unless here $ throwError DataNotReady
+  result <- S.toList_ $
+              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
+                here <- liftIO $ hasBlock sto ha
+                S.yield here
 
-  pure $ either (const False) (const True) result
-
+  pure $ isJust $ sequence result
 
 -- FIXME: move-to-library
 readBlob :: forall m . ( MonadIO m
