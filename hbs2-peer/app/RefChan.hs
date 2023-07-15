@@ -173,7 +173,12 @@ refChanWorker env brains = do
   where
 
     refChanHeadPoll = do
-      pause @'Seconds 2
+      pause @'Seconds 10
+
+      now0 <- getTimeCoarse
+      refs0 <- listPolledRefs @e brains "refchan" <&> fmap (set _2 now0) <&> HashMap.fromList
+
+      -- debug $ "POLL SHIT!" <+> pretty (fmap AsBase58 (HashMap.keys refs0))
 
       fix (\next mon -> do
         now <- getTimeCoarse
@@ -202,7 +207,7 @@ refChanWorker env brains = do
             pause @'Seconds 5
             next mon'
 
-        ) mempty
+        ) refs0
 
 
     monitorDownloads = forever do
