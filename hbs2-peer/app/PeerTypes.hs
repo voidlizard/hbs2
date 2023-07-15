@@ -43,7 +43,10 @@ import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-
+import Data.Time.Clock (NominalDiffTime)
+import Data.Heap qualified as Heap
+import Data.Heap (Heap,Entry(..))
+import Data.Time.Clock
 
 data PeerInfo e =
   PeerInfo
@@ -401,4 +404,52 @@ mkPeerMeta conf = do
       [ mHttpPort <&> \p -> ("http-port", TE.encodeUtf8 . Text.pack . show $ p)
       , mTcpPort <&> \p -> ("listen-tcp", TE.encodeUtf8 . Text.pack . show $ p)
       ]
+
+
+data Polling =
+  Polling
+  { waitBefore   :: NominalDiffTime
+  , waitOnEmpty  :: NominalDiffTime
+  }
+
+polling :: forall a m . (MonadIO m, Hashable a)
+        => Polling
+        -> m [(a, NominalDiffTime)]
+        -> (a -> m ())
+        -> m ()
+
+polling o listEntries action = do
+
+  pause (TimeoutSec (nominalDiffTimeToSeconds (waitBefore o)))
+
+  now0 <- getTimeCoarse
+  refs0 <- listEntries <&> fmap (set _2 now0) <&> HashMap.fromList
+
+  fix (\next mon -> do
+    now <- getTimeCoarse
+    refs <- listEntries <&> HashMap.fromList
+    let mon' = mon `HashMap.union`
+                 HashMap.fromList [ (e, now + fromNanoSecs (round (realToFrac (nominalDiffTimeToSeconds t) * 1e9)))
+                                  | (e, t) <- HashMap.toList refs
+                                  ]
+
+    let q = Heap.fromList [ Entry t e
+                          | (e, t) <- HashMap.toList mon'
+                          ]
+
+    case Heap.uncons q of
+      Just (Entry t r, _) | t <= now -> do
+        action r
+        next (HashMap.delete r mon')
+
+      Just (Entry t _, _) | otherwise -> do
+        pause @'Seconds $ fromInteger $ round $ realToFrac (toNanoSecs (t - now)) / 1e9
+        next mon'
+
+      Nothing -> do
+        pause (TimeoutSec (nominalDiffTimeToSeconds (waitOnEmpty o)))
+        next mon'
+
+    ) refs0
+
 

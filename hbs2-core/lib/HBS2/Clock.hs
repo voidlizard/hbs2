@@ -41,16 +41,15 @@ class IsTimeout a => MonadPause a m where
 instance (IsTimeout a, MonadIO m) => MonadPause a m where
   pause x = liftIO $ threadDelay (toMicroSeconds x)
 
-instance Pretty (Fixed E9) where
+instance HasResolution a => Pretty (Fixed a) where
   pretty = pretty . show
-
 
 newtype instance Timeout 'MilliSeconds =
   TimeoutMSec (Fixed E9)
   deriving newtype (Eq,Ord,Num,Real,Fractional,Show,Pretty)
 
 newtype instance Timeout 'Seconds =
-  TimeoutSec (Fixed E9)
+  TimeoutSec (Fixed E12)
   deriving newtype (Eq,Ord,Num,Real,Fractional,Show,Pretty)
 
 newtype instance Timeout 'Minutes =

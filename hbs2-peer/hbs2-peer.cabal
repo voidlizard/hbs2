@@ -51,6 +51,7 @@ common common-deps
         , sqlite-simple
         , temporary
         , text
+        , time
         , timeit
         , transformers
         , uniplate

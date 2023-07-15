@@ -173,42 +173,12 @@ refChanWorker env brains = do
   where
 
     refChanHeadPoll = do
-      pause @'Seconds 2
 
-      now0 <- getTimeCoarse
-      refs0 <- listPolledRefs @e brains "refchan" <&> fmap (set _2 now0) <&> HashMap.fromList
+      let listRefs = listPolledRefs @e brains "refchan" <&> fmap (over _2 ( (*60) . fromIntegral) )
 
-      -- debug $ "POLL SHIT!" <+> pretty (fmap AsBase58 (HashMap.keys refs0))
-
-      fix (\next mon -> do
-        now <- getTimeCoarse
-        refs <- listPolledRefs @e brains "refchan" <&> HashMap.fromList
-        let mon' = mon `HashMap.union`
-                     HashMap.fromList [ (e, now + fromNanoSecs (floor (1e9 * 60 * realToFrac t)))
-                                      | (e, t) <- HashMap.toList refs
-                                      ]
-
-        let q = Heap.fromList [ Entry t e
-                              | (e, t) <- HashMap.toList mon'
-                              ]
-
-        case Heap.uncons q of
-          Just (Entry t (r :: RefChanId e), rest) | t <= now -> do
-            debug $ "POLLING REFCHAN" <+> pretty (AsBase58 r)
-            broadCastMessage (RefChanGetHead @e r)
-            -- TODO: send-poll-request
-            next (HashMap.delete r mon')
-
-          Just (Entry t (r :: RefChanId e), _) | otherwise -> do
-            pause @'Seconds $ fromInteger $ floor $ realToFrac (toNanoSecs (t - now)) / 1e9
-            next mon'
-
-          Nothing -> do
-            pause @'Seconds 5
-            next mon'
-
-        ) refs0
-
+      polling (Polling 2 5) listRefs $ \ref -> do
+        debug $ "POLLING REFCHAN" <+> pretty (AsBase58 ref)
+        broadCastMessage (RefChanGetHead @e ref)
 
     monitorDownloads = forever do
       pause @'Seconds 2
@@ -216,6 +186,7 @@ refChanWorker env brains = do
 
       now <- getTimeCoarse
 
+      -- FIXME: change-to-polling-functions
       -- FIXME: consider-timeouts-or-leak-is-possible
       rest <- forM all $ \(r,item@(chan,t)) -> do
                 here <- checkDownloaded r
