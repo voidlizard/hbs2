@@ -52,8 +52,8 @@ instance Exception DataNotReady
 data RefChanWorkerEnv e =
   RefChanWorkerEnv
   { _refChanWorkerEnvDownload :: DownloadEnv e
-  , _refChanWorkerEnvHeadQ    :: TQueue (RefChanHeadBlockTran e)
-  , _refChaWorkerEnvDownload  :: TVar (HashMap HashRef TimeSpec) -- таймстемп можно
+  , _refChanWorkerEnvHeadQ    :: TQueue (RefChanId e, RefChanHeadBlockTran e)
+  , _refChaWorkerEnvDownload  :: TVar (HashMap HashRef (RefChanId e, TimeSpec))
   }
 
 makeLenses 'RefChanWorkerEnv
@@ -67,22 +67,22 @@ refChanWorkerEnv _ de = liftIO $ RefChanWorkerEnv @e de <$> newTQueueIO
                                                         <*> newTVarIO mempty
 
 
-refChanOnHead :: MonadIO m => RefChanWorkerEnv e -> RefChanHeadBlockTran e -> m ()
-refChanOnHead env tran = do
-  atomically $ writeTQueue (view refChanWorkerEnvHeadQ env) tran
+refChanOnHead :: MonadIO m => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
+refChanOnHead env chan tran = do
+  atomically $ writeTQueue (view refChanWorkerEnvHeadQ env) (chan, tran)
 
 refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                                    , MyPeer e
                                    , Block ByteString ~ ByteString
                                    )
-                   => RefChanWorkerEnv e -> HashRef -> m ()
-refChanAddDownload env r = do
+                   => RefChanWorkerEnv e -> RefChanId e -> HashRef -> m ()
+refChanAddDownload env chan r = do
   penv <- ask
   t <- getTimeCoarse
   withPeerM penv $ withDownload (_refChanWorkerEnvDownload env)
                  $ processBlock @e (fromHashRef r)
 
-  atomically $ modifyTVar (view refChaWorkerEnvDownload env) (HashMap.insert r t)
+  atomically $ modifyTVar (view refChaWorkerEnvDownload env) (HashMap.insert r (chan,t))
 
 checkDownloaded :: forall m . (MonadIO m, HasStorage m, Block ByteString ~ ByteString) => HashRef -> m Bool
 checkDownloaded hr = do
@@ -146,28 +146,27 @@ refChanWorker env = do
       now <- getTimeCoarse
 
       -- FIXME: consider-timeouts-or-leak-is-possible
-      rest <- forM all $ \(r,t) -> do
+      rest <- forM all $ \(r,item@(chan,t)) -> do
                 here <- checkDownloaded r
                 if here then do
-                  refChanOnHead env (RefChanHeadBlockTran r)
+                  refChanOnHead env chan (RefChanHeadBlockTran r)
                   pure mempty
                 else do
                   -- FIXME: fix-timeout-hardcode
                   let expired = realToFrac (toNanoSecs $ now - t) / 1e9 > 600
-                  if expired then pure mempty else pure [(r,t)]
+                  if expired then pure mempty else pure [(r,item)]
 
       atomically $ writeTVar (view refChaWorkerEnvDownload env) (HashMap.fromList (mconcat rest))
 
     -- FIXME: in-parallel?
     refChanHeadMon = do
       forever do
-        RefChanHeadBlockTran hr <- atomically $ readTQueue (view refChanWorkerEnvHeadQ env)
-        -- debug $ "DROP HEAD UPDATE" <+> pretty (fromRefChanHeadBlockTran tran)
+        (chan, RefChanHeadBlockTran hr) <- atomically $ readTQueue (view refChanWorkerEnvHeadQ env)
 
         here <- checkDownloaded hr
 
         if not here then do
-          refChanAddDownload env hr
+          refChanAddDownload env chan hr
           trace $ "BLOCK IS NOT HERE" <+> pretty hr
         else do
           trace $ "BLOCK IS HERE" <+> pretty hr
@@ -178,7 +177,7 @@ refChanWorker env = do
           case what of
             Nothing  -> err $ "malformed head block" <+> pretty hr
 
-            Just (pk,blk) ->  do
+            Just (pk,blk) | pk == chan ->  do
               let rkey = RefChanHeadKey @s pk
 
               sto <- getStorage
@@ -204,6 +203,8 @@ refChanWorker env = do
                 liftIO $ updateRef sto rkey (fromHashRef hr)
               else do
                 debug $ "LEAVING HEAD BLOCK" <+> pretty (v1, v0)
+
+            _ -> debug "not subscribed to this refchan"
 
           pure ()
           -- распаковываем блок

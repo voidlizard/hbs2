@@ -533,7 +533,7 @@ runPeer opts = U.handle (\e -> myException e
 
   brains <- newBasicBrains @e conf
 
-  brainsThread <- async $ runBasicBrains brains
+  brainsThread <- async $ runBasicBrains conf brains
 
   denv <- newDownloadEnv brains
 
@@ -564,6 +564,7 @@ runPeer opts = U.handle (\e -> myException e
 
   let refChanHeadAdapter = RefChanHeadAdapter
                            { refChanHeadOnHead = refChanOnHead rce
+                           , refChanHeadSubscribed = isPolledRef @e brains
                            }
 
   let pexFilt pips = do

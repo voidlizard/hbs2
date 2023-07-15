@@ -105,7 +105,8 @@ instance ForRefChans e => Serialise (RefChanHead e)
 
 data RefChanHeadAdapter e m =
   RefChanHeadAdapter
-  { refChanHeadOnHead   :: RefChanHeadBlockTran e -> m ()
+  { refChanHeadOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
+  , refChanHeadSubscribed :: RefChanId e -> m Bool
   }
 
 refChanHeadProto :: forall e s m . ( MonadIO m
@@ -135,9 +136,10 @@ refChanHeadProto self adapter msg = do
 
     case msg of
       RefChanHead chan pkt -> do
+        guard =<< lift (refChanHeadSubscribed adapter chan)
         trace $ "RefChanHead" <+> pretty self <+> pretty (AsBase58 chan)
         -- FIXME: check-chan-is-listened
-        lift $ refChanHeadOnHead adapter pkt
+        lift $ refChanHeadOnHead adapter chan pkt
 
       RefChanGetHead _ -> do
         -- прочитать ссылку

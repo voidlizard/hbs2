@@ -5,33 +5,37 @@ module Brains where
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
+import HBS2.Data.Types.Refs
 import HBS2.Net.Proto
 import HBS2.Hash
+import HBS2.Base58
 import HBS2.Net.IP.Addr
+import HBS2.Net.Auth.Credentials
 
 import HBS2.System.Logger.Simple
 
 import PeerConfig
 
-import Data.Maybe
-import Control.Monad
-import Control.Exception
 import Control.Concurrent.STM
-import Control.Concurrent.Async
-import Lens.Micro.Platform
-import Data.HashMap.Strict qualified as HashMap
-import Data.HashMap.Strict (HashMap)
-import Data.List qualified as List
-import Data.Cache (Cache)
-import Data.Cache qualified as Cache
-import Text.InterpolatedString.Perl6 (qc)
+import Control.Exception
+import Control.Monad
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
-import System.Random (randomRIO)
-import Data.Word
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
 import Data.Either
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Data.List qualified as List
+import Data.Maybe
+import Data.Text qualified as Text
+import Data.Word
+import Lens.Micro.Platform
 import System.Directory
 import System.FilePath
+import System.Random (randomRIO)
+import Text.InterpolatedString.Perl6 (qc)
+import UnliftIO (MonadUnliftIO(..),async,race)
 
 data PeerBrainsDb
 
@@ -39,6 +43,12 @@ instance HasCfgKey PeerBrainsDb (Maybe String) where
   key = "brains"
 
 class HasBrains e a where
+
+  listPolledRefs :: MonadIO m => a -> String -> m [(PubKey 'Sign (Encryption e), Int)]
+  listPolledRefs _ _  = pure mempty
+
+  isPolledRef :: MonadIO m => a -> PubKey 'Sign (Encryption e) -> m Bool
+  isPolledRef _ _ = pure False
 
   onClientTCPConnected :: MonadIO m => a -> PeerAddr e -> Word64 -> m ()
   onClientTCPConnected _ _ = const none
@@ -148,6 +158,8 @@ instance Pretty (Peer e) => HasBrains e NoBrains  where
 data SomeBrains e = forall a . HasBrains e a => SomeBrains a
 
 instance HasBrains e (SomeBrains e) where
+  listPolledRefs (SomeBrains a) = listPolledRefs @e a
+  isPolledRef (SomeBrains a) = isPolledRef @e a
   onClientTCPConnected (SomeBrains a) = onClientTCPConnected @e a
   getClientTCP (SomeBrains a) = getClientTCP @e a
   setActiveTCPSessions (SomeBrains a) = setActiveTCPSessions @e a
@@ -278,6 +290,23 @@ instance ( Hashable (Peer e)
 
   setReflogProcessed b h = do
     updateOP b $ insertReflogProcessed b h
+
+  listPolledRefs brains tp = do
+    liftIO $ do
+      let conn = view brainsDb brains
+      query conn [qc|select ref, interval from poll where type = ?|] (Only tp)
+              <&> fmap (\(r,i) -> (,i) <$> fromStringMay r )
+              <&> catMaybes
+
+  isPolledRef brains ref = do
+    liftIO do
+      let conn = view brainsDb brains
+      query @_ @(Only Int) conn [qc|
+        select 1 from poll
+        where ref = ?
+        limit 1
+      |] ( Only ( show $ pretty (AsBase58 ref) ) )
+        <&> isJust . listToMaybe
 
 commitNow :: forall e m . MonadIO m
           => BasicBrains e
@@ -690,6 +719,16 @@ newBasicBrains cfg = liftIO do
     )
   |]
 
+  execute_ conn [qc|
+    create table if not exists poll
+    ( ref      text not null
+    , type     text not null
+    , interval int not null
+    , primary key (ref,type)
+    )
+  |]
+
+
   BasicBrains <$> newTVarIO mempty
               <*> newTVarIO mempty
               <*> Cache.newCache (Just (toTimeSpec (30 :: Timeout 'Seconds)))
@@ -697,8 +736,12 @@ newBasicBrains cfg = liftIO do
               <*> newTQueueIO
               <*> newTQueueIO
 
-runBasicBrains :: MonadIO m => BasicBrains e -> m ()
-runBasicBrains brains = do
+runBasicBrains :: forall e m . ( e ~ L4Proto, MonadUnliftIO m )
+               =>  PeerConfig
+               -> BasicBrains e
+               -> m ()
+
+runBasicBrains cfg brains = do
 
   let pip = view brainsPipeline brains
   let expire = view brainsExpire brains
@@ -724,6 +767,27 @@ runBasicBrains brains = do
   void $ liftIO $ async $ forever do
     pause @'Seconds 60
     updateOP brains (cleanupHashes brains)
+
+  trace "runBasicBrains init"
+
+  let (PeerConfig syn) = cfg
+  let polls = catMaybes (
+       [ (tp,n,) <$> fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack ref)
+       | ListVal @C (Key "poll" [SymbolVal tp, LitIntVal n, LitStrVal ref]) <- syn
+       ] )
+
+  void $ async $ do
+    pause @'Seconds 5
+    forM_ polls $ \(t,mi,x) -> do
+      trace $ "BRAINS: poll" <+> pretty t <+> pretty (AsBase58 x) <+> pretty mi
+      updateOP brains $ do
+        let conn = view brainsDb brains
+        liftIO $ execute conn [qc|
+          insert into poll (ref,type,interval)
+          values (?,?,?)
+          on conflict do update set interval = excluded.interval
+          |] (show $ pretty (AsBase58 x), show $ pretty t, mi)
+      commitNow brains True
 
   void $ forever do
     pause @'Seconds 15
