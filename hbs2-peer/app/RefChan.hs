@@ -32,17 +32,18 @@ import PeerTypes
 import PeerConfig
 import BlockDownload
 
+import Control.Exception ()
+import Control.Monad.Except (throwError, runExceptT)
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import UnliftIO
-import Lens.Micro.Platform
-import Control.Monad.Except (throwError, runExceptT)
+import Data.List qualified as List
 import Data.Maybe
-import Control.Exception ()
-import Control.Monad.Trans.Maybe
+import Lens.Micro.Platform
+import UnliftIO
 
 import Streaming.Prelude qualified as S
 import Streaming qualified as S
@@ -103,10 +104,11 @@ checkDownloaded hr = do
 
   result <- S.toList_ $
               deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
-                here <- liftIO $ hasBlock sto ha
-                S.yield here
+                unless (fromHashRef hr == ha) do
+                  here <- liftIO $ hasBlock sto ha
+                  S.yield here
 
-  pure $ isJust $ sequence result
+  pure $ maybe False (not . List.null)  $ sequence result
 
 -- FIXME: move-to-library
 readBlob :: forall m . ( MonadIO m
