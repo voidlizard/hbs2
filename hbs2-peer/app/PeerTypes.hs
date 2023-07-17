@@ -347,7 +347,7 @@ failedDownload p h = do
   addDownload mzero h
   -- FIXME: brains-download-fail
 
-type ForGossip p e m =
+type ForGossip e p m =
   ( MonadIO m
   , MyPeer e
   , HasPeerLocator e m
@@ -356,7 +356,7 @@ type ForGossip p e m =
   , Sessions e (KnownPeer e) m
   )
 
-broadCastMessage :: forall e p m . ( ForGossip p e m )
+broadCastMessage :: forall e p m . ( ForGossip e p m )
                    => p -> m ()
 
 broadCastMessage msg = do
@@ -455,13 +455,10 @@ polling o listEntries action = do
     ) refs0
 
 
-instance (ForGossip p e m, HasPeer e, Sessions e (KnownPeer e) m, HasPeerLocator e m) => HasGossip p e (PeerM e m) where
+instance (ForGossip e p (PeerM e IO)) => HasGossip e p (PeerM e IO) where
   gossip msg = do
-    pips <- getKnownPeers @e
-    pure ()
+    broadCastMessage msg
 
-instance (Monad m, HasGossip p e (PeerM e m)) => HasGossip p e (ResponseM e (PeerM e m)) where
+instance (ForGossip e p (ResponseM e m), HasGossip e p m) => HasGossip e p (ResponseM e m) where
   gossip = lift . gossip
-
-
 

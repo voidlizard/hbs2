@@ -165,7 +165,7 @@ refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Pretty (Peer e)
                                    , Sessions e (KnownPeer e) m
                                    , HasStorage m
-                                   , HasGossip (RefChanHead e) e m
+                                   -- , HasGossip (RefChanHead e) e m
                                    , Signatures s
                                    , IsRefPubKey s
                                    , Pretty (AsBase58 (PubKey 'Sign s))
@@ -223,7 +223,7 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , Sessions e (KnownPeer e) m
                                      , Sessions e (RefChanHeadBlock e) m
                                      , HasStorage m
-                                     , HasGossip (RefChanUpdate e) e m
+                                     , HasGossip e (RefChanUpdate e) m
                                      , Signatures s
                                      , IsRefPubKey s
                                      , Pretty (AsBase58 (PubKey 'Sign s))

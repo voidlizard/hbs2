@@ -1,3 +1,4 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Actors.Peer.Types where
 
 import HBS2.Storage
@@ -31,7 +32,7 @@ instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
   getStorage = lift getStorage
 
 
-class HasProtocol e p => HasGossip p e m where
+class (Monad m, HasProtocol e p) => HasGossip e p m where
   gossip :: p -> m ()
 
 
