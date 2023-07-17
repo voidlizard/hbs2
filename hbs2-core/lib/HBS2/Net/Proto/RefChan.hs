@@ -250,6 +250,9 @@ refChanUpdateProto self pc adapter msg = do
 
   sto <- getStorage
 
+  let pk = view peerSignPk pc
+  let sk = view peerSignSk pc
+
   void $ runMaybeT do
 
     guard (auth || self)
@@ -309,7 +312,6 @@ refChanUpdateProto self pc adapter msg = do
         -- теперь достаём голову
         headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
 
-
         let pips = view refChanHeadPeers headBlock
         let aus  = view refChanHeadAuthors headBlock
 
@@ -325,10 +327,16 @@ refChanUpdateProto self pc adapter msg = do
 
         lift $ gossip msg
 
-        let tran = AcceptTran headRef (HashRef hash)
+        -- FIXME: check-if-we-authorized
+        --   проверить, что мы вообще авторизованы
+        --   рассылать ACCEPT
 
-        let pk = view peerSignPk pc
-        let sk = view peerSignSk pc
+        guard ( pk `HashMap.member` pips )
+
+        -- если нет - то и всё, просто перешлём
+        -- по госсипу исходную транзу
+
+        let tran = AcceptTran headRef (HashRef hash)
 
         -- --  генерируем Accept
         let accept = Accept chan (makeSignedBox @e pk sk tran)
@@ -343,6 +351,13 @@ refChanUpdateProto self pc adapter msg = do
      Accept chan box -> do
        guard =<< lift (refChanHeadSubscribed adapter chan)
        debug "RefChanUpdate/ACCEPT"
+
+       -- TODO: implement-accept
+       --  проверяем подпись пира
+       --  смотрим, что такая транза у нас вообще есть
+       --  смотрим, что она валидна (голова совпадает, права совпадают)
+       --  если да и всё ок - то считаем, сколько у нас accept-ов
+       --  получено (где? в базе? в сессии?)
 
   where
     proto = Proxy @(RefChanUpdate e)
