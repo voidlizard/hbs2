@@ -45,8 +45,8 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock (NominalDiffTime)
 import Data.Heap qualified as Heap
-import Data.Heap (Heap,Entry(..))
-import Data.Time.Clock
+import Data.Heap (Entry(..))
+-- import Data.Time.Clock
 
 data PeerInfo e =
   PeerInfo

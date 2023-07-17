@@ -68,6 +68,7 @@ common common-deps
         , unliftio
         , unix
         , heaps
+        , psqueues
 
 common shared-properties
   ghc-options:
