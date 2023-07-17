@@ -1,6 +1,7 @@
 module HBS2.Actors.Peer.Types where
 
 import HBS2.Storage
+import HBS2.Net.Proto.Types
 import HBS2.Hash
 
 import Control.Monad.Trans.Class
@@ -28,5 +29,9 @@ class HasStorage m where
 
 instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
   getStorage = lift getStorage
+
+
+class HasProtocol e p => HasGossip p e m where
+  gossip :: p -> m ()
 
 

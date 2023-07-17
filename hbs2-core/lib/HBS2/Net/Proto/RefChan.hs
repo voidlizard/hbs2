@@ -165,6 +165,7 @@ refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Pretty (Peer e)
                                    , Sessions e (KnownPeer e) m
                                    , HasStorage m
+                                   , HasGossip (RefChanHead e) e m
                                    , Signatures s
                                    , IsRefPubKey s
                                    , Pretty (AsBase58 (PubKey 'Sign s))
@@ -213,7 +214,6 @@ refChanHeadProto self adapter msg = do
     proto = Proxy @(RefChanHead e)
 
 
-
 refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , Request e (RefChanUpdate e) m
                                      , Response e (RefChanUpdate e) m
@@ -223,6 +223,7 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , Sessions e (KnownPeer e) m
                                      , Sessions e (RefChanHeadBlock e) m
                                      , HasStorage m
+                                     , HasGossip (RefChanUpdate e) e m
                                      , Signatures s
                                      , IsRefPubKey s
                                      , Pretty (AsBase58 (PubKey 'Sign s))
@@ -307,6 +308,15 @@ refChanUpdateProto self adapter msg = do
         guard ( authorKey `HashSet.member` aus )
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
+
+        -- ок, теперь мы можем:
+        --  gossip propose если еще нет
+
+        lift $ gossip msg
+
+        --  генерируем Accept и рассылаем всем
+        --   рассылаем ли себе?
+        --   как сюда просунуть ручку Gossip ?
 
         pure ()
 

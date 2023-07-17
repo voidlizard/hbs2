@@ -105,7 +105,7 @@ instance HasProtocol L4Proto (RefLogUpdate L4Proto) where
   encode = serialise
 
   -- TODO: find-out-optimal-max-safe-frequency
-  requestPeriodLim = ReqLimPerMessage 60
+  requestPeriodLim = ReqLimPerMessage 600
 
 instance HasProtocol L4Proto (RefLogRequest L4Proto) where
   type instance ProtocolId (RefLogRequest L4Proto) = 8
@@ -137,6 +137,9 @@ instance HasProtocol L4Proto (RefChanUpdate L4Proto) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+  -- мы не можем рассылать одинаковые сообщения никогда,
+  -- ну или хотя бы не чаще, чем раз в 10 минут.
+  requestPeriodLim = ReqLimPerMessage 600
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

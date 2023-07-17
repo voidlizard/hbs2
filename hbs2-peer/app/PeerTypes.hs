@@ -1,10 +1,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
 {-# Language MultiWayIf #-}
 module PeerTypes where
 
 import HBS2.Actors.Peer
+import HBS2.Actors.Peer.Types
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
@@ -345,13 +347,16 @@ failedDownload p h = do
   addDownload mzero h
   -- FIXME: brains-download-fail
 
-broadCastMessage :: forall e p m . ( MonadIO m
-                                   , MyPeer e
-                                   , HasPeerLocator e m
-                                   , HasProtocol e p
-                                   , Request e p m
-                                   , Sessions e (KnownPeer e) m
-                                   )
+type ForGossip p e m =
+  ( MonadIO m
+  , MyPeer e
+  , HasPeerLocator e m
+  , HasProtocol e p
+  , Request e p m
+  , Sessions e (KnownPeer e) m
+  )
+
+broadCastMessage :: forall e p m . ( ForGossip p e m )
                    => p -> m ()
 
 broadCastMessage msg = do
@@ -448,5 +453,15 @@ polling o listEntries action = do
         next mon'
 
     ) refs0
+
+
+instance (ForGossip p e m, HasPeer e, Sessions e (KnownPeer e) m, HasPeerLocator e m) => HasGossip p e (PeerM e m) where
+  gossip msg = do
+    pips <- getKnownPeers @e
+    pure ()
+
+instance (Monad m, HasGossip p e (PeerM e m)) => HasGossip p e (ResponseM e (PeerM e m)) where
+  gossip = lift . gossip
+
 
 
