@@ -213,7 +213,6 @@ refChanWorker env brains = do
 
               ourVersion <- runMaybeT do
 
-
                 cur <- MaybeT $ liftIO $ getRef sto rkey
 
                 lbss <- MaybeT $ readBlobFromTree (getBlock sto) (HashRef cur)
@@ -230,6 +229,15 @@ refChanWorker env brains = do
                 liftIO $ updateRef sto rkey (fromHashRef hr)
                 -- если это мы сами его обновили - то неплохо бы
                 -- всем разослать уведомление. А как?
+                --
+                -- TODO: update-acl-here
+
+                forM_ (HashMap.keys $ view refChanHeadPeers blk) $ \pip -> do
+                  debug $ "ADD PEER ACL" <+> pretty (AsBase58 chan) <+> pretty(AsBase58 pip)
+
+                forM_ (view refChanHeadAuthors blk) $ \au -> do
+                  debug $ "ADD AUTHOR ACL" <+> pretty (AsBase58 chan) <+> pretty(AsBase58 au)
+
                 when notify do
                   debug $ "NOTIFY-ALL-HEAD-UPDATED" <+> pretty (AsBase58 pk) <+> pretty hr
                   broadCastMessage (RefChanHead @e pk (RefChanHeadBlockTran hr))

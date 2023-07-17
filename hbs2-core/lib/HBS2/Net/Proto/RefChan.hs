@@ -6,10 +6,11 @@ module HBS2.Net.Proto.RefChan where
 import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Data.Detect
--- import HBS2.Clock
+import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
 import HBS2.Base58
+import HBS2.Defaults
 -- import HBS2.Events
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.BlockAnnounce
@@ -129,6 +130,21 @@ data RefChanUpdate e =
 
 instance ForRefChans e => Serialise (RefChanUpdate e)
 
+type instance SessionData e (RefChanHeadBlock e) = RefChanHeadBlock e
+
+newtype instance SessionKey e  (RefChanHeadBlock e) =
+  RefChanHeadBlockKey (RefChanHeadKey (Encryption e))
+
+deriving newtype instance ForRefChans L4Proto
+  => Hashable (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+
+deriving stock instance ForRefChans L4Proto
+  => Eq (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+
+-- TODO: define-expiration-time
+instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
+  expiresIn = const (Just defCookieTimeoutSec)
+
 -- data RefChanNotifyMsg e =
 --   Notify (SignedBox ByteString e)
 --   deriving stock (Generic)
@@ -205,6 +221,7 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , IsPeerAddr e m
                                      , Pretty (Peer e)
                                      , Sessions e (KnownPeer e) m
+                                     , Sessions e (RefChanHeadBlock e) m
                                      , HasStorage m
                                      , Signatures s
                                      , IsRefPubKey s
@@ -268,21 +285,19 @@ refChanUpdateProto self adapter msg = do
         (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 abox
 
         -- итак, сначала достаём голову. как мы достаём голову?
-        h <- MaybeT $ liftIO $ getRef sto (RefChanHeadKey @s chan)
 
+        let refchanKey = RefChanHeadKey @s chan
+        h <- MaybeT $ liftIO $ getRef sto refchanKey
         -- смотрим, что у нас такая же голова.
         -- если нет -- значит, кто-то рассинхронизировался.
         -- может быть, потом попробуем головы запросить
         guard (HashRef h == headRef)
 
-        -- теперь достаём голову
-
-        -- FIXME: cache-this
-        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
-
-        (_, headBlock) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
-
         debug $ "OMG! Got trans" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
+
+        -- теперь достаём голову
+        headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+
 
         let pips = view refChanHeadPeers headBlock
         let aus  = view refChanHeadAuthors headBlock
@@ -298,6 +313,42 @@ refChanUpdateProto self adapter msg = do
 
   where
     proto = Proxy @(RefChanUpdate e)
+
+
+getActualRefChanHead :: forall e s m . ( MonadIO m
+                                       , Sessions e (RefChanHeadBlock e) m
+                                       , HasStorage m
+                                       , Signatures s
+                                       , IsRefPubKey s
+                                       , Pretty (AsBase58 (PubKey 'Sign s))
+                                     -- , Serialise (Signature s)
+                                       , ForRefChans e
+                                       , HasStorage m
+                                       , s ~ Encryption e
+                                       )
+                   => RefChanHeadKey s
+                   -> m (Maybe (RefChanHeadBlock e))
+
+getActualRefChanHead key = do
+  sto <- getStorage
+
+  runMaybeT do
+    mbHead <- do
+      lift $ find @e (RefChanHeadBlockKey key) id
+
+    case mbHead of
+      Just hd -> do
+        debug "HEAD DISCOVERED"
+        pure hd
+
+      Nothing -> do
+        debug "ABOUT TO FIND HEAD"
+        h <- MaybeT $ liftIO $ getRef sto key
+        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
+        (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+        lift $ update headblk (RefChanHeadBlockKey key) id  -- set found head
+        debug "HEAD FOUND"
+        pure headblk
 
 makeProposeTran :: forall e s m . ( MonadIO m
                                   , ForRefChans e
