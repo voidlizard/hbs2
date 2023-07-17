@@ -258,8 +258,6 @@ refChanUpdateProto self pc adapter msg = do
     -- где-то тут мы разбираемся, что такое сообщеине
     -- уже отправляли и больше одного раза не реагируем
 
-    guard =<< lift (refChanHeadSubscribed adapter undefined)
-
     case msg of
      Propose chan box -> do
        guard =<< lift (refChanHeadSubscribed adapter chan)
@@ -332,19 +330,19 @@ refChanUpdateProto self pc adapter msg = do
         let pk = view peerSignPk pc
         let sk = view peerSignSk pc
 
-        --  генерируем Accept
+        -- --  генерируем Accept
         let accept = Accept chan (makeSignedBox @e pk sk tran)
 
-        -- и рассылаем всем
+        -- -- и рассылаем всем
         debug "GOSSIP ACCEPT TRANSACTION"
         lift $ gossip accept
 
-        --  рассылаем ли себе? что бы был хоть один accept
+        -- --  рассылаем ли себе? что бы был хоть один accept
         lift $ refChanUpdateProto True pc adapter accept
 
      Accept chan box -> do
        guard =<< lift (refChanHeadSubscribed adapter chan)
-       debug "RefChanUpdate/Propose"
+       debug "RefChanUpdate/ACCEPT"
 
   where
     proto = Proxy @(RefChanUpdate e)
