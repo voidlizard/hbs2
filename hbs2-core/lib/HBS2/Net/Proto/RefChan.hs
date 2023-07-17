@@ -1,6 +1,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language TemplateHaskell #-}
+{-# Language FunctionalDependencies #-}
 module HBS2.Net.Proto.RefChan where
 
 import HBS2.Prelude.Plated
@@ -117,7 +118,12 @@ instance ForRefChans e => Serialise (RefChanHead e)
 data ProposeTran e = ProposeTran HashRef (SignedBox ByteString e) -- произвольная бинарная транзакция,
                      deriving stock (Generic)                     -- подписанная ключом **АВТОРА**, который её рассылает
 
+
+data AcceptTran e = AcceptTran HashRef HashRef -- ссылка на (ProposTran e)
+                    deriving stock (Generic)
+
 instance ForRefChans e => Serialise (ProposeTran e)
+instance ForRefChans e => Serialise (AcceptTran e)
 
 -- TODO: find-out-sure-transaction-size
 --   транзакция должна быть маленькая!
@@ -125,7 +131,9 @@ instance ForRefChans e => Serialise (ProposeTran e)
 --   черт его знает, какой там останется пайлоад.
 --   надо посмотреть. байт, небось, 400
 data RefChanUpdate e =
-  Propose (RefChanId e) (SignedBox (ProposeTran e) e) -- подписано ключом пира
+    Propose (RefChanId e) (SignedBox (ProposeTran e) e) -- подписано ключом пира
+  | Accept  (RefChanId e) (SignedBox (AcceptTran e) e)  -- подписано ключом пира
+
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanUpdate e)
@@ -145,9 +153,6 @@ deriving stock instance ForRefChans L4Proto
 instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
   expiresIn = const (Just defCookieTimeoutSec)
 
--- data RefChanNotifyMsg e =
---   Notify (SignedBox ByteString e)
---   deriving stock (Generic)
 
 data RefChanHeadAdapter e m =
   RefChanHeadAdapter
@@ -232,11 +237,12 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , s ~ Encryption e
                                      )
                    => Bool
+                   -> PeerCredentials s
                    -> RefChanHeadAdapter e m
                    -> RefChanUpdate e
                    -> m ()
 
-refChanUpdateProto self adapter msg = do
+refChanUpdateProto self pc adapter msg = do
   -- авторизовать пира
   peer <- thatPeer proto
 
@@ -247,6 +253,12 @@ refChanUpdateProto self adapter msg = do
   void $ runMaybeT do
 
     guard (auth || self)
+
+    -- TODO: process-each-message-only-once
+    -- где-то тут мы разбираемся, что такое сообщеине
+    -- уже отправляли и больше одного раза не реагируем
+
+    guard =<< lift (refChanHeadSubscribed adapter undefined)
 
     case msg of
      Propose chan box -> do
@@ -283,7 +295,7 @@ refChanUpdateProto self adapter msg = do
         (peerKey, ProposeTran headRef abox) <- MaybeT $ pure $ unboxSignedBox0 box
 
         -- проверили подпись автора
-        (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 abox
+        (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 abox
 
         -- итак, сначала достаём голову. как мы достаём голову?
 
@@ -309,17 +321,30 @@ refChanUpdateProto self adapter msg = do
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
-        -- ок, теперь мы можем:
-        --  gossip propose если еще нет
+        -- если не смогли сохранить транзу, то и Accept разослать
+        -- не сможем
+        hash <- MaybeT $ liftIO $ putBlock sto (serialise msg)
 
         lift $ gossip msg
 
-        --  генерируем Accept и рассылаем всем
-        --   рассылаем ли себе?
-        --   как сюда просунуть ручку Gossip ?
+        let tran = AcceptTran headRef (HashRef hash)
 
-        pure ()
+        let pk = view peerSignPk pc
+        let sk = view peerSignSk pc
 
+        --  генерируем Accept
+        let accept = Accept chan (makeSignedBox @e pk sk tran)
+
+        -- и рассылаем всем
+        debug "GOSSIP ACCEPT TRANSACTION"
+        lift $ gossip accept
+
+        --  рассылаем ли себе? что бы был хоть один accept
+        lift $ refChanUpdateProto True pc adapter accept
+
+     Accept chan box -> do
+       guard =<< lift (refChanHeadSubscribed adapter chan)
+       debug "RefChanUpdate/Propose"
 
   where
     proto = Proxy @(RefChanUpdate e)

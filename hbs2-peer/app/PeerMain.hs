@@ -891,7 +891,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto (mkPeerMeta conf))
                     , makeResponse (refChanHeadProto False refChanHeadAdapter)
-                    , makeResponse (refChanUpdateProto False refChanHeadAdapter)
+                    , makeResponse (refChanUpdateProto False pc refChanHeadAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -1022,7 +1022,7 @@ runPeer opts = U.handle (\e -> myException e
             -- FIXME: remove-this-debug-stuff
             --   или оставить? нода будет сама себе
             --   консенсус слать тогда. может, и оставить
-            lift $ runResponseM me $ refChanUpdateProto @e True refChanHeadAdapter (Propose @e puk proposed)
+            lift $ runResponseM me $ refChanUpdateProto @e True pc refChanHeadAdapter (Propose @e puk proposed)
 
   let arpc = RpcAdapter pokeAction
                         dieAction
