@@ -300,10 +300,7 @@ refChanUpdateProto self pc adapter msg = do
        guard =<< lift (refChanSubscribed adapter chan)
 
        let h0 = hashObject @HbSync (serialise msg)
-
-       done <- liftIO (hasBlock sto h0) <&> isJust
-
-       guard (not done)
+       guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
        debug $ "RefChanUpdate/Propose" <+> pretty h0
 
@@ -371,7 +368,7 @@ refChanUpdateProto self pc adapter msg = do
 
        let h0 = hashObject @HbSync (serialise msg)
 
-       -- guard =<< liftIO (hasBlock sto h0 <&> isJust)
+       guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
