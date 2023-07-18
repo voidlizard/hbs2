@@ -562,9 +562,10 @@ runPeer opts = U.handle (\e -> myException e
 
   rce <- refChanWorkerEnv conf denv
 
-  let refChanHeadAdapter = RefChanHeadAdapter
-                           { refChanHeadOnHead = refChanOnHead rce
-                           , refChanHeadSubscribed = isPolledRef @e brains
+  let refChanAdapter = RefChanAdapter
+                           { refChanOnHead = refChanOnHeadFn rce
+                           , refChanSubscribed = isPolledRef @e brains
+                           , refChanWriteTran = \_ _ -> pure ()
                            }
 
   let pexFilt pips = do
@@ -890,8 +891,8 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto (mkPeerMeta conf))
-                    , makeResponse (refChanHeadProto False refChanHeadAdapter)
-                    , makeResponse (refChanUpdateProto False pc refChanHeadAdapter)
+                    , makeResponse (refChanHeadProto False refChanAdapter)
+                    , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -993,7 +994,7 @@ runPeer opts = U.handle (\e -> myException e
             Right (SignedBox k _ _) -> do
               let msg = RefChanHead k (RefChanHeadBlockTran (HashRef h))
               refChanNotifyOnUpdated rce k
-              runResponseM me $ refChanHeadProto @e True refChanHeadAdapter msg
+              runResponseM me $ refChanHeadProto @e True refChanAdapter msg
 
   let refChanHeadGetAction puk = do
         trace $ "refChanHeadGetAction" <+> pretty (AsBase58 puk)
@@ -1022,7 +1023,7 @@ runPeer opts = U.handle (\e -> myException e
             -- FIXME: remove-this-debug-stuff
             --   или оставить? нода будет сама себе
             --   консенсус слать тогда. может, и оставить
-            lift $ runResponseM me $ refChanUpdateProto @e True pc refChanHeadAdapter (Propose @e puk proposed)
+            lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
 
   let arpc = RpcAdapter pokeAction
                         dieAction

@@ -4,7 +4,7 @@ module RefChan (
     RefChanWorkerEnv(..)
   , refChanWorkerEnvHeadQ
   , refChanWorkerEnvDownload
-  , refChanOnHead
+  , refChanOnHeadFn
   , refChanWorker
   , refChanWorkerEnv
   , refChanNotifyOnUpdated
@@ -79,8 +79,8 @@ refChanWorkerEnv _ de = liftIO $ RefChanWorkerEnv @e de <$> newTQueueIO
                                                         <*> newTVarIO mempty
 
 
-refChanOnHead :: MonadIO m => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
-refChanOnHead env chan tran = do
+refChanOnHeadFn :: MonadIO m => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
+refChanOnHeadFn env chan tran = do
   atomically $ writeTQueue (view refChanWorkerEnvHeadQ env) (chan, tran)
 
 -- FIXME: leak-when-block-never-really-updated
@@ -171,7 +171,7 @@ refChanWorker env brains = do
       rest <- forM all $ \(r,item@(chan,t)) -> do
                 here <- checkDownloaded r
                 if here then do
-                  refChanOnHead env chan (RefChanHeadBlockTran r)
+                  refChanOnHeadFn env chan (RefChanHeadBlockTran r)
                   pure mempty
                 else do
                   -- FIXME: fix-timeout-hardcode

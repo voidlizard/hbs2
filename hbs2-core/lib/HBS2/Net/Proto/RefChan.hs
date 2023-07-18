@@ -178,11 +178,12 @@ deriving stock instance ForRefChans L4Proto
 instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
   expiresIn = const (Just defCookieTimeoutSec)
 
-
-data RefChanHeadAdapter e m =
-  RefChanHeadAdapter
-  { refChanHeadOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
-  , refChanHeadSubscribed :: RefChanId e -> m Bool
+-- FIXME: rename
+data RefChanAdapter e m =
+  RefChanAdapter
+  { refChanOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
+  , refChanSubscribed :: RefChanId e -> m Bool
+  , refChanWriteTran  :: RefChanId e -> RefChanUpdate e -> m ()
   }
 
 refChanHeadProto :: forall e s m . ( MonadIO m
@@ -202,7 +203,7 @@ refChanHeadProto :: forall e s m . ( MonadIO m
                                    , s ~ Encryption e
                                    )
                   => Bool
-                  -> RefChanHeadAdapter e m
+                  -> RefChanAdapter e m
                   -> RefChanHead e
                   -> m ()
 
@@ -220,13 +221,13 @@ refChanHeadProto self adapter msg = do
 
     case msg of
       RefChanHead chan pkt -> do
-        guard =<< lift (refChanHeadSubscribed adapter chan)
+        guard =<< lift (refChanSubscribed adapter chan)
         trace $ "RefChanHead" <+> pretty self <+> pretty (AsBase58 chan)
         -- TODO: notify-others-for-new-head
         --   нужно ли уведомить остальных, что голова поменялась?
         --   всех, от кого мы еще не получали данное сообщение
         --   откуда мы знаем, от кого мы получали данное сообщение?
-        lift $ refChanHeadOnHead adapter chan pkt
+        lift $ refChanOnHead adapter chan pkt
 
       RefChanGetHead chan -> deferred proto do
         trace $ "RefChanGetHead" <+> pretty self <+> pretty (AsBase58 chan)
@@ -264,7 +265,7 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      )
                    => Bool
                    -> PeerCredentials s
-                   -> RefChanHeadAdapter e m
+                   -> RefChanAdapter e m
                    -> RefChanUpdate e
                    -> m ()
 
@@ -296,7 +297,7 @@ refChanUpdateProto self pc adapter msg = do
 
     case msg of
      Propose chan box -> do
-       guard =<< lift (refChanHeadSubscribed adapter chan)
+       guard =<< lift (refChanSubscribed adapter chan)
 
        debug "RefChanUpdate/Propose"
        deferred proto do
@@ -359,7 +360,7 @@ refChanUpdateProto self pc adapter msg = do
         pure ()
 
      Accept chan box -> deferred proto do
-       guard =<< lift (refChanHeadSubscribed adapter chan)
+       guard =<< lift (refChanSubscribed adapter chan)
 
        debug "RefChanUpdate/ACCEPT"
 
