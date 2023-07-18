@@ -2,6 +2,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language TemplateHaskell #-}
 {-# Language FunctionalDependencies #-}
+{-# LANGUAGE ImplicitParams #-}
 module HBS2.Net.Proto.RefChan where
 
 import HBS2.Prelude.Plated
@@ -124,6 +125,25 @@ data AcceptTran e = AcceptTran HashRef HashRef -- ссылка на (ProposTran 
 
 instance ForRefChans e => Serialise (ProposeTran e)
 instance ForRefChans e => Serialise (AcceptTran e)
+
+
+data RefChanRound e =
+  RefChanRound
+  { _refChanKey   :: HashRef -- ^ hash of the Propose transaction
+  , _refChanRound :: HashMap (PubKey 'Sign (Encryption e)) ()
+  }
+  deriving stock (Typeable, Generic)
+
+newtype instance SessionKey e (RefChanRound e) =
+  RefChanRoundKey HashRef
+  deriving stock (Generic, Typeable)
+
+type instance SessionData e (RefChanRound e) = RefChanRound e
+
+-- TODO: find-out-proper-timeout
+--  например, wait * 2
+instance Expires (SessionKey e (RefChanRound e)) where
+  expiresIn _ = Just 600
 
 -- TODO: find-out-sure-transaction-size
 --   транзакция должна быть маленькая!
@@ -313,11 +333,8 @@ refChanUpdateProto self pc adapter msg = do
         headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
 
         let pips = view refChanHeadPeers headBlock
-        let aus  = view refChanHeadAuthors headBlock
 
-        guard ( peerKey `HashMap.member` pips )
-
-        guard ( authorKey `HashSet.member` aus )
+        guard $ checkACL headBlock peerKey authorKey
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
@@ -348,9 +365,50 @@ refChanUpdateProto self pc adapter msg = do
         -- --  рассылаем ли себе? что бы был хоть один accept
         lift $ refChanUpdateProto True pc adapter accept
 
-     Accept chan box -> do
+        pure ()
+
+     Accept chan box -> deferred proto do
        guard =<< lift (refChanHeadSubscribed adapter chan)
+
        debug "RefChanUpdate/ACCEPT"
+
+       (peerKey, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
+
+       let refchanKey = RefChanHeadKey @s chan
+       h <- MaybeT $ liftIO $ getRef sto refchanKey
+
+       guard (HashRef h == headRef)
+
+       lift $ gossip msg
+
+       tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
+
+       tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
+
+       headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+
+       -- -- TODO: additional-validation
+       -- --   можно бы проверить транзакцию еще раз,
+       -- --   но можно считать, что раз мы её записали,
+       -- --   то она годная
+       proposed <- MaybeT $ pure $ case tran of
+                      Propose _ pbox -> Just pbox
+                      _              -> Nothing
+
+
+       (peerKey, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
+
+       -- compiler bug?
+       let (ProposeTran _ pbox) = ptran
+
+       (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
+
+       -- может и не надо второй раз проверять
+       guard $ checkACL headBlock peerKey authorKey
+
+       debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
+
+       pure ()
 
        -- TODO: implement-accept
        --  проверяем подпись пира
@@ -362,6 +420,16 @@ refChanUpdateProto self pc adapter msg = do
   where
     proto = Proxy @(RefChanUpdate e)
 
+    checkACL :: RefChanHeadBlock e
+             -> PubKey 'Sign s
+             -> PubKey 'Sign s
+             -> Bool
+    checkACL theHead peerKey authorKey = match
+      where
+        pips = view refChanHeadPeers theHead
+        aus  = view refChanHeadAuthors theHead
+        match =   peerKey `HashMap.member` pips
+               && authorKey `HashSet.member` aus
 
 getActualRefChanHead :: forall e s m . ( MonadIO m
                                        , Sessions e (RefChanHeadBlock e) m
