@@ -106,7 +106,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       peer <- thatPeer proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
-      trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
+      trace $ "ENCRYPTION EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
 
       -- сначала удалим у себя его прошлый ключ
       encHandshake_considerPeerAsymmKey peer Nothing
@@ -120,7 +120,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 
-      trace $ "EHSP BeginEncryptionExchange from" <+> viaShow (peer, mpeerData)
+      trace $ "ENCRYPTION EHSP BeginEncryptionExchange from" <+> viaShow (peer, mpeerData)
 
       -- взять свои ключи
       creds <- getCredentials @s
@@ -145,7 +145,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 
-      trace $ "EHSP AckEncryptionExchange from" <+> viaShow (peer, mpeerData)
+      trace $ "ENCRYPTION EHSP AckEncryptionExchange from" <+> viaShow (peer, mpeerData)
 
       -- Он уже прописал у себя наш публичный ключ и готов общаться шифрованными сообщениями
       -- Прописываем его ключ у себя

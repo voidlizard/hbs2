@@ -582,7 +582,15 @@ runPeer opts = U.handle (\e -> myException e
       proxy <- newProxyMessaging mess tcp >>= \peer -> pure peer
             { _proxy_getEncryptionKey = \peer -> do
                   mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+                  mkey <- join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+                  case mkey of
+                      Nothing ->
+                          trace $ "ENCRYPTION empty getEncryptionKey"
+                              <+> pretty peer <+> viaShow mpeerData
+                      Just k ->
+                          trace $ "ENCRYPTION success getEncryptionKey"
+                              <+> pretty peer <+> viaShow mpeerData <+> viaShow k
+                  pure mkey
 
             , _proxy_clearEncryptionKey = \peer -> do
                   mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
@@ -678,6 +686,7 @@ runPeer opts = U.handle (\e -> myException e
                           mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
                           case mpubkey of
                               Nothing -> do
+                                  trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mpeerData
                                   -- deletePeerAsymmKey brains peer
                                   forM_ mpeerData \peerData ->
                                       deletePeerAsymmKey' brains (show peerData)
@@ -686,6 +695,7 @@ runPeer opts = U.handle (\e -> myException e
                                   let symmk = genCommonSecret @s
                                           (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                                           pk
+                                  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow mpeerData
                                   case mpeerData of
                                       Nothing -> do
                                           -- insertPeerAsymmKey brains peer pk symmk
