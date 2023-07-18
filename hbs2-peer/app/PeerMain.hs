@@ -673,22 +673,25 @@ runPeer opts = U.handle (\e -> myException e
                       , EventEmitter e (PeerAsymmInfo e) m
                       ) => EncryptionHandshakeAdapter L4Proto m s
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
-                    { encHandshake_considerPeerAsymmKey = \peer mpeerData -> \case
-                        Nothing -> do
-                            -- deletePeerAsymmKey brains peer
-                            forM_ mpeerData \peerData ->
-                                deletePeerAsymmKey' brains (show peerData)
-                        Just pk -> do
-                            -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
-                            let symmk = genCommonSecret @s
-                                    (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
-                                    pk
-                            case mpeerData of
-                                Nothing -> do
-                                    -- insertPeerAsymmKey brains peer pk symmk
-                                    pure ()
-                                Just peerData ->
-                                    insertPeerAsymmKey' brains (show peerData) pk symmk
+                    { encHandshake_considerPeerAsymmKey = \peer mpubkey -> withPeerM penv do
+                          mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
+                          case mpubkey of
+                              Nothing -> do
+                                  -- deletePeerAsymmKey brains peer
+                                  forM_ mpeerData \peerData ->
+                                      deletePeerAsymmKey' brains (show peerData)
+                              Just pk -> do
+                                  -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
+                                  let symmk = genCommonSecret @s
+                                          (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                                          pk
+                                  case mpeerData of
+                                      Nothing -> do
+                                          -- insertPeerAsymmKey brains peer pk symmk
+                                          pure ()
+                                      Just peerData ->
+                                          insertPeerAsymmKey' brains (show peerData) pk symmk
+
                     }
 
               env <- ask

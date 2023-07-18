@@ -75,7 +75,7 @@ sendBeginEncryptionExchange creds ourpubkey peer = do
     request peer (BeginEncryptionExchange @e sign ourpubkey)
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
-  { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
+  { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe Encrypt.PublicKey -> m ()
   }
 
 
@@ -109,7 +109,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       trace $ "EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
 
       -- сначала удалим у себя его прошлый ключ
-      encHandshake_considerPeerAsymmKey peer mpeerData Nothing
+      encHandshake_considerPeerAsymmKey peer Nothing
 
       creds <- getCredentials @s
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
@@ -131,14 +131,14 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       let sign = makeSign @s (view peerSignSk creds) ((cs . serialise) ourpubkey)
 
       -- сначала удалим у себя его прошлый ключ
-      encHandshake_considerPeerAsymmKey peer mpeerData Nothing
+      encHandshake_considerPeerAsymmKey peer Nothing
 
       -- отправить обратно свой публичный ключ
       -- отправится пока ещё в плоском виде
       response (AckEncryptionExchange @e sign ourpubkey)
 
       -- Только после этого прописываем его ключ у себя
-      encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
+      encHandshake_considerPeerAsymmKey peer (Just theirpubkey)
 
   AckEncryptionExchange theirsign theirpubkey -> do
       peer <- thatPeer proto
@@ -149,7 +149,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
       -- Он уже прописал у себя наш публичный ключ и готов общаться шифрованными сообщениями
       -- Прописываем его ключ у себя
-      encHandshake_considerPeerAsymmKey peer mpeerData (Just theirpubkey)
+      encHandshake_considerPeerAsymmKey peer (Just theirpubkey)
 
   where
     proto = Proxy @(EncryptionHandshake e)
