@@ -73,5 +73,10 @@ encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
         peers <- knownPeers @e pl
 
         forM_ peers \peer -> do
-            -- TODO: Только если ещё не знаем ключ ноды
-            sendBeginEncryptionExchange @e creds ourpubkey peer
+            -- Только если ещё не знаем ключ ноды
+            mpeerData <- find (KnownPeerKey peer) id
+            mkey <- liftIO do
+                join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+            case mkey of
+                Just _ -> pure ()
+                Nothing -> sendBeginEncryptionExchange @e creds ourpubkey peer
