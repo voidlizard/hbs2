@@ -698,9 +698,11 @@ runPeer opts = U.handle (\e -> myException e
                                   case mpeerData of
                                       Nothing -> do
                                           -- insertPeerAsymmKey brains peer pk symmk
+                                          -- insertPeerAsymmKey' brains (show peer) pk symmk
                                           trace $ "ENCRYPTION can not store key. No peerData"
                                               <+> pretty peer <+> viaShow mpeerData
-                                      Just peerData ->
+                                      Just peerData -> do
+                                          liftIO $ setEncryptionKey penv peer peerData (Just symmk)
                                           insertPeerAsymmKey' brains (show peerData) pk symmk
 
                     }
