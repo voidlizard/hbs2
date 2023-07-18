@@ -22,6 +22,7 @@ import Data.Maybe
 pRefChan :: Parser (IO ())
 pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
                        <> command "propose" (info pRefChanPropose (progDesc "post propose transaction"))
+                       <> command "get"     (info pRefChanGet (progDesc "get refchan value"))
                       )
 
 
@@ -116,4 +117,15 @@ pRefChanPropose = do
       LBS.putStr (serialise box)
     else do
       runRpcCommand opts (REFCHANPROPOSE (puk, serialise box))
+
+
+pRefChanGet :: Parser (IO ())
+pRefChanGet = do
+  opts <- pRpcCommon
+  sref <- strArgument (metavar "REFCHAH-REF")
+  pure do
+    puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
+    runRpcCommand opts (REFCHANGET puk)
+
+
 

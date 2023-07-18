@@ -64,6 +64,8 @@ data RPCCommand =
   | REFCHANHEADSEND (Hash HbSync)
   | REFCHANHEADGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANHEADFETCH (PubKey 'Sign (Encryption L4Proto))
+  | REFCHANFETCH (PubKey 'Sign (Encryption L4Proto))
+  | REFCHANGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANPROPOSE (PubKey 'Sign (Encryption L4Proto), ByteString)
 
 data RPC e =
@@ -82,10 +84,16 @@ data RPC e =
   | RPCRefLogFetch (PubKey 'Sign (Encryption e))
   | RPCRefLogGet (PubKey 'Sign (Encryption e))
   | RPCRefLogGetAnswer (Maybe (Hash HbSync))
+
   | RPCRefChanHeadSend (Hash HbSync)
   | RPCRefChanHeadGet (PubKey 'Sign (Encryption e))
   | RPCRefChanHeadGetAnsw (Maybe (Hash HbSync))
   | RPCRefChanHeadFetch (PubKey 'Sign (Encryption e))
+
+  | RPCRefChanFetch (PubKey 'Sign (Encryption e))
+  | RPCRefChanGet (PubKey 'Sign (Encryption e))
+  | RPCRefChanGetAnsw (Maybe (Hash HbSync))
+
   | RPCRefChanPropose (PubKey 'Sign (Encryption e), ByteString)
 
   deriving stock (Generic)
@@ -124,10 +132,17 @@ data RpcAdapter e m =
   , rpcOnRefLogFetch   :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefLogGet     :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefLogGetAnsw :: Maybe (Hash HbSync) -> m ()
+
   , rpcOnRefChanHeadSend :: Hash HbSync -> m ()
   , rpcOnRefChanHeadGet :: PubKey 'Sign (Encryption e) -> m ()
   , rpcOnRefChanHeadGetAnsw :: Maybe (Hash HbSync) -> m ()
   , rpcOnRefChanHeadFetch :: PubKey 'Sign (Encryption e) -> m ()
+
+  -- refchan commands
+  , rpcOnRefChanFetch   :: PubKey 'Sign (Encryption e) -> m ()
+  , rpcOnRefChanGet     :: PubKey 'Sign (Encryption e) -> m ()
+  , rpcOnRefChanGetAnsw :: Maybe (Hash HbSync) -> m ()
+
   , rpcOnRefChanPropose :: (PubKey 'Sign (Encryption e), ByteString) -> m ()
   }
 
@@ -185,9 +200,15 @@ rpcHandler adapter = \case
     (RPCRefLogGet e)   -> rpcOnRefLogGet adapter e
     (RPCRefLogGetAnswer s)   -> rpcOnRefLogGetAnsw adapter s
     (RPCRefChanHeadSend s)   -> rpcOnRefChanHeadSend adapter s
+
     (RPCRefChanHeadGet s)   -> rpcOnRefChanHeadGet adapter s
     (RPCRefChanHeadGetAnsw s)   -> rpcOnRefChanHeadGetAnsw adapter s
     (RPCRefChanHeadFetch s)   -> rpcOnRefChanHeadFetch adapter s
+
+    (RPCRefChanGet s)   -> rpcOnRefChanGet adapter s
+    (RPCRefChanGetAnsw s)   -> rpcOnRefChanGetAnsw adapter s
+    (RPCRefChanFetch s)   -> rpcOnRefChanFetch adapter s
+
     (RPCRefChanPropose s)   -> rpcOnRefChanPropose adapter s
 
 data RPCOpt =
@@ -211,9 +232,14 @@ runRpcCommand opt = \case
   REFLOGUPDATE bs -> withRPC opt (RPCRefLogUpdate bs)
   REFLOGFETCH k -> withRPC opt (RPCRefLogFetch k)
   REFLOGGET k -> withRPC opt (RPCRefLogGet k)
+
   REFCHANHEADSEND h -> withRPC opt (RPCRefChanHeadSend h)
   REFCHANHEADGET s -> withRPC opt (RPCRefChanHeadGet s)
   REFCHANHEADFETCH s -> withRPC opt (RPCRefChanHeadFetch s)
+
+  REFCHANGET s -> withRPC opt (RPCRefChanGet s)
+  REFCHANFETCH s -> withRPC opt (RPCRefChanFetch s)
+
   REFCHANPROPOSE s -> withRPC opt (RPCRefChanPropose s)
 
   _ -> pure ()
@@ -249,6 +275,8 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
   rchanheadMVar <- liftIO newEmptyMVar
 
+  rchangetMVar <- liftIO newEmptyMVar
+
   let  adapter =
         RpcAdapter dontHandle
                    dontHandle
@@ -277,6 +305,11 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                    (liftIO . putMVar rchanheadMVar) -- rpcOnRefChanHeadGetAnsw
 
                    dontHandle -- rpcOnRefChanHeadFetch
+
+                   dontHandle -- rpcOnRefChanFetch
+                   dontHandle -- rpcOnRefChanGet
+
+                   (liftIO . putMVar rchangetMVar) -- rpcOnRefChanHeadGetAnsw
 
                    dontHandle -- rpcOnRefChanPropose
 
@@ -359,6 +392,20 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                       RPCRefChanHeadFetch {} -> liftIO do
                         pause @'Seconds 0.25
                         exitSuccess
+
+                      RPCRefChanFetch {} -> liftIO do
+                        pause @'Seconds 0.25
+                        exitSuccess
+
+                      RPCRefChanGet {} -> liftIO do
+                        r <- race (pause @'Seconds 2) do
+                                withMVar rchangetMVar $ \v -> do
+                                  pure v
+
+                        case r of
+                          Right (Just x) -> print (pretty x) >> exitSuccess
+
+                          _ -> exitFailure
 
                       RPCRefChanPropose{} -> liftIO do
                         pause @'Seconds 0.25

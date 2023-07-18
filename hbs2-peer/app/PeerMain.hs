@@ -1025,6 +1025,15 @@ runPeer opts = U.handle (\e -> myException e
             --   консенсус слать тогда. может, и оставить
             lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
 
+  let refChanGetAction puk = do
+        trace $ "refChanGetAction" <+> pretty (AsBase58 puk)
+        who <- thatPeer (Proxy @(RPC e))
+        void $ liftIO $ async $ withPeerM penv $ do
+          sto <- getStorage
+          h <- liftIO $ getRef sto (RefChanLogKey @(Encryption e) puk)
+          trace $ "refChanGetAction ANSWER IS" <+> pretty h
+          request who (RPCRefChanGetAnsw @e  h)
+
   let arpc = RpcAdapter pokeAction
                         dieAction
                         dontHandle
@@ -1044,6 +1053,11 @@ runPeer opts = U.handle (\e -> myException e
                         refChanHeadGetAction
                         dontHandle
                         refChanHeadFetchAction
+
+                        dontHandle -- rpcOnRefChanFetch
+                        refChanGetAction
+                        dontHandle -- rpcOnRefChanGetAnsw
+
                         refChanProposeAction
 
   rpc <- async $ runRPC udp1 do
