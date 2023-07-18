@@ -406,8 +406,6 @@ refChanUpdateProto self pc adapter msg = do
         -- --  рассылаем ли себе? что бы был хоть один accept
         lift $ refChanUpdateProto True pc adapter accept
 
-        pure ()
-
      Accept chan box -> deferred proto do
        guard =<< lift (refChanSubscribed adapter chan)
 
