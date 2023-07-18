@@ -201,6 +201,7 @@ refChanWorker env brains = do
       sto <- getStorage
       forever do
         pause @'Seconds 1
+
         _ <- atomically $ peekTQueue (view refChanWorkerEnvWriteQ env)
 
         htrans <- liftIO $ atomically $ flushTQueue (view refChanWorkerEnvWriteQ env)
@@ -210,14 +211,14 @@ refChanWorker env brains = do
           upd <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) blk  & either (const Nothing) Just
 
           case upd of
-            Propose chan _ -> pure (RefChanLogKey chan, h)
-            Accept chan _  -> pure (RefChanLogKey chan, h)
+            Propose chan _ -> pure (RefChanLogKey @(Encryption e) chan, h)
+            Accept chan _  -> pure (RefChanLogKey @(Encryption e) chan, h)
 
         let byChan = HashMap.fromListWith (<>) [ (x, [y]) | (x,y) <- catMaybes trans ]
 
         -- FIXME: process-in-parallel
         forM_ (HashMap.toList byChan) $ \(c,new) -> do
-          mbLog <- liftIO $ getRef sto (RefChanLogKey @(Encryption e) c)
+          mbLog <- liftIO $ getRef sto c
 
           hashes <- maybe1 mbLog (pure mempty) $ \hlog -> do
             S.toList_ $ do
@@ -232,15 +233,10 @@ refChanWorker env brains = do
           -- -- FIXME: remove-chunk-num-hardcode
           let pt = toPTree (MaxSize 256) (MaxNum 256) hashesNew
 
-          newRoot <- liftIO do
-            nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
-              void $ putBlock sto bss
+          nref <- makeMerkle 0 pt $ \(_,_,bss) -> void $ liftIO $ putBlock sto bss
+          liftIO $ updateRef sto c nref
 
-            -- updateRef sto c nref
-            pure ()
-
-
-          pure ()
+          debug $ "REFCHANLOG UPDATED:" <+> pretty c <+> pretty nref
 
     refChanHeadPoll = do
 
