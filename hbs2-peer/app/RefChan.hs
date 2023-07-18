@@ -16,6 +16,7 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
+import HBS2.Events
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Detect
@@ -135,6 +136,7 @@ refChanWorker :: forall e s m . ( MonadIO m
                                 , IsRefPubKey s
                                 , Pretty (AsBase58 (PubKey 'Sign s))
                                 , ForRefChans e
+                                , EventListener e (RefChanRound e) m
                                 , m ~ PeerM e IO
                                 )
              => RefChanWorkerEnv e
@@ -145,6 +147,10 @@ refChanWorker env brains = do
 
   penv <- ask
 
+  subscribe @e RefChanRoundEventKey $ \(RefChanRoundEvent rcrk) -> do
+    debug $ "ON ROUND STARTED" <+> pretty rcrk
+    pure ()
+
   -- FIXME: resume-on-exception
   hw <- async (refChanHeadMon penv)
 
@@ -154,13 +160,19 @@ refChanWorker env brains = do
 
   wtrans <- async refChanWriter
 
+  cleanup1 <- async cleanupRounds
+
   forever do
    pause @'Seconds 10
    debug "I'm refchan worker"
 
-  mapM_ waitCatch [hw,downloads,polls,wtrans]
+  mapM_ waitCatch [hw,downloads,polls,wtrans,cleanup1]
 
   where
+
+    cleanupRounds = forever do
+      pause @'Seconds 20
+      pure ()
 
     refChanWriter = forever do
       pause @'Seconds 1
@@ -170,7 +182,6 @@ refChanWorker env brains = do
 
       forM_ trans $ \t -> do
         debug $ "ABOUT TO WRITE TRANS" <+> pretty t
-
 
     refChanHeadPoll = do
 
