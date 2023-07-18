@@ -23,6 +23,7 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.EncryptionHandshake
+import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
@@ -701,6 +702,13 @@ runPeer opts = U.handle (\e -> myException e
               pl <- getPeerLocator @e
 
               addPeers @e pl ps
+
+              subscribe @e PeerExpiredEventKey \(PeerExpiredEvent peer {-mpeerData-}) -> liftIO do
+                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
+                  forM_ mpeerData \peerData -> setEncryptionKey penv peerData Nothing
+                  -- deletePeerAsymmKey brains peer
+                  forM_ mpeerData \peerData ->
+                      deletePeerAsymmKey' brains (show peerData)
 
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do

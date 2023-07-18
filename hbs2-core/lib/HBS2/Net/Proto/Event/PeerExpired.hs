@@ -14,7 +14,7 @@ data instance EventKey e PeerExpires =
   deriving stock (Typeable, Eq, Generic)
 
 data instance Event e PeerExpires =
-  PeerExpiredEvent (Peer e) (Maybe (PeerData e))
+  PeerExpiredEvent (Peer e) -- (Maybe (PeerData e))
   deriving stock (Typeable)
 
 instance EventType (Event e PeerExpires) where

@@ -224,7 +224,7 @@ peerPingLoop cfg penv = do
                   delPeers pl [p]
                   expire (PeerInfoKey p)
                   expire (KnownPeerKey p)
-                  emit PeerExpiredEventKey (PeerExpiredEvent @e p mpeerData)
+                  emit PeerExpiredEventKey (PeerExpiredEvent @e p {-mpeerData-})
 
   liftIO $ mapM_ link [watch, infoLoop]
 
