@@ -102,6 +102,29 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanHeadKey s) where
   pretty (RefChanHeadKey k) = pretty (AsBase58 k)
 
 
+newtype RefChanLogKey s = RefChanLogKey (PubKey 'Sign s)
+
+deriving stock instance IsRefPubKey s => Eq (RefChanLogKey s)
+
+instance IsRefPubKey s => Hashable (RefChanLogKey s) where
+  hashWithSalt s k = hashWithSalt s (hashObject @HbSync k)
+
+instance IsRefPubKey s => Hashed HbSync (RefChanLogKey s) where
+  hashObject (RefChanLogKey pk) = hashObject ("refchanlog|" <> serialise pk)
+
+instance IsRefPubKey s => FromStringMaybe (RefChanLogKey s) where
+  fromStringMay s = RefChanLogKey <$> fromStringMay s
+
+instance IsRefPubKey s =>  IsString (RefChanLogKey s) where
+  fromString s = fromMaybe (error "bad public key base58") (fromStringMay s)
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (RefChanLogKey s)) where
+  pretty (AsBase58 (RefChanLogKey k)) = pretty (AsBase58 k)
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanLogKey s) where
+  pretty (RefChanLogKey k) = pretty (AsBase58 k)
+
+
 -- блок головы может быть довольно большой.
 -- поэтому посылаем его, как merkle tree
 newtype RefChanHeadBlockTran e =
@@ -431,7 +454,7 @@ refChanUpdateProto self pc adapter msg = do
        here <- liftIO (hasBlock sto (fromHashRef hashRef)) <&> isJust
 
        unless here do
-        debug $ "NO PROPOSE TRANSACTION SAVED YET!" <+> pretty hashRef
+        warn $ "No propose transaction saved yet!" <+> pretty hashRef
 
        tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
 

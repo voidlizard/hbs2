@@ -25,6 +25,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Definition()
+import HBS2.Merkle
 import HBS2.Storage
 
 import HBS2.System.Logger.Simple
@@ -50,6 +51,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Data.Heap qualified as Heap
 import Data.Heap (Heap,Entry(..))
+import Codec.Serialise
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -195,14 +197,50 @@ refChanWorker env brains = do
               atomically $ modifyTVar rounds (HashSet.delete x)
               debug $ "CLEANUP ROUND" <+> pretty x
 
-    refChanWriter = forever do
-      pause @'Seconds 1
-      _ <- atomically $ peekTQueue (view refChanWorkerEnvWriteQ env)
+    refChanWriter = do
+      sto <- getStorage
+      forever do
+        pause @'Seconds 1
+        _ <- atomically $ peekTQueue (view refChanWorkerEnvWriteQ env)
 
-      trans <- liftIO $ atomically $ flushTQueue (view refChanWorkerEnvWriteQ env)
+        htrans <- liftIO $ atomically $ flushTQueue (view refChanWorkerEnvWriteQ env)
 
-      forM_ trans $ \t -> do
-        debug $ "ABOUT TO WRITE TRANS" <+> pretty t
+        trans <- forM htrans $ \h -> runMaybeT do
+          blk <- MaybeT $ liftIO (getBlock sto (fromHashRef h))
+          upd <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) blk  & either (const Nothing) Just
+
+          case upd of
+            Propose chan _ -> pure (RefChanLogKey chan, h)
+            Accept chan _  -> pure (RefChanLogKey chan, h)
+
+        let byChan = HashMap.fromListWith (<>) [ (x, [y]) | (x,y) <- catMaybes trans ]
+
+        -- FIXME: process-in-parallel
+        forM_ (HashMap.toList byChan) $ \(c,new) -> do
+          mbLog <- liftIO $ getRef sto (RefChanLogKey @(Encryption e) c)
+
+          hashes <- maybe1 mbLog (pure mempty) $ \hlog -> do
+            S.toList_ $ do
+              walkMerkle hlog (liftIO . getBlock sto) $ \hr -> do
+                case hr of
+                  Left{} -> pure ()
+                  Right (hrr :: [HashRef]) -> S.each hrr
+
+          -- FIXME: might-be-problems-on-large-logs
+          let hashesNew = HashSet.fromList (hashes <> new) & HashSet.toList
+
+          -- -- FIXME: remove-chunk-num-hardcode
+          let pt = toPTree (MaxSize 256) (MaxNum 256) hashesNew
+
+          newRoot <- liftIO do
+            nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
+              void $ putBlock sto bss
+
+            -- updateRef sto c nref
+            pure ()
+
+
+          pure ()
 
     refChanHeadPoll = do
 
