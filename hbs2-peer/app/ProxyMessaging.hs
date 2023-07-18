@@ -104,16 +104,18 @@ runProxyMessaging env = liftIO do
 
 instance Messaging ProxyMessaging L4Proto LBS.ByteString where
 
-  sendTo = sendToPlainProxyMessaging
+  sendTo = sendToProxyMessaging
 
-  receive bus _ = liftIO do
-    -- trace "PROXY: RECEIVE"
-    -- receive (view proxyUDP bus) w
-    let answ = view proxyAnswers bus
-    atomically $ do
-      r <- readTQueue answ
-      rs <- flushTQueue answ
-      pure (r:rs)
+  receive = receiveFromProxyMessaging
+
+  -- receive bus _ = liftIO do
+  --   -- trace "PROXY: RECEIVE"
+  --   -- receive (view proxyUDP bus) w
+  --   let answ = view proxyAnswers bus
+  --   atomically $ do
+  --     r <- readTQueue answ
+  --     rs <- flushTQueue answ
+  --     pure (r:rs)
 
 sendToPlainProxyMessaging :: (MonadIO m)
   => ProxyMessaging
