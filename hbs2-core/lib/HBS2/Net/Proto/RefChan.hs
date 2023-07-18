@@ -377,8 +377,6 @@ refChanUpdateProto self pc adapter msg = do
 
        lift $ gossip msg
 
-       lift $ refChanUpdateProto True pc adapter msg
-
        tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
 
        tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
@@ -438,6 +436,8 @@ refChanUpdateProto self pc adapter msg = do
          when (pips `HashSet.isSubsetOf` votes) do
           debug $ "CLOSING ROUND" <+> pretty hashRef
           pure ()
+
+       lift $ refChanUpdateProto True pc adapter msg
 
        -- TODO: expire-round-if-all-confirmations
        --   если получили accept от всех пиров
