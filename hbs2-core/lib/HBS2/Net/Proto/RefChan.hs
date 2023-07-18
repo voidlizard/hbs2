@@ -437,8 +437,6 @@ refChanUpdateProto self pc adapter msg = do
           debug $ "CLOSING ROUND" <+> pretty hashRef
           pure ()
 
-       lift $ refChanUpdateProto True pc adapter msg
-
        -- TODO: expire-round-if-all-confirmations
        --   если получили accept от всех пиров
        --   закрываем раунд досрочно.
