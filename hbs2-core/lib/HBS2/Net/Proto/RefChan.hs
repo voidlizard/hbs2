@@ -404,8 +404,7 @@ refChanUpdateProto self pc adapter msg = do
                       _              -> Nothing
 
 
-       (peerKey, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
-
+       (peerKey0, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
 
        debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey)
 
