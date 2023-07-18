@@ -132,6 +132,8 @@ data RefChanRound e =
   RefChanRound
   { _refChanRoundKey     :: HashRef -- ^ hash of the Propose transaction
   , _refChanRoundTS      :: TimeSpec
+  , _refChanRoundClosed  :: TVar Bool
+  , _refChanRoundPropose :: TVar (Maybe (ProposeTran e)) -- ^ propose transaction itself
   , _refChanRoundTrans   :: TVar (HashSet HashRef)
   , _refChanRoundAccepts :: TVar (HashMap (PubKey 'Sign (Encryption e)) ())
   }
@@ -335,8 +337,19 @@ refChanUpdateProto self pc adapter msg = do
         -- если не смогли сохранить транзу, то и Accept разослать
         -- не сможем
         hash <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+        ts <- liftIO getTimeCoarse
+
+        defRound <- RefChanRound @e (HashRef hash) ts
+                       <$> newTVarIO False
+                       <*> newTVarIO Nothing
+                       <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
+                       <*> newTVarIO (HashMap.singleton peerKey ())
+
+        void $ lift $ update defRound (RefChanRoundKey (HashRef hash)) id
 
         lift $ gossip msg
+
+        pause @'Seconds 0.10
 
         -- FIXME: check-if-we-authorized
         --   проверить, что мы вообще авторизованы
@@ -415,7 +428,9 @@ refChanUpdateProto self pc adapter msg = do
        ts <- liftIO getTimeCoarse
 
        defRound <- RefChanRound @e hashRef ts
-                      <$> newTVarIO (HashSet.singleton hashRef) -- save propose
+                      <$> newTVarIO False
+                      <*> newTVarIO Nothing
+                      <*> newTVarIO (HashSet.singleton hashRef) -- save propose
                       <*> newTVarIO (HashMap.singleton peerKey ())
 
        debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
@@ -433,8 +448,10 @@ refChanUpdateProto self pc adapter msg = do
 
        debug $ "ACCEPTS:" <+> pretty accepts
 
+       closed <- readTVarIO (view refChanRoundClosed rcRound)
+
        -- FIXME: round!
-       when (fromIntegral accepts >= view refChanHeadQuorum headBlock) do
+       when (fromIntegral accepts >= view refChanHeadQuorum headBlock && not closed) do
          debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
 
          trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
@@ -442,13 +459,12 @@ refChanUpdateProto self pc adapter msg = do
          forM_ trans $ \t -> do
           lift $ refChanWriteTran adapter t
 
-
          let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
          votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
 
          when (pips `HashSet.isSubsetOf` votes) do
           debug $ "CLOSING ROUND" <+> pretty hashRef
-          pure ()
+          atomically $ writeTVar (view refChanRoundClosed rcRound) True
 
        -- TODO: expire-round-if-all-confirmations
        --   если получили accept от всех пиров
