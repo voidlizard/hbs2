@@ -157,7 +157,7 @@ data PeerEnv e =
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
   , _envAsymmetricKeyPair :: AsymmKeypair (Encryption e)
-  , _envEncryptionKeys :: TVar (HashMap (PeerData L4Proto) (CommonSecret (Encryption L4Proto)))
+  , _envEncryptionKeys :: TVar (HashMap (PeerData e) (CommonSecret (Encryption e)))
   }
 
 setEncryptionKey ::
@@ -415,6 +415,8 @@ newPeerEnv :: forall e m . ( MonadIO m
                            , Pretty (Peer e)
                            , HasNonces () m
                            , Asymm (Encryption e)
+                           , Hashable (PubKey 'Sign (Encryption e))
+                           , Hashable PeerNonce
                            )
           => AnyStorage
           -> Fabriq e
@@ -435,6 +437,7 @@ newPeerEnv s bus p = do
   _envReqMsgLimit   <- liftIO (Cache.newCache (Just defRequestLimit))
   _envReqProtoLimit <- liftIO (Cache.newCache (Just defRequestLimit))
   _envAsymmetricKeyPair <- asymmNewKeypair @(Encryption e)
+  _envEncryptionKeys <- liftIO (newTVarIO mempty)
   pure PeerEnv {..}
 
 runPeerM :: forall e m . ( MonadIO m
