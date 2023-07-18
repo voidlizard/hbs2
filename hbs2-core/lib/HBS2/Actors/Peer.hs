@@ -35,7 +35,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
-import Lens.Micro.Platform
+import Lens.Micro.Platform as Lens
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
@@ -157,8 +157,15 @@ data PeerEnv e =
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
   , _envAsymmetricKeyPair :: AsymmKeypair (Encryption e)
-  , _envEncryptionKeys :: TVar (Map (PeerData L4Proto) (CommonSecret (Encryption L4Proto)))
+  , _envEncryptionKeys :: TVar (HashMap (PeerData L4Proto) (CommonSecret (Encryption L4Proto)))
   }
+
+setEncryptionKey ::
+  ( Hashable (PubKey 'Sign (Encryption L4Proto))
+  , Hashable PeerNonce
+  ) => PeerEnv L4Proto -> PeerData L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
+setEncryptionKey penv pd msecret =
+    atomically $ modifyTVar' (_envEncryptionKeys penv) $ Lens.at pd .~ msecret
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                       deriving newtype ( Functor
