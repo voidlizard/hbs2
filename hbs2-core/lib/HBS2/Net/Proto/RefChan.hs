@@ -38,8 +38,9 @@ import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
-
 import Data.Hashable hiding (Hashed)
+
+import UnliftIO
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -129,14 +130,18 @@ instance ForRefChans e => Serialise (AcceptTran e)
 
 data RefChanRound e =
   RefChanRound
-  { _refChanKey   :: HashRef -- ^ hash of the Propose transaction
-  , _refChanRound :: HashMap (PubKey 'Sign (Encryption e)) ()
+  { _refChanRoundKey     :: HashRef -- ^ hash of the Propose transaction
+  , _refChanRoundAccepts :: TVar (HashMap (PubKey 'Sign (Encryption e)) ())
   }
   deriving stock (Typeable, Generic)
 
+makeLenses 'RefChanRound
+
 newtype instance SessionKey e (RefChanRound e) =
   RefChanRoundKey HashRef
-  deriving stock (Generic, Typeable)
+  deriving stock (Generic, Eq, Typeable)
+
+deriving newtype instance Hashable (SessionKey e (RefChanRound e))
 
 type instance SessionData e (RefChanRound e) = RefChanRound e
 
@@ -247,6 +252,7 @@ refChanUpdateProto :: forall e s m . ( MonadIO m
                                      , Pretty (Peer e)
                                      , Sessions e (KnownPeer e) m
                                      , Sessions e (RefChanHeadBlock e) m
+                                     , Sessions e (RefChanRound e) m
                                      , HasStorage m
                                      , HasGossip e (RefChanUpdate e) m
                                      , Signatures s
@@ -403,12 +409,22 @@ refChanUpdateProto self pc adapter msg = do
 
        (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
 
-       -- может и не надо второй раз проверять
+       -- может, и не надо второй раз проверять
        guard $ checkACL headBlock peerKey authorKey
+
+       defRound <- RefChanRound @e hashRef <$> newTVarIO (HashMap.singleton peerKey ())
 
        debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 
-       pure ()
+       rcRound <- lift $ fetch True defRound (RefChanRoundKey hashRef) id
+
+       atomically $ modifyTVar (view refChanRoundAccepts rcRound) (HashMap.insert peerKey ())
+
+       accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
+
+       -- FIXME: round!
+       when (accepts > 2) do
+         debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
 
        -- TODO: implement-accept
        --  проверяем подпись пира
