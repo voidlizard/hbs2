@@ -422,7 +422,7 @@ refChanUpdateProto self pc adapter msg = do
 
        accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
 
-       debug $ "ACCEPTS" <+> pretty accepts
+       debug $ "ACCEPTS:" <+> pretty accepts
 
        -- FIXME: round!
        when (accepts > 2) do
