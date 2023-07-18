@@ -5,6 +5,7 @@ module RefChan (
   , refChanWorkerEnvHeadQ
   , refChanWorkerEnvDownload
   , refChanOnHeadFn
+  , refChanWriteTranFn
   , refChanWorker
   , refChanWorkerEnv
   , refChanNotifyOnUpdated
@@ -22,7 +23,6 @@ import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
 import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Definition()
 import HBS2.Storage
 
@@ -37,6 +37,7 @@ import Control.Exception ()
 import Control.Monad.Except (throwError, runExceptT)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Control.Concurrent.STM (flushTQueue)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
@@ -65,6 +66,7 @@ data RefChanWorkerEnv e =
   , _refChanWorkerEnvHeadQ    :: TQueue (RefChanId e, RefChanHeadBlockTran e)
   , _refChanWorkerEnvDownload :: TVar (HashMap HashRef (RefChanId e, TimeSpec))
   , _refChanWorkerEnvNotify   :: TVar (HashMap (RefChanId e) ())
+  , _refChanWorkerEnvWriteQ   :: TQueue HashRef
   }
 
 makeLenses 'RefChanWorkerEnv
@@ -77,11 +79,17 @@ refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
 refChanWorkerEnv _ de = liftIO $ RefChanWorkerEnv @e de <$> newTQueueIO
                                                         <*> newTVarIO mempty
                                                         <*> newTVarIO mempty
+                                                        <*> newTQueueIO
 
 
 refChanOnHeadFn :: MonadIO m => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
 refChanOnHeadFn env chan tran = do
   atomically $ writeTQueue (view refChanWorkerEnvHeadQ env) (chan, tran)
+
+
+refChanWriteTranFn :: MonadIO m => RefChanWorkerEnv e -> HashRef -> m ()
+refChanWriteTranFn env href = do
+  atomically $ writeTQueue (view refChanWorkerEnvWriteQ env) href
 
 -- FIXME: leak-when-block-never-really-updated
 refChanNotifyOnUpdated :: (MonadIO m, ForRefChans e) => RefChanWorkerEnv e -> RefChanId e -> m ()
@@ -144,13 +152,25 @@ refChanWorker env brains = do
 
   polls <- async refChanHeadPoll
 
+  wtrans <- async refChanWriter
+
   forever do
    pause @'Seconds 10
    debug "I'm refchan worker"
 
-  mapM_ waitCatch [hw,downloads,polls]
+  mapM_ waitCatch [hw,downloads,polls,wtrans]
 
   where
+
+    refChanWriter = forever do
+      pause @'Seconds 1
+      _ <- atomically $ peekTQueue (view refChanWorkerEnvWriteQ env)
+
+      trans <- liftIO $ atomically $ flushTQueue (view refChanWorkerEnvWriteQ env)
+
+      forM_ trans $ \t -> do
+        debug $ "ABOUT TO WRITE TRANS" <+> pretty t
+
 
     refChanHeadPoll = do
 

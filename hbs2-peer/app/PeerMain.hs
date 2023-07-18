@@ -565,7 +565,7 @@ runPeer opts = U.handle (\e -> myException e
   let refChanAdapter = RefChanAdapter
                            { refChanOnHead = refChanOnHeadFn rce
                            , refChanSubscribed = isPolledRef @e brains
-                           , refChanWriteTran = \_ _ -> pure ()
+                           , refChanWriteTran = refChanWriteTranFn rce
                            }
 
   let pexFilt pips = do

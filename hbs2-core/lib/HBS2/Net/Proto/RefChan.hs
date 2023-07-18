@@ -183,7 +183,7 @@ data RefChanAdapter e m =
   RefChanAdapter
   { refChanOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
   , refChanSubscribed :: RefChanId e -> m Bool
-  , refChanWriteTran  :: RefChanId e -> RefChanUpdate e -> m ()
+  , refChanWriteTran  :: HashRef -> m ()
   }
 
 refChanHeadProto :: forall e s m . ( MonadIO m
@@ -362,7 +362,9 @@ refChanUpdateProto self pc adapter msg = do
      Accept chan box -> deferred proto do
        guard =<< lift (refChanSubscribed adapter chan)
 
-       debug "RefChanUpdate/ACCEPT"
+       let h0 = hashObject @HbSync (serialise msg)
+
+       debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
        (peerKey, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
 
@@ -372,6 +374,8 @@ refChanUpdateProto self pc adapter msg = do
        guard (HashRef h == headRef)
 
        lift $ gossip msg
+
+       lift $ refChanUpdateProto True pc adapter msg
 
        tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
 
@@ -423,7 +427,14 @@ refChanUpdateProto self pc adapter msg = do
          trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
 
          forM_ trans $ \t -> do
-          debug $ "ABOUT TO STORE TRAN:" <+> pretty t
+          lift $ refChanWriteTran adapter t
+
+
+         let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
+         votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
+
+         when (pips `HashSet.isSubsetOf` votes) do
+          debug $ "CLOSING ROUND" <+> pretty hashRef
           pure ()
 
        -- TODO: expire-round-if-all-confirmations
