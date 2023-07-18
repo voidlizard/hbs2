@@ -364,7 +364,7 @@ refChanUpdateProto self pc adapter msg = do
 
        let h0 = hashObject @HbSync (serialise msg)
 
-       guard =<< liftIO (hasBlock sto h0 <&> isJust)
+       -- guard =<< liftIO (hasBlock sto h0 <&> isJust)
 
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
