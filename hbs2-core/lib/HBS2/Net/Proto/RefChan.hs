@@ -131,6 +131,8 @@ instance ForRefChans e => Serialise (AcceptTran e)
 data RefChanRound e =
   RefChanRound
   { _refChanRoundKey     :: HashRef -- ^ hash of the Propose transaction
+  , _refChanRoundTS      :: TimeSpec
+  , _refChanRoundTrans   :: TVar (HashSet HashRef)
   , _refChanRoundAccepts :: TVar (HashMap (PubKey 'Sign (Encryption e)) ())
   }
   deriving stock (Typeable, Generic)
@@ -145,10 +147,8 @@ deriving newtype instance Hashable (SessionKey e (RefChanRound e))
 
 type instance SessionData e (RefChanRound e) = RefChanRound e
 
--- TODO: find-out-proper-timeout
---  например, wait * 2
 instance Expires (SessionKey e (RefChanRound e)) where
-  expiresIn _ = Just 600
+  expiresIn _ = Just 300
 
 -- TODO: find-out-sure-transaction-size
 --   транзакция должна быть маленькая!
@@ -287,33 +287,16 @@ refChanUpdateProto self pc adapter msg = do
     -- где-то тут мы разбираемся, что такое сообщеине
     -- уже отправляли и больше одного раза не реагируем
 
+    -- У нас тут получается раунд на каждый Propose
+    -- Это может быть и хорошо и похо. Если очень
+    -- много транзакций, это плохо. Если не очень
+    -- то это нормально и можно обойтись без понятия
+    -- "блок".
+    -- так-то и количество proposers можно ограничить
+
     case msg of
      Propose chan box -> do
        guard =<< lift (refChanHeadSubscribed adapter chan)
-
-       -- TODO: implement-propose-reaction
-       --   достать голову если есть
-       --   если нет - увы. ничего не делать
-       --   достать голову, которую прислали, если она есть
-       --   если нет -- это может значить, что  либо она левая,
-       --   либо у нас еще не обновилось.
-       --   ну короче, по факту можем поддержать разговор,
-       --   только если у нас такая же голова.
-       --   в любом другом случае ничего не делаем.
-       --
-       --   короче. такое:
-       --   смотрим, что голова == нашей голове
-       --   если да, то достаём
-       --   смотрим, что пир вообще может сюда писать
-       --   если нет - то ничего не делаем.
-       --   смотрим, что автор вообще может сюда писать.
-       --   если нет - то ничего не делаем.
-       --
-       --   если же пир может писать, автор может писать,
-       --   то рассылаем всем участникам Accept, свой Accept
-       --   тоже куда-то запоминаем (куда?)
-       --   ну или шлём его себе сами - просто вызываем эту
-       --   же функцию в этом же контексте с Accept
 
        debug "RefChanUpdate/Propose"
        deferred proto do
@@ -395,16 +378,11 @@ refChanUpdateProto self pc adapter msg = do
 
        headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
 
-       -- -- TODO: additional-validation
-       -- --   можно бы проверить транзакцию еще раз,
-       -- --   но можно считать, что раз мы её записали,
-       -- --   то она годная
        proposed <- MaybeT $ pure $ case tran of
                       Propose _ pbox -> Just pbox
                       _              -> Nothing
 
-
-       (peerKey0, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
+       (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
 
        debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey)
 
@@ -416,7 +394,11 @@ refChanUpdateProto self pc adapter msg = do
        -- может, и не надо второй раз проверять
        guard $ checkACL headBlock peerKey authorKey
 
-       defRound <- RefChanRound @e hashRef <$> newTVarIO (HashMap.singleton peerKey ())
+       ts <- liftIO getTimeCoarse
+
+       defRound <- RefChanRound @e hashRef ts
+                      <$> newTVarIO (HashSet.singleton hashRef) -- save propose
+                      <*> newTVarIO (HashMap.singleton peerKey ())
 
        debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 
@@ -424,20 +406,30 @@ refChanUpdateProto self pc adapter msg = do
 
        atomically $ modifyTVar (view refChanRoundAccepts rcRound) (HashMap.insert peerKey ())
 
+       -- TODO: garbage-collection-strongly-required
+       ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+
+       atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
+
        accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
 
        debug $ "ACCEPTS:" <+> pretty accepts
 
        -- FIXME: round!
-       when (accepts >= 2) do
+       when (fromIntegral accepts >= view refChanHeadQuorum headBlock) do
          debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
 
-       -- TODO: implement-accept
-       --  проверяем подпись пира
-       --  смотрим, что такая транза у нас вообще есть
-       --  смотрим, что она валидна (голова совпадает, права совпадают)
-       --  если да и всё ок - то считаем, сколько у нас accept-ов
-       --  получено (где? в базе? в сессии?)
+         trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
+
+         forM_ trans $ \t -> do
+          debug $ "ABOUT TO STORE TRAN:" <+> pretty t
+          pure ()
+
+       -- TODO: expire-round-if-all-confirmations
+       --   если получили accept от всех пиров
+       --   закрываем раунд досрочно.
+       --   иначе ждём wait -- нам нужен процесс для этого
+       --   куда его деть-то?
 
   where
     proto = Proxy @(RefChanUpdate e)
@@ -452,6 +444,11 @@ refChanUpdateProto self pc adapter msg = do
         aus  = view refChanHeadAuthors theHead
         match =   peerKey `HashMap.member` pips
                && authorKey `HashSet.member` aus
+
+-- TODO: refchan-poll-proto
+--   Запрашиваем refchan у всех.
+--   Пишем в итоговый лог только такие
+--   propose + accept у которых больше quorum accept
 
 getActualRefChanHead :: forall e s m . ( MonadIO m
                                        , Sessions e (RefChanHeadBlock e) m
@@ -574,33 +571,6 @@ instance ForRefChans e => Pretty (RefChanHeadBlock e) where
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
-
-
--- TODO: implement-refchans-head
---   Сгенерировать транзакцию RefHead
---   Послать транзакцию RefHead
---   Принять транзакцию RefHead
---   Валидировать транзакцию RefHead
---   Ответить на запрос RefChanGetHead
---
---  Как послать:
---    надо сохранить и как-то передать в серверную часть пира
---    или просто как-то передать в серверную часть пира.
---    Блок может быть довольно большим (больше UDP) пакета
---
---  Вариант 1.
---    Сохраняем hbs2 и дальше оперируем уже хэшем
---    дерева.
---    Что если пир на другом хосте? Черт
---    его знает уже. Через HTTP API?
---
---  Вариант 2.
---    Можно тоже самое из пира, но тогда надо узнать
---    его сторейдж или всё-таки найти способ передать транзакцию
---    ему в контекст
---
---
---
 
 
 
