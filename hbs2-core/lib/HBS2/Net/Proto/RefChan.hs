@@ -299,7 +299,10 @@ refChanUpdateProto self pc adapter msg = do
      Propose chan box -> do
        guard =<< lift (refChanSubscribed adapter chan)
 
-       debug "RefChanUpdate/Propose"
+       let h0 = hashObject @HbSync (serialise msg)
+
+       debug $ "RefChanUpdate/Propose" <+> pretty h0
+
        deferred proto do
 
         -- проверили подпись пира
@@ -389,7 +392,7 @@ refChanUpdateProto self pc adapter msg = do
 
        (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
 
-       debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey)
+       debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey) <+> pretty h0
 
        -- compiler bug?
        let (ProposeTran _ pbox) = ptran
