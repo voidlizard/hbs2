@@ -364,6 +364,8 @@ refChanUpdateProto self pc adapter msg = do
 
        let h0 = hashObject @HbSync (serialise msg)
 
+       guard =<< liftIO (hasBlock sto h0 <&> isJust)
+
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
        (peerKey, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
