@@ -380,6 +380,9 @@ refChanUpdateProto self pc adapter msg = do
 
        lift $ gossip msg
 
+       -- тут может так случиться, что propose еще нет
+       -- UDP вообще не гарантирует порядок доставки, а отправляем мы транзы
+       -- почти одновременно. ну или не успело записаться. и что делать?
        tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
 
        tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
