@@ -301,6 +301,10 @@ refChanUpdateProto self pc adapter msg = do
 
        let h0 = hashObject @HbSync (serialise msg)
 
+       done <- liftIO (hasBlock sto h0) <&> isJust
+
+       guard (not done)
+
        debug $ "RefChanUpdate/Propose" <+> pretty h0
 
        deferred proto do
