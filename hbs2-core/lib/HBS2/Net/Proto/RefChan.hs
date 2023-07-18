@@ -389,8 +389,6 @@ refChanUpdateProto self pc adapter msg = do
         --   проверить, что мы вообще авторизованы
         --   рассылать ACCEPT
 
-        debug $ "MY-PK" <+> pretty (AsBase58 pk) <+> pretty (fmap AsBase58 $ HashMap.keys pips)
-
         guard ( pk `HashMap.member` pips )
 
         -- если нет - то и всё, просто перешлём
