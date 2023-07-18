@@ -7,6 +7,7 @@ import HBS2.Clock
 import HBS2.Events
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.PeerLocator
+import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
@@ -221,6 +222,7 @@ peerPingLoop cfg penv = do
                   delPeers pl [p]
                   expire (PeerInfoKey p)
                   expire (KnownPeerKey p)
+                  emit PeerExpiredEventKey (PeerExpiredEvent @e p)
 
   liftIO $ mapM_ link [watch, infoLoop]
 
