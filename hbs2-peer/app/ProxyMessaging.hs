@@ -1,10 +1,8 @@
 {-# Language TemplateHaskell #-}
 module ProxyMessaging
-  ( ProxyMessaging
-  , PlainProxyMessaging(..)
+  ( ProxyMessaging(..)
   , newProxyMessaging
   , runProxyMessaging
-  , proxyEncryptionKeys
   , sendToPlainProxyMessaging
   ) where
 
@@ -49,10 +47,12 @@ data ProxyMessaging =
   { _proxyUDP :: MessagingUDP
   , _proxyTCP  :: Maybe MessagingTCP
   , _proxyAnswers :: TQueue (From L4Proto, LBS.ByteString)
-  , _proxyEncryptionKeys :: TVar (Map (Peer L4Proto) (CommonSecret (Encryption L4Proto)))
-  }
 
-newtype PlainProxyMessaging = PlainProxyMessaging ProxyMessaging
+  , _proxy_getEncryptionKey :: Peer L4Proto -> IO (Maybe (CommonSecret (Encryption L4Proto)))
+  , _proxy_clearEncryptionKey :: Peer L4Proto -> IO ()
+  , _proxy_sendResetEncryptionKeys :: Peer L4Proto -> IO ()
+  , _proxy_sendBeginEncryptionExchange :: Peer L4Proto -> IO ()
+  }
 
 -- 1 нода X создаёт себе Encrypt.Keypair
 -- 2 подписывает из него публичный ключ ключом подписи ноды X и отправляет ноде Y
@@ -67,9 +67,16 @@ newProxyMessaging :: forall m . MonadIO m
                   -> m ProxyMessaging
 
 newProxyMessaging u t = liftIO do
-  ProxyMessaging u t
-    <$> newTQueueIO
-    <*> newTVarIO mempty
+    let _proxyUDP = u
+    let _proxyTCP = t
+    _proxyAnswers <- newTQueueIO
+
+    let _proxy_getEncryptionKey = const (pure Nothing)
+    let _proxy_clearEncryptionKey = const (pure ())
+    let _proxy_sendResetEncryptionKeys = const (pure ())
+    let _proxy_sendBeginEncryptionExchange = const (pure ())
+
+    pure ProxyMessaging {..}
 
 runProxyMessaging :: forall m . MonadIO  m
                   => ProxyMessaging
@@ -130,8 +137,8 @@ sendToProxyMessaging :: (MonadIO m)
 sendToProxyMessaging bus t@(To whom) proto msg = do
     -- sendTo (view proxyUDP bus)  t proto msg
     -- trace $ "PROXY: SEND" <+> pretty whom
-    encKey <- Map.lookup whom <$> (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
-    cf <- case encKey of
+    mencKey <- liftIO $ _proxy_getEncryptionKey bus whom
+    cf <- case mencKey of
         Nothing -> do
             trace $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
             pure id
@@ -148,8 +155,7 @@ receiveFromProxyMessaging bus _ = liftIO do
     let answ = view proxyAnswers bus
     rs <- atomically $ liftM2 (:) (readTQueue answ) (flushTQueue answ)
     fmap catMaybes $ forM rs \(w@(From whom), msg) -> do
-        encKeys <- (liftIO . readTVarIO) (view proxyEncryptionKeys bus)
-        fmap (w, ) <$> dfm whom (Map.lookup whom encKeys) msg
+        fmap (w, ) <$> dfm whom msg
 
     -- Здесь:
     -- 1. У нас есть ключ сессии и мы не смогли расшифровать -> do
@@ -161,23 +167,25 @@ receiveFromProxyMessaging bus _ = liftIO do
 
     -- В протоколе пингов:
     -- 1. Если слишком долго нет ответа на ping, то удаляем у себя ключ, отправляем sendResetEncryptionKeys
+    --       Выполняется в PeerInfo:
+    --       emit PeerExpiredEventKey (PeerExpiredEvent @e p mpeerData)
 
     where
-      dfm :: Peer L4Proto -> Maybe Encrypt.CombinedKey -> LBS.ByteString -> IO (Maybe LBS.ByteString)
-      dfm = \whom mk msg -> case mk of
+      dfm :: Peer L4Proto -> LBS.ByteString -> IO (Maybe LBS.ByteString)
+      dfm = \whom msg -> liftIO $ _proxy_getEncryptionKey bus whom >>= \case
+
           Nothing -> do
               trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
-              -- TODO: run sendResetEncryptionKeys
+              liftIO $ _proxy_sendBeginEncryptionExchange bus whom
               pure (Just msg)
+
           Just k -> runMaybeT $
             -- А будем-ка мы просто передавать сообщение дальше как есть, если не смогли расшифровать
             (<|> (do
 
-                -- сотрём ключ из памяти
-                -- liftIO $ atomically $ modifyTVar' (view proxyEncryptionKeys bus) $ Lens.at whom .~ Nothing
+                liftIO $ _proxy_clearEncryptionKey bus whom
 
-                -- TODO: удаляем у себя ключ
-                -- TODO: run sendBeginEncryptionExchange
+                liftIO $ _proxy_sendResetEncryptionKeys bus whom
 
                 trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
                 pure msg
