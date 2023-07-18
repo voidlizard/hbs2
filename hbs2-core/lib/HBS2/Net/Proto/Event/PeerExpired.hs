@@ -3,6 +3,7 @@ module HBS2.Net.Proto.Event.PeerExpired where
 import HBS2.Clock
 import HBS2.Events
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Peer
 import HBS2.Prelude.Plated
 
 data PeerExpires = PeerExpires
@@ -12,7 +13,7 @@ data instance EventKey e PeerExpires =
   deriving stock (Typeable, Eq, Generic)
 
 data instance Event e PeerExpires =
-  PeerExpiredEvent (Peer e)
+  PeerExpiredEvent (Peer e) (Maybe (PeerData e))
   deriving stock (Typeable)
 
 instance EventType (Event e PeerExpires) where

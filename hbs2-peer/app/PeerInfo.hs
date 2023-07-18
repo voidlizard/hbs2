@@ -219,10 +219,11 @@ peerPingLoop cfg penv = do
                 let l = realToFrac (toNanoSecs $ now - seen) / 1e9
                 -- FIXME: time-hardcode
                 when ( l > 300 ) do
+                  mpeerData <- find (KnownPeerKey p) id
                   delPeers pl [p]
                   expire (PeerInfoKey p)
                   expire (KnownPeerKey p)
-                  emit PeerExpiredEventKey (PeerExpiredEvent @e p)
+                  emit PeerExpiredEventKey (PeerExpiredEvent @e p mpeerData)
 
   liftIO $ mapM_ link [watch, infoLoop]
 
