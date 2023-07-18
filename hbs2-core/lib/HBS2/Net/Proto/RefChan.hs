@@ -133,7 +133,7 @@ data RefChanRound e =
   RefChanRound
   { _refChanRoundKey     :: HashRef -- ^ hash of the Propose transaction
   , _refChanHeadKey      :: RefChanHeadKey (Encryption e)
-  , _refChanRoundTS      :: TimeSpec
+  , _refChanRoundTTL     :: TimeSpec
   , _refChanRoundClosed  :: TVar Bool
   , _refChanRoundPropose :: TVar (Maybe (ProposeTran e)) -- ^ propose transaction itself
   , _refChanRoundTrans   :: TVar (HashSet HashRef)
@@ -359,10 +359,15 @@ refChanUpdateProto self pc adapter msg = do
 
         -- если не смогли сохранить транзу, то и Accept разослать
         -- не сможем
+        -- это правильно, так как транза содержит ссылку на RefChanId
+        -- следовательно, для другого рефчана будет другая транза
         hash <- MaybeT $ liftIO $ putBlock sto (serialise msg)
         ts <- liftIO getTimeCoarse
 
-        defRound <- RefChanRound @e (HashRef hash) refchanKey ts
+        let toWait = TimeoutSec (fromIntegral $ 2 * view refChanHeadWaitAccept headBlock)
+        let ttl = ts + fromNanoSecs (fromIntegral $ toNanoSeconds toWait)
+
+        defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
                        <$> newTVarIO False
                        <*> newTVarIO Nothing
                        <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
@@ -375,6 +380,9 @@ refChanUpdateProto self pc adapter msg = do
 
         lift $ gossip msg
 
+        -- FIXME: random-delay-to-avoid-race
+        --   выглядит не очень хорошо, 100ms
+        --   и не гарантирует от гонок
         pause @'Seconds 0.10
 
         -- FIXME: check-if-we-authorized

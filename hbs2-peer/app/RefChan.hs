@@ -188,16 +188,12 @@ refChanWorker env brains = do
             se <- MaybeT $ find @e x id
 
             closed <- readTVarIO (view refChanRoundClosed se)
-            let ts = view refChanRoundTS se
+            let ttl = view refChanRoundTTL se
 
-            -- FIXME: use-wait-from-head
-            let expired = toNanoSecs (now - ts) > toNanoSecs ( round (60*1e9) )
-
-            when (closed || expired) do
+            when (closed || ttl <= now) do
               lift $ expire x
               atomically $ modifyTVar rounds (HashSet.delete x)
               debug $ "CLEANUP ROUND" <+> pretty x
-
 
     refChanWriter = forever do
       pause @'Seconds 1
