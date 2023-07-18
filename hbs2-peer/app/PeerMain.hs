@@ -594,7 +594,7 @@ runPeer opts = U.handle (\e -> myException e
 
             , _proxy_clearEncryptionKey = \peer -> do
                   mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mpeerData \peerData -> setEncryptionKey penv peerData Nothing
+                  forM_ mpeerData \peerData -> setEncryptionKey penv peer peerData Nothing
                   -- deletePeerAsymmKey brains peer
                   forM_ mpeerData \peerData ->
                       deletePeerAsymmKey' brains (show peerData)
@@ -686,7 +686,7 @@ runPeer opts = U.handle (\e -> myException e
                           mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
                           case mpubkey of
                               Nothing -> do
-                                  trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mpeerData
+                                  -- trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mpeerData
                                   -- deletePeerAsymmKey brains peer
                                   forM_ mpeerData \peerData ->
                                       deletePeerAsymmKey' brains (show peerData)
@@ -695,11 +695,11 @@ runPeer opts = U.handle (\e -> myException e
                                   let symmk = genCommonSecret @s
                                           (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                                           pk
-                                  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow mpeerData
                                   case mpeerData of
                                       Nothing -> do
                                           -- insertPeerAsymmKey brains peer pk symmk
-                                          pure ()
+                                          trace $ "ENCRYPTION can not store key. No peerData"
+                                              <+> pretty peer <+> viaShow mpeerData
                                       Just peerData ->
                                           insertPeerAsymmKey' brains (show peerData) pk symmk
 
@@ -715,7 +715,7 @@ runPeer opts = U.handle (\e -> myException e
 
               subscribe @e PeerExpiredEventKey \(PeerExpiredEvent peer {-mpeerData-}) -> liftIO do
                   mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mpeerData \peerData -> setEncryptionKey penv peerData Nothing
+                  forM_ mpeerData \peerData -> setEncryptionKey penv peer peerData Nothing
                   -- deletePeerAsymmKey brains peer
                   forM_ mpeerData \peerData ->
                       deletePeerAsymmKey' brains (show peerData)

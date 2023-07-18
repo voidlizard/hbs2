@@ -163,9 +163,15 @@ data PeerEnv e =
 setEncryptionKey ::
   ( Hashable (PubKey 'Sign (Encryption L4Proto))
   , Hashable PeerNonce
-  ) => PeerEnv L4Proto -> PeerData L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
-setEncryptionKey penv pd msecret =
+  , Show (PubKey 'Sign (Encryption L4Proto))
+  , Show PeerNonce
+  , Show (CommonSecret (Encryption L4Proto))
+  ) => PeerEnv L4Proto -> Peer L4Proto -> PeerData L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
+setEncryptionKey penv peer pd msecret = do
     atomically $ modifyTVar' (_envEncryptionKeys penv) $ Lens.at pd .~ msecret
+    case msecret of
+        Nothing -> trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow pd
+        Just k ->  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow pd <+> viaShow k
 
 getEncryptionKey ::
   ( Hashable (PubKey 'Sign (Encryption L4Proto))
