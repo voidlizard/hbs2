@@ -425,7 +425,7 @@ refChanUpdateProto self pc adapter msg = do
        debug $ "ACCEPTS:" <+> pretty accepts
 
        -- FIXME: round!
-       when (accepts > 2) do
+       when (accepts >= 2) do
          debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
 
        -- TODO: implement-accept
