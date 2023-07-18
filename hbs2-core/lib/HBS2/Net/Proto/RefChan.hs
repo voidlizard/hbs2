@@ -449,6 +449,7 @@ refChanUpdateProto self pc adapter msg = do
 --   Запрашиваем refchan у всех.
 --   Пишем в итоговый лог только такие
 --   propose + accept у которых больше quorum accept
+--   каждую транзу обрабатываем только один раз
 
 getActualRefChanHead :: forall e s m . ( MonadIO m
                                        , Sessions e (RefChanHeadBlock e) m
