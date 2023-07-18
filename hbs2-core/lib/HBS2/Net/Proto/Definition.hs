@@ -7,6 +7,7 @@ module HBS2.Net.Proto.Definition
   where
 
 import HBS2.Clock
+import HBS2.Data.Types.Crypto
 import HBS2.Defaults
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
@@ -32,14 +33,10 @@ import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
 
+import HBS2.Data.Types.Crypto
 
 
 type instance Encryption L4Proto = HBS2Basic
-
-type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
-type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
-type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
-type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 
 -- FIXME: proper-serialise-for-keys
 --   Возможно, нужно написать ручные инстансы Serialise
@@ -47,11 +44,6 @@ type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 --   и это будет более правильная сериализация.
 --   но возможно, будет работать и так, ведь ключи
 --   это же всего лишь байтстроки внутри.
-
-instance Serialise Sign.PublicKey
-instance Serialise Encrypt.PublicKey
-instance Serialise Sign.SecretKey
-instance Serialise Encrypt.SecretKey
 
 deserialiseCustom :: (Serialise a, MonadPlus m) => ByteString -> m a
 deserialiseCustom = either (const mzero) pure . deserialiseOrFail
@@ -193,13 +185,6 @@ instance MonadIO m => HasNonces () m where
   newNonce = do
     n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
-
-instance Serialise Sign.Signature
-
-instance Signatures HBS2Basic where
-  type Signature HBS2Basic = Sign.Signature
-  makeSign = Sign.signDetached
-  verifySign = Sign.signVerifyDetached
 
 instance Asymm HBS2Basic where
   type AsymmKeypair HBS2Basic = Encrypt.Keypair

@@ -107,6 +107,7 @@ common shared-properties
                      , OverloadedStrings
                      , QuasiQuotes
                      , RecordWildCards
+                     , RecursiveDo
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections

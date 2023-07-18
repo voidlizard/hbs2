@@ -59,6 +59,7 @@ common shared-properties
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , TemplateHaskell
 
 
 
@@ -74,6 +75,7 @@ library
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Crypto
+                    , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
                     , HBS2.Defaults
                     , HBS2.Events

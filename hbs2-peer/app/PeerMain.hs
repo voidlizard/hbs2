@@ -11,6 +11,7 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Data.Types
 import HBS2.Data.Types.Refs (RefLogKey(..))
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
@@ -576,11 +577,18 @@ runPeer opts = U.handle (\e -> myException e
            void $ async $ runMessagingTCP tcpEnv
            pure $ Just tcpEnv
 
-  proxy <- newProxyMessaging mess tcp
+  (proxy, penv) <- mdo
+      proxy <- newProxyMessaging mess tcp >>= \p -> do
+          pure p
+            { _proxy_getEncryptionKey = undefined
+            , _proxy_clearEncryptionKey = undefined
+            , _proxy_sendResetEncryptionKeys = undefined
+            , _proxy_sendBeginEncryptionExchange = undefined
+          }
+      penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
+      pure (proxy, penv)
 
   proxyThread <- async $ runProxyMessaging proxy
-
-  penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
 
   let peerMeta = mkPeerMeta conf penv
 

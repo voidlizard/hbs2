@@ -7,6 +7,7 @@ module HBS2.Actors.Peer where
 
 import HBS2.Actors
 import HBS2.Clock
+import HBS2.Data.Types.Peer
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -30,6 +31,7 @@ import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
 import Data.Foldable hiding (find)
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
@@ -155,6 +157,7 @@ data PeerEnv e =
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
   , _envAsymmetricKeyPair :: AsymmKeypair (Encryption e)
+  , _envEncryptionKeys :: TVar (Map (PeerData L4Proto) (CommonSecret (Encryption L4Proto)))
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }

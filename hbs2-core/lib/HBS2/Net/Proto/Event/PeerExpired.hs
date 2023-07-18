@@ -1,6 +1,7 @@
 module HBS2.Net.Proto.Event.PeerExpired where
 
 import HBS2.Clock
+import HBS2.Data.Types.Peer
 import HBS2.Events
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer

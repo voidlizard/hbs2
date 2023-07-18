@@ -23,24 +23,6 @@ import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
 
-type PingSign e = Signature (Encryption e)
-type PingNonce = BS.ByteString
-
-data PeerData e =
-  PeerData
-  { _peerSignKey  :: PubKey 'Sign (Encryption e)
-  , _peerOwnNonce :: PeerNonce -- TODO: to use this field to detect if it's own peer to avoid loops
-  }
-  deriving stock (Typeable,Generic)
-
-deriving instance
-    ( Show (PubKey 'Sign (Encryption e))
-    , Show (Nonce ())
-    )
-    => Show (PeerData e)
-
-makeLenses 'PeerData
-
 data PeerHandshake e =
     PeerPing  PingNonce
   | PeerPong  PingNonce (Signature (Encryption e)) (PeerData e)

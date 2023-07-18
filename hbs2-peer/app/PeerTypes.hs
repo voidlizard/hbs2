@@ -6,6 +6,7 @@ module PeerTypes where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Data.Types.Peer
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash

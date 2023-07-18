@@ -4,6 +4,7 @@ module PeerInfo where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.PeerLocator
