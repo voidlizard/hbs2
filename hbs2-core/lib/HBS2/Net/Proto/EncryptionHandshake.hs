@@ -65,16 +65,14 @@ sendBeginEncryptionExchange :: forall e s m .
     , e ~ L4Proto
     , s ~ Encryption e
     )
-  => PeerEnv e
-  -> PeerCredentials s
-  -> Peer e
+  => PeerCredentials s
   -> PubKey 'Encrypt (Encryption e)
+  -> Peer e
   -> m ()
 
-sendBeginEncryptionExchange penv creds peer pubkey = do
-    let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
+sendBeginEncryptionExchange creds ourpubkey peer = do
     let sign = makeSign @s (view peerSignSk creds) ((cs . serialise) ourpubkey)
-    request peer (BeginEncryptionExchange @e sign pubkey)
+    request peer (BeginEncryptionExchange @e sign ourpubkey)
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
   { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe (PeerData e) -> Maybe Encrypt.PublicKey -> m ()
@@ -115,7 +113,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
 
       creds <- getCredentials @s
       let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
-      sendBeginEncryptionExchange @e penv creds peer ourpubkey
+      sendBeginEncryptionExchange @e creds ourpubkey peer
 
   BeginEncryptionExchange theirsign theirpubkey -> do
       peer <- thatPeer proto

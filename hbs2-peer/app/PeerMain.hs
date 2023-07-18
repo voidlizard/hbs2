@@ -578,12 +578,26 @@ runPeer opts = U.handle (\e -> myException e
            pure $ Just tcpEnv
 
   (proxy, penv) <- mdo
-      proxy <- newProxyMessaging mess tcp >>= \p -> do
-          pure p
-            { _proxy_getEncryptionKey = undefined
-            , _proxy_clearEncryptionKey = undefined
-            , _proxy_sendResetEncryptionKeys = undefined
-            , _proxy_sendBeginEncryptionExchange = undefined
+      proxy <- newProxyMessaging mess tcp >>= \peer -> pure peer
+            { _proxy_getEncryptionKey = \peer -> do
+                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
+                  join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+
+            , _proxy_clearEncryptionKey = \peer -> do
+                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
+                  forM_ mpeerData \peerData -> setEncryptionKey penv peerData Nothing
+                  -- deletePeerAsymmKey brains peer
+                  forM_ mpeerData \peerData ->
+                      deletePeerAsymmKey' brains (show peerData)
+
+            , _proxy_sendResetEncryptionKeys = \peer -> withPeerM penv do
+                  sendResetEncryptionKeys peer
+
+            , _proxy_sendBeginEncryptionExchange = \peer -> withPeerM penv do
+                  sendBeginEncryptionExchange pc
+                      ((pubKeyFromKeypair @s . view envAsymmetricKeyPair) penv)
+                      peer
+
           }
       penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
       pure (proxy, penv)
@@ -661,7 +675,7 @@ runPeer opts = U.handle (\e -> myException e
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
                     { encHandshake_considerPeerAsymmKey = \peer mpeerData -> \case
                         Nothing -> do
-                            deletePeerAsymmKey brains peer
+                            -- deletePeerAsymmKey brains peer
                             forM_ mpeerData \peerData ->
                                 deletePeerAsymmKey' brains (show peerData)
                         Just pk -> do
@@ -670,7 +684,9 @@ runPeer opts = U.handle (\e -> myException e
                                     (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
                                     pk
                             case mpeerData of
-                                Nothing -> insertPeerAsymmKey brains peer pk symmk
+                                Nothing -> do
+                                    -- insertPeerAsymmKey brains peer pk symmk
+                                    pure ()
                                 Just peerData ->
                                     insertPeerAsymmKey' brains (show peerData) pk symmk
                     }

@@ -167,6 +167,13 @@ setEncryptionKey ::
 setEncryptionKey penv pd msecret =
     atomically $ modifyTVar' (_envEncryptionKeys penv) $ Lens.at pd .~ msecret
 
+getEncryptionKey ::
+  ( Hashable (PubKey 'Sign (Encryption L4Proto))
+  , Hashable PeerNonce
+  ) => PeerEnv L4Proto -> PeerData L4Proto -> IO (Maybe (CommonSecret (Encryption L4Proto)))
+getEncryptionKey penv pd =
+    readTVarIO (_envEncryptionKeys penv) <&> preview (Lens.ix pd)
+
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                       deriving newtype ( Functor
                                        , Applicative
