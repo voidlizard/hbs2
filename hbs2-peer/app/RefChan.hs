@@ -455,9 +455,18 @@ logMergeProcess _ q = do
       -- больше quorum подтверждений для актуальной головы
 
       r <- forM trans $ \href -> runMaybeT do
+
+             debug $ "TO MERGE" <+> pretty href
+
              blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
+
+             debug $ "BLOCK OK" <+> pretty href
+
              tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) blk
                                       & either (const Nothing) Just
+
+             debug $ "TRAN OK" <+> pretty href
+
              case tran of
                 Propose _ box -> do
                   (pk, ProposeTran headRef box) <- MaybeT $ pure $ unboxSignedBox0 box
