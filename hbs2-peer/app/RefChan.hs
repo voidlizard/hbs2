@@ -217,6 +217,7 @@ refChanWorker env brains = do
         debug $ "ON ROUND STARTED" <+> pretty rcrk
 
       forever do
+        -- FIXME: use-polling-function-and-respect-wait
         pause @'Seconds 30
 
         now <- getTimeCoarse
@@ -235,9 +236,10 @@ refChanWorker env brains = do
             when (closed || ttl <= now) do
               lift $ expire x
 
-              forM_ trans $ \t -> do
-               debug $ "WRITING TRANS" <+> pretty t
-               lift $ refChanWriteTranFn env t
+              when closed  do
+                forM_ trans $ \t -> do
+                 debug $ "WRITING TRANS" <+> pretty t
+                 lift $ refChanWriteTranFn env t
 
               atomically $ modifyTVar rounds (HashSet.delete x)
               debug $ "CLEANUP ROUND" <+> pretty x
