@@ -474,6 +474,7 @@ logMergeProcess _ q = do
                   (ak, _) <- MaybeT $ pure $ unboxSignedBox0 box
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
+                  debug $ "PROPOSE QUO" <+> pretty href <+> pretty quo
                   guard $ checkACL hd pk ak
                   pure [(href, (quo,mempty))]
 
@@ -482,6 +483,7 @@ logMergeProcess _ q = do
                   debug $ "ACCEPT" <+> pretty href <+> pretty headRef
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
+                  debug $ "ACCEPT QUO" <+> pretty href <+> pretty quo
                   guard $ HashMap.member pk (view refChanHeadPeers hd)
                   pure [(href, (quo,[hashRef]))]
 
