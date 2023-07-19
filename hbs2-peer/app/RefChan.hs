@@ -476,6 +476,7 @@ logMergeProcess _ q = do
                   let quo = view refChanHeadQuorum hd & fromIntegral
                   debug $ "PROPOSE QUO" <+> pretty href <+> pretty quo
                   guard $ checkACL hd pk ak
+                  debug $ "PROPOSE ACL CHECK OK" <+> pretty href
                   pure [(href, (quo,mempty))]
 
                 Accept  _ box -> do
@@ -485,6 +486,7 @@ logMergeProcess _ q = do
                   let quo = view refChanHeadQuorum hd & fromIntegral
                   debug $ "ACCEPT QUO" <+> pretty href <+> pretty quo
                   guard $ HashMap.member pk (view refChanHeadPeers hd)
+                  debug $ "ACCEPT ACL CHECK OK" <+> pretty href
                   pure [(href, (quo,[hashRef]))]
 
       let merge1 (q1, hs1) (q2, hs2) = (max q1 q2, List.nub (hs1 <> hs2) )
