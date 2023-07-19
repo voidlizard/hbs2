@@ -206,10 +206,16 @@ instance Expires (EventKey e (RefChanRound e)) where
 data RefChanUpdate e =
     Propose (RefChanId e) (SignedBox (ProposeTran e) e) -- подписано ключом пира
   | Accept  (RefChanId e) (SignedBox (AcceptTran e) e)  -- подписано ключом пира
-
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanUpdate e)
+
+data RefChanRequest e =
+    RefChanRequest  (RefChanId e)
+  | RefChanResponse (RefChanId e) HashRef
+  deriving stock (Generic)
+
+instance ForRefChans e => Serialise (RefChanRequest e)
 
 type instance SessionData e (RefChanHeadBlock e) = RefChanHeadBlock e
 
@@ -234,10 +240,18 @@ data RefChanAdapter e m =
   , refChanWriteTran  :: HashRef -> m ()
   }
 
-refChanUpdateChan :: RefChanUpdate e -> RefChanId e
-refChanUpdateChan = \case
-  Propose c _ -> c
-  Accept  c _ -> c
+class HasRefChanId e p | p -> e where
+  getRefChanId :: p -> RefChanId e
+
+instance HasRefChanId e (RefChanUpdate e) where
+  getRefChanId = \case
+    Propose c _ -> c
+    Accept  c _ -> c
+
+instance HasRefChanId e (RefChanRequest e) where
+  getRefChanId = \case
+    RefChanRequest c -> c
+    RefChanResponse c _ -> c
 
 refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Request e (RefChanHead e) m
@@ -348,16 +362,13 @@ refChanUpdateProto self pc adapter msg = do
     -- "блок".
     -- так-то и количество proposers можно ограничить
 
-    guard =<< lift (refChanSubscribed adapter (refChanUpdateChan msg))
+    guard =<< lift (refChanSubscribed adapter (getRefChanId msg))
 
     let h0 = hashObject @HbSync (serialise msg)
     guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
     case msg of
      Propose chan box -> do
-
-       let h0 = hashObject @HbSync (serialise msg)
-       guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
        debug $ "RefChanUpdate/Propose" <+> pretty h0
 
@@ -534,6 +545,62 @@ refChanUpdateProto self pc adapter msg = do
 --   Пишем в итоговый лог только такие
 --   propose + accept у которых больше quorum accept
 --   каждую транзу обрабатываем только один раз
+--
+
+refChanRequestProto :: forall e s m . ( MonadIO m
+                                     , Request e (RefChanRequest e) m
+                                     , Response e (RefChanRequest e) m
+                                     , HasDeferred e (RefChanRequest e) m
+                                     , IsPeerAddr e m
+                                     , Pretty (Peer e)
+                                     , Sessions e (KnownPeer e) m
+                                     , Sessions e (RefChanHeadBlock e) m
+                                     , HasStorage m
+                                     , Signatures s
+                                     , IsRefPubKey s
+                                     , Pretty (AsBase58 (PubKey 'Sign s))
+                                     -- , Serialise (Signature s)
+                                     , ForRefChans e
+                                     , s ~ Encryption e
+                                     )
+                   => Bool
+                   -> RefChanAdapter e m
+                   -> RefChanRequest e
+                   -> m ()
+
+refChanRequestProto self adapter msg = do
+
+  peer <- thatPeer proto
+
+  auth' <- find (KnownPeerKey peer) id
+
+  sto <- getStorage
+
+  void $ runMaybeT do
+
+    guard (self || isJust auth')
+
+    auth <- MaybeT $ pure  auth'
+
+    guard =<< lift (refChanSubscribed adapter (getRefChanId @e msg))
+
+    case msg of
+
+      RefChanRequest chan -> do
+        rv <- MaybeT $ liftIO $ getRef sto (RefChanLogKey @s chan)
+        lift $ response @e (RefChanResponse @e chan (HashRef rv))
+
+      RefChanResponse chan val -> do
+        hd <- MaybeT $ getActualRefChanHead @e (RefChanHeadKey @s chan)
+        let ppk = view peerSignKey auth
+
+        guard $ ppk `HashMap.member` view refChanHeadPeers hd
+
+        debug $ "RefChanResponse" <+> pretty peer <+> pretty (AsBase58 chan) <+> pretty val
+
+  where
+    proto = Proxy @(RefChanRequest e)
+
 
 getActualRefChanHead :: forall e s m . ( MonadIO m
                                        , Sessions e (RefChanHeadBlock e) m

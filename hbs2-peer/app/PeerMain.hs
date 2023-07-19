@@ -893,6 +893,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (peerMetaProto (mkPeerMeta conf))
                     , makeResponse (refChanHeadProto False refChanAdapter)
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
+                    , makeResponse (refChanRequestProto False refChanAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -1034,6 +1035,11 @@ runPeer opts = U.handle (\e -> myException e
           trace $ "refChanGetAction ANSWER IS" <+> pretty h
           request who (RPCRefChanGetAnsw @e  h)
 
+  let refChanFetchAction puk = do
+        trace $ "refChanFetchAction" <+> pretty (AsBase58 puk)
+        void $ liftIO $ async $ withPeerM penv $ do
+          gossip (RefChanRequest @e puk)
+
   let arpc = RpcAdapter pokeAction
                         dieAction
                         dontHandle
@@ -1054,7 +1060,7 @@ runPeer opts = U.handle (\e -> myException e
                         dontHandle
                         refChanHeadFetchAction
 
-                        dontHandle -- rpcOnRefChanFetch
+                        refChanFetchAction
                         refChanGetAction
                         dontHandle -- rpcOnRefChanGetAnsw
 
