@@ -433,8 +433,6 @@ logMergeProcess _ q = do
 
       current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
 
-      debug $ "ABOUT TO MERGE LOGS" <+> pretty (AsBase58 chan) <+> pretty (length logs)
-
       trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
 
       guard (not $ List.null trans)
@@ -460,33 +458,23 @@ logMergeProcess _ q = do
 
              blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
 
-             debug $ "BLOCK OK" <+> pretty href
-
              tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) blk
                                       & either (const Nothing) Just
-
-             debug $ "TRAN OK" <+> pretty href
 
              case tran of
                 Propose _ box -> do
                   (pk, ProposeTran headRef box) <- MaybeT $ pure $ unboxSignedBox0 box
-                  debug $ "PROPOSE" <+> pretty href <+> pretty headRef
                   (ak, _) <- MaybeT $ pure $ unboxSignedBox0 box
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
-                  debug $ "PROPOSE QUO" <+> pretty href <+> pretty quo
                   guard $ checkACL hd pk ak
-                  debug $ "PROPOSE ACL CHECK OK" <+> pretty href
                   pure [(href, (quo,mempty))]
 
                 Accept  _ box -> do
                   (pk, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
-                  debug $ "ACCEPT" <+> pretty href <+> pretty headRef
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
-                  debug $ "ACCEPT QUO" <+> pretty href <+> pretty quo
                   guard $ HashMap.member pk (view refChanHeadPeers hd)
-                  debug $ "ACCEPT ACL CHECK OK" <+> pretty href
                   pure [(hashRef, (quo,[href]))]
 
       let merge1 (q1, hs1) (q2, hs2) = (max q1 q2, List.nub (hs1 <> hs2) )
@@ -494,15 +482,13 @@ logMergeProcess _ q = do
       let permitted = HashMap.fromListWith merge1 (mconcat (catMaybes r))
                           & HashMap.toList
 
-      debug $ "PERMITTED" <+> pretty permitted
-
       new <- S.toList_ do
                 forM_ permitted $ \(prop, (qx, accs)) -> do
                   when (length accs >= qx) do
                     S.yield prop
                     S.each accs
 
-      debug $ "NEW TRANS TO MERGE" <+> pretty new
+      debug $ "new trans to merge" <+> pretty (AsBase58 chan) <+> pretty (length new)
 
       let merged = HashSet.union current (HashSet.fromList new) & HashSet.toList
 
