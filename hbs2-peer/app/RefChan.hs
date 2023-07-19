@@ -494,6 +494,8 @@ logMergeProcess _ q = do
       let permitted = HashMap.fromListWith merge1 (mconcat (catMaybes r))
                           & HashMap.toList
 
+      debug $ "PERMITTED" <+> pretty permitted
+
       new <- S.toList_ do
                 forM_ permitted $ \(prop, (qx, accs)) -> do
                   when (length accs >= qx) do
