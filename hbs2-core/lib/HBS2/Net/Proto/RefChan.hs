@@ -443,7 +443,7 @@ refChanUpdateProto self pc adapter msg = do
         -- FIXME: random-delay-to-avoid-race
         --   выглядит не очень хорошо, 100ms
         --   и не гарантирует от гонок
-        pause @'Seconds 0.25
+        -- pause @'Seconds 0.25
 
         -- FIXME: check-if-we-authorized
         --   проверить, что мы вообще авторизованы
