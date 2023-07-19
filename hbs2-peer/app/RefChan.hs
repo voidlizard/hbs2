@@ -217,7 +217,7 @@ refChanWorker env brains = do
         debug $ "ON ROUND STARTED" <+> pretty rcrk
 
       forever do
-        pause @'Seconds 60
+        pause @'Seconds 30
 
         now <- getTimeCoarse
         xs <- readTVarIO rounds <&> HashSet.toList
@@ -228,10 +228,17 @@ refChanWorker env brains = do
             se <- MaybeT $ find @e x id
 
             closed <- readTVarIO (view refChanRoundClosed se)
+            trans <- atomically $ readTVar (view refChanRoundTrans se) <&> HashSet.toList
+
             let ttl = view refChanRoundTTL se
 
             when (closed || ttl <= now) do
               lift $ expire x
+
+              forM_ trans $ \t -> do
+               debug $ "WRITING TRANS" <+> pretty t
+               lift $ refChanWriteTranFn env t
+
               atomically $ modifyTVar rounds (HashSet.delete x)
               debug $ "CLEANUP ROUND" <+> pretty x
 
