@@ -470,6 +470,7 @@ logMergeProcess _ q = do
              case tran of
                 Propose _ box -> do
                   (pk, ProposeTran headRef box) <- MaybeT $ pure $ unboxSignedBox0 box
+                  debug $ "PROPOSE" <+> pretty href <+> pretty headRef
                   (ak, _) <- MaybeT $ pure $ unboxSignedBox0 box
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
@@ -478,6 +479,7 @@ logMergeProcess _ q = do
 
                 Accept  _ box -> do
                   (pk, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
+                  debug $ "ACCEPT" <+> pretty href <+> pretty headRef
                   hd <- MaybeT $ lift $ getHead menv headRef
                   let quo = view refChanHeadQuorum hd & fromIntegral
                   guard $ HashMap.member pk (view refChanHeadPeers hd)
