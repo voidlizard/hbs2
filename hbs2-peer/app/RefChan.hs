@@ -192,13 +192,13 @@ refChanWorker env brains = do
     h <- liftIO $ getRef sto (RefChanLogKey @s chan)
 
     -- игнорируем, если синхронно
-    unless ((HashRef <$> h) == Just val) do
+    -- unless ((HashRef <$> h) == Just val) do
 
-      refChanAddDownload env chan val $ \href -> do
-        debug $ "BLOCK DOWNLOADED" <+> pretty href
-        atomically $ writeTQueue mergeQ (chan, href)
+    refChanAddDownload env chan val $ \href -> do
+      debug $ "BLOCK DOWNLOADED" <+> pretty href
+      atomically $ writeTQueue mergeQ (chan, href)
 
-      atomically $ writeTQueue mergeQ (chan, val)
+    atomically $ writeTQueue mergeQ (chan, val)
 
   forever do
    pause @'Seconds 10
@@ -443,6 +443,7 @@ logMergeProcess _ q = do
       current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
 
       trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
+      -- trans <- mconcat <$> mapM (lift . readLog sto) logs
 
       guard (not $ List.null trans)
 
