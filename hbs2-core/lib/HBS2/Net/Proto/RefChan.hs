@@ -543,7 +543,17 @@ refChanUpdateProto self pc adapter msg = do
 
          forM_ trans $ \t -> do
           lift $ refChanWriteTran adapter t
-          debug $ "WRITING TRANS" <+> pretty t
+
+          -- FIXME: remove-debug-shit
+          wtf <- MaybeT $ liftIO $ getBlock sto (fromHashRef t)
+
+          trr <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) wtf & either (const Nothing) Just
+
+          let tp = case trr of
+                      Propose{} -> "PROPOSE"
+                      Accept{}  -> "ACCEPT"
+
+          debug $ "WRITING TRANS" <+> pretty tp <+> pretty t
 
          let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
          votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
