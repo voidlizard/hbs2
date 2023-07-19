@@ -4,10 +4,8 @@
 module HBS2.Net.Proto.EncryptionHandshake where
 
 import HBS2.Actors.Peer
-import HBS2.Base58
 import HBS2.Clock
 import HBS2.Data.Types
-import HBS2.Events
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
@@ -15,16 +13,10 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
 
-import Codec.Serialise()
-import Control.Monad
-import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString qualified as BS
-import Data.Hashable
-import Data.Maybe
 import Data.String.Conversions (cs)
 import Lens.Micro.Platform
-import Type.Reflection (someTypeRep)
 
 instance
     ( Show (PubKey 'Encrypt (Encryption e))
