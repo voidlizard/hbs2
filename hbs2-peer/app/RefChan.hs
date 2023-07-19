@@ -217,7 +217,7 @@ refChanWorker env brains = do
         debug $ "ON ROUND STARTED" <+> pretty rcrk
 
       forever do
-        pause @'Seconds 30
+        pause @'Seconds 60
 
         now <- getTimeCoarse
         xs <- readTVarIO rounds <&> HashSet.toList

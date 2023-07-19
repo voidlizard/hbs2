@@ -443,7 +443,7 @@ refChanUpdateProto self pc adapter msg = do
         -- FIXME: random-delay-to-avoid-race
         --   выглядит не очень хорошо, 100ms
         --   и не гарантирует от гонок
-        pause @'Seconds 0.10
+        pause @'Seconds 0.25
 
         -- FIXME: check-if-we-authorized
         --   проверить, что мы вообще авторизованы
@@ -520,6 +520,7 @@ refChanUpdateProto self pc adapter msg = do
        ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
 
        atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
+       atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
 
        accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
 
@@ -535,12 +536,13 @@ refChanUpdateProto self pc adapter msg = do
 
          forM_ trans $ \t -> do
           lift $ refChanWriteTran adapter t
+          debug $ "WRITING TRANS" <+> pretty t
 
          let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
          votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
 
          when (pips `HashSet.isSubsetOf` votes) do
-          debug $ "CLOSING ROUND" <+> pretty hashRef
+          debug $ "CLOSING ROUND" <+> pretty hashRef <+> pretty (length trans)
           atomically $ writeTVar (view refChanRoundClosed rcRound) True
 
   where
