@@ -234,6 +234,11 @@ data RefChanAdapter e m =
   , refChanWriteTran  :: HashRef -> m ()
   }
 
+refChanUpdateChan :: RefChanUpdate e -> RefChanId e
+refChanUpdateChan = \case
+  Propose c _ -> c
+  Accept  c _ -> c
+
 refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Request e (RefChanHead e) m
                                    , Request e (BlockAnnounce e) m
@@ -343,9 +348,13 @@ refChanUpdateProto self pc adapter msg = do
     -- "блок".
     -- так-то и количество proposers можно ограничить
 
+    guard =<< lift (refChanSubscribed adapter (refChanUpdateChan msg))
+
+    let h0 = hashObject @HbSync (serialise msg)
+    guard =<< liftIO (hasBlock sto h0 <&> isNothing)
+
     case msg of
      Propose chan box -> do
-       guard =<< lift (refChanSubscribed adapter chan)
 
        let h0 = hashObject @HbSync (serialise msg)
        guard =<< liftIO (hasBlock sto h0 <&> isNothing)
@@ -430,11 +439,6 @@ refChanUpdateProto self pc adapter msg = do
         lift $ refChanUpdateProto True pc adapter accept
 
      Accept chan box -> deferred proto do
-       guard =<< lift (refChanSubscribed adapter chan)
-
-       let h0 = hashObject @HbSync (serialise msg)
-
-       guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
