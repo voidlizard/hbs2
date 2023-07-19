@@ -77,7 +77,20 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
 instance ForRefChans e => Serialise (SignedBox p e)
 
+type instance SessionData e (RefChanHeadBlock e) = RefChanHeadBlock e
 
+newtype instance SessionKey e  (RefChanHeadBlock e) =
+  RefChanHeadBlockKey (RefChanHeadKey (Encryption e))
+
+deriving newtype instance ForRefChans L4Proto
+  => Hashable (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+
+deriving stock instance ForRefChans L4Proto
+  => Eq (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+
+-- TODO: define-expiration-time
+instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
+  expiresIn = const (Just defCookieTimeoutSec)
 
 newtype RefChanHeadKey s = RefChanHeadKey (PubKey 'Sign s)
 
@@ -213,24 +226,28 @@ instance ForRefChans e => Serialise (RefChanUpdate e)
 data RefChanRequest e =
     RefChanRequest  (RefChanId e)
   | RefChanResponse (RefChanId e) HashRef
-  deriving stock (Generic)
+  deriving stock (Generic,Typeable)
 
 instance ForRefChans e => Serialise (RefChanRequest e)
 
-type instance SessionData e (RefChanHeadBlock e) = RefChanHeadBlock e
+data instance EventKey e (RefChanRequest e) =
+  RefChanRequestEventKey
+  deriving (Generic,Typeable,Eq)
 
-newtype instance SessionKey e  (RefChanHeadBlock e) =
-  RefChanHeadBlockKey (RefChanHeadKey (Encryption e))
+data instance Event e (RefChanRequest e) =
+  RefChanRequestEvent (RefChanId e) HashRef
+  deriving (Typeable,Generic)
 
-deriving newtype instance ForRefChans L4Proto
-  => Hashable (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+instance EventType ( Event e (RefChanRequest e) ) where
+  isPersistent = True
 
-deriving stock instance ForRefChans L4Proto
-  => Eq (SessionKey L4Proto (RefChanHeadBlock L4Proto))
+instance Expires (EventKey e (RefChanRequest e)) where
+  expiresIn = const Nothing
 
--- TODO: define-expiration-time
-instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
-  expiresIn = const (Just defCookieTimeoutSec)
+instance Typeable (RefChanRequest e) => Hashable (EventKey e (RefChanRequest e)) where
+  hashWithSalt salt _ = hashWithSalt salt (someTypeRep p)
+    where
+      p = Proxy @(RefChanRequest e)
 
 -- FIXME: rename
 data RefChanAdapter e m =
@@ -555,6 +572,7 @@ refChanRequestProto :: forall e s m . ( MonadIO m
                                      , Pretty (Peer e)
                                      , Sessions e (KnownPeer e) m
                                      , Sessions e (RefChanHeadBlock e) m
+                                     , EventEmitter e (RefChanRequest e) m
                                      , HasStorage m
                                      , Signatures s
                                      , IsRefPubKey s
@@ -596,6 +614,7 @@ refChanRequestProto self adapter msg = do
 
         guard $ ppk `HashMap.member` view refChanHeadPeers hd
 
+        lift $ emit RefChanRequestEventKey (RefChanRequestEvent @e chan val)
         debug $ "RefChanResponse" <+> pretty peer <+> pretty (AsBase58 chan) <+> pretty val
 
   where

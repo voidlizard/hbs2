@@ -139,6 +139,7 @@ refChanWorker :: forall e s m . ( MonadIO m
                                 , Pretty (AsBase58 (PubKey 'Sign s))
                                 , ForRefChans e
                                 , EventListener e (RefChanRound e) m
+                                , EventListener e (RefChanRequest e) m
                                 , Sessions e (RefChanRound e) m
                                 , m ~ PeerM e IO
                                 )
@@ -161,6 +162,9 @@ refChanWorker env brains = do
   wtrans <- async refChanWriter
 
   cleanup1 <- async cleanupRounds
+
+  subscribe @e RefChanRequestEventKey $ \(RefChanRequestEvent chan val) -> do
+    debug $ "RefChanRequestEvent" <+> pretty (AsBase58 chan) <+> pretty val
 
   forever do
    pause @'Seconds 10
