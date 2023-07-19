@@ -437,6 +437,8 @@ logMergeProcess _ q = do
 
       trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
 
+      guard (not $ List.null trans)
+
       -- итак, тут приехал весь лог, который есть у пира
       -- логично искать подтверждения только в нём. если
       -- пир принял транзы без достаточного количества
@@ -455,8 +457,6 @@ logMergeProcess _ q = do
       -- больше quorum подтверждений для актуальной головы
 
       r <- forM trans $ \href -> runMaybeT do
-
-             debug $ "TO MERGE" <+> pretty href
 
              blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
 
@@ -508,9 +508,10 @@ logMergeProcess _ q = do
 
       let pt = toPTree (MaxSize 256) (MaxNum 256) merged
 
-      liftIO do
-        nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
-          void $ putBlock sto bss
+      unless (List.null new) do
+        liftIO do
+          nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
+            void $ putBlock sto bss
 
-        updateRef sto chanKey nref
+          updateRef sto chanKey nref
 
