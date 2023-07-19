@@ -546,16 +546,19 @@ refChanUpdateProto self pc adapter msg = do
   where
     proto = Proxy @(RefChanUpdate e)
 
-    checkACL :: RefChanHeadBlock e
-             -> PubKey 'Sign s
-             -> PubKey 'Sign s
-             -> Bool
-    checkACL theHead peerKey authorKey = match
-      where
-        pips = view refChanHeadPeers theHead
-        aus  = view refChanHeadAuthors theHead
-        match =   peerKey `HashMap.member` pips
-               && authorKey `HashSet.member` aus
+
+checkACL :: forall e s . (Encryption e ~ s, ForRefChans e)
+         => RefChanHeadBlock e
+         -> PubKey 'Sign s
+         -> PubKey 'Sign s
+         -> Bool
+
+checkACL theHead peerKey authorKey = match
+  where
+    pips = view refChanHeadPeers theHead
+    aus  = view refChanHeadAuthors theHead
+    match =   peerKey `HashMap.member` pips
+           && authorKey `HashSet.member` aus
 
 -- TODO: refchan-poll-proto
 --   Запрашиваем refchan у всех.
