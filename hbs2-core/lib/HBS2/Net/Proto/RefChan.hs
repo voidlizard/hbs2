@@ -427,21 +427,18 @@ refChanUpdateProto self pc adapter msg = do
         let toWait = TimeoutSec (fromIntegral $ 2 * view refChanHeadWaitAccept headBlock)
         let ttl = ts + fromNanoSecs (fromIntegral $ toNanoSeconds toWait)
 
-
         let rcrk = RefChanRoundKey (HashRef hash)
 
         rndHere <- lift $ find rcrk id
 
+        defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
+                       <$> newTVarIO False
+                       <*> newTVarIO Nothing
+                       <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
+                       <*> newTVarIO (HashMap.singleton peerKey ())
+
         unless (isJust rndHere) do
-
-          defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
-                         <$> newTVarIO False
-                         <*> newTVarIO Nothing
-                         <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
-                         <*> newTVarIO (HashMap.singleton peerKey ())
-
           lift $ update defRound rcrk id
-
           lift $ emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
 
         lift $ gossip msg
@@ -470,6 +467,7 @@ refChanUpdateProto self pc adapter msg = do
         lift $ gossip accept
 
         -- --  рассылаем ли себе? что бы был хоть один accept
+        liftIO $ putBlock sto (serialise accept)
         lift $ refChanUpdateProto True pc adapter accept
 
      Accept chan box -> deferred proto do
@@ -543,17 +541,7 @@ refChanUpdateProto self pc adapter msg = do
 
          forM_ trans $ \t -> do
           lift $ refChanWriteTran adapter t
-
-          -- FIXME: remove-debug-shit
-          wtf <- MaybeT $ liftIO $ getBlock sto (fromHashRef t)
-
-          trr <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) wtf & either (const Nothing) Just
-
-          let tp = case trr of
-                      Propose{} -> "PROPOSE"
-                      Accept{}  -> "ACCEPT"
-
-          debug $ "WRITING TRANS" <+> pretty tp <+> pretty t
+          debug $ "WRITING TRANS" <+> pretty t
 
          let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
          votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
