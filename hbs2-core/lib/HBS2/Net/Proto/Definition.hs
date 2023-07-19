@@ -151,7 +151,7 @@ instance HasProtocol L4Proto (RefChanRequest L4Proto) where
   -- мы не можем рассылать одинаковые сообщения никогда,
   -- ну или хотя бы не чаще, чем раз в 10 минут.
   -- но poll у нас в минутах, и с минимальным периодом 1 минута
-  requestPeriodLim = ReqLimPerMessage 60
+  requestPeriodLim = ReqLimPerMessage 1
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

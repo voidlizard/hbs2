@@ -442,14 +442,8 @@ logMergeProcess _ q = do
 
       current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
 
-      forM_ current $ \t -> do
-        debug $ "FUCKING CURRENT" <+> pretty t
-
-      -- trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
-      trans <- mconcat <$> mapM (lift . readLog sto) logs
-
-      forM_ trans $ \t -> do
-        debug $ "FUCKING TRANS" <+> pretty t
+      trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
+      -- trans <- mconcat <$> mapM (lift . readLog sto) logs
 
       guard (not $ List.null trans)
 
@@ -521,4 +515,5 @@ logMergeProcess _ q = do
           debug $ "NEW REFCHAN" <+> pretty chanKey <+> pretty  nref
 
           updateRef sto chanKey nref
+
 
