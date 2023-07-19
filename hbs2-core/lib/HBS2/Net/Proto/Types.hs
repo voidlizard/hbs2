@@ -104,7 +104,7 @@ class ( MonadIO m
 
   response :: p -> m ()
 
-class Request e p (m :: Type -> Type) | p -> e where
+class HasProtocol e p => Request e p (m :: Type -> Type) | p -> e where
   request :: Peer e -> p -> m ()
 
 data ReqLimPeriod = NoLimit
