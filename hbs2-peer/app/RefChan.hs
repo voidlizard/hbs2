@@ -442,8 +442,14 @@ logMergeProcess _ q = do
 
       current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
 
+      forM_ current $ \t -> do
+        debug $ "FUCKING CURRENT" <+> pretty t
+
       -- trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
       trans <- mconcat <$> mapM (lift . readLog sto) logs
+
+      forM_ trans $ \t -> do
+        debug $ "FUCKING TRANS" <+> pretty t
 
       guard (not $ List.null trans)
 
@@ -464,7 +470,7 @@ logMergeProcess _ q = do
       -- потом, если всё ок -- пишем accept-ы и propose-ы у которых
       -- больше quorum подтверждений для актуальной головы
 
-      r <- forM trans $ \href -> runMaybeT do
+      r <- forM (trans <> HashSet.toList current) $ \href -> runMaybeT do
 
              blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
 
@@ -500,14 +506,19 @@ logMergeProcess _ q = do
 
       debug $ "new trans to merge" <+> pretty (AsBase58 chan) <+> pretty (length new)
 
-      let merged = HashSet.union current (HashSet.fromList new) & HashSet.toList
+      forM_ new $ \tnew -> do
+        debug $ "TRANS TO MERGE" <+> pretty tnew
+
+      let merged = (current <> HashSet.fromList new) & HashSet.toList
 
       let pt = toPTree (MaxSize 256) (MaxNum 256) merged
 
-      unless (List.null new) do
+      unless (List.null merged) do
         liftIO do
           nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
             void $ putBlock sto bss
+
+          debug $ "NEW REFCHAN" <+> pretty chanKey <+> pretty  nref
 
           updateRef sto chanKey nref
 
