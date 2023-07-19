@@ -427,16 +427,22 @@ refChanUpdateProto self pc adapter msg = do
         let toWait = TimeoutSec (fromIntegral $ 2 * view refChanHeadWaitAccept headBlock)
         let ttl = ts + fromNanoSecs (fromIntegral $ toNanoSeconds toWait)
 
-        defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
-                       <$> newTVarIO False
-                       <*> newTVarIO Nothing
-                       <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
-                       <*> newTVarIO (HashMap.singleton peerKey ())
 
         let rcrk = RefChanRoundKey (HashRef hash)
-        void $ lift $ update defRound rcrk id
 
-        lift $ emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
+        rndHere <- lift $ find rcrk id
+
+        unless (isJust rndHere) do
+
+          defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
+                         <$> newTVarIO False
+                         <*> newTVarIO Nothing
+                         <*> newTVarIO (HashSet.singleton (HashRef hash)) -- save propose
+                         <*> newTVarIO (HashMap.singleton peerKey ())
+
+          lift $ update defRound rcrk id
+
+          lift $ emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
 
         lift $ gossip msg
 
