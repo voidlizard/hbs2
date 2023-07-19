@@ -485,6 +485,8 @@ logMergeProcess _ q = do
                     S.yield prop
                     S.each accs
 
+      debug $ "NEW TRANS TO MERGE" <+> pretty new
+
       let merged = HashSet.union current (HashSet.fromList new) & HashSet.toList
 
       let pt = toPTree (MaxSize 256) (MaxNum 256) merged
