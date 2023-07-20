@@ -382,7 +382,7 @@ refChanUpdateProto self pc adapter msg = do
     guard =<< lift (refChanSubscribed adapter (getRefChanId msg))
 
     let h0 = hashObject @HbSync (serialise msg)
-    -- guard =<< liftIO (hasBlock sto h0 <&> isNothing)
+    guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
     case msg of
      Propose chan box -> do
