@@ -512,7 +512,7 @@ logMergeProcess _ q = do
       forM_ new $ \tnew -> do
         debug $ "TRANS TO MERGE" <+> pretty tnew
 
-      let merged = (current <> HashSet.fromList new) & HashSet.toList
+      let merged = HashSet.fromList new & HashSet.toList
 
       let pt = toPTree (MaxSize 256) (MaxNum 256) merged
 

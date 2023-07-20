@@ -382,7 +382,7 @@ refChanUpdateProto self pc adapter msg = do
     guard =<< lift (refChanSubscribed adapter (getRefChanId msg))
 
     let h0 = hashObject @HbSync (serialise msg)
-    guard =<< liftIO (hasBlock sto h0 <&> isNothing)
+    -- guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
     case msg of
      Propose chan box -> do
@@ -467,7 +467,6 @@ refChanUpdateProto self pc adapter msg = do
         lift $ gossip accept
 
         -- --  рассылаем ли себе? что бы был хоть один accept
-        liftIO $ putBlock sto (serialise accept)
         lift $ refChanUpdateProto True pc adapter accept
 
      Accept chan box -> deferred proto do
@@ -525,7 +524,7 @@ refChanUpdateProto self pc adapter msg = do
        ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
 
        atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
-       atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
+       -- atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
 
        accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
 
