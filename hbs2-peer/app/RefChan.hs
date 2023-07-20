@@ -192,11 +192,11 @@ refChanWorker env brains = do
     h <- liftIO $ getRef sto (RefChanLogKey @s chan)
 
     -- игнорируем, если синхронно
-    -- unless ((HashRef <$> h) == Just val) do
+    unless ((HashRef <$> h) == Just val) do
 
-    refChanAddDownload env chan val $ \href -> do
-      debug $ "BLOCK DOWNLOADED" <+> pretty href
-      atomically $ writeTQueue mergeQ (chan, href)
+      refChanAddDownload env chan val $ \href -> do
+        debug $ "BLOCK DOWNLOADED" <+> pretty href
+        atomically $ writeTQueue mergeQ (chan, href)
 
     atomically $ writeTQueue mergeQ (chan, val)
 
