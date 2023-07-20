@@ -436,6 +436,12 @@ logMergeProcess env q = do
       let sto = mergeSto e
       hd <- readTVarIO (mergeHeads e) <&> HashMap.lookup h
 
+      here <- liftIO $ hasBlock sto (fromHashRef h) <&> isJust
+
+      unless here do
+        debug $ "head is missed:" <+> pretty h
+        pure ()
+
       case hd of
         Just x -> pure (Just x)
         Nothing -> runMaybeT do
