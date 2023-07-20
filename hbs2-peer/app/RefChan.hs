@@ -400,12 +400,13 @@ logMergeProcess :: forall e s m . ( MonadUnliftIO m
                                   , HasStorage m
                                   , Signatures s
                                   , s ~ Encryption e
+                                  , m ~ PeerM e IO
                                   )
                 => RefChanWorkerEnv e
                 -> TQueue (RefChanId e, HashRef)
                 -> m ()
 
-logMergeProcess _ q = do
+logMergeProcess env q = do
 
   sto <- getStorage
 
@@ -473,7 +474,16 @@ logMergeProcess _ q = do
       -- потом, если всё ок -- пишем accept-ы и propose-ы у которых
       -- больше quorum подтверждений для актуальной головы
 
-      r <- forM (trans <> HashSet.toList current) $ \href -> runMaybeT do
+      let mergeSet = (HashSet.fromList trans <> current) & HashSet.toList
+
+      -- если какие-то транзакции отсутствуют - пытаемся их скачать
+      -- и надеемся на лучшее (лог сойдется в следующий раз)
+      forM_ mergeSet $ \href -> do
+         here <- liftIO $ hasBlock sto (fromHashRef href) <&> isJust
+         unless here do
+           lift $ refChanAddDownload env chan href dontHandle
+
+      r <- forM mergeSet $ \href -> runMaybeT do
 
              blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
 
