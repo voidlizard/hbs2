@@ -470,7 +470,7 @@ logMergeProcess env q = do
         current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
 
         -- trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
-        trans <- filter (/= HashRef h)  . mconcat <$> mapM (lift . readLog sto) logs
+        trans <- mconcat <$> mapM (lift . readLog sto) (filter (/= HashRef h) logs)
 
         guard (not $ List.null trans)
 
