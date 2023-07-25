@@ -289,42 +289,36 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
 
   rchangetMVar <- liftIO newEmptyMVar
 
-  let  adapter =
-        RpcAdapter dontHandle
-                   dontHandle
-                   (liftIO . atomically . writeTQueue pokeQ)
-                   (liftIO . atomically . writeTQueue pokeFQ)
-                   (const $ liftIO exitSuccess)
-                   (const $ notice "ping?")
-                   (liftIO . atomically . writeTQueue pingQ)
-                   dontHandle
-                   dontHandle
+  let  adapter = RpcAdapter
+          { rpcOnPoke          = dontHandle
+          , rpcOnDie           = dontHandle
+          , rpcOnPokeAnswer    = (liftIO . atomically . writeTQueue pokeQ)
+          , rpcOnPokeAnswerFull = (liftIO . atomically . writeTQueue pokeFQ)
+          , rpcOnAnnounce      = (const $ liftIO exitSuccess)
+          , rpcOnPing          = (const $ notice "ping?")
+          , rpcOnPong          = (liftIO . atomically . writeTQueue pingQ)
+          , rpcOnFetch         = dontHandle
+          , rpcOnPeers         = dontHandle
+          , rpcOnPeersAnswer   = (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa)
+          , rpcOnPexInfo       = dontHandle
+          , rpcOnPexInfoAnswer = dontHandle
+          , rpcOnLogLevel      = dontHandle
+          , rpcOnRefLogUpdate  = dontHandle
+          , rpcOnRefLogFetch   = dontHandle
+          , rpcOnRefLogGet     = dontHandle
+          , rpcOnRefLogGetAnsw = ( liftIO . atomically . writeTQueue refQ )
 
-                   (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa
-                   )
+          , rpcOnRefChanHeadSend = dontHandle
+          , rpcOnRefChanHeadGet = dontHandle
+          , rpcOnRefChanHeadGetAnsw = (liftIO . putMVar rchanheadMVar)
+          , rpcOnRefChanHeadFetch = dontHandle
 
-                   dontHandle
-                   dontHandle
-                   dontHandle
-                   dontHandle
+          , rpcOnRefChanFetch   = dontHandle
+          , rpcOnRefChanGet     = dontHandle
+          , rpcOnRefChanGetAnsw = (liftIO . putMVar rchangetMVar)
 
-                   ( liftIO . atomically . writeTQueue refQ )
-
-                   dontHandle
-
-                   dontHandle -- rpcOnRefChanHeadGet
-
-                   (liftIO . putMVar rchanheadMVar) -- rpcOnRefChanHeadGetAnsw
-
-                   dontHandle -- rpcOnRefChanHeadFetch
-
-                   dontHandle -- rpcOnRefChanFetch
-                   dontHandle -- rpcOnRefChanGet
-
-                   (liftIO . putMVar rchangetMVar) -- rpcOnRefChanHeadGetAnsw
-
-                   dontHandle -- rpcOnRefChanPropose
-
+          , rpcOnRefChanPropose = dontHandle
+          }
 
   prpc <- async $ runRPC udp1 do
                     env <- ask

@@ -1135,31 +1135,36 @@ runPeer opts = U.handle (\e -> myException e
         void $ liftIO $ async $ withPeerM penv $ do
           gossip (RefChanRequest @e puk)
 
-  let arpc = RpcAdapter pokeAction
-                        dieAction
-                        dontHandle
-                        dontHandle
-                        annAction
-                        pingAction
-                        dontHandle
-                        fetchAction
-                        peersAction
-                        dontHandle
-                        logLevelAction
-                        reflogUpdateAction
-                        reflogFetchAction
-                        reflogGetAction
-                        dontHandle
-                        refChanHeadSendAction -- rpcOnRefChanHeadSend
-                        refChanHeadGetAction
-                        dontHandle
-                        refChanHeadFetchAction
+  let arpc = RpcAdapter
+          { rpcOnPoke          = pokeAction
+          , rpcOnDie           = dieAction
+          , rpcOnPokeAnswer    = dontHandle
+          , rpcOnPokeAnswerFull = dontHandle
+          , rpcOnAnnounce      = annAction
+          , rpcOnPing          = pingAction
+          , rpcOnPong          = dontHandle
+          , rpcOnFetch         = fetchAction
+          , rpcOnPeers         = peersAction
+          , rpcOnPeersAnswer   = dontHandle
+          , rpcOnPexInfo       = pexInfoAction
+          , rpcOnPexInfoAnswer = dontHandle
+          , rpcOnLogLevel      = logLevelAction
+          , rpcOnRefLogUpdate  = reflogUpdateAction
+          , rpcOnRefLogFetch   = reflogFetchAction
+          , rpcOnRefLogGet     = reflogGetAction
+          , rpcOnRefLogGetAnsw = dontHandle
 
-                        refChanFetchAction
-                        refChanGetAction
-                        dontHandle -- rpcOnRefChanGetAnsw
+          , rpcOnRefChanHeadSend = refChanHeadSendAction
+          , rpcOnRefChanHeadGet = refChanHeadGetAction
+          , rpcOnRefChanHeadGetAnsw = dontHandle
+          , rpcOnRefChanHeadFetch = refChanHeadFetchAction
 
-                        refChanProposeAction
+          , rpcOnRefChanFetch   = refChanFetchAction
+          , rpcOnRefChanGet     = refChanGetAction
+          , rpcOnRefChanGetAnsw = dontHandle -- rpcOnRefChanGetAnsw
+
+          , rpcOnRefChanPropose = refChanProposeAction
+          }
 
   rpc <- async $ runRPC udp1 do
                    runProto @e
