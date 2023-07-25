@@ -42,6 +42,8 @@ instance Serialise (BlockAnnounceInfo e)
 data BlockAnnounce e = BlockAnnounce PeerNonce (BlockAnnounceInfo e)
                        deriving stock (Generic)
 
+deriving instance (Show (Nonce ())) => Show (BlockAnnounce e)
+
 instance Serialise PeerNonce => Serialise (BlockAnnounce e)
 
 

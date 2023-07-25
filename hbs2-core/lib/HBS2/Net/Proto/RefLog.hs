@@ -27,6 +27,10 @@ data RefLogRequest e =
   | RefLogResponse (PubKey 'Sign (Encryption e)) (Hash HbSync)
   deriving stock (Generic)
 
+deriving instance
+  ( Show (PubKey 'Sign (Encryption e))
+  ) => Show (RefLogRequest e)
+
 data RefLogUpdate e =
   RefLogUpdate
   { _refLogId           :: PubKey 'Sign (Encryption e)
@@ -35,6 +39,12 @@ data RefLogUpdate e =
   , _refLogUpdSign      :: Signature (Encryption e)
   }
   deriving stock (Generic)
+
+deriving instance
+  ( Show (PubKey 'Sign (Encryption e))
+  , Show (Signature (Encryption e))
+  , Show (Nonce (RefLogUpdate e))
+  ) => Show (RefLogUpdate e)
 
 makeLenses 'RefLogUpdate
 

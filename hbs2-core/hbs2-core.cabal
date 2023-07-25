@@ -53,11 +53,13 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , TemplateHaskell
 
 
 
@@ -70,9 +72,11 @@ library
                     , HBS2.Actors.Peer.Types
                     , HBS2.Base58
                     , HBS2.Clock
+                    , HBS2.Crypto
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Crypto
+                    , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
                     , HBS2.Defaults
                     , HBS2.Events
@@ -92,6 +96,8 @@ library
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
                     , HBS2.Net.Proto.Definition
+                    , HBS2.Net.Proto.EncryptionHandshake
+                    , HBS2.Net.Proto.Event.PeerExpired
                     , HBS2.Net.Proto.Peer
                     , HBS2.Net.Proto.PeerAnnounce
                     , HBS2.Net.Proto.PeerExchange
@@ -151,9 +157,11 @@ library
                     , stm
                     , stm-chans
                     , streaming
+                    , string-conversions
                     , suckless-conf
                     , temporary
                     , text
+                    , time
                     , transformers
                     , uniplate
                     , unordered-containers
@@ -190,17 +198,21 @@ test-suite test
         , mtl
         , prettyprinter
         , QuickCheck
+        , quickcheck-instances
         , random
         , safe
         , serialise
         , stm
         , streaming
         , tasty
+        , tasty-quickcheck
         , tasty-hunit
         , transformers
         , uniplate
         , vector
+        , saltine
         , simple-logger
+        , string-conversions
 
 
 

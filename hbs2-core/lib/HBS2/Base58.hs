@@ -29,3 +29,6 @@ instance Pretty (AsBase58 ByteString) where
 instance Pretty (AsBase58 LBS.ByteString) where
   pretty (AsBase58 bs) = pretty $ BS8.unpack $ toBase58 (LBS.toStrict bs)
 
+instance Show (AsBase58 ByteString) where
+  show (AsBase58 bs) = BS8.unpack $ toBase58 bs
+

@@ -1,13 +1,13 @@
 module HBS2.Data.Types
-  ( module HBS2.Hash
-  , module HBS2.Data.Types.Refs
+  ( module X
   -- , module HBS2.Data.Types.Crypto
   , AsSyntax(..)
   )
   where
 
-import HBS2.Hash
-import HBS2.Data.Types.Refs
+import HBS2.Hash as X
+import HBS2.Data.Types.Refs as X
+import HBS2.Data.Types.Peer as X
 -- import HBS2.Data.Types.Crypto
 
 -- import Data.Config.Suckless

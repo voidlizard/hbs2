@@ -11,9 +11,11 @@ module HBS2.Actors.Peer
 import HBS2.Actors
 import HBS2.Actors.Peer.Types
 import HBS2.Clock
+import HBS2.Data.Types.Peer
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging
 import HBS2.Net.PeerLocator
 import HBS2.Net.PeerLocator.Static
@@ -21,7 +23,9 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.System.Logger.Simple
 
+import Control.Applicative
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
@@ -30,18 +34,24 @@ import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
 import Data.Foldable hiding (find)
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
-import Lens.Micro.Platform
+import Lens.Micro.Platform as Lens
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
-import UnliftIO (MonadUnliftIO)
+import Data.Hashable (hash)
+import UnliftIO (MonadUnliftIO(..))
+import Crypto.Saltine.Core.SecretBox qualified as SBox  -- Симметричное шифрование с nonce без подписи
+import Crypto.Saltine.Core.Box qualified as Encrypt  -- Асимметричное шифрование без подписи
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
+import Prettyprinter hiding (pipe)
+-- import Debug.Trace
 
 
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
@@ -132,7 +142,29 @@ data PeerEnv e =
   , _envSweepers      :: TVar (HashMap SKey [PeerM e IO ()])
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
+  , _envAsymmetricKeyPair :: AsymmKeypair (Encryption e)
+  , _envEncryptionKeys :: TVar (HashMap (PeerData e) (CommonSecret (Encryption e)))
   }
+
+setEncryptionKey ::
+  ( Hashable (PubKey 'Sign (Encryption L4Proto))
+  , Hashable PeerNonce
+  , Show (PubKey 'Sign (Encryption L4Proto))
+  , Show PeerNonce
+  , Show (CommonSecret (Encryption L4Proto))
+  ) => PeerEnv L4Proto -> Peer L4Proto -> PeerData L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
+setEncryptionKey penv peer pd msecret = do
+    atomically $ modifyTVar' (_envEncryptionKeys penv) $ Lens.at pd .~ msecret
+    case msecret of
+        Nothing -> trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow pd
+        Just k ->  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow pd <+> viaShow k
+
+getEncryptionKey ::
+  ( Hashable (PubKey 'Sign (Encryption L4Proto))
+  , Hashable PeerNonce
+  ) => PeerEnv L4Proto -> PeerData L4Proto -> IO (Maybe (CommonSecret (Encryption L4Proto)))
+getEncryptionKey penv pd =
+    readTVarIO (_envEncryptionKeys penv) <&> preview (Lens.ix pd)
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                       deriving newtype ( Functor
@@ -264,14 +296,16 @@ instance (MonadIO m, HasProtocol e p, Hashable (Encoded e))
       pure (not here)
 
 instance ( MonadIO m
-         , HasProtocol e p
+         , HasProtocol e msg
          , HasFabriq e m -- (PeerM e m)
          , HasOwnPeer e m
          , PeerMessaging e
-         , HasTimeLimits e p m
-         ) => Request e p m where
-  request p msg = do
-    let proto = protoId @e @p (Proxy @p)
+         , HasTimeLimits e msg m
+         , Show (Peer e)
+         , Show msg
+         ) => Request e msg m where
+  request peer_e msg = do
+    let proto = protoId @e @msg (Proxy @msg)
     pipe <- getFabriq @e
     me <- ownPeer @e
 
@@ -280,12 +314,17 @@ instance ( MonadIO m
     --
     -- TODO: where to store the timeout?
     -- TODO: where the timeout come from?
-    -- withTimeLimit @e @p p msg $ do
+    -- withTimeLimit @e @msg peer_e msg $ do
       -- liftIO $ print "request!"
-    allowed <- tryLockForPeriod p msg
+    allowed <- tryLockForPeriod peer_e msg
+
+    when (not allowed) do
+      trace $ "REQUEST: not allowed to send" <+> viaShow msg
 
     when allowed do
-      sendTo pipe (To p) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
+      sendTo pipe (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
+      -- trace $ "REQUEST: after sendTo" <+> viaShow peer_e <+> viaShow msg
+
 
 
 instance ( Typeable (EventHandler e p (PeerM e IO))
@@ -369,6 +408,9 @@ newPeerEnv :: forall e m . ( MonadIO m
                            , Ord (Peer e)
                            , Pretty (Peer e)
                            , HasNonces () m
+                           , Asymm (Encryption e)
+                           , Hashable (PubKey 'Sign (Encryption e))
+                           , Hashable PeerNonce
                            )
           => AnyStorage
           -> Fabriq e
@@ -376,18 +418,21 @@ newPeerEnv :: forall e m . ( MonadIO m
           -> m (PeerEnv e)
 
 newPeerEnv s bus p = do
-
-  pl <- AnyPeerLocator <$> newStaticPeerLocator @e mempty
-
-  nonce <- newNonce @()
-
-  PeerEnv p nonce bus s pl <$> newPipeline defProtoPipelineSize
-                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                           <*> liftIO (newTVarIO mempty)
-                           <*> liftIO (Cache.newCache (Just defCookieTimeout))
-                           <*> liftIO (newTVarIO mempty)
-                           <*> liftIO (Cache.newCache (Just defRequestLimit))
-                           <*> liftIO (Cache.newCache (Just defRequestLimit))
+  let _envSelf      = p
+  _envPeerNonce     <- newNonce @()
+  let _envFab       = bus
+  let _envStorage   = s
+  _envPeerLocator   <- AnyPeerLocator <$> newStaticPeerLocator @e mempty
+  _envDeferred      <- newPipeline defProtoPipelineSize
+  _envSessions      <- liftIO (Cache.newCache (Just defCookieTimeout))
+  _envEvents        <- liftIO (newTVarIO mempty)
+  _envExpireTimes   <- liftIO (Cache.newCache (Just defCookieTimeout))
+  _envSweepers      <- liftIO (newTVarIO mempty)
+  _envReqMsgLimit   <- liftIO (Cache.newCache (Just defRequestLimit))
+  _envReqProtoLimit <- liftIO (Cache.newCache (Just defRequestLimit))
+  _envAsymmetricKeyPair <- asymmNewKeypair @(Encryption e)
+  _envEncryptionKeys <- liftIO (newTVarIO mempty)
+  pure PeerEnv {..}
 
 runPeerM :: forall e m . ( MonadIO m
                          , HasPeer e

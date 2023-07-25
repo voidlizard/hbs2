@@ -3,6 +3,7 @@
 module HBS2.Net.Proto.Peer where
 
 -- import HBS2.Base58
+import HBS2.Actors.Peer
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Proto
@@ -10,32 +11,29 @@ import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
+import HBS2.System.Logger.Simple
 
--- import HBS2.System.Logger.Simple
-
+import Control.Monad
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.Maybe
 import Codec.Serialise()
 import Data.ByteString qualified as BS
 import Data.Hashable
+import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
-
-type PingSign e = Signature (Encryption e)
-type PingNonce = BS.ByteString
-
-data PeerData e =
-  PeerData
-  { _peerSignKey  :: PubKey 'Sign (Encryption e)
-  , _peerOwnNonce :: PeerNonce -- TODO: to use this field to detect if it's own peer to avoid loops
-  }
-  deriving stock (Typeable,Generic)
-
-makeLenses 'PeerData
 
 data PeerHandshake e =
     PeerPing  PingNonce
   | PeerPong  PingNonce (Signature (Encryption e)) (PeerData e)
   deriving stock (Generic)
+
+deriving instance
+    ( Show (PubKey 'Encrypt (Encryption e))
+    , Show (Signature (Encryption e))
+    , Show (PeerData e)
+    )
+    => Show (PeerHandshake e)
 
 newtype KnownPeer e = KnownPeer (PeerData e)
   deriving stock (Typeable,Generic)
@@ -104,14 +102,18 @@ peerHandShakeProto :: forall e s m . ( MonadIO m
                                      , EventEmitter e (PeerHandshake e) m
                                      , EventEmitter e (ConcretePeer e) m
                                      , HasCredentials s m
+                                     , Asymm s
                                      , Signatures s
+                                     , Serialise (PubKey 'Encrypt (Encryption e))
                                      , s ~ Encryption e
                                      , e ~ L4Proto
                                      )
                    => PeerHandshakeAdapter e m
-                   -> PeerHandshake e -> m ()
+                   -> PeerEnv e
+                   -> PeerHandshake e
+                   -> m ()
 
-peerHandShakeProto adapter =
+peerHandShakeProto adapter penv =
   \case
     PeerPing nonce  -> do
       pip <- thatPeer proto
@@ -176,6 +178,8 @@ data instance Event e (ConcretePeer e) =
   ConcretePeerData (Peer e) (PeerData e)
   deriving stock (Typeable)
 
+---
+
 data instance EventKey e (PeerHandshake e) =
   AnyKnownPeerEventKey
   deriving stock (Typeable, Eq,Generic)
@@ -209,6 +213,7 @@ deriving instance Eq (Peer e) => Eq (SessionKey e (PeerHandshake e))
 instance Hashable (Peer e) => Hashable (SessionKey e (PeerHandshake e))
 
 instance ( Serialise (PubKey 'Sign (Encryption e))
+         , Serialise (PubKey 'Encrypt (Encryption e))
          , Serialise (Signature (Encryption e))
          , Serialise PeerNonce
          )
@@ -216,6 +221,7 @@ instance ( Serialise (PubKey 'Sign (Encryption e))
   => Serialise (PeerData e)
 
 instance ( Serialise (PubKey 'Sign (Encryption e))
+         , Serialise (PubKey 'Encrypt (Encryption e))
          , Serialise (Signature (Encryption e))
          , Serialise PeerNonce
          )

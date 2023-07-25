@@ -1299,3 +1299,11 @@ PR: implement-http-block-download-worker
 PR: tcp-pex
   branch: iv/tcp-pex_3
   commit: f1de7c58d5dc36dec5c318a3297733791de9a3d8
+
+## 2023-06-15
+
+PR: bus-crypt
+  branch: iv/bus-crypt
+  Шифрование протокола общения нод. 
+  Обмен асимметричными публичными ключами выполняется на стадии хэндшейка в ping/pong.
+  Для шифрования данных создаётся симметричный ключ по diffie-hellman.

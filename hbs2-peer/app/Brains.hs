@@ -17,9 +17,11 @@ import HBS2.System.Logger.Simple
 
 import PeerConfig
 
-import Control.Concurrent.STM
-import Control.Exception
+import Crypto.Saltine.Core.Box qualified as Encrypt
+import Data.Maybe
 import Control.Monad
+import Control.Exception
+import Control.Concurrent.STM
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
 import Data.Cache (Cache)
@@ -633,6 +635,56 @@ transactional brains action = do
       err $ "BRAINS: " <+> viaShow e
       execute_ conn [qc|ROLLBACK TO SAVEPOINT {sp}|]
 
+---
+
+insertPeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e
+    -> Peer e
+    -> Encrypt.PublicKey
+    -> Encrypt.CombinedKey
+    -> m ()
+
+insertPeerAsymmKey br peer hAsymmKey hSymmKey = do
+    insertPeerAsymmKey br peer hAsymmKey hSymmKey
+    insertPeerAsymmKey' br (show $ pretty peer) hAsymmKey hSymmKey
+
+insertPeerAsymmKey' :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e
+    -> String
+    -> Encrypt.PublicKey
+    -> Encrypt.CombinedKey
+    -> m ()
+
+insertPeerAsymmKey' br key hAsymmKey hSymmKey = do
+  let conn = view brainsDb br
+  void $ liftIO $ execute conn [qc|
+        INSERT INTO peer_asymmkey (peer,asymmkey,symmkey)
+        VALUES (?,?,?)
+        ON CONFLICT (peer)
+        DO UPDATE SET
+          asymmkey = excluded.asymmkey
+        , symmkey = excluded.symmkey
+    |] (key, show hAsymmKey, show hSymmKey)
+
+---
+
+deletePeerAsymmKey :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e -> Peer e -> m ()
+
+deletePeerAsymmKey br peer =
+    deletePeerAsymmKey' br (show $ pretty peer)
+
+deletePeerAsymmKey' :: forall e m . (e ~ L4Proto, MonadIO m)
+    => BasicBrains e -> String -> m ()
+
+deletePeerAsymmKey' br key =
+    void $ liftIO $ execute (view brainsDb br) [qc|
+        DELETE FROM peer_asymmkey
+        WHERE peer = ?
+    |] (Only key)
+
+---
+
 -- FIXME: eventually-close-db
 newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
                => PeerConfig
@@ -730,6 +782,16 @@ newBasicBrains cfg = liftIO do
     )
   |]
 
+
+  execute_ conn [qc|
+    create table if not exists peer_asymmkey
+    ( peer text not null
+    , asymmkey text not null
+    , symmkey text not null
+    , ts DATE DEFAULT (datetime('now','localtime'))
+    , primary key (peer)
+    )
+  |]
 
   BasicBrains <$> newTVarIO mempty
               <*> newTVarIO mempty

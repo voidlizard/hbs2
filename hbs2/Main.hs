@@ -548,6 +548,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "lref-update"     (info pUpdateLRef (progDesc "updates a linear ref"))
                         <> command "reflog"          (info pReflog (progDesc "reflog commands"))
                         -- <> command "lref-del"        (info pDelLRef (progDesc "removes a linear ref from node linear ref list"))
+                        <> command "showpex"         (info pReflog (progDesc "reflog commands"))
                         )
 
     common = do

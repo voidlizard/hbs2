@@ -4,6 +4,7 @@ import HBS2.Prelude
 import HBS2.Actors.Peer
 import HBS2.Storage
 import HBS2.Data.Types.Refs
+import HBS2.Merkle (AnnMetaData)
 import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.RefLog
 import HBS2.Events
@@ -33,9 +34,9 @@ httpWorker :: forall e s m . ( MyPeer e
                              , s ~ Encryption e
                              , m ~ PeerM e IO
                              , e ~ L4Proto
-                             ) => PeerConfig -> DownloadEnv e -> m ()
+                             ) => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
 
-httpWorker conf e = do
+httpWorker conf pmeta e = do
 
   sto <- getStorage
   let port' = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
@@ -90,7 +91,7 @@ httpWorker conf e = do
             status status200
 
       get "/metadata" do
-          raw $ serialise $ mkPeerMeta conf
+          raw $ serialise $ pmeta
 
       put "/" do
         -- FIXME: optional-header-based-authorization

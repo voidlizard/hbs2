@@ -51,14 +51,14 @@ data BlockChunksI e m =
 
 
 data BlockChunks e = BlockChunks (Cookie e) (BlockChunksProto e)
-                     deriving stock (Generic)
+                     deriving stock (Generic, Show)
 
 data BlockChunksProto e = BlockGetAllChunks (Hash HbSync) ChunkSize
                         | BlockGetChunks (Hash HbSync) ChunkSize Word32 Word32
                         | BlockNoChunks
                         | BlockChunk ChunkNum ByteString
                         | BlockLost
-                        deriving stock (Generic)
+                        deriving stock (Generic, Show)
 
 
 instance HasCookie e (BlockChunks e) where

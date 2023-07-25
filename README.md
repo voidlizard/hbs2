@@ -258,7 +258,7 @@ keeyring "/path/to/new.key"
 5. Add git remote and push
 
 ```
-git add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
+git remote add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
 git push mynerepo
 ```
 

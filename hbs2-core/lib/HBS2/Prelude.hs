@@ -1,6 +1,7 @@
 module HBS2.Prelude
   ( module Data.String
   , module Safe
+  , module X
   , MonadIO(..)
   , void, guard, when, unless
   , maybe1
@@ -16,6 +17,9 @@ module HBS2.Prelude
   , FromByteString(..)
   , Text.Text
   ) where
+
+import Data.Typeable as X
+import GHC.Generics as X (Generic)
 
 import Data.ByteString (ByteString)
 import Data.String (IsString(..))

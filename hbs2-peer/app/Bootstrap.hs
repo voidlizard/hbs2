@@ -1,6 +1,7 @@
 {-# Language AllowAmbiguousTypes #-}
 module Bootstrap where
 
+import HBS2.Data.Types.Peer
 import HBS2.Prelude
 import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Peer

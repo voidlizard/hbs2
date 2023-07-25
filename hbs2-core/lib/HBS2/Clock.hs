@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Data.Fixed
 import Data.Int (Int64)
 import Data.Proxy
+import Data.Time
 import Prettyprinter
 import System.Clock
 import Data.Time.Clock
@@ -33,6 +34,9 @@ class IsTimeout a where
 
   toTimeSpec    :: Timeout a -> TimeSpec
   toTimeSpec x = fromNanoSecs (fromIntegral (toNanoSeconds x))
+
+toNominalDiffTime :: IsTimeout t => Timeout t -> NominalDiffTime
+toNominalDiffTime = fromRational . (/ (10^6)) . fromIntegral . toMicroSeconds
 
 class IsTimeout a => MonadPause a m where
   pause :: Timeout a -> m ()

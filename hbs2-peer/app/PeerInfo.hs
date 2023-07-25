@@ -4,8 +4,11 @@ module PeerInfo where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Data.Types
 import HBS2.Events
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.PeerLocator
+import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
@@ -145,8 +148,8 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , m ~ PeerM e IO
                              , e ~ L4Proto
                              )
-             => PeerConfig -> m ()
-peerPingLoop cfg = do
+             => PeerConfig -> PeerEnv e -> m ()
+peerPingLoop cfg penv = do
 
   e <- ask
 
@@ -217,9 +220,11 @@ peerPingLoop cfg = do
                 let l = realToFrac (toNanoSecs $ now - seen) / 1e9
                 -- FIXME: time-hardcode
                 when ( l > 300 ) do
+                  mpeerData <- find (KnownPeerKey p) id
                   delPeers pl [p]
                   expire (PeerInfoKey p)
                   expire (KnownPeerKey p)
+                  emit PeerExpiredEventKey (PeerExpiredEvent @e p {-mpeerData-})
 
   liftIO $ mapM_ link [watch, infoLoop]
 
@@ -240,7 +245,6 @@ peerPingLoop cfg = do
     pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
 
     for_ pips $ \p -> do
-      trace $ "SEND PING TO" <+> pretty p
+      -- trace $ "SEND PING TO" <+> pretty p
       sendPing @e p
-
-
+      -- trace $ "SENT PING TO" <+> pretty p

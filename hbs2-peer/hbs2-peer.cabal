@@ -49,6 +49,7 @@ common common-deps
         , stm
         , streaming
         , sqlite-simple
+        , time
         , temporary
         , text
         , time
@@ -61,6 +62,7 @@ common common-deps
         , filelock
         , ekg-core
         , scotty
+        , string-conversions
         , warp
         , http-conduit
         , http-types
@@ -107,6 +109,8 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
+                     , RecursiveDo
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
@@ -123,6 +127,7 @@ executable hbs2-peer
     other-modules:    BlockDownload
                     , BlockHttpDownload
                     , DownloadQ
+                    , EncryptionKeys
                     , Bootstrap
                     , PeerInfo
                     , PeerMeta
