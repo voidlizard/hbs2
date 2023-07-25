@@ -13,7 +13,6 @@ import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.OrDie
-import HBS2.Net.Proto.ACB
 
 
 import HBS2.System.Logger.Simple hiding (info)
@@ -338,24 +337,7 @@ runShowPeerKey fp = do
   maybe1 cred' exitFailure $ \cred -> do
     print $ pretty $ AsBase58 (view peerSignPk cred)
 
--- FIXME: hardcoded-encryption-schema
-runGenACB :: Maybe FilePath -> Maybe FilePath -> IO ()
-runGenACB inFile outFile = do
-  inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
-  s <- hGetContents inf
-  acb <- pure (fromStringMay s :: Maybe (ACBSimple HBS2Basic)) `orDie` "invalid ACB syntax"
-  let bin = serialise acb
-  out <- maybe (pure stdout) (`openFile` WriteMode) outFile
-  LBS.hPutStr out bin
-  hClose out
-  hClose inf
 
-runDumpACB :: Maybe FilePath -> IO ()
-runDumpACB inFile = do
-  inf <- maybe (pure stdin) (`openFile` ReadMode) inFile
-  acb <- LBS.hGetContents inf <&> deserialise @(ACBSimple HBS2Basic)
-  -- acb <- LBS.hGetContents inf <&> (either (error . show) id .  deserialiseOrFail @(ACBSimple HBS2Basic))
-  print $ pretty (AsSyntax (DefineACB "a1" acb))
 
 ---
 
@@ -560,8 +542,6 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "keyring-key-del" (info pKeyDel (progDesc "removes a keypair from the keyring"))
                         <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
                         <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
-                        <> command "acb-gen"         (info pACBGen  (progDesc "generates binary ACB from text config"))
-                        <> command "acb-dump"        (info pACBDump (progDesc "dumps binary ACB to text config"))
                         <> command "lref-new"        (info pNewLRef (progDesc "generates a new linear ref"))
                         <> command "lref-list"       (info pListLRef (progDesc "list node linear refs"))
                         <> command "lref-get"        (info pGetLRef (progDesc "get a linear ref"))
@@ -620,15 +600,6 @@ main = join . customExecParser (prefs showHelpOnError) $
       s <- strArgument ( metavar "PUB-KEY-BASE58" )
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyDel s f)
-
-    pACBGen = do
-      f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
-      o <- optional $ strArgument ( metavar "ACB-FILE-OUTPUT" )
-      pure (runGenACB f o)
-
-    pACBDump = do
-      f <- optional $ strArgument ( metavar "ACB-FILE-INPUT" )
-      pure (runDumpACB f)
 
     pNewLRef = do
       nodeCredFile <- strArgument ( metavar "NODE-KEYRING-FILE" )

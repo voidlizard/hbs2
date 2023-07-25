@@ -62,8 +62,6 @@ makeLenses 'DBEnv
 
 type RepoRef = RefLogKey Schema
 
-type C = MegaParsec
-
 data ConfBranch
 data HeadBranch
 data KeyRingFile
@@ -140,9 +138,6 @@ instance FromStringMaybe RepoHead where
       decodePair other  = Left other
 
 
-pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
-pattern Key n ns <- SymbolVal  n : ns
-
 class HasProgress m where
   type family ProgressMonitor m :: Type
   newProgressMonitor :: String -> Int -> m (ProgressMonitor  m)
@@ -187,16 +182,6 @@ instance (HasCatAPI m, MonadIO m) => HasCatAPI (ResourceT m) where
 --   getHttpPutAPI = lift getHttpPutAPI
 --   getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
-class Monad m => HasCfgKey a b m where
-  -- type family CfgValue a :: Type
-  key :: Id
-
-class (Monad m, HasCfgKey a b m) => HasCfgValue a b m where
-  cfgValue :: m b
-
-class Monad m => HasConf m where
-  getConf :: m [Syntax C]
-
 newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
   deriving newtype ( Applicative
@@ -213,20 +198,6 @@ newtype App m a =
 
 instance MonadIO m => HasConf (App m) where
   getConf = asks (view appConf)
-
-instance {-# OVERLAPPABLE #-} (HasConf m, Ord b, IsString b, HasCfgKey a (Maybe b) m) => HasCfgValue a (Maybe b) m where
-  cfgValue = lastMay . val <$> getConf
-    where
-      val syn = [ fromString (show $ pretty e)
-                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b) @m
-                ]
-
-instance {-# OVERLAPPABLE #-} (HasConf m, Ord b, IsString b, HasCfgKey a (Set b) m) => HasCfgValue a (Set b) m where
-  cfgValue  = Set.fromList . val <$> getConf
-    where
-      val syn = [ fromString (show $ pretty e)
-                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Set b) @m
-                ]
 
 hPrint :: (Show a, MonadIO m) => Handle -> a -> m ()
 hPrint h s = liftIO $ IO.hPrint h s

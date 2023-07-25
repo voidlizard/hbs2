@@ -87,7 +87,6 @@ library
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
-                    , HBS2.Net.Proto.ACB
                     , HBS2.Net.Proto.BlockAnnounce
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
