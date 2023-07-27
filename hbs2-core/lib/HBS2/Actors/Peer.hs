@@ -302,7 +302,6 @@ instance ( MonadIO m
          , PeerMessaging e
          , HasTimeLimits e msg m
          , Show (Peer e)
-         , Show msg
          ) => Request e msg m where
   request peer_e msg = do
     let proto = protoId @e @msg (Proxy @msg)
@@ -318,8 +317,8 @@ instance ( MonadIO m
       -- liftIO $ print "request!"
     allowed <- tryLockForPeriod peer_e msg
 
-    when (not allowed) do
-      trace $ "REQUEST: not allowed to send" <+> viaShow msg
+    unless allowed do
+      trace $ "REQUEST: not allowed to send for proto" <+> viaShow proto
 
     when allowed do
       sendTo pipe (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))

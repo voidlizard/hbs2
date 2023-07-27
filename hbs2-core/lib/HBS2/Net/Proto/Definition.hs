@@ -7,7 +7,6 @@ module HBS2.Net.Proto.Definition
   where
 
 import HBS2.Clock
-import HBS2.Data.Types.Crypto
 import HBS2.Defaults
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
@@ -35,8 +34,6 @@ import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
 
-import HBS2.Data.Types.Crypto
-
 
 type instance Encryption L4Proto = HBS2Basic
 
@@ -51,11 +48,6 @@ type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 --   и это будет более правильная сериализация.
 --   но возможно, будет работать и так, ведь ключи
 --   это же всего лишь байтстроки внутри.
-
-instance Serialise Sign.PublicKey
-instance Serialise Encrypt.PublicKey
-instance Serialise Sign.SecretKey
-instance Serialise Encrypt.SecretKey
 
 deserialiseCustom :: (Serialise a, MonadPlus m) => ByteString -> m a
 deserialiseCustom = either (const mzero) pure . deserialiseOrFail
@@ -209,11 +201,8 @@ instance Expires (EventKey L4Proto (PeerAnnounce L4Proto)) where
 instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
   expiresIn _ = Just 600
 
--- instance MonadIO m => HasNonces () m where
---   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
---   newNonce = do
---     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
---     pure $ BS.take 32 n
+instance Expires (SessionKey L4Proto (EncryptionHandshake L4Proto)) where
+  expiresIn _ = Just defCookieTimeoutSec
 
 instance MonadIO m => HasNonces (PeerHandshake L4Proto) m where
   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
@@ -238,13 +227,6 @@ instance MonadIO m => HasNonces () m where
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
-
-instance Serialise Sign.Signature
-
-instance Signatures HBS2Basic where
-  type Signature HBS2Basic = Sign.Signature
-  makeSign = Sign.signDetached
-  verifySign = Sign.signVerifyDetached
 
 instance Asymm HBS2Basic where
   type AsymmKeypair HBS2Basic = Encrypt.Keypair

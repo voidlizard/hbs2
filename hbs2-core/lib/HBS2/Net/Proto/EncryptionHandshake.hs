@@ -83,7 +83,7 @@ encryptionHandshakeProto :: forall e s m .
     , Serialise (PubKey 'Encrypt (Encryption e))
     , s ~ Encryption e
     , e ~ L4Proto
-    , PubKey Encrypt s ~ Encrypt.PublicKey
+    , PubKey 'Encrypt s ~ Encrypt.PublicKey
     , Show (PubKey 'Sign s)
     , Show (Nonce ())
     )

@@ -16,6 +16,7 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.Net.Proto.Definition()
 import HBS2.System.Logger.Simple
 
 import PeerConfig
@@ -48,7 +49,7 @@ encryptionHandshakeWorker :: forall e m s .
     -- , HasPeer e
     -- , HasNonces (EncryptionHandshake e) m
     -- , Request e (EncryptionHandshake e) m
-    -- , Sessions e (EncryptionHandshake e) m
+    , Sessions e (EncryptionHandshake e) m
     -- , Sessions e (PeerInfo e) m
     -- , Sessions e (KnownPeer e) m
     -- , Pretty (Peer e)
@@ -80,3 +81,4 @@ encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
             case mkey of
                 Just _ -> pure ()
                 Nothing -> sendBeginEncryptionExchange @e creds ourpubkey peer
+
