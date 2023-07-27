@@ -575,10 +575,10 @@ runPeer opts = U.handle (\e -> myException e
                   mkey <- join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
                   case mkey of
                       Nothing ->
-                          trace $ "ENCRYPTION empty getEncryptionKey"
+                          trace1 $ "ENCRYPTION empty getEncryptionKey"
                               <+> pretty peer <+> viaShow mpeerData
                       Just k ->
-                          trace $ "ENCRYPTION success getEncryptionKey"
+                          trace1 $ "ENCRYPTION success getEncryptionKey"
                               <+> pretty peer <+> viaShow mpeerData <+> viaShow k
                   pure mkey
 
