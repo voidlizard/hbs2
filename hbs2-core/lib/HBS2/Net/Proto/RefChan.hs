@@ -260,6 +260,14 @@ instance Typeable (RefChanRequest e) => Hashable (EventKey e (RefChanRequest e))
     where
       p = Proxy @(RefChanRequest e)
 
+-- принимается, только если соответствует текущему HEAD
+-- не пишется в журнал
+data RefChanNotify e =
+  Notify (RefChanId e) (SignedBox ByteString e) -- подписано ключом автора
+  deriving stock (Generic)
+
+instance ForRefChans e => Serialise (RefChanNotify e)
+
 -- FIXME: rename
 data RefChanAdapter e m =
   RefChanAdapter
@@ -643,6 +651,31 @@ refChanRequestProto self adapter msg = do
 
   where
     proto = Proxy @(RefChanRequest e)
+
+
+refChanNotifyProto :: forall e s m . ( MonadIO m
+                                     , Request e (RefChanNotify e) m
+                                     , HasDeferred e (RefChanNotify e) m
+                                     , HasGossip e (RefChanNotify e) m
+                                     , IsPeerAddr e m
+                                     , Pretty (Peer e)
+                                     , Sessions e (KnownPeer e) m
+                                     , HasStorage m
+                                     , Signatures s
+                                     , IsRefPubKey s
+                                     , Pretty (AsBase58 (PubKey 'Sign s))
+                                     , s ~ Encryption e
+                                     )
+                  => Bool
+                  -> RefChanAdapter e m
+                  -> RefChanNotify e
+                  -> m ()
+
+refChanNotifyProto _ _ _ = do
+  -- аутентифицируем
+  -- проверяем ACL
+  -- пересылаем всем
+  pure ()
 
 
 getActualRefChanHead :: forall e s m . ( MonadIO m

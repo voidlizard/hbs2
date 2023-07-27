@@ -981,6 +981,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refChanHeadProto False refChanAdapter)
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
+                    , makeResponse (refChanNotifyProto False refChanAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers

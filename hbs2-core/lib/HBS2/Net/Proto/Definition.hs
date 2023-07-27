@@ -30,6 +30,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
 import Codec.Serialise (deserialiseOrFail,serialise)
 
+import Crypto.Saltine.Core.Box qualified as Crypto
 import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
@@ -39,12 +40,22 @@ import HBS2.Data.Types.Crypto
 
 type instance Encryption L4Proto = HBS2Basic
 
+type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
+type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
+type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
+type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
+
 -- FIXME: proper-serialise-for-keys
 --   Возможно, нужно написать ручные инстансы Serialise
 --   использовать encode/decode для каждого инстанса ниже $(c:end + 4)
 --   и это будет более правильная сериализация.
 --   но возможно, будет работать и так, ведь ключи
 --   это же всего лишь байтстроки внутри.
+
+instance Serialise Sign.PublicKey
+instance Serialise Encrypt.PublicKey
+instance Serialise Sign.SecretKey
+instance Serialise Encrypt.SecretKey
 
 deserialiseCustom :: (Serialise a, MonadPlus m) => ByteString -> m a
 deserialiseCustom = either (const mzero) pure . deserialiseOrFail
@@ -129,6 +140,15 @@ instance HasProtocol L4Proto (RefChanHead L4Proto) where
   -- TODO: find-out-optimal-max-frequency
   requestPeriodLim = ReqLimPerMessage 60
 
+instance HasProtocol L4Proto (EncryptionHandshake L4Proto) where
+  type instance ProtocolId (EncryptionHandshake L4Proto) = 10
+  type instance Encoded L4Proto = ByteString
+  decode = deserialiseCustom
+  encode = serialise
+
+  requestPeriodLim = ReqLimPerProto 0.5
+
+
 instance HasProtocol L4Proto (RefChanUpdate L4Proto) where
   type instance ProtocolId (RefChanUpdate L4Proto) = 11002
   type instance Encoded L4Proto = ByteString
@@ -151,13 +171,19 @@ instance HasProtocol L4Proto (RefChanRequest L4Proto) where
   -- но poll у нас в минутах, и с минимальным периодом 1 минута
   requestPeriodLim = ReqLimPerMessage 1
 
-instance HasProtocol L4Proto (EncryptionHandshake L4Proto) where
-  type instance ProtocolId (EncryptionHandshake L4Proto) = 10
+
+instance HasProtocol L4Proto (RefChanNotify L4Proto) where
+  type instance ProtocolId (RefChanNotify L4Proto) = 11004
   type instance Encoded L4Proto = ByteString
-  decode = deserialiseCustom
+  decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-  requestPeriodLim = ReqLimPerProto 0.5
+  -- не чаще раза в секуду, хотя бы.
+  -- или сколько? минуту? минуты мало.
+  -- но сообщения должны быть разные,
+  -- тогда и минута нормально.
+  -- возьмем пока 10 секунд
+  requestPeriodLim = ReqLimPerMessage 10
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec
@@ -177,47 +203,48 @@ instance Expires (SessionKey L4Proto (KnownPeer L4Proto)) where
 instance Expires (SessionKey L4Proto (PeerHandshake L4Proto)) where
   expiresIn _ = Just 60
 
-instance Expires (SessionKey L4Proto (EncryptionHandshake L4Proto)) where
-  expiresIn _ = Just 60
-
 instance Expires (EventKey L4Proto (PeerAnnounce L4Proto)) where
   expiresIn _ = Nothing
 
 instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
   expiresIn _ = Just 600
 
--- instance Expires (EventKey L4Proto (EncryptionHandshake L4Proto)) where
---   expiresIn _ = Just 600
-
 -- instance MonadIO m => HasNonces () m where
 --   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
 --   newNonce = do
---     n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
+--     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
 --     pure $ BS.take 32 n
 
 instance MonadIO m => HasNonces (PeerHandshake L4Proto) m where
   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
   newNonce = do
-    n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
 instance MonadIO m => HasNonces (PeerExchange L4Proto) m where
   type instance Nonce (PeerExchange L4Proto) = BS.ByteString
   newNonce = do
-    n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
 instance MonadIO m => HasNonces (RefLogUpdate L4Proto) m where
   type instance Nonce (RefLogUpdate L4Proto) = BS.ByteString
   newNonce = do
-    n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
 
 instance MonadIO m => HasNonces () m where
   type instance Nonce () = BS.ByteString
   newNonce = do
-    n <- liftIO ( Encrypt.newNonce <&> Crypto.encode )
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
+
+instance Serialise Sign.Signature
+
+instance Signatures HBS2Basic where
+  type Signature HBS2Basic = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
 
 instance Asymm HBS2Basic where
   type AsymmKeypair HBS2Basic = Encrypt.Keypair
