@@ -158,7 +158,7 @@ receiveFromProxyMessaging bus _ = liftIO do
     -- receive (view proxyUDP bus) w
     let answ = view proxyAnswers bus
     rs <- atomically $ liftM2 (:) (readTQueue answ) (flushTQueue answ)
-    fmap catMaybes $ forM rs \(w@(From whom), msg) -> do
+    catMaybes <$> forM rs \(w@(From whom), msg) -> do
         fmap (w, ) <$> dfm whom msg
 
     -- Здесь:
