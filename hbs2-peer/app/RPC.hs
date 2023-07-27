@@ -240,6 +240,9 @@ runRpcCommand opt = \case
   ANNOUNCE h -> withRPC opt (RPCAnnounce h)
   FETCH h  -> withRPC opt (RPCFetch h)
   PEERS -> withRPC opt RPCPeers
+
+  PEXINFO -> withRPC opt RPCPexInfo
+
   SETLOG s -> withRPC opt (RPCLogLevel s)
   REFLOGUPDATE bs -> withRPC opt (RPCRefLogUpdate bs)
   REFLOGFETCH k -> withRPC opt (RPCRefLogFetch k)
@@ -301,7 +304,7 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
           , rpcOnPeers         = dontHandle
           , rpcOnPeersAnswer   = (\(pa, k) -> Log.info $ pretty (AsBase58 k) <+> pretty pa)
           , rpcOnPexInfo       = dontHandle
-          , rpcOnPexInfoAnswer = dontHandle
+          , rpcOnPexInfoAnswer = (\ps -> mapM_ (Log.info . pretty) ps)
           , rpcOnLogLevel      = dontHandle
           , rpcOnRefLogUpdate  = dontHandle
           , rpcOnRefLogFetch   = dontHandle
@@ -357,6 +360,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                                  exitSuccess
 
                       RPCPeers{} -> liftIO do
+                        pause @'Seconds 1
+                        exitSuccess
+
+                      RPCPexInfo{} -> liftIO do
                         pause @'Seconds 1
                         exitSuccess
 
