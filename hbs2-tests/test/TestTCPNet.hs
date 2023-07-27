@@ -21,8 +21,6 @@ import Lens.Micro.Platform
 import Codec.Serialise
 import System.Environment
 
-logPrefix s = set loggerTr (s <>)
-
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] "
 

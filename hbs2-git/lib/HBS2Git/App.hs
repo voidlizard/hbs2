@@ -72,8 +72,6 @@ instance MonadIO m => HasCfgKey KeyRingFiles (Set FilePath) m where
 instance MonadIO m => HasCfgKey StoragePref (Maybe FilePath) m where
   key = "storage"
 
-logPrefix s = set loggerTr (s <>)
-
 tracePrefix :: SetLoggerEntry
 tracePrefix  = toStderr . logPrefix "[trace] "
 

@@ -17,6 +17,7 @@ module HBS2.System.Logger.Simple
   , loggerTr
   , toStderr
   , toStdout
+  , logPrefix
   , SetLoggerEntry
   , module HBS2.System.Logger.Simple.Class
   ) where
@@ -144,3 +145,5 @@ info = log @INFO
 instance {-# OVERLAPPABLE #-} ToLogStr (Doc ann) where
   toLogStr p = toLogStr (show p)
 
+logPrefix :: LogStr -> LoggerEntry-> LoggerEntry
+logPrefix s = set loggerTr (s <>)

@@ -20,8 +20,6 @@ import Control.Concurrent.Async
 import Lens.Micro.Platform
 import Codec.Serialise
 
-logPrefix s = set loggerTr (s <>)
-
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] "
 

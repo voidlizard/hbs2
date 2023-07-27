@@ -117,8 +117,6 @@ testSimpleStorageRandomReadWrite = do
     assertEqual  "errors1" e1 0
     assertEqual  "errors2" e2 0
 
-logPrefix s = set loggerTr (s <>)
-
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] "
 

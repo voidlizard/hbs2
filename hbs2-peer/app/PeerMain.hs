@@ -184,8 +184,6 @@ data PeerOpts =
 
 makeLenses 'PeerOpts
 
-logPrefix s = set loggerTr (s <>)
-
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] "
 
