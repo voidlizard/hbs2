@@ -176,22 +176,6 @@ stateInit = do
   |]
 
   liftIO $ execute_ conn [qc|
-    CREATE view v_refval_actual AS
-    WITH a1 as (
-      SELECT
-         l.refname
-       , l.refval
-       , vd.depth
-
-      FROM logrefval l
-      JOIN v_log_depth vd on vd.loghash = l.loghash )
-
-    SELECT a1.refname, a1.refval, MAX(a1.depth) from a1
-    GROUP by a1.refname
-    HAVING a1.refval <> '0000000000000000000000000000000000000000' ;
-  |]
-
-  liftIO $ execute_ conn [qc|
   CREATE TABLE IF NOT EXISTS logcommitdepth
   ( kommit text not null
   , depth integer not null
@@ -204,14 +188,19 @@ stateInit = do
   |]
 
   liftIO $ execute_ conn [qc|
-  CREATE VIEW v_log_depth AS
-  SELECT
-      lo.loghash,
-      MAX(ld.depth) AS depth
-  FROM logobject lo
-  JOIN logcommitdepth ld ON lo.githash = ld.kommit
-  WHERE lo.type in ( 'commit', 'context' )
-  GROUP BY lo.loghash;
+  DROP VIEW IF EXISTS v_refval_actual;
+  |]
+
+  liftIO $ execute_ conn [qc|
+    CREATE VIEW v_refval_actual AS
+    SELECT
+        rv.refname
+      , rv.refval
+      , MAX(d.depth) as depth
+    FROM logrefval rv
+    JOIN logcommitdepth d ON rv.refval = d.kommit
+    WHERE rv.refval <> '0000000000000000000000000000000000000000'
+    GROUP BY rv.refname;
   |]
 
 
