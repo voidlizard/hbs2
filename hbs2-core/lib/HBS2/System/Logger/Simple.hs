@@ -20,6 +20,7 @@ module HBS2.System.Logger.Simple
   , logPrefix
   , SetLoggerEntry
   , module HBS2.System.Logger.Simple.Class
+  , ToLogStr(..)
   ) where
 
 import HBS2.System.Logger.Simple.Class

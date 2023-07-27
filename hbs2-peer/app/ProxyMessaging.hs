@@ -19,6 +19,8 @@ import HBS2.Net.Messaging.TCP
 
 import HBS2.System.Logger.Simple
 
+import PeerTypes
+
 import Crypto.Saltine.Class as SCl
 import Crypto.Saltine.Core.Box qualified as Encrypt
 
@@ -142,10 +144,10 @@ sendToProxyMessaging bus t@(To whom) proto msg = do
     mencKey <- liftIO $ _proxy_getEncryptionKey bus whom
     cf <- case mencKey of
         Nothing -> do
-            trace $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
+            trace1 $ "ENCRYPTION SEND: sending plain message to" <+> pretty whom
             pure id
         Just k -> do
-            trace $ "ENCRYPTION SEND: sending encrypted message to" <+> pretty whom <+> "with key" <+> viaShow k
+            trace1 $ "ENCRYPTION SEND: sending encrypted message to" <+> pretty whom <+> "with key" <+> viaShow k
             boxAfterNMLazy k <$> liftIO Encrypt.newNonce
     sendToPlainProxyMessaging bus t proto (cf msg)
 
@@ -177,7 +179,7 @@ receiveFromProxyMessaging bus _ = liftIO do
       dfm = \whom msg -> liftIO $ _proxy_getEncryptionKey bus whom >>= \case
 
           Nothing -> do
-              trace $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
+              trace1 $ "ENCRYPTION RECEIVE: we do not have a key to decode" <+> pretty whom
               liftIO $ _proxy_sendBeginEncryptionExchange bus whom
               pure (Just msg)
 
@@ -189,23 +191,23 @@ receiveFromProxyMessaging bus _ = liftIO do
 
                 liftIO $ _proxy_sendResetEncryptionKeys bus whom
 
-                trace $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
+                trace1 $ "ENCRYPTION RECEIVE: got plain message. clearing key of" <+> pretty whom
                 pure msg
                 )) $
             do
               trace $ "ENCRYPTION RECEIVE: we have a key to decode from" <+> pretty whom <+> ":" <+> viaShow k
               case ((extractNonce . cs) msg) of
                   Nothing -> do
-                      trace $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
+                      trace1 $ "ENCRYPTION RECEIVE: can not extract nonce from" <+> pretty whom <+> "message" <+> viaShow msg
                       fail ""
 
                   Just (nonce, msg') ->
                       ((MaybeT . pure) (boxOpenAfterNMLazy k nonce msg')
-                          <* (trace $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
+                          <* (trace1 $ "ENCRYPTION RECEIVE: message successfully decoded from" <+> pretty whom)
                       )
                     <|>
                       (do
-                          (trace $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
+                          (trace1 $ "ENCRYPTION RECEIVE: can not decode message from" <+> pretty whom)
                           fail ""
 
                           -- -- Попытаться десериализовать сообщение как PeerPing или PeerPingCrypted

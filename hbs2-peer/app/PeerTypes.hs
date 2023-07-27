@@ -30,6 +30,7 @@ import HBS2.System.Logger.Simple
 import Brains
 import PeerConfig
 
+import Prelude hiding (log)
 import Data.Foldable (for_)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -481,4 +482,15 @@ instance (ForGossip e p (PeerM e IO)) => HasGossip e p (PeerM e IO) where
 
 instance (ForGossip e p (ResponseM e m), HasGossip e p m) => HasGossip e p (ResponseM e m) where
   gossip = lift . gossip
+
+
+data TRACE1
+
+instance HasLogLevel TRACE1 where
+  type instance LogLevel TRACE1 = 101
+
+trace1 :: (MonadIO m, ToLogStr a) => a -> m ()
+trace1 = log @TRACE1
+
+
 

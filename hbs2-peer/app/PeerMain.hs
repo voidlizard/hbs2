@@ -123,6 +123,7 @@ data PeerWhiteListKey
 data PeerStorageKey
 data PeerAcceptAnnounceKey
 data PeerTraceKey
+data PeerTrace1Key
 data PeerProxyFetchKey
 
 data AcceptAnnounce = AcceptAnnounceAll
@@ -137,6 +138,9 @@ instance Pretty AcceptAnnounce where
 
 instance HasCfgKey PeerTraceKey FeatureSwitch where
   key = "trace"
+
+instance HasCfgKey PeerTrace1Key FeatureSwitch where
+  key = "trace1"
 
 instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
@@ -211,6 +215,7 @@ main = do
   setLogging @NOTICE noticePrefix
 
   setLoggingOff @TRACE
+  setLoggingOff @TRACE1
 
   withSimpleLogger runCLI
 
@@ -459,6 +464,7 @@ runPeer opts = U.handle (\e -> myException e
   let keyConf = cfgValue @PeerKeyFileKey conf
   let storConf = cfgValue @PeerStorageKey conf <&> StoragePrefix
   let traceConf = cfgValue @PeerTraceKey conf :: FeatureSwitch
+  let trace1Conf = cfgValue @PeerTrace1Key conf :: FeatureSwitch
 
   let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
   let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
@@ -469,9 +475,13 @@ runPeer opts = U.handle (\e -> myException e
   debug $ "storage prefix:" <+> pretty pref
 
   debug $ pretty "trace: " <+> pretty (show traceConf)
+  debug $ pretty "trace1: " <+> pretty (show trace1Conf)
 
   when (traceConf == FeatureOn) do
     setLogging @TRACE tracePrefix
+
+  when (trace1Conf == FeatureOn) do
+    setLogging @TRACE1 tracePrefix
 
   let bls = cfgValue @PeerBlackListKey conf :: Set String
   let whs = cfgValue @PeerWhiteListKey conf :: Set String
