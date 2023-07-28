@@ -51,8 +51,10 @@ common shared-properties
                      , ImportQualifiedPost
                      , LambdaCase
                      , MultiParamTypeClasses
+                     , OverloadedLabels
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RankNTypes
                      , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
@@ -60,6 +62,7 @@ common shared-properties
                      , TypeApplications
                      , TypeFamilies
                      , TemplateHaskell
+                     , ViewPatterns
 
 
 
@@ -96,6 +99,7 @@ library
                     , HBS2.Net.Proto.BlockChunks
                     , HBS2.Net.Proto.BlockInfo
                     , HBS2.Net.Proto.Definition
+                    , HBS2.Net.Proto.Dialog
                     , HBS2.Net.Proto.EncryptionHandshake
                     , HBS2.Net.Proto.Event.PeerExpired
                     , HBS2.Net.Proto.Peer
@@ -112,6 +116,10 @@ library
                     , HBS2.Storage
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
+                    , Dialog.Core
+                    , Dialog.Client
+                    , Dialog.Helpers.List
+                    , Dialog.Helpers.Streaming
 
 
     -- other-modules:
@@ -120,6 +128,7 @@ library
                     , aeson
                     , async
                     , attoparsec
+                    , base16-bytestring
                     , base58-bytestring
                     , binary
                     , bytestring
@@ -128,11 +137,13 @@ library
                     , clock
                     , containers
                     , cryptonite
+                    , data-default
                     , deepseq
                     , directory
                     , fast-logger
                     , filelock
                     , filepath
+                    , generic-lens
                     , hashable
                     , interpolatedstring-perl6
                     , iproute
@@ -146,6 +157,7 @@ library
                     , network-simple
                     , network-byte-order
                     , prettyprinter
+                    , mwc-random
                     , random
                     , random-shuffle
                     , resourcet
@@ -156,6 +168,7 @@ library
                     , split
                     , stm
                     , stm-chans
+                    , string-conversions
                     , streaming
                     , string-conversions
                     , suckless-conf
@@ -166,6 +179,7 @@ library
                     , uniplate
                     , unordered-containers
                     , unliftio
+                    , unliftio-core
 
 
     hs-source-dirs:   lib
@@ -181,6 +195,7 @@ test-suite test
                   -- , TestUniqProtoId
                   , FakeMessaging
                   , HasProtocol
+                  , DialogSpec
 
     -- other-extensions:
 
@@ -207,6 +222,7 @@ test-suite test
         , tasty
         , tasty-quickcheck
         , tasty-hunit
+        , tasty-quickcheck
         , transformers
         , uniplate
         , vector

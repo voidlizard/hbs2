@@ -8,6 +8,9 @@ class OrDie m a where
   type family OrDieResult a :: Type
   orDie :: m a -> String -> m (OrDieResult a)
 
+orDieM :: (Monad m, OrDie m a) => a -> String -> m (OrDieResult a)
+orDieM a msg = pure a `orDie` msg
+
 instance MonadIO m => OrDie m (Maybe a) where
   type instance OrDieResult (Maybe a) = a
   orDie mv err = mv >>= \case

@@ -43,10 +43,10 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
-import Data.Hashable (hash)
 import UnliftIO (MonadUnliftIO(..))
 import Crypto.Saltine.Core.SecretBox qualified as SBox  -- Симметричное шифрование с nonce без подписи
 import Crypto.Saltine.Core.Box qualified as Encrypt  -- Асимметричное шифрование без подписи
+import Control.Monad.IO.Unlift
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
@@ -127,6 +127,22 @@ makeResponse h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
                              , protoEncode = encode
                              , handle = h
                              }
+
+-- makeResponse' :: forall e p  m . ( MonadIO m
+--                                 , Response e p m
+--                                 , HasProtocol e p
+--                                 , Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
+--                                 )
+--   => (Encoded e -> Maybe p)
+--   -> (p -> Encoded e)
+--   -> (p ->  m ())
+--   -> AnyProtocol e m
+
+-- makeResponse' dec enc h = AnyProtocol { myProtoId  = natVal (Proxy @(ProtocolId p))
+--                              , protoDecode = dec
+--                              , protoEncode = enc
+--                              , handle = h
+--                              }
 
 data PeerEnv e =
   PeerEnv

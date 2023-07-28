@@ -2,6 +2,7 @@ module Main where
 
 import TestFakeMessaging
 import TestActors
+import DialogSpec
 -- import TestUniqProtoId
 import TestCrypto
 
@@ -17,6 +18,7 @@ main =
       , testCase "testActorsBasic" testActorsBasic
       -- , testCase "testUniqProtoId" testUniqProtoId
       , testCrypto
+      , testDialog
       ]
 
 

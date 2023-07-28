@@ -20,6 +20,7 @@ import HBS2.System.Logger.Simple qualified as Log
 import PeerConfig
 
 
+import Control.Monad.IO.Unlift
 import Codec.Serialise (serialise,deserialiseOrFail)
 import Control.Applicative
 import Control.Concurrent.STM
@@ -163,6 +164,7 @@ newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
                                          , MonadIO
                                          , MonadReader RPCEnv
                                          , MonadTrans
+                                         , MonadUnliftIO
                                          )
 
 runRPC :: ( MonadIO m

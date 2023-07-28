@@ -29,6 +29,7 @@ common common-deps
         , directory
         , dns
         , filepath
+        , generic-lens
         , hashable
         , microlens-platform
         , mtl
@@ -68,9 +69,11 @@ common common-deps
         , http-types
         , wai-extra
         , unliftio
+        , unliftio-core
         , unix
         , heaps
         , psqueues
+        , string-conversions
 
 common shared-properties
   ghc-options:
@@ -108,7 +111,9 @@ common shared-properties
                      , LambdaCase
                      , MultiParamTypeClasses
                      , OverloadedStrings
+                     , OverloadedLabels
                      , QuasiQuotes
+                     , RankNTypes
                      , RecordWildCards
                      , RecursiveDo
                      , ScopedTypeVariables
@@ -130,6 +135,8 @@ executable hbs2-peer
                     , EncryptionKeys
                     , Bootstrap
                     , PeerInfo
+                    , PeerMain.DialogCliCommand
+                    , PeerMain.PeerDialog
                     , PeerMeta
                     , RPC
                     , PeerTypes

@@ -23,6 +23,7 @@ import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
+import HBS2.Net.Proto.Dialog
 import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
@@ -54,6 +55,8 @@ import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
 import ProxyMessaging
+import PeerMain.DialogCliCommand
+import PeerMain.PeerDialog
 import PeerMeta
 import CLI.RefChan
 import RefChan
@@ -98,8 +101,8 @@ import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
 import UnliftIO.Async as U
-import Control.Monad.Trans.Resource
 
+import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
 import Streaming qualified as S
 
@@ -144,7 +147,6 @@ instance HasCfgKey PeerTrace1Key FeatureSwitch where
 
 instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
-
 
 instance HasCfgKey PeerKeyFileKey (Maybe String) where
   key = "key"
@@ -240,6 +242,8 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
                         <> command "peers"     (info pPeers (progDesc "show known peers"))
                         <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                         <> command "log"       (info pLog   (progDesc "set logging level"))
+
+                        <> command "dial"      (info pDialog (progDesc "dialog commands"))
                         )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -705,6 +709,10 @@ runPeer opts = U.handle (\e -> myException e
 
                     }
 
+              -- dialReqProtoAdapter <- do
+              --     dialReqProtoAdapterRouter <- pure dialogRoutes
+              --     pure DialReqProtoAdapter {..}
+
               env <- ask
 
               pnonce <- peerNonce @e
@@ -990,6 +998,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
+                    -- , makeResponse (dialReqProto dialReqProtoAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
@@ -1175,9 +1184,14 @@ runPeer opts = U.handle (\e -> myException e
           , rpcOnRefChanPropose = refChanProposeAction
           }
 
+  dialReqProtoAdapter <- do
+      dialReqProtoAdapterRouter <- pure dialogRoutes
+      pure DialReqProtoAdapter {..}
+
   rpc <- async $ runRPC udp1 do
                    runProto @e
                      [ makeResponse (rpcHandler arpc)
+                     , makeResponse (dialReqProto dialReqProtoAdapter)
                      ]
 
   menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)

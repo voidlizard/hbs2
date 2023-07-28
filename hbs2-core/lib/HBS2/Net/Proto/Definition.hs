@@ -14,6 +14,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.BlockChunks
 import HBS2.Net.Proto.BlockInfo
+import HBS2.Net.Proto.Dialog
 import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
@@ -27,6 +28,7 @@ import Control.Monad
 import Data.Functor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Codec.Serialise (deserialiseOrFail,serialise)
 
 import Crypto.Saltine.Core.Box qualified as Crypto
@@ -176,6 +178,18 @@ instance HasProtocol L4Proto (RefChanNotify L4Proto) where
   -- тогда и минута нормально.
   -- возьмем пока 10 секунд
   requestPeriodLim = ReqLimPerMessage 10
+
+instance HasProtocol L4Proto (DialReq L4Proto) where
+  type instance ProtocolId (DialReq L4Proto) = 96000
+  type instance Encoded L4Proto = ByteString
+  decode = dialReqDecode . BSL.toStrict
+  encode = BSL.fromStrict . dialReqEncode
+
+instance HasProtocol L4Proto (DialResp L4Proto) where
+  type instance ProtocolId (DialResp L4Proto) = 96001
+  type instance Encoded L4Proto = ByteString
+  decode = dialRespDecode . BSL.toStrict
+  encode = BSL.fromStrict . dialRespEncode
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

@@ -1,4 +1,5 @@
 {-# Language FunctionalDependencies #-}
+{-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 module HBS2.Net.Messaging where
 
@@ -7,6 +8,7 @@ import HBS2.Net.Proto
 import Control.Monad.IO.Class
 
 newtype From a = From (Peer a)
+deriving instance Show (Peer a) => Show (From a)
 
 newtype To a = To (Peer a)
 
