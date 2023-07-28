@@ -120,10 +120,10 @@ library
                     , HBS2.Storage.Operations
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
-                    , Dialog.Core
-                    , Dialog.Client
-                    , Dialog.Helpers.List
-                    , Dialog.Helpers.Streaming
+                    , HBS2.Net.Dialog.Core
+                    , HBS2.Net.Dialog.Client
+                    , HBS2.Net.Dialog.Helpers.List
+                    , HBS2.Net.Dialog.Helpers.Streaming
 
 
     -- other-modules:

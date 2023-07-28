@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-module Dialog.Client where
+module HBS2.Net.Dialog.Client where
 
 -- import System.Clock
 -- import System.Timeout
@@ -34,8 +34,8 @@ import UnliftIO.Exception
 import UnliftIO.STM
 import UnliftIO.Timeout
 
-import Dialog.Core
-import Dialog.Helpers.Streaming
+import HBS2.Net.Dialog.Core
+import HBS2.Net.Dialog.Helpers.Streaming
 
 ---
 

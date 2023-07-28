@@ -7,6 +7,7 @@ import HBS2.Actors.Peer
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Proto
+import HBS2.Net.Proto.Types
 import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
@@ -228,3 +229,36 @@ instance ( Serialise (PubKey 'Sign (Encryption e))
 
   => Serialise (PeerHandshake e)
 
+
+---
+
+data EncryptionKeyIDKey e =
+  EncryptionKeyIDKey
+  { ekeyIDPeerSignKey :: PubKey 'Sign (Encryption e)
+  , ekeyIDPeerNonce :: PeerNonce
+  }
+  deriving (Generic)
+
+deriving instance
+  ( Show (PubKey 'Sign (Encryption e))
+  , Show (Nonce ())
+  ) => Show (EncryptionKeyIDKey e)
+
+deriving instance
+  ( Eq (PubKey 'Sign (Encryption e))
+  , Eq (Nonce ())
+  ) => Eq (EncryptionKeyIDKey e)
+
+instance (
+    Hashable (PubKey 'Sign (Encryption e))
+  , Hashable (Nonce ())
+  ) => Hashable (EncryptionKeyIDKey e) where
+  hashWithSalt s EncryptionKeyIDKey {..} =
+      hashWithSalt s (ekeyIDPeerSignKey, ekeyIDPeerNonce)
+
+encryptionKeyIDKeyFromPeerData :: PeerData e -> EncryptionKeyIDKey e
+encryptionKeyIDKeyFromPeerData PeerData{..} =
+    EncryptionKeyIDKey
+        { ekeyIDPeerSignKey = _peerSignKey
+        , ekeyIDPeerNonce = _peerOwnNonce
+        }

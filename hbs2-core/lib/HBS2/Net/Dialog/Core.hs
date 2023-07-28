@@ -1,7 +1,7 @@
 {-# LANGUAGE StrictData #-}
 -- {-# LANGUAGE OverloadedLists #-}
 -- {-# LANGUAGE UndecidableInstances #-}
-module Dialog.Core where
+module HBS2.Net.Dialog.Core where
 
 -- import Data.ByteString.Builder as Builder
 -- import Data.ByteString.Builder.Internal as Builder
@@ -50,7 +50,7 @@ import UnliftIO.STM
 -- import HBS2.Base58
 import Data.ByteString.Base16 qualified as B16
 
-import Dialog.Helpers.List
+import HBS2.Net.Dialog.Helpers.List
 
 type Frames = Frames' ByteString
 newtype Frames' a = Frames { unFrames :: [a] }
@@ -78,8 +78,8 @@ tailAfterP p focus = fix \go -> \case
 
 ---
 
--- encodeFrames :: Frames -> ByteString
-encodeFrames :: Foldable t => t ByteString -> ByteString
+encodeFrames :: Frames -> ByteString
+-- encodeFrames :: Foldable t => t ByteString -> ByteString
 encodeFrames = F.toList >>> BSL.toStrict . runPut . \case
 
     []   -> pure ()

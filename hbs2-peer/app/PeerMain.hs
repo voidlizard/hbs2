@@ -448,7 +448,7 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
                         , HasStorage (PeerM e IO)
-                        ) => PeerOpts -> IO ()
+                        )=> PeerOpts -> IO ()
 
 runPeer opts = Exception.handle (\e -> myException e
                         >> performGC
@@ -574,32 +574,35 @@ runPeer opts = Exception.handle (\e -> myException e
            pure $ Just tcpEnv
 
   (proxy, penv) <- mdo
-      proxy <- newProxyMessaging mess tcp >>= \peer -> pure peer
+      proxy <- newProxyMessaging mess tcp >>= \proxy' -> pure proxy'
             { _proxy_getEncryptionKey = \peer -> do
-                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  mkey <- join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
+                      withPeerM penv $ find (KnownPeerKey peer) id
+                  mkey <- join <$> forM mencKeyID \encKeyID ->
+                      getEncryptionKey proxy encKeyID
                   case mkey of
                       Nothing ->
                           trace1 $ "ENCRYPTION empty getEncryptionKey"
-                              <+> pretty peer <+> viaShow mpeerData
+                              <+> pretty peer <+> viaShow mencKeyID
                       Just k ->
                           trace1 $ "ENCRYPTION success getEncryptionKey"
-                              <+> pretty peer <+> viaShow mpeerData <+> viaShow k
+                              <+> pretty peer <+> viaShow mencKeyID <+> viaShow k
                   pure mkey
 
             , _proxy_clearEncryptionKey = \peer -> do
-                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mpeerData \peerData -> setEncryptionKey penv peer peerData Nothing
+                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
+                      withPeerM penv $ find (KnownPeerKey peer) id
+                  forM_ mencKeyID \encKeyID -> setEncryptionKey proxy peer encKeyID Nothing
                   -- deletePeerAsymmKey brains peer
-                  forM_ mpeerData \peerData ->
-                      deletePeerAsymmKey' brains (show peerData)
+                  forM_ mencKeyID \encKeyID ->
+                      deletePeerAsymmKey' brains (show encKeyID)
 
             , _proxy_sendResetEncryptionKeys = \peer -> withPeerM penv do
                   sendResetEncryptionKeys peer
 
             , _proxy_sendBeginEncryptionExchange = \peer -> withPeerM penv do
                   sendBeginEncryptionExchange pc
-                      ((pubKeyFromKeypair @s . view envAsymmetricKeyPair) penv)
+                      ((pubKeyFromKeypair @s . _proxy_asymmetricKeyPair) proxy)
                       peer
 
           }
@@ -687,27 +690,32 @@ runPeer opts = Exception.handle (\e -> myException e
                       ) => EncryptionHandshakeAdapter L4Proto m s
                   encryptionHshakeAdapter = EncryptionHandshakeAdapter
                     { encHandshake_considerPeerAsymmKey = \peer mpubkey -> withPeerM penv do
-                          mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
+                          mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
+                              withPeerM penv $ find (KnownPeerKey peer) id
                           case mpubkey of
                               Nothing -> do
-                                  -- trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mpeerData
+                                  -- trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mencKeyID
                                   -- deletePeerAsymmKey brains peer
-                                  forM_ mpeerData \peerData ->
-                                      deletePeerAsymmKey' brains (show peerData)
+                                  forM_ mencKeyID \encKeyID ->
+                                      deletePeerAsymmKey' brains (show encKeyID)
                               Just pk -> do
                                   -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
                                   let symmk = genCommonSecret @s
-                                          (privKeyFromKeypair @s (view envAsymmetricKeyPair penv))
+                                          (privKeyFromKeypair @s (_proxy_asymmetricKeyPair proxy))
                                           pk
-                                  case mpeerData of
+                                  case mencKeyID of
                                       Nothing -> do
                                           -- insertPeerAsymmKey brains peer pk symmk
                                           -- insertPeerAsymmKey' brains (show peer) pk symmk
-                                          trace $ "ENCRYPTION can not store key. No peerData"
-                                              <+> pretty peer <+> viaShow mpeerData
-                                      Just peerData -> do
-                                          liftIO $ setEncryptionKey penv peer peerData (Just symmk)
-                                          insertPeerAsymmKey' brains (show peerData) pk symmk
+                                          trace $ "ENCRYPTION can not store key. No encKeyID"
+                                              <+> pretty peer <+> viaShow mencKeyID
+                                      Just encKeyID -> do
+                                          liftIO $ setEncryptionKey proxy peer encKeyID (Just symmk)
+                                          insertPeerAsymmKey' brains (show encKeyID) pk symmk
+
+                    , encAsymmetricKeyPair = _proxy_asymmetricKeyPair proxy
+
+                    , encGetEncryptionKey = liftIO . getEncryptionKey proxy
 
                     }
 
@@ -724,11 +732,12 @@ runPeer opts = Exception.handle (\e -> myException e
               addPeers @e pl ps
 
               subscribe @e PeerExpiredEventKey \(PeerExpiredEvent peer {-mpeerData-}) -> liftIO do
-                  mpeerData <- withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mpeerData \peerData -> setEncryptionKey penv peer peerData Nothing
+                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
+                               withPeerM penv $ find (KnownPeerKey peer) id
+                  forM_ mencKeyID \encKeyID -> setEncryptionKey proxy peer encKeyID Nothing
                   -- deletePeerAsymmKey brains peer
-                  forM_ mpeerData \peerData ->
-                      deletePeerAsymmKey' brains (show peerData)
+                  forM_ mencKeyID \encKeyID ->
+                      deletePeerAsymmKey' brains (show encKeyID)
 
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do
@@ -871,7 +880,7 @@ runPeer opts = Exception.handle (\e -> myException e
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 peerThread "encryptionHandshakeWorker"
-                    (EncryptionKeys.encryptionHandshakeWorker @e conf penv pc encryptionHshakeAdapter)
+                    (EncryptionKeys.encryptionHandshakeWorker @e conf pc encryptionHshakeAdapter)
 
                 let tcpProbeWait :: Timeout 'Seconds
                     tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)
@@ -991,7 +1000,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
-                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter penv)
+                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
                     , makeResponse (peerExchangeProto pexFilt)
                     , makeResponse (refLogUpdateProto reflogAdapter)
                     , makeResponse (refLogRequestProto reflogReqAdapter)

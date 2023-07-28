@@ -11,6 +11,7 @@ module HBS2.Actors.Peer
 import HBS2.Actors
 import HBS2.Actors.Peer.Types
 import HBS2.Clock
+import HBS2.Data.Types.Crypto
 import HBS2.Data.Types.Peer
 import HBS2.Defaults
 import HBS2.Events
@@ -158,29 +159,7 @@ data PeerEnv e =
   , _envSweepers      :: TVar (HashMap SKey [PeerM e IO ()])
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
-  , _envAsymmetricKeyPair :: AsymmKeypair (Encryption e)
-  , _envEncryptionKeys :: TVar (HashMap (PeerData e) (CommonSecret (Encryption e)))
   }
-
-setEncryptionKey ::
-  ( Hashable (PubKey 'Sign (Encryption L4Proto))
-  , Hashable PeerNonce
-  , Show (PubKey 'Sign (Encryption L4Proto))
-  , Show PeerNonce
-  , Show (CommonSecret (Encryption L4Proto))
-  ) => PeerEnv L4Proto -> Peer L4Proto -> PeerData L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
-setEncryptionKey penv peer pd msecret = do
-    atomically $ modifyTVar' (_envEncryptionKeys penv) $ Lens.at pd .~ msecret
-    case msecret of
-        Nothing -> trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow pd
-        Just k ->  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow pd <+> viaShow k
-
-getEncryptionKey ::
-  ( Hashable (PubKey 'Sign (Encryption L4Proto))
-  , Hashable PeerNonce
-  ) => PeerEnv L4Proto -> PeerData L4Proto -> IO (Maybe (CommonSecret (Encryption L4Proto)))
-getEncryptionKey penv pd =
-    readTVarIO (_envEncryptionKeys penv) <&> preview (Lens.ix pd)
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                       deriving newtype ( Functor
@@ -435,8 +414,6 @@ newPeerEnv s bus p = do
   _envSweepers      <- liftIO (newTVarIO mempty)
   _envReqMsgLimit   <- liftIO (Cache.newCache (Just defRequestLimit))
   _envReqProtoLimit <- liftIO (Cache.newCache (Just defRequestLimit))
-  _envAsymmetricKeyPair <- asymmNewKeypair @(Encryption e)
-  _envEncryptionKeys <- liftIO (newTVarIO mempty)
   pure PeerEnv {..}
 
 runPeerM :: forall e m . ( MonadIO m

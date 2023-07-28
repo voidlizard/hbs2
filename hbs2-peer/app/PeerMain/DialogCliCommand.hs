@@ -2,81 +2,32 @@
 
 module PeerMain.DialogCliCommand where
 
--- import Data.Generics.Labels
--- import Data.Generics.Product.Fields
+import Data.Generics.Labels
+import Data.Generics.Product.Fields
 import HBS2.Actors.Peer
-import HBS2.Base58
-import HBS2.Clock
-import HBS2.Net.Proto.RefLog (RefLogKey(..))
-import HBS2.Defaults
-import HBS2.Events
-import HBS2.Hash
-import HBS2.Merkle
-import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
-import HBS2.Net.Messaging
-import HBS2.Net.Messaging.TCP
 import HBS2.Net.Messaging.UDP
-import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Dialog
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerAnnounce
-import HBS2.Net.Proto.PeerExchange
-import HBS2.Net.Proto.PeerMeta
-import HBS2.Net.Proto.RefLog
-import HBS2.Net.Proto.Sessions
-import HBS2.Net.Proto.Types
 import HBS2.OrDie
 import HBS2.Prelude
-import HBS2.Prelude.Plated
-import HBS2.Storage.Simple
 import HBS2.System.Logger.Simple hiding (info)
-import HBS2.System.Logger.Simple qualified as Log
 
-import BlockDownload
-import BlockHttpDownload
-import Bootstrap
-import Brains
-import CheckMetrics
-import DownloadQ
-import HttpWorker
 import PeerConfig
-import PeerInfo
-import PeerMeta
-import PeerTypes
-import ProxyMessaging
-import RefLog (reflogWorker)
-import RefLog qualified
 import RPC
 
-import Control.Monad
-import Control.Monad.IO.Unlift
-import Control.Monad.Reader
 import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
-import Crypto.Saltine.Core.Box qualified as Encrypt
-import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
-import Data.ByteString.Lazy (ByteString)
-import Data.ByteString.Lazy qualified as LBS
 import Data.Default
 import Data.Function
 import Data.Functor
+import Data.Kind
 import Data.List qualified as List
-import Data.Map.Strict qualified as Map
-import Data.Maybe
-import Data.Monoid qualified as Monoid
-import Data.Set qualified as Set
 import Data.String.Conversions as X (cs)
 import Data.Void (absurd, Void)
 import Lens.Micro.Platform
 import Network.Socket
 import Options.Applicative
-import Streaming as S
 import Streaming.Prelude qualified as S
-import System.Directory
 import UnliftIO.Async
 import UnliftIO.Concurrent
 import UnliftIO.Exception as U
@@ -84,7 +35,6 @@ import UnliftIO.Resource
 
 -- import System.FilePath.Posix
 import System.IO
-import System.Exit
 
 
 pDialog :: Parser (IO ())
@@ -95,16 +45,16 @@ pDialog = hsubparser $ mempty
 confOpt :: Parser FilePath
 confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
 
-data OptInitial (f :: * -> *) a b = OptInitial { unOptInitial :: f a }
+newtype OptInitial (f :: Type -> Type) a b = OptInitial { unOptInitial :: f a }
   deriving (Generic, Show)
 
-data OptResolved (f :: * -> *) a b = OptResolved { unOptResolved :: b }
+newtype OptResolved (f :: Type -> Type) a b = OptResolved { unOptResolved :: b }
   deriving (Generic, Show)
 
 type DialOptInitial = DialOpt OptInitial
 type DialOptResolved = DialOpt OptResolved
 
-data DialOpt (f :: (* -> *) -> * -> * -> *) = DialOpt
+data DialOpt (f :: (Type -> Type) -> Type -> Type -> Type) = DialOpt
   { dialOptConf :: f Maybe FilePath PeerConfig
   , dialOptAddr :: f Maybe String (Peer L4Proto)
   }
@@ -133,7 +83,7 @@ resolveDialOpt dopt = do
         `orDieM` "Dial endpoint not set"
 
     as <- parseAddrUDP (cs saddr) <&> fmap (fromSockAddr @'UDP . addrAddress)
-    peer <- (headMay $ List.sortBy (compare `on` addrPriority) as)
+    peer <- headMay (List.sortBy (compare `on` addrPriority) as)
         `orDieM` "Can't parse Dial endpoint"
 
     pure DialOpt

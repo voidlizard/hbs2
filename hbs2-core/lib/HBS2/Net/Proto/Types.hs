@@ -28,6 +28,11 @@ import Control.Monad.Trans.Maybe
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
+data CryptoAction = Sign | Encrypt
+
+type family PubKey  ( a :: CryptoAction) e  :: Type
+type family PrivKey ( a :: CryptoAction) e  :: Type
+
 type family Encryption e :: Type
 
 -- FIXME: move-to-a-crypto-definition-modules
@@ -205,5 +210,4 @@ instance FromStringMaybe (PeerAddr L4Proto) where
 
 instance Serialise L4Proto
 instance Serialise (PeerAddr L4Proto)
-
 

@@ -1,4 +1,4 @@
-module Dialog.Helpers.List where
+module HBS2.Net.Dialog.Helpers.List where
 
 import Control.Monad.Trans.Writer.CPS qualified as W
 import Data.Functor.Identity

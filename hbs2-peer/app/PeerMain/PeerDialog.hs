@@ -6,7 +6,7 @@ import Data.Bool
 import Data.ByteString qualified as BS
 import Data.Map qualified as Map
 
-import Dialog.Core
+import HBS2.Net.Dialog.Core
 import HBS2.Net.Proto.Types
 
 

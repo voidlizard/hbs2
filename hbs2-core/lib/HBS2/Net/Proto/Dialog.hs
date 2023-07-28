@@ -3,8 +3,8 @@
 
 module HBS2.Net.Proto.Dialog
 ( module HBS2.Net.Proto.Dialog
-, module Dialog.Core
-, module Dialog.Client
+, module HBS2.Net.Dialog.Core
+, module HBS2.Net.Dialog.Client
 ) where
 
 import HBS2.Actors.Peer
@@ -34,8 +34,8 @@ import Streaming.Prelude qualified as S
 import UnliftIO.Exception
 import UnliftIO.STM
 
-import Dialog.Client
-import Dialog.Core
+import HBS2.Net.Dialog.Client
+import HBS2.Net.Dialog.Core
 
 ---
 
