@@ -9,6 +9,7 @@ module HBS2.Net.Proto.Definition
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Hash
+import HBS2.Actors.Peer.Types
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto
 import HBS2.Net.Proto.BlockAnnounce
@@ -22,6 +23,7 @@ import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
+import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Prelude
 
 import Control.Monad
@@ -38,6 +40,8 @@ import Crypto.Saltine.Core.Box qualified as Encrypt
 
 
 type instance Encryption L4Proto = HBS2Basic
+
+type instance Encryption UNIX = HBS2Basic
 
 type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
 type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
@@ -190,6 +194,22 @@ instance HasProtocol L4Proto (DialResp L4Proto) where
   type instance Encoded L4Proto = ByteString
   decode = dialRespDecode . BSL.toStrict
   encode = BSL.fromStrict . dialRespEncode
+
+
+instance Serialise (RefChanValidate UNIX) => HasProtocol UNIX (RefChanValidate UNIX) where
+  type instance ProtocolId (RefChanValidate UNIX) = 0xFFFA0001
+  type instance Encoded UNIX = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+instance MonadIO m => HasNonces (RefChanValidate UNIX) m where
+  type instance Nonce (RefChanValidate UNIX) = BS.ByteString
+  newNonce = do
+    n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
+    pure $ BS.take 8 n
+
+instance HasTimeLimits UNIX (RefChanValidate UNIX) IO where
+  tryLockForPeriod _ _ = pure True
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where
   expiresIn _ = Just defCookieTimeoutSec

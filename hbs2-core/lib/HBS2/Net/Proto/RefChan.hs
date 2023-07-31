@@ -30,6 +30,7 @@ import Codec.Serialise
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.HashMap.Strict (HashMap)
@@ -258,12 +259,43 @@ data RefChanNotify e =
 
 instance ForRefChans e => Serialise (RefChanNotify e)
 
+type RefChanValidateNonce e = Nonce (RefChanValidate e)
+
+data RefChanValidate e =
+  RefChanValidate
+  { rcvNonce :: Nonce (RefChanValidate e)
+  , rcvChan  :: RefChanId e
+  , rcvData  :: RefChanValidateData e
+  }
+  deriving stock (Generic)
+
+data RefChanValidateData e =
+    Validate HashRef
+  | Accepted HashRef
+  | Rejected HashRef
+  | Poke
+  deriving stock (Generic)
+
+instance Serialise (RefChanValidateData e)
+
+instance ( Serialise (PubKey 'Sign (Encryption e))
+         , Serialise (Nonce (RefChanValidate e)) )
+  => Serialise (RefChanValidate e)
+
+instance (ForRefChans e, Pretty (AsBase58 (Nonce (RefChanValidate e)))) => Pretty (RefChanValidate e) where
+  pretty (RefChanValidate n c d) = case d of
+    Validate r -> pretty "validate" <+> pretty (AsBase58 n) <+> pretty (AsBase58 c) <+> pretty r
+    Accepted r -> pretty "accepted" <+> pretty (AsBase58 n) <+> pretty (AsBase58 c) <+> pretty r
+    Rejected r -> pretty "rejected" <+> pretty (AsBase58 n) <+> pretty (AsBase58 c) <+> pretty r
+    Poke       -> pretty "poke"     <+> pretty (AsBase58 n) <+> pretty (AsBase58 c)
+
 -- FIXME: rename
 data RefChanAdapter e m =
   RefChanAdapter
   { refChanOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
   , refChanSubscribed :: RefChanId e -> m Bool
   , refChanWriteTran  :: HashRef -> m ()
+  , refChanValidatePropose :: RefChanId e -> HashRef -> m Bool
   }
 
 class HasRefChanId e p | p -> e where
@@ -278,6 +310,13 @@ instance HasRefChanId e (RefChanRequest e) where
   getRefChanId = \case
     RefChanRequest c -> c
     RefChanResponse c _ -> c
+
+instance HasRefChanId e (RefChanNotify e) where
+  getRefChanId = \case
+    Notify c _ -> c
+
+instance HasRefChanId e (RefChanValidate e) where
+  getRefChanId = rcvChan
 
 refChanHeadProto :: forall e s m . ( MonadIO m
                                    , Request e (RefChanHead e) m
@@ -338,6 +377,7 @@ refChanHeadProto self adapter msg = do
 
 
 refChanUpdateProto :: forall e s m . ( MonadIO m
+                                     , MonadUnliftIO m
                                      , Request e (RefChanUpdate e) m
                                      , Response e (RefChanUpdate e) m
                                      , HasDeferred e (RefChanUpdate e) m
@@ -422,15 +462,36 @@ refChanUpdateProto self pc adapter msg = do
 
         let pips = view refChanHeadPeers headBlock
 
-        guard $ checkACL headBlock peerKey authorKey
+        guard $ checkACL headBlock (Just peerKey) authorKey
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
+
+        -- TODO: validate-transaction
+        --  итак, как нам валидировать транзакцию?
+        --  HTTP ?
+        --  TCP ?
+        --  UDP ? (кстати, годно и быстро)
+        --  CLI ?
+        --  получается, риалтайм: ждём не более X секунд валидации,
+        --  иначе не валидируем.
+        --  по хорошему,  не блокироваться бы в запросе.
+        --  тут мы зависим от состояния конвейра, нас можно DDoS-ить
+        --  большим количеством запросов и транзакции будут отклоняться
+        --  при большом потоке.
+        --  но решается это.. тадам! PoW! подбором красивых хэшей
+        --  при увеличении нагрузки.
+        --  тогда, правда, в открытой системе работает паттерн -- DDoS
+        --  всех, кроме своих узлов, а свои узлы всё принимают.
+
+        -- для начала: сделаем хук для валидации, которыйне будет делать ничего
 
         -- если не смогли сохранить транзу, то и Accept разослать
         -- не сможем
         -- это правильно, так как транза содержит ссылку на RefChanId
         -- следовательно, для другого рефчана будет другая транза
+
         hash <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+
         ts <- liftIO getTimeCoarse
 
         let toWait = TimeoutSec (fromIntegral $ 2 * view refChanHeadWaitAccept headBlock)
@@ -450,14 +511,31 @@ refChanUpdateProto self pc adapter msg = do
           lift $ update defRound rcrk id
           lift $ emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
 
+        -- не обрабатывать propose, если он уже в процессе
+        guard (isNothing rndHere)
+
+        -- FIXME: fixed-timeout-is-no-good
+        validated <- either id id <$> lift ( race (pause @'Seconds 5 >> pure False)
+                                               $ refChanValidatePropose adapter chan (HashRef hash)
+                                           )
+        -- почему так:
+        --   мы можем тормозить в проверке транзакции,
+        --   другие пиры могут работать быстрее и от них
+        --   может прийти accept.
+        --   так что раунд всё равно нужно завести,
+        --   даже если транза не очень.
+
+        unless validated do
+          maybe1 rndHere none $ \rnd -> do
+            atomically $ writeTVar (view refChanRoundClosed rnd) True
+            liftIO $ delBlock sto hash
+
+        guard validated
+
+        debug $ "TRANS VALIDATED" <+> pretty  (AsBase58 chan) <+> pretty hash
+
         lift $ gossip msg
 
-        -- FIXME: random-delay-to-avoid-race
-        --   выглядит не очень хорошо, 100ms
-        --   и не гарантирует от гонок
-        -- pause @'Seconds 0.25
-
-        -- FIXME: check-if-we-authorized
         --   проверить, что мы вообще авторизованы
         --   рассылать ACCEPT
 
@@ -480,11 +558,21 @@ refChanUpdateProto self pc adapter msg = do
 
      Accept chan box -> deferred proto do
 
+       -- что если получили ACCEPT раньше PROPOSE ?
+       -- что если PROPOSE еще обрабатывается?
+       -- надо, короче, блокироваться и ждать тут Propose
+       -- но если блокироваться --- то конвейр вообще
+       -- может встать. что делать?
+       --
+
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
        (peerKey, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
 
        let refchanKey = RefChanHeadKey @s chan
+
+       headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+
        h <- MaybeT $ liftIO $ getRef sto refchanKey
 
        guard (HashRef h == headRef)
@@ -495,68 +583,91 @@ refChanUpdateProto self pc adapter msg = do
        -- UDP вообще не гарантирует порядок доставки, а отправляем мы транзы
        -- почти одновременно. ну или не успело записаться. и что делать?
 
-       here <- liftIO (hasBlock sto (fromHashRef hashRef)) <&> isJust
+       -- вот прямо тут надо ждать, пока придёт / завершится Propose
+       -- -- или до таймаута
 
-       unless here do
-        warn $ "No propose transaction saved yet!" <+> pretty hashRef
+       let afterPropose = runMaybeT do
 
-       tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
+             here <- fix \next -> do
+                      blk <- liftIO (hasBlock sto (fromHashRef hashRef)) <&> isJust
+                      if blk then
+                        pure blk
+                      else do
+                        pause @'Seconds 0.25
+                        next
 
-       tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
+             unless here do
+              warn $ "No propose transaction saved yet!" <+> pretty hashRef
 
-       headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+             tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
 
-       proposed <- MaybeT $ pure $ case tran of
-                      Propose _ pbox -> Just pbox
-                      _              -> Nothing
+             tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
 
 
-       (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
+             proposed <- MaybeT $ pure $ case tran of
+                            Propose _ pbox -> Just pbox
+                            _              -> Nothing
 
-       debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey) <+> pretty h0
 
-       -- compiler bug?
-       let (ProposeTran _ pbox) = ptran
+             (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
 
-       (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
+             debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey) <+> pretty h0
 
-       -- может, и не надо второй раз проверять
-       guard $ checkACL headBlock peerKey authorKey
+             -- compiler bug?
+             let (ProposeTran _ pbox) = ptran
 
-       debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
+             (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
 
-       rcRound <- MaybeT $ find (RefChanRoundKey @e hashRef) id
+             -- может, и не надо второй раз проверять
+             guard $ checkACL headBlock (Just peerKey) authorKey
 
-       atomically $ modifyTVar (view refChanRoundAccepts rcRound) (HashMap.insert peerKey ())
+             debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 
-       -- TODO: garbage-collection-strongly-required
-       ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+             rcRound <- MaybeT $ find (RefChanRoundKey @e hashRef) id
 
-       atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
-       -- atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
+             atomically $ modifyTVar (view refChanRoundAccepts rcRound) (HashMap.insert peerKey ())
 
-       accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
+             -- TODO: garbage-collection-strongly-required
+             ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
 
-       debug $ "ACCEPTS:" <+> pretty accepts
+             atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
+             -- atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
 
-       closed <- readTVarIO (view refChanRoundClosed rcRound)
+             accepts <- atomically $ readTVar (view refChanRoundAccepts rcRound) <&> HashMap.size
 
-       -- FIXME: round!
-       when (fromIntegral accepts >= view refChanHeadQuorum headBlock && not closed) do
-         debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
+             -- FIXME: why-accepts-quorum-on-failed-proposal?
 
-         trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
+             debug $ "ACCEPTS:" <+> pretty accepts
 
-         forM_ trans $ \t -> do
-          lift $ refChanWriteTran adapter t
-          debug $ "WRITING TRANS" <+> pretty t
+             closed <- readTVarIO (view refChanRoundClosed rcRound)
 
-         let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
-         votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
+             -- FIXME: round!
+             when (fromIntegral accepts >= view refChanHeadQuorum headBlock && not closed) do
+               debug $ "ROUND!" <+> pretty accepts <+> pretty hashRef
 
-         when (pips `HashSet.isSubsetOf` votes) do
-          debug $ "CLOSING ROUND" <+> pretty hashRef <+> pretty (length trans)
-          atomically $ writeTVar (view refChanRoundClosed rcRound) True
+               trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
+
+               forM_ trans $ \t -> do
+                lift $ refChanWriteTran adapter t
+                debug $ "WRITING TRANS" <+> pretty t
+
+               let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
+               votes <- readTVarIO (view refChanRoundAccepts rcRound) <&> HashSet.fromList . HashMap.keys
+
+               debug $ "PIPS" <+> pretty (HashSet.toList pips & fmap AsBase58)
+               debug $ "VOTES" <+> pretty (HashSet.toList votes & fmap AsBase58)
+
+               when (pips `HashSet.isSubsetOf` votes) do
+                debug $ "CLOSING ROUND" <+> pretty hashRef <+> pretty (length trans)
+                atomically $ writeTVar (view refChanRoundClosed rcRound) True
+
+       -- мы не можем ждать / поллить в deferred потому,
+       -- что мы так забьем конвейр - там сейчас всего 8
+       -- воркеров, и 8 параллельных  ждущих запросов
+       -- все остановят.
+
+       let w = TimeoutSec (realToFrac $ view refChanHeadWaitAccept headBlock)
+       void $ lift $ race ( pause (2 * w) ) afterPropose
 
   where
     proto = Proxy @(RefChanUpdate e)
@@ -564,15 +675,15 @@ refChanUpdateProto self pc adapter msg = do
 
 checkACL :: forall e s . (Encryption e ~ s, ForRefChans e)
          => RefChanHeadBlock e
-         -> PubKey 'Sign s
+         -> Maybe (PubKey 'Sign s)
          -> PubKey 'Sign s
          -> Bool
 
-checkACL theHead peerKey authorKey = match
+checkACL theHead mbPeerKey authorKey = match
   where
     pips = view refChanHeadPeers theHead
     aus  = view refChanHeadAuthors theHead
-    match =   peerKey `HashMap.member` pips
+    match = maybe True (`HashMap.member` pips) mbPeerKey
            && authorKey `HashSet.member` aus
 
 -- TODO: refchan-poll-proto
@@ -641,14 +752,18 @@ refChanRequestProto self adapter msg = do
 
 refChanNotifyProto :: forall e s m . ( MonadIO m
                                      , Request e (RefChanNotify e) m
+                                     , Response e (RefChanNotify e) m
+                                     , HasRefChanId e (RefChanNotify e)
                                      , HasDeferred e (RefChanNotify e) m
                                      , HasGossip e (RefChanNotify e) m
                                      , IsPeerAddr e m
                                      , Pretty (Peer e)
+                                     , Sessions e (RefChanHeadBlock e) m
                                      , Sessions e (KnownPeer e) m
                                      , HasStorage m
                                      , Signatures s
                                      , IsRefPubKey s
+                                     , ForRefChans e
                                      , Pretty (AsBase58 (PubKey 'Sign s))
                                      , s ~ Encryption e
                                      )
@@ -657,11 +772,38 @@ refChanNotifyProto :: forall e s m . ( MonadIO m
                   -> RefChanNotify e
                   -> m ()
 
-refChanNotifyProto _ _ _ = do
+refChanNotifyProto self adapter msg@(Notify rchan box) = do
   -- аутентифицируем
   -- проверяем ACL
   -- пересылаем всем
-  pure ()
+
+  peer <- thatPeer proto
+
+  auth <- find (KnownPeerKey peer) id <&> isJust
+
+  void $ runMaybeT do
+
+    guard =<< lift (refChanSubscribed adapter rchan)
+
+    guard (self || auth)
+
+    (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 box
+
+    let refchanKey = RefChanHeadKey @s rchan
+    headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+
+    guard $ checkACL headBlock Nothing authorKey
+
+    -- теперь пересылаем по госсипу
+    lift $ gossip msg
+
+    trace $ "refChanNotifyProto" <+> pretty (BS.length bs)
+
+    -- тут надо заслать во внешнее приложение,
+    -- равно как и в остальных refchan-протоколах
+
+  where
+    proto = Proxy @(RefChanNotify e)
 
 
 getActualRefChanHead :: forall e s m . ( MonadIO m
@@ -787,4 +929,9 @@ instance ForRefChans e => Pretty (RefChanHeadBlock e) where
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
 
 
+
+-- FIXME: reconnect-validator-client-after-restart
+--  почему-то сейчас если рестартовать пира,
+--  но не растартовать валидатор --- то не получится
+--  повторно соединиться с валидатором.
 

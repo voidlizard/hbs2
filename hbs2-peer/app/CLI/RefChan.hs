@@ -22,6 +22,7 @@ import Data.Maybe
 pRefChan :: Parser (IO ())
 pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
                        <> command "propose" (info pRefChanPropose (progDesc "post propose transaction"))
+                       <> command "notify"  (info pRefChanNotify (progDesc "post notify message"))
                        <> command "fetch"   (info pRefChanFetch (progDesc "fetch and sync refchan value"))
                        <> command "get"     (info pRefChanGet (progDesc "get refchan value"))
                       )
@@ -118,6 +119,23 @@ pRefChanPropose = do
       LBS.putStr (serialise box)
     else do
       runRpcCommand opts (REFCHANPROPOSE (puk, serialise box))
+
+pRefChanNotify :: Parser (IO ())
+pRefChanNotify = do
+  opts <- pRpcCommon
+  kra <- strOption (long "author" <> short 'a' <> help "author credentials")
+  fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
+  sref <- strArgument (metavar "REFCHAH-REF")
+  pure do
+    sc <- BS.readFile kra
+    puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
+    creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+
+    lbs <- maybe1 fn LBS.getContents LBS.readFile
+
+    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
+
+    runRpcCommand opts (REFCHANNOTIFY (puk, serialise box))
 
 
 pRefChanGet :: Parser (IO ())

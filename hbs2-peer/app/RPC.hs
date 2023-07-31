@@ -69,6 +69,7 @@ data RPCCommand =
   | REFCHANFETCH (PubKey 'Sign (Encryption L4Proto))
   | REFCHANGET (PubKey 'Sign (Encryption L4Proto))
   | REFCHANPROPOSE (PubKey 'Sign (Encryption L4Proto), ByteString)
+  | REFCHANNOTIFY (PubKey 'Sign (Encryption L4Proto), ByteString)
 
 data RPC e =
     RPCDie
@@ -99,6 +100,7 @@ data RPC e =
   | RPCRefChanGetAnsw (Maybe (Hash HbSync))
 
   | RPCRefChanPropose (PubKey 'Sign (Encryption e), ByteString)
+  | RPCRefChanNotify (PubKey 'Sign (Encryption e), ByteString)
 
   deriving stock (Generic)
 
@@ -155,6 +157,7 @@ data RpcAdapter e m =
   , rpcOnRefChanGetAnsw :: Maybe (Hash HbSync) -> m ()
 
   , rpcOnRefChanPropose :: (PubKey 'Sign (Encryption e), ByteString) -> m ()
+  , rpcOnRefChanNotify  :: (PubKey 'Sign (Encryption e), ByteString) -> m ()
   }
 
 newtype RpcM m a = RpcM { fromRpcM :: ReaderT RPCEnv m a }
@@ -224,6 +227,7 @@ rpcHandler adapter = \case
     (RPCRefChanFetch s)   -> rpcOnRefChanFetch adapter s
 
     (RPCRefChanPropose s)   -> rpcOnRefChanPropose adapter s
+    (RPCRefChanNotify s)   -> rpcOnRefChanNotify adapter s
 
 data RPCOpt =
   RPCOpt
@@ -258,6 +262,7 @@ runRpcCommand opt = \case
   REFCHANFETCH s -> withRPC opt (RPCRefChanFetch s)
 
   REFCHANPROPOSE s -> withRPC opt (RPCRefChanPropose s)
+  REFCHANNOTIFY s -> withRPC opt (RPCRefChanNotify s)
 
   _ -> pure ()
 
@@ -323,6 +328,8 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
           , rpcOnRefChanGetAnsw = (liftIO . putMVar rchangetMVar)
 
           , rpcOnRefChanPropose = dontHandle
+
+          , rpcOnRefChanNotify = dontHandle
           }
 
   prpc <- async $ runRPC udp1 do
@@ -423,6 +430,10 @@ withRPC o cmd = rpcClientMain o $ runResourceT do
                           _ -> exitFailure
 
                       RPCRefChanPropose{} -> liftIO do
+                        pause @'Seconds 0.25
+                        exitSuccess
+
+                      RPCRefChanNotify{} -> liftIO do
                         pause @'Seconds 0.25
                         exitSuccess
 

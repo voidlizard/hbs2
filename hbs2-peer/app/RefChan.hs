@@ -6,6 +6,7 @@ module RefChan (
   , refChanWorkerEnvDownload
   , refChanOnHeadFn
   , refChanWriteTranFn
+  , refChanValidateTranFn
   , refChanWorker
   , refChanWorkerEnv
   , refChanNotifyOnUpdated
@@ -15,18 +16,18 @@ import HBS2.Prelude.Plated
 
 import HBS2.Actors.Peer
 import HBS2.Base58
-import HBS2.Merkle
 import HBS2.Clock
-import HBS2.Events
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.Sessions
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
-import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto
-import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.Definition()
+import HBS2.Events
 import HBS2.Merkle
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Messaging.Unix
+import HBS2.Net.Proto
+import HBS2.Net.Proto.Definition()
+import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.RefChan
+import HBS2.Net.Proto.Sessions
 import HBS2.Storage
 
 import HBS2.System.Logger.Simple
@@ -36,23 +37,27 @@ import PeerConfig
 import BlockDownload
 import Brains
 
+import Codec.Serialise
+import Control.Concurrent.STM (flushTQueue)
 import Control.Exception ()
 import Control.Monad.Except (throwError, runExceptT)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Control.Concurrent.STM (flushTQueue)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Cache (Cache)
+import Data.Cache qualified as Cache
+import Data.Coerce
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
+import Data.Heap ()
+-- import Data.Heap qualified as Heap
 import Data.List qualified as List
 import Data.Maybe
+import Data.Text qualified as Text
 import Lens.Micro.Platform
--- import Data.Heap qualified as Heap
-import Data.Heap ()
-import Codec.Serialise
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -66,13 +71,21 @@ instance Exception DataNotReady
 
 type OnDownloadComplete = HashRef -> IO ()
 
+data RefChanValidator =
+  RefChanValidator
+  { rcvInbox    :: TQueue (RefChanValidate UNIX, MVar (RefChanValidate UNIX))
+  , rcvAsync    :: Async ()
+  }
+
 data RefChanWorkerEnv e =
   RefChanWorkerEnv
-  { _refChanWorkerEnvDEnv     :: DownloadEnv e
+  { _refChanWorkerConf        :: PeerConfig
+  , _refChanWorkerEnvDEnv     :: DownloadEnv e
   , _refChanWorkerEnvHeadQ    :: TQueue (RefChanId e, RefChanHeadBlockTran e)
   , _refChanWorkerEnvDownload :: TVar (HashMap HashRef (RefChanId e, (TimeSpec, OnDownloadComplete)))
   , _refChanWorkerEnvNotify   :: TVar (HashMap (RefChanId e) ())
   , _refChanWorkerEnvWriteQ   :: TQueue HashRef
+  , _refChanWorkerValidators  :: TVar (HashMap (RefChanId e) RefChanValidator)
   }
 
 makeLenses 'RefChanWorkerEnv
@@ -82,11 +95,12 @@ refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
                  -> DownloadEnv e
                  -> m (RefChanWorkerEnv e)
 
-refChanWorkerEnv _ de = liftIO $ RefChanWorkerEnv @e de <$> newTQueueIO
-                                                        <*> newTVarIO mempty
-                                                        <*> newTVarIO mempty
-                                                        <*> newTQueueIO
-
+refChanWorkerEnv conf de = liftIO $ RefChanWorkerEnv @e conf de
+                                      <$> newTQueueIO
+                                      <*> newTVarIO mempty
+                                      <*> newTVarIO mempty
+                                      <*> newTQueueIO
+                                      <*> newTVarIO mempty
 
 refChanOnHeadFn :: forall e m . (ForRefChans e, MonadIO m) => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
 refChanOnHeadFn env chan tran = do
@@ -96,6 +110,34 @@ refChanOnHeadFn env chan tran = do
 refChanWriteTranFn :: MonadIO m => RefChanWorkerEnv e -> HashRef -> m ()
 refChanWriteTranFn env href = do
   atomically $ writeTQueue (view refChanWorkerEnvWriteQ env) href
+
+refChanValidateTranFn :: forall e m . ( MonadUnliftIO m
+                                      , ForRefChans e, e ~ L4Proto
+                                      , HasNonces (RefChanValidate UNIX) m
+                                      )
+                      => RefChanWorkerEnv e
+                      -> RefChanId e
+                      -> HashRef
+                      -> m Bool
+
+refChanValidateTranFn env chan htran = do
+  mbv <- readTVarIO (view refChanWorkerValidators env) <&> HashMap.lookup chan
+  -- отправить запрос в соответствующий... что?
+  -- ждать ответа
+  debug $ "VALIDATE TRAN" <+> pretty (AsBase58 chan) <+> pretty htran
+
+  r <- maybe1 mbv (pure True) $ \(RefChanValidator q _) -> do
+    answ <- newEmptyMVar
+    nonce <- newNonce @(RefChanValidate UNIX)
+    atomically $ writeTQueue q (RefChanValidate nonce chan (Validate @UNIX htran), answ)
+    withMVar answ $ \msg -> case rcvData msg of
+      Accepted{} -> pure True
+      _          -> pure False
+
+
+  debug $ "TRANS VALIDATION RESULT: " <+> pretty htran <+> pretty r
+
+  pure r
 
 -- FIXME: leak-when-block-never-really-updated
 refChanNotifyOnUpdated :: (MonadIO m, ForRefChans e) => RefChanWorkerEnv e -> RefChanId e -> m ()
@@ -110,6 +152,7 @@ refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                    -> HashRef
                    -> OnDownloadComplete
                    -> m ()
+
 refChanAddDownload env chan r onComlete = do
   penv <- ask
   t <- getTimeCoarse
@@ -144,6 +187,143 @@ readLog sto (HashRef h)  =
         Left{} -> pure ()
         Right (hrr :: [HashRef]) -> S.each hrr
 
+data ValidateEnv =
+  ValidateEnv
+  { _validateClient :: Fabriq UNIX
+  , _validateSelf   :: Peer UNIX
+  }
+
+newtype ValidateProtoM m a = PingPongM { fromValidateProto :: ReaderT ValidateEnv m a }
+                             deriving newtype ( Functor
+                                              , Applicative
+                                              , Monad
+                                              , MonadIO
+                                              , MonadUnliftIO
+                                              , MonadReader ValidateEnv
+                                              , MonadTrans
+                                              )
+
+
+runValidateProtoM :: (MonadIO m, PeerMessaging UNIX) => MessagingUnix -> ValidateProtoM m a -> m a
+runValidateProtoM tran m = runReaderT (fromValidateProto m) (ValidateEnv (Fabriq tran) (msgUnixSelf tran))
+
+
+instance Monad m => HasFabriq UNIX (ValidateProtoM m) where
+  getFabriq = asks _validateClient
+
+instance Monad m => HasOwnPeer UNIX (ValidateProtoM m) where
+  ownPeer = asks _validateSelf
+
+
+refChanValidateProto :: forall e m . ( MonadIO m
+                                     , Request e (RefChanValidate e) m
+                                     , Response e (RefChanValidate e) m
+                                     , e ~ UNIX
+                                     )
+                     => Cache (RefChanValidateNonce e) (MVar (RefChanValidate e))
+                     -> RefChanValidate e
+                     -> m ()
+
+refChanValidateProto waiters msg = do
+  debug $ "GOT ANSWER FROM VALIDATOR" <+> pretty msg
+  case rcvData msg of
+    Accepted h -> emitAnswer h msg
+    Rejected h -> emitAnswer h msg
+    _          -> none
+
+  where
+    emitAnswer h m = liftIO do
+      debug $ "EMIT ANSWER" <+> pretty h
+      mbAnsw <- Cache.lookup waiters (rcvNonce m)
+      maybe1 mbAnsw none $ \answ -> do
+        putMVar answ m
+
+
+refChanWorkerInitValidators :: forall e  m . ( MonadIO m
+                                             , MonadUnliftIO m
+                                             -- , MyPeer e
+                                             -- , ForRefChans e
+                                             -- , ForRefChans UNIX
+                                             -- , m ~ PeerM e IO
+                                             , e ~ L4Proto
+                                             )
+                           => RefChanWorkerEnv e
+                           -> m ()
+
+
+refChanWorkerInitValidators env = do
+  debug "refChanWorkerInitValidators"
+
+  let (PeerConfig syn) = view refChanWorkerConf env
+
+  let validators = [ mkV rc x | ListVal [ SymbolVal "validate"
+                                        , SymbolVal "refchan"
+                                        , LitStrVal rc
+                                        , ListVal [ SymbolVal "socket", SymbolVal "unix", LitStrVal x  ]
+                                        ] <- syn
+                   ] & catMaybes
+
+
+  forM_ validators $ \(rc, sa) -> do
+    debug $ "** VALIDATOR FOR" <+> pretty (AsBase58 rc, sa)
+
+    here <- readTVarIO (_refChanWorkerValidators env) <&> HashMap.member rc
+
+    unless here do
+      q <- newTQueueIO
+      val <- async $ validatorThread rc sa q
+      let rcv = RefChanValidator q val
+      atomically $ modifyTVar (_refChanWorkerValidators env) (HashMap.insert rc rcv)
+
+  where
+
+    mkV :: Text -> Text -> Maybe (RefChanId e, String)
+    mkV rc x = (,Text.unpack x) <$> fromStringMay @(RefChanId e) (Text.unpack rc)
+
+    -- FIXME: make-thread-respawning
+    validatorThread chan sa q = liftIO do
+      client <- newMessagingUnix False 1.0 sa
+      msg <- async $ runMessagingUnix client
+
+      -- FIXME: hardcoded-timeout
+      waiters <- Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
+
+      runValidateProtoM client do
+
+        poke <- async $ forever do
+                  pause @'Seconds 10
+                  mv <- newEmptyMVar
+                  nonce <- newNonce @(RefChanValidate UNIX)
+                  atomically $ writeTQueue q (RefChanValidate @UNIX nonce chan Poke, mv)
+
+        z <- async $ runProto
+          [ makeResponse (refChanValidateProto waiters)
+          ]
+
+        forever do
+           (req, answ) <- atomically $ readTQueue q
+           case rcvData req of
+            Validate href -> do
+              debug $ "DO REQUEST VALIDATE" <+> pretty href <+> pretty sa
+              liftIO $ Cache.insert waiters (rcvNonce req) answ
+              let pa = fromString sa
+              request pa req
+
+            Poke{} -> do
+              debug "DO SEND POKE"
+              let pa = fromString sa
+              request pa req
+
+            _ -> pure ()
+
+
+        (_, r) <- waitAnyCatch [z,poke]
+        debug $ "SOMETHING WRONG:" <+> viaShow r
+
+      cancel msg
+      warn $ "validatorThread is terminated for some reasons" <+> pretty (AsBase58 chan)
+
+
 refChanWorker :: forall e s m . ( MonadIO m
                                 , MonadUnliftIO m
                                 , MyPeer e
@@ -154,12 +334,13 @@ refChanWorker :: forall e s m . ( MonadIO m
                                 , Signatures s
                                 , s ~ Encryption e
                                 , IsRefPubKey s
-                                , Pretty (AsBase58 (PubKey 'Sign s))
+                                -- , Pretty (AsBase58 (PubKey 'Sign s))
                                 , ForRefChans e
                                 , EventListener e (RefChanRound e) m
                                 , EventListener e (RefChanRequest e) m
                                 , Sessions e (RefChanRound e) m
                                 , m ~ PeerM e IO
+                                , e ~ L4Proto
                                 )
              => RefChanWorkerEnv e
              -> SomeBrains e
@@ -174,6 +355,11 @@ refChanWorker env brains = do
   -- FIXME: resume-on-exception
   hw <- async (refChanHeadMon penv)
 
+  -- FIXME: insist-more-during-download
+  --  что-то частая ситуация, когда блоки
+  --  с трудом докачиваются. надо бы
+  --  разобраться. возможно переделать
+  --  механизм скачивания блоков
   downloads <- async monitorHeadDownloads
 
   polls <- async refChanPoll
@@ -185,6 +371,8 @@ refChanWorker env brains = do
   merge <- async (logMergeProcess env mergeQ)
 
   sto <- getStorage
+
+  liftIO $ refChanWorkerInitValidators env
 
   subscribe @e RefChanRequestEventKey $ \(RefChanRequestEvent chan val) -> do
     debug $ "RefChanRequestEvent" <+> pretty (AsBase58 chan) <+> pretty val
@@ -218,7 +406,7 @@ refChanWorker env brains = do
 
       forever do
         -- FIXME: use-polling-function-and-respect-wait
-        pause @'Seconds 30
+        pause @'Seconds 10
 
         now <- getTimeCoarse
         xs <- readTVarIO rounds <&> HashSet.toList
@@ -516,7 +704,7 @@ logMergeProcess env q = do
                     hd <- MaybeT $ lift $ getHead menv headRef
 
                     let quo = view refChanHeadQuorum hd & fromIntegral
-                    guard $ checkACL hd pk ak
+                    guard $ checkACL hd (Just pk) ak
                     pure [(href, (quo,mempty))]
 
                   Accept  _ box -> do
@@ -557,7 +745,5 @@ logMergeProcess env q = do
             debug $ "NEW REFCHAN" <+> pretty chanKey <+> pretty  nref
 
             updateRef sto chanKey nref
-
-
 
 

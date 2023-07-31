@@ -92,6 +92,7 @@ library
                     , HBS2.Net.Messaging.Fake
                     , HBS2.Net.Messaging.UDP
                     , HBS2.Net.Messaging.TCP
+                    , HBS2.Net.Messaging.Unix
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto

@@ -277,16 +277,6 @@ instance ( MonadIO m
     se <- asks (view envSessions)
     liftIO $ Cache.delete se (newSKey @(SessionKey e p) k)
 
-class HasProtocol e p => HasTimeLimits e p m where
-  tryLockForPeriod :: Peer e -> p -> m Bool
-
-instance {-# OVERLAPPABLE #-}
-  (MonadIO (t m), Monad m, MonadTrans t, HasProtocol e p, HasTimeLimits e p m) => HasTimeLimits e p (t m) where
-  tryLockForPeriod p m = lift (tryLockForPeriod p m)
-    -- pure True
-    -- liftIO $ print "LIMIT DOES NOT WORK"
-    -- pure True
-
 instance (MonadIO m, HasProtocol e p, Hashable (Encoded e))
   => HasTimeLimits e p (PeerM e m) where
   tryLockForPeriod peer msg = case requestPeriodLim @e @p of

@@ -621,6 +621,7 @@ runPeer opts = U.handle (\e -> myException e
                            { refChanOnHead = refChanOnHeadFn rce
                            , refChanSubscribed = isPolledRef @e brains
                            , refChanWriteTran = refChanWriteTranFn rce
+                           , refChanValidatePropose = refChanValidateTranFn @e rce
                            }
 
   let pexFilt pips = do
@@ -1131,13 +1132,21 @@ runPeer opts = U.handle (\e -> myException e
             box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
             proposed <- MaybeT $ makeProposeTran @e pc puk box
 
-            debug $ "PROPOSAL:" <+> pretty (LBS.length (serialise proposed))
-            lift $ broadCastMessage (Propose @e puk proposed)
+            -- debug $ "PROPOSAL:" <+> pretty (LBS.length (serialise proposed))
+            -- lift $ broadCastMessage (Propose @e puk proposed)
 
             -- FIXME: remove-this-debug-stuff
             --   или оставить? нода будет сама себе
             --   консенсус слать тогда. может, и оставить
             lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
+
+  let refChanNotifyAction (puk, lbs) = do
+        trace "refChanNotifyAction"
+        void $ liftIO $ async $ withPeerM penv $ do
+          me <- ownPeer @e
+          runMaybeT do
+            box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
+            lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (Notify @e puk box)
 
   let refChanGetAction puk = do
         trace $ "refChanGetAction" <+> pretty (AsBase58 puk)
@@ -1182,6 +1191,7 @@ runPeer opts = U.handle (\e -> myException e
           , rpcOnRefChanGetAnsw = dontHandle -- rpcOnRefChanGetAnsw
 
           , rpcOnRefChanPropose = refChanProposeAction
+          , rpcOnRefChanNotify = refChanNotifyAction
           }
 
   dialReqProtoAdapter <- do
