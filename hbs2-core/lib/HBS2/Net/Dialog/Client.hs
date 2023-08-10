@@ -96,10 +96,11 @@ dQuery' par dcli peer rq go =
 
     processResponseHeader rhxs@(rh, xs) = case ((responseStatusCode . respStatus) rh) of
         Success200 -> Left (Just rhxs, RequestDone)
+        SuccessNoContent204 -> Left (Just rhxs, RequestDone)
         SuccessMore -> Right rhxs
-        r@BadRequest400 -> Left (Nothing, (RequestFailure r xs))
-        r@Forbidden403 -> Left (Nothing, (RequestFailure r xs))
-        r@NotFound404 -> Left (Nothing, (RequestFailure r xs))
+        BadRequest400 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
+        Forbidden403 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
+        NotFound404 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
 
     rq' = rq & #unFrames %~ ([serialiseS routerSignature] <>)
 

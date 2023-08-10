@@ -168,6 +168,7 @@ newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
                                        , MonadReader (PeerEnv e)
                                        , MonadIO
                                        , MonadUnliftIO
+                                       , MonadTrans
                                        )
 
 
@@ -191,10 +192,10 @@ makeLenses 'PeerEnv
 makeLenses 'ResponseEnv
 
 
-runResponseM :: forall e m . (Monad m)
+runResponseM :: forall e m a . (Monad m)
              => Peer e
-             -> ResponseM e m ()
-             -> m ()
+             -> ResponseM e m a
+             -> m a
 
 runResponseM peer f = runReaderT (fromResponse f) (ResponseEnv peer)
 

@@ -5,6 +5,7 @@ module PeerMain.DialogCliCommand where
 import Data.Generics.Labels
 import Data.Generics.Product.Fields
 import HBS2.Actors.Peer
+import HBS2.Hash
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Proto
@@ -14,8 +15,10 @@ import HBS2.Prelude
 import HBS2.System.Logger.Simple hiding (info)
 
 import PeerConfig
-import RPC
+import RPC (PeerRpcKey, RpcM, runRPC)
 
+import Control.Monad.Except (Except(..), ExceptT(..), runExcept, runExceptT)
+import Control.Monad.State.Strict (evalStateT)
 import Control.Monad.Trans.Cont
 import Data.Default
 import Data.Function
@@ -28,19 +31,23 @@ import Lens.Micro.Platform
 import Network.Socket
 import Options.Applicative
 import Streaming.Prelude qualified as S
+import System.IO
 import UnliftIO.Async
 import UnliftIO.Concurrent
 import UnliftIO.Exception as U
 import UnliftIO.Resource
-
--- import System.FilePath.Posix
-import System.IO
 
 
 pDialog :: Parser (IO ())
 pDialog = hsubparser $ mempty
    <> command "ping" (info pPing (progDesc "ping hbs2 node via dialog inteface") )
    <> command "debug" (info pDebug (progDesc "debug call different dialog inteface routes") )
+   <> command "reflog" (info pReflog (progDesc "reflog commands") )
+
+pReflog :: Parser (IO ())
+pReflog = hsubparser $ mempty
+   <> command "get" (info pRefLogGet (progDesc "get own reflog from all" ))
+   <> command "fetch" (info pRefLogFetch (progDesc "fetch reflog from all" ))
 
 confOpt :: Parser FilePath
 confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
@@ -99,6 +106,35 @@ pPing = do
             liftIO . print =<< do
                 dQuery1 def cli peer (dpath "ping" [])
 
+reflogKeyP :: ReadM (PubKey 'Sign (Encryption L4Proto))
+reflogKeyP = eitherReader $
+    maybe (Left "invalid REFLOG-KEY") pure . fromStringMay
+
+pRefLogGet :: Parser (IO ())
+pRefLogGet = do
+    dopt <- pDialCommon
+    rkey <- argument reflogKeyP ( metavar "REFLOG-KEY" )
+    pure do
+        withDial dopt \peer dclient ->
+            withClient dclient \cli -> do
+                xs <- dQuery1 def cli peer (dpath "reflog/get" [serialiseS rkey])
+
+                hash <- either (lift . lift . fail) pure $ runExcept $ flip evalStateT xs do
+                    cutFrameDecode @(Hash HbSync) do
+                        "No hash in response: " <> show xs
+
+                liftIO . print $ pretty hash
+
+pRefLogFetch :: Parser (IO ())
+pRefLogFetch = do
+    dopt <- pDialCommon
+    rkey <- argument reflogKeyP ( metavar "REFLOG-KEY" )
+    pure do
+        withDial dopt \peer dclient ->
+            withClient dclient \cli -> do
+                xs <- dQuery1 def cli peer (dpath "reflog/fetch" [serialiseS rkey])
+
+                liftIO . print $ "Response: " <> show xs
 
 pDebug :: Parser (IO ())
 pDebug = do

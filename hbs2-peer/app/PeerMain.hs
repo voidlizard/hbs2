@@ -57,7 +57,8 @@ import RefLog (reflogWorker)
 import HttpWorker
 import ProxyMessaging
 import PeerMain.DialogCliCommand
-import PeerMain.PeerDialog
+import PeerMain.Dialog.Server
+import PeerMain.Dialog.Spec
 import PeerMeta
 import CLI.RefChan
 import RefChan
@@ -720,7 +721,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     }
 
               -- dialReqProtoAdapter <- do
-              --     dialReqProtoAdapterRouter <- pure dialogRoutes
+              --     dialReqProtoAdapterDApp <- pure dialogRoutes
               --     pure DialReqProtoAdapter {..}
 
               env <- ask
@@ -1205,7 +1206,17 @@ runPeer opts = Exception.handle (\e -> myException e
           }
 
   dialReqProtoAdapter <- do
-      dialReqProtoAdapterRouter <- pure dialogRoutes
+      let denv = DialEnv
+
+      let dialReqProtoAdapterDApp = drpcFullDApp denv penv
+
+          -- dialReqProtoAdapterNT :: ResponseM L4Proto (RpcM (ResourceT IO)) a -> IO a
+          dialReqProtoAdapterNT :: Peer e -> forall a . ResponseM L4Proto (RpcM (ResourceT IO)) a -> IO a
+          dialReqProtoAdapterNT = \peer ->
+                runResourceT
+              . runRPC udp1
+              . runResponseM peer
+
       pure DialReqProtoAdapter {..}
 
   rpc <- async $ runRPC udp1 do
