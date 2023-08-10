@@ -17,10 +17,34 @@ import HBS2.Data.Types.Refs
 import HBS2.System.Logger.Simple
 
 import Data.Maybe
-import Data.Hashable
+import Data.Hashable hiding (Hashed)
 import Data.ByteString (ByteString)
 import Type.Reflection (someTypeRep)
 import Lens.Micro.Platform
+
+newtype RefLogKey s = RefLogKey (PubKey 'Sign s)
+
+deriving stock instance IsRefPubKey s => Eq (RefLogKey s)
+
+instance IsRefPubKey s => Hashable (RefLogKey s) where
+  hashWithSalt s k = hashWithSalt s (hashObject @HbSync k)
+
+instance IsRefPubKey s => Hashed HbSync (RefLogKey s) where
+  hashObject (RefLogKey pk) = hashObject ("reflogkey|" <> serialise pk)
+
+instance IsRefPubKey s => FromStringMaybe (RefLogKey s) where
+  fromStringMay s = RefLogKey <$> fromStringMay s
+
+instance IsRefPubKey s =>  IsString (RefLogKey s) where
+  fromString s = fromMaybe (error "bad public key base58") (fromStringMay s)
+
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (RefLogKey s)) where
+  pretty (AsBase58 (RefLogKey k)) = pretty (AsBase58 k)
+
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefLogKey s) where
+  pretty (RefLogKey k) = pretty (AsBase58 k)
+
 
 data RefLogRequest e =
     RefLogRequest  (PubKey 'Sign (Encryption e))

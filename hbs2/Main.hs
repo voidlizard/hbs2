@@ -9,6 +9,7 @@ import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
+import HBS2.Net.Proto.RefLog(RefLogKey(..))
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra

@@ -10,8 +10,7 @@ module HBS2Git.Types
 
 import HBS2.Prelude.Plated
 import HBS2.Git.Types
-import HBS2.Net.Proto.Types(L4Proto)
-import HBS2.Data.Types.Refs
+import HBS2.Net.Proto.RefLog (RefLogKey(..))
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
 
@@ -27,17 +26,13 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Database.SQLite.Simple (Connection)
 import Data.Char (isSpace)
-import Data.Set qualified as Set
-import Data.Set (Set)
 import Data.List qualified as List
-import Data.Maybe
 import Lens.Micro.Platform
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Codec.Serialise
 import Control.Concurrent.STM
 import System.IO qualified as IO
-import UnliftIO.IO qualified as UIO
 import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch

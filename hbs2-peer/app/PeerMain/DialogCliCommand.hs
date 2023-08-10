@@ -2,12 +2,12 @@
 
 module PeerMain.DialogCliCommand where
 
-import Data.Generics.Labels
-import Data.Generics.Product.Fields
+-- import Data.Generics.Labels
+-- import Data.Generics.Product.Fields
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
-import HBS2.Data.Types.Refs (RefLogKey(..))
+import HBS2.Net.Proto.RefLog (RefLogKey(..))
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
