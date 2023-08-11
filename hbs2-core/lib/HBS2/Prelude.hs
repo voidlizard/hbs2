@@ -24,16 +24,20 @@ import GHC.Generics as X (Generic)
 import Data.ByteString (ByteString)
 import Data.String (IsString(..))
 import Safe
+import Control.Concurrent.Async as X (ExceptionInLinkedThread)
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad (void,guard,when,unless)
 import Control.Monad.Trans.Class (lift)
 
-import Data.Function
+import Control.Monad.IO.Unlift as X
 import Data.Char qualified as Char
-import Data.Text qualified as Text
+import Data.Function
 import Data.Hashable
-import Prettyprinter
+import Data.Text qualified as Text
 import Data.Word
+import Prettyprinter
+import UnliftIO as X (MonadUnliftIO(..))
+import UnliftIO.Async as X
 
 none :: forall m . Monad m => m ()
 none = pure ()
@@ -62,3 +66,4 @@ class ToByteString a where
 
 class FromByteString a where
   fromByteString :: ByteString -> Maybe a
+

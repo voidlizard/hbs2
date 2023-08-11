@@ -5,6 +5,7 @@ module BlockDownload where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Defaults
@@ -25,7 +26,6 @@ import PeerTypes
 import PeerInfo
 import Brains
 
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TSem
 import Control.Monad.Reader
@@ -418,6 +418,7 @@ blockDownloadLoop :: forall e  m . ( m ~ PeerM e IO
                                    )
                   => DownloadEnv e -> m ()
 blockDownloadLoop env0 = do
+ withAsyncSupervisor "blockDownloadLoop" \sup -> do
 
   e    <- ask
 
@@ -429,7 +430,7 @@ blockDownloadLoop env0 = do
 
   let withAllStuff = withPeerM e . withDownload env0
 
-  void $ liftIO $ async $ forever $ withPeerM e do
+  void $ liftIO $ asyncStick sup $ forever $ withPeerM e do
     pause @'Seconds 30
 
     pee <- knownPeers @e pl
@@ -440,7 +441,7 @@ blockDownloadLoop env0 = do
       liftIO $ atomically $ writeTVar (view peerBurstMax pinfo) Nothing
 
 
-  void $ liftIO $ async $ forever $ withPeerM e do
+  void $ liftIO $ asyncStick sup $ forever $ withPeerM e do
     pause @'Seconds 1.5
 
     pee <- knownPeers @e pl
@@ -451,7 +452,7 @@ blockDownloadLoop env0 = do
       updatePeerInfo False p pinfo
 
 
-  void $ liftIO $ async $ forever $ withAllStuff do
+  void $ liftIO $ asyncStick sup $ forever $ withAllStuff do
     pause @'Seconds 5 -- FIXME: put to defaults
                       --        we need to show download stats
 
@@ -507,7 +508,7 @@ blockDownloadLoop env0 = do
           liftIO $ atomically $ do
             modifyTVar busyPeers (HashSet.insert p)
 
-          void $ liftIO $ async $ withAllStuff do
+          void $ liftIO $ asyncStick sup $ withAllStuff do
 
             -- trace $ "start downloading shit" <+> pretty p <+> pretty h
 
@@ -562,7 +563,7 @@ blockDownloadLoop env0 = do
 
     proposed <- asks (view blockProposed)
 
-    void $ liftIO $ async $ forever do
+    void $ liftIO $ asyncStick sup $ forever do
       pause @'Seconds 20
       -- debug "block download loop. does not do anything"
       liftIO $ Cache.purgeExpired proposed
@@ -578,11 +579,12 @@ postponedLoop :: forall e m . ( MyPeer e
                               )
               => DownloadEnv e -> m ()
 postponedLoop env0 = do
+ withAsyncSupervisor "postponedLoop" \sup -> do
   e <- ask
 
   pause @'Seconds 2.57
 
-  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
+  void $ liftIO $ asyncStick sup $ withPeerM e $ withDownload env0 do
     q <- asks (view blockDelayTo)
     fix \next -> do
       w <- liftIO $ atomically $ readTQueue q

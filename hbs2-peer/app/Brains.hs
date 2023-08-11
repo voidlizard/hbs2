@@ -3,8 +3,10 @@
 {-# Language TemplateHaskell #-}
 module Brains where
 
+import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.RefChan(ForRefChans)
 import HBS2.Net.Proto
@@ -38,7 +40,6 @@ import System.Directory
 import System.FilePath
 import System.Random (randomRIO)
 import Text.InterpolatedString.Perl6 (qc)
-import UnliftIO (MonadUnliftIO(..),async,race)
 
 data PeerBrainsDb
 
@@ -809,13 +810,14 @@ runBasicBrains :: forall e m . ( e ~ L4Proto
                -> m ()
 
 runBasicBrains cfg brains = do
+ withAsyncSupervisor "runBasicBrains" \sup -> do
 
   let pip = view brainsPipeline brains
   let expire = view brainsExpire brains
   let commit = view brainsCommit brains
 
   -- FIXME: async-error-handling
-  void $ liftIO $ async $ forever do
+  void $ liftIO $ asyncStick sup $ forever do
 
     ewaiters <- race (pause @'Seconds 5) $ do
       atomically $ do
@@ -831,7 +833,7 @@ runBasicBrains cfg brains = do
     transactional brains (sequence_ (w:ws))
     sequence_ waiters
 
-  void $ liftIO $ async $ forever do
+  void $ liftIO $ asyncStick sup $ forever do
     pause @'Seconds 60
     updateOP brains (cleanupHashes brains)
 
@@ -843,7 +845,7 @@ runBasicBrains cfg brains = do
        | ListVal @C (Key "poll" [SymbolVal tp, LitIntVal n, LitStrVal ref]) <- syn
        ] )
 
-  void $ async $ do
+  void $ asyncStick sup $ do
     -- pause @'Seconds 5
     forM_ polls $ \(t,mi,x) -> do
       trace $ "BRAINS: poll" <+> pretty t <+> pretty (AsBase58 x) <+> pretty mi

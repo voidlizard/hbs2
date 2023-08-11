@@ -4,6 +4,7 @@ import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
 import HBS2.Net.Messaging
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 
 import HBS2.System.Logger.Simple
 
@@ -106,7 +107,8 @@ runMessagingUnix env = do
 
   where
 
-    runServer = forever $ handleAny cleanupAndRetry $ runResourceT do
+    runServer = forever $ handleAny cleanupAndRetry $ runResourceT $
+     withAsyncSupervisor "runServer" \sup -> do
 
       t0 <- getTimeCoarse
       atomically $ writeTVar (msgUnixLast env) t0
@@ -118,7 +120,7 @@ runMessagingUnix env = do
       liftIO $ bind sock $ SockAddrUnix (msgUnixSockPath env)
       liftIO $ listen sock 1
 
-      watchdog <- async $ do
+      watchdog <- asyncStick sup $ do
 
         let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env)  ]
 
@@ -139,14 +141,14 @@ runMessagingUnix env = do
             when ( acc > 0 && diff >= toNanoSeconds (TimeoutSec $ realToFrac wd) ) do
               throwIO ReadTimeoutException
 
-      run <- async $ forever $ runResourceT do
+      run <- asyncStick sup $ forever $ runResourceT do
               (so, sa) <- liftIO $ accept sock
 
               atomically $ modifyTVar (msgUnixAccepts env) succ
 
               void $ allocate (pure so) close
 
-              writer <- async $ forever do
+              writer <- asyncStick sup $ forever do
                 msg <- liftIO . atomically $ readTQueue (msgUnixInbox env)
                 let len = fromIntegral $ LBS.length msg :: Int
                 liftIO $ sendAll so $ bytestring32 (fromIntegral len)
@@ -172,7 +174,8 @@ runMessagingUnix env = do
         Right{} -> pure ()
 
 
-    runClient = liftIO $ forever $ handleAny logAndRetry $ runResourceT do
+    runClient = liftIO $ forever $ handleAny logAndRetry $ runResourceT $
+     withAsyncSupervisor "runClient" \sup -> do
 
       sock <- liftIO $ socket AF_UNIX Stream defaultProtocol
 
@@ -191,7 +194,7 @@ runMessagingUnix env = do
 
       attemptConnect
 
-      reader <- async $ forever do
+      reader <- asyncStick sup $ forever do
                   -- Read response from server
                   frameLen <- liftIO $ recv sock 4 <&> word32 <&> fromIntegral
                   frame    <- liftIO $ recv sock frameLen

@@ -14,7 +14,6 @@ import Control.Concurrent.STM.TBMQueue qualified as TBMQ
 import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TVar
 import Control.Monad
-import Control.Concurrent.Async
 import Data.Function
 import Data.Functor
 import Data.Kind

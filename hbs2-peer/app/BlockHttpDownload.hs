@@ -5,6 +5,7 @@ module BlockHttpDownload where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Defaults
@@ -30,7 +31,6 @@ import PeerInfo
 import BlockDownload
 import Brains
 
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe

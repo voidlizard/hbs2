@@ -50,7 +50,6 @@ import Data.Text qualified as Text
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Cache qualified as Cache
-import Control.Concurrent.Async
 import System.Environment
 import Prettyprinter.Render.Terminal
 

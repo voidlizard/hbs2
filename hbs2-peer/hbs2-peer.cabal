@@ -148,6 +148,7 @@ executable hbs2-peer
                     , Brains
                     , ProxyMessaging
                     , CLI.RefChan
+                    , SignalHandlers
 
     -- other-extensions:
     build-depends:    base

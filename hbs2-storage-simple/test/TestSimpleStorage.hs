@@ -11,7 +11,6 @@ import Control.Monad.Except
 import Control.Monad
 import Data.Traversable
 import Data.Foldable
-import Control.Concurrent.Async
 import Control.Concurrent
 import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe

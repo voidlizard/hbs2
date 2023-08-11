@@ -2,6 +2,7 @@ module Main where
 
 import HBS2.Base58
 import HBS2.Data.Detect
+import HBS2.Concurrent.Supervisor
 import HBS2.Data.Types
 import HBS2.Defaults
 import HBS2.Merkle
@@ -18,7 +19,6 @@ import HBS2.OrDie
 
 import HBS2.System.Logger.Simple hiding (info)
 
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Trans.Maybe
@@ -356,7 +356,7 @@ runRefLogGet s ss = do
     exitSuccess
 
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
-withStore opts f = do
+withStore opts f = withAsyncSupervisor "in withStore" \sup -> do
 
   setLogging @DEBUG  debugPrefix
   setLogging @INFO   defLog
@@ -371,7 +371,7 @@ withStore opts f = do
   let pref = uniLastDef xdg opts :: StoragePrefix
   s <- simpleStorageInit (Just pref)
 
-  w <- replicateM 4 $ async $ simpleStorageWorker s
+  w <- replicateM 4 $ asyncStick sup $ simpleStorageWorker s
 
   f s
 

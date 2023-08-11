@@ -2,6 +2,7 @@ module Main where
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 
 import HBS2Git.App
 import HBS2Git.State
@@ -35,7 +36,6 @@ import System.FilePath.Posix
 import System.IO.Temp
 import System.Timeout (timeout)
 import Text.InterpolatedString.Perl6 (qc)
-import UnliftIO.Async
 
 import Streaming.ByteString qualified as SB
 import Streaming.Zip qualified as SZip
@@ -107,6 +107,7 @@ retryFor num waity sleep action = timeout (ceiling $ waity * 1000000) $ go num
 
 dumbHttpServe :: MonadUnliftIO m => Port -> m ()
 dumbHttpServe pnum = do
+ withAsyncSupervisor "dumbHttpServe" \sup -> do
 
   locks <- liftIO $ newMVar (HashMap.empty @HashRef @(MVar ()))
 
@@ -121,7 +122,7 @@ dumbHttpServe pnum = do
   --  с логом, тогда в следующий раз будет обратно
   --  распакован
 
-  updater <- async $ forever do
+  updater <- asyncStick sup $ forever do
     pause @'Seconds 300
     pure ()
 

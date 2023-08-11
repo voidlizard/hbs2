@@ -14,6 +14,7 @@ import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging
 import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
+import HBS2.Concurrent.Supervisor
 
 import HBS2.System.Logger.Simple
 
@@ -40,7 +41,6 @@ import Streaming.Prelude qualified as S
 import System.Random hiding (next)
 import Control.Monad.Trans.Resource
 
-import UnliftIO.Async
 import UnliftIO.STM
 import UnliftIO.Exception qualified as U
 
@@ -245,7 +245,7 @@ spawnConnection tp env so sa = liftIO do
     when ( used <= 2 ) do
       atomically $ modifyTVar (view tcpPeerConn env) (HashMap.insert newP connId)
 
-    when (used == 1) do
+    when (used == 1) $ withAsyncSupervisor "in spawnConnection" \sup -> do
       q <- getWriteQueue connId
       updatePeer connId newP
 
@@ -254,7 +254,7 @@ spawnConnection tp env so sa = liftIO do
                          <+> pretty newP
                          <+> parens ("used:" <+> pretty used)
 
-      rd <- async $ fix \next -> do
+      rd <- asyncStick sup $ fix \next -> do
 
             spx <- readFromSocket so 4 <&> LBS.toStrict
             ssize <- readFromSocket so 4 <&> LBS.toStrict --- УУУ, фреейминг
@@ -276,7 +276,7 @@ spawnConnection tp env so sa = liftIO do
 
             next
 
-      wr <- async $ fix \next -> do
+      wr <- asyncStick sup $ fix \next -> do
               (rcpt, bs) <- atomically $ readTQueue q
 
               pq <- makeReqId rcpt
@@ -364,14 +364,14 @@ connectPeerTCP env peer = liftIO do
 -- FIXME: link-all-asyncs
 
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()
-runMessagingTCP env = liftIO do
+runMessagingTCP env = liftIO $ withAsyncSupervisor "in runMessagingTCP" \sup -> do
 
   own <- toPeerAddr $ view tcpOwnPeer env
   let (L4Address _ (IPAddrPort (i,p))) = own
 
   let defs = view tcpDefer env
 
-  mon <- async $ forever do
+  mon <- asyncStick sup $ forever do
     pause @'Seconds 30
     now <- getTimeCoarse
 
@@ -384,7 +384,7 @@ runMessagingTCP env = liftIO do
                              [] -> Nothing
                              xs -> Just xs
 
-  con <- async $ forever do
+  con <- asyncStick sup $ forever do
 
     let ev = view tcpDeferEv env
 
@@ -408,7 +408,7 @@ runMessagingTCP env = liftIO do
 
         co' <- atomically $ readTVar (view tcpPeerConn env) <&> HashMap.lookup pip
 
-        maybe1 co' (void $ async (connectPeerTCP env pip)) $ \co -> do
+        maybe1 co' (void $ asyncStick sup (connectPeerTCP env pip)) $ \co -> do
           q' <- atomically $ readTVar (view tcpConnQ env) <&> HashMap.lookup co
           maybe1 q' none $ \q -> do
             atomically do
@@ -418,7 +418,7 @@ runMessagingTCP env = liftIO do
 
         pure ()
 
-  stat <- async $ forever do
+  stat <- asyncStick sup $ forever do
     pause @'Seconds 120
     ps <- readTVarIO $ view tcpConnPeer env
     let peers = HashMap.toList ps
@@ -428,8 +428,6 @@ runMessagingTCP env = liftIO do
                     <+> pretty pip
                     <+> pretty c
                     <+> parens ("used:" <+> pretty used)
-
-  mapM_ link [mon,con,stat]
 
   liftIO (
     listen (Host (show i)) (show p) $ \(sock, sa) -> do

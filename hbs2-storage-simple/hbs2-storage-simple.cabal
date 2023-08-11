@@ -80,6 +80,8 @@ library
                     , unordered-containers
                     , temporary
                     , filepattern
+                    , unliftio
+                    , unliftio-core
 
 
     hs-source-dirs:   lib

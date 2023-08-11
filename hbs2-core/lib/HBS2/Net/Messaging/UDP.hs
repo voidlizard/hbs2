@@ -7,13 +7,13 @@ import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
+import HBS2.Concurrent.Supervisor
 
 import HBS2.System.Logger.Simple
 
 import Data.Function
 import Control.Exception
 import Control.Monad.Trans.Maybe
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue qualified as Q0
 import Control.Monad
@@ -108,11 +108,11 @@ newMessagingUDP reuse saddr =
 
 
 udpWorker :: MessagingUDP -> TVar Socket -> IO ()
-udpWorker env tso = do
+udpWorker env tso = withAsyncSupervisor "in udpWorker" \sup -> do
 
   so <- readTVarIO tso
 
-  rcvLoop <- async $ forever $ do
+  rcvLoop <- asyncStick sup $ forever $ do
     -- so <- readTVarIO tso
     -- pause ( 10 :: Timeout 'Seconds )
     (msg, from) <- recvFrom so defMaxDatagram
@@ -120,7 +120,7 @@ udpWorker env tso = do
   -- FIXME: ASAP-check-addr-type
     liftIO $ atomically $ Q0.writeTQueue (sink env) (From (PeerL4 UDP from), LBS.fromStrict msg)
 
-  sndLoop <- async $ forever $ do
+  sndLoop <- asyncStick sup $ forever $ do
     pause ( 10 :: Timeout 'Seconds )
     -- (To whom, msg) <- atomically $ Q0.readTQueue (inbox env)
     -- print "YAY!"
@@ -135,15 +135,16 @@ udpWorker env tso = do
 -- FIXME: stopping
 
 runMessagingUDP :: MonadIO m => MessagingUDP -> m ()
-runMessagingUDP udpMess = liftIO $ do
+runMessagingUDP udpMess = liftIO $ withAsyncSupervisor "in runMessagingUDP" \sup -> do
   let addr = listenAddr udpMess
   so <- readTVarIO (sock udpMess)
 
   unless (mcast udpMess) $ do
     bind so addr
 
-  w <- async $ udpWorker udpMess (sock udpMess)
-  waitCatch w >>= either throwIO (const $ pure ())
+  w <- asyncStick sup $ udpWorker udpMess (sock udpMess)
+  wait w
+  -- waitCatch w >>= either throwIO (const $ pure ())
 
 instance Messaging MessagingUDP L4Proto ByteString where
 

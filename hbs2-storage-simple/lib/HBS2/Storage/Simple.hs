@@ -9,13 +9,14 @@ module HBS2.Storage.Simple
 
 import HBS2.Clock
 import HBS2.Hash
+import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Base58
+import HBS2.Concurrent.Supervisor
 
 import HBS2.System.Logger.Simple
 
-import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
 import Control.Monad.Except
@@ -164,14 +165,15 @@ simpleStorageStop ss = do
 
 simpleStorageWorker :: IsSimpleStorageKey h => SimpleStorage h -> IO ()
 simpleStorageWorker ss = do
+ withAsyncSupervisor "in simpleStorageWorker" \sup -> do
 
-  ops <- async $ fix \next -> do
+  ops <- asyncStick sup $ fix \next -> do
     s <- atomically $ do TBMQ.readTBMQueue ( ss ^. storageOpQ )
     case s of
       Nothing -> pure ()
       Just a  -> a >> next
 
-  killer <- async $ forever $ do
+  killer <- asyncStick sup $ forever $ do
     pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
     simpleAddTask ss $ do
 
@@ -184,7 +186,7 @@ simpleStorageWorker ss = do
 
         writeTVar ( ss ^. storageMMaped ) survived
 
-  killerLRU <- async $ forever $ do
+  killerLRU <- asyncStick sup $ forever $ do
     pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
     atomically $ writeTVar ( ss ^. storageMMapedLRU ) mempty
 

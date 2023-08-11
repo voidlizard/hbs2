@@ -10,7 +10,6 @@ import Streaming as S
 import Streaming.Internal
 import Streaming.Prelude (cons)
 import Streaming.Prelude qualified as S
-import UnliftIO.Async
 import UnliftIO.STM
 import Prelude hiding (cons)
 

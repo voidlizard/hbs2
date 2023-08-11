@@ -17,7 +17,6 @@ import HBS2.System.Logger.Simple
 
 import PeerTypes
 
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe

@@ -17,6 +17,7 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
+import HBS2.Concurrent.Supervisor
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Events
@@ -252,6 +253,7 @@ refChanWorkerInitValidators :: forall e  m . ( MonadIO m
 
 
 refChanWorkerInitValidators env = do
+ withAsyncSupervisor "refChanWorkerInitValidators" \sup -> do
   debug "refChanWorkerInitValidators"
 
   let (PeerConfig syn) = view refChanWorkerConf env
@@ -271,7 +273,7 @@ refChanWorkerInitValidators env = do
 
     unless here do
       q <- newTQueueIO
-      val <- async $ validatorThread rc sa q
+      val <- asyncStick sup $ validatorThread sup rc sa q
       let rcv = RefChanValidator q val
       atomically $ modifyTVar (_refChanWorkerValidators env) (HashMap.insert rc rcv)
 
@@ -281,22 +283,22 @@ refChanWorkerInitValidators env = do
     mkV rc x = (,Text.unpack x) <$> fromStringMay @(RefChanId e) (Text.unpack rc)
 
     -- FIXME: make-thread-respawning
-    validatorThread chan sa q = liftIO do
+    validatorThread sup chan sa q = liftIO do
       client <- newMessagingUnix False 1.0 sa
-      msg <- async $ runMessagingUnix client
+      msg <- asyncStick sup $ runMessagingUnix client
 
       -- FIXME: hardcoded-timeout
       waiters <- Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
 
       runValidateProtoM client do
 
-        poke <- async $ forever do
+        poke <- asyncStick sup $ forever do
                   pause @'Seconds 10
                   mv <- newEmptyMVar
                   nonce <- newNonce @(RefChanValidate UNIX)
                   atomically $ writeTQueue q (RefChanValidate @UNIX nonce chan Poke, mv)
 
-        z <- async $ runProto
+        z <- asyncStick sup $ runProto
           [ makeResponse (refChanValidateProto waiters)
           ]
 
@@ -347,28 +349,29 @@ refChanWorker :: forall e s m . ( MonadIO m
              -> m ()
 
 refChanWorker env brains = do
+ withAsyncSupervisor "refChanWorker" \sup -> do
 
   penv <- ask
 
   mergeQ <- newTQueueIO
 
   -- FIXME: resume-on-exception
-  hw <- async (refChanHeadMon penv)
+  hw <- asyncStick sup (refChanHeadMon penv)
 
   -- FIXME: insist-more-during-download
   --  что-то частая ситуация, когда блоки
   --  с трудом докачиваются. надо бы
   --  разобраться. возможно переделать
   --  механизм скачивания блоков
-  downloads <- async monitorHeadDownloads
+  downloads <- asyncStick sup monitorHeadDownloads
 
-  polls <- async refChanPoll
+  polls <- asyncStick sup refChanPoll
 
-  wtrans <- async refChanWriter
+  wtrans <- asyncStick sup refChanWriter
 
-  cleanup1 <- async cleanupRounds
+  cleanup1 <- asyncStick sup cleanupRounds
 
-  merge <- async (logMergeProcess env mergeQ)
+  merge <- asyncStick sup (logMergeProcess env mergeQ)
 
   sto <- getStorage
 
