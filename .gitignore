@@ -3,5 +3,6 @@ dist-newstyle
 hbs2.prof
 .fixme/state.db
 result
+.hbs2-git
 # VS Code
 settings.json

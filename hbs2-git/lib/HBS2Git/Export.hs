@@ -13,7 +13,6 @@ import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Net.Proto.Definition()
-import HBS2.Clock
 import HBS2.Base58
 
 import HBS2.Git.Local
@@ -158,7 +157,7 @@ writeLogSegments :: forall m . ( MonadIO m
                  -> [(GitLogEntry, LBS.ByteString)]
                  -> ExportT m [HashRef]
 
-writeLogSegments onProgress val objs chunkSize trailing = do
+writeLogSegments onProgress _val objs chunkSize trailing = do
 
   db          <- asks $ view exportDB
   written     <- asks $ view exportWritten
@@ -275,7 +274,7 @@ exportRefOnly _ remote rfrom ref val = do
 
   entries <- traceTime "gitRevList" $ gitRevList lastKnownRev val
 
-  let entryNum = length entries
+  let _entryNum = length entries
 
   -- NOTE: just-for-test-new-non-empty-push-to-another-branch-112
 
@@ -402,15 +401,14 @@ runExport fp repo = do
 
   shutUp
 
-  cwd <- liftIO getCurrentDirectory
-  cfgPath <- configPath cwd
+  configPath  <- asks $ view appConfPath
   let krf = fromMaybe "keyring-file" fp & takeFileName
 
   liftIO $ putStrLn ""
   liftIO $ putDoc $
     "exported" <+> pretty hhh
     <> section
-    <> green "Repository config:" <+> pretty (cfgPath </> "config")
+    <> green "Repository config:" <+> pretty configPath
     <> section
     <>  "Put the keyring file" <+> yellow (pretty krf) <+> "into a safe place," <> line
     <> "like encrypted directory or volume."

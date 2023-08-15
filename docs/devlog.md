@@ -1,3 +1,11 @@
+## 2023-14-08
+
+PR: hbs2-git-config-location
+  branch: hbs2-git-fastpok
+  commit: 82d5a30f4510b3f70bfbf2bc208b14df4ce2b17d
+  Изменено расположение файла конфигурации hbs2-git,
+  незначительный рефакторинг.
+
 ## 2023-07-30
 
 какие-то косяки

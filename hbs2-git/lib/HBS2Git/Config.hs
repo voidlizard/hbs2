@@ -3,22 +3,25 @@ module HBS2Git.Config
   , module Data.Config.Suckless
   ) where
 
+import Data.Char (toLower)
+import Data.Config.Suckless
+import Data.Functor
+import HBS2.OrDie
 import HBS2.Prelude
 import HBS2.System.Logger.Simple
-import HBS2.OrDie
-
-import Data.Config.Suckless
-
-import HBS2Git.Types
-
-import Data.Functor
-import System.FilePath
+import Prettyprinter.Render.Terminal
 import System.Directory
+import System.FilePath
+import System.IO
+import Text.InterpolatedString.Perl6 (qc)
 
 -- type C = MegaParsec
 
 appName :: FilePath
 appName = "hbs2-git"
+
+configFileName :: FilePath
+configFileName = "config"
 
 -- Finds .git dir inside given directory moving upwards
 findGitDir :: MonadIO m => FilePath -> m (Maybe FilePath)
@@ -39,45 +42,85 @@ findWorkingGitDir = do
   this <- liftIO getCurrentDirectory
   findGitDir this `orDie` ".git directory not found"
 
-configPath :: MonadIO m => FilePath -> m FilePath
-configPath pwd = liftIO do
+getRepoDir :: MonadIO m => m FilePath
+getRepoDir = takeDirectory <$> findWorkingGitDir
+
+getOldConfigDir :: MonadIO m => FilePath -> m FilePath
+getOldConfigDir repoDir = liftIO do
   xdg <- liftIO $ getXdgDirectory XdgConfig appName
   home <- liftIO getHomeDirectory
-  pure $ xdg </> makeRelative home pwd
+  pure $ xdg </> makeRelative home repoDir
 
-data ConfigPathInfo = ConfigPathInfo {
-  configRepoParentDir :: FilePath,
-  configDir :: FilePath,
-  configFilePath :: FilePath
-} deriving (Eq, Show)
+getOldConfigPath :: MonadIO m => FilePath -> m FilePath
+getOldConfigPath repoDir = do
+  oldConfigDir <- getOldConfigDir repoDir
+  pure $ oldConfigDir </> configFileName
 
--- returns git repository parent dir, config directory and config file path 
-getConfigPathInfo :: MonadIO m => m ConfigPathInfo
-getConfigPathInfo = do
-  trace "getConfigPathInfo"
-  gitDir <- findWorkingGitDir
-  let pwd = takeDirectory gitDir
-  confP <- configPath pwd
-  let confFile = confP </> "config"
-  trace $ "git dir" <+> pretty gitDir
-  trace $ "confPath:" <+> pretty confP
-  pure ConfigPathInfo {
-      configRepoParentDir = pwd,
-      configDir = confP,
-      configFilePath = confFile
-    }
+getNewConfigDir :: FilePath -> FilePath
+getNewConfigDir repoDir = repoDir </> ("." <> appName)
 
--- returns current directory, where found .git directory
+getNewConfigPath :: FilePath -> FilePath
+getNewConfigPath repoDir = getNewConfigDir repoDir </> configFileName
+
+askPermissionToMoveConfig :: MonadIO m => FilePath -> FilePath -> m Bool
+askPermissionToMoveConfig oldConfigPath newConfigPath = do
+  liftIO $
+    putDoc
+      [qc|We've detected an existing config file in the old location: 
+{pretty oldConfigPath}
+
+The new location is:
+{pretty newConfigPath}
+
+Would you like to automatically move the config file to the new location? [Y/n] |]
+  liftIO $ hFlush stdout
+  response <- liftIO getLine
+  if map toLower response `elem` ["y", "yes"]
+    then pure True
+    else pure False
+
+isDirectoryEmpty :: FilePath -> IO Bool
+isDirectoryEmpty path = do
+  entries <- listDirectory path
+  return $ null entries
+
+getConfigPath :: MonadIO m => m FilePath
+getConfigPath = do
+  repoDir <- getRepoDir
+  oldConfigPath <- getOldConfigPath repoDir
+  let newConfigPath = getNewConfigPath repoDir
+  oldConfigExists <- liftIO $ doesFileExist oldConfigPath
+  if oldConfigExists
+    then do
+      permitted <- askPermissionToMoveConfig oldConfigPath newConfigPath
+      if permitted
+        then do
+          liftIO $ createDirectoryIfMissing True $ takeDirectory newConfigPath 
+          liftIO $ renameFile oldConfigPath newConfigPath
+          liftIO $ putDoc "Config file moved successfully."
+
+          -- also remove parent dir if it's empty
+          let oldConfigDir = takeDirectory oldConfigPath
+          isEmpty <- liftIO $ isDirectoryEmpty oldConfigDir
+          when isEmpty $ 
+            liftIO $ removeDirectory oldConfigDir
+
+          pure newConfigPath
+        else pure oldConfigPath
+    else pure newConfigPath
+
+-- returns config file location and its content, if file it doesn't exist creates one
 configInit :: MonadIO m => m (FilePath, [Syntax C])
 configInit = liftIO do
   trace "configInit"
-  ConfigPathInfo{..} <- getConfigPathInfo
-  here <- doesDirectoryExist configDir
-  unless here do
+  configPath <- getConfigPath
+  let configDir = takeDirectory configPath
+  configDirExists <- doesDirectoryExist configDir
+  unless configDirExists do
     debug $ "create directory" <+> pretty configDir
     createDirectoryIfMissing True configDir
-  confHere <- doesFileExist configFilePath
-  unless confHere do
-    appendFile configFilePath ""
-  cfg <- readFile configFilePath <&> parseTop <&> either mempty id
-  pure (configRepoParentDir, cfg)
+  configExists <- doesFileExist configPath
+  unless configExists do
+    appendFile configPath ""
+  config <- readFile configPath <&> parseTop <&> either mempty id
+  pure (configPath, config)

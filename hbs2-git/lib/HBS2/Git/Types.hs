@@ -14,14 +14,9 @@ import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Data
 import Data.Generics.Uniplate.Data()
-import Data.String (IsString(..))
 import Data.Text.Encoding (decodeLatin1)
 import Data.Text qualified as Text
-import Data.Text (Text)
-import GHC.Generics
-import Prettyprinter
 import Text.InterpolatedString.Perl6 (qc)
-import Data.Hashable
 import Codec.Serialise
 import Data.Maybe
 

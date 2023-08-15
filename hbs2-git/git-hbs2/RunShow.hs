@@ -1,22 +1,24 @@
 module RunShow where
 
 import HBS2.Prelude
-import HBS2.Base58
+-- import HBS2.Base58
 
 import HBS2Git.App
-import HBS2Git.State
-import HBS2Git.Config
+-- import HBS2Git.State
 import HBS2Git.ListRefs
 
 import Control.Monad.Catch (MonadMask)
-import Data.Foldable
+import Control.Monad.Reader
+import Lens.Micro.Platform
+
+-- import Data.Foldable
 import Prettyprinter.Render.Terminal
 
 data ShowObject = ShowRef RepoRef | ShowConfig
 
 showRef :: (MonadIO m, MonadMask m) => RepoRef -> App m ()
-showRef h = do
-  db <- makeDbPath h >>= dbEnv
+showRef _h = do
+  -- db <- makeDbPath h >>= dbEnv
   -- FIXME: re-implement-showRef
   pure ()
   -- withDB db do
@@ -34,11 +36,12 @@ showRefs = do
   runListRefs
 
 showConfig :: (MonadIO m, MonadMask m) => App m ()
-showConfig = liftIO do
-  ConfigPathInfo{..} <- getConfigPathInfo
-  cfg <- readFile configFilePath
-  putDoc $ green "Config file location:" <> section <> pretty configFilePath <> section
-  putDoc $ green "Config contents:" <> line <> pretty cfg
+showConfig = do
+  configPath <- asks $ view appConfPath
+  liftIO $ do
+    config <- readFile configPath
+    putDoc $ green "Config file location:" <> section <> pretty configPath <> section
+    putDoc $ green "Config contents:" <> line <> pretty config <> line
 
 showSummary :: (MonadIO m, MonadMask m) => App m ()
 showSummary = do
