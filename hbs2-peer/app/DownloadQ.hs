@@ -3,7 +3,6 @@ module DownloadQ where
 
 import HBS2.Prelude
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Hash
 import HBS2.Events
 import HBS2.Data.Types.Refs
@@ -28,6 +27,7 @@ import Data.Functor
 import Data.Function
 import Control.Exception
 import Control.Monad
+import Control.Concurrent.Async
 import System.IO
 
 
@@ -46,11 +46,9 @@ downloadQueue :: forall e m . ( MyPeer e
                               , HasPeerLocator e (BlockDownloadM e m)
                               , HasPeerLocator e m
                               , EventListener e (DownloadReq e) m
-                              , MonadUnliftIO m
                               ) => PeerConfig -> DownloadEnv e -> m ()
 
 downloadQueue conf denv = do
- withAsyncSupervisor "in downloadQueue" \sup -> do
 
   sto <- getStorage
   hq <- liftIO newTQueueIO
@@ -64,7 +62,7 @@ downloadQueue conf denv = do
     liftIO $ atomically $ writeTQueue hq h
 
   maybe1 qfile' noLogFile $ \fn -> do
-    void $ liftIO $ asyncStick sup $ forever $ do
+    void $ liftIO $ async $ forever $ do
       pause @'Seconds 10
       fromq <- liftIO $ atomically $ flushTQueue hq
       unless (null fromq) do

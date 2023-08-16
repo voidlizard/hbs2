@@ -4,7 +4,6 @@ module PeerInfo where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Auth.Credentials
@@ -23,6 +22,7 @@ import PeerConfig
 import PeerTypes
 import Brains
 
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
@@ -80,18 +80,17 @@ pexLoop :: forall e brains m . ( HasPeerLocator e m
                                , HasNonces (PeerExchange e) m
                                , Request e (PeerExchange e) m
                                , Sessions e (PeerExchange e) m
-                               , MonadUnliftIO m
+                               , MonadIO m
                                , e ~ L4Proto
                                ) => brains -> Maybe MessagingTCP -> m ()
 
 pexLoop brains tcpEnv = do
- withAsyncSupervisor "pexLoop" \sup -> do
 
   pause @'Seconds 5
 
   pl <- getPeerLocator @e
 
-  tcpPexInfo <- liftIO $ asyncStick sup $ forever do
+  tcpPexInfo <- liftIO $ async $ forever do
     -- FIXME: fix-hardcode
     pause @'Seconds 20
 
@@ -151,7 +150,6 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              )
              => PeerConfig -> PeerEnv e -> m ()
 peerPingLoop cfg penv = do
- withAsyncSupervisor "peerPingLoop" \sup -> do
 
   e <- ask
 
@@ -173,7 +171,7 @@ peerPingLoop cfg penv = do
 
 
   -- TODO: peer info loop
-  infoLoop <- liftIO $ asyncStick sup $ forever $ withPeerM e $ do
+  infoLoop <- liftIO $ async $ forever $ withPeerM e $ do
     pause @'Seconds 10
     pee <- knownPeers @e pl
 
@@ -210,7 +208,7 @@ peerPingLoop cfg penv = do
       pure ()
 
 
-  watch <- liftIO $ asyncStick sup $ forever $ withPeerM e $ do
+  watch <- liftIO $ async $ forever $ withPeerM e $ do
              pause @'Seconds 120
              pips <- getKnownPeers @e
              now <- getTimeCoarse

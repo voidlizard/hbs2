@@ -21,14 +21,13 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.PeerLocator.Static
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
-import HBS2.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.System.Logger.Simple
-import HBS2.Concurrent.Supervisor
 
 import Control.Applicative
 import Control.Monad.Trans.Maybe
+import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
@@ -440,7 +439,7 @@ newPeerEnv s bus p = do
   _envEncryptionKeys <- liftIO (newTVarIO mempty)
   pure PeerEnv {..}
 
-runPeerM :: forall e m . ( MonadUnliftIO m
+runPeerM :: forall e m . ( MonadIO m
                          , HasPeer e
                          , Ord (Peer e)
                          , Pretty (Peer e)
@@ -450,12 +449,12 @@ runPeerM :: forall e m . ( MonadUnliftIO m
          -> PeerM e m ()
          -> m ()
 
-runPeerM env f  = withAsyncSupervisor "runPeerM" \sup -> do
+runPeerM env f  = do
 
   let de = view envDeferred env
-  as <- liftIO $ replicateM 8 $ asyncStick' sup "runPipeline" $ runPipeline de
+  as <- liftIO $ replicateM 8 $ async $ runPipeline de
 
-  sw <- liftIO $ asyncStick' sup "sweeps" $ forever $ withPeerM env $ do
+  sw <- liftIO $ async $ forever $ withPeerM env $ do
           pause defSweepTimeout
           se <- asks (view envSessions)
           liftIO $ Cache.purgeExpired se
@@ -463,7 +462,7 @@ runPeerM env f  = withAsyncSupervisor "runPeerM" \sup -> do
 
   void $ runReaderT (fromPeerM f) env
   void $ liftIO $ stopPipeline de
-  -- liftIO $ mapM_ cancel (as <> [sw])
+  liftIO $ mapM_ cancel (as <> [sw])
 
 withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m a
 withPeerM env action = runReaderT (fromPeerM action) env

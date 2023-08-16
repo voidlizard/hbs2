@@ -16,6 +16,7 @@ import Control.Monad.Writer hiding (listen)
 import Test.Tasty.HUnit
 
 import Data.ByteString.Lazy (ByteString)
+import Control.Concurrent.Async
 import Lens.Micro.Platform
 import Codec.Serialise
 

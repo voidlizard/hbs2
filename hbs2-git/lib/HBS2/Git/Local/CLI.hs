@@ -11,6 +11,7 @@ import HBS2.Git.Types
 
 import HBS2.System.Logger.Simple
 
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Writer
 import Data.HashSet (HashSet)

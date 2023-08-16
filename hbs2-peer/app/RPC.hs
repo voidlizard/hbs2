@@ -6,7 +6,6 @@ module RPC where
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
@@ -36,6 +35,7 @@ import Lens.Micro.Platform
 import Network.Socket
 import System.Exit
 import System.IO
+import UnliftIO.Async as U
 import Control.Concurrent.MVar
 
 data PeerRpcKey
@@ -268,7 +268,7 @@ runRpcCommand opt = \case
 
 
 withRPC :: FromStringMaybe (PeerAddr L4Proto) => RPCOpt -> RPC L4Proto -> IO ()
-withRPC o cmd = rpcClientMain o $ runResourceT $ withAsyncSupervisor "withRPC" \sup -> do
+withRPC o cmd = rpcClientMain o $ runResourceT do
 
   liftIO $ hSetBuffering stdout LineBuffering
 
@@ -285,7 +285,7 @@ withRPC o cmd = rpcClientMain o $ runResourceT $ withAsyncSupervisor "withRPC" \
 
   udp1 <- newMessagingUDP False Nothing `orDie` "Can't start RPC"
 
-  mrpc <- asyncStick sup $ runMessagingUDP udp1
+  mrpc <- async $ runMessagingUDP udp1
 
   pingQ <- liftIO newTQueueIO
 
@@ -332,9 +332,9 @@ withRPC o cmd = rpcClientMain o $ runResourceT $ withAsyncSupervisor "withRPC" \
           , rpcOnRefChanNotify = dontHandle
           }
 
-  prpc <- asyncStick sup $ runRPC udp1 do
+  prpc <- async $ runRPC udp1 do
                     env <- ask
-                    proto <- liftIO $ asyncStick sup $ continueWithRPC env $ do
+                    proto <- liftIO $ async $ continueWithRPC env $ do
                       runProto @L4Proto
                         [ makeResponse (rpcHandler adapter)
                         ]

@@ -75,7 +75,6 @@ library
                     , HBS2.Actors.Peer.Types
                     , HBS2.Base58
                     , HBS2.Clock
-                    , HBS2.Concurrent.Supervisor
                     , HBS2.Crypto
                     , HBS2.Data.Detect
                     , HBS2.Data.Types

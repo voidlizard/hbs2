@@ -4,7 +4,6 @@ module RefLog where
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Actors.Peer
 import HBS2.Events
 import HBS2.Data.Types.Refs
@@ -31,7 +30,6 @@ import Data.Maybe
 import Data.Foldable(for_)
 import Data.Text qualified as Text
 import Control.Concurrent.STM
-import Control.Exception qualified as Exception
 import Control.Monad
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
@@ -39,6 +37,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Codec.Serialise
 import Data.HashSet qualified as HashSet
 import Data.HashSet (HashSet)
+import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
 import Lens.Micro.Platform
 
@@ -102,7 +101,7 @@ data RefLogWorkerAdapter e =
  , reflogFetch    :: PubKey 'Sign (Encryption e) -> IO ()
  }
 
-reflogWorker :: forall e s m . ( MonadUnliftIO m, MyPeer e
+reflogWorker :: forall e s m . ( MonadIO m, MyPeer e
                                , EventListener e (RefLogUpdateEv e) m
                                , EventListener e (RefLogRequestAnswer e) m
                              -- , Request e (RefLogRequest e) (Peerm
@@ -120,7 +119,6 @@ reflogWorker :: forall e s m . ( MonadUnliftIO m, MyPeer e
              -> m ()
 
 reflogWorker conf adapter = do
- withAsyncSupervisor "reflog worker" \supw -> do
 
   sto <- getStorage
 
@@ -167,9 +165,9 @@ reflogWorker conf adapter = do
     here <- liftIO $ readTVarIO reflogMon <&> HashSet.member h
     unless here do
       liftIO $ atomically $ modifyTVar' reflogMon (HashSet.insert h)
-      void $ liftIO $ asyncStick supw $ do
-        timeout <-  asyncStick supw (reflogTimeout reflog h)
-        work <- asyncStick supw $ do
+      void $ liftIO $ async $ do
+        timeout <-  async (reflogTimeout reflog h)
+        work <- async $ do
           trace $ "reflog worker. GOT REFLOG ANSWER" <+> pretty (AsBase58 reflog) <+> pretty h
           reflogDownload adapter h
           fix \next -> do
@@ -218,64 +216,18 @@ reflogWorker conf adapter = do
   let pollIntervals = HashMap.fromListWith (<>) [ (i, [r]) | (r,i) <- HashMap.toList polls ]
                             & HashMap.toList
 
-  withAsyncSupervisor "reflog updater" \sup -> do
-      pollers <-
-          forM pollIntervals \(i,refs) -> liftIO do
-              asyncStick' sup "poller" $ do
-                  pause @'Seconds 10
-                  forever $ do
-                      for_ refs $ \r -> do
-                          trace $ "POLL REFERENCE" <+> pretty (AsBase58 r) <+> pretty i <> "m"
-                          reflogFetch adapter r
-                      pause (fromIntegral i :: Timeout 'Minutes)
 
-      updaters <- replicateM 4 $ liftIO $ asyncStick' sup "updater" $
-          (`Exception.finally` (err "reflog updater ended. HOW?!")) $
-          (`withSomeExceptionIO` (\e -> err $ "REFLOG UPDATER:" <> viaShow e)) $
-          forever $ do
-              pause @'Seconds 1
-              reflogUpdater pQ sto
-                  `withSomeExceptionIO` (\e -> err $ "reflog updater:" <> viaShow e)
-                  -- `Exception.finally` (debug "reflog updater fin")
-              -- debug "reflog updater normally performed"
+  pollers' <- liftIO $ async $ do
+                pause @'Seconds 10
+                forM pollIntervals  $ \(i,refs) -> liftIO do
+                  async $ forever $ do
+                    for_ refs $ \r -> do
+                      trace $ "POLL REFERENCE" <+> pretty (AsBase58 r) <+> pretty i <> "m"
+                      reflogFetch adapter r
 
-      void $ liftIO $ waitAnyCatchCancel $ updaters <> pollers
+                    pause (fromIntegral i :: Timeout 'Minutes)
 
-  where
-
-    missedEntries sto h = do
-      missed <- liftIO $ newTVarIO mempty
-      walkMerkle h (getBlock sto) $ \hr -> do
-        case hr of
-          Left ha -> do
-            atomically $ modifyTVar missed (ha:)
-          Right (hs :: [HashRef]) -> do
-            w <- mapM ( hasBlock sto . fromHashRef ) hs <&> fmap isJust
-            let mi = [ hx | (False,hx) <- zip w hs ]
-            for_ mi $ \hx -> liftIO $ atomically $ modifyTVar missed (fromHashRef hx:)
-
-      liftIO $ readTVarIO missed
-
-readHashesFromBlock :: AnyStorage -> Maybe (Hash HbSync) -> IO [HashRef]
-readHashesFromBlock _ Nothing = pure mempty
-readHashesFromBlock sto (Just h) = do
-      treeQ <- liftIO newTQueueIO
-      walkMerkle h (getBlock sto) $ \hr -> do
-        case hr of
-          Left{} -> pure ()
-          Right (hrr :: [HashRef]) -> atomically $ writeTQueue treeQ hrr
-      re <- liftIO $ atomically $ flushTQueue treeQ
-      pure $ mconcat re
-
-reflogUpdater :: forall e s .
-    ( Serialise (RefLogUpdate e)
-    , s ~ Encryption e
-    , IsRefPubKey s
-    , Pretty (AsBase58 (PubKey 'Sign s))
-    )
-    => TQueue (PubKey 'Sign s, [RefLogUpdate e]) -> AnyStorage -> IO ()
-
-reflogUpdater pQ sto = do
+  w1 <- liftIO $ async $ forever $ replicateConcurrently_ 4 do
 
           -- TODO: reflog-process-period-to-config
           -- pause @'Seconds 10
@@ -317,3 +269,33 @@ reflogUpdater pQ sto = do
               trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty newRoot
 
           -- trace  "I'm a reflog update worker"
+
+  pollers <- liftIO $ wait pollers'
+  void $ liftIO $ waitAnyCatchCancel $ w1 : pollers
+
+  where
+
+    readHashesFromBlock _ Nothing = pure mempty
+    readHashesFromBlock sto (Just h) = do
+      treeQ <- liftIO newTQueueIO
+      walkMerkle h (getBlock sto) $ \hr -> do
+        case hr of
+          Left{} -> pure ()
+          Right (hrr :: [HashRef]) -> atomically $ writeTQueue treeQ hrr
+      re <- liftIO $ atomically $ flushTQueue treeQ
+      pure $ mconcat re
+
+    missedEntries sto h = do
+      missed <- liftIO $ newTVarIO mempty
+      walkMerkle h (getBlock sto) $ \hr -> do
+        case hr of
+          Left ha -> do
+            atomically $ modifyTVar missed (ha:)
+          Right (hs :: [HashRef]) -> do
+            w <- mapM ( hasBlock sto . fromHashRef ) hs <&> fmap isJust
+            let mi = [ hx | (False,hx) <- zip w hs ]
+            for_ mi $ \hx -> liftIO $ atomically $ modifyTVar missed (fromHashRef hx:)
+
+      liftIO $ readTVarIO missed
+
+

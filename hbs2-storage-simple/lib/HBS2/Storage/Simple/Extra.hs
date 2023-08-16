@@ -21,7 +21,7 @@ import Data.ByteString.Char8 qualified as BS
 import System.FilePath
 import Data.Maybe
 import Control.Concurrent.STM
--- import Control.Concurrent.Async
+import Control.Concurrent.Async
 import Control.Monad
 
 import Streaming.Prelude qualified as S

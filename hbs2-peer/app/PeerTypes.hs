@@ -32,6 +32,7 @@ import PeerConfig
 
 import Prelude hiding (log)
 import Data.Foldable (for_)
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W

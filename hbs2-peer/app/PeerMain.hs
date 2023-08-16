@@ -10,7 +10,6 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -61,9 +60,9 @@ import PeerMain.PeerDialog
 import PeerMeta
 import CLI.RefChan
 import RefChan
-import SignalHandlers
 
 import Codec.Serialise as Serialise
+-- import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
@@ -101,6 +100,7 @@ import Text.InterpolatedString.Perl6 (qc)
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
+import UnliftIO.Async as U
 
 import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
@@ -430,8 +430,9 @@ instance ( Monad m
   response = lift . response
 
 
-respawn :: IO ()
-respawn = do
+respawn :: PeerOpts -> IO ()
+respawn opts = case view peerRespawn opts of
+  Just True -> do
     let secs = 5
     notice $ "RESPAWNING in" <+> viaShow secs <> "s"
     pause @'Seconds secs
@@ -440,34 +441,18 @@ respawn = do
     print (self, args)
     executeFile self False args Nothing
 
+  _ -> exitFailure
+
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
                         , HasStorage (PeerM e IO)
                         ) => PeerOpts -> IO ()
 
-runPeer opts = do
-    installSignalHandlers
-
-    let h = case view peerRespawn opts of
-              Just True ->
-                  Exception.handle (\e -> do
-                          myException e
-                          performGC
-                          respawn
-                          )
-              _ -> id
-
-    h (runPeer' opts)
-
-
-runPeer' :: forall e s . ( e ~ L4Proto
-                        , FromStringMaybe (PeerAddr e)
-                        , s ~ Encryption e
-                        , HasStorage (PeerM e IO)
-                        ) => PeerOpts -> IO ()
-
-runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
+runPeer opts = U.handle (\e -> myException e
+                        >> performGC
+                        >> respawn opts
+                        ) $ runResourceT do
 
   metrics <- liftIO newStore
 
@@ -546,7 +531,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   let blk = liftIO . hasBlock s
 
 
-  w <- replicateM defStorageThreads $ asyncStick sup $ liftIO $ simpleStorageWorker s
+  w <- replicateM defStorageThreads $ async $ liftIO $ simpleStorageWorker s
 
   localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )
@@ -558,21 +543,21 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   mess <- newMessagingUDP False listenSa
             `orDie` "unable listen on the given addr"
 
-  udp <- asyncStick sup $ runMessagingUDP mess
+  udp <- async $ runMessagingUDP mess
 
   udp1 <- newMessagingUDP False rpcSa
             `orDie` "Can't start RPC listener"
 
-  mrpc <- asyncStick sup $ runMessagingUDP udp1
+  mrpc <- async $ runMessagingUDP udp1
 
   mcast <- newMessagingUDPMulticast defLocalMulticast
             `orDie` "Can't start RPC listener"
 
-  messMcast <- asyncStick sup $ runMessagingUDP mcast
+  messMcast <- async $ runMessagingUDP mcast
 
   brains <- newBasicBrains @e conf
 
-  brainsThread <- asyncStick sup $ runBasicBrains conf brains
+  brainsThread <- async $ runBasicBrains conf brains
 
   denv <- newDownloadEnv brains
 
@@ -584,7 +569,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   tcp <- maybe1 addr' (pure Nothing) $ \addr -> do
            tcpEnv <- newMessagingTCP addr <&> set tcpOnClientStarted (onClientTCPConnected brains)
            -- FIXME: handle-tcp-thread-somehow
-           void $ asyncStick sup $ runMessagingTCP tcpEnv
+           void $ async $ runMessagingTCP tcpEnv
            pure $ Just tcpEnv
 
   (proxy, penv) <- mdo
@@ -620,13 +605,13 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
       penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
       pure (proxy, penv)
 
-  proxyThread <- asyncStick sup $ runProxyMessaging proxy
+  proxyThread <- async $ runProxyMessaging proxy
 
   let peerMeta = mkPeerMeta conf penv
 
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
 
-  void $ asyncStick sup $ forever do
+  void $ async $ forever do
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
@@ -660,7 +645,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
               -- debug  $ "onNoBlock" <+> pretty p <+> pretty h
               withPeerM penv $ withDownload denv (addDownload mzero h)
 
-  loop <- liftIO $ asyncStick sup do
+  loop <- liftIO $ async do
 
             runPeerM penv $ do
               adapter <- mkAdapter
@@ -850,19 +835,16 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
                                     doAddPeer p
 
 
-              void $ asyncStick sup $ withPeerM env do
+              void $ liftIO $ async $ withPeerM env do
                 pause @'Seconds 1
                 debug "sending first peer announce"
                 request localMulticast (PeerAnnounce @e pnonce)
 
-              let peerThread t mx = W.tell . L.singleton =<< (liftIO . asyncStick sup) do
+              let peerThread t mx = W.tell . L.singleton =<< (liftIO . async) do
                     withPeerM env mx
-                      `U.withException` \e -> runMaybeT $
-                                  selectException @AsyncCancelled e (\e' -> pure ())
-                              <|> selectException @ExceptionInLinkedThread e (\e' -> pure ())
-                              <|> lift do
-                                      err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
-
+                      `U.withException` \e -> case (fromException e) of
+                        Just (e' :: AsyncCancelled) -> pure ()
+                        Nothing -> err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
                     debug $ "peerThread Finished:" <+> t
               workers <- W.execWriterT do
 
@@ -1060,7 +1042,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
 
   let peersAction _ = do
         who <- thatPeer (Proxy @(RPC e))
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           forKnownPeers @e $ \p pde -> do
               pa <- toPeerAddr p
               let k = view peerSignKey pde
@@ -1069,7 +1051,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   let pexInfoAction :: RPC L4Proto -> ResponseM L4Proto (RpcM (ResourceT IO)) ()
       pexInfoAction _ = do
         who <- thatPeer (Proxy @(RPC e))
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
             -- FIXME: filter-pexinfo-entries
             ps <- getAllPex2Peers
             request who (RPCPexInfoAnswer @e ps)
@@ -1097,20 +1079,20 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
         --
   let reflogFetchAction puk = do
         trace "reflogFetchAction"
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           broadCastMessage (RefLogRequest @e puk)
 
   let reflogGetAction puk = do
         trace $ "reflogGetAction" <+> pretty (AsBase58 puk)
         who <- thatPeer (Proxy @(RPC e))
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           sto <- getStorage
           h <- liftIO $ getRef sto (RefLogKey @(Encryption e) puk)
           request who (RPCRefLogGetAnswer @e  h)
 
   let refChanHeadSendAction h = do
         trace $ "refChanHeadSendAction" <+> pretty h
-        void $ liftIO $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           me <- ownPeer @e
           sto <- getStorage
 
@@ -1132,19 +1114,19 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   let refChanHeadGetAction puk = do
         trace $ "refChanHeadGetAction" <+> pretty (AsBase58 puk)
         who <- thatPeer (Proxy @(RPC e))
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           sto <- getStorage
           h <- liftIO $ getRef sto (RefChanHeadKey @(Encryption e) puk)
           request who (RPCRefChanHeadGetAnsw @e  h)
 
   let refChanHeadFetchAction puk = do
         trace "reChanFetchAction"
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           broadCastMessage (RefChanGetHead @e puk)
 
   let refChanProposeAction (puk, lbs) = do
         trace "reChanProposeAction"
-        void $ liftIO $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
             box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
@@ -1160,7 +1142,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
 
   let refChanNotifyAction (puk, lbs) = do
         trace "refChanNotifyAction"
-        void $ liftIO $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
             box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
@@ -1169,7 +1151,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
   let refChanGetAction puk = do
         trace $ "refChanGetAction" <+> pretty (AsBase58 puk)
         who <- thatPeer (Proxy @(RPC e))
-        void $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           sto <- getStorage
           h <- liftIO $ getRef sto (RefChanLogKey @(Encryption e) puk)
           trace $ "refChanGetAction ANSWER IS" <+> pretty h
@@ -1177,7 +1159,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
 
   let refChanFetchAction puk = do
         trace $ "refChanFetchAction" <+> pretty (AsBase58 puk)
-        void $ liftIO $ asyncStick sup $ withPeerM penv $ do
+        void $ liftIO $ async $ withPeerM penv $ do
           gossip (RefChanRequest @e puk)
 
   let arpc = RpcAdapter
@@ -1216,7 +1198,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
       dialReqProtoAdapterRouter <- pure dialogRoutes
       pure DialReqProtoAdapter {..}
 
-  rpc <- asyncStick sup $ runRPC udp1 do
+  rpc <- async $ runRPC udp1 do
                    runProto @e
                      [ makeResponse (rpcHandler arpc)
                      , makeResponse (dialReqProto dialReqProtoAdapter)
@@ -1224,7 +1206,7 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
 
   menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
 
-  ann <- liftIO $ asyncStick sup $ runPeerM menv $ do
+  ann <- liftIO $ async $ runPeerM menv $ do
 
                    self <- ownPeer @e
 
@@ -1242,10 +1224,9 @@ runPeer' opts = runResourceT $ withAsyncSupervisor "in runPeer" \sup -> do
                      , makeResponse peerAnnounceProto
                      ]
 
-  lift $
-      (void $ waitAnyCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast,brainsThread])
-      `finally`
-      (liftIO $ simpleStorageStop s)
+  void $ waitAnyCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast,brainsThread]
+
+  liftIO $ simpleStorageStop s
 
 
 
@@ -1258,4 +1239,5 @@ emitToPeer :: ( MonadIO m
            -> m ()
 
 emitToPeer env k e = liftIO $ withPeerM env (emit k e)
+
 

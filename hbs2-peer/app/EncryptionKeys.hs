@@ -23,6 +23,7 @@ import PeerConfig
 import PeerTypes
 
 import Codec.Serialise
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader

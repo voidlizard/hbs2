@@ -9,7 +9,6 @@ module ProxyMessaging
 import HBS2.Prelude.Plated
 import HBS2.Net.Messaging
 import HBS2.Clock
-import HBS2.Concurrent.Supervisor
 import HBS2.Crypto
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition ()
@@ -28,6 +27,7 @@ import Crypto.Saltine.Core.Box qualified as Encrypt
 import Codec.Serialise
 import Control.Applicative
 import Control.Arrow hiding ((<+>))
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue
 import Control.Monad.Trans.Maybe
@@ -85,25 +85,23 @@ runProxyMessaging :: forall m . MonadIO  m
                   -> m ()
 
 runProxyMessaging env = liftIO do
- withAsyncSupervisor "runProxyMessaging" \sup -> do
 
   let udp = view proxyUDP env
   let answ = view proxyAnswers env
   let udpPeer = getOwnPeer udp
 
-  u <- asyncStick sup $ forever do
+  u <- async $ forever do
           msgs <- receive  udp (To udpPeer)
           atomically $ do
             forM_ msgs $ writeTQueue answ
 
-  t <- asyncStick sup $ maybe1 (view proxyTCP env) none $ \tcp -> do
+  t <- async $ maybe1 (view proxyTCP env) none $ \tcp -> do
           forever do
             msgs <- receive  tcp (To $ view tcpOwnPeer tcp)
             atomically $ do
               forM_ msgs $ writeTQueue answ
 
-  -- liftIO $ void $ waitAnyCatch [u,t]   ???
-  liftIO $ void $ waitAny [u,t]
+  liftIO $ mapM_ waitCatch [u,t]
 
 
 instance Messaging ProxyMessaging L4Proto LBS.ByteString where
