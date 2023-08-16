@@ -449,7 +449,7 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , HasStorage (PeerM e IO)
                         ) => PeerOpts -> IO ()
 
-runPeer opts = U.handle (\e -> myException e
+runPeer opts = Exception.handle (\e -> myException e
                         >> performGC
                         >> respawn opts
                         ) $ runResourceT do
