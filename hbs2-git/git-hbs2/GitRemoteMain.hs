@@ -8,7 +8,7 @@ import HBS2.Git.Types
 
 import HBS2.System.Logger.Simple
 
--- import HBS2Git.Types(traceTime)
+import HBS2Git.Types(traceTime)
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Import

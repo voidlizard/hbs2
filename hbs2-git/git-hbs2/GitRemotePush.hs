@@ -2,17 +2,17 @@
 module GitRemotePush where
 
 import HBS2.Prelude.Plated
--- import HBS2.Data.Types.Refs
+import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
--- import HBS2.Net.Auth.Credentials hiding (getCredentials)
+import HBS2.Net.Auth.Credentials hiding (getCredentials)
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
 import HBS2Git.Config as Config
 import HBS2Git.Types
--- import HBS2Git.State
+import HBS2Git.State
 import HBS2Git.App
 import HBS2Git.Export (exportRefOnly,exportRefDeleted)
 import HBS2Git.Import (importRefLogNew)
@@ -70,12 +70,12 @@ push :: forall  m . ( MonadIO m
 
 
 push remote what@[Just bFrom , Just br] = do
-  (_, config) <- Config.configInit
+  (_, syn) <- Config.configInit
 
-  -- dbPath <- makeDbPath remote
-  -- db <- dbEnv dbPath
+  dbPath <- makeDbPath remote
+  db <- dbEnv dbPath
 
-  runWithConfig config do
+  runWithConfig syn do
     _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
     loadCredentials mempty
     trace $ "PUSH PARAMS" <+> pretty what
@@ -85,9 +85,9 @@ push remote what@[Just bFrom , Just br] = do
     pure (Just br)
 
 push remote [Nothing, Just br]  = do
-  (_, config) <- Config.configInit
+  (_, syn) <- Config.configInit
 
-  runWithConfig config do
+  runWithConfig syn do
     _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
     loadCredentials mempty
     trace $ "deleting remote reference" <+> pretty br

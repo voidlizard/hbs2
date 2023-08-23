@@ -26,17 +26,13 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Database.SQLite.Simple (Connection)
 import Data.Char (isSpace)
-import Data.Set qualified as Set
-import Data.Set (Set)
 import Data.List qualified as List
-import Data.Maybe
 import Lens.Micro.Platform
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Codec.Serialise
 import Control.Concurrent.STM
 import System.IO qualified as IO
-import UnliftIO.IO qualified as UIO
 import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch
@@ -72,7 +68,6 @@ data AppEnv =
   { _appCurDir       :: FilePath
   , _appGitDir       :: FilePath
   , _appConf         :: [Syntax C]
-  , _appConfPath     :: FilePath
   , _appStateDir     :: FilePath
   , _appPeerHttpCat  :: API
   , _appPeerHttpSize :: API

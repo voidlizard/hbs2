@@ -32,6 +32,7 @@ import Data.Text.Encoding (decodeLatin1)
 import Data.Text qualified as Text
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
+import Lens.Micro.Platform
 import Control.Monad.Trans.Maybe
 import System.IO
 
@@ -140,7 +141,7 @@ gitGetAllDependencies :: MonadIO m
                        -> ( GitHash -> IO () ) -- ^ progress update function
                        -> m [(GitHash, GitHash)]
 
-gitGetAllDependencies n objects lookup' progress = liftIO do
+gitGetAllDependencies n objects lookup progress = liftIO do
   input <- newTQueueIO
   output <- newTQueueIO
 
@@ -174,7 +175,7 @@ gitGetAllDependencies n objects lookup' progress = liftIO do
             pure here
 
           unless done do
-            cached <- lookup' h
+            cached <- lookup h
 
             deps <- if null cached then do
                       gitGetDependencies h
@@ -249,7 +250,7 @@ gitConfigSet k v = do
 gitGetRemotes :: MonadIO m => m [(Text,Text)]
 gitGetRemotes = do
   let cmd = [qc|git config --get-regexp '^remote\..*\.url$'|]
-  (_, out, _) <- liftIO $ readProcess (shell cmd)
+  (code, out, _) <- liftIO $ readProcess (shell cmd)
 
   let txt = Text.decodeUtf8 (LBS.toStrict out)
 

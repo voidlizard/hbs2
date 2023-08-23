@@ -22,6 +22,7 @@ import HBS2.Defaults (defBlockSize)
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
+import HBS2Git.State
 
 import Data.Maybe
 import Control.Monad.Trans.Maybe
@@ -183,8 +184,7 @@ runApp l m = do
     setLoggingOff @DEBUG
     setLoggingOff @TRACE
 
-  pwd <- Config.getRepoDir
-  (configPath, config) <- Config.configInit
+  (pwd, syn) <- Config.configInit
 
   xdgstate <- getAppStateDir
   -- let statePath = xdgstate </> makeRelative home pwd
@@ -203,11 +203,11 @@ runApp l m = do
 
   mtCred <- liftIO $ newTVarIO mempty
 
-  let env = AppEnv pwd (pwd </> ".git") config configPath xdgstate reQ szQ puQ rlQ mtCred
+  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ szQ puQ rlQ mtCred
 
   runReaderT (fromApp m) env
 
-  debug $ vcat (fmap pretty config)
+  debug $ vcat (fmap pretty syn)
 
   setLoggingOff @DEBUG
   setLoggingOff @ERROR
@@ -455,12 +455,9 @@ loadCredentials fp = do
     pure ()
 
 
-green :: Doc AnsiStyle -> Doc AnsiStyle
 green = annotate (color Green)
 
-yellow :: Doc AnsiStyle -> Doc AnsiStyle
 yellow = annotate (color Yellow)
 
-section :: Doc ann
 section = line <> line
 

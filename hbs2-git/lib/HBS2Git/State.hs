@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2Git.State where
 
 import HBS2.Prelude
@@ -17,14 +16,19 @@ import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
+import Data.String
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.Directory
 import System.FilePath
 import Data.Maybe
+import Data.Text (Text)
+import Prettyprinter
 import Data.UUID.V4 qualified as UUID
 import Control.Monad.Catch
 import Control.Concurrent.STM
+import System.IO.Unsafe
 import Data.Graph (graphFromEdges, topSort)
+import Data.Map qualified as Map
 import Lens.Micro.Platform
 
 -- FIXME: move-orphans-to-separate-module
@@ -102,7 +106,7 @@ dbEnvReadOnly = dbEnv0 none
 
 withDB :: (MonadIO m, MonadMask m) => DBEnv -> DB m a -> m a
 withDB env action = do
-  _conn <- initConnection env
+  conn <- initConnection env
   finally (runReaderT (fromDB action) env) $ do
     -- NOTE: we could not close connection here.
     pure ()
