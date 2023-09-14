@@ -13,6 +13,7 @@ import HBS2.Net.Proto.RefLog(RefLogKey(..))
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
+import HBS2.Data.Bundle
 import HBS2.OrDie
 
 
@@ -410,6 +411,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
                         <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
                         <> command "reflog"          (info pReflog (progDesc "reflog commands"))
+                        <> command "bundle"          (info pBundle(progDesc "bundle commands"))
                         )
 
     common = do
@@ -527,4 +529,64 @@ main = join . customExecParser (prefs showHelpOnError) $
             hFlush stderr
             print $ "deleted" <+> pretty d
             hFlush stdout
+
+    pBundle = hsubparser ( command  "create" (info pBundleCreate  (progDesc "create bundle"))
+                         <> command "list" (info pBundleList      (progDesc "list bundle"))
+                         <> command "import" (info pBundleImport  (progDesc "import objects from bundle"))
+                         )
+
+    pBundleCreate = do
+      o <- common
+      fname <- optional $ strOption (long "file" <> short 'f' <> help "hash list file (plaintext)")
+      pure $ withStore o $ \sto -> do
+        handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
+
+        ls <- hGetContents handle <&> lines
+        let hashes = mapMaybe (fromStringMay @HashRef) ls
+
+        when (length ls  /= length hashes) do
+          die "Invalid hashref found"
+
+        bundle <- createBundle sto hashes `orDie` "can't create bundle"
+
+        print $ pretty bundle
+
+
+    pBundleImport = do
+      o <- common
+      mbHref <- strArgument (metavar "HASHREF")
+      pure $ withStore o $ \sto -> do
+        href <- pure (fromStringMay @HashRef mbHref) `orDie` "invalid hashref"
+        r <- importBundle sto (void . putBlock sto . snd) href
+        case r of
+          Right{} -> pure ()
+          Left e -> die (show e)
+
+    pBundleList = do
+      o <- common
+      mbHref <- strArgument (metavar "HASHREF")
+      doCheck  <- optional (flag' False ( long "check" <> help "check hashes" )) <&> fromMaybe False
+      pure $ withStore o $ \sto -> do
+        href <- pure (fromStringMay @HashRef mbHref) `orDie` "invalid hashref"
+        r <- importBundle sto (outSection doCheck) href
+        case r of
+          Right{} -> pure ()
+          Left e -> die (show e)
+
+      where
+        outSection :: Bool -> (Maybe HashRef, ByteString) -> IO ()
+
+        outSection True  x@(Just h, bs) = do
+          let hh = HashRef $ hashObject @HbSync bs
+
+          unless (hh == h) do
+            die $ "hash mismatch:" <> show (pretty h <+> pretty hh)
+
+          printHash x
+
+        outSection False x = printHash x
+
+        outSection _ x@(Nothing, _) = printHash x
+
+        printHash = void . print . pretty . fst
 

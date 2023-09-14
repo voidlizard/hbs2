@@ -15,6 +15,7 @@ main =
         testCase "testSimpleStorageRandomReadWrite" testSimpleStorageRandomReadWrite
       , testCase "testSimpleStorageNoKeys" testSimpleStorageNoKeys
       , testCase "testSimpleStorageRefs" testSimpleStorageRefs
+      , testCase "testSimpleStorageBundles" testSimpleStorageBundles
       ]
 
 

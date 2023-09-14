@@ -81,6 +81,7 @@ library
                     , HBS2.Data.Types.Crypto
                     , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
+                    , HBS2.Data.Bundle
                     , HBS2.Defaults
                     , HBS2.Events
                     , HBS2.Hash
@@ -115,6 +116,7 @@ library
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
+                    , HBS2.Storage.Operations
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
                     , Dialog.Core
@@ -181,6 +183,7 @@ library
                     , unordered-containers
                     , unliftio
                     , unliftio-core
+                    , zlib
 
 
     hs-source-dirs:   lib

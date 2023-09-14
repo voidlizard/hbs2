@@ -4,8 +4,10 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.Clock
 import HBS2.Prelude.Plated
+import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Storage.Simple
+import HBS2.Data.Bundle
 
 import Control.Monad.Except
 import Control.Monad
@@ -23,6 +25,7 @@ import System.FilePath.Posix
 import System.IO.Temp
 import Test.QuickCheck
 import System.TimeIt
+import System.IO
 
 import Test.Tasty.HUnit
 
@@ -210,4 +213,45 @@ testSimpleStorageRefs  = do
     assertEqual "kv2" Nothing non
 
     pure ()
+
+testSimpleStorageBundles :: IO ()
+testSimpleStorageBundles  = do
+  withSystemTempDirectory "simpleStorageTest" $ \dir -> do
+
+    let opts = [ StoragePrefix (dir </> ".storage")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    worker <- async  (simpleStorageWorker storage)
+
+    link worker
+
+    hPrint stderr "HERE I TEST BUNDLES"
+
+    -- тут я хочу сгенерить 100 рандомных байтстрок
+    bss <- generate $ replicateM 100 $ do
+            n <- choose (1, 1024)
+            LBS.pack <$> vectorOf n (choose (32, 126 :: Word8))
+
+    -- записать их при помощи putBlock
+    -- сохранить их хэши
+    hashes <- catMaybes <$> mapM (putBlock storage) bss
+
+    -- сделать bundle
+    bundle <- createBundle storage (fmap HashRef hashes) `orDie` "Can't create bundle"
+
+    -- удалить их
+    mapM_ (delBlock storage) hashes
+
+    -- убедиться, что реально удалены
+    here <- mapM (hasBlock storage) hashes
+    assertBool "all-blocks-deleted" (null (catMaybes here))
+
+    -- импортировать bundle
+    result <- importBundle storage (void . putBlock storage . snd) bundle
+
+    hereWeGoAgain <- mapM (hasBlock storage) hashes
+    assertBool "all-blocks-here-again" (not (null (catMaybes hereWeGoAgain)))
+
 
