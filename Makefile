@@ -18,6 +18,3 @@ build:
 test-core:
 > nix develop -c cabal run hbs2-core:test
 
-.PHONY: test-raft
-test-raft:
-> nix develop -c ghcid -c 'cabal repl' raft-algo -T RaftAlgo.Proto.devTest

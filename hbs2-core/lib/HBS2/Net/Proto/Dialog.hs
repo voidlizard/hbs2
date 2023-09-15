@@ -3,24 +3,39 @@
 
 module HBS2.Net.Proto.Dialog
 ( module HBS2.Net.Proto.Dialog
-, module HBS2.Net.Dialog.Core
-, module HBS2.Net.Dialog.Client
+, module Dialog.Core
+, module Dialog.Client
 ) where
+
+import HBS2.Actors.Peer
+import HBS2.Clock
+import HBS2.Data.Types
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Proto
+import HBS2.Net.Proto.Peer
+import HBS2.Net.Proto.Sessions
+import HBS2.Prelude.Plated hiding (at)
+import HBS2.System.Logger.Simple
 
 import Codec.Serialise (deserialiseOrFail)
 import Control.Arrow
 import Control.Monad
+import Control.Monad.Error.Class
+import Control.Monad.IO.Unlift
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Builder
 import Data.ByteString.Lazy qualified as BSL
-import Data.Generics.Product.Fields ()
-import Data.Kind
+import Data.List qualified as List
+import Data.Map.Strict as Map
 import Lens.Micro.Platform
+import Streaming as S
+import Streaming.Prelude qualified as S
+import UnliftIO.Exception
+import UnliftIO.STM
 
-import HBS2.Data.Types
-import HBS2.Net.Dialog.Client
-import HBS2.Net.Dialog.Core
-import HBS2.Net.Proto
-import HBS2.Prelude.Plated hiding (at)
+import Dialog.Client
+import Dialog.Core
 
 ---
 
@@ -47,7 +62,7 @@ dialRespEncode = \case
 
 ---
 
-newtype DialogProtoEnv m e = DialogProtoEnv
+data DialogProtoEnv m e = DialogProtoEnv
   { dialogProtoEnvCallerEnv :: CallerEnv m
   }
 
@@ -61,12 +76,12 @@ newDialogProtoEnv = do
 
 -- Adapters should share the same env
 
-data DialReqProtoAdapter e (m :: Type -> Type) s = DialReqProtoAdapter
-  { dialReqProtoAdapterDApp :: DApp IO
-  , dialReqProtoAdapterNT :: Peer e -> forall a . m a -> IO a
+data DialReqProtoAdapter e (m :: * -> *) s = DialReqProtoAdapter
+  { dialReqProtoAdapterRouter :: DialogRequestRouter m
+  -- , dialReqProtoAdapterEnv :: DialogProtoEnv e
   }
 
-newtype DialRespProtoAdapter e (m :: Type -> Type) s = DialRespProtoAdapter
+data DialRespProtoAdapter e (m :: * -> *) s = DialRespProtoAdapter
   { dialRespProtoAdapterEnv :: DialogProtoEnv m e
   }
 
@@ -83,22 +98,19 @@ dialReqProto :: forall e s m .
     => DialReqProtoAdapter e m s
     -> DialReq e
     -> m ()
-dialReqProto adapter = unDialReq >>> \frames -> do
+dialReqProto DialReqProtoAdapter{..} = unDialReq >>> \frames -> do
     peer <- thatPeer dialReqProtoProxy
 
-    -- let dialReqEnv :: DialogRequestEnv m (Peer e) (Maybe (PeerData e))
-    --     dialReqEnv = DialogRequestEnv
-    --       { dreqEnvPeer = peer
-    --       , dreqEnvGetPeerData = pure Nothing -- undefined -- find (KnownPeerKey peer) id
-    --       }
+    let dialReqEnv :: DialogRequestEnv m (Peer e) (Maybe (PeerData e))
+        dialReqEnv = DialogRequestEnv
+          { dreqEnvPeer = peer
+          , dreqEnvGetPeerData = pure Nothing -- undefined -- find (KnownPeerKey peer) id
+          }
 
     let replyToPeer :: Frames -> m ()
         replyToPeer = request peer . DialResp @e
 
-    let replyToPeerIO :: Frames -> IO ()
-        replyToPeerIO = dialReqProtoAdapterNT adapter peer <$> replyToPeer
-
-    liftIO $ (dialReqProtoAdapterDApp adapter) frames replyToPeerIO
+    routeDialogRequest dialReqProtoAdapterRouter dialReqEnv replyToPeer frames
 
  where
    dialReqProtoProxy = Proxy @(DialReq e)
@@ -115,7 +127,7 @@ dialRespProto :: forall e s m .
     -> DialResp e
     -> m ()
 dialRespProto DialRespProtoAdapter{..} = unDialResp >>> unFrames >>> \case
-  "": _xs -> do
+  "": xs -> do
       -- Ответили прямо нам сюда. Нужно как-то отреагировать на xs
       pure ()
 

@@ -8,7 +8,7 @@ module HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.Hash
 import HBS2.Merkle
-import HBS2.Net.Proto.Types
+import HBS2.Net.Proto.Types (Encryption)
 import HBS2.Net.Auth.Credentials
 import HBS2.Prelude
 

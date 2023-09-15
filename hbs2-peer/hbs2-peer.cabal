@@ -136,8 +136,7 @@ executable hbs2-peer
                     , Bootstrap
                     , PeerInfo
                     , PeerMain.DialogCliCommand
-                    , PeerMain.Dialog.Server
-                    , PeerMain.Dialog.Spec
+                    , PeerMain.PeerDialog
                     , PeerMeta
                     , RPC
                     , PeerTypes

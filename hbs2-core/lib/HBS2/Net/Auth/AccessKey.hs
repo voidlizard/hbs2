@@ -10,7 +10,6 @@ import HBS2.Data.Types
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition
-import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 
 import Codec.Serialise

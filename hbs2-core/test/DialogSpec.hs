@@ -14,8 +14,8 @@ import GHC.Generics (Generic)
 import Lens.Micro.Platform
 import System.IO
 
-import HBS2.Net.Dialog.Core
-import HBS2.Net.Dialog.Helpers.List
+import Dialog.Core
+import Dialog.Helpers.List
 
 newtype BSA = BSA { unBSA :: ByteString }
   deriving (Generic, Show)
@@ -56,8 +56,4 @@ testDialog = testGroup "dialog" $ buildList do
 
         property' "roundtrip encode Frames" \ xs ->
             (decodeFrames . encodeFrames) xs == Right xs
-
-        property' "encodeFrames is quasidistributive over mappend" \ (xs, ys) ->
-            BS.drop (BS.length (encodeFrames xs)) (encodeFrames (xs <> ys))
-                == encodeFrames ys
 

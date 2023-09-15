@@ -20,7 +20,6 @@ common shared-properties
   ghc-options:
         -Wall
         -fno-warn-type-defaults
-        -- -fprint-potential-instances
         -- -prof -fprof-auto
         -- -fno-warn-unused-matches
         -- -fno-warn-unused-do-bind
@@ -41,7 +40,6 @@ common shared-properties
                      , ConstraintKinds
                      , DataKinds
                      , DeriveDataTypeable
-                     , DeriveFunctor
                      , DeriveGeneric
                      , DerivingStrategies
                      , DerivingVia
@@ -122,10 +120,10 @@ library
                     , HBS2.Storage.Operations
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
-                    , HBS2.Net.Dialog.Core
-                    , HBS2.Net.Dialog.Client
-                    , HBS2.Net.Dialog.Helpers.List
-                    , HBS2.Net.Dialog.Helpers.Streaming
+                    , Dialog.Core
+                    , Dialog.Client
+                    , Dialog.Helpers.List
+                    , Dialog.Helpers.Streaming
 
 
     -- other-modules:
@@ -141,7 +139,6 @@ library
                     , cache
                     , cborg
                     , clock
-                    , constraints
                     , containers
                     , cryptonite
                     , data-default

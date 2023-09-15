@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-module HBS2.Net.Dialog.Client where
+module Dialog.Client where
 
 -- import System.Clock
 -- import System.Timeout
@@ -34,8 +34,8 @@ import UnliftIO.Exception
 import UnliftIO.STM
 import UnliftIO.Timeout
 
-import HBS2.Net.Dialog.Core
-import HBS2.Net.Dialog.Helpers.Streaming
+import Dialog.Core
+import Dialog.Helpers.Streaming
 
 ---
 
@@ -96,11 +96,10 @@ dQuery' par dcli peer rq go =
 
     processResponseHeader rhxs@(rh, xs) = case ((responseStatusCode . respStatus) rh) of
         Success200 -> Left (Just rhxs, RequestDone)
-        SuccessNoContent204 -> Left (Just rhxs, RequestDone)
         SuccessMore -> Right rhxs
-        BadRequest400 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
-        Forbidden403 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
-        NotFound404 -> Left (Nothing, (RequestFailure (respStatus rh) xs))
+        r@BadRequest400 -> Left (Nothing, (RequestFailure r xs))
+        r@Forbidden403 -> Left (Nothing, (RequestFailure r xs))
+        r@NotFound404 -> Left (Nothing, (RequestFailure r xs))
 
     rq' = rq & #unFrames %~ ([serialiseS routerSignature] <>)
 

@@ -4,9 +4,6 @@ module ProxyMessaging
   , newProxyMessaging
   , runProxyMessaging
   , sendToPlainProxyMessaging
-  , getEncryptionKey
-  , setEncryptionKey
-  , encryptionKeyIDKeyFromPeerData
   ) where
 
 import HBS2.Prelude.Plated
@@ -37,7 +34,6 @@ import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Hashable hiding (Hashed)
 import Data.Maybe
 import Data.String.Conversions (cs)
 import Data.List qualified as L
@@ -45,10 +41,6 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Lens.Micro.Platform as Lens
 import Control.Monad
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
-
-import HBS2.Data.Types.Peer
 
 -- TODO: protocol-encryption-goes-here
 
@@ -62,9 +54,6 @@ data ProxyMessaging =
   , _proxy_clearEncryptionKey :: Peer L4Proto -> IO ()
   , _proxy_sendResetEncryptionKeys :: Peer L4Proto -> IO ()
   , _proxy_sendBeginEncryptionExchange :: Peer L4Proto -> IO ()
-
-  , _proxy_asymmetricKeyPair :: AsymmKeypair (Encryption L4Proto)
-  , _proxy_encryptionKeys :: TVar (HashMap (EncryptionKeyIDKey L4Proto) (CommonSecret (Encryption L4Proto)))
   }
 
 -- 1 нода X создаёт себе Encrypt.Keypair
@@ -89,35 +78,7 @@ newProxyMessaging u t = liftIO do
     let _proxy_sendResetEncryptionKeys = const (pure ())
     let _proxy_sendBeginEncryptionExchange = const (pure ())
 
-    _proxy_asymmetricKeyPair <- asymmNewKeypair @(Encryption L4Proto)
-    _proxy_encryptionKeys <- liftIO (newTVarIO mempty)
-
     pure ProxyMessaging {..}
-
----
-
-setEncryptionKey ::
-  ( Hashable (PubKey 'Sign (Encryption L4Proto))
-  , Hashable PeerNonce
-  , Show (PubKey 'Sign (Encryption L4Proto))
-  , Show PeerNonce
-  , Show (CommonSecret (Encryption L4Proto))
-  , Show (EncryptionKeyIDKey L4Proto)
-  ) => ProxyMessaging -> Peer L4Proto -> EncryptionKeyIDKey L4Proto -> Maybe (CommonSecret (Encryption L4Proto)) -> IO ()
-setEncryptionKey proxy peer pd msecret = do
-    atomically $ modifyTVar' (_proxy_encryptionKeys proxy) $ Lens.at pd .~ msecret
-    case msecret of
-        Nothing -> trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow pd
-        Just k ->  trace $ "ENCRYPTION store key" <+> pretty peer <+> viaShow pd <+> viaShow k
-
-getEncryptionKey ::
-  ( Hashable (PubKey 'Sign (Encryption L4Proto))
-  , Hashable PeerNonce
-  ) => ProxyMessaging -> EncryptionKeyIDKey L4Proto -> IO (Maybe (CommonSecret (Encryption L4Proto)))
-getEncryptionKey proxy pd =
-    readTVarIO (_proxy_encryptionKeys proxy) <&> preview (Lens.ix pd)
-
----
 
 runProxyMessaging :: forall m . MonadIO  m
                   => ProxyMessaging
@@ -141,6 +102,7 @@ runProxyMessaging env = liftIO do
               forM_ msgs $ writeTQueue answ
 
   liftIO $ mapM_ waitCatch [u,t]
+
 
 instance Messaging ProxyMessaging L4Proto LBS.ByteString where
 
