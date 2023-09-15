@@ -857,37 +857,6 @@ makeProposeTran creds chan box1 = do
     let sk = view peerSignSk creds
     pure $ makeSignedBox @e pk sk tran
 
-makeSignedBox :: forall e p . (Serialise p, ForRefChans e, Signatures (Encryption e))
-              => PubKey 'Sign (Encryption e)
-              -> PrivKey 'Sign (Encryption e)
-              -> p
-              -> SignedBox p e
-
-makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
-  where
-    bs = LBS.toStrict (serialise msg)
-    sign = makeSign @(Encryption e) sk bs
-
-
-unboxSignedBox0 :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
-               => SignedBox p e
-               -> Maybe (PubKey 'Sign (Encryption e), p)
-
-unboxSignedBox0 (SignedBox pk bs sign) = runIdentity $ runMaybeT do
-  guard $ verifySign @(Encryption e) pk sign bs
-  p <- MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
-  pure (pk, p)
-
-unboxSignedBox :: forall p e . (Serialise p, ForRefChans e, Signatures (Encryption e))
-               => LBS.ByteString
-               -> Maybe (PubKey 'Sign (Encryption e), p)
-
-unboxSignedBox bs = runIdentity $ runMaybeT do
-
-  box <- MaybeT $ pure $ deserialiseOrFail @(SignedBox p e) bs
-                          & either (pure Nothing) Just
-
-  MaybeT $ pure $ unboxSignedBox0 box
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
   fromStringMay str = RefChanHeadBlockSmall <$> version

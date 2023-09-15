@@ -6,6 +6,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Types
+import HBS2.Data.Types.SignedBox
 
 import HBS2.OrDie
 
