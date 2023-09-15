@@ -443,15 +443,9 @@ mkPeerMeta conf penv = do
             . fromStringMay @(PeerAddr L4Proto)
           )
           =<< cfgValue @PeerListenTCPKey conf
-    -- let useEncryption = True  -- move to config
     annMetaFromPeerMeta . PeerMeta $ W.execWriter do
       mHttpPort `forM` \p -> elem "http-port" (TE.encodeUtf8 . Text.pack . show $ p)
       mTcpPort `forM` \p -> elem "listen-tcp" (TE.encodeUtf8 . Text.pack . show $ p)
-      -- when useEncryption do
-      --     elem "ekey" (TE.encodeUtf8 . Text.pack . show $
-      --         (Encrypt.publicKey . _envAsymmetricKeyPair) penv
-      --         -- mayby sign this pubkey by node key ?
-      --         )
 
   where
     elem k = W.tell . L.singleton . (k ,)

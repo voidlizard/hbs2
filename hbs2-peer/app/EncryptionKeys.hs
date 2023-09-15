@@ -56,15 +56,14 @@ encryptionHandshakeWorker :: forall e m s .
     -- , HasCredentials s m
     )
   => PeerConfig
-  -> PeerEnv e
   -> PeerCredentials s
   -> EncryptionHandshakeAdapter e m s
   -> m ()
 
-encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
+encryptionHandshakeWorker pconf creds EncryptionHandshakeAdapter{..} = do
 
     -- e :: PeerEnv e <- ask
-    let ourpubkey = pubKeyFromKeypair @s $ _envAsymmetricKeyPair penv
+    ourpubkey <- pure $ pubKeyFromKeypair @s $ encAsymmetricKeyPair
 
     pl <- getPeerLocator @e
 
@@ -75,9 +74,9 @@ encryptionHandshakeWorker pconf penv creds EncryptionHandshakeAdapter{..} = do
 
         forM_ peers \peer -> do
             -- Только если ещё не знаем ключ ноды
-            mpeerData <- find (KnownPeerKey peer) id
-            mkey <- liftIO do
-                join <$> forM mpeerData \peerData -> getEncryptionKey penv peerData
+            mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
+                find (KnownPeerKey peer) id
+            mkey <- join <$> mapM encGetEncryptionKey mencKeyID
             case mkey of
                 Just _ -> pure ()
                 Nothing -> sendBeginEncryptionExchange @e creds ourpubkey peer

@@ -28,11 +28,6 @@ import Data.Kind
 
 type family EncryptPubKey e :: Type
 
-data CryptoAction = Sign | Encrypt
-
-type family PubKey  ( a :: CryptoAction) e  :: Type
-type family PrivKey ( a :: CryptoAction) e  :: Type
-
 class Signatures e where
   type family Signature e :: Type
   makeSign   :: PrivKey 'Sign e -> ByteString  -> Signature e
@@ -206,5 +201,4 @@ instance ( IsEncoding (PubKey 'Sign e), Pretty (KeyringEntry e) )
 instance IsEncoding (PubKey 'Encrypt e)
   => Pretty (KeyringEntry e) where
   pretty ke = fill 10 "pub-key:" <+> pretty (AsBase58 (Crypto.encode (view krPk ke)))
-
 

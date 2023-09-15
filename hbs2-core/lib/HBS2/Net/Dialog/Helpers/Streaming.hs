@@ -1,4 +1,4 @@
-module Dialog.Helpers.Streaming where
+module HBS2.Net.Dialog.Helpers.Streaming where
 
 import Control.Monad.Fix
 import Data.ByteString qualified as BS

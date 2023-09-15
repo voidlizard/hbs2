@@ -15,6 +15,7 @@ import HBS2.System.Logger.Simple
 
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString qualified as BS
+import Data.Hashable hiding (Hashed)
 import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 
@@ -68,6 +69,10 @@ sendBeginEncryptionExchange creds ourpubkey peer = do
 
 data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
   { encHandshake_considerPeerAsymmKey :: Peer e -> Maybe Encrypt.PublicKey -> m ()
+
+  , encAsymmetricKeyPair :: AsymmKeypair (Encryption e)
+
+  , encGetEncryptionKey :: EncryptionKeyIDKey e -> m (Maybe (CommonSecret (Encryption e)))
   }
 
 
@@ -88,11 +93,10 @@ encryptionHandshakeProto :: forall e s m .
     , Show (Nonce ())
     )
   => EncryptionHandshakeAdapter e m s
-  -> PeerEnv e
   -> EncryptionHandshake e
   -> m ()
 
-encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
+encryptionHandshakeProto EncryptionHandshakeAdapter{..} = \case
 
   ResetEncryptionKeys -> do
       peer <- thatPeer proto
@@ -104,7 +108,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       encHandshake_considerPeerAsymmKey peer Nothing
 
       creds <- getCredentials @s
-      let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
+      ourpubkey <- pure $ pubKeyFromKeypair @s $ encAsymmetricKeyPair
       sendBeginEncryptionExchange @e creds ourpubkey peer
 
   BeginEncryptionExchange theirsign theirpubkey -> do
@@ -117,7 +121,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} penv = \case
       -- взять свои ключи
       creds <- getCredentials @s
 
-      let ourpubkey = pubKeyFromKeypair @s $ view envAsymmetricKeyPair penv
+      ourpubkey <- pure $ pubKeyFromKeypair @s $ encAsymmetricKeyPair
 
       -- подписать нонс
       let sign = makeSign @s (view peerSignSk creds) ((cs . serialise) ourpubkey)
