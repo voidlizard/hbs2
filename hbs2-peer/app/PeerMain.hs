@@ -14,6 +14,7 @@ import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr

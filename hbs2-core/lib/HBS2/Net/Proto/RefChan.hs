@@ -18,6 +18,7 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.BlockAnnounce
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Peer
 import HBS2.Storage
@@ -51,10 +52,6 @@ type RefChanId e = PubKey 'Sign (Encryption e)
 type RefChanOwner e = PubKey 'Sign (Encryption e)
 type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
-data SignedBox p e =
-  SignedBox (PubKey 'Sign (Encryption e)) ByteString (Signature (Encryption e))
-  deriving stock (Generic)
-
 type Weight = Integer
 
 data RefChanHeadBlock e =
@@ -77,7 +74,6 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      )
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
-instance ForRefChans e => Serialise (SignedBox p e)
 
 type instance SessionData e (RefChanHeadBlock e) = RefChanHeadBlock e
 

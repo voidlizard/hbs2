@@ -19,6 +19,7 @@ import HBS2.Base58
 import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials

@@ -81,6 +81,7 @@ library
                     , HBS2.Data.Types.Crypto
                     , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
+                    , HBS2.Data.Types.SignedBox
                     , HBS2.Data.Bundle
                     , HBS2.Defaults
                     , HBS2.Events
