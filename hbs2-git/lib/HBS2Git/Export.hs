@@ -5,6 +5,7 @@ module HBS2Git.Export
   ( exportRefDeleted
   , exportRefOnly
   , runExport
+  , runExport'
   , ExportRepoOps
   ) where
 
@@ -15,6 +16,7 @@ import HBS2.System.Logger.Simple
 import HBS2.Net.Proto.Definition()
 import HBS2.Clock
 import HBS2.Base58
+import HBS2.Net.Proto.RefLog
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -349,6 +351,8 @@ exportRefOnly _ remote rfrom ref val = do
     --       что бы оставить совместимость
     pure $ lastMay logz
 
+---
+
 runExport :: forall m . ( MonadIO m
                         , MonadUnliftIO m
                         , MonadCatch m
@@ -357,8 +361,37 @@ runExport :: forall m . ( MonadIO m
                         )
 
           => Maybe FilePath -> RepoRef -> App m ()
-runExport fp repo = do
+runExport mfp repo = do
+    loadCredentials (maybeToList mfp)
+    let krf = fromMaybe "keyring-file" mfp & takeFileName
+    runExport'' krf repo
 
+---
+
+runExport' :: forall m . ( MonadIO m
+                        , MonadUnliftIO m
+                        , MonadCatch m
+                        , HasProgress (App m)
+                        , MonadMask (App m)
+                        )
+
+          => FilePath -> App m ()
+
+runExport' fp = do
+    repo <- loadCredentials' fp
+    runExport'' (takeFileName fp) (RefLogKey repo)
+
+---
+
+runExport'' :: forall m . ( MonadIO m
+                        , MonadUnliftIO m
+                        , MonadCatch m
+                        , HasProgress (App m)
+                        , MonadMask (App m)
+                        )
+
+          => FilePath -> RepoRef -> App m ()
+runExport'' krf repo = do
 
   liftIO $ putDoc $
        line
@@ -370,8 +403,6 @@ runExport fp repo = do
   git <- asks (view appGitDir)
 
   trace $ "git directory is" <+> pretty git
-
-  loadCredentials (maybeToList fp)
 
   -- FIXME: wtf-runExport
   branchesGr <- cfgValue @ConfBranch <&> Set.map normalizeRef
@@ -404,7 +435,6 @@ runExport fp repo = do
 
   cwd <- liftIO getCurrentDirectory
   cfgPath <- configPath cwd
-  let krf = fromMaybe "keyring-file" fp & takeFileName
 
   liftIO $ putStrLn ""
   liftIO $ putDoc $

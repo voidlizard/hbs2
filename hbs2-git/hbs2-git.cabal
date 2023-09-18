@@ -80,6 +80,7 @@ common shared-properties
                , prettyprinter-ansi-terminal
                , resourcet
                , safe
+               , saltine
                , serialise
                , split
                , sqlite-simple

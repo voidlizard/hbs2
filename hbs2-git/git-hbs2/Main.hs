@@ -27,9 +27,9 @@ main = join . customExecParser (prefs showHelpOnError) $
                         )
 
     pExport = do
-      ref  <- strArgument (metavar "HASH-REF")
-      kr   <- optional $ strOption (short 'k' <> long "keyring" <> metavar "KEYRING-FILE")
-      pure $ runApp WithLog (runExport kr ref)
+      keyfile   <- strArgument (metavar "KEIRING-FILE")
+      pure $ runApp WithLog do
+          runExport' keyfile
 
     pListRefs = do
       pure $ runApp NoLog runListRefs

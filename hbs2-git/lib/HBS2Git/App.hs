@@ -14,6 +14,7 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
+import HBS2.Net.Proto.Types
 import HBS2.Git.Types
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
@@ -29,6 +30,7 @@ import Control.Monad.Trans.Maybe
 import Data.Foldable
 import Data.Either
 import Control.Monad.Reader
+import Crypto.Saltine.Core.Sign qualified as Sign
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -447,13 +449,28 @@ loadCredentials fp = do
     die "keyring not set"
 
   for_ krOpt $ \fn -> do
-    krData <- liftIO $ B8.readFile fn
-    cred <- pure (parseCredentials @Schema (AsCredFile krData)) `orDie` "bad keyring file"
-    let puk = view peerSignPk cred
+    (puk, cred) <- loadKeyring fn
     trace $ "got creds for" <+> pretty (AsBase58 puk)
     setCredentials (RefLogKey puk) cred
     pure ()
 
+loadCredentials' ::
+    ( MonadIO m
+    , HasRefCredentials m
+    )
+    => FilePath -> m Sign.PublicKey
+loadCredentials' fn = do
+    (puk, cred) <- loadKeyring fn
+    trace $ "got creds for" <+> pretty (AsBase58 puk)
+    setCredentials (RefLogKey puk) cred
+    pure puk
+
+loadKeyring :: (MonadIO m) => FilePath -> m (Sign.PublicKey, PeerCredentials Schema)
+loadKeyring fn = do
+    krData <- liftIO $ B8.readFile fn
+    cred <- pure (parseCredentials @Schema (AsCredFile krData)) `orDie` "bad keyring file"
+    let puk = view peerSignPk cred
+    pure (puk, cred)
 
 green = annotate (color Green)
 
