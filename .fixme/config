@@ -13,6 +13,7 @@ fixme-files docs/pep*.txt
 fixme-files docs/drafts/**/*.txt
 fixme-files docs/pr/**/*.txt
 fixme-files docs/todo/**/*.txt
+fixme-files docs/notes/**/*.txt
 
 fixme-files-ignore .direnv/** dist-newstyle/**
 

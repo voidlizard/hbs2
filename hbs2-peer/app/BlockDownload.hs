@@ -1,12 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language UndecidableInstances #-}
-{-# Language MultiWayIf #-}
 module BlockDownload where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
+import HBS2.Data.Bundle
+import HBS2.Data.Types.SignedBox
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -24,6 +25,7 @@ import HBS2.System.Logger.Simple
 import PeerTypes
 import PeerInfo
 import Brains
+import DownloadMon
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -45,6 +47,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import System.Random (randomRIO)
 import System.Random.Shuffle (shuffleM)
+import Codec.Serialise
 
 getBlockForDownload :: forall e m . (MonadIO m, IsPeerAddr e m, MyPeer e, HasStorage m)
                      => Peer e
@@ -91,6 +94,7 @@ getBlockForDownload peer = do
 processBlock :: forall e m . ( MonadIO m
                              , HasStorage m
                              , MyPeer e
+                             , ForSignedBox e
                              , HasPeerLocator e (BlockDownloadM e m)
                              )
              => Hash HbSync
@@ -104,14 +108,15 @@ processBlock h = do
 
    let parent = Just h
 
-   bt <- liftIO $ getBlock sto h <&> fmap (tryDetect h)
+   block <- liftIO $ getBlock sto h
+
+   let bt = tryDetect h <$> block
 
    -- FIXME:  если блок нашёлся, то удаляем его из wip
 
    when (isJust bt) (removeFromWip h)
 
-   let handleHrr = \(hrr :: Either (Hash HbSync) [HashRef]) -> do
-
+   let handleHrr (hrr :: Either (Hash HbSync) [HashRef]) = do
             case hrr of
               Left hx -> addDownload parent hx
               Right hr -> do
@@ -163,7 +168,35 @@ processBlock h = do
        walkMerkle h (liftIO . getBlock sto) handleHrr
 
      Just (Blob{}) -> do
+       -- NOTE: bundle-ref-detection-note
+       --  добавлять обработку BundleRefValue в tryDetect
+       --  слишком накладно, т.к. требует большого количества
+       --  констрейнтов, которые не предполагались там
+       --  изначально. Как временная мера -- пробуем Bundle
+       --  обнаруживать здесь.
+       mon <- asks (view downloadMon)
+       runMaybeT do
+        bs <- MaybeT $ pure block
+
+        -- TODO: check-if-we-somehow-trust-this-key
+        (pk, BundleRefSimple ref) <- MaybeT $ pure $ deserialiseOrFail @(BundleRefValue e) bs
+                                       & either (const Nothing) unboxBundleRef
+
+        debug $ "GOT BundleRefValue" <+> parens (pretty ref)
+
+        downloadMonAdd mon ref do
+          debug $ "Downloaded bundle:" <+> pretty ref
+          r <- importBundle sto (void . putBlock sto . snd) ref
+          case  r of
+            Right{} -> debug $ "Imported bundle: " <+> pretty ref
+            Left e  -> err (viaShow e)
+
+        lift $ addDownload parent (fromHashRef ref)
+
        pure ()
+
+    where
+      unboxBundleRef (BundleRefValue box) = unboxSignedBox0 box
 
 -- NOTE: if peer does not have a block, it may
 --       cause to an unpleasant timeouts
@@ -428,6 +461,10 @@ blockDownloadLoop env0 = do
   pause @'Seconds 3.81
 
   let withAllStuff = withPeerM e . withDownload env0
+
+  -- FIXME: exception-handling
+  void $ liftIO $ async $ withPeerM e do
+    downloadMonLoop (view downloadMon env0)
 
   void $ liftIO $ async $ forever $ withPeerM e do
     pause @'Seconds 30

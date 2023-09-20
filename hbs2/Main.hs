@@ -533,6 +533,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     pBundle = hsubparser ( command  "create" (info pBundleCreate  (progDesc "create bundle"))
                          <> command "list" (info pBundleList      (progDesc "list bundle"))
                          <> command "import" (info pBundleImport  (progDesc "import objects from bundle"))
+                         <> command "create-ref" (info pBundleCreateRef (progDesc "create bundle ref block"))
                          )
 
     pBundleCreate = do
@@ -551,6 +552,27 @@ main = join . customExecParser (prefs showHelpOnError) $
 
         print $ pretty bundle
 
+    pBundleCreateRef = do
+      o <- common
+      kr <- strOption (long "keyring" <> short 'k' <> help "owner credentials")
+      hash <- strArgument (metavar "HASHREF")
+
+      pure $ withStore o $ \sto -> do
+        sc <- BS.readFile kr
+        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+
+        let sk = view peerSignSk creds
+        let pk = view peerSignPk creds
+
+        ref <- pure (fromStringMay hash) `orDie` "invalid HASHREF"
+
+        let refval = makeBundleRefValue @L4Proto pk sk (BundleRefSimple ref)
+
+        mh <- putBlock sto (serialise refval)
+
+        maybe1 mh exitFailure $ \h -> do
+          print $ pretty h
+          exitSuccess
 
     pBundleImport = do
       o <- common

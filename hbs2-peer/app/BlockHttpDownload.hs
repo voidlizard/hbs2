@@ -7,6 +7,7 @@ import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -66,6 +67,7 @@ blockHttpDownloadLoop :: forall e  m .
     , PeerSessionKey e (PeerInfo e)
     , Pretty (Peer e)
     , IsPeerAddr e m
+    , ForSignedBox e
     )
     => DownloadEnv e -> m ()
 blockHttpDownloadLoop denv = do

@@ -33,6 +33,7 @@ instance ( Eq (PubKey 'Sign (Encryption e))
 type ForSignedBox e = ( Serialise ( PubKey 'Sign (Encryption e))
                       , FromStringMaybe (PubKey 'Sign (Encryption e))
                       , Serialise (Signature (Encryption e))
+                      , Signatures (Encryption e)
                       , Hashable (PubKey 'Sign (Encryption e))
                       )
 

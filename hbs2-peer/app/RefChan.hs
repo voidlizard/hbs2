@@ -162,19 +162,6 @@ refChanAddDownload env chan r onComlete = do
 
   atomically $ modifyTVar (view refChanWorkerEnvDownload env) (HashMap.insert r (chan,(t, onComlete)))
 
--- FIXME: slow-deep-scan-exception-seems-not-working
-checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
-checkDownloaded hr = do
-  sto <- getStorage
-  let readBlock h = liftIO $ getBlock sto h
-
-  result <- S.toList_ $
-              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
-                unless (fromHashRef hr == ha) do
-                  here <- liftIO $ hasBlock sto ha
-                  S.yield here
-
-  pure $ maybe False (not . List.null)  $ sequence result
 
 
 readLog :: forall m . ( MonadUnliftIO m )

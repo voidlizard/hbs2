@@ -8,7 +8,10 @@ module PeerTypes where
 import HBS2.Actors.Peer
 import HBS2.Actors.Peer.Types
 import HBS2.Clock
+import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Peer
+import HBS2.Data.Types.Refs
+import HBS2.Data.Detect
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -33,7 +36,7 @@ import PeerConfig
 import Prelude hiding (log)
 import Data.Foldable (for_)
 import Control.Concurrent.Async
-import Control.Concurrent.STM
+-- import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
 import Crypto.Saltine.Core.Box qualified as Encrypt
@@ -52,11 +55,15 @@ import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import Data.Time.Clock (NominalDiffTime)
 import Data.Heap qualified as Heap
 import Data.Heap (Heap,Entry(..))
 import Data.Time.Clock
 import Data.Word
+import Data.List qualified as List
+
+import UnliftIO.STM
+
+import Streaming.Prelude qualified as S
 
 data PeerInfo e =
   PeerInfo
@@ -123,6 +130,7 @@ type MyPeer e = ( Eq (Peer e)
                 , Hashable (Peer e)
                 , Pretty (Peer e)
                 , HasPeer e
+                , ForSignedBox e
                 )
 
 data DownloadReq e
@@ -152,6 +160,7 @@ instance Expires (EventKey e (DownloadReq e)) where
 
 type DownloadFromPeerStuff e m = ( MyPeer e
                                  , MonadIO m
+                                 , ForSignedBox e
                                  , Request e (BlockInfo e) m
                                  , Request e (BlockChunks e) m
                                  , MonadReader (PeerEnv e ) m
@@ -213,7 +222,24 @@ data BlockState =
 
 makeLenses 'BlockState
 
+data DownloadMonEnv =
+  DownloadMonEnv
+  { _downloads :: TVar (HashMap HashRef (IO ()))
+  }
 
+makeLenses 'DownloadMonEnv
+
+downloadMonNew :: MonadIO m => m DownloadMonEnv
+downloadMonNew = DownloadMonEnv <$> newTVarIO mempty
+
+downloadMonAdd :: forall m . MonadIO m
+               => DownloadMonEnv
+               -> HashRef
+               -> IO ()
+               -> m ()
+
+downloadMonAdd env h whenDone = do
+  atomically $ modifyTVar (view downloads env) (HashMap.insert h whenDone)
 
 data DownloadEnv e =
   DownloadEnv
@@ -222,6 +248,7 @@ data DownloadEnv e =
   , _blockPostponedTo :: Cache  (Hash HbSync) ()
   , _blockDelayTo   :: TQueue (Hash HbSync)
   , _blockProposed  :: Cache (Hash HbSync, Peer e) ()
+  , _downloadMon    :: DownloadMonEnv
   , _downloadBrains :: SomeBrains e
   }
 
@@ -235,6 +262,7 @@ newDownloadEnv brains = liftIO do
               <*> Cache.newCache (Just defBlockBanTime)
               <*> newTQueueIO
               <*> Cache.newCache (Just (toTimeSpec (2 :: Timeout 'Seconds)))
+              <*> downloadMonNew
               <*> pure (SomeBrains brains)
 
 newtype BlockDownloadM e m a =
@@ -429,6 +457,20 @@ mkPeerMeta conf penv = do
     elem k = W.tell . L.singleton . (k ,)
 
 
+-- FIXME: slow-deep-scan-exception-seems-not-working
+checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
+checkDownloaded hr = do
+  sto <- getStorage
+  let readBlock h = liftIO $ getBlock sto h
+
+  result <- S.toList_ $
+              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
+                unless (fromHashRef hr == ha) do
+                  here <- liftIO $ hasBlock sto ha
+                  S.yield here
+
+  pure $ maybe False (not . List.null)  $ sequence result
+
 data Polling =
   Polling
   { waitBefore   :: NominalDiffTime
@@ -442,6 +484,8 @@ polling :: forall a m . (MonadIO m, Hashable a)
         -> m ()
 
 polling o listEntries action = do
+
+  -- FIXME: might-be-concurrent
 
   pause (TimeoutNDT (waitBefore o))
 

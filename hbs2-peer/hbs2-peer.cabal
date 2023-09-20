@@ -132,6 +132,7 @@ executable hbs2-peer
     other-modules:    BlockDownload
                     , BlockHttpDownload
                     , DownloadQ
+                    , DownloadMon
                     , EncryptionKeys
                     , Bootstrap
                     , PeerInfo

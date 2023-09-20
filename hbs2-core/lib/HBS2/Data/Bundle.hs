@@ -7,10 +7,14 @@ import HBS2.Storage
 import HBS2.Storage.Operations
 import HBS2.Hash
 import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
+import HBS2.Net.Proto.Types
+import HBS2.Net.Auth.Credentials
 import HBS2.Data.Detect
 
 import Data.Word
 
+import Data.Function
 import Codec.Compression.GZip as GZip
 import Codec.Serialise
 import Control.Monad
@@ -20,12 +24,33 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Functor
 import Data.List qualified as List
 import Data.Either
+import Data.Maybe
 
 import Streaming.Prelude qualified as S
 import Streaming()
 
 {- HLINT ignore "Use newtype instead of data" -}
 
+data BundleRefValue e =
+  BundleRefValue (SignedBox BundleRef e)
+  deriving stock (Generic)
+
+instance ForSignedBox e => Serialise (BundleRefValue e)
+
+data BundleRef =
+  BundleRefSimple HashRef
+  deriving stock (Generic)
+
+instance Serialise BundleRef
+
+
+makeBundleRefValue :: forall e . (ForSignedBox e, Signatures (Encryption e))
+                   => PubKey 'Sign (Encryption e)
+                   -> PrivKey 'Sign (Encryption e)
+                   -> BundleRef
+                   -> BundleRefValue e
+
+makeBundleRefValue pk sk ref = BundleRefValue $ makeSignedBox @e pk sk ref
 
 -- у нас может быть много способов хранить данные:
 --   сжимать целиком (эффективно, но медленно)
@@ -80,29 +105,32 @@ createBundle :: ( MonadIO m
              -> [HashRef]
              -> m (Maybe HashRef)
 
-createBundle sto refs = runMaybeT do
-  -- читать блок из сторейджа
-  blocks <- forM refs $ \href -> do
-    blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
+createBundle sto refs = do
+  let readBlock = liftIO . getBlock sto
 
-    let compressed = compressWith params blk
-    let size = LBS.length compressed
-    let section = BundleSection (fromIntegral size) (Just href)
+  -- FIXME: handle-errors-on-missed-blocks
+  blocks <- S.toList_ $ forM_ refs $ \hr -> do
+              deepScan ScanDeep (const none) (fromHashRef hr) readBlock $ \ha -> do
+                blk' <- readBlock ha
+                let href = HashRef ha
+                maybe1 blk' none $ \blk -> do
+                  let compressed = compressWith params blk
+                  let size = LBS.length compressed
+                  let section = BundleSection (fromIntegral size) (Just href)
 
-    let sbs = serialise section
-    let pad = sectionHeadSize - LBS.length sbs
-    let pads = LBS.replicate pad '\x0'
-
-    pure (sbs <> pads <> compressed)
+                  let sbs = serialise section
+                  let pad = sectionHeadSize - LBS.length sbs
+                  let pads = LBS.replicate pad '\x0'
+                  S.yield (sbs <> pads <> compressed)
 
   let buHead = serialise (BundleHeadSimple sectionHeadSize)
   let buPadded = buHead <> LBS.replicate (bundleHeadSize - LBS.length buHead) '\x0'
 
   let blob = buPadded <> mconcat blocks
 
+  -- FIXME: streamed-write-as-merkle
   wtf <- liftIO $ writeAsMerkle sto blob
-
-  pure (HashRef wtf)
+  pure $ Just (HashRef wtf)
 
   where
     params = defaultCompressParams { compressLevel = bestSpeed }
