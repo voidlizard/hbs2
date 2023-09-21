@@ -241,30 +241,29 @@ instance (ForConsensus m)  => IsQBLF ConsensusQBLF (App m) where
     let sk = view peerSignSk creds
     let pk = view peerSignPk creds
 
-    -- let block = serialise (HashSet.toList $ HashSet.fromList txs)
-
-    hashes <- liftIO $ mapM (putBlock sto . serialise) txs <&> catMaybes
-
-    -- пробуем разослать бандлы с транзакциями
-    runMaybeT do
-      ref <- MaybeT $ createBundle sto (fmap HashRef hashes)
-      let refval = makeBundleRefValue @L4Proto pk sk (BundleRefSimple ref)
-      r <- MaybeT $ liftIO $ putBlock sto (serialise refval)
-      lift $ request self (ActionRequest @UNIX chan (RefChanAnnounceBlock (HashRef r)))
-
-    current <- readLog (getBlock sto) h0
-
     -- основная проблема в том, что мы пересортировываем весь state
     -- однако, если считать его уже отсортированным, то, может быть,
     -- все будет не так уж плохо.
     -- так-то мы можем вообще его на диске держать
-    let new = HashSet.fromList ( current <> fmap HashRef hashes )
 
-    let pt = toPTree (MaxSize 256) (MaxNum 256) (HashSet.toList new)
-
-    root <- if List.null hashes then do
+    root <- if List.null txs then do
               pure h0
             else do
+              hashes <- liftIO $ mapM (putBlock sto . serialise) txs <&> catMaybes
+
+              current <- readLog (getBlock sto) h0
+
+              let new = HashSet.fromList ( current <> fmap HashRef hashes )
+
+              let pt = toPTree (MaxSize 256) (MaxNum 256) (HashSet.toList new)
+
+              -- пробуем разослать бандлы с транзакциями
+              runMaybeT do
+                ref <- MaybeT $ createBundle sto (fmap HashRef hashes)
+                let refval = makeBundleRefValue @L4Proto pk sk (BundleRefSimple ref)
+                r <- MaybeT $ liftIO $ putBlock sto (serialise refval)
+                lift $ request self (ActionRequest @UNIX chan (RefChanAnnounceBlock (HashRef r)))
+
               r <- makeMerkle 0 pt $ \(hx,_,bs) -> do
                 th <- liftIO (enqueueBlock sto bs)
                 debug $ "WRITE TX" <+> pretty hx
@@ -320,63 +319,68 @@ instance (ForConsensus m)  => IsQBLF ConsensusQBLF (App m) where
     sto <- asks mySto
     let readFn = liftIO . getBlock sto
 
-    tx0 <- readLog readFn (fromDAppState s0) <&> HashSet.fromList
     tx1 <- mapM (readLog readFn) (fmap fromDAppState s1) <&> mconcat
+    tx0 <- readLog readFn (fromDAppState s0) <&> HashSet.fromList
 
-    debug $ "READ TXS" <+> pretty s1 <+> pretty (length tx1)
+    let txNew = HashSet.fromList tx1 `HashSet.difference` tx0
 
-    r <- forM tx1 $ \t -> runMaybeT do
+    if List.null txNew then do
+      pure s0
+    else do
+      debug $ "READ TXS" <+> pretty s1 <+> pretty (length tx1)
 
-            -- игнорируем ранее добавленные транзакции
-            guard (not (HashSet.member t tx0))
+      r <- forM tx1 $ \t -> runMaybeT do
 
-            bs <- MaybeT $ liftIO $ getBlock sto (fromHashRef t)
+              -- игнорируем ранее добавленные транзакции
+              guard (not (HashSet.member t tx0))
 
-            tx <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) bs & either (const Nothing) Just
+              bs <- MaybeT $ liftIO $ getBlock sto (fromHashRef t)
 
-            case tx of
-              Emit box -> do
-                (pk, e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx L4Proto) box
-                guard ( chan == pk )
-                debug $ "VALID EMIT TRANSACTION" <+> pretty t <+> pretty (AsBase58 a) <+> pretty q
-                pure ([(t,e)], mempty)
+              tx <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) bs & either (const Nothing) Just
 
-              (Move box) -> do
-                (_, m@(MoveTx _ _ qty _)) <- MaybeT $ pure $ unboxSignedBox0 @(MoveTx L4Proto) box
+              case tx of
+                Emit box -> do
+                  (pk, e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx L4Proto) box
+                  guard ( chan == pk )
+                  debug $ "VALID EMIT TRANSACTION" <+> pretty t <+> pretty (AsBase58 a) <+> pretty q
+                  pure ([(t,e)], mempty)
 
-                guard (qty > 0)
-                debug $ "MOVE TRANSACTION" <+> pretty t
-                pure (mempty, [(t,m)])
+                (Move box) -> do
+                  (_, m@(MoveTx _ _ qty _)) <- MaybeT $ pure $ unboxSignedBox0 @(MoveTx L4Proto) box
 
-    let parsed = catMaybes r
+                  guard (qty > 0)
+                  debug $ "MOVE TRANSACTION" <+> pretty t
+                  pure (mempty, [(t,m)])
 
-    let emits = foldMap (view _1) parsed
+      let parsed = catMaybes r
 
-    let moves = foldMap (view _2) parsed & List.sortOn fst
+      let emits = foldMap (view _1) parsed
 
-    bal0 <- balances (fromDAppState s0)
+      let moves = foldMap (view _2) parsed & List.sortOn fst
 
-    -- баланс с учётом новых emit
-    let balE = foldMap (toBalance @L4Proto . snd) emits
-                      & HashMap.fromListWith (+)
-                      & HashMap.unionWith (+) bal0
+      bal0 <- balances (fromDAppState s0)
 
-    let moves' = updBalances @L4Proto balE moves
+      -- баланс с учётом новых emit
+      let balE = foldMap (toBalance @L4Proto . snd) emits
+                        & HashMap.fromListWith (+)
+                        & HashMap.unionWith (+) bal0
 
-    let merged = fmap fst emits <> fmap fst moves'
+      let moves' = updBalances @L4Proto balE moves
 
-    let pt = toPTree (MaxSize 256) (MaxNum 256) (HashSet.toList (tx0 <> HashSet.fromList merged))
+      let merged = fmap fst emits <> fmap fst moves'
 
-    root <- makeMerkle 0 pt $ \(_,_,bs) -> do
-              void $ liftIO (putBlock sto bs)
+      let pt = toPTree (MaxSize 256) (MaxNum 256) (HashSet.toList (tx0 <> HashSet.fromList merged))
 
-    let new = DAppState (HashRef root)
+      root <- makeMerkle 0 pt $ \(_,_,bs) -> do
+                void $ liftIO (putBlock sto bs)
 
-    -- FIXME: garbage-collect-discarded-states
+      let new = DAppState (HashRef root)
 
-    debug $ "MERGED" <+> pretty new
+      -- FIXME: garbage-collect-discarded-states
 
-    pure new
+      debug $ "MERGED" <+> pretty new
+
+      pure new
 
 
 instance (HasConf (ReaderT Config IO)) where
@@ -478,7 +482,7 @@ fetchMissed env s = do
   when here do
     liftIO $ Cache.delete cache href
 
-  unless (here && not wip) do
+  unless (here || wip) do
     debug $ "We might be need to fetch" <+> pretty s
     liftIO $ Cache.insert cache href ()
     request @UNIX tube (ActionRequest @UNIX chan (RefChanFetch (fromDAppState s)))
