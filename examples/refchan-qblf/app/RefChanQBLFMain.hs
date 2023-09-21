@@ -197,74 +197,6 @@ data ConsensusQBLF
 
 data StateQBLF = StateQBLF { fromStateQBLF :: HashRef }
 
---
-
--- TODO: state-propagation
--- Как лучше сделать?
---  Нужно:
---    1. сохранить дерево множества транзакций
---
---    1.1 Сейчас есть: http для сохранения одного блока
---        Надо: сохранить дерево целиком
---        Есть пример, можно скопипастить
---        Минус: может быть не быстро на больших блоках
---
---
---    1.2 Сделать unix-socket ручку на добавление сразу дерева?
---
---        (-1) Доработка hbs2-peer сразу новый worker
---        (+1) Быстрое добавление дерева целиком
---        (-1) Управление через UNIX сокеты выглядит сложнее
---
---    2. распространить блок (announce)
---
--- + ручка API в hbs2-peer (announce)
--- +
-
--- TODO: implementation-plan-transaction
---   определить транзакцию
---     допустим на шаге 1 - эмиссия: emit(acc, amount)
---      где acc - аккаунт, на который осуществляется эмиссия
---          amount  - количество токенов (целое!)
---     proof - key(emit(acc, amount)) == key(refchan)
---      и подпись соответствует.
---
---      теперь - как мы получаем эту транзакцию?
---      предусловия: приватный ключ не дожен экспонироваться
---
---      как будет делаться транза IRL?
---        безопасно:
---        1. сгенерили CBOR на клиенте
---        2. подписали
---        3. запостили
---
---        реально:
---        1. сгенерили CBOR на адаптере, ключ на адаптере
---        2. подписали
---        3. запостили
---
---        что видим: адаптер = эмуляция "правильного" клиента
---
---        нужен способ, который будет удобен и через CLI и
---        внешнему приложению (адаптеру).
---
---        адаптер пока на хаскелле, просто делаем библиотечный код
---        и CLI обвязку.
---
---   добавить обвязку для HTTP (scotty)
---   решить, сразу CBOR или JSON
---     (+ за json - просто отправлять
---     (- за json - подписывать-то как?)
---
---    надо определить простой и единоообразный способ получения
---    и постинга подписанных транзакций.
---
---    что приводит нас к дисцплине хранения ключа (кто хранит?
---    если никто - то транза должна быть всегда подписана,
---    следовательно, json неудобен)
---
---
-
 data MyError =
   DeserializationError | SignatureError | TxUnsupported | SomeOtherError
   deriving stock (Eq,Ord,Show)
@@ -543,8 +475,12 @@ fetchMissed env s = do
   here <- liftIO $ hasBlock sto (fromHashRef href) <&> isJust
   wip <- liftIO $ Cache.lookup cache href <&> isJust
 
+  when here do
+    liftIO $ Cache.delete cache href
+
   unless (here && not wip) do
     debug $ "We might be need to fetch" <+> pretty s
+    liftIO $ Cache.insert cache href ()
     request @UNIX tube (ActionRequest @UNIX chan (RefChanFetch (fromDAppState s)))
 
 runMe :: ForConsensus IO => Config -> IO ()
