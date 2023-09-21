@@ -364,6 +364,10 @@ runAnyRefGet s ss = do
     print $ pretty ref
     exitSuccess
 
+runAnyRefSet :: forall s t . IsRefPubKey s => AnyRefKey t s -> HashRef -> SimpleStorage HbSync -> IO ()
+runAnyRefSet s hr ss = do
+  updateRef ss s (fromHashRef hr)
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
 
@@ -419,7 +423,8 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
                         <> command "groupkey-new"    (info pNewGroupkey (progDesc "generates a new groupkey"))
                         <> command "reflog"          (info pReflog (progDesc "reflog commands"))
-                        <> command "bundle"          (info pBundle(progDesc "bundle commands"))
+                        <> command "bundle"          (info pBundle (progDesc "bundle commands"))
+                        <> command "anyref"          (info pAnyRef (progDesc "anyref commands"))
                         )
 
     common = do
@@ -482,12 +487,22 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ withStore o (runRefLogGet @HBS2Basic reflogs)
 
 
-    pAnyRef = hsubparser ( command "get" (info pAnyRefGet (progDesc "get anyref value") )  )
+    pAnyRef = hsubparser (  command "get" (info pAnyRefGet (progDesc "get anyref value") )
+                         <> command "set" (info pAnyRefSet (progDesc "set anyref value") )
+                         )
 
     pAnyRefGet = do
       o <- common
       anyref <- strArgument ( metavar "ANYREF" )
       pure $ withStore o (runAnyRefGet @HBS2Basic anyref)
+
+    pAnyRefSet = do
+      o <- common
+      anyref <- strArgument ( metavar "ANYREF" )
+      val    <- strArgument ( metavar "HASHREF" )
+      pure $ do
+        hr <- pure (fromStringMay val) `orDie` "bad HASHREF"
+        withStore o (runAnyRefSet @HBS2Basic anyref hr)
 
     pFsck = do
       o <- common
@@ -627,4 +642,6 @@ main = join . customExecParser (prefs showHelpOnError) $
         outSection _ x@(Nothing, _) = printHash x
 
         printHash = void . print . pretty . fst
+
+
 
