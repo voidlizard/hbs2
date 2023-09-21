@@ -63,4 +63,12 @@ type IsRefPubKey s =  ( Eq (PubKey 'Sign s)
                       , Hashable (PubKey 'Sign s)
                       )
 
+type ForSomeRefKey a = ( Hashed HbSync a )
+
+newtype SomeRefKey a = SomeRefKey a
+
+-- TODO: fix-slow-hash-calculation
+instance Serialise a => Hashed HbSync (SomeRefKey a) where
+  hashObject (SomeRefKey s) = hashObject (serialise s)
+
 

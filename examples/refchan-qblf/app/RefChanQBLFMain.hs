@@ -223,7 +223,7 @@ instance Serialise (QBLFCommit ConsensusQBLF)
 instance Monad m => HasTimeLimits UNIX (RefChanNotify UNIX) (App m) where
   tryLockForPeriod _ _ = pure True
 
-instance (ForConsensus m)  => IsQBLF ConsensusQBLF (App m) where
+instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) where
   type QBLFActor ConsensusQBLF = Actor L4Proto
   type QBLFTransaction ConsensusQBLF = QBLFDemoToken L4Proto
   type QBLFState ConsensusQBLF = DAppState
@@ -311,8 +311,12 @@ instance (ForConsensus m)  => IsQBLF ConsensusQBLF (App m) where
   --     1. перенести логику в БД
   --     2. кэшировать всё, что можно
   qblfMerge s0 s1 = do
-
     chan <- asks myChan
+    self <- asks mySelf
+
+    creds <- asks myCred
+    let sk = view peerSignSk creds
+    let pk = view peerSignPk creds
 
     debug $ "MERGE. Proposed state:" <+> pretty s1
 
@@ -378,6 +382,7 @@ instance (ForConsensus m)  => IsQBLF ConsensusQBLF (App m) where
 
       -- FIXME: garbage-collect-discarded-states
 
+      async $ void $ balances (fromDAppState new)
       debug $ "MERGED" <+> pretty new
 
       pure new
@@ -397,33 +402,54 @@ instance ToBalance e (EmitTx e) where
 instance ToBalance e (MoveTx e) where
   toBalance (MoveTx a1 a2 qty _) = [(a1, -qty), (a2, qty)]
 
-balances :: forall e m . ( e ~ L4Proto
-                         , MonadIO m
-                         , HasStorage m
-                         , ToBalance L4Proto (EmitTx L4Proto)
-                         , ToBalance L4Proto (MoveTx L4Proto)
-                         )
+balances :: forall e s m . ( e ~ L4Proto
+                           , MonadIO m
+                           , HasStorage m
+                           -- , FromStringMaybe (PubKey 'Sign s)
+                           , s ~ Encryption e
+                           , ToBalance L4Proto (EmitTx L4Proto)
+                           , ToBalance L4Proto (MoveTx L4Proto)
+                           )
          => HashRef
          -> m (HashMap (Account e) Amount)
 
 balances root = do
   sto <- getStorage
-  txs <- readLog (liftIO . getBlock sto) root
 
-  r <- forM txs $ \h -> runMaybeT do
-    blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef h)
-    tx  <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) blk & either (const Nothing) Just
+  let pk = SomeRefKey (HashRef "6ChGmfYkwM6646oKkj8r8MAjdViTsdtZSi6tgqk3tbh", root)
 
-    case tx of
-      Emit box -> do
-        (_, emit) <- MaybeT $ pure $  unboxSignedBox0 @(EmitTx L4Proto) box
-        pure $ toBalance @e emit
+  cached <- runMaybeT do
+    rval <- MaybeT $ liftIO $ getRef sto pk
+    val  <- MaybeT $ liftIO $ getBlock sto rval
+    MaybeT $ deserialiseOrFail @(HashMap (Account e) Amount) val
+          & either (const $ pure Nothing) (pure . Just)
 
-      Move box -> do
-        (_, move) <- MaybeT $ pure $  unboxSignedBox0 @(MoveTx L4Proto) box
-        pure $ toBalance @e move
+  case cached of
+    Just bal -> pure bal
+    Nothing -> do
 
-  pure $ catMaybes r & mconcat & HashMap.fromListWith (+)
+      txs <- readLog (liftIO . getBlock sto) root
+
+      r <- forM txs $ \h -> runMaybeT do
+        blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef h)
+        tx  <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) blk & either (const Nothing) Just
+
+        case tx of
+          Emit box -> do
+            (_, emit) <- MaybeT $ pure $  unboxSignedBox0 @(EmitTx L4Proto) box
+            pure $ toBalance @e emit
+
+          Move box -> do
+            (_, move) <- MaybeT $ pure $  unboxSignedBox0 @(MoveTx L4Proto) box
+            pure $ toBalance @e move
+
+      let val = catMaybes r & mconcat & HashMap.fromListWith (+)
+
+      runMaybeT do
+        rv <- MaybeT $ liftIO $ putBlock sto (serialise val)
+        liftIO $ updateRef sto pk rv
+
+      pure val
 
 
 -- TODO: optimize-upd-balances
