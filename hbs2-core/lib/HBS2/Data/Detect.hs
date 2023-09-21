@@ -4,6 +4,7 @@ import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Data.Types
 import HBS2.Merkle
+import HBS2.Storage
 
 import HBS2.System.Logger.Simple
 
@@ -20,6 +21,7 @@ import Data.Maybe
 import Control.Concurrent.STM
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
+import Data.List qualified as List
 
 import Streaming.Prelude qualified as S
 import Streaming qualified as S
@@ -148,11 +150,25 @@ readLog :: forall m . ( MonadIO m )
         => ( Hash HbSync -> IO (Maybe ByteString) )
         -> HashRef
         -> m [HashRef]
-readLog getBlock (HashRef h)  =
+readLog getBlk (HashRef h)  =
   S.toList_ $ do
-    walkMerkle h (liftIO . getBlock) $ \hr -> do
+    walkMerkle h (liftIO . getBlk) $ \hr -> do
       case hr of
         Left{} -> pure ()
         Right (hrr :: [HashRef]) -> S.each hrr
 
+
+-- FIXME: make-it-stop-after-first-missed-block
+checkComplete :: forall sto m . (MonadIO m, Storage sto HbSync ByteString IO)
+              => sto
+              -> HashRef
+              -> m Bool
+checkComplete sto hr = do
+
+  result <- S.toList_ $
+              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) (liftIO . getBlock sto) $ \ha -> do
+                here <- liftIO $ hasBlock sto ha
+                S.yield here
+
+  pure $ maybe False (not . List.null)  $ sequence result
 

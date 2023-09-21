@@ -446,6 +446,7 @@ balances root = do
       let val = catMaybes r & mconcat & HashMap.fromListWith (+)
 
       runMaybeT do
+        checkComplete sto root >>= guard
         rv <- MaybeT $ liftIO $ putBlock sto (serialise val)
         liftIO $ updateRef sto pk rv
 
