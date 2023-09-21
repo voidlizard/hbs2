@@ -616,14 +616,17 @@ runPeer opts = Exception.handle (\e -> myException e
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
-  rce <- refChanWorkerEnv conf denv
+  rce <- refChanWorkerEnv conf penv denv
 
   let refChanAdapter = RefChanAdapter
                            { refChanOnHead = refChanOnHeadFn rce
                            , refChanSubscribed = isPolledRef @e brains
                            , refChanWriteTran = refChanWriteTranFn rce
                            , refChanValidatePropose = refChanValidateTranFn @e rce
+                           , refChanNotifyRely = refChanNotifyRelyFn @e rce
                            }
+
+  rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
   let pexFilt pips = do
         tcpex <- listTCPPexCandidates @e brains <&> HashSet.fromList

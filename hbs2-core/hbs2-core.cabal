@@ -112,6 +112,7 @@ library
                     , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.RefLog
                     , HBS2.Net.Proto.RefChan
+                    , HBS2.Net.Proto.AnyRef
                     , HBS2.Net.Proto.Types
                     , HBS2.OrDie
                     , HBS2.Prelude

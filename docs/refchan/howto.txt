@@ -1,0 +1,83 @@
+
+## Init refchan
+
+
+1. Generate owner's keypair
+
+```
+hbs2 keyring-new > owner.key
+
+hbs2 keyrint-list owner.key
+sign-key:  Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``
+
+2. Generate (or obtain) author's keys
+
+3. Create refchan head config, like:
+
+```
+cat > refchan.cfg
+
+(version 16) ;; version
+(quorum 2)   ;; required answers to set up a quorum
+(wait 15)    ;; time in seconds for round to complete
+
+ ;; peer's key authoried to rely/subscribe messages
+(peer "35gKUG1mwBTr3tQpjWwR2kBYEnDmHxesoJL5Lj7tMjq3" 1)
+
+;; same
+(peer "5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb" 1)
+
+;; author (key, authorized to post messages)
+(author "2cU7qBWpohfco4BcbHGPjF6ypGdqDwpKomp8ky6QAEBy")
+(author "EoPuukyDLeaZm3vpN3CAuZfjhrYBh6fVyWXcXueCK4i8")
+
+```
+
+4. Make the peer "listen" the refchan
+
+```
+cat >> ~/.config/hbs2-peer/config
+
+poll refchan 5 "5ZHZkatu1GeeHybdBms6xFFBWti1cqJtKAjiMmtDT6XQ"
+
+```
+
+5. Set up the head block
+
+```
+hbs2-peer refchan gen ./refchan.cfg -k owner.key | hbs2 store
+
+merkle-root:  FJ2Lj1kB4oFf8F3rL1xv3gaG5kzrPMmE2hPm5oQziLy5
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hbs2-peer refchan post FJ2Lj1kB4oFf8F3rL1xv3gaG5kzrPMmE2hPm5oQziLy5
+
+```
+
+6. Check the head block:
+
+```
+hbs2 keyring-list owner.key
+sign-key: Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+hbs2-peer refchan head get Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP
+FJ2Lj1kB4oFf8F3rL1xv3gaG5kzrPMmE2hPm5oQziLy5
+
+hbs2 cat FJ2Lj1kB4oFf8F3rL1xv3gaG5kzrPMmE2hPm5oQziLy5 | hbs2-peer refchan head dump
+
+(version 16)
+(quorum 2)
+(wait 15)
+(peer "35gKUG1mwBTr3tQpjWwR2kBYEnDmHxesoJL5Lj7tMjq3" 1)
+(peer "5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb" 1)
+(author "EoPuukyDLeaZm3vpN3CAuZfjhrYBh6fVyWXcXueCK4i8")
+(author "2cU7qBWpohfco4BcbHGPjF6ypGdqDwpKomp8ky6QAEBy")
+
+
+```
+
+
+

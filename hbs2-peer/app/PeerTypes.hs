@@ -525,8 +525,24 @@ instance (ForGossip e p (PeerM e IO)) => HasGossip e p (PeerM e IO) where
     broadCastMessage msg
 
 instance (ForGossip e p (ResponseM e m), HasGossip e p m) => HasGossip e p (ResponseM e m) where
-  gossip = lift . gossip
+  gossip msg = do
+    that <- thatPeer (Proxy @p)
+    forKnownPeers $ \pip _ -> do
+      unless (that == pip) do
+        request @e pip msg
 
+
+simpleBlockAnnounce :: forall e m  . ( Monad m
+                                     , HasPeerNonce e m
+                                     )
+                    => Integer
+                    -> Hash HbSync
+                    -> m (BlockAnnounce e)
+
+simpleBlockAnnounce size h = do
+    no <- peerNonce @e
+    let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta size h
+    pure $ BlockAnnounce @e no annInfo
 
 data TRACE1
 

@@ -143,3 +143,16 @@ readBlobFromTree readBlock hr = do
 
   pure $ LBS.concat <$> sequence pieces
 
+
+readLog :: forall m . ( MonadIO m )
+        => ( Hash HbSync -> IO (Maybe ByteString) )
+        -> HashRef
+        -> m [HashRef]
+readLog getBlock (HashRef h)  =
+  S.toList_ $ do
+    walkMerkle h (liftIO . getBlock) $ \hr -> do
+      case hr of
+        Left{} -> pure ()
+        Right (hrr :: [HashRef]) -> S.each hrr
+
+

@@ -181,7 +181,7 @@ instance HasProtocol L4Proto (RefChanNotify L4Proto) where
   -- но сообщения должны быть разные,
   -- тогда и минута нормально.
   -- возьмем пока 10 секунд
-  requestPeriodLim = ReqLimPerMessage 10
+  requestPeriodLim = NoLimit
 
 instance HasProtocol L4Proto (DialReq L4Proto) where
   type instance ProtocolId (DialReq L4Proto) = 96000
@@ -202,6 +202,14 @@ instance Serialise (RefChanValidate UNIX) => HasProtocol UNIX (RefChanValidate U
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+
+instance Serialise (RefChanNotify UNIX) => HasProtocol UNIX (RefChanNotify UNIX) where
+  type instance ProtocolId (RefChanNotify UNIX) = 0xFFFB0001
+  type instance Encoded UNIX = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+  requestPeriodLim = NoLimit
+
 instance MonadIO m => HasNonces (RefChanValidate UNIX) m where
   type instance Nonce (RefChanValidate UNIX) = BS.ByteString
   newNonce = do
@@ -209,6 +217,9 @@ instance MonadIO m => HasNonces (RefChanValidate UNIX) m where
     pure $ BS.take 8 n
 
 instance HasTimeLimits UNIX (RefChanValidate UNIX) IO where
+  tryLockForPeriod _ _ = pure True
+
+instance HasTimeLimits UNIX (RefChanNotify UNIX) IO where
   tryLockForPeriod _ _ = pure True
 
 instance Expires (SessionKey L4Proto (BlockInfo L4Proto)) where

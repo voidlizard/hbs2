@@ -328,8 +328,7 @@ instance ( MonadIO m
 
     when allowed do
       sendTo pipe (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
-      -- trace $ "REQUEST: after sendTo" <+> viaShow peer_e <+> viaShow msg
-
+      trace $ "REQUEST: after sendTo" <+> viaShow peer_e
 
 
 instance ( Typeable (EventHandler e p (PeerM e IO))
@@ -491,7 +490,9 @@ runProto hh = do
     for_ messages $ \(From pip, AnyMessage n msg :: AnyMessage (Encoded e) e) -> do
 
       case Map.lookup n disp of
-        Nothing -> pure () -- FIXME: error counting! and statistics counting feature
+        Nothing -> do
+          err $ "PROTO not found" <+> pretty n <+> pretty (fmap fst resp)
+          pure () -- FIXME: error counting! and statistics counting feature
 
         Just (AnyProtocol { protoDecode = decoder
                           , handle = h

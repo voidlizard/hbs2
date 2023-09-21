@@ -10,6 +10,7 @@ import HBS2.Net.Auth.AccessKey
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefLog(RefLogKey(..))
+import HBS2.Net.Proto.AnyRef(AnyRefKey(..))
 import HBS2.Prelude.Plated
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
@@ -356,6 +357,13 @@ runRefLogGet s ss = do
     print $ pretty ref
     exitSuccess
 
+runAnyRefGet :: forall s t . IsRefPubKey s => AnyRefKey t s -> SimpleStorage HbSync -> IO ()
+runAnyRefGet s ss = do
+  ref' <- getRef ss s
+  maybe1 ref' exitFailure $ \ref -> do
+    print $ pretty ref
+    exitSuccess
+
 withStore :: Data opts => opts -> ( SimpleStorage HbSync -> IO () ) -> IO ()
 withStore opts f = do
 
@@ -472,6 +480,14 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- common
       reflogs <- strArgument ( metavar "REFLOG" )
       pure $ withStore o (runRefLogGet @HBS2Basic reflogs)
+
+
+    pAnyRef = hsubparser ( command "get" (info pAnyRefGet (progDesc "get anyref value") )  )
+
+    pAnyRefGet = do
+      o <- common
+      anyref <- strArgument ( metavar "ANYREF" )
+      pure $ withStore o (runAnyRefGet @HBS2Basic anyref)
 
     pFsck = do
       o <- common

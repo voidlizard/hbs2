@@ -203,6 +203,7 @@ cleanupPostponed b h =  do
 
 instance ( Hashable (Peer e)
          , Pretty (Peer e), Pretty (PeerAddr e)
+         , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , e ~ L4Proto
          , ForRefChans e
          ) => HasBrains e (BasicBrains e) where
@@ -803,6 +804,7 @@ newBasicBrains cfg = liftIO do
 runBasicBrains :: forall e m . ( e ~ L4Proto
                                , MonadUnliftIO m
                                , ForRefChans e
+                               , Pretty (AsBase58 (PubKey 'Sign (Encryption L4Proto)))
                                )
                =>  PeerConfig
                -> BasicBrains e

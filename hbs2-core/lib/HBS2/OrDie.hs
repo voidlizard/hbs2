@@ -17,6 +17,12 @@ instance MonadIO m => OrDie m (Maybe a) where
       Nothing -> liftIO $ die err
       Just x  -> pure x
 
+instance MonadIO m => OrDie m (Either a b) where
+  type instance OrDieResult (Either a b) = b
+  orDie mv err = mv >>= \case
+      Left{} -> liftIO $ die err
+      Right x  -> pure x
+
 instance MonadIO m => OrDie m ExitCode where
   type instance OrDieResult ExitCode = ()
   orDie mv err = mv >>= \case

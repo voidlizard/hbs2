@@ -377,8 +377,8 @@ simpleReadLinkRaw ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
           -- FIXME: log-this-situation
-          (Just <$> LBS.readFile fn) `catchAny` \_ -> do
-            err $ "simpleReadLinkRaw" <+> pretty hash <+> pretty fn
+          (Just <$> LBS.readFile fn) `catchAny` \e -> do
+            err $ "simpleReadLinkRaw" <+> pretty hash <+> pretty fn <+> viaShow e
             pure Nothing
 
   pure $ fromMaybe Nothing rs
@@ -396,8 +396,8 @@ simpleReadLinkVal :: ( IsKey h
 simpleReadLinkVal ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
-        (Just <$> BS.readFile fn) `catchAny` \_ -> do
-          err $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn
+        (Just <$> BS.readFile fn) `catchAny` \e -> do
+          err $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn <+> viaShow e
           pure Nothing
 
   runMaybeT do
@@ -422,7 +422,7 @@ instance ( MonadIO m, IsKey hash
 
   updateRef ss ref v = do
     let refHash = hashObject @hash ref
-    -- liftIO $ print $ "updateRef:" <+> pretty refHash
+    debug $ "updateRef:" <+> pretty refHash
     void $ liftIO $ simpleWriteLinkRawRef ss refHash v
 
   getRef ss ref = do

@@ -23,11 +23,13 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import UnliftIO
 
-data UNIX
+data UNIX = UNIX
+            deriving (Eq,Ord,Show,Generic)
 
 {- HLINT ignore "Use newtype instead of data" -}
 data MessagingUnixOpts =
-  MUWatchdog Int
+    MUWatchdog Int
+  | MUFork
   deriving (Eq,Ord,Show,Generic,Data)
 
 -- FIXME: use-bounded-queues
@@ -118,6 +120,11 @@ runMessagingUnix env = do
       liftIO $ bind sock $ SockAddrUnix (msgUnixSockPath env)
       liftIO $ listen sock 1
 
+      let doFork  = Set.member MUFork (msgUnixOpts env)
+
+      let withSession | doFork    = void . async . runResourceT
+                      | otherwise = void . runResourceT
+
       watchdog <- async $ do
 
         let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env)  ]
@@ -144,26 +151,28 @@ runMessagingUnix env = do
 
               atomically $ modifyTVar (msgUnixAccepts env) succ
 
-              void $ allocate (pure so) close
+              withSession do
 
-              writer <- async $ forever do
-                msg <- liftIO . atomically $ readTQueue (msgUnixInbox env)
-                let len = fromIntegral $ LBS.length msg :: Int
-                liftIO $ sendAll so $ bytestring32 (fromIntegral len)
-                liftIO $ sendAll so $ LBS.toStrict msg
+                void $ allocate (pure so) close
 
-              void $ allocate (pure writer) cancel
+                writer <- async $ forever do
+                  msg <- liftIO . atomically $ readTQueue (msgUnixInbox env)
+                  let len = fromIntegral $ LBS.length msg :: Int
+                  liftIO $ sendAll so $ bytestring32 (fromIntegral len)
+                  liftIO $ sendAll so $ LBS.toStrict msg
 
-              link writer
+                void $ allocate (pure writer) cancel
 
-              fix \next -> do
-                -- FIXME: timeout-hardcode
-                frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
-                frame    <- liftIO $ recv so frameLen
-                atomically $ writeTQueue (msgUnixRecv env) (From (PeerUNIX sa), LBS.fromStrict frame)
-                now <- getTimeCoarse
-                atomically $ writeTVar (msgUnixLast env) now
-                next
+                link writer
+
+                fix \next -> do
+                  -- FIXME: timeout-hardcode
+                  frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
+                  frame    <- liftIO $ recv so frameLen
+                  atomically $ writeTQueue (msgUnixRecv env) (From (PeerUNIX sa), LBS.fromStrict frame)
+                  now <- getTimeCoarse
+                  atomically $ writeTVar (msgUnixLast env) now
+                  next
 
       (_, r) <- waitAnyCatchCancel [run, watchdog]
 

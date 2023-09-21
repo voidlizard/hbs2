@@ -11,7 +11,7 @@ import HBS2.Events
 
 import PeerTypes
 import PeerConfig
-import RefLog ( doRefLogBroadCast ) 
+import RefLog ( doRefLogBroadCast )
 
 import Data.Functor
 import Data.ByteString.Lazy qualified as LBS
@@ -73,7 +73,7 @@ httpWorker conf pmeta e = do
             va <- liftIO $ getRef sto (RefLogKey @s ref)
             maybe1 va (status status404) $ \val -> do
               text [qc|{pretty val}|]
-      
+
       post "/reflog" do
         bs <- LBS.take 4194304 <$> body
         let msg' =

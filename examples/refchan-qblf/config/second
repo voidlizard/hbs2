@@ -1,0 +1,16 @@
+
+;;
+hbs2-peer-rpc "127.0.0.1:13334"
+
+http    3012
+refchan "Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP"
+socket  "/tmp/notify-Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP-2"
+actor   "test/refchan/author2.key"
+
+default-state "56JXzPzJQzaC9PuniQ7zHCPjedLhyc8vBjn3RtcwfXDt"
+
+state-ref "J7ZJ8th1JbmnLiUvLe15sqKtgteQEanxHvWpcqgbS197"
+
+;; storage?
+
+

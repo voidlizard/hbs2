@@ -292,7 +292,7 @@ spawnConnection tp env so sa = liftIO do
 
       void $ waitAnyCatchCancel [rd,wr]
 
-    -- cleanupConn connId
+    -- lift $ cleanupConn connId
 
   -- gracefulClose so 1000
   debug $ "spawnConnection exit" <+> pretty sa

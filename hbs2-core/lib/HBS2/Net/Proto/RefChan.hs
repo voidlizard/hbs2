@@ -21,6 +21,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Peer
+import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Storage
 
 import Data.Config.Suckless
@@ -67,7 +68,7 @@ data RefChanHeadBlock e =
 makeLenses 'RefChanHeadBlockSmall
 
 type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
-                     , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+                     -- , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , Signatures (Encryption e)
                      , Serialise (Signature (Encryption e))
@@ -248,10 +249,23 @@ instance Typeable (RefChanRequest e) => Hashable (EventKey e (RefChanRequest e))
     where
       p = Proxy @(RefChanRequest e)
 
+
+data RefChanActionRequest =
+    RefChanAnnounceBlock HashRef
+  | RefChanFetch HashRef
+  deriving stock (Generic)
+
+instance Serialise RefChanActionRequest
+
 -- принимается, только если соответствует текущему HEAD
 -- не пишется в журнал
+
 data RefChanNotify e =
-  Notify (RefChanId e) (SignedBox ByteString e) -- подписано ключом автора
+    Notify (RefChanId e) (SignedBox ByteString e) -- подписано ключом автора
+  -- довольно уместно будет добавить эти команды сюда -
+  -- они постоянно нужны, и это сильно упростит коммуникации
+  | ActionRequest (RefChanId e) RefChanActionRequest
+
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanNotify e)
@@ -279,7 +293,10 @@ instance ( Serialise (PubKey 'Sign (Encryption e))
          , Serialise (Nonce (RefChanValidate e)) )
   => Serialise (RefChanValidate e)
 
-instance (ForRefChans e, Pretty (AsBase58 (Nonce (RefChanValidate e)))) => Pretty (RefChanValidate e) where
+instance ( ForRefChans e
+         , Pretty (AsBase58 (Nonce (RefChanValidate e)))
+         , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+         ) => Pretty (RefChanValidate e) where
   pretty (RefChanValidate n c d) = case d of
     Validate r -> pretty "validate" <+> pretty (AsBase58 n) <+> pretty (AsBase58 c) <+> pretty r
     Accepted r -> pretty "accepted" <+> pretty (AsBase58 n) <+> pretty (AsBase58 c) <+> pretty r
@@ -293,6 +310,7 @@ data RefChanAdapter e m =
   , refChanSubscribed :: RefChanId e -> m Bool
   , refChanWriteTran  :: HashRef -> m ()
   , refChanValidatePropose :: RefChanId e -> HashRef -> m Bool
+  , refChanNotifyRely :: RefChanId e -> RefChanNotify e -> m ()
   }
 
 class HasRefChanId e p | p -> e where
@@ -311,6 +329,7 @@ instance HasRefChanId e (RefChanRequest e) where
 instance HasRefChanId e (RefChanNotify e) where
   getRefChanId = \case
     Notify c _ -> c
+    ActionRequest c _ -> c
 
 instance HasRefChanId e (RefChanValidate e) where
   getRefChanId = rcvChan
@@ -747,6 +766,8 @@ refChanRequestProto self adapter msg = do
     proto = Proxy @(RefChanRequest e)
 
 
+-- instance Coercible (SignedBox L4Proto
+
 refChanNotifyProto :: forall e s m . ( MonadIO m
                                      , Request e (RefChanNotify e) m
                                      , Response e (RefChanNotify e) m
@@ -769,12 +790,22 @@ refChanNotifyProto :: forall e s m . ( MonadIO m
                   -> RefChanNotify e
                   -> m ()
 
+refChanNotifyProto self adapter msg@(ActionRequest rchan a) = do
+  debug $ "RefChanNotify ACTION REQUEST"
+  pure ()
+
 refChanNotifyProto self adapter msg@(Notify rchan box) = do
   -- аутентифицируем
   -- проверяем ACL
   -- пересылаем всем
 
+  sto <- getStorage
+
   peer <- thatPeer proto
+
+  debug $ "&&& refChanNotifyProto" <+> pretty self
+
+  let h0 = hashObject @HbSync (serialise msg)
 
   auth <- find (KnownPeerKey peer) id <&> isJust
 
@@ -784,20 +815,31 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
 
     guard (self || auth)
 
-    (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 box
+    deferred proto do
 
-    let refchanKey = RefChanHeadKey @s rchan
-    headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+      guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
-    guard $ checkACL headBlock Nothing authorKey
+      (authorKey, bs) <- MaybeT $ pure $ unboxSignedBox0 box
 
-    -- теперь пересылаем по госсипу
-    lift $ gossip msg
+      let refchanKey = RefChanHeadKey @s rchan
+      headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
 
-    trace $ "refChanNotifyProto" <+> pretty (BS.length bs)
+      guard $ checkACL headBlock Nothing authorKey
 
-    -- тут надо заслать во внешнее приложение,
-    -- равно как и в остальных refchan-протоколах
+      -- FIXME: garbage-collection-required
+      liftIO $ putBlock sto (serialise msg)
+
+      -- теперь пересылаем по госсипу
+      lift $ gossip msg
+
+      debug $ "^^^ refChanNotifyProto" <+> pretty peer <+> pretty h0
+
+      -- тут надо заслать во внешнее приложение,
+      -- равно как и в остальных refchan-протоколах
+
+      unless self do
+        debug $ "^^^ CALL refChanNotifyRely" <+> pretty h0
+        lift $ refChanNotifyRely adapter rchan msg
 
   where
     proto = Proxy @(RefChanNotify e)
@@ -808,7 +850,7 @@ getActualRefChanHead :: forall e s m . ( MonadIO m
                                        , HasStorage m
                                        , Signatures s
                                        , IsRefPubKey s
-                                       , Pretty (AsBase58 (PubKey 'Sign s))
+                                       -- , Pretty (AsBase58 (PubKey 'Sign s))
                                      -- , Serialise (Signature s)
                                        , ForRefChans e
                                        , HasStorage m
@@ -830,13 +872,24 @@ getActualRefChanHead key = do
         pure hd
 
       Nothing -> do
-        debug "ABOUT TO FIND HEAD"
-        h <- MaybeT $ liftIO $ getRef sto key
-        hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
-        (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
-        lift $ update headblk (RefChanHeadBlockKey key) id  -- set found head
+        headblk <- MaybeT $ getRefChanHead sto key
         debug "HEAD FOUND"
         pure headblk
+
+getRefChanHead :: forall e s m . ( MonadIO m
+                                 , s ~ Encryption e
+                                 , ForRefChans e
+                                 , Signatures s
+                                 )
+                => AnyStorage
+                -> RefChanHeadKey s
+                -> m (Maybe (RefChanHeadBlock e))
+
+getRefChanHead sto k = runMaybeT do
+    h <- MaybeT $ liftIO $ getRef sto k
+    hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
+    (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+    pure headblk
 
 makeProposeTran :: forall e s m . ( MonadIO m
                                   , ForRefChans e
@@ -879,7 +932,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                           | (ListVal [SymbolVal "author", LitStrVal s] ) <- parsed
                           ]
 
-instance ForRefChans e => Pretty (RefChanHeadBlock e) where
+instance (ForRefChans e, Pretty (AsBase58 (PubKey 'Sign (Encryption e)))) => Pretty (RefChanHeadBlock e) where
   pretty blk = parens ("version" <+> pretty (view refChanHeadVersion blk)) <> line
                <>
                parens ("quorum" <+> pretty (view refChanHeadQuorum blk)) <> line

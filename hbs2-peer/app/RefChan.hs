@@ -7,7 +7,9 @@ module RefChan (
   , refChanOnHeadFn
   , refChanWriteTranFn
   , refChanValidateTranFn
+  , refChanNotifyRelyFn
   , refChanWorker
+  , runRefChanRelyWorker
   , refChanWorkerEnv
   , refChanNotifyOnUpdated
   ) where
@@ -16,8 +18,10 @@ import HBS2.Prelude.Plated
 
 import HBS2.Actors.Peer
 import HBS2.Base58
+import HBS2.Hash
 import HBS2.Clock
 import HBS2.Data.Detect
+import HBS2.Defaults
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
@@ -38,27 +42,28 @@ import PeerConfig
 import BlockDownload
 import Brains
 
+import Data.Dynamic
 import Codec.Serialise
 import Control.Concurrent.STM (flushTQueue)
 import Control.Exception ()
-import Control.Monad.Except (throwError, runExceptT)
+import Control.Monad.Except ()
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Data.ByteString.Lazy (ByteString)
-import Data.ByteString.Lazy qualified as LBS
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
-import Data.Coerce
+import Data.ByteString (ByteString)
+import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Heap ()
+import Data.Coerce
 -- import Data.Heap qualified as Heap
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
+import Data.Generics.Product
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -78,30 +83,52 @@ data RefChanValidator =
   , rcvAsync    :: Async ()
   }
 
+
+data RefChanNotifier =
+  RefChanNotifier
+  { rcnPeer     :: Peer UNIX
+  , rcnInbox    :: TQueue (RefChanNotify UNIX)
+  , rcnAsync    :: Async ()
+  }
+
 data RefChanWorkerEnv e =
   RefChanWorkerEnv
-  { _refChanWorkerConf        :: PeerConfig
-  , _refChanWorkerEnvDEnv     :: DownloadEnv e
-  , _refChanWorkerEnvHeadQ    :: TQueue (RefChanId e, RefChanHeadBlockTran e)
-  , _refChanWorkerEnvDownload :: TVar (HashMap HashRef (RefChanId e, (TimeSpec, OnDownloadComplete)))
-  , _refChanWorkerEnvNotify   :: TVar (HashMap (RefChanId e) ())
-  , _refChanWorkerEnvWriteQ   :: TQueue HashRef
-  , _refChanWorkerValidators  :: TVar (HashMap (RefChanId e) RefChanValidator)
+  { _refChanWorkerConf            :: PeerConfig
+  , _refChanPeerEnv               :: PeerEnv e
+  , _refChanWorkerEnvDEnv         :: DownloadEnv e
+  , _refChanWorkerEnvHeadQ        :: TQueue (RefChanId e, RefChanHeadBlockTran e)
+  , _refChanWorkerEnvDownload     :: TVar (HashMap HashRef (RefChanId e, (TimeSpec, OnDownloadComplete)))
+  , _refChanWorkerEnvNotify       :: TVar (HashMap (RefChanId e) ())
+  , _refChanWorkerEnvWriteQ       :: TQueue HashRef
+  , _refChanWorkerValidators      :: TVar (HashMap (RefChanId e) RefChanValidator)
+  -- FIXME: peer-addr-to-have-multiple-actors-on-single-box
+  --   нужно ключом держать Peer e (SockAddr)
+  --   что бы можно было завести несколько акторов на одном
+  --   боксе в целях отладки.
+  , _refChanWorkerNotifiers       :: TVar (HashMap (RefChanId e) [RefChanNotifier])
+  , _refChanWorkerNotifiersInbox  :: TQueue (RefChanNotify e) -- ^ to rely messages from clients to gossip
+  , _refChanWorkerNotifiersDone   :: Cache (Hash HbSync) ()
+  , _refChanWorkerLocalRelyDone   :: Cache (Peer UNIX, Hash HbSync) ()
   }
 
 makeLenses 'RefChanWorkerEnv
 
 refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
                  => PeerConfig
+                 -> PeerEnv e
                  -> DownloadEnv e
                  -> m (RefChanWorkerEnv e)
 
-refChanWorkerEnv conf de = liftIO $ RefChanWorkerEnv @e conf de
+refChanWorkerEnv conf pe de = liftIO $ RefChanWorkerEnv @e conf pe de
                                       <$> newTQueueIO
                                       <*> newTVarIO mempty
                                       <*> newTVarIO mempty
                                       <*> newTQueueIO
                                       <*> newTVarIO mempty
+                                      <*> newTVarIO mempty
+                                      <*> newTQueueIO
+                                      <*> Cache.newCache (Just defRequestLimit)
+                                      <*> Cache.newCache (Just defRequestLimit)
 
 refChanOnHeadFn :: forall e m . (ForRefChans e, MonadIO m) => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
 refChanOnHeadFn env chan tran = do
@@ -145,6 +172,29 @@ refChanNotifyOnUpdated :: (MonadIO m, ForRefChans e) => RefChanWorkerEnv e -> Re
 refChanNotifyOnUpdated env chan = do
   atomically $ modifyTVar (_refChanWorkerEnvNotify env) (HashMap.insert chan ())
 
+
+refChanNotifyRelyFn :: forall e m . ( MonadUnliftIO m
+                                    , ForRefChans e, e ~ L4Proto
+                                    )
+                      => RefChanWorkerEnv e
+                      -> RefChanId e
+                      -> RefChanNotify e
+                      -> m ()
+
+refChanNotifyRelyFn env chan msg@(Notify _ (SignedBox k box s)) = do
+  debug "refChanNotifyRelyFn"
+  -- FIXME: multiple-hash-object-msg-performance
+  let h0 = hashObject @HbSync (serialise msg)
+  void $ runMaybeT do
+    guard =<< liftIO (Cache.lookup (view refChanWorkerNotifiersDone env) h0 <&> isNothing)
+    liftIO $ Cache.insert (view refChanWorkerNotifiersDone env) h0 ()
+
+    -- RefChanNotifier q _ <- MaybeT $ liftIO (readTVarIO (view refChanWorkerNotifiers env) <&> HashMap.lookup chan)
+    notifiers <- MaybeT $ liftIO (readTVarIO (view refChanWorkerNotifiers env) <&> HashMap.lookup chan)
+    forM_ notifiers $ \(RefChanNotifier _ q _)  -> do
+      atomically $ writeTQueue q (Notify @UNIX chan (SignedBox k box s))
+
+
 refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                                    , MyPeer e
                                    )
@@ -164,16 +214,143 @@ refChanAddDownload env chan r onComlete = do
 
 
 
-readLog :: forall m . ( MonadUnliftIO m )
-        => AnyStorage
-        -> HashRef
-        -> m [HashRef]
-readLog sto (HashRef h)  =
-  S.toList_ $ do
-    walkMerkle h (liftIO . getBlock sto) $ \hr -> do
-      case hr of
-        Left{} -> pure ()
-        Right (hrr :: [HashRef]) -> S.each hrr
+data NotifyEnv =
+  NotifyEnv
+  { _notifyClient :: Fabriq UNIX
+  , _notifySelf   :: Peer UNIX
+  }
+
+newtype NotifyProtoM m a = NotifyProto { fromNotifyProto :: ReaderT NotifyEnv m a }
+                           deriving newtype ( Functor
+                                            , Applicative
+                                            , Monad
+                                            , MonadIO
+                                            , MonadUnliftIO
+                                            , MonadReader NotifyEnv
+                                            , MonadTrans
+                                            )
+
+
+runNotifyProtoM :: (MonadIO m, PeerMessaging UNIX) => MessagingUnix -> NotifyProtoM m a -> m a
+runNotifyProtoM bus m = runReaderT (fromNotifyProto m) (NotifyEnv (Fabriq bus) (msgUnixSelf bus))
+
+
+instance Monad m => HasFabriq UNIX (NotifyProtoM m) where
+  getFabriq = asks _notifyClient
+
+instance Monad m => HasOwnPeer UNIX (NotifyProtoM m) where
+  ownPeer = asks _notifySelf
+
+refChanNotifyRpcProto :: forall e m . ( MonadIO m
+                                      , Request e (RefChanNotify e) m
+                                      -- , HasPeerNonce UNIX m
+                                      , e ~ UNIX
+                                      -- , m ~ PeerM e IO
+                                      )
+                    => RefChanWorkerEnv L4Proto
+                    -> RefChanNotify e
+                    -> m ()
+
+refChanNotifyRpcProto env msg@(ActionRequest chan action) = do
+
+  let penv = view refChanPeerEnv env
+
+  case action of
+    RefChanAnnounceBlock h -> do
+      debug $ "RefChanNotify: RefChanAnnounceBlock" <+> pretty h
+
+      liftIO $ withPeerM penv $ do
+        sto <- getStorage
+        sz' <- liftIO $ hasBlock sto (fromHashRef h)
+        maybe1 sz' none $ \sz -> do
+          ann <- simpleBlockAnnounce @L4Proto sz (fromHashRef h)
+          gossip ann
+
+      pure ()
+
+    RefChanFetch h -> do
+      debug $ "RefChanNotify: RefChanFetch" <+> pretty h
+
+      liftIO $ withPeerM penv $ do
+        refChanAddDownload env chan h (const $ pure ())
+
+    where
+      proto = Proxy @(RefChanNotify e)
+
+refChanNotifyRpcProto env msg@(Notify chan (SignedBox pk box si)) = do
+  debug "GOT MESSAGE FROM CLIENT"
+  atomically $ writeTQueue (view refChanWorkerNotifiersInbox env) (Notify @L4Proto chan (SignedBox pk box si))
+  -- тут мы должны переслать всем, кроме отправителя
+
+  let h0 = hashObject @HbSync (serialise msg)
+
+  -- FIXME: squash-this-copypaste
+  void $ runMaybeT do
+    notifiers <- MaybeT $ liftIO (readTVarIO (view refChanWorkerNotifiers env) <&> HashMap.lookup chan)
+    forM_ notifiers $ \(RefChanNotifier peer q _)  -> do
+      let lkey  = (peer, h0)
+      -- guard =<< liftIO (Cache.lookup (view refChanWorkerLocalRelyDone env) lkey <&> isNothing)
+      -- liftIO $ Cache.insert (view refChanWorkerLocalRelyDone env) lkey ()
+      atomically $ writeTQueue q msg
+
+refChanWorkerInitNotifiers :: forall e  m . ( MonadIO m
+                                             , MonadUnliftIO m
+                                             , MyPeer e
+                                             -- , ForRefChans e
+                                             -- , ForRefChans UNIX
+                                             -- , m ~ PeerM e IO
+                                             , e ~ L4Proto
+                                             )
+                           => RefChanWorkerEnv e
+                           -> m ()
+
+
+refChanWorkerInitNotifiers env = do
+  debug "refChanWorkerInitNotifiers"
+
+  let (PeerConfig syn) = view refChanWorkerConf env
+
+  let notifiers = [ mkV rc x | ListVal [ SymbolVal "notify"
+                                       , SymbolVal "refchan"
+                                       , LitStrVal rc
+                                       , ListVal [ SymbolVal "socket", SymbolVal "unix", LitStrVal x  ]
+                                       ] <- syn
+                   ] & catMaybes
+
+  forM_ notifiers $ \(rc, sa) -> do
+    debug $ "** NOTIFIER FOR" <+> pretty (AsBase58 rc, sa)
+
+    q <- newTQueueIO
+    val <- async $ liftIO $ notifierThread rc sa q
+
+    let rcn = RefChanNotifier (fromString sa) q val
+
+    atomically $ modifyTVar (_refChanWorkerNotifiers env) (HashMap.insertWith (<>) rc [rcn])
+
+  where
+    mkV :: Text -> Text -> Maybe (RefChanId e, String)
+    mkV rc x = (,Text.unpack x) <$> fromStringMay @(RefChanId e) (Text.unpack rc)
+
+
+    notifierThread _ sa q = do
+
+      debug $ ">>> NOTIFIER THREAD FOR" <+> pretty sa
+
+      client <- newMessagingUnix False 1.0 sa
+      msg <- async $ runMessagingUnix client
+
+      runNotifyProtoM client do
+        proto <- async $ runProto [ makeResponse (refChanNotifyRpcProto env) ]
+
+        forever do
+           req <- atomically $ readTQueue q
+           debug "Rely notification request"
+           request @UNIX (fromString sa) req
+
+        wait proto
+
+      mapM_ wait [msg]
+
 
 data ValidateEnv =
   ValidateEnv
@@ -181,7 +358,7 @@ data ValidateEnv =
   , _validateSelf   :: Peer UNIX
   }
 
-newtype ValidateProtoM m a = PingPongM { fromValidateProto :: ReaderT ValidateEnv m a }
+newtype ValidateProtoM m a = ValidateProto { fromValidateProto :: ReaderT ValidateEnv m a }
                              deriving newtype ( Functor
                                               , Applicative
                                               , Monad
@@ -225,7 +402,6 @@ refChanValidateProto waiters msg = do
       mbAnsw <- Cache.lookup waiters (rcvNonce m)
       maybe1 mbAnsw none $ \answ -> do
         putMVar answ m
-
 
 refChanWorkerInitValidators :: forall e  m . ( MonadIO m
                                              , MonadUnliftIO m
@@ -276,6 +452,9 @@ refChanWorkerInitValidators env = do
       -- FIXME: hardcoded-timeout
       waiters <- Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
 
+      -- FIXME: hardcoded-timeout
+      waiters <- Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
+
       runValidateProtoM client do
 
         poke <- async $ forever do
@@ -302,6 +481,13 @@ refChanWorkerInitValidators env = do
               let pa = fromString sa
               request pa req
 
+            Poke{} -> do
+              debug "DO SEND POKE"
+              let pa = fromString sa
+              pure ()
+              --
+              -- request pa req
+
             _ -> pure ()
 
 
@@ -311,6 +497,22 @@ refChanWorkerInitValidators env = do
       cancel msg
       warn $ "validatorThread is terminated for some reasons" <+> pretty (AsBase58 chan)
 
+runRefChanRelyWorker :: forall e  m .
+                                ( MonadIO m
+                                , m ~ PeerM e IO
+                                , e ~ L4Proto
+                                )
+             => RefChanWorkerEnv e
+             -> RefChanAdapter e (ResponseM e m)
+             -> IO ()
+
+runRefChanRelyWorker env adapter = liftIO $ forever do
+  withPeerM (view refChanPeerEnv env) do
+    me <- ownPeer @e
+    -- FIXME: use-bounded-queue-ASAP
+    mess <- atomically $ readTQueue (view refChanWorkerNotifiersInbox env)
+    runResponseM me $ do
+      refChanNotifyProto True adapter mess
 
 refChanWorker :: forall e s m . ( MonadIO m
                                 , MonadUnliftIO m
@@ -361,6 +563,7 @@ refChanWorker env brains = do
   sto <- getStorage
 
   liftIO $ refChanWorkerInitValidators env
+  liftIO $ refChanWorkerInitNotifiers  env
 
   subscribe @e RefChanRequestEventKey $ \(RefChanRequestEvent chan val) -> do
     debug $ "RefChanRequestEvent" <+> pretty (AsBase58 chan) <+> pretty val
@@ -443,7 +646,7 @@ refChanWorker env brains = do
         forM_ (HashMap.toList byChan) $ \(c,new) -> do
           mbLog <- liftIO $ getRef sto c
 
-          hashes <- maybe1 mbLog (pure mempty) $ readLog sto . HashRef
+          hashes <- maybe1 mbLog (pure mempty) $ readLog (getBlock sto) . HashRef
 
           -- FIXME: might-be-problems-on-large-logs
           let hashesNew = HashSet.fromList (hashes <> new) & HashSet.toList
@@ -575,6 +778,7 @@ logMergeProcess :: forall e s m . ( MonadUnliftIO m
                                   , ForRefChans e
                                   , HasStorage m
                                   , Signatures s
+                                  , Pretty (AsBase58 (PubKey 'Sign s))
                                   , s ~ Encryption e
                                   , m ~ PeerM e IO
                                   )
@@ -637,18 +841,25 @@ logMergeProcess env q = do
 
       penv <- ask
 
+      let readFn = getBlock sto
+
       void $ runMaybeT do
 
         let chanKey = RefChanLogKey @s chan
 
-        h <- MaybeT $ liftIO $ getRef sto chanKey
+        -- FIXME: wont-work-if-no-reference-yet
+        --   не сработает если ссылка новая
+        (mergeSet, merge) <- liftIO (getRef sto chanKey) >>= \case
+                             Nothing -> do
+                               new <- mconcat <$> mapM (lift . readLog readFn) logs
+                               pure (HashSet.fromList new, not (List.null new))
 
-        current <- lift $ readLog sto (HashRef h) <&> HashSet.fromList
-
-        -- trans <- filter (not . flip HashSet.member current) . mconcat <$> mapM (lift . readLog sto) logs
-        trans <- mconcat <$> mapM (lift . readLog sto) (filter (/= HashRef h) logs)
-
-        guard (not $ List.null trans)
+                             Just h -> do
+                               current <- lift $ readLog readFn (HashRef h) <&> HashSet.fromList
+                               new <- mconcat <$> mapM (lift . readLog readFn) (filter (/= HashRef h) logs)
+                               let mergeSet = HashSet.fromList new <> current
+                               pure (mergeSet, not (List.null new))
+        guard merge
 
         -- итак, тут приехал весь лог, который есть у пира
         -- логично искать подтверждения только в нём. если
@@ -667,15 +878,15 @@ logMergeProcess env q = do
         -- потом, если всё ок -- пишем accept-ы и propose-ы у которых
         -- больше quorum подтверждений для актуальной головы
 
-        let mergeSet = (HashSet.fromList trans <> current) & HashSet.toList
+        let mergeList = HashSet.toList mergeSet
 
         -- если какие-то транзакции отсутствуют - пытаемся их скачать
         -- и надеемся на лучшее (лог сойдется в следующий раз)
-        forM_ mergeSet $ \href -> do
+        forM_ mergeList $ \href -> do
            mblk <- liftIO $ getBlock sto (fromHashRef href)
            maybe1 mblk (lift $ refChanAddDownload env chan href dontHandle) dontHandle
 
-        r <- forM mergeSet $ \href -> runMaybeT do
+        r <- forM mergeList $ \href -> runMaybeT do
 
                blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef href)
 

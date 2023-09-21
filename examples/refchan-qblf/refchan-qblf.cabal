@@ -1,0 +1,243 @@
+cabal-version:      3.0
+name:               refchan-qblf
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+-- author:
+-- maintainer:
+-- copyright:
+category:           Network
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall
+
+common common-deps
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple
+        , aeson
+        , async
+        , bytestring
+        , cache
+        , containers
+        , data-default
+        , deepseq
+        , directory
+        , filepath
+        , hashable
+        , http-types
+        , microlens-platform
+        , mtl
+        , mwc-random
+        , prettyprinter
+        , QuickCheck
+        , random
+        , random-shuffle
+        , resourcet
+        , safe
+        , serialise
+        , split
+        , stm
+        , streaming
+        , scotty
+        , suckless-conf
+        , tasty
+        , tasty-hunit
+        , temporary
+        , timeit
+        , transformers
+        , uniplate
+        , unordered-containers
+        , vector
+        , prettyprinter-ansi-terminal
+        , interpolatedstring-perl6
+        , unliftio
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -O2
+        -fno-warn-type-defaults
+        -- -fno-warn-unused-matches
+        -- -fno-warn-unused-do-bind
+        -- -Werror=missing-methods
+        -- -Werror=incomplete-patterns
+        -- -fno-warn-unused-binds
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N4 -A256m -AL256m -I0"
+
+
+  default-language:    Haskell2010
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+library refchan-qblf-core
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+
+    exposed-modules:  QBLF.Proto
+
+    ghc-options:
+      -- -prof
+      -- -fprof-auto
+
+    -- other-extensions:
+
+    -- type:             exitcode-stdio-1.0
+    hs-source-dirs:   lib
+
+    build-depends:
+          base, hbs2-core
+        , async
+        , attoparsec
+        , bytestring
+        , cache
+        , clock
+        , containers
+        , data-default
+        , directory
+        , hashable
+        , microlens-platform
+        , mtl
+        , mwc-random
+        , network
+        , network-ip
+        , optparse-applicative
+        , prettyprinter
+        , QuickCheck
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , text
+        , time
+        , transformers
+        , uniplate
+        , vector
+        , unliftio
+
+executable refchan-qblf
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+
+    ghc-options:
+      -- -prof
+      -- -fprof-auto
+
+    other-modules:
+      Demo.QBLF.Transactions
+
+    -- other-extensions:
+
+    -- type:             exitcode-stdio-1.0
+    hs-source-dirs:   app lib
+    main-is:          RefChanQBLFMain.hs
+
+    build-depends:
+          base, refchan-qblf-core, hbs2-core, hbs2-storage-simple
+        , async
+        , attoparsec
+        , bytestring
+        , cache
+        , clock
+        , containers
+        , data-default
+        , data-textual
+        , directory
+        , hashable
+        , microlens-platform
+        , mtl
+        , mwc-random
+        , network
+        , network-ip
+        , optparse-applicative
+        , prettyprinter
+        , QuickCheck
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , text
+        , time
+        , transformers
+        , uniplate
+        , vector
+        , unliftio
+
+
+test-suite refchan-qblf-proto-test
+    import:           shared-properties
+    default-language: Haskell2010
+
+    other-modules:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          RefChanQBLFProtoTest.hs
+
+    build-depends:
+          base, refchan-qblf-core, hbs2-core
+        , async
+        , bytestring
+        , cache
+        , cborg
+        , containers
+        , directory
+        , filepath
+        , hashable
+        , microlens-platform
+        , mtl
+        , optparse-applicative
+        , prettyprinter
+        , prettyprinter-ansi-terminal
+        , QuickCheck
+        , random
+        , safe
+        , serialise
+        , tasty
+        , tasty-hunit
+        , temporary
+        , timeit
+        , uniplate
+        , unliftio
+        , unordered-containers
+        , vector
+
+
