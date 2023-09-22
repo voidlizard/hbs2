@@ -51,6 +51,7 @@ import System.IO.Temp
 import Control.Monad.Trans.Resource
 import Data.List.Split (chunksOf)
 import Codec.Compression.GZip
+import Control.Monad.Trans.Maybe
 
 class ExportRepoOps a where
 
@@ -111,8 +112,16 @@ exportRefDeleted _ repo ref = do
   let ha = gitHashObject (GitObject Blob repoHeadStr)
   let headEntry = GitLogEntry GitLogEntryHead (Just ha) ( fromIntegral $ LBS.length repoHeadStr )
 
+  r <- fromMaybe 0 <$> runMaybeT do
+          h <- MaybeT $ readRef repo
+          calcRank h
+
+  let rankBs = serialise (GitLogContextRank r)
+  let rank = GitLogEntry GitLogContext Nothing (fromIntegral $ LBS.length rankBs)
+
   let content  =  gitRepoLogMakeEntry opts ctxHead ctxBs
-                   <>  gitRepoLogMakeEntry opts headEntry repoHeadStr
+                   <> gitRepoLogMakeEntry opts headEntry repoHeadStr
+                   <> gitRepoLogMakeEntry opts rank rankBs
 
   -- FIXME: remove-code-dup
   let meta = fromString $ show
@@ -125,7 +134,7 @@ exportRefDeleted _ repo ref = do
   pure logMerkle
 
 makeContextEntry :: [GitHash] -> (GitLogEntry, LBS.ByteString)
-makeContextEntry hashes = (entryHead, payload)
+makeContextEntry  hashes = (entryHead, payload)
   where
     ha = Nothing
     payload = GitLogContextCommits (HashSet.fromList hashes) & serialise
@@ -251,13 +260,16 @@ exportRefOnly :: forall  o m . ( MonadIO m
 
 exportRefOnly _ remote rfrom ref val = do
 
-
   let repoHead = RepoHead Nothing (HashMap.fromList [(ref,val)])
 
   let repoHeadStr =  (LBS.pack . show . pretty . AsGitRefsFile) repoHead
 
   dbPath <- makeDbPath remote
   db <- dbEnv dbPath
+
+  r <- fromMaybe 0 <$> runMaybeT do
+          h <- MaybeT $ readRef remote
+          calcRank h
 
   trace $ "exportRefOnly" <+> pretty remote <+> pretty ref <+> pretty val
 
@@ -341,9 +353,13 @@ exportRefOnly _ remote rfrom ref val = do
     vals <- withDB db $ stateGetLastKnownCommits 10
     let (ctx, ctxBs) = makeContextEntry (List.nub $ val:vals)
 
+    let rankBs = serialise (GitLogContextRank r)
+    let rank = GitLogEntry GitLogContext Nothing (fromIntegral $ LBS.length rankBs)
+
     -- we need context entries to determine log HEAD operation sequence
     -- so only the last section needs it alongwith headEntry
     logz  <- lift $ withExportEnv env (writeLogSegments upd val objects batch [ (ctx, ctxBs)
+                                                                              , (rank, rankBs)
                                                                               , (headEntry, repoHeadStr)
                                                                               ])
 

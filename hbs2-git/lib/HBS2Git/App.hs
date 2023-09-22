@@ -56,6 +56,8 @@ import Control.Concurrent.Async
 import System.Environment
 import Prettyprinter.Render.Terminal
 
+import Streaming.Prelude qualified as S
+
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
 
@@ -321,12 +323,26 @@ readObject h = runMaybeT do
       Left{} -> mzero
       Right (hrr :: [HashRef]) -> do
         for_ hrr $ \(HashRef hx) -> do
-
             block <- MaybeT $ readBlock (HashRef hx)
             liftIO $ atomically $ writeTQueue q block
 
   mconcat <$> liftIO (atomically $ flushTQueue q)
 
+calcRank :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m Int
+calcRank h = fromMaybe 0 <$> runMaybeT do
+
+  blk <- MaybeT $ readBlock h
+
+  ann <- MaybeT $ pure $ deserialiseOrFail @(MTree [HashRef]) blk & either (const Nothing) Just
+
+  n <- S.toList_ $ do
+    walkMerkleTree ann (lift . readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+      case hr of
+        Left{} -> pure ()
+        Right (hrr :: [HashRef]) -> do
+          S.yield (List.length hrr)
+
+  pure $ sum n
 
 postRefUpdate :: ( MonadIO m
                  , HasRefCredentials m

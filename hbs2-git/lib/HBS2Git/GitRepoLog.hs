@@ -96,12 +96,13 @@ instance Serialise GitLogHeadDelEntry
 data GitLogContextEntry =
     GitLogNoContext
   | GitLogContextCommits (HashSet GitHash)
+  | GitLogContextRank Int
   deriving stock (Eq,Data,Generic)
 
 commitsOfGitLogContextEntry :: GitLogContextEntry -> [GitHash]
 commitsOfGitLogContextEntry = \case
-  GitLogNoContext -> mempty
   GitLogContextCommits co -> HashSet.toList co
+  _ -> mempty
 
 instance Serialise GitLogContextEntry
 

@@ -184,6 +184,14 @@ stateInit = do
   |]
 
   liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS logrank
+  ( hash text not null
+  , rank int not null
+  , primary key (hash)
+  );
+  |]
+
+  liftIO $ execute_ conn [qc|
   DROP VIEW IF EXISTS v_log_depth;
   |]
 
@@ -192,17 +200,27 @@ stateInit = do
   |]
 
   liftIO $ execute_ conn [qc|
-    CREATE VIEW v_refval_actual AS
-    SELECT
-        rv.refname
-      , rv.refval
-      , MAX(d.depth) as depth
-    FROM logrefval rv
-    JOIN logcommitdepth d ON rv.refval = d.kommit
-    WHERE rv.refval <> '0000000000000000000000000000000000000000'
-    GROUP BY rv.refname;
+  CREATE VIEW v_refval_actual AS
+  WITH ranks AS (
+      SELECT  rv.refname,
+              MAX(COALESCE(d.depth, 0)) as max_depth,
+              MAX(COALESCE(r.rank, 0)) as max_rank
+      FROM logrefval rv
+      LEFT JOIN logcommitdepth d ON rv.refval = d.kommit
+      LEFT JOIN logrank r ON r.hash = rv.loghash
+      GROUP BY rv.refname
+  )
+  SELECT r.refname, rv.refval, r.max_rank as r, r.max_depth as d
+  FROM logrefval rv
+  JOIN ranks r ON r.refname = rv.refname
+  WHERE
+      (
+          (r.max_rank > 0 AND rv.loghash IN (SELECT hash FROM logrank WHERE rank = r.max_rank))
+       OR (r.max_rank = 0 AND rv.refval IN (SELECT kommit FROM logcommitdepth WHERE depth = r.max_depth))
+      )
+  AND rv.refval <> '0000000000000000000000000000000000000000'
+  ORDER BY r.refname;
   |]
-
 
 newtype Savepoint =
   Savepoint String
@@ -295,6 +313,15 @@ statePutLogContextCommit loghash ctx = do
   insert into logobject (loghash,type,githash) values(?,'context',?)
   on conflict (loghash,githash) do nothing
   |] (loghash,ctx)
+
+
+statePutLogContextRank :: MonadIO m => HashRef -> Int -> DB m ()
+statePutLogContextRank loghash rank = do
+  conn <- stateConnection
+  liftIO $ execute conn [qc|
+  insert into logrank (hash,rank) values(?,?)
+  on conflict (hash) do nothing
+  |] (loghash,rank)
 
 statePutLogCommitParent :: MonadIO m => (GitHash, GitHash) -> DB m ()
 statePutLogCommitParent row = do

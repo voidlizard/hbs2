@@ -289,10 +289,18 @@ importRefLogNew opts ref = runResourceT do
                   GitLogContext -> do
                     trace $ "logobject" <+> pretty h <+> "context" <+> pretty (view gitLogEntryHash entry)
 
-                    let co = fromMaybe mempty $ deserialiseOrFail @GitLogContextEntry
-                                <$> s >>= either (const Nothing) Just <&> commitsOfGitLogContextEntry
+                    void $ runMaybeT do
+                      ss <- MaybeT $ pure s
+                      logEntry <- MaybeT $ pure $ deserialiseOrFail @GitLogContextEntry ss & either (const Nothing) Just
 
-                    forM_ co  (statePutLogContextCommit h)
+                      case logEntry of
+                        GitLogContextRank n -> do
+                          lift $ statePutLogContextRank h n
+
+                        GitLogContextCommits co -> do
+                          lift $ forM_ co  (statePutLogContextCommit h)
+
+                        _ -> pure ()
 
                   GitLogEntryHead   -> do
                     trace $ "HEAD ENTRY" <+> viaShow s
