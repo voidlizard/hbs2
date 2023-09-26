@@ -32,9 +32,11 @@ import System.IO
 pieces :: Integral a => a
 pieces = 1024
 
+-- FIXME: to-remove-in-a-sake-of-operations-class
 class SimpleStorageExtra a  where
   putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
 
+-- TODO: move-to-hbs2-storage-operations
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
 readChunked handle size = fuu
   where
@@ -44,6 +46,24 @@ readChunked handle size = fuu
     unless (B.null chunk) do
       S.yield chunk
       next
+
+-- TODO: sparse-merkle-tree-representation
+--  Блоки пишутся таким образом потому,
+--  что хотелось, что бы листы являлись частями
+--  исходной информации без всяких метаданных,
+--  то есть каждый блок в отдельности является
+--  только частью исходных данных, а их конкатенация
+--  является этими самыми данными. Это менее оптимальное
+--  представление для передачи, но в этом есть смысл.
+--
+--  то есть у нас есть Merkle Tree которое как бы
+--  является торрентом неограниченного размера,
+--  скачиваемого по частям, в котором множество
+--  указателей на реальные файлы. Имеет смысл.
+--
+--  Мы в принципе можем измененить способ записи,
+--  интересно, что при этом особо ничего не поменяется ---
+--  то есть система будет продолжать работать.
 
 instance SimpleStorageExtra Handle where
   putAsMerkle ss handle = do

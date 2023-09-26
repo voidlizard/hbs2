@@ -255,3 +255,18 @@ testSimpleStorageBundles  = do
     assertBool "all-blocks-here-again" (not (null (catMaybes hereWeGoAgain)))
 
 
+testSimpleStorageSymmEncryption :: IO ()
+testSimpleStorageSymmEncryption  = do
+  withSystemTempDirectory "simpleStorageTest" $ \dir -> do
+
+    let opts = [ StoragePrefix (dir </> ".storage")
+               ]
+
+    storage <- simpleStorageInit opts :: IO (SimpleStorage HbSync)
+
+    worker <- async  (simpleStorageWorker storage)
+
+    link worker
+
+    assertBool "nothing" True
+

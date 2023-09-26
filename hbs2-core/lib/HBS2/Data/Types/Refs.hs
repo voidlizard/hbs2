@@ -23,12 +23,23 @@ newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving stock (Data,Generic,Show)
 
 
+
 instance Pretty (AsBase58 HashRef) where
   pretty (AsBase58 x) = pretty x
   -- TODO: should be instance Pretty (AsBase58 (Hash HbSync))
 
 instance FromStringMaybe HashRef where
   fromStringMay = fmap HashRef . fromStringMay
+
+newtype TheHashRef t = TheHashRef { fromTheHashRef :: Hash HbSync }
+                      deriving newtype (Eq,Ord,IsString,Pretty,Hashable)
+                      deriving stock (Data,Generic,Show)
+
+instance Pretty (AsBase58 (TheHashRef t)) where
+  pretty (AsBase58 x) = pretty x
+
+instance FromStringMaybe (TheHashRef t) where
+  fromStringMay = fmap TheHashRef . fromStringMay
 
 data HashRefObject = HashRefObject HashRef (Maybe HashRefMetadata)
   deriving stock (Data,Show,Generic)

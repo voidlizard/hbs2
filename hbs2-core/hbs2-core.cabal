@@ -84,12 +84,14 @@ library
                     , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
                     , HBS2.Data.Types.SignedBox
+                    , HBS2.Data.Types.EncryptedBox
                     , HBS2.Data.Bundle
                     , HBS2.Defaults
                     , HBS2.Events
                     , HBS2.Hash
                     , HBS2.Merkle
-                    , HBS2.Net.Auth.AccessKey
+                    , HBS2.Net.Auth.GroupKeyAsymm
+                    , HBS2.Net.Auth.GroupKeySymm
                     , HBS2.Net.Auth.Credentials
                     , HBS2.Net.IP.Addr
                     , HBS2.Net.Messaging
@@ -120,7 +122,8 @@ library
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
-                    , HBS2.Storage.Operations
+                    , HBS2.Storage.Operations.Class
+                    , HBS2.Storage.Operations.ByteString
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.Class
                     , HBS2.Net.Dialog.Core

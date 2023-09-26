@@ -5,8 +5,6 @@ import Test.Tasty.HUnit
 
 import TestSimpleStorage
 
-import HBS2.Storage
-
 main :: IO ()
 main =
   defaultMain $
@@ -16,6 +14,7 @@ main =
       , testCase "testSimpleStorageNoKeys" testSimpleStorageNoKeys
       , testCase "testSimpleStorageRefs" testSimpleStorageRefs
       , testCase "testSimpleStorageBundles" testSimpleStorageBundles
+      , testCase  "testSimpleStorageSymmEncryption" testSimpleStorageSymmEncryption
       ]
 
 

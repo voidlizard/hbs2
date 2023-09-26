@@ -24,7 +24,7 @@ import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Messaging.Unix (UNIX)
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 
 import Control.Monad
 import Data.Functor
@@ -47,6 +47,7 @@ type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
 type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
 type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
 type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
+
 
 -- FIXME: proper-serialise-for-keys
 --   Возможно, нужно написать ручные инстансы Serialise

@@ -12,7 +12,7 @@ inputs = {
     fixme.url = "github:voidlizard/fixme";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
-    suckless-conf.url = "github:voidlizard/suckless-conf";
+    suckless-conf.url = "github:voidlizard/suckless-conf/master";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {

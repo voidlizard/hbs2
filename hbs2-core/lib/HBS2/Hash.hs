@@ -39,6 +39,8 @@ data HsHash
 type family HashType ( a :: Type) where
   HashType HbSync = Blake2b_256
 
+type HbSyncHash = HashType HbSync
+
 newtype instance Hash HbSync =
   HbSyncHash ByteString
   deriving stock (Eq,Ord,Data,Generic)
@@ -52,7 +54,6 @@ newtype Internal a = Internal a
 
 class Hashed t a where
   hashObject :: a -> Hash t
-
 
 
 instance Hashed HbSync ByteString where

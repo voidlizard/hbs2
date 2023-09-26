@@ -24,16 +24,29 @@ import System.Random qualified as Random
 import Codec.Serialise
 import Data.Maybe
 import Control.Monad.Trans.Maybe
+import Data.ByteString (ByteString)
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
 data CryptoAction = Sign | Encrypt
 
-type family PubKey  ( a :: CryptoAction) e  :: Type
-type family PrivKey ( a :: CryptoAction) e  :: Type
+data GroupKeyScheme = Symm | Asymm
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+type family PubKey  (a :: CryptoAction) e  :: Type
+type family PrivKey (a :: CryptoAction) e  :: Type
 
 type family Encryption e :: Type
+
+data family GroupKey (scheme :: GroupKeyScheme) s
+
+-- TODO: move-to-an-appropriate-place
+newtype AsGroupKeyFile a = AsGroupKeyFile a
+
+data family ToEncrypt (scheme :: GroupKeyScheme) s a -- = ToEncrypt a
+
+data family ToDecrypt (scheme :: GroupKeyScheme) s a
 
 -- FIXME: move-to-a-crypto-definition-modules
 data HBS2Basic

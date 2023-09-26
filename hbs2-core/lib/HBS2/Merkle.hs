@@ -87,7 +87,7 @@ data MTreeAnn a = MTreeAnn
  , _mtaCrypt :: !MTreeEncryption
  , _mtaTree :: !(MTree a)
  }
-  deriving stock (Generic,Data,Show)
+ deriving stock (Generic,Data,Show)
 
 instance Serialise a => Serialise (MTreeAnn a)
 
@@ -97,7 +97,8 @@ data MerkleEncryptionType
 data MTreeEncryption
   = NullEncryption
   | CryptAccessKeyNaClAsymm (Hash HbSync)
-  deriving stock (Generic,Data,Show)
+  | EncryptGroupNaClSymm (Hash HbSync)
+  deriving stock (Eq,Generic,Data,Show)
 
 instance Serialise MTreeEncryption
 

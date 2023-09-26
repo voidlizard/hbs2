@@ -4,7 +4,7 @@ module HBS2.Data.Bundle where
 
 import HBS2.Prelude
 import HBS2.Storage
-import HBS2.Storage.Operations
+import HBS2.Storage.Operations.ByteString
 import HBS2.Hash
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
@@ -14,17 +14,12 @@ import HBS2.Data.Detect
 
 import Data.Word
 
-import Data.Function
 import Codec.Compression.GZip as GZip
 import Codec.Serialise
 import Control.Monad
-import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.Functor
-import Data.List qualified as List
 import Data.Either
-import Data.Maybe
 
 import Streaming.Prelude qualified as S
 import Streaming()

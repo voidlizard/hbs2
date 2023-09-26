@@ -95,8 +95,10 @@ deepScan l miss from reader sink = do
 
           -- FIXME: ASAP-support-encryption
           CryptAccessKeyNaClAsymm{} -> do
-            err "deepScan does not support encryption yet"
-            pure ()
+            lift $ walkTree (_mtaTree ann)
+
+          EncryptGroupNaClSymm{} -> do
+            lift $ walkTree (_mtaTree ann)
 
          SeqRef (SequentialRef _ (AnnotatedHashRef ann hx)) -> do
            lift $ maybe1 ann (pure ()) sinkDeep

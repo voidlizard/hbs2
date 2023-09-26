@@ -156,9 +156,10 @@ processBlock h = do
           ShortMetadata {} -> pure ()
           AnnHashRef hx -> addDownload parent hx
 
-       case (_mtaCrypt ann) of
+       case _mtaCrypt ann of
           NullEncryption -> pure ()
           CryptAccessKeyNaClAsymm h -> addDownload parent h
+          EncryptGroupNaClSymm h    -> addDownload parent h
 
        debug $ "GOT WRAPPED MERKLE. requesting nodes/leaves" <+> pretty h
        walkMerkleTree (_mtaTree ann) (liftIO . getBlock sto) handleHrr

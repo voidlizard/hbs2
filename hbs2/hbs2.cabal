@@ -79,12 +79,14 @@ executable hbs2
                     , interpolatedstring-perl6
                     , memory
                     , microlens-platform
+                    , mtl
                     , optparse-applicative
                     , prettyprinter
                     , safe
                     , saltine
                     , serialise
                     , streaming
+                    , suckless-conf
                     , text
                     , transformers
                     , uniplate
