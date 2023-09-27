@@ -39,6 +39,8 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteArray.Hash (SipHash(..), SipKey(..))
+import Data.ByteArray.Hash qualified as BA
 import Data.Either
 import Data.Function
 import Data.Functor
@@ -56,6 +58,7 @@ import System.Exit qualified as Exit
 import System.IO qualified as IO
 import System.IO.Temp (emptySystemTempFile)
 import UnliftIO
+import Network.ByteOrder qualified as N
 
 
 tracePrefix :: SetLoggerEntry
@@ -318,7 +321,6 @@ runStore opts ss = runResourceT do
                           (liftIO . removeFile)
 
       SB.writeFile fn (SB.fromHandle stdin)
-      debug $ "It worked out!" <+> pretty fn
       pure fn
 
   maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
@@ -364,21 +366,25 @@ runStore opts ss = runResourceT do
 
           gks <- pure (Symm.lookupGroupKey (snd sk) pk gk) `orDie` ("can't find secret key for " <> show (pretty (AsBase58 (fst sk))))
 
-          HbSyncHash nonce <- liftIO $ LBS.readFile inputFile <&> hashObject @HbSync
+          void $ liftIO $ IO.withFile inputFile IO.ReadMode $ \fh -> do
+            let reader =  readChunked fh (fromIntegral defBlockSize)
+            qqq <- S.toList_ $ reader
+                             & S.map (BA.sipHash (SipKey 2716310006254639645 507093936407764973) . LBS.toStrict)
+                             & S.map \(SipHash w) -> w
 
-          debug $ "NONCE FUCKING CALCULATED:" <+> pretty (AsBase58 nonce)
+            let (HbSyncHash nonce) = hashObject @HbSync (serialise qqq)
 
-          fh <- liftIO $ IO.openFile inputFile IO.ReadMode
+            IO.hSeek fh IO.AbsoluteSeek 0
 
-          let segments = readChunked fh (fromIntegral defBlockSize)
+            let segments = readChunked fh (fromIntegral defBlockSize)
 
-          let source = ToEncryptSymmBS gks nonce segments gk
+            let source = ToEncryptSymmBS gks nonce segments gk
 
-          r <- runExceptT $ writeAsMerkle ss source
+            r <- runExceptT $ writeAsMerkle ss source
 
-          case r of
-            Left e  -> die (show e)
-            Right h -> hPrint stdout (pretty h)
+            case r of
+              Left e  -> die (show e)
+              Right h -> hPrint stdout (pretty h)
 
         Just (EncAsymm gk) -> liftIO $ IO.withFile inputFile IO.ReadMode $ \ha -> do
 
@@ -516,8 +522,8 @@ main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $
   info (helper <*> parser)
   (  fullDesc
-  <> header "hbsync block fetch"
-  <> progDesc "fetches blocks from hbsync peers"
+  <> header "hbs2"
+  <> progDesc "hbs2 tools"
   )
   where
     parser ::  Parser (IO ())

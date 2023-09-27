@@ -47,6 +47,7 @@ readChunked handle size = fuu
       S.yield chunk
       next
 
+
 -- TODO: sparse-merkle-tree-representation
 --  Блоки пишутся таким образом потому,
 --  что хотелось, что бы листы являлись частями

@@ -97,6 +97,7 @@ executable hbs2
                     , terminal-progress-bar
                     , stm
                     , unliftio
+                    , network-byte-order
 
     hs-source-dirs:   .
     default-language: Haskell2010
