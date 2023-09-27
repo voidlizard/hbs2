@@ -33,8 +33,8 @@ pieces :: Integral a => a
 pieces = 1024
 
 -- FIXME: to-remove-in-a-sake-of-operations-class
-class SimpleStorageExtra a  where
-  putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> IO MerkleHash
+class MonadIO m => SimpleStorageExtra a m  where
+  putAsMerkle :: forall h . (IsSimpleStorageKey h, Hashed h ByteString) => SimpleStorage h -> a -> m MerkleHash
 
 -- TODO: move-to-hbs2-storage-operations
 readChunked :: MonadIO m => Handle -> Int -> S.Stream (S.Of ByteString) m ()
@@ -65,7 +65,7 @@ readChunked handle size = fuu
 --  интересно, что при этом особо ничего не поменяется ---
 --  то есть система будет продолжать работать.
 
-instance SimpleStorageExtra Handle where
+instance MonadIO m => SimpleStorageExtra Handle m where
   putAsMerkle ss handle = do
 
     hashes <- readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
@@ -75,7 +75,7 @@ instance SimpleStorageExtra Handle where
 
     putAsMerkle ss hashes
 
-instance SimpleStorageExtra (S.Stream (S.Of ByteString) IO ()) where
+instance MonadIO m => SimpleStorageExtra (S.Stream (S.Of ByteString) m ()) m where
   putAsMerkle ss streamChunks = do
 
     hashes <- streamChunks
@@ -85,7 +85,7 @@ instance SimpleStorageExtra (S.Stream (S.Of ByteString) IO ()) where
 
     putAsMerkle ss hashes
 
-instance SimpleStorageExtra [HashRef] where
+instance MonadIO m => SimpleStorageExtra [HashRef] m where
   putAsMerkle ss hashes = do
 
     let pt = toPTree (MaxSize pieces) (MaxNum pieces) hashes -- FIXME: settings
@@ -94,7 +94,7 @@ instance SimpleStorageExtra [HashRef] where
 
     pure (MerkleHash root)
 
-instance SimpleStorageExtra ByteString where
+instance MonadIO m => SimpleStorageExtra ByteString m where
   putAsMerkle ss bs = do
 
     hashes <- S.each (B.unpack bs)

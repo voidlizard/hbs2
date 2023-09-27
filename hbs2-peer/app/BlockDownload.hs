@@ -159,7 +159,7 @@ processBlock h = do
        case _mtaCrypt ann of
           NullEncryption -> pure ()
           CryptAccessKeyNaClAsymm h -> addDownload parent h
-          EncryptGroupNaClSymm h    -> addDownload parent h
+          EncryptGroupNaClSymm h _  -> addDownload parent h
 
        debug $ "GOT WRAPPED MERKLE. requesting nodes/leaves" <+> pretty h
        walkMerkleTree (_mtaTree ann) (liftIO . getBlock sto) handleHrr

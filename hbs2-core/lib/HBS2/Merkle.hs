@@ -97,7 +97,7 @@ data MerkleEncryptionType
 data MTreeEncryption
   = NullEncryption
   | CryptAccessKeyNaClAsymm (Hash HbSync)
-  | EncryptGroupNaClSymm (Hash HbSync)
+  | EncryptGroupNaClSymm (Hash HbSync) ByteString
   deriving stock (Eq,Generic,Data,Show)
 
 instance Serialise MTreeEncryption

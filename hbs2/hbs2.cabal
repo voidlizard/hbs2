@@ -86,13 +86,17 @@ executable hbs2
                     , saltine
                     , serialise
                     , streaming
+                    , streaming-bytestring
                     , suckless-conf
+                    , resourcet
                     , text
+                    , temporary
                     , transformers
                     , uniplate
                     , uuid
                     , terminal-progress-bar
                     , stm
+                    , unliftio
 
     hs-source-dirs:   .
     default-language: Haskell2010

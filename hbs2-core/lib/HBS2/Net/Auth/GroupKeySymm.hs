@@ -70,6 +70,7 @@ instance Serialise SK.Nonce
 data instance ToEncrypt 'Symm s LBS.ByteString =
   ToEncryptSymmBS
   { toEncryptSecret      :: GroupSecretAsymm
+  , toEncryptNonce       :: BS.ByteString
   , toEncryptData        :: Stream (Of LBS.ByteString) IO ()
   , toEncryptGroupKey    :: GroupKey 'Symm s
   }
@@ -143,8 +144,8 @@ lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
   MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict gkBs) & either (const Nothing) Just
 
 -- FIXME: move-to-appropriate-place
-class NonceFrom a nonce where
-  nonceFrom :: nonce -> a -> nonce
+class NonceFrom nonce a where
+  nonceFrom :: a -> nonce
 
 typicalNonceLength :: Integral a => a
 typicalNonceLength = unsafePerformIO SK.newNonce & Saltine.encode & B8.length & fromIntegral
@@ -152,15 +153,29 @@ typicalNonceLength = unsafePerformIO SK.newNonce & Saltine.encode & B8.length & 
 typicalKeyLength :: Integral a => a
 typicalKeyLength = unsafePerformIO SK.newKey & Saltine.encode & B8.length & fromIntegral
 
-instance NonceFrom Word64 SK.Nonce where
+instance NonceFrom SK.Nonce (SK.Nonce, Word64) where
   -- FIXME: maybe-slow-nonceFrom
-  nonceFrom n0 w = fromJust $ Saltine.decode nss
+  nonceFrom (n0, w) = fromJust $ Saltine.decode nss
     where
       ws = noncePrefix <> N.bytestring64 w
       ns = Saltine.encode n0
       nss = BS.packZipWith xor ns ws
 
       noncePrefix = BS.replicate (typicalNonceLength - 8) 0
+
+instance NonceFrom SK.Nonce ByteString where
+  -- FIXME: maybe-slow-nonceFrom
+  nonceFrom lbs = fromJust $ Saltine.decode
+                           $ LBS.toStrict
+                           $ LBS.take typicalNonceLength
+                           $ lbs <> LBS.replicate typicalNonceLength 0
+
+
+instance NonceFrom SK.Nonce BS.ByteString where
+  -- FIXME: maybe-slow-nonceFrom
+  nonceFrom bs = fromJust $ Saltine.decode
+                          $ BS.take typicalNonceLength
+                          $ bs <> BS.replicate typicalNonceLength 0
 
 -- Раз уж такое, то будем писать метаинформацию
 -- В блок #0,
@@ -191,20 +206,22 @@ instance ( MonadIO m
 
     let key = toEncryptSecret source
 
+    let nonceS = toEncryptNonce source
+
+    let nonce0 = nonceFrom @SK.Nonce (toEncryptNonce source)
+
     gkh <- writeAsMerkle sto (serialise gk) <&> HashRef
 
     let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode key)
 
-    hashes' <- liftIO $ toEncryptData source
+    let key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
 
-                & S.mapM ( \bs -> do
-                             let (BA.SipHash w64) = BA.sipHash (BA.SipKey 11940070621075034887 442907749530188102) (LBS.toStrict bs)
-                             let hbs = N.bytestring64 w64
-                             let key0 = HKDF.expand prk hbs typicalKeyLength & Saltine.decode & fromJust
-                             let nonceS = BS.take typicalNonceLength (hbs <> BS.replicate typicalNonceLength 0)
-                             let nonce = Saltine.decode nonceS & fromJust
-                             let encrypted = SK.secretbox key0 nonce (LBS.toStrict bs)
-                             pure $ serialise (hbs, encrypted)
+    hashes' <- liftIO $ toEncryptData source
+                & S.zip (S.enumFrom (1 :: Word64) )
+                & S.mapM ( \(i,bs) -> do
+                             let nonceI = nonceFrom (nonce0, i)
+                             let encrypted = SK.secretbox key0 nonceI (LBS.toStrict bs)
+                             pure (LBS.fromStrict encrypted)
                          )
 
                 & S.mapM (enqueueBlock sto)
@@ -217,15 +234,15 @@ instance ( MonadIO m
     let pt = toPTree (MaxSize 256) (MaxNum 256) hashes -- FIXME: settings
 
     -- FIXME: this-might-not-be-true
-    result <- runWriterT $ makeMerkle 0 pt $ \(_,mt,bss) -> do
+    result <- runWriterT $ makeMerkle 0 pt $ \(hx,mt,bss) -> do
       void $ lift $ putBlock sto bss
-      tell [mt]
+      tell $ [(hx,mt)]
 
-    let root = headMay (snd result)
+    let root = headMay [ mt | (h,mt) <- snd result, h == fst result ]
 
     tree <- maybe (throwError StorageError) pure root
 
-    let ann = MTreeAnn NoMetaData (EncryptGroupNaClSymm (fromHashRef gkh)) tree
+    let ann = MTreeAnn NoMetaData (EncryptGroupNaClSymm (fromHashRef gkh) nonceS) tree
 
     putBlock sto (serialise ann) >>= maybe (throwError StorageError) pure
 
@@ -251,10 +268,10 @@ instance ( MonadIO m
     let what = tryDetect h bs
 
     let tree' = case what of
-          MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm g}) -> Just (_mtaTree ann, g)
+          MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm g n}) -> Just (_mtaTree ann, (g,n))
           _ -> Nothing
 
-    (tree, gkh) <- maybe1 tree' (throwError UnsupportedFormat) pure
+    (tree, (gkh,nonceS)) <- maybe1 tree' (throwError UnsupportedFormat) pure
 
     gkbs <- readFromMerkle sto (SimpleKey gkh)
 
@@ -265,28 +282,23 @@ instance ( MonadIO m
     gksec <- maybe1 gksec' (throwError GroupKeyNotFound) pure
 
     let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode gksec)
+    let key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
+    let nonce0 = nonceFrom @SK.Nonce nonceS
 
     hashes <- S.toList_ $
       walkMerkleTree tree (lift . getBlock sto) $ \case
         Left{} -> throwError MissedBlockError
         Right hrr -> S.each hrr
 
-    ss <- forM hashes $ \h -> do
+    ss <- forM (zip [1..] hashes) $ \(i :: Word64,h) -> do
       blk <- getBlock sto (fromHashRef h) >>= maybe (throwError MissedBlockError) pure
 
-      (hbs, bss) <- either (const $ throwError UnsupportedFormat)
-                          pure
-                          (deserialiseOrFail @(BS.ByteString, BS.ByteString) blk)
-
-
-      let nonceS = BS.take typicalNonceLength (hbs <> BS.replicate typicalNonceLength 0)
-      let key0 = HKDF.expand prk hbs typicalKeyLength & Saltine.decode & fromJust
-      let nonce = Saltine.decode nonceS & fromJust
-      let unboxed = SK.secretboxOpen key0 nonce bss
+      let nonceI = nonceFrom (nonce0, i)
+      let unboxed = SK.secretboxOpen key0 nonceI (LBS.toStrict blk)
 
       maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
 
+    -- FIXME: stream-unboxed-blocks
     pure $ mconcat ss
-
 
 

@@ -28,35 +28,34 @@ import HBS2.System.Logger.Simple hiding (info)
 import Data.Config.Suckless
 import Data.Config.Suckless.KeyValue
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
+import Codec.Serialise
+import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Resource
 import Crypto.Saltine.Core.Box qualified as Encrypt
-import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as BS
+import Data.Either
 import Data.Function
 import Data.Functor
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Monoid qualified as Monoid
-import Options.Applicative
-import System.Directory
-import Data.Either
 import Data.Maybe
+import Data.Monoid qualified as Monoid
 import Data.Text qualified as Text
 import Lens.Micro.Platform
--- import System.FilePath.Posix
-import System.IO
-import System.Exit
-
-import Codec.Serialise
-
+import Options.Applicative
 import Streaming.Prelude qualified as S
--- import Streaming qualified as S
+import Streaming.ByteString qualified as SB
+import System.Directory
+import System.Exit qualified as Exit
+import System.IO qualified as IO
+import System.IO.Temp (emptySystemTempFile)
+import UnliftIO
 
 
 tracePrefix :: SetLoggerEntry
@@ -141,6 +140,30 @@ newtype NewRefOpts =
 
 data EncSchema  = EncSymm   (GroupKey 'Symm HBS2Basic)
                 | EncAsymm  (GroupKey 'Asymm HBS2Basic)
+
+
+hPrint :: (MonadIO m, Show a) => Handle -> a -> m ()
+hPrint h s = liftIO $ IO.hPrint h s
+
+hGetContents :: MonadIO m => Handle -> m String
+hGetContents h = liftIO $ IO.hGetContents h
+
+hPutStrLn :: MonadIO m => Handle -> String -> m ()
+hPutStrLn h s = liftIO $ IO.hPutStrLn h s
+
+hPutStr :: MonadIO m => Handle -> String -> m ()
+hPutStr h s = liftIO $ IO.hPutStr h s
+
+exitSuccess :: MonadIO m => m ()
+exitSuccess = do
+  liftIO Exit.exitSuccess
+
+exitFailure :: MonadIO m => m ()
+exitFailure = do
+  liftIO Exit.exitFailure
+
+die :: MonadIO m => String -> m a
+die = liftIO . Exit.die
 
 runHash :: HashOpts -> SimpleStorage HbSync -> IO ()
 runHash opts _ = do
@@ -282,16 +305,27 @@ runStore opts _ | justInit = do
   where
     justInit = maybe False fromOptInit (uniLastMay @OptInit opts)
 
-runStore opts ss = do
+runStore opts ss = runResourceT do
 
   let fname = uniLastMay @OptInputFile opts
   let meta58  = storeBase58Meta opts
 
-  handle <- maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
+  inputFile <- case fname of
+    Just (OptInputFile fn) -> pure fn
+
+    Nothing -> do
+      (_, fn) <- allocate (liftIO $ emptySystemTempFile "hbs2-store")
+                          (liftIO . removeFile)
+
+      SB.writeFile fn (SB.fromHandle stdin)
+      debug $ "It worked out!" <+> pretty fn
+      pure fn
+
+  maybe (pure stdin) (flip openFile ReadMode . unOptFile) fname
 
   case uniLastMay @OptGroupkeyFile opts of
-    Nothing -> do
-        root' <- putAsMerkle ss handle
+    Nothing -> liftIO $ IO.withFile inputFile IO.ReadMode $ \ha -> do
+        root' <- liftIO $ putAsMerkle ss ha
 
         root <- case meta58 of
                   Nothing -> pure root'
@@ -304,12 +338,12 @@ runStore opts ss = do
                                             MTreeAnn (ShortMetadata metad) NullEncryption  mtree
                     pure (MerkleHash mannh)
 
-        print $ "merkle-root: " <+> pretty root
+        hPrint stdout $ pretty root
 
     Just gkfile -> do
 
-      gkSymm  <- Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile <$> LBS.readFile (unOptGroupkeyFile gkfile)
-      gkAsymm <- Asymm.parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile)
+      gkSymm  <- liftIO $ Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile <$> LBS.readFile (unOptGroupkeyFile gkfile)
+      gkAsymm <- liftIO $ Asymm.parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile)
 
       let mbGk = EncSymm <$> gkSymm <|> EncAsymm <$> gkAsymm
 
@@ -320,7 +354,7 @@ runStore opts ss = do
           pk  <- unOptEncPk <$> pure (uniLastMay @OptEncPubKey opts) `orDie` "public key not specified"
           krf <- pure (uniLastMay @OptKeyringFile opts) `orDie` "keyring file not set"
 
-          s <- BS.readFile (unOptKeyringFile krf)
+          s <- liftIO $ BS.readFile (unOptKeyringFile krf)
           cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
 
           sk <- pure (headMay [ (view krPk k, view krSk k)
@@ -330,27 +364,30 @@ runStore opts ss = do
 
           gks <- pure (Symm.lookupGroupKey (snd sk) pk gk) `orDie` ("can't find secret key for " <> show (pretty (AsBase58 (fst sk))))
 
-          let  segments :: S.Stream (S.Of ByteString) IO ()
-               segments = readChunked handle (fromIntegral defBlockSize)
+          HbSyncHash nonce <- liftIO $ LBS.readFile inputFile <&> hashObject @HbSync
 
-          let source = ToEncryptSymmBS gks segments gk
+          debug $ "NONCE FUCKING CALCULATED:" <+> pretty (AsBase58 nonce)
+
+          fh <- liftIO $ IO.openFile inputFile IO.ReadMode
+
+          let segments = readChunked fh (fromIntegral defBlockSize)
+
+          let source = ToEncryptSymmBS gks nonce segments gk
 
           r <- runExceptT $ writeAsMerkle ss source
 
           case r of
             Left e  -> die (show e)
-            Right h -> print (pretty h)
+            Right h -> hPrint stdout (pretty h)
 
-        Just (EncAsymm gk) -> do
+        Just (EncAsymm gk) -> liftIO $ IO.withFile inputFile IO.ReadMode $ \ha -> do
 
           accKeyh <- (putBlock ss . serialise . permitted . accessKey) gk
               `orDie` "can not store access key"
 
-          let rawChunks :: S.Stream (S.Of ByteString) IO ()
-              rawChunks = readChunked handle (fromIntegral defBlockSize) -- FIXME: to settings!
+          let rawChunks = readChunked ha (fromIntegral defBlockSize) -- FIXME: to settings!
 
-              encryptedChunks :: S.Stream (S.Of ByteString) IO ()
-              encryptedChunks = rawChunks
+          let encryptedChunks = rawChunks
                   & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal (recipientPk gk) . LBS.toStrict)
 
           mhash <- putAsMerkle ss encryptedChunks
@@ -361,7 +398,7 @@ runStore opts ss = do
                 =<< (putBlock ss . serialise @(MTreeAnn [HashRef])) do
               MTreeAnn NoMetaData (CryptAccessKeyNaClAsymm accKeyh) mtree
 
-          print $ "merkle-ann-root: " <+> pretty mannh
+          hPrint stdout $ "merkle-ann-root: " <+> pretty mannh
 
 runNewGroupKeyAsymm :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
 runNewGroupKeyAsymm pubkeysFile = do
@@ -658,7 +695,7 @@ main = join . customExecParser (prefs showHelpOnError) $
           deepScan ScanDeep (const none) h (getBlock sto) $ \ha -> do
             liftIO $ atomically $ writeTQueue q ha
 
-        deps <- liftIO $ atomically $ flushTQueue q
+        deps <- liftIO $ atomically $ STM.flushTQueue q
 
         forM_ deps $ \d -> do
           doDelete <- if dontAsk then do
