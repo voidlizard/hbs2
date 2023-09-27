@@ -1,0 +1,3 @@
+TODO: test-unix-sockets-multiple-clients
+  Протестировать, работают ли Unix сокеты
+  в режиме с многими клиентами.
