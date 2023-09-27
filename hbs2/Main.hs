@@ -587,6 +587,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pGroupKeySymm = hsubparser (  command "gen" (info pGroupKeySymmGen (progDesc "generate") )
                                <> command "dump" (info pGroupKeySymmDump (progDesc "dump") )
+                               <> command "update" (info pGroupKeySymmUpdate (progDesc "update") )
                                )
 
     pGroupKeySymmGen = do
@@ -598,7 +599,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                       | (ListVal (Key "member" [LitStrVal s]) ) <- syn
                       ] & catMaybes
 
-        gk <- Symm.generateGroupKey @HBS2Basic members
+        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
         print $ pretty (AsGroupKeyFile gk)
 
     pGroupKeySymmDump = do
@@ -608,6 +609,39 @@ main = join . customExecParser (prefs showHelpOnError) $
                 <&> Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
 
         print $ pretty gk
+
+    -- SEE: group-key-update-note
+
+    pGroupKeySymmUpdate = do
+      keyringFile <- strOption ( long "keyring" <> short 'k' <> help "path to keyring file" )
+      dsl         <- strOption ( long "dsl" <>  short 'D' <> help "dsl file" )
+      fn          <- strArgument ( metavar "FILE" <> help "group key file" )
+
+      pure do
+
+        sc <- BS.readFile keyringFile
+        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+
+        gk <- ( LBS.readFile fn
+                <&> Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
+
+        let keys = [ (view krPk x, view krSk x) | x <- view peerKeyring creds ]
+
+        let gksec' = [ Symm.lookupGroupKey sk pk gk | (pk,sk) <- keys ] & catMaybes & headMay
+
+        gsec <- pure gksec' `orDie` "Group key not found"
+
+        syn <- readFile dsl <&> parseTop <&> fromRight mempty
+
+        -- FIXME: fix-code-dup-members
+        let members = [ fromStringMay @(PubKey 'Encrypt HBS2Basic) (Text.unpack s)
+                      | (ListVal (Key "member" [LitStrVal s]) ) <- syn
+                      ] & catMaybes
+
+        debug $ vcat (fmap (pretty.AsBase58) members)
+
+        gkNew <- Symm.generateGroupKey @HBS2Basic (Just gsec) members
+        print $ pretty (AsGroupKeyFile gkNew)
 
     pHash = do
       o <- common

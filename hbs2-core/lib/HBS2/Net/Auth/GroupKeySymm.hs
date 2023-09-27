@@ -117,15 +117,16 @@ instance ( Serialise  (GroupKey 'Asymm s)
     pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
 
 generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m)
-                 => [PubKey 'Encrypt s]
+                 => Maybe GroupSecretAsymm
+                 -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
 
-generateGroupKey pks' = GroupKeySymm <$> create
+generateGroupKey mbk pks' = GroupKeySymm <$> create
   where
     pks = List.sort (List.nub pks')
 
     create = do
-      sk <- liftIO SK.newKey
+      sk <- maybe1 mbk (liftIO SK.newKey) pure
       forM pks $ \pk -> do
         box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
         pure (pk, box)
