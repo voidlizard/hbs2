@@ -8,6 +8,8 @@ import HBS2.Net.Messaging.Unix
 import HBS2.Actors.Peer
 import HBS2.OrDie
 
+import HBS2.System.Logger.Simple
+
 import Codec.Serialise
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
@@ -18,11 +20,8 @@ import System.FilePath.Posix
 import System.IO
 import System.IO.Temp
 import UnliftIO.Async
-
-
-debug :: (MonadIO m) => Doc ann -> m ()
-debug p = liftIO $ hPrint stderr p
-
+import UnliftIO qualified as UIO
+import UnliftIO (TVar)
 
 data PingPong e = Ping Int
                 | Pong Int
@@ -38,20 +37,72 @@ instance HasProtocol UNIX  (PingPong UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-pingPongHandler :: forall e m  . ( MonadIO m
-                                 , Response e (PingPong e) m
-                                 , HasProtocol e (PingPong e)
-                                 )
-                => Int
+pingPongHandlerS :: forall e m  . ( MonadIO m
+                                  , Response e (PingPong e) m
+                                  , HasProtocol e (PingPong e)
+                                  , Pretty (Peer e)
+                                  )
+                => TVar [(Peer e, PingPong e)]
+                -> Int
                 -> PingPong e
                 -> m ()
 
-pingPongHandler n = \case
+pingPongHandlerS tv n msg = do
 
-    Ping c -> debug ("Ping" <+> pretty c) >> response (Pong @e c)
+    that <- thatPeer (Proxy @(PingPong e))
 
-    Pong c | c < n -> debug ("Pong" <+> pretty c) >> response (Ping @e (succ c))
-           | otherwise -> pure ()
+    UIO.atomically $ UIO.modifyTVar tv ((that,msg):)
+
+    case msg of
+
+      Ping c -> do
+        debug ("S: Ping" <+> pretty c <+> "from" <+> pretty that ) >> response (Pong @e c)
+
+      Pong _ -> pure ()
+
+pingPongHandler1 :: forall e m  . ( MonadIO m
+                                 , Response e (PingPong e) m
+                                 , HasProtocol e (PingPong e)
+                                 )
+                => TVar [PingPong e]
+                -> Int
+                -> PingPong e
+                -> m ()
+
+pingPongHandler1 t n msg = do
+
+  UIO.atomically $ UIO.modifyTVar t (msg:)
+
+  case msg of
+
+    Ping c -> pure ()
+    Pong c -> pure ()
+
+    -- Pong c | c < n -> debug ("C1: Pong" <+> pretty c) >> response (Ping @e (succ c))
+    --        | otherwise -> pure ()
+
+
+pingPongHandler2 :: forall e m  . ( MonadIO m
+                                 , Response e (PingPong e) m
+                                 , HasProtocol e (PingPong e)
+                                 )
+                => TVar [PingPong e]
+                -> Int
+                -> PingPong e
+                -> m ()
+
+pingPongHandler2 t n msg = do
+
+    UIO.atomically $ UIO.modifyTVar t (msg:)
+
+    case msg of
+
+      Ping c -> pure ()
+      Pong c -> pure ()
+
+      -- Pong c | c < n -> debug ("C2: Pong" <+> pretty c) >> response (Ping @e (succ c))
+      --        | otherwise -> pure ()
+
 
 data PPEnv =
   PPEnv
@@ -66,6 +117,7 @@ newtype PingPongM m a = PingPongM { fromPingPong :: ReaderT PPEnv m a }
                                          , Applicative
                                          , Monad
                                          , MonadIO
+                                         , MonadUnliftIO
                                          , MonadReader PPEnv
                                          , MonadTrans
                                          )
@@ -84,6 +136,14 @@ instance HasTimeLimits UNIX (PingPong UNIX) IO where
 
 main :: IO ()
 main = do
+
+  setLogging @DEBUG  (logPrefix "[debug] ")
+  setLogging @INFO   (logPrefix "")
+  setLogging @ERROR  (logPrefix "[err] ")
+  setLogging @WARN   (logPrefix "[warn] ")
+  setLogging @NOTICE (logPrefix "[notice] ")
+  setLogging @TRACE  (logPrefix "[trace] ")
+
   liftIO $ hSetBuffering stdout LineBuffering
   liftIO $ hSetBuffering stderr LineBuffering
 
@@ -91,25 +151,54 @@ main = do
 
     let soname = tmp </> "unix.socket"
 
-    server <- newMessagingUnix True 1.0 soname
+    server <- newMessagingUnixOpts [MUFork] True 1.0 soname
 
-    client <- newMessagingUnix False 1.0 soname
+    client1 <- newMessagingUnix False 1.0 soname
+    client2 <- newMessagingUnix False 1.0 soname
 
     m1 <- async $ runMessagingUnix server
-    m2 <- async $ runMessagingUnix client
+    m2 <- async $ runMessagingUnix client1
+    m3 <- async $ runMessagingUnix client2
+
+    trs <- UIO.newTVarIO []
+    tr1 <- UIO.newTVarIO []
+    tr2 <- UIO.newTVarIO []
 
     p1 <- async $ runPingPong server do
                     runProto @UNIX
-                      [ makeResponse (pingPongHandler 100000)
+                      [ makeResponse (pingPongHandlerS trs 2)
                       ]
 
-    p2 <- async $ runPingPong  client do
-                    request (msgUnixSelf server) (Ping @UNIX 0)
-                    runProto @UNIX
-                      [ makeResponse (pingPongHandler 100000)
+    -- p2 <- async $ pause @'Seconds 300
+    p2 <- async $ runPingPong  client1 do
+                    -- pause @'Seconds 0.25
+                    -- request (msgUnixSelf server) (Ping @UNIX 0)
+                    l <- async $ runProto @UNIX
+                      [ makeResponse (pingPongHandler1 tr1 10)
                       ]
+                    link l
+                    forM_ [1..10] $ \n-> request (msgUnixSelf server) (Ping @UNIX n)
+                    wait l
 
-    (_,r) <- liftIO $ waitAnyCatchCancel [m1,m2,p1,p2]
+    -- p3 <- async $ pause @'Seconds 300
+    p3 <- async $ do
+      runPingPong  client2 do
+                    l <- async $ runProto @UNIX
+                      [ makeResponse (pingPongHandler2 tr2 200)
+                      ]
+                    link l
+                    forM_ (take 10 [10000000..]) $ \n-> request (msgUnixSelf server) (Ping @UNIX n)
+                    wait l
+
+    -- p4 <- async do
+    pause @'Seconds 10
+    UIO.readTVarIO trs >>= print . vcat . fmap (\(a,b) -> pretty (a, show b))
+    UIO.readTVarIO tr1 >>= print
+    UIO.readTVarIO tr2 >>= print
+
+    cancel m1
+
+    (_,r) <- liftIO $ waitAnyCatchCancel [m1,m2,m3,p1,p2,p3]
 
     debug (viaShow r)
 

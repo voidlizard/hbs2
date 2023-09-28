@@ -308,7 +308,7 @@ instance ( MonadIO m
 
     when allowed do
       sendTo pipe (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
-      trace $ "REQUEST: after sendTo" <+> viaShow peer_e
+      -- trace $ "REQUEST: after sendTo" <+> viaShow peer_e
 
 
 instance ( Typeable (EventHandler e p (PeerM e IO))

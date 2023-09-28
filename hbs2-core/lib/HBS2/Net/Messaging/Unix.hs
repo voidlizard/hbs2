@@ -1,3 +1,4 @@
+{-# Language TemplateHaskell #-}
 module HBS2.Net.Messaging.Unix where
 
 import HBS2.Prelude.Plated
@@ -14,6 +15,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Function
 import Data.Functor
 import Data.Hashable
+import Data.HashMap.Strict qualified as HashMap
+import Data.HashMap.Strict (HashMap)
 import Data.List qualified as List
 import Network.ByteOrder hiding (ByteString)
 import Network.Socket
@@ -21,10 +24,27 @@ import Network.Socket.ByteString
 import Control.Concurrent.STM.TQueue (flushTQueue)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Lens.Micro.Platform
 import UnliftIO
+
+import Control.Concurrent (myThreadId)
 
 data UNIX = UNIX
             deriving (Eq,Ord,Show,Generic)
+
+type PeerUnixAddr = String
+
+instance HasPeer UNIX where
+  newtype instance Peer UNIX = PeerUNIX { _fromPeerUnix :: PeerUnixAddr}
+    deriving stock (Eq,Ord,Show,Generic)
+    deriving newtype (Pretty)
+
+
+instance IsString (Peer UNIX) where
+  fromString = PeerUNIX
+
+instance Hashable (Peer UNIX) where
+  hashWithSalt salt (PeerUNIX p) = hashWithSalt salt p
 
 {- HLINT ignore "Use newtype instead of data" -}
 data MessagingUnixOpts =
@@ -40,13 +60,14 @@ data MessagingUnix =
   , msgUnixRetryTime   :: Timeout 'Seconds
   , msgUnixSelf        :: Peer UNIX
   , msgUnixOpts        :: Set MessagingUnixOpts
-  , msgUnixInbox       :: TQueue ByteString
+  , msgUnixSendTo      :: TVar (HashMap (Peer UNIX) (TQueue ByteString))
   , msgUnixRecv        :: TQueue (From UNIX, ByteString)
   , msgUnixLast        :: TVar TimeSpec
   , msgUnixAccepts     :: TVar Int
+  , msgSockets         :: TVar (HashMap (Peer UNIX) Socket)
   }
 
-
+makeLenses 'PeerUNIX
 
 newMessagingUnix :: MonadIO m
                  => Bool
@@ -57,7 +78,7 @@ newMessagingUnix :: MonadIO m
 newMessagingUnix server tsec path = do
   newMessagingUnixOpts mempty server tsec path
 
-newMessagingUnixOpts :: MonadIO m
+newMessagingUnixOpts :: (MonadIO m)
                  => [MessagingUnixOpts]
                  -> Bool
                  -> Timeout 'Seconds
@@ -65,38 +86,22 @@ newMessagingUnixOpts :: MonadIO m
                  -> m MessagingUnix
 
 newMessagingUnixOpts opts server tsec path = do
-  let sa  = SockAddrUnix path
   now <- getTimeCoarse
   MessagingUnix path
                 server
                 tsec
-                (PeerUNIX sa)
+                (PeerUNIX path)
                 (Set.fromList opts)
-                <$> liftIO newTQueueIO
+                <$> liftIO (newTVarIO mempty)
                 <*> liftIO newTQueueIO
                 <*> liftIO (newTVarIO now)
                 <*> liftIO (newTVarIO 0)
-
-instance HasPeer UNIX where
-  newtype instance Peer UNIX = PeerUNIX {fromPeerUnix :: SockAddr}
-    deriving stock (Eq,Ord,Show,Generic)
-    deriving newtype (Pretty)
-
-instance IsString (Peer UNIX) where
-  fromString p  = PeerUNIX (SockAddrUnix p)
-
--- FIXME: fix-code-dup?
-instance Hashable (Peer UNIX) where
-  hashWithSalt salt p = case fromPeerUnix p of
-    SockAddrInet  pn h     -> hashWithSalt salt (4, fromIntegral pn, h)
-    SockAddrInet6 pn _ h _ -> hashWithSalt salt (6, fromIntegral pn, h)
-    SockAddrUnix s         -> hashWithSalt salt ("unix", s)
+                <*> liftIO (newTVarIO mempty)
 
 
 data ReadTimeoutException = ReadTimeoutException deriving (Show, Typeable)
 
 instance Exception ReadTimeoutException
-
 
 runMessagingUnix :: MonadUnliftIO m => MessagingUnix -> m ()
 runMessagingUnix env = do
@@ -118,12 +123,9 @@ runMessagingUnix env = do
       void $ allocate (pure sock) (`shutdown` ShutdownBoth)
 
       liftIO $ bind sock $ SockAddrUnix (msgUnixSockPath env)
-      liftIO $ listen sock 1
+      liftIO $ listen sock 5
 
-      let doFork  = Set.member MUFork (msgUnixOpts env)
-
-      let withSession | doFork    = void . async . runResourceT
-                      | otherwise = void . runResourceT
+      let withSession  = void . async . runResourceT
 
       watchdog <- async $ do
 
@@ -149,27 +151,52 @@ runMessagingUnix env = do
       run <- async $ forever $ runResourceT do
               (so, sa) <- liftIO $ accept sock
 
-              atomically $ modifyTVar (msgUnixAccepts env) succ
+
+              -- FIXME: fixing-unix-sockets
+              --  Вот тут: нумеруем клиентов, в PeerAddr ставим
+              --  строку или номер.
+
+              peerNum <- atomically $ do
+                n <- readTVar (msgUnixAccepts env)
+                modifyTVar    (msgUnixAccepts env) succ
+                pure n
 
               withSession do
+
+                ti <- liftIO myThreadId
+
+                let that = msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
+
+                void $ allocate ( createQueues env that ) dropQueuesFor
 
                 void $ allocate (pure so) close
 
                 writer <- async $ forever do
-                  msg <- liftIO . atomically $ readTQueue (msgUnixInbox env)
-                  let len = fromIntegral $ LBS.length msg :: Int
-                  liftIO $ sendAll so $ bytestring32 (fromIntegral len)
-                  liftIO $ sendAll so $ LBS.toStrict msg
+                  mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup that
+
+                  maybe1 mq none $ \q -> do
+                    msg <- liftIO . atomically $ readTQueue q
+                    let len = fromIntegral $ LBS.length msg :: Int
+                    liftIO $ sendAll so $ bytestring32 (fromIntegral len)
+                    liftIO $ sendAll so $ LBS.toStrict msg
 
                 void $ allocate (pure writer) cancel
 
                 link writer
 
                 fix \next -> do
-                  -- FIXME: timeout-hardcode
+                  me <- liftIO myThreadId
+
+                  let mq = Just (msgUnixRecv env)
+
                   frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
                   frame    <- liftIO $ recv so frameLen
-                  atomically $ writeTQueue (msgUnixRecv env) (From (PeerUNIX sa), LBS.fromStrict frame)
+
+                  let s = if msgUnixServer env then "S-" else "C-"
+
+                  maybe1 mq none $ \q -> do
+                    atomically $ writeTQueue q (From that, LBS.fromStrict frame)
+
                   now <- getTimeCoarse
                   atomically $ writeTVar (msgUnixLast env) now
                   next
@@ -183,11 +210,15 @@ runMessagingUnix env = do
 
     runClient = liftIO $ forever $ handleAny logAndRetry $ runResourceT do
 
+      let sa   = SockAddrUnix (msgUnixSockPath env)
+      let p  = msgUnixSockPath env
+      let who = PeerUNIX p
+
+      createQueues env who
+
       sock <- liftIO $ socket AF_UNIX Stream defaultProtocol
 
       void $ allocate (pure sock) close
-
-      let sa   = SockAddrUnix (msgUnixSockPath env)
 
       let attemptConnect = do
             result <- liftIO $ try $ connect sock $ SockAddrUnix (msgUnixSockPath env)
@@ -200,17 +231,32 @@ runMessagingUnix env = do
 
       attemptConnect
 
-      reader <- async $ forever do
+      -- TODO: create-queues!
+
+      reader <- async $ do
+                  forever do
+                    let q = msgUnixRecv env
+
                   -- Read response from server
-                  frameLen <- liftIO $ recv sock 4 <&> word32 <&> fromIntegral
-                  frame    <- liftIO $ recv sock frameLen
-                  atomically $ writeTQueue (msgUnixRecv env) (From (PeerUNIX sa), LBS.fromStrict frame)
+                    frameLen <- liftIO $ recv sock 4 <&> word32 <&> fromIntegral
+                    frame    <- liftIO $ recv sock frameLen
+
+                    -- сообщения кому? **МНЕ**
+                    -- сообщения от кого? от **КОГО-ТО**
+                    atomically $ writeTQueue q (From who, LBS.fromStrict frame)
 
       forever do
-        msg <- liftIO . atomically $ readTQueue (msgUnixInbox env)
-        let len = fromIntegral $ LBS.length msg :: Int
-        liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
-        liftIO $ sendAll sock $ LBS.toStrict msg
+
+        -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
+        -- У нас один контрагент, имя сокета (файла) == адрес пира.
+        -- Как в TCP порт сервиса (а отвечает тот с другого порта)
+        mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup who
+
+        maybe1 mq none $ \q -> do
+          msg <- liftIO . atomically $ readTQueue q
+          let len = fromIntegral $ LBS.length msg :: Int
+          liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
+          liftIO $ sendAll sock $ LBS.toStrict msg
 
       void $ waitAnyCatchCancel [reader]
 
@@ -218,22 +264,68 @@ runMessagingUnix env = do
       warn $ "MessagingUnix. client seems gone. restaring server" <+> pretty (msgUnixSelf env)
       err (viaShow e)
       atomically $ writeTVar (msgUnixAccepts env) 0
-      liftIO $ atomically $ void $ flushTQueue (msgUnixInbox env)
+
       liftIO $ atomically $ void $ flushTQueue (msgUnixRecv env)
+
+      dropQueues
+
       pause (msgUnixRetryTime env)
 
     logAndRetry :: SomeException -> IO ()
     logAndRetry e = do
       warn $ "MessagingUnix. runClient failed, probably server is gone. Retrying:" <+> pretty (msgUnixSelf env)
       err (viaShow e)
+      dropQueues
       pause (msgUnixRetryTime env)
 
+    dropQueues :: MonadIO m => m ()
+    dropQueues = do
+      -- liftIO $ atomically $ modifyTVar (msgUnixRecvFrom env) mempty
+      liftIO $ atomically $ modifyTVar (msgUnixSendTo env) mempty
+      -- мы не дропаем обратную очередь (принятые сообщения), потому,
+      -- что нет смысла. она живёт столько, сколько живёт клиент
+      -- очередь отправки мы удаляем, потому, что этого клиента
+      -- мы больше никогда не увидим, ведь они разделяются на уровне
+      -- сокетов и больше никак.
+
+    dropQueuesFor :: MonadIO m => Peer UNIX -> m ()
+    dropQueuesFor who = liftIO do
+      atomically do
+        modifyTVar (msgUnixSendTo env) (HashMap.delete who)
+        -- modifyTVar (msgUnixRecvFrom env) (HashMap.delete who)
+
+createQueues :: MonadIO m => MessagingUnix -> Peer UNIX -> m (Peer UNIX)
+createQueues env who = liftIO do
+  atomically $ do
+
+    sHere <- readTVar (msgUnixSendTo env) <&> HashMap.member who
+
+    if sHere then do
+      pure False
+    else do
+      sendToQ   <- newTQueue
+      modifyTVar (msgUnixSendTo env) (HashMap.insert who sendToQ)
+      pure True
+
+  pure who
 
 instance Messaging MessagingUnix UNIX ByteString where
 
-  sendTo bus (To _) _ msg = liftIO do
-    atomically $ writeTQueue (msgUnixInbox bus) msg
+  sendTo bus (To who) (From me) msg = liftIO do
+
+    createQueues bus who
+
+    -- FIXME: handle-no-queue-for-rcpt-situation-1
+
+    mq <- atomically $ readTVar (msgUnixSendTo bus) <&> HashMap.lookup who
+
+    maybe1 mq none $ \q -> do
+      atomically $ writeTQueue q msg
 
   receive bus _ = liftIO do
-    atomically $ readTQueue (msgUnixRecv bus) <&> List.singleton
+    let q = msgUnixRecv bus
+    atomically $ peekTQueue q >> flushTQueue q
+
+
+
 
