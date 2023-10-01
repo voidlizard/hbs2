@@ -107,6 +107,7 @@ library
                     , HBS2.Net.Proto.BlockInfo
                     , HBS2.Net.Proto.Definition
                     , HBS2.Net.Proto.Dialog
+                    , HBS2.Net.Proto.Service
                     , HBS2.Net.Proto.EncryptionHandshake
                     , HBS2.Net.Proto.Event.PeerExpired
                     , HBS2.Net.Proto.Peer
@@ -241,7 +242,10 @@ test-suite test
         , saltine
         , simple-logger
         , string-conversions
-
+        , filepath
+        , temporary
+        , unliftio
+        , resourcet
 
 
 
