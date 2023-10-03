@@ -263,7 +263,8 @@ executable test-unix
         , vector
 
 
-executable test-proto-service
+-- executable test-proto-service
+test-suite test-proto-service
     import:           shared-properties
     import:           common-deps
     default-language: Haskell2010
@@ -276,7 +277,7 @@ executable test-proto-service
 
     -- other-extensions:
 
-    -- type:             exitcode-stdio-1.0
+    type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          PrototypeGenericService.hs
 
