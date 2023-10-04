@@ -9,6 +9,8 @@ import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 
+import HBS2.System.Logger.Simple
+
 import Codec.Serialise
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
@@ -121,16 +123,23 @@ makeRequestR input = do
     idx = findMethodIndex @method @api
 
 
+runWithContext :: r -> ReaderT r m a -> m a
+runWithContext co m = runReaderT m co
+
 makeServer :: forall api e m  . ( MonadIO m
                                 , EnumAll api (Int, SomeHandler m) m
                                 , Response e (ServiceProto api e) m
                                 , HasProtocol e (ServiceProto api e)
+                                , HasDeferred e (ServiceProto api e) m
                                 , Pretty (Peer e)
                                 )
                 => ServiceProto api e
                 -> m ()
 
-makeServer msg = dispatch @api @e msg >>= response
+makeServer msg = do
+  deferred proxy $ dispatch @api @e msg >>= response
+  where
+    proxy = Proxy @(ServiceProto api e)
 
 data ServiceCaller api e =
   ServiceCaller
@@ -224,4 +233,8 @@ makeClient :: forall api e m  . ( MonadIO m
                 -> m ()
 
 makeClient = notifyServiceCaller
+
+
+instance (HasProtocol e (ServiceProto api e)) => HasTimeLimits e (ServiceProto api e) IO where
+  tryLockForPeriod _ _ = pure True
 

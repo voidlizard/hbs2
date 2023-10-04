@@ -9,6 +9,7 @@ import HBS2.Clock
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto
 import HBS2.Prelude.Plated
+-- import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Service
 
 import HBS2.System.Logger.Simple
@@ -17,11 +18,12 @@ import Codec.Serialise
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import System.FilePath.Posix
-import System.IO
-import System.IO.Temp
+-- import System.IO
+-- import System.IO.Temp
 import UnliftIO.Async
 import Data.List
 
+import UnliftIO
 import Test.Tasty.HUnit
 
 data Method1
@@ -30,10 +32,14 @@ data Method2
 type MyServiceMethods1 = '[ Method1, Method2 ]
 
 instance HasProtocol UNIX  (ServiceProto MyServiceMethods1 UNIX) where
-  type instance ProtocolId (ServiceProto MyServiceMethods1 UNIX) = 1
+  type instance ProtocolId (ServiceProto MyServiceMethods1 UNIX) = 0xd79349a1bffb70c4
   type instance Encoded UNIX = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
+
+
+-- instance (MonadIO m, HasProtocol UNIX (ServiceProto MyServiceMethods1 UNIX)) => HasTimeLimits UNIX (ServiceProto MyServiceMethods1 UNIX) m where
+--   tryLockForPeriod _ _ = pure True
 
 instance MonadIO m => HandleMethod m Method1 where
   type instance Input Method1 = String
@@ -51,15 +57,9 @@ instance MonadIO m => HandleMethod m Method2 where
   handleMethod _ = pure ()
 
 
-instance Monad m => HasFabriq UNIX (ReaderT MessagingUnix m) where
-  getFabriq = asks Fabriq
-
-instance Monad m => HasOwnPeer UNIX (ReaderT MessagingUnix m) where
-  ownPeer = asks msgUnixSelf
-
-instance HasProtocol e (ServiceProto api e) => HasTimeLimits e (ServiceProto api e) IO where
-  tryLockForPeriod _ _ = pure True
-
+instance (HasProtocol UNIX (ServiceProto api UNIX), MonadUnliftIO m)
+  => HasDeferred UNIX (ServiceProto api UNIX) m where
+  deferred _ m = void (async m)
 
 main :: IO ()
 main = do
@@ -70,9 +70,6 @@ main = do
   setLogging @WARN   (logPrefix "[warn] ")
   setLogging @NOTICE (logPrefix "[notice] ")
   setLogging @TRACE  (logPrefix "[trace] ")
-
-  liftIO $ hSetBuffering stdout LineBuffering
-  liftIO $ hSetBuffering stderr LineBuffering
 
   withSystemTempDirectory "test-unix-socket" $ \tmp -> do
 

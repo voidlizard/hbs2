@@ -194,6 +194,7 @@ refChanNotifyRelyFn env chan msg@(Notify _ (SignedBox k box s)) = do
     forM_ notifiers $ \(RefChanNotifier _ q _)  -> do
       atomically $ writeTQueue q (Notify @UNIX chan (SignedBox k box s))
 
+refChanNotifyRelyFn _ _ _ = pure ()
 
 refChanAddDownload :: forall e m . ( m ~ PeerM e IO
                                    , MyPeer e

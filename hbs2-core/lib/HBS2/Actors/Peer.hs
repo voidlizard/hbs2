@@ -26,6 +26,8 @@ import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.System.Logger.Simple
 
+import Data.Config.Suckless.KeyValue (HasConf(..))
+
 import Control.Applicative
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
@@ -58,14 +60,6 @@ import Prettyprinter hiding (pipe)
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
                        deriving stock (Generic)
 
-class Monad m => HasOwnPeer e m where
-  ownPeer :: m (Peer e)
-
-
-data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
-
-class HasFabriq e m where
-  getFabriq :: m (Fabriq e)
 
 class ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
       , Eq (Encoded e)
@@ -198,6 +192,9 @@ runResponseM :: forall e m a . (Monad m)
              -> m a
 
 runResponseM peer f = runReaderT (fromResponse f) (ResponseEnv peer)
+
+instance HasConf m => HasConf (ResponseM e m) where
+  getConf = lift getConf
 
 instance Monad m => HasOwnPeer e (PeerM e m) where
   ownPeer = asks (view envSelf)

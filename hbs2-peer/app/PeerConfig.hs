@@ -9,17 +9,15 @@ module PeerConfig
 
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
-import HBS2.Base58
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
+import Data.Config.Suckless.KeyValue(HasConf(..))
 
 import Control.Exception
-import Data.Either
+import Control.Monad.Reader
 import Data.Functor
-import Data.Kind
 import Data.Maybe
-import Prettyprinter
 import System.Directory
 import System.FilePath
 import Data.Set qualified as Set
@@ -31,10 +29,12 @@ data FeatureSwitch =
   FeatureOn | FeatureOff
   deriving (Eq,Ord,Show,Generic)
 
+-- FIXME: ASAP-switch-to-Suckless-KeyValue-1
 class HasCfgKey a b where
   -- type family CfgValue a :: Type
   key :: Id
 
+-- FIXME: ASAP-switch-to-Suckless-KeyValue-2
 class HasCfgKey a b => HasCfgValue a b where
   cfgValue :: PeerConfig -> b
 
@@ -48,6 +48,9 @@ data PeerDownloadLogKey
 data PeerHttpPortKey
 data PeerTcpProbeWaitKey
 data PeerUseHttpDownload
+
+instance Monad m => HasConf (ReaderT PeerConfig m) where
+  getConf = asks (\(PeerConfig syn) -> syn)
 
 instance HasCfgKey PeerListenTCPKey (Maybe String) where
   key = "listen-tcp"
@@ -73,7 +76,7 @@ cfgName :: FilePath
 cfgName = "config"
 
 newtype PeerConfig =
-  PeerConfig [Syntax C]
+  PeerConfig { fromPeerConfig :: [Syntax C] }
   deriving newtype (Monoid, Semigroup, Pretty)
 
 

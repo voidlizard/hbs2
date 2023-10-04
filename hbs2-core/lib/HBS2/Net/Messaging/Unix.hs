@@ -1,8 +1,10 @@
 {-# Language TemplateHaskell #-}
+{-# Language UndecidableInstances #-}
 module HBS2.Net.Messaging.Unix where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
+import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging
 import HBS2.Clock
 
@@ -10,6 +12,7 @@ import HBS2.System.Logger.Simple
 
 import Control.Monad.Trans.Resource
 import Control.Monad
+import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Function
@@ -151,7 +154,6 @@ runMessagingUnix env = do
       run <- async $ forever $ runResourceT do
               (so, sa) <- liftIO $ accept sock
 
-
               -- FIXME: fixing-unix-sockets
               --  Вот тут: нумеруем клиентов, в PeerAddr ставим
               --  строку или номер.
@@ -162,8 +164,6 @@ runMessagingUnix env = do
                 pure n
 
               withSession do
-
-                ti <- liftIO myThreadId
 
                 let that = msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
 
@@ -323,9 +323,13 @@ instance Messaging MessagingUnix UNIX ByteString where
       atomically $ writeTQueue q msg
 
   receive bus _ = liftIO do
+
     let q = msgUnixRecv bus
     atomically $ peekTQueue q >> flushTQueue q
 
+instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT MessagingUnix m) where
+  getFabriq = asks Fabriq
 
-
+instance Monad m => HasOwnPeer UNIX (ReaderT MessagingUnix m) where
+  ownPeer = asks msgUnixSelf
 

@@ -6,6 +6,8 @@ module HBS2.Net.Proto.Definition
   )
   where
 
+-- FIXME: move-module-to-hbs2-peer
+
 import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Hash
@@ -23,6 +25,7 @@ import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
+import HBS2.Net.Proto.Service
 import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Prelude.Plated
 
@@ -196,7 +199,6 @@ instance HasProtocol L4Proto (DialResp L4Proto) where
   decode = dialRespDecode . BSL.toStrict
   encode = BSL.fromStrict . dialRespEncode
 
-
 instance Serialise (RefChanValidate UNIX) => HasProtocol UNIX (RefChanValidate UNIX) where
   type instance ProtocolId (RefChanValidate UNIX) = 0xFFFA0001
   type instance Encoded UNIX = ByteString
@@ -216,6 +218,7 @@ instance MonadIO m => HasNonces (RefChanValidate UNIX) m where
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 8 n
+
 
 instance HasTimeLimits UNIX (RefChanValidate UNIX) IO where
   tryLockForPeriod _ _ = pure True

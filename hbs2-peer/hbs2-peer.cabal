@@ -129,18 +129,37 @@ executable hbs2-peer
     import:           common-deps
     main-is:          PeerMain.hs
 
-    other-modules:    BlockDownload
+    other-modules:
+                      BlockDownload
                     , BlockHttpDownload
                     , DownloadQ
                     , DownloadMon
                     , EncryptionKeys
                     , Bootstrap
                     , PeerInfo
-                    , PeerMain.DialogCliCommand
+                    -- , PeerMain.DialogCliCommand
                     , PeerMain.Dialog.Server
                     , PeerMain.Dialog.Spec
                     , PeerMeta
-                    , RPC
+                    , SendBlockAnnounce
+                    , CheckBlockAnnounce
+                    , CheckPeer
+                    , Fetch
+                    , Log
+                    , RPC2
+                    , RPC2.Service.Unix
+                    , RPC2.API
+                    , RPC2.Types
+                    , RPC2.Poke
+                    , RPC2.Announce
+                    , RPC2.Fetch
+                    , RPC2.Die
+                    , RPC2.LogLevel
+                    , RPC2.Peers
+                    , RPC2.PexInfo
+                    , RPC2.Ping
+                    , RPC2.RefLog
+                    , RPC2.RefChan
                     , PeerTypes
                     , PeerConfig
                     , RefLog

@@ -388,9 +388,6 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
       pure new
 
 
-instance (HasConf (ReaderT Config IO)) where
-  getConf = ask
-
 instance HasStorage (ReaderT AnyStorage IO) where
   getStorage = ask
 

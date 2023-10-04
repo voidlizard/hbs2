@@ -34,18 +34,24 @@ import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
+import HBS2.Net.Proto.Service
+import HBS2.Net.Messaging.Unix (UNIX,newMessagingUnix,runMessagingUnix)
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Data.Detect
 
 import HBS2.System.Logger.Simple hiding (info)
-import HBS2.System.Logger.Simple qualified as Log
+
+-- FIXME: move-to-peer-config-eventually
+import Data.Config.Suckless.KeyValue(HasConf(..))
 
 import Brains
-import RPC
+import RPC2
 import PeerTypes
 import BlockDownload
 import BlockHttpDownload
+import CheckBlockAnnounce (checkBlockAnnounce)
+import CheckPeer (peerBanned)
 import DownloadQ
 import PeerInfo
 import PeerConfig
@@ -56,22 +62,23 @@ import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
 import ProxyMessaging
-import PeerMain.DialogCliCommand
-import PeerMain.Dialog.Server
-import PeerMain.Dialog.Spec
+-- import PeerMain.DialogCliCommand
+-- import PeerMain.Dialog.Server
 import PeerMeta
 import CLI.RefChan
 import RefChan
+import Log
+
+import RPC2.Service.Unix as RPC2
+import RPC2.API
 
 import Codec.Serialise as Serialise
--- import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Writer.CPS qualified as W
 import Crypto.Saltine (sodiumInit)
-import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
@@ -82,12 +89,8 @@ import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
-import Data.Text (Text)
 import Data.HashSet qualified as HashSet
-import GHC.Stats
-import GHC.TypeLits
 import Lens.Micro.Platform as Lens
 import Network.Socket
 import Options.Applicative
@@ -98,7 +101,6 @@ import System.Mem
 import System.Metrics
 import System.Posix.Process
 import System.Environment
-import Text.InterpolatedString.Perl6 (qc)
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -106,7 +108,6 @@ import UnliftIO.Async as U
 
 import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
-import Streaming qualified as S
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
@@ -123,23 +124,15 @@ defLocalMulticast = "239.192.152.145:10153"
 
 data PeerListenKey
 data PeerKeyFileKey
-data PeerBlackListKey
-data PeerWhiteListKey
 data PeerStorageKey
-data PeerAcceptAnnounceKey
+data PeerDebugKey
 data PeerTraceKey
 data PeerTrace1Key
 data PeerProxyFetchKey
 
-data AcceptAnnounce = AcceptAnnounceAll
-                    | AcceptAnnounceFrom (Set (PubKey 'Sign (Encryption L4Proto)))
 
-instance Pretty AcceptAnnounce where
-  pretty = \case
-    AcceptAnnounceAll     -> parens ("accept-announce" <+> "*")
-
-    -- FIXME: better-pretty-for-AcceptAnnounceFrom
-    AcceptAnnounceFrom xs -> parens ("accept-announce" <+> pretty (fmap AsBase58 (Set.toList xs)))
+instance HasCfgKey PeerDebugKey FeatureSwitch where
+  key = "debug"
 
 instance HasCfgKey PeerTraceKey FeatureSwitch where
   key = "trace"
@@ -156,27 +149,8 @@ instance HasCfgKey PeerKeyFileKey (Maybe String) where
 instance HasCfgKey PeerStorageKey (Maybe String) where
   key = "storage"
 
-instance HasCfgKey PeerBlackListKey (Set String) where
-  key = "blacklist"
-
-instance HasCfgKey PeerWhiteListKey (Set String) where
-  key = "whitelist"
-
 instance HasCfgKey PeerProxyFetchKey (Set String) where
   key = "proxy-fetch-for"
-
-instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
-  key = "accept-block-announce"
-
-instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
-  cfgValue (PeerConfig syn) = fromMaybe (AcceptAnnounceFrom lst) fromAll
-    where
-      fromAll = headMay [ AcceptAnnounceAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
-      lst = Set.fromList $
-                catMaybes [ fromStringMay @(PubKey 'Sign (Encryption L4Proto)) (Text.unpack e)
-                          | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
-                          ]
-      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
 
 
 data PeerOpts =
@@ -192,27 +166,12 @@ data PeerOpts =
 
 makeLenses 'PeerOpts
 
-tracePrefix :: SetLoggerEntry
-tracePrefix  = logPrefix "[trace] "
-
-debugPrefix :: SetLoggerEntry
-debugPrefix  = logPrefix "[debug] "
-
-errorPrefix :: SetLoggerEntry
-errorPrefix  = logPrefix "[error] "
-
-warnPrefix :: SetLoggerEntry
-warnPrefix   = logPrefix "[warn] "
-
-noticePrefix :: SetLoggerEntry
-noticePrefix = logPrefix "[notice] "
 
 main :: IO ()
 main = do
 
   sodiumInit
 
-  setLogging @DEBUG  debugPrefix
   setLogging @INFO   defLog
   setLogging @ERROR  errorPrefix
   setLogging @WARN   warnPrefix
@@ -223,30 +182,50 @@ main = do
 
   withSimpleLogger runCLI
 
-runCLI :: IO ()
-runCLI = join . customExecParser (prefs showHelpOnError) $
-  info (helper <*> parser)
-  (  fullDesc
-  <> header "hbs2-peer daemon"
-  <> progDesc "serves HBS2 protocol"
-  )
-  where
-    parser ::  Parser (IO ())
-    parser = hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
-                        <> command "run"       (info pRun  (progDesc "run peer"))
-                        <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
-                        <> command "die"       (info pDie (progDesc "die cmd"))
-                        <> command "announce"  (info pAnnounce (progDesc "announce block"))
-                        <> command "ping"      (info pPing (progDesc "ping another peer"))
-                        <> command "fetch"     (info pFetch (progDesc "fetch block"))
-                        <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
-                        <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
-                        <> command "peers"     (info pPeers (progDesc "show known peers"))
-                        <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
-                        <> command "log"       (info pLog   (progDesc "set logging level"))
 
-                        <> command "dial"      (info pDialog (progDesc "dialog commands"))
-                        )
+
+data GOpts =
+  GOpts
+  { goDebug :: Bool
+  , goTrace :: Bool
+  }
+
+runCLI :: IO ()
+runCLI = do
+
+  (g, cmd) <- customExecParser (prefs showHelpOnError) $
+            info (helper <*> parser)
+            (  fullDesc
+            <> header "hbs2-peer daemon"
+            <> progDesc "serves HBS2 protocol"
+            )
+
+  withOpts cmd g
+
+  where
+
+
+    parser ::  Parser (GOpts,IO ())
+    parser = do
+
+      (,) <$> ( GOpts <$> switch (long "debug" <> short 'd' <> help "debug mode on")
+                      <*> switch (long "trace" <> help "trace on" )
+              )
+          <*> hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
+                <> command "run"       (info pRun  (progDesc "run peer"))
+                <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
+                <> command "die"       (info pDie (progDesc "die cmd"))
+                <> command "announce"  (info pAnnounce (progDesc "announce block"))
+                <> command "ping"      (info pPing (progDesc "ping another peer"))
+                <> command "fetch"     (info pFetch (progDesc "fetch block"))
+                <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
+                <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
+                <> command "peers"     (info pPeers (progDesc "show known peers"))
+                <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
+                <> command "log"       (info pLog   (progDesc "set logging level"))
+                -- FIXME: bring-back-dialogue-over-separate-socket
+                -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
+                )
 
     confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
 
@@ -272,6 +251,16 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
       pure $ PeerOpts pref l r k c resp
 
+    withOpts m g = do
+
+      when (goDebug g) do
+        setLogging @DEBUG ( debugPrefix  . toStderr )
+
+      when (goTrace g) do
+        setLogging @TRACE ( tracePrefix  . toStderr )
+
+      m
+
     pRun = do
       runPeer <$> common
 
@@ -281,34 +270,59 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
     pDie = do
       rpc <- pRpcCommon
-      pure $ runRpcCommand rpc DIE
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        l <- async $ void $ callService @RpcDie caller ()
+        pause @'Seconds 0.25
+        cancel l
 
     pPoke = do
       rpc <- pRpcCommon
-      pure $ runRpcCommand rpc POKE
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        r <- callService @RpcPoke caller ()
+        case r of
+          Left e -> err (viaShow e)
+          Right txt -> putStrLn txt
 
     pAnnounce = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ runRpcCommand rpc (ANNOUNCE h)
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        void $ callService @RpcAnnounce caller h
 
     pFetch = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ runRpcCommand rpc (FETCH h)
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        void $ callService @RpcFetch caller h
 
     pPing = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
-      pure $ runRpcCommand rpc (PING h Nothing)
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        callService @RpcPing caller h >>= \case
+          Left e -> err (viaShow e)
+          Right True  -> putStrLn "pong"
+          Right False -> putStrLn "pang"
 
     pPeers = do
       rpc <- pRpcCommon
-      pure $ runRpcCommand rpc PEERS
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        r <- callService @RpcPeers caller ()
+        case r of
+          Left e -> err (viaShow e)
+          Right p -> do
+            print $ vcat (fmap fmt p)
+      where
+        fmt (a, b) = pretty (AsBase58 a) <+> pretty b
 
     pPexInfo = do
       rpc <- pRpcCommon
-      pure $ runRpcCommand rpc PEXINFO
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        r <- callService @RpcPexInfo caller ()
+        case r of
+          Left e -> err (viaShow e)
+          Right p -> do
+            print $ vcat (fmap pretty p)
 
     onOff l =
             hsubparser ( command "on" (info (pure (l True) ) (progDesc "on")  ) )
@@ -316,11 +330,12 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
 
     pLog = do
       rpc <- pRpcCommon
-      setlog <- SETLOG <$> ( hsubparser ( command "trace"  (info (onOff TraceOn) (progDesc "set trace")  ) )
-                               <|>
-                              hsubparser ( command "debug"  (info (onOff DebugOn) (progDesc "set debug")  ) )
-                            )
-      pure $ runRpcCommand rpc setlog
+      setlog <- hsubparser ( command "trace"  (info (onOff TraceOn) (progDesc "set trace")  ) )
+                  <|>
+                hsubparser ( command "debug"  (info (onOff DebugOn) (progDesc "set debug")  ) )
+
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
+        void $ callService @RpcLogLevel caller setlog
 
     pInit = do
       pref <- optional $ strArgument ( metavar "DIR" )
@@ -335,42 +350,38 @@ runCLI = join . customExecParser (prefs showHelpOnError) $
     pRefLogSend = do
       rpc <- pRpcCommon
       kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
-      pure $ do
-        setLogging @TRACE tracePrefix
-        trace "pRefLogSend"
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
         s <- BS.readFile kr
         creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
         let privk = view peerSignSk creds
-        msg <- makeRefLogUpdate @L4Proto pubk privk bs <&> serialise
-        runRpcCommand rpc (REFLOGUPDATE msg)
+        msg <- makeRefLogUpdate @L4Proto pubk privk bs
+        void $ callService @RpcRefLogPost caller msg
 
     pRefLogSendRaw = do
       rpc <- pRpcCommon
-      pure $ do
-        setLogging @TRACE tracePrefix
-        trace "pRefLogSendRaw"
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
         bs <- LBS.take defChunkSize  <$> LBS.hGetContents stdin
-        runRpcCommand rpc (REFLOGUPDATE bs)
+        msg <- pure (deserialiseOrFail @(RefLogUpdate L4Proto) bs) `orDie` "Invalid reflog transaction"
+        void $ callService @RpcRefLogPost caller msg
 
     pRefLogFetch = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ do
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
-        setLogging @TRACE tracePrefix
-        trace "pRefLogFetch"
-        runRpcCommand rpc (REFLOGFETCH href)
+        void $ callService @RpcRefLogFetch caller href
 
     pRefLogGet = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ do
+      pure $ withRPC2 @UNIX rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
-        setLogging @TRACE tracePrefix
-        runRpcCommand rpc (REFLOGGET href)
-
+        callService @RpcRefLogGet caller href >>= \case
+          Left{} -> exitFailure
+          Right Nothing -> exitFailure
+          Right (Just h) -> print (pretty h) >> exitSuccess
 
 myException :: SomeException -> IO ()
 myException e = err ( show e )
@@ -466,14 +477,13 @@ runPeer opts = Exception.handle (\e -> myException e
   liftIO $ print $ pretty conf
 
   let listenConf = cfgValue @PeerListenKey conf
-  let rpcConf = cfgValue @PeerRpcKey conf
   let keyConf = cfgValue @PeerKeyFileKey conf
   let storConf = cfgValue @PeerStorageKey conf <&> StoragePrefix
   let traceConf = cfgValue @PeerTraceKey conf :: FeatureSwitch
+  let debugConf = cfgValue @PeerDebugKey conf :: FeatureSwitch
   let trace1Conf = cfgValue @PeerTrace1Key conf :: FeatureSwitch
 
   let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
-  let rpcSa = view listenRpc opts <|> rpcConf <|> Just defRpcUDP
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
 
   let pref = view storage opts <|> storConf <|> Just xdg
@@ -485,38 +495,18 @@ runPeer opts = Exception.handle (\e -> myException e
 
   when (traceConf == FeatureOn) do
     setLogging @TRACE tracePrefix
+    setLogging @DEBUG debugPrefix
+
+  when (debugConf == FeatureOn) do
+    setLogging @DEBUG debugPrefix
 
   when (trace1Conf == FeatureOn) do
     setLogging @TRACE1 tracePrefix
 
-  let bls = cfgValue @PeerBlackListKey conf :: Set String
-  let whs = cfgValue @PeerWhiteListKey conf :: Set String
-  let toKeys xs = Set.fromList
-                    $ catMaybes [ fromStringMay x | x <- Set.toList xs
-                                ]
-  let blkeys = toKeys bls
-  let wlkeys = toKeys (whs `Set.difference` bls)
+
   let helpFetchKeys = cfgValue @PeerProxyFetchKey conf & toKeys
 
   let useHttpDownload = cfgValue @PeerUseHttpDownload conf & (== FeatureOn)
-
-  let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
-
-  liftIO $ print $ pretty accptAnn
-
-  -- FIXME: move-peerBanned-somewhere
-  let peerBanned p pd = do
-        let k = view peerSignKey pd
-        let blacklisted = k `Set.member` blkeys
-        let whitelisted = Set.null wlkeys || (k `Set.member` wlkeys)
-        pure $ blacklisted || not whitelisted
-
-  let acceptAnnounce p pd = do
-        case accptAnn of
-          AcceptAnnounceAll    -> pure True
-          AcceptAnnounceFrom s -> pure $ view peerSignKey pd `Set.member` s
-
-  rpcQ <- liftIO $ newTQueueIO @RPCCommand
 
   let ps = mempty
 
@@ -546,11 +536,6 @@ runPeer opts = Exception.handle (\e -> myException e
             `orDie` "unable listen on the given addr"
 
   udp <- async $ runMessagingUDP mess
-
-  udp1 <- newMessagingUDP False rpcSa
-            `orDie` "Can't start RPC listener"
-
-  mrpc <- async $ runMessagingUDP udp1
 
   mcast <- newMessagingUDPMulticast defLocalMulticast
             `orDie` "Can't start RPC listener"
@@ -747,13 +732,13 @@ runPeer opts = Exception.handle (\e -> myException e
                unless (nonce == pnonce) $ do
                  debug $ "Got peer announce!" <+> pretty pip
                  mpd :: Maybe (PeerData e) <- find (KnownPeerKey pip) id
-                 banned <- maybe (pure False) (peerBanned pip) mpd
+                 banned <- maybe (pure False) (peerBanned conf) mpd
                  let known = isJust mpd && not banned
                  sendPing pip
 
               subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                  pa <- toPeerAddr p
-                 liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
+                 checkBlockAnnounce conf denv no pa (view biHash bi)
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p pd) -> do
 
@@ -768,7 +753,7 @@ runPeer opts = Exception.handle (\e -> myException e
                       liftIO $ atomically $ writeTVar (view peerPingFailed pinfo) 0
                       liftIO $ atomically $ writeTVar (view peerLastWatched pinfo) now
 
-                banned <- peerBanned p pd
+                banned <- peerBanned conf pd
 
                 let doAddPeer p = do
                       addPeers pl [p]
@@ -904,100 +889,6 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
 
-                peerThread "ping pong" $ forever $ do
-                          cmd <- liftIO $ atomically $ readTQueue rpcQ
-                          case cmd of
-                            POKE -> debug "on poke: alive and kicking!"
-
-                            PING pa r -> do
-                              debug $ "ping" <+> pretty pa
-                              pip <- fromPeerAddr @e pa
-                              subscribe (ConcretePeerKey pip) $ \(ConcretePeerData _ pde) -> do
-
-                                maybe1 r (pure ()) $ \rpcPeer -> do
-                                  pinged <- toPeerAddr pip
-                                  request rpcPeer (RPCPong @e pinged)
-                                  -- case (view peerEncPubKey pde) of
-                                  --     Nothing -> unencrypted ping
-                                  --     Just pubkey -> encryptengd
-
-                              sendPing pip
-
-                            ANNOUNCE h  -> do
-                              debug $ "got announce rpc" <+> pretty h
-                              sto <- getStorage
-                              mbsize <- liftIO $ hasBlock sto h
-
-                              maybe1 mbsize (pure ()) $ \size -> do
-                                debug "send multicast announce"
-
-                                no <- peerNonce @e
-                                let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta size h
-                                let announce = BlockAnnounce @e no annInfo
-
-                                request localMulticast announce
-
-                                liftIO $ withPeerM env do
-                                  forKnownPeers $ \p _ -> do
-                                    debug $ "send single-cast announces" <+> pretty p
-                                    request @e p announce
-
-                            CHECK nonce pa h -> do
-                              pip <- fromPeerAddr @e pa
-
-                              n1 <- peerNonce @e
-
-                              unless (nonce == n1) do
-
-                                mpde <- find @e (KnownPeerKey pip) id
-
-                                debug $ "received announce from"
-                                              <+> pretty pip
-                                              <+> pretty h
-
-                                case mpde of
-                                  Nothing -> do
-                                    sendPing @e pip
-                                    -- TODO: enqueue-announce-from-unknown-peer?
-
-                                  Just pd  -> do
-
-                                    banned <- peerBanned pip pd
-
-                                    notAccepted <- acceptAnnounce pip pd <&> not
-
-                                    if | banned -> do
-
-                                          notice $ pretty pip <+> "banned"
-
-                                       | notAccepted -> do
-
-                                          debug $ pretty pip <+> "announce-not-accepted"
-
-                                       | otherwise -> do
-
-                                          downloadLogAppend @e h
-                                          withDownload denv $ do
-                                            processBlock h
-
-                            REFLOGUPDATE bs -> do
-
-                              trace "REFLOGUPDATE"
-
-                              let msg' = deserialiseOrFail @(RefLogUpdate L4Proto) bs
-                                          & either (const Nothing) Just
-
-                              when (isNothing msg') do
-                                warn "unable to parse RefLogUpdate message"
-
-                              maybe1 msg' none $ \msg -> do
-                                let pubk = view refLogId msg
-                                emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, msg))
-                                RefLog.doRefLogBroadCast msg
-
-                            _ -> pure ()
-
-
                 peerThread "all protos" do
                   runProto @e
                     [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
@@ -1013,100 +904,14 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
-                    -- , makeResponse (dialReqProto dialReqProtoAdapter)
                     ]
 
               void $ liftIO $ waitAnyCancel workers
 
-  let dieAction _ = do
-        liftIO $ die "received die command"
-
-  let pokeAction _ = do
-        who <- thatPeer (Proxy @(RPC e))
-        let k = view peerSignPk pc
-        let rpc  = "rpc:" <+> dquotes (pretty (listenAddr udp1))
-        let udp  = "udp:" <+> dquotes (pretty (listenAddr mess))
-
-        let http = case cfgValue @PeerHttpPortKey conf :: Maybe Integer of
-                     Nothing -> mempty
-                     Just p  -> "http-port:" <+> pretty p
-
-        let answ = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
-                               , rpc
-                               , udp
-                               , http
-                               ]
-
-        -- FIXME: to-delete-POKE
-        liftIO $ atomically $ writeTQueue rpcQ POKE
-        request who (RPCPokeAnswerFull @e (Text.pack answ))
-
-  let annAction h = do
-        liftIO $ atomically $ writeTQueue rpcQ (ANNOUNCE h)
-
-  let pingAction pa = do
-        that <- thatPeer (Proxy @(RPC e))
-        liftIO $ atomically $ writeTQueue rpcQ (PING pa (Just that))
-
-  let fetchAction h = do
-        debug  $ "fetchAction" <+> pretty h
-        liftIO $ withPeerM penv $ do
-                  downloadLogAppend @e h
-                  withDownload denv (processBlock h)
-
-  let peersAction _ = do
-        who <- thatPeer (Proxy @(RPC e))
-        void $ liftIO $ async $ withPeerM penv $ do
-          forKnownPeers @e $ \p pde -> do
-              pa <- toPeerAddr p
-              let k = view peerSignKey pde
-              request who (RPCPeersAnswer @e pa k)
-
-  let pexInfoAction :: RPC L4Proto -> ResponseM L4Proto (RpcM (ResourceT IO)) ()
-      pexInfoAction _ = do
-        who <- thatPeer (Proxy @(RPC e))
-        void $ liftIO $ async $ withPeerM penv $ do
-            -- FIXME: filter-pexinfo-entries
-            ps <- getAllPex2Peers
-            request who (RPCPexInfoAnswer @e ps)
-
-  let logLevelAction = \case
-        DebugOn True  -> do
-          setLogging @DEBUG debugPrefix
-          debug "DebugOn"
-
-        DebugOn False -> do
-          debug "DebugOff"
-          setLoggingOff @DEBUG
-
-        TraceOn True -> do
-          setLogging @TRACE tracePrefix
-          trace "TraceOn"
-
-        TraceOn False -> do
-          trace "TraceOff"
-          setLoggingOff @TRACE
-
-  let reflogUpdateAction bs = void $ runMaybeT do
-        liftIO $ atomically $ writeTQueue rpcQ (REFLOGUPDATE bs)
-        -- trace $ "reflogUpdateAction"
-        --
-  let reflogFetchAction puk = do
-        trace "reflogFetchAction"
-        void $ liftIO $ async $ withPeerM penv $ do
-          broadCastMessage (RefLogRequest @e puk)
-
-  let reflogGetAction puk = do
-        trace $ "reflogGetAction" <+> pretty (AsBase58 puk)
-        who <- thatPeer (Proxy @(RPC e))
-        void $ liftIO $ async $ withPeerM penv $ do
-          sto <- getStorage
-          h <- liftIO $ getRef sto (RefLogKey @(Encryption e) puk)
-          request who (RPCRefLogGetAnswer @e  h)
-
-  let refChanHeadSendAction h = do
-        trace $ "refChanHeadSendAction" <+> pretty h
-        void $ liftIO $ async $ withPeerM penv $ do
+  let refChanHeadPostAction href = do
+        void $ liftIO $ withPeerM penv $ do
+          let h = fromHashRef href
+          debug $ "rpc2.refChanHeadPost" <+> pretty h
           me <- ownPeer @e
           sto <- getStorage
 
@@ -1119,114 +924,27 @@ runPeer opts = Exception.handle (\e -> myException e
           let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) e) (LBS.concat chunks)
 
           case box of
+            -- FIXME: proper-error-handling
             Left{} -> err $ "can't read head block" <+> pretty h
             Right (SignedBox k _ _) -> do
               let msg = RefChanHead k (RefChanHeadBlockTran (HashRef h))
               refChanNotifyOnUpdated rce k
               runResponseM me $ refChanHeadProto @e True refChanAdapter msg
 
-  let refChanHeadGetAction puk = do
-        trace $ "refChanHeadGetAction" <+> pretty (AsBase58 puk)
-        who <- thatPeer (Proxy @(RPC e))
-        void $ liftIO $ async $ withPeerM penv $ do
-          sto <- getStorage
-          h <- liftIO $ getRef sto (RefChanHeadKey @(Encryption e) puk)
-          request who (RPCRefChanHeadGetAnsw @e  h)
-
-  let refChanHeadFetchAction puk = do
-        trace "reChanFetchAction"
-        void $ liftIO $ async $ withPeerM penv $ do
-          broadCastMessage (RefChanGetHead @e puk)
-
-  let refChanProposeAction (puk, lbs) = do
-        trace "reChanProposeAction"
-        void $ liftIO $ async $ withPeerM penv $ do
+  let refChanProposeAction (puk, box) = do
+        debug $ "rpc2.reChanPropose" <+> pretty (AsBase58 puk)
+        void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
-            box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
             proposed <- MaybeT $ makeProposeTran @e pc puk box
-
-            -- debug $ "PROPOSAL:" <+> pretty (LBS.length (serialise proposed))
-            -- lift $ broadCastMessage (Propose @e puk proposed)
-
-            -- FIXME: remove-this-debug-stuff
-            --   или оставить? нода будет сама себе
-            --   консенсус слать тогда. может, и оставить
             lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
 
-  let refChanNotifyAction (puk, lbs) = do
-        trace "refChanNotifyAction"
-        void $ liftIO $ async $ withPeerM penv $ do
+  -- NOTE: moved-to-rpc2
+  let refChanNotifyAction (puk, box) = do
+        void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
-            box <- MaybeT $ pure $ deserialiseOrFail lbs & either (const Nothing) Just
             lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (Notify @e puk box)
-
-  let refChanGetAction puk = do
-        trace $ "refChanGetAction" <+> pretty (AsBase58 puk)
-        who <- thatPeer (Proxy @(RPC e))
-        void $ liftIO $ async $ withPeerM penv $ do
-          sto <- getStorage
-          h <- liftIO $ getRef sto (RefChanLogKey @(Encryption e) puk)
-          trace $ "refChanGetAction ANSWER IS" <+> pretty h
-          request who (RPCRefChanGetAnsw @e  h)
-
-  let refChanFetchAction puk = do
-        trace $ "refChanFetchAction" <+> pretty (AsBase58 puk)
-        void $ liftIO $ async $ withPeerM penv $ do
-          gossip (RefChanRequest @e puk)
-
-  let arpc = RpcAdapter
-          { rpcOnPoke          = pokeAction
-          , rpcOnDie           = dieAction
-          , rpcOnPokeAnswer    = dontHandle
-          , rpcOnPokeAnswerFull = dontHandle
-          , rpcOnAnnounce      = annAction
-          , rpcOnPing          = pingAction
-          , rpcOnPong          = dontHandle
-          , rpcOnFetch         = fetchAction
-          , rpcOnPeers         = peersAction
-          , rpcOnPeersAnswer   = dontHandle
-          , rpcOnPexInfo       = pexInfoAction
-          , rpcOnPexInfoAnswer = dontHandle
-          , rpcOnLogLevel      = logLevelAction
-          , rpcOnRefLogUpdate  = reflogUpdateAction
-          , rpcOnRefLogFetch   = reflogFetchAction
-          , rpcOnRefLogGet     = reflogGetAction
-          , rpcOnRefLogGetAnsw = dontHandle
-
-          , rpcOnRefChanHeadSend = refChanHeadSendAction
-          , rpcOnRefChanHeadGet = refChanHeadGetAction
-          , rpcOnRefChanHeadGetAnsw = dontHandle
-          , rpcOnRefChanHeadFetch = refChanHeadFetchAction
-
-          , rpcOnRefChanFetch   = refChanFetchAction
-          , rpcOnRefChanGet     = refChanGetAction
-          , rpcOnRefChanGetAnsw = dontHandle -- rpcOnRefChanGetAnsw
-
-          , rpcOnRefChanPropose = refChanProposeAction
-          , rpcOnRefChanNotify = refChanNotifyAction
-          }
-
-  dialReqProtoAdapter <- do
-      let denv = DialEnv
-
-      let dialReqProtoAdapterDApp = drpcFullDApp denv penv
-
-          -- dialReqProtoAdapterNT :: ResponseM L4Proto (RpcM (ResourceT IO)) a -> IO a
-          dialReqProtoAdapterNT :: Peer e -> forall a . ResponseM L4Proto (RpcM (ResourceT IO)) a -> IO a
-          dialReqProtoAdapterNT = \peer ->
-                runResourceT
-              . runRPC udp1
-              . runResponseM peer
-
-      pure DialReqProtoAdapter {..}
-
-  rpc <- async $ runRPC udp1 do
-                   runProto @e
-                     [ makeResponse (rpcHandler arpc)
-                     , makeResponse (dialReqProto dialReqProtoAdapter)
-                     ]
 
   menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
 
@@ -1237,7 +955,7 @@ runPeer opts = Exception.handle (\e -> myException e
                    subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                     unless (p == self) do
                       pa <- toPeerAddr p
-                      liftIO $ atomically $ writeTQueue rpcQ (CHECK no pa (view biHash bi))
+                      checkBlockAnnounce conf denv no pa (view biHash bi)
 
                    subscribe @e PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent pip nonce) -> do
                       -- debug $ "Got peer announce!" <+> pretty pip
@@ -1248,7 +966,34 @@ runPeer opts = Exception.handle (\e -> myException e
                      , makeResponse peerAnnounceProto
                      ]
 
-  void $ waitAnyCancel $ w <> [udp,loop,rpc,mrpc,ann,messMcast,brainsThread]
+
+  let k = view peerSignPk pc
+
+  let http = case cfgValue @PeerHttpPortKey conf :: Maybe Integer of
+               Nothing -> mempty
+               Just p  -> "http-port:" <+> pretty p
+
+  let pokeAnsw = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
+                             , "udp:" <+> dquotes (pretty (listenAddr mess))
+                             , "local-multicast:" <+> dquotes (pretty localMulticast)
+                             , http
+                             ]
+
+  let rpc2ctx = RPC2Context { rpcConfig = fromPeerConfig conf
+                            , rpcPokeAnswer = pokeAnsw
+                            , rpcPeerEnv = penv
+                            , rpcDownloadEnv = denv
+                            , rpcLocalMultiCast = localMulticast
+                            , rpcStorage = AnyStorage s
+                            , rpcDoRefChanHeadPost = refChanHeadPostAction
+                            , rpcDoRefChanPropose = refChanProposeAction
+                            , rpcDoRefChanNotify = refChanNotifyAction
+                            }
+
+  rpc2 <- async (runReaderT RPC2.runService rpc2ctx)
+  link rpc2
+
+  void $ waitAnyCancel $ w <> [udp,loop,rpc2,ann,messMcast,brainsThread]
 
   liftIO $ simpleStorageStop s
 

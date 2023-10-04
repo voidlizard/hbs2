@@ -56,10 +56,12 @@ import Data.IntSet (IntSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Heap qualified as Heap
-import Data.Heap (Heap,Entry(..))
+import Data.Heap (Entry(..))
 import Data.Time.Clock
 import Data.Word
 import Data.List qualified as List
+import Data.Set qualified as Set
+import Data.Set (Set)
 
 import UnliftIO.STM
 
@@ -450,6 +452,31 @@ mkPeerMeta conf penv = do
   where
     elem k = W.tell . L.singleton . (k ,)
 
+pingPeerWait :: forall e m . ( MonadIO m
+                             , Request e (PeerHandshake e) m
+                             , Sessions e (PeerHandshake e) m
+                             , HasNonces (PeerHandshake e) m
+                             , EventListener L4Proto (ConcretePeer L4Proto) m
+                             , Pretty (Peer e)
+                             , e ~ L4Proto
+                             )
+         => PeerAddr e
+         -> m Bool
+
+pingPeerWait pa = do
+  pip <- fromPeerAddr @e pa
+
+  w <- newTQueueIO
+
+  subscribe (ConcretePeerKey pip) $ \(ConcretePeerData _ _) -> do
+    atomically $ writeTQueue w ()
+
+  sendPing @e pip
+
+  r <- liftIO $ race (pause @'Seconds 1) (void $ atomically $ readTQueue w)
+
+  either (const $ pure False) (const $ pure True) r
+
 
 -- FIXME: slow-deep-scan-exception-seems-not-working
 checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
@@ -524,6 +551,12 @@ instance (ForGossip e p (ResponseM e m), HasGossip e p m) => HasGossip e p (Resp
     forKnownPeers $ \pip _ -> do
       unless (that == pip) do
         request @e pip msg
+
+
+toKeys :: (Ord a, FromStringMaybe a) => Set String -> Set a
+toKeys xs = Set.fromList
+               $ catMaybes [ fromStringMay x | x <- Set.toList xs
+                           ]
 
 
 simpleBlockAnnounce :: forall e m  . ( Monad m

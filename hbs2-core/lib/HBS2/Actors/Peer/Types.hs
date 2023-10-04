@@ -4,6 +4,7 @@ module HBS2.Actors.Peer.Types where
 import HBS2.Prelude
 import HBS2.Storage
 import HBS2.Net.Proto.Types
+import HBS2.Net.Messaging
 import HBS2.Hash
 
 import Control.Monad.Trans.Class
@@ -20,6 +21,8 @@ instance {-# OVERLAPPABLE #-}
     -- pure True
     -- liftIO $ print "LIMIT DOES NOT WORK"
     -- pure True
+
+-- instance HasConf m => HasConf (ResponseM e m)
 
 
 instance (IsKey HbSync) => Storage AnyStorage HbSync ByteString IO where
@@ -46,5 +49,15 @@ instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
 
 class (Monad m, HasProtocol e p) => HasGossip e p m where
   gossip :: p -> m ()
+
+
+class Monad m => HasOwnPeer e m where
+  ownPeer :: m (Peer e)
+
+
+data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
+
+class HasFabriq e m where
+  getFabriq :: m (Fabriq e)
 
 

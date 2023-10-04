@@ -239,6 +239,7 @@ reflogWorker conf adapter = do
 
           for_ (HashMap.toList byRef) $ \(r,x) -> do
             let reflogkey = RefLogKey @s r
+
             h' <- liftIO $! getRef sto (RefLogKey @s r)
 
             hashes <- liftIO $ readHashesFromBlock sto h' <&> HashSet.fromList
@@ -249,6 +250,7 @@ reflogWorker conf adapter = do
                                                                     <&> HashSet.fromList
 
             let already = newHashes `HashSet.isSubsetOf` hashes
+
 
             unless already do
               -- TODO: needs-very-fast-sort-and-dedupe
@@ -266,7 +268,7 @@ reflogWorker conf adapter = do
 
               -- TODO: old-root-to-delete
 
-              trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty newRoot
+              trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty (hashObject @HbSync reflogkey) <+> pretty newRoot
 
           -- trace  "I'm a reflog update worker"
 
