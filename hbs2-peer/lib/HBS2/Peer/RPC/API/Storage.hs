@@ -10,7 +10,6 @@ data RpcStorageUpdateRef
 data RpcStorageDelRef
 
 type StorageAPI = '[ RpcStorageHasBlock
-                   , RpcStorageHasBlock
                    , RpcStorageGetBlock
                    , RpcStorageEnqueueBlock
                    , RpcStoragePutBlock
