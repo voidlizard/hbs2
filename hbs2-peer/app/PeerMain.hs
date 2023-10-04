@@ -18,13 +18,12 @@ import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
-import HBS2.Net.Messaging
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
-import HBS2.Net.Proto.Dialog
+-- import HBS2.Net.Proto.Dialog
 import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
@@ -35,7 +34,6 @@ import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Service
-import HBS2.Net.Messaging.Unix (UNIX,newMessagingUnix,runMessagingUnix)
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Data.Detect
@@ -46,7 +44,6 @@ import HBS2.System.Logger.Simple hiding (info)
 import Data.Config.Suckless.KeyValue(HasConf(..))
 
 import Brains
-import RPC2
 import PeerTypes
 import BlockDownload
 import BlockHttpDownload
@@ -65,11 +62,13 @@ import ProxyMessaging
 -- import PeerMain.DialogCliCommand
 -- import PeerMain.Dialog.Server
 import PeerMeta
+import CLI.Common
 import CLI.RefChan
 import RefChan
 import Log
 
 import RPC2.Service.Unix as RPC2
+import RPC2.Service.Storage.Unix qualified as RS
 import RPC2.API
 
 import Codec.Serialise as Serialise
@@ -270,14 +269,14 @@ runCLI = do
 
     pDie = do
       rpc <- pRpcCommon
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         l <- async $ void $ callService @RpcDie caller ()
         pause @'Seconds 0.25
         cancel l
 
     pPoke = do
       rpc <- pRpcCommon
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         r <- callService @RpcPoke caller ()
         case r of
           Left e -> err (viaShow e)
@@ -286,19 +285,19 @@ runCLI = do
     pAnnounce = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         void $ callService @RpcAnnounce caller h
 
     pFetch = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         void $ callService @RpcFetch caller h
 
     pPing = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         callService @RpcPing caller h >>= \case
           Left e -> err (viaShow e)
           Right True  -> putStrLn "pong"
@@ -306,7 +305,7 @@ runCLI = do
 
     pPeers = do
       rpc <- pRpcCommon
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         r <- callService @RpcPeers caller ()
         case r of
           Left e -> err (viaShow e)
@@ -317,7 +316,7 @@ runCLI = do
 
     pPexInfo = do
       rpc <- pRpcCommon
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         r <- callService @RpcPexInfo caller ()
         case r of
           Left e -> err (viaShow e)
@@ -334,7 +333,7 @@ runCLI = do
                   <|>
                 hsubparser ( command "debug"  (info (onOff DebugOn) (progDesc "set debug")  ) )
 
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         void $ callService @RpcLogLevel caller setlog
 
     pInit = do
@@ -350,7 +349,7 @@ runCLI = do
     pRefLogSend = do
       rpc <- pRpcCommon
       kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         s <- BS.readFile kr
         creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
@@ -361,7 +360,7 @@ runCLI = do
 
     pRefLogSendRaw = do
       rpc <- pRpcCommon
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         bs <- LBS.take defChunkSize  <$> LBS.hGetContents stdin
         msg <- pure (deserialiseOrFail @(RefLogUpdate L4Proto) bs) `orDie` "Invalid reflog transaction"
         void $ callService @RpcRefLogPost caller msg
@@ -369,14 +368,14 @@ runCLI = do
     pRefLogFetch = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
         void $ callService @RpcRefLogFetch caller href
 
     pRefLogGet = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ withRPC2 @UNIX rpc $ \caller -> do
+      pure $ withMyRPC rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
         callService @RpcRefLogGet caller href >>= \case
           Left{} -> exitFailure
@@ -993,7 +992,17 @@ runPeer opts = Exception.handle (\e -> myException e
   rpc2 <- async (runReaderT RPC2.runService rpc2ctx)
   link rpc2
 
-  void $ waitAnyCancel $ w <> [udp,loop,rpc2,ann,messMcast,brainsThread]
+  rpcStorage <- async (runReaderT (RS.runService (AnyStorage s)) conf)
+  link rpcStorage
+
+  void $ waitAnyCancel $ w <> [ udp
+                              , loop
+                              , rpc2
+                              , rpcStorage
+                              , ann
+                              , messMcast
+                              , brainsThread
+                              ]
 
   liftIO $ simpleStorageStop s
 

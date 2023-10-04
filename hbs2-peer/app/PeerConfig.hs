@@ -183,6 +183,7 @@ peerConfigRead mbfp = do
           else pure x
       canonicalizeConfPaths _ _ x = pure x
 
+
 instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
   cfgValue (PeerConfig syn) = val
     where

@@ -7,16 +7,11 @@ module HBS2.Data.Types.Refs
 
 import HBS2.Base58
 import HBS2.Hash
-import HBS2.Merkle
 import HBS2.Net.Proto.Types
-import HBS2.Net.Auth.Credentials
 import HBS2.Prelude
 
 import Codec.Serialise(serialise)
 import Data.Data
-import GHC.Generics
-import Data.Hashable hiding (Hashed)
-import Data.Maybe (fromMaybe)
 
 newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty,Hashable)
@@ -67,7 +62,6 @@ instance Serialise SequentialRef
 instance Serialise HashRef
 
 
-
 type IsRefPubKey s =  ( Eq (PubKey 'Sign s)
                       , Serialise (PubKey 'Sign s)
                       , FromStringMaybe (PubKey 'Sign s)
@@ -81,5 +75,16 @@ newtype SomeRefKey a = SomeRefKey a
 -- TODO: fix-slow-hash-calculation
 instance Serialise a => Hashed HbSync (SomeRefKey a) where
   hashObject (SomeRefKey s) = hashObject (serialise s)
+
+newtype RefAlias = RefAlias { unRefAlias :: HashRef }
+                   deriving stock (Eq,Ord,Show)
+                   deriving newtype (Pretty,Serialise)
+
+instance Hashed HbSync RefAlias  where
+  hashObject (RefAlias h) = fromHashRef h
+
+
+refAlias :: Hashed HbSync ref => ref -> RefAlias
+refAlias x = RefAlias (HashRef $ hashObject @HbSync x)
 
 

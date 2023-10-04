@@ -5,10 +5,9 @@ import HBS2.Hash
 import HBS2.Prelude.Plated
 
 import Data.Kind
-import Data.Hashable hiding (Hashed)
 import Lens.Micro.Platform
-import Prettyprinter
 
+import Codec.Serialise()
 
 class Pretty (Hash h) => IsKey h where
   type family Key h :: Type
@@ -21,11 +20,11 @@ newtype StoragePrefix = StoragePrefix  { fromPrefix :: FilePath }
                         deriving newtype (IsString,Pretty)
 
 newtype Offset = Offset Integer
-                 deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty)
+                 deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty,Serialise)
                  deriving stock (Show)
 
 newtype Size = Size Integer
-               deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty)
+               deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty,Serialise)
                deriving stock (Show)
 
 class ( Monad m

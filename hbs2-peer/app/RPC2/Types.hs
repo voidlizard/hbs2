@@ -1,9 +1,13 @@
-module RPC2.Types where
+module RPC2.Types
+  ( module RPC2.Types
+  , module HBS2.Peer.RPC.Class
+  ) where
 
 import HBS2.Actors.Peer
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs (HashRef)
 import HBS2.Data.Types.SignedBox
+import HBS2.Peer.RPC.Class
 
 import Data.Config.Suckless.Syntax
 import PeerTypes (DownloadEnv(..))
@@ -24,6 +28,4 @@ data RPC2Context =
   , rpcDoRefChanNotify    :: (PubKey 'Sign HBS2Basic, SignedBox ByteString L4Proto) -> IO ()
   }
 
-class HasRpcContext a m where
-  getRpcContext :: m a
 
