@@ -2,14 +2,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PolyKinds #-}
-module HBS2.Net.Proto.Service where
+module HBS2.Net.Proto.Service
+  ( module HBS2.Net.Proto.Service
+  , module HBS2.Net.Proto.Types
+  ) where
 
 import HBS2.Actors.Peer
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto
+import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
-
-import HBS2.System.Logger.Simple
 
 import Codec.Serialise
 import Control.Monad.Reader

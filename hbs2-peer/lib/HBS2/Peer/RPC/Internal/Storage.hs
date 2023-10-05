@@ -16,7 +16,6 @@ import HBS2.Peer.RPC.API.Storage
 
 import HBS2.Net.Proto.Service
 
-import HBS2.Peer.RPC.Internal.Types
 
 import Data.Functor
 import Data.ByteString.Lazy ( ByteString )
@@ -55,6 +54,14 @@ instance (StorageContext m) => HandleMethod m RpcStoragePutBlock where
   handleMethod lbs = do
     sto <- getStorage
     liftIO $ putBlock sto lbs <&> fmap HashRef
+
+instance (StorageContext m) => HandleMethod m RpcStorageDelBlock where
+  type instance Input RpcStorageDelBlock = HashRef
+  type instance Output RpcStorageDelBlock = ()
+
+  handleMethod href = do
+    sto <- getStorage
+    liftIO $ delBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageGetChunk where
   type instance Input RpcStorageGetChunk = (HashRef, Offset, Size)

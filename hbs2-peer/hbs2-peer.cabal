@@ -136,6 +136,7 @@ library
       HBS2.Peer.RPC.API
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
+      HBS2.Peer.RPC.Client.StorageClient
       HBS2.Peer.RPC.Internal.Storage
       HBS2.Peer.RPC.Internal.Types
 

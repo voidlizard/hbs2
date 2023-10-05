@@ -2,6 +2,7 @@
 module Main where
 
 import HBS2.Hash
+import HBS2.Base58
 import HBS2.Actors.Peer
 import HBS2.Data.Types.Refs
 import HBS2.Net.Messaging.Unix
@@ -13,6 +14,7 @@ import HBS2.Peer.RPC.Client.Unix
 
 import HBS2.Peer.RPC.Class
 import HBS2.Peer.RPC.Internal.Storage()
+import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2.OrDie
 
@@ -91,19 +93,28 @@ main = do
 
     withRPC2 @StorageAPI soname $ \caller -> do
 
+      let cto = StorageClient caller
+
       info "does it work?"
 
       size <- callService @RpcStorageHasBlock caller (HashRef h1) `orDie` "can't read block"
 
-      info $ "got block size: " <+> pretty size
+      size2 <- hasBlock cto h1
+
+      info $ "got block size: " <+> pretty size <+> pretty size2
 
       assertBool "block-size-1" (size == Just (fromIntegral $ LBS.length blk1))
 
+      assertBool "block-size-1.1" (fromJust size == fromJust size2)
+
       b <-  callService @RpcStorageGetBlock caller (HashRef h1) `orDie` "can't read block"
 
-      info $ "got block" <+> viaShow b
+      b1 <- getBlock cto h1 `orDie` "cant read  block via storage"
+
+      info $ "got block (0)" <+> viaShow b <+> viaShow b1
 
       assertBool "block-eq-1" ( b == Just blk1 )
+      assertBool "block-eq-1.1" ( b1 == blk1 )
 
       let pechen = "PECHENTERSKI"
 
@@ -113,11 +124,20 @@ main = do
 
       let hh2  = fromJust h2
 
+      let jopakita = "JOPAKITA"
+      h3 <- putBlock cto jopakita `orDie` "cant store block via client storage"
+
+      blk3 <- getBlock cto h3 `orDie` "cant read block via client storage"
+
+      info $ "stored block value" <+> viaShow jopakita <+> viaShow blk3
+
       blk2 <- callService @RpcStorageGetBlock caller hh2 `orDie` "block lookup failed"
 
       info $ "stored block value:" <+> viaShow blk2
 
-      assertBool "block-eq-2" (Just pechen == blk2)
+      assertBool "block-eq-2.1" (Just pechen == blk2)
+
+      assertBool "block-eq-2.2" (jopakita == blk3)
 
       let rk2 = refAlias rk1
 
@@ -140,6 +160,19 @@ main = do
       info $ "rk4val" <+> pretty rk4val
 
       assertBool "ref-alias-works-2" (fromJust rk4val == fromHashRef hh2)
+
+      updateRef cto (SomeRefKey jopakita) h3
+
+      vjopa <- getRef cto (SomeRefKey jopakita)
+
+      info $ "refkey via client storage" <+> pretty vjopa <+> pretty h3
+
+      assertBool "ref-alias-works-3" (vjopa == Just h3)
+
+      pure ()
+
+
+
 
   setLoggingOff @DEBUG
   setLoggingOff @INFO

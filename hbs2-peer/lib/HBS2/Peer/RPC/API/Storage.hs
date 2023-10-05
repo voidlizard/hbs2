@@ -14,6 +14,7 @@ data RpcStorageHasBlock
 data RpcStorageGetBlock
 data RpcStorageEnqueueBlock
 data RpcStoragePutBlock
+data RpcStorageDelBlock
 data RpcStorageGetChunk
 data RpcStorageGetRef
 data RpcStorageUpdateRef
@@ -23,6 +24,7 @@ type StorageAPI = '[ RpcStorageHasBlock
                    , RpcStorageGetBlock
                    , RpcStorageEnqueueBlock
                    , RpcStoragePutBlock
+                   , RpcStorageDelBlock
                    , RpcStorageGetChunk
                    , RpcStorageGetRef
                    , RpcStorageUpdateRef
