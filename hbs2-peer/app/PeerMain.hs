@@ -20,6 +20,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
+import HBS2.Net.Messaging.Unix
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
@@ -39,9 +40,6 @@ import HBS2.Storage.Simple
 import HBS2.Data.Detect
 
 import HBS2.System.Logger.Simple hiding (info)
-
--- FIXME: move-to-peer-config-eventually
-import Data.Config.Suckless.KeyValue(HasConf(..))
 
 import Brains
 import PeerTypes
@@ -65,11 +63,16 @@ import PeerMeta
 import CLI.Common
 import CLI.RefChan
 import RefChan
+import Fetch (fetchHash)
 import Log
 
-import RPC2.Service.Unix as RPC2
-import RPC2.Service.Storage.Unix qualified as RS
-import RPC2.API
+import HBS2.Peer.RPC.Internal.Types()
+import HBS2.Peer.RPC.Internal.Storage()
+import HBS2.Peer.RPC.API.Storage
+
+import RPC2.Peer
+import RPC2.RefLog
+import RPC2.RefChan
 
 import Codec.Serialise as Serialise
 import Control.Concurrent.STM
@@ -88,7 +91,6 @@ import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.Text qualified as Text
 import Data.HashSet qualified as HashSet
 import Lens.Micro.Platform as Lens
 import Network.Socket
@@ -269,14 +271,14 @@ runCLI = do
 
     pDie = do
       rpc <- pRpcCommon
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         l <- async $ void $ callService @RpcDie caller ()
         pause @'Seconds 0.25
         cancel l
 
     pPoke = do
       rpc <- pRpcCommon
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         r <- callService @RpcPoke caller ()
         case r of
           Left e -> err (viaShow e)
@@ -285,19 +287,19 @@ runCLI = do
     pAnnounce = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         void $ callService @RpcAnnounce caller h
 
     pFetch = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "HASH" )
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         void $ callService @RpcFetch caller h
 
     pPing = do
       rpc <- pRpcCommon
       h   <- strArgument ( metavar "ADDR" )
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         callService @RpcPing caller h >>= \case
           Left e -> err (viaShow e)
           Right True  -> putStrLn "pong"
@@ -305,7 +307,7 @@ runCLI = do
 
     pPeers = do
       rpc <- pRpcCommon
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         r <- callService @RpcPeers caller ()
         case r of
           Left e -> err (viaShow e)
@@ -316,7 +318,7 @@ runCLI = do
 
     pPexInfo = do
       rpc <- pRpcCommon
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         r <- callService @RpcPexInfo caller ()
         case r of
           Left e -> err (viaShow e)
@@ -333,7 +335,7 @@ runCLI = do
                   <|>
                 hsubparser ( command "debug"  (info (onOff DebugOn) (progDesc "set debug")  ) )
 
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
         void $ callService @RpcLogLevel caller setlog
 
     pInit = do
@@ -349,7 +351,7 @@ runCLI = do
     pRefLogSend = do
       rpc <- pRpcCommon
       kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
         s <- BS.readFile kr
         creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
@@ -360,7 +362,7 @@ runCLI = do
 
     pRefLogSendRaw = do
       rpc <- pRpcCommon
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
         bs <- LBS.take defChunkSize  <$> LBS.hGetContents stdin
         msg <- pure (deserialiseOrFail @(RefLogUpdate L4Proto) bs) `orDie` "Invalid reflog transaction"
         void $ callService @RpcRefLogPost caller msg
@@ -368,14 +370,14 @@ runCLI = do
     pRefLogFetch = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
         void $ callService @RpcRefLogFetch caller href
 
     pRefLogGet = do
       rpc <- pRpcCommon
       ref <- strArgument ( metavar "REFLOG-KEY" )
-      pure $ withMyRPC rpc $ \caller -> do
+      pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
         href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
         callService @RpcRefLogGet caller href >>= \case
           Left{} -> exitFailure
@@ -978,27 +980,38 @@ runPeer opts = Exception.handle (\e -> myException e
                              , http
                              ]
 
+  let rpcSa = getRpcSocketName conf
+  rpc2msg <- newMessagingUnixOpts [MUFork] True 1.0 rpcSa
+
   let rpc2ctx = RPC2Context { rpcConfig = fromPeerConfig conf
+                            , rpcMessaging = rpc2msg
                             , rpcPokeAnswer = pokeAnsw
                             , rpcPeerEnv = penv
-                            , rpcDownloadEnv = denv
                             , rpcLocalMultiCast = localMulticast
                             , rpcStorage = AnyStorage s
+                            , rpcDoFetch = liftIO . fetchHash penv denv
                             , rpcDoRefChanHeadPost = refChanHeadPostAction
                             , rpcDoRefChanPropose = refChanProposeAction
                             , rpcDoRefChanNotify = refChanNotifyAction
                             }
 
-  rpc2 <- async (runReaderT RPC2.runService rpc2ctx)
-  link rpc2
+  m1 <- async $ runMessagingUnix rpc2msg
+  link m1
 
-  rpcStorage <- async (runReaderT (RS.runService (AnyStorage s)) conf)
-  link rpcStorage
+  rpcProto <- async $ flip runReaderT rpc2ctx do
+    runProto @UNIX
+      [ makeResponse (makeServer @PeerAPI)
+      , makeResponse (makeServer @RefLogAPI)
+      , makeResponse (makeServer @RefChanAPI)
+      , makeResponse (makeServer @StorageAPI)
+      ]
+
+  link rpcProto
 
   void $ waitAnyCancel $ w <> [ udp
                               , loop
-                              , rpc2
-                              , rpcStorage
+                              , m1
+                              , rpcProto
                               , ann
                               , messMcast
                               , brainsThread

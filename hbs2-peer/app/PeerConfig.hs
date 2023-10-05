@@ -128,6 +128,21 @@ peerConfDef = [qc|
   download-log  "./download-log"
 |]
 
+rpcSoDef :: FilePath
+rpcSoDef = "/tmp/hbs2-rpc.socket"
+
+getRpcSocketNameM :: HasConf m => m FilePath
+getRpcSocketNameM = do
+  syn <- getConf
+
+  let soname = lastDef rpcSoDef [ Text.unpack n
+                                | ListVal @C (Key "rpc2" [SymbolVal "unix", LitStrVal n]) <- syn
+                                ]
+  pure soname
+
+getRpcSocketName :: PeerConfig -> FilePath
+getRpcSocketName = runReader getRpcSocketNameM
+
 peerConfigRead :: MonadIO m => Maybe FilePath -> m PeerConfig
 peerConfigRead mbfp = do
 

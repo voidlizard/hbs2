@@ -4,10 +4,9 @@ import HBS2.Prelude.Plated
 
 import HBS2.Clock
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto
 import HBS2.Net.Proto.Service
 
-import HBS2.Peer.RPC.Internal.Service.Storage.Unix()
+import HBS2.Peer.RPC.API.Storage()
 
 import HBS2.System.Logger.Simple
 

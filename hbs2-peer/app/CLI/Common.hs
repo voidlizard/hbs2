@@ -2,17 +2,14 @@
 module CLI.Common where
 
 import HBS2.Net.Messaging.Unix
+import HBS2.Net.Proto
 import HBS2.Net.Proto.Service
 
 import PeerConfig
 
-import RPC2.Client.Unix
-import RPC2.Service.Unix (getSocketName)
-import RPC2.API
+import HBS2.Peer.RPC.Client.Unix
 
-import Control.Applicative
-import Control.Monad.Reader
-import Data.Maybe
+import Data.Kind
 import Lens.Micro.Platform
 import UnliftIO
 
@@ -24,16 +21,16 @@ data RPCOpt =
 
 makeLenses 'RPCOpt
 
-withMyRPC :: forall api m . (MonadUnliftIO m, api ~ RPC2)
+withMyRPC :: forall (api :: [Type]) m . ( MonadUnliftIO m
+                                        , HasProtocol UNIX (ServiceProto api UNIX)
+                                        )
           => RPCOpt
           -> (ServiceCaller api UNIX -> m ())
           -> m ()
 
 withMyRPC o m = do
   conf  <- peerConfigRead (view rpcOptConf o)
-  soConf <- runReaderT getSocketName conf
-  let soOpt = view rpcOptAddr o
-  let soname = fromJust $ soOpt <|> Just soConf
-  withRPC2 @RPC2  @UNIX soname m
+  let soname = getRpcSocketName conf
+  withRPC2 @api  @UNIX soname m
 
 

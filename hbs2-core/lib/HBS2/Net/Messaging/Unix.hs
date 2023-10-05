@@ -1,6 +1,10 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Messaging.Unix where
+module HBS2.Net.Messaging.Unix
+  ( module HBS2.Net.Messaging.Unix
+  , module HBS2.Net.Messaging
+  , module HBS2.Net.Proto.Types
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
@@ -20,7 +24,6 @@ import Data.Functor
 import Data.Hashable
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
-import Data.List qualified as List
 import Network.ByteOrder hiding (ByteString)
 import Network.Socket
 import Network.Socket.ByteString

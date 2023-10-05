@@ -6,7 +6,6 @@
 module PeerTypes where
 
 import HBS2.Actors.Peer
-import HBS2.Actors.Peer.Types
 import HBS2.Clock
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Peer
@@ -16,7 +15,6 @@ import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Merkle (AnnMetaData)
-import HBS2.Net.Auth.Credentials
 import HBS2.Net.IP.Addr
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
@@ -36,14 +34,11 @@ import PeerConfig
 import Prelude hiding (log)
 import Data.Foldable (for_)
 import Control.Concurrent.Async
--- import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
-import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
-import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as L

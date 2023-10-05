@@ -5,10 +5,11 @@ import HBS2.Net.Proto.Service
 
 import Log
 
+import HBS2.Peer.RPC.Internal.Types
+import RPC2.Peer.API
+
 import HBS2.System.Logger.Simple
 import Codec.Serialise
-
-data RpcLogLevel
 
 data SetLogging =
     DebugOn Bool

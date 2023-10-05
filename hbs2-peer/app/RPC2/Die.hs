@@ -7,11 +7,12 @@ import HBS2.Net.Proto.Service
 import HBS2.System.Logger.Simple
 import Data.Config.Suckless.KeyValue
 
-import RPC2.Types
+import HBS2.Peer.RPC.Internal.Types
+import RPC2.Peer.API
+
 import System.Exit qualified as Exit
 import Control.Concurrent.Async
 
-data RpcDie
 
 instance (MonadIO m) => HandleMethod m RpcDie where
   type instance Input RpcDie = ()

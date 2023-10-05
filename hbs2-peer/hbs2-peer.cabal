@@ -137,7 +137,9 @@ library
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Internal.Storage
-      HBS2.Peer.RPC.Internal.Service.Storage.Unix
+      HBS2.Peer.RPC.Internal.Types
+
+    other-modules:
 
 executable hbs2-peer
     import:           shared-properties
@@ -162,11 +164,8 @@ executable hbs2-peer
                     , Fetch
                     , Log
                     , RPC2
-                    , RPC2.Client.Unix
-                    , RPC2.Service.Unix
-                    , RPC2.Service.Storage.Unix
-                    , RPC2.API
-                    , RPC2.Types
+                    , RPC2.Peer.API
+                    , RPC2.Peer
                     , RPC2.Poke
                     , RPC2.Announce
                     , RPC2.Fetch
@@ -177,7 +176,6 @@ executable hbs2-peer
                     , RPC2.Ping
                     , RPC2.RefLog
                     , RPC2.RefChan
-                    , RPC2.Storage
                     , PeerTypes
                     , PeerConfig
                     , RefLog

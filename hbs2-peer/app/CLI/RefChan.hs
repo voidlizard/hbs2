@@ -7,14 +7,12 @@ import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.SignedBox
+import HBS2.Net.Proto.Service
 
 import HBS2.OrDie
 
--- FIXME: to-remove-old-rpc
---
 import CLI.Common
-import RPC2.API
-import RPC2.Service.Unix as RPC2
+import RPC2.RefChan
 
 import Options.Applicative
 import Data.ByteString qualified as BS
@@ -23,7 +21,6 @@ import Lens.Micro.Platform
 import Codec.Serialise
 import Data.Maybe
 import System.Exit
-
 
 pRefChan :: Parser (IO ())
 pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
@@ -80,7 +77,7 @@ pRefChanHeadPost :: Parser (IO ())
 pRefChanHeadPost = do
   opts <- pRpcCommon
   ref <- strArgument (metavar "HEAD-BLOCK-TREE-HASH")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     href <- pure (fromStringMay ref) `orDie` "HEAD-BLOCK-TREE-HASH"
     -- FIXME: proper-error-handling
     void $ callService @RpcRefChanHeadPost caller href
@@ -89,7 +86,7 @@ pRefChanHeadFetch :: Parser (IO ())
 pRefChanHeadFetch = do
   opts <- pRpcCommon
   ref <- strArgument (metavar "REFCHAH-HEAD-KEY")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
     void $ callService @RpcRefChanHeadFetch caller href
 
@@ -97,7 +94,7 @@ pRefChanHeadGet :: Parser (IO ())
 pRefChanHeadGet = do
   rpc <- pRpcCommon
   ref <- strArgument (metavar "REFCHAH-HEAD-KEY")
-  pure $ withMyRPC rpc $ \caller -> do
+  pure $ withMyRPC @RefChanAPI rpc $ \caller -> do
     href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
     callService @RpcRefChanHeadGet caller href >>= \case
       Left{} -> exitFailure
@@ -111,7 +108,7 @@ pRefChanPropose = do
   fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
   dry <- optional (flag' True (long "dry" <> short 'n' <> help "only dump transaction")) <&> fromMaybe False
   sref <- strArgument (metavar "REFCHAH-KEY")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     sc <- BS.readFile kra
     puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
     creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
@@ -132,7 +129,7 @@ pRefChanNotify = do
   kra <- strOption (long "author" <> short 'a' <> help "author credentials")
   fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
   sref <- strArgument (metavar "REFCHAH-REF")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     sc <- BS.readFile kra
     puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
     creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
@@ -144,7 +141,7 @@ pRefChanGet :: Parser (IO ())
 pRefChanGet = do
   opts <- pRpcCommon
   sref <- strArgument (metavar "REFCHAH-KEY")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
     callService @RpcRefChanGet caller puk >>= \case
       Left{} -> exitFailure
@@ -155,7 +152,7 @@ pRefChanFetch :: Parser (IO ())
 pRefChanFetch = do
   opts <- pRpcCommon
   ref <- strArgument (metavar "REFCHAH-KEY")
-  pure $ withMyRPC opts $ \caller -> do
+  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
     void $ callService @RpcRefChanFetch caller href
 

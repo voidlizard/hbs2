@@ -1,32 +1,44 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
 import HBS2.Hash
 import HBS2.Actors.Peer
-import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Refs
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 import HBS2.Storage
-import HBS2.Storage.Simple (simpleStorageWorker,simpleStorageInit,SimpleStorage(..))
+import HBS2.Storage.Simple (simpleStorageWorker,simpleStorageInit)
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix
 
+import HBS2.Peer.RPC.Class
 import HBS2.Peer.RPC.Internal.Storage()
-import HBS2.Peer.RPC.Internal.Service.Storage.Unix()
 
 import HBS2.OrDie
 
 import HBS2.System.Logger.Simple
 
 import Control.Monad.Reader
+import Data.Kind
 import System.FilePath
 import UnliftIO
 import Prettyprinter
-import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe
+import Codec.Serialise
 
 import Test.Tasty.HUnit
+
+instance HasFabriq UNIX (ReaderT (AnyStorage, MessagingUnix) IO) where
+  getFabriq = asks (Fabriq . snd)
+
+instance HasOwnPeer UNIX (ReaderT (AnyStorage, MessagingUnix) IO) where
+  ownPeer = asks ( msgUnixSelf . snd)
+
+instance Monad m => HasStorage (ReaderT (AnyStorage, MessagingUnix) m) where
+  getStorage = asks fst
+
 
 main :: IO ()
 main = do
@@ -52,7 +64,7 @@ main = do
 
     debug $ "written" <+> pretty h1
 
-    let rk1 = SomeRefKey ("SOMEREFKEY1" :: ByteString)
+    let rk1 = SomeRefKey ("SOMEREFKEY1" :: LBS.ByteString)
 
     updateRef sto rk1 h1
 

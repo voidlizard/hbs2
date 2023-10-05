@@ -141,10 +141,14 @@ getAllPex1Peers = do
                     _ -> pure mempty
     pure $ mconcat pa'
 
+type PexInfoContext e m = ( Sessions e (KnownPeer e) m
+                          , HasPeerLocator L4Proto m
+                          -- , Expired e (
+                          )
+
 getAllPex2Peers :: forall e m .
   ( MonadIO m
-  , Sessions e (KnownPeer e) m
-  , HasPeerLocator L4Proto m
+  , PexInfoContext e m
   , e ~ L4Proto
   )
   => m [PeerAddr L4Proto]
