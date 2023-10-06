@@ -31,6 +31,8 @@ import Control.Concurrent.STM
 import Data.Graph (graphFromEdges, topSort)
 import Lens.Micro.Platform
 
+import System.IO (stderr)
+
 -- FIXME: move-orphans-to-separate-module
 
 instance ToField Cookie where
@@ -267,7 +269,7 @@ readOrCreateCookie = do
     liftIO $ Text.writeFile cfn (fromCookie cookie)
     pure cookie
   else do
-    let cookie = Cookie (fromString cf)
+    let cookie@(Cookie co) = Cookie (fromString cf)
     statePutCookie cookie
     pure cookie
 
@@ -421,6 +423,7 @@ statePutTranImported :: MonadIO m => HashRef -> DB m ()
 statePutTranImported h = do
   conn <- stateConnection
   cookie <- asks (view dbCookie)
+  debug $ "statePutTranImported" <+> pretty h <+> viaShow cookie
   liftIO $ execute conn [qc|
   insert into tranimported (hash, cookie) values(?, ?)
   on conflict (hash, cookie) do nothing

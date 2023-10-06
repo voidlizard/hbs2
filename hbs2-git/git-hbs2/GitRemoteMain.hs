@@ -107,18 +107,6 @@ loop args = do
     warn "trying to init reference --- may be it's ours"
     liftIO $ runApp WithLog (runExport Nothing ref)
 
-  refs <- withDB db stateGetActualRefs
-
-  let heads = [ h | h@GitHash{} <- universeBi refs ]
-
-  missed <- try (mapM (gitReadObject Nothing) heads) <&> either (\(_::SomeException) -> True) (const False)
-
-  let force = missed || List.null heads
-
-  debug $ "THIS MIGHT BE CLONE!" <+> pretty force
-
-  -- sync state first
-  traceTime "TIMING: importRefLogNew" $ importRefLogNew force ref
 
   refsNew <- withDB db stateGetActualRefs
   let possibleHead = listToMaybe $ List.take 1 $ List.sortOn guessHead (fmap fst refsNew)
@@ -189,6 +177,18 @@ loop args = do
         next
 
       other -> die $ show other
+
+  refs <- withDB db stateGetActualRefs
+
+  let heads = [ h | h@GitHash{} <- universeBi refs ]
+
+  missed <- try (mapM (gitReadObject Nothing) heads) <&> either (\(_::SomeException) -> True) (const False)
+
+  let force = missed || List.null heads
+
+  when force do
+  -- sync state first
+    traceTime "TIMING: importRefLogNew" $ importRefLogNew True ref
 
     shutUp
 
