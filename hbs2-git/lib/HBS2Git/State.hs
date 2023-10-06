@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2Git.State where
 
 import HBS2.Prelude
@@ -8,6 +9,8 @@ import HBS2.Hash
 
 import HBS2.System.Logger.Simple
 
+import HBS2Git.Config (cookieFile)
+
 import Control.Monad.Trans.Resource
 import Data.Functor
 import Data.Function
@@ -16,22 +19,20 @@ import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
-import Data.String
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.Directory
 import System.FilePath
 import Data.Maybe
-import Data.Text (Text)
-import Prettyprinter
 import Data.UUID.V4 qualified as UUID
 import Control.Monad.Catch
 import Control.Concurrent.STM
-import System.IO.Unsafe
 import Data.Graph (graphFromEdges, topSort)
-import Data.Map qualified as Map
 import Lens.Micro.Platform
 
 -- FIXME: move-orphans-to-separate-module
+
+instance ToField Cookie where
+  toField (Cookie lbs) = toField lbs
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -192,6 +193,13 @@ stateInit = do
   |]
 
   liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS cookie
+  ( cookie text not null
+  , primary key (cookie)
+  );
+  |]
+
+  liftIO $ execute_ conn [qc|
   DROP VIEW IF EXISTS v_log_depth;
   |]
 
@@ -221,6 +229,14 @@ stateInit = do
   AND rv.refval <> '0000000000000000000000000000000000000000'
   ORDER BY r.refname;
   |]
+
+  cfn <- cookieFile
+  cf <- liftIO $ readFile cfn <&> take 4096
+
+  when (null cf) do
+    cookie <- stateGenCookie
+    liftIO $ LBS.writeFile cfn (fromCookie cookie)
+
 
 newtype Savepoint =
   Savepoint String
@@ -444,4 +460,23 @@ stateUpdateCommitDepths = do
       |] (co,n,n)
     pure ()
   savepointRelease sp
+
+
+stateGenCookie :: (MonadIO m) => DB m Cookie
+stateGenCookie = do
+  conn <- stateConnection
+  fix \next -> do
+    cookie <- liftIO (UUID.nextRandom <&> (fromString @Cookie. show))
+
+    here <- liftIO $ query conn [qc|select 1 from cookie where cookie = ? limit 1|] (Only cookie)
+                        <&> listToMaybe @(Only Int)
+
+    if isJust here then do
+      next
+    else liftIO do
+      void $ execute conn [qc|insert into cookie (cookie) values(?)|] (Only cookie)
+      pure cookie
+
+
+
 

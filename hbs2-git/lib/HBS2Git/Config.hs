@@ -87,3 +87,6 @@ configInit = liftIO do
   cfg <- readFile configFilePath <&> parseTop <&> either mempty id
   pure (configRepoParentDir, cfg)
 
+cookieFile :: MonadIO m => m FilePath
+cookieFile = configPath "" <&> (</> "cookie")
+

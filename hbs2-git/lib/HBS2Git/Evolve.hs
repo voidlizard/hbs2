@@ -26,10 +26,25 @@ evolve = do
   trace "DO EVOLVE"
 
   migrateConfig
+  generateCookie
 
   shutUp
 
   pure ()
+
+
+generateCookie :: MonadIO m => m ()
+generateCookie = void $ runMaybeT do
+  file <- cookieFile
+
+  guard =<< liftIO (not <$> doesFileExist file)
+
+  -- NOTE: cookie-note
+  --  поскольку куки должна быть уникальна в рамках БД,
+  --  а тут мы пока не знаем, с какой БД мы работаем,
+  --  то отложим генерацию куки до создания БД.
+  --  В скором времени БД будет одна, но пока это не так
+  liftIO $ writeFile file ""
 
 
 migrateConfig :: MonadIO m => m ()

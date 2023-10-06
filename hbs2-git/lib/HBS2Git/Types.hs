@@ -9,9 +9,11 @@ module HBS2Git.Types
   where
 
 import HBS2.Prelude.Plated
+import HBS2.Hash
+import HBS2.Base58
 import HBS2.Git.Types
 import HBS2.Net.Proto.RefLog (RefLogKey(..))
-import HBS2.Net.Proto.Types
+import HBS2.Net.Proto.Types hiding (Cookie)
 import HBS2.Net.Auth.Credentials
 
 import HBS2.System.Logger.Simple
@@ -24,6 +26,8 @@ import Control.Monad.Trans.Maybe
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import Database.SQLite.Simple (Connection)
 import Data.Char (isSpace)
 import Data.List qualified as List
@@ -52,6 +56,17 @@ data DBEnv =
   DBEnv { _dbFilePath :: FilePath
         , _dbConn     :: TVar (Maybe Connection)
         }
+
+newtype Cookie =
+  Cookie { fromCookie :: ByteString }
+  deriving newtype (Eq,Ord,Show)
+
+instance IsString Cookie where
+  fromString s = Cookie cookie
+    where cookie = LBS.pack $ take 8
+                            $ show
+                            $ pretty
+                            $ hashObject @HbSync (LBS.pack s)
 
 makeLenses 'DBEnv
 
