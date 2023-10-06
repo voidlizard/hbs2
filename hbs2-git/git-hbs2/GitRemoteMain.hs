@@ -12,6 +12,7 @@ import HBS2Git.Types(traceTime)
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Import
+import HBS2Git.Evolve
 import HBS2.Git.Local.CLI
 
 import HBS2Git.Export (runExport)
@@ -82,7 +83,7 @@ loop :: forall m . ( MonadIO m
 loop args = do
 
 
-  -- setLogging @TRACE tracePrefix
+  setLogging @TRACE tracePrefix
 
   trace $ "args:" <+> pretty args
 
@@ -107,7 +108,7 @@ loop args = do
   unless checkRef do
     warn $ "reference" <+> pretty ref <+> "missing"
     warn "trying to init reference --- may be it's ours"
-    liftIO $ runApp NoLog (runExport Nothing ref)
+    liftIO $ runApp WithLog (runExport Nothing ref)
 
   refs <- withDB db stateGetActualRefs
 
@@ -216,6 +217,8 @@ main = do
   args <- getArgs
 
   void $ installHandler sigPIPE Ignore Nothing
+
+  evolve
 
   env <- RemoteEnv <$> detectHBS2PeerCatAPI
                    <*> detectHBS2PeerSizeAPI

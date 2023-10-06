@@ -212,6 +212,7 @@ exitFailure = do
 
 die :: MonadIO m => String -> m a
 die s = do
+  shutUp
   liftIO $ Exit.die s
 
 traceTime :: MonadIO m => String -> m a -> m a

@@ -104,14 +104,16 @@ library
       HBS2.Git.Types
       HBS2.Git.Local
       HBS2.Git.Local.CLI
-      HBS2Git.Types
+      HBS2Git.App
+      HBS2Git.Config
+      HBS2Git.Evolve
       HBS2Git.Export
+      HBS2Git.GitRepoLog
       HBS2Git.Import
       HBS2Git.ListRefs
-      HBS2Git.Config
-      HBS2Git.App
+      HBS2Git.PrettyStuff
       HBS2Git.State
-      HBS2Git.GitRepoLog
+      HBS2Git.Types
 
     -- other-modules:
     -- other-extensions:

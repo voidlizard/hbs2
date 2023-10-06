@@ -39,11 +39,16 @@ findWorkingGitDir = do
   this <- liftIO getCurrentDirectory
   findGitDir this `orDie` ".git directory not found"
 
-configPath :: MonadIO m => FilePath -> m FilePath
-configPath pwd = liftIO do
+configPathOld :: MonadIO m => FilePath -> m FilePath
+configPathOld pwd = liftIO do
   xdg <- liftIO $ getXdgDirectory XdgConfig appName
   home <- liftIO getHomeDirectory
   pure $ xdg </> makeRelative home pwd
+
+configPath :: MonadIO m => FilePath -> m FilePath
+configPath _ = liftIO do
+  here   <- liftIO getCurrentDirectory
+  (findGitDir here <&> fmap ((</> ".hbs2") . takeDirectory)) `orDie` "*** hbs2-git: .git directory not found"
 
 data ConfigPathInfo = ConfigPathInfo {
   configRepoParentDir :: FilePath,
@@ -51,7 +56,7 @@ data ConfigPathInfo = ConfigPathInfo {
   configFilePath :: FilePath
 } deriving (Eq, Show)
 
--- returns git repository parent dir, config directory and config file path 
+-- returns git repository parent dir, config directory and config file path
 getConfigPathInfo :: MonadIO m => m ConfigPathInfo
 getConfigPathInfo = do
   trace "getConfigPathInfo"
@@ -81,3 +86,4 @@ configInit = liftIO do
     appendFile configFilePath ""
   cfg <- readFile configFilePath <&> parseTop <&> either mempty id
   pure (configRepoParentDir, cfg)
+

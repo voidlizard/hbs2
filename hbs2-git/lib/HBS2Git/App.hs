@@ -14,7 +14,6 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
-import HBS2.Net.Proto.Types
 import HBS2.Git.Types
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
@@ -23,7 +22,7 @@ import HBS2.Defaults (defBlockSize)
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
-import HBS2Git.State
+import HBS2Git.Evolve
 
 import Data.Maybe
 import Control.Monad.Trans.Maybe
@@ -54,7 +53,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Data.Cache qualified as Cache
 import Control.Concurrent.Async
 import System.Environment
-import Prettyprinter.Render.Terminal
+import System.IO
 
 import Streaming.Prelude qualified as S
 
@@ -187,6 +186,8 @@ runApp l m = do
   else do
     setLoggingOff @DEBUG
     setLoggingOff @TRACE
+
+  evolve
 
   (pwd, syn) <- Config.configInit
 
@@ -457,6 +458,9 @@ loadCredentials :: ( MonadIO m
                    , HasRefCredentials m
                    ) => [FilePath] -> m ()
 loadCredentials fp = do
+
+  trace $ "loadCredentials" <+> pretty fp
+
   krOpt' <- cfgValue @KeyRingFiles @(Set FilePath) <&> Set.toList
 
   let krOpt = List.nub $ fp <> krOpt'
@@ -488,9 +492,4 @@ loadKeyring fn = do
     let puk = view peerSignPk cred
     pure (puk, cred)
 
-green = annotate (color Green)
-
-yellow = annotate (color Yellow)
-
-section = line <> line
 

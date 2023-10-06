@@ -15,8 +15,8 @@ main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $
   info (helper <*> parser)
   (  fullDesc
-  <> header "hbsync block fetch"
-  <> progDesc "fetches blocks from hbsync peers"
+  <> header "git-hbs2"
+  <> progDesc "helper tool for hbs2-git"
   )
   where
     parser ::  Parser (IO ())

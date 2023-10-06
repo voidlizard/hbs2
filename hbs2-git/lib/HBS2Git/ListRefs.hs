@@ -10,6 +10,7 @@ import HBS2.Git.Local.CLI
 import HBS2.Git.Types
 import HBS2Git.Import (importRefLogNew)
 import HBS2Git.State
+import HBS2Git.PrettyStuff
 
 import Data.HashMap.Strict qualified as HashMap
 import Data.Functor

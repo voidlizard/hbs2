@@ -25,6 +25,7 @@ import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Config
 import HBS2Git.GitRepoLog
+import HBS2Git.PrettyStuff
 
 import Control.Applicative
 import Control.Monad.Catch
