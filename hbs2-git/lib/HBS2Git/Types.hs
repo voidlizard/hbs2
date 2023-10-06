@@ -52,11 +52,6 @@ type HBS2L4Proto = L4Proto
 -- FIXME: introduce-API-type
 type API = String
 
-data DBEnv =
-  DBEnv { _dbFilePath :: FilePath
-        , _dbConn     :: TVar (Maybe Connection)
-        }
-
 newtype Cookie =
   Cookie { fromCookie :: ByteString }
   deriving newtype (Eq,Ord,Show)
@@ -67,6 +62,11 @@ instance IsString Cookie where
                             $ show
                             $ pretty
                             $ hashObject @HbSync (LBS.pack s)
+data DBEnv =
+  DBEnv { _dbFilePath :: FilePath
+        , _dbCookie   :: Cookie
+        , _dbConn     :: TVar (Maybe Connection)
+        }
 
 makeLenses 'DBEnv
 

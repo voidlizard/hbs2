@@ -82,9 +82,6 @@ loop :: forall m . ( MonadIO m
                    ) => [String] -> GitRemoteApp m ()
 loop args = do
 
-
-  setLogging @TRACE tracePrefix
-
   trace $ "args:" <+> pretty args
 
   let ref' = case args of
@@ -192,6 +189,8 @@ loop args = do
         next
 
       other -> die $ show other
+
+    shutUp
 
   where
     fromString' "" = Nothing

@@ -95,9 +95,10 @@ dbEnv0 dbInit fp = do
   trace  "dbEnv called"
   let dir = takeDirectory fp
   liftIO $ createDirectoryIfMissing True dir
-  env <- DBEnv fp <$> liftIO (newTVarIO Nothing)
-  void $ withDB env dbInit
-  pure env
+  env0 <- DBEnv fp "" <$> liftIO (newTVarIO Nothing)
+  void $ withDB env0 dbInit
+  cookie <- withDB env0 $ readOrCreateCookie
+  DBEnv fp cookie <$> liftIO (newTVarIO Nothing)
 
 dbEnv :: (MonadIO m, MonadMask m) => FilePath -> m DBEnv
 dbEnv = dbEnv0 stateInit
@@ -107,6 +108,7 @@ dbEnvReadOnly = dbEnv0 none
 
 withDB :: (MonadIO m, MonadMask m) => DBEnv -> DB m a -> m a
 withDB env action = do
+  trace $ "** DB run with COOKIE" <+> viaShow (view dbCookie env)
   conn <- initConnection env
   finally (runReaderT (fromDB action) env) $ do
     -- NOTE: we could not close connection here.
@@ -149,26 +151,36 @@ stateInit = do
   )
   |]
 
+  forM_ ["logimported", "tranimported", "refimported"] $ \t -> do
+    here <- colExists conn t "cookie"
+    unless here $ liftIO do
+      liftIO $ execute_ conn [qc|
+      DROP TABLE IF EXISTS {t};
+      |]
+
   liftIO $ execute_ conn [qc|
   create table if not exists logimported
   ( hash text not null
-  , primary key (hash)
+  , cookie text not null
+  , primary key (hash, cookie)
   )
   |]
 
   liftIO $ execute_ conn [qc|
   create table if not exists refimported
   ( hash text not null
+  , cookie text not null
   , timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  , primary key (hash)
+  , primary key (hash, cookie)
   )
   |]
 
   liftIO $ execute_ conn [qc|
   create table if not exists tranimported
   ( hash text not null
+  , cookie text not null
   , timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  , primary key (hash)
+  , primary key (hash, cookie)
   )
   |]
 
@@ -230,13 +242,29 @@ stateInit = do
   ORDER BY r.refname;
   |]
 
+  void $ readOrCreateCookie
+
+  where
+    colExists :: MonadIO m => Connection -> String -> String -> m Bool
+    colExists conn table col = do
+      let sql =[qc|PRAGMA table_info({table})|]
+      fields <- liftIO $ query_ conn sql
+      let fs = [x | ((_, x, _, _, _, _) :: (Int, String, String, Int, Maybe String, Int)) <- fields ]
+      pure ( col `elem` fs )
+
+readOrCreateCookie :: MonadIO m => DB m Cookie
+readOrCreateCookie = do
   cfn <- cookieFile
   cf <- liftIO $ readFile cfn <&> take 4096
 
-  when (null cf) do
+  if null cf then do
     cookie <- stateGenCookie
     liftIO $ LBS.writeFile cfn (fromCookie cookie)
-
+    pure cookie
+  else do
+    let cookie = Cookie (fromString cf)
+    statePutCookie cookie
+    pure cookie
 
 newtype Savepoint =
   Savepoint String
@@ -351,59 +379,64 @@ statePutLogCommitParent row = do
 statePutLogImported :: MonadIO m => HashRef -> DB m ()
 statePutLogImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   liftIO $ execute conn [qc|
-  insert into logimported (hash) values(?)
-  on conflict (hash) do nothing
-  |] (Only h)
-
+  insert into logimported (hash,cookie) values(?,?)
+  on conflict (hash,cookie) do nothing
+  |] (h,cookie)
 
 stateGetLogImported :: MonadIO m => HashRef -> DB m Bool
 stateGetLogImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   r <- liftIO $ query @_ @(Only Int) conn [qc|
-    select 1 from logimported where hash = ? limit 1
-  |] (Only h)
+    select 1 from logimported where hash = ? and cookie = ? limit 1
+  |] (h, cookie)
   pure $ not $ null r
-
 
 statePutRefImported :: MonadIO m => HashRef -> DB m ()
 statePutRefImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   liftIO $ execute conn [qc|
-  insert into refimported (hash) values(?)
-  on conflict (hash) do nothing
-  |] (Only h)
+  insert into refimported (hash,cookie) values(?,?)
+  on conflict (hash,cookie) do nothing
+  |] (h,cookie)
 
 stateGetRefImported :: MonadIO m => HashRef -> DB m Bool
 stateGetRefImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   r <- liftIO $ query @_ @(Only Int) conn [qc|
-    select 1 from refimported where hash = ? limit 1
-  |] (Only h)
+    select 1 from refimported where hash = ? and cookie = ? limit 1
+  |] (h, cookie)
   pure $ not $ null r
 
 statePutTranImported :: MonadIO m => HashRef -> DB m ()
 statePutTranImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   liftIO $ execute conn [qc|
-  insert into tranimported (hash) values(?)
-  on conflict (hash) do nothing
-  |] (Only h)
+  insert into tranimported (hash, cookie) values(?, ?)
+  on conflict (hash, cookie) do nothing
+  |] (h, cookie)
 
 stateGetTranImported :: MonadIO m => HashRef -> DB m Bool
 stateGetTranImported h = do
   conn <- stateConnection
+  cookie <- asks (view dbCookie)
   r <- liftIO $ query @_ @(Only Int) conn [qc|
-    select 1 from tranimported where hash = ? limit 1
-  |] (Only h)
+    select 1 from tranimported where hash = ? and cookie = ? limit 1
+  |] (h, cookie)
   pure $ not $ null r
 
 stateGetAllTranImported :: MonadIO m => DB m [HashRef]
 stateGetAllTranImported = do
   conn <- stateConnection
-  results <- liftIO $ query_ conn [qc|
-    select hash from tranimported
-  |]
+  cookie <- asks (view dbCookie)
+  results <- liftIO $ query conn [qc|
+    select hash from tranimported where cookie = ?
+  |] (Only cookie)
   pure $ map fromOnly results
 
 stateGetImportedCommits :: MonadIO m => DB m [GitHash]
@@ -462,6 +495,12 @@ stateUpdateCommitDepths = do
   savepointRelease sp
 
 
+statePutCookie :: MonadIO m => Cookie -> DB m ()
+statePutCookie cookie = do
+  conn <- stateConnection
+  let sql = [qc|INSERT INTO cookie (cookie) values(?) ON CONFLICT(cookie) DO NOTHING|]
+  liftIO $ execute conn sql (Only cookie)
+
 stateGenCookie :: (MonadIO m) => DB m Cookie
 stateGenCookie = do
   conn <- stateConnection
@@ -476,7 +515,5 @@ stateGenCookie = do
     else liftIO do
       void $ execute conn [qc|insert into cookie (cookie) values(?)|] (Only cookie)
       pure cookie
-
-
 
 

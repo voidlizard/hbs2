@@ -28,8 +28,6 @@ evolve = do
   migrateConfig
   generateCookie
 
-  shutUp
-
   pure ()
 
 
