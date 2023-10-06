@@ -4,6 +4,7 @@ import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
 import HBS2.OrDie
 
+import HBS2Git.Types
 import HBS2.Git.Types
 import HBS2Git.Config
 import HBS2Git.PrettyStuff
@@ -22,13 +23,19 @@ import UnliftIO
 --   например, переносит конфиг
 
 evolve :: MonadIO m => m ()
-evolve = do
-  trace "DO EVOLVE"
+evolve = void $ runMaybeT do
+  trace "DO EVOLVE MAZAFAKA!"
+
+  here   <- liftIO getCurrentDirectory
+
+  debug $ "evolve: current directory:" <+> pretty here
+
+  cfg <- configPath ""
+
+  debug $ "*** GIT DIRECTORY" <+> pretty cfg
 
   migrateConfig
   generateCookie
-
-  pure ()
 
 
 generateCookie :: MonadIO m => m ()
@@ -48,13 +55,11 @@ generateCookie = void $ runMaybeT do
 migrateConfig :: MonadIO m => m ()
 migrateConfig = void $ runMaybeT do
   here   <- liftIO getCurrentDirectory
-  rootDir <- (findGitDir here <&> fmap takeDirectory) `orDie` "*** hbs2-git: working directory not found"
+
+  rootDir <- configPath "" <&> takeDirectory
 
   oldPath <- configPathOld here
   let oldConf = oldPath </> "config"
-
-  guard =<< liftIO (doesDirectoryExist oldPath)
-  guard =<< liftIO (doesFileExist oldConf)
 
   let newConfDir = rootDir </> ".hbs2"
   let newConfFile = newConfDir </> "config"
@@ -70,22 +75,28 @@ migrateConfig = void $ runMaybeT do
   liftIO do
     hPutDoc stderr $ red "evolve: creating new config" <+> pretty newConfFile <> line
     createDirectoryIfMissing True newConfDir
-    hPutDoc stderr $ red "evolve: moving config to" <+> pretty newConfFile <> line
-    liftIO $ renameFile oldConf newConfFile
 
-    anything <- liftIO $ listDirectory oldPath
+    appendFile newConfFile ""
 
-    if List.null anything then do
-      hPutDoc stderr $ red "evolve: removing"
-                        <+> pretty oldPath <> line
+    oldHere <- doesFileExist oldConf
 
-      removeDirectory oldPath
-    else do
-      hPutDoc stderr $ red "evolve: not empty" <+> pretty oldPath <> line
+    when oldHere do
+      hPutDoc stderr $ red "evolve: moving config to" <+> pretty newConfFile <> line
+      liftIO $ renameFile oldConf newConfFile
 
-      hPutDoc stderr $ yellow "evolve: remove"
-                          <+> pretty oldPath
-                          <+> yellow "on your own"
-                          <> line
+      anything <- liftIO $ listDirectory oldPath
+
+      if List.null anything then do
+        hPutDoc stderr $ red "evolve: removing"
+                          <+> pretty oldPath <> line
+
+        removeDirectory oldPath
+      else do
+        hPutDoc stderr $ red "evolve: not empty" <+> pretty oldPath <> line
+
+        hPutDoc stderr $ yellow "evolve: remove"
+                            <+> pretty oldPath
+                            <+> yellow "on your own"
+                            <> line
 
 

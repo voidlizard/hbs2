@@ -11,9 +11,14 @@ import Data.Config.Suckless
 
 import HBS2Git.Types
 
+import Control.Applicative
+
 import Data.Functor
 import System.FilePath
 import System.Directory
+
+import System.Environment
+import System.IO (stderr)
 
 -- type C = MegaParsec
 
@@ -47,8 +52,14 @@ configPathOld pwd = liftIO do
 
 configPath :: MonadIO m => FilePath -> m FilePath
 configPath _ = liftIO do
-  here   <- liftIO getCurrentDirectory
-  (findGitDir here <&> fmap ((</> ".hbs2") . takeDirectory)) `orDie` "*** hbs2-git: .git directory not found"
+  env <- liftIO getEnvironment
+  -- hPrint stderr $ pretty env
+  pwd <- liftIO getCurrentDirectory
+  git <- findGitDir pwd
+  byEnv <- lookupEnv "GIT_DIR"
+  path <- pure (git <|> byEnv) `orDie`  "*** hbs2-git: .git directory not found"
+  debug $ "AAAAA " <+> pretty path
+  pure (takeDirectory path </> ".hbs2")
 
 data ConfigPathInfo = ConfigPathInfo {
   configRepoParentDir :: FilePath,
@@ -61,7 +72,7 @@ getConfigPathInfo :: MonadIO m => m ConfigPathInfo
 getConfigPathInfo = do
   trace "getConfigPathInfo"
   gitDir <- findWorkingGitDir
-  let pwd = takeDirectory gitDir
+  pwd <- configPath "" <&> takeDirectory
   confP <- configPath pwd
   let confFile = confP </> "config"
   trace $ "git dir" <+> pretty gitDir
