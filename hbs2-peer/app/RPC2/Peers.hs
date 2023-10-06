@@ -15,7 +15,7 @@ import HBS2.Net.Proto.Definition()
 import PeerTypes
 
 import HBS2.Peer.RPC.Internal.Types
-import RPC2.Peer.API
+import HBS2.Peer.RPC.API.Peer
 
 import Control.Monad
 import Lens.Micro.Platform

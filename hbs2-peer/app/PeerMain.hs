@@ -68,11 +68,13 @@ import Log
 
 import HBS2.Peer.RPC.Internal.Types()
 import HBS2.Peer.RPC.Internal.Storage()
-import HBS2.Peer.RPC.API.Storage
 
-import RPC2.Peer
-import RPC2.RefLog
-import RPC2.RefChan
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.RefChan
+
+import RPC2(RPC2Context(..))
 
 import Codec.Serialise as Serialise
 import Control.Concurrent.STM

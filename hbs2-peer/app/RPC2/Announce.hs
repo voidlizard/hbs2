@@ -11,7 +11,7 @@ import HBS2.System.Logger.Simple
 import SendBlockAnnounce
 
 import HBS2.Peer.RPC.Internal.Types
-import RPC2.Peer.API
+import HBS2.Peer.RPC.API.Peer
 
 
 instance (MonadIO m,HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcAnnounce where

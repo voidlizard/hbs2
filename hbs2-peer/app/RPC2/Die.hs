@@ -8,7 +8,7 @@ import HBS2.System.Logger.Simple
 import Data.Config.Suckless.KeyValue
 
 import HBS2.Peer.RPC.Internal.Types
-import RPC2.Peer.API
+import HBS2.Peer.RPC.API.Peer
 
 import System.Exit qualified as Exit
 import Control.Concurrent.Async

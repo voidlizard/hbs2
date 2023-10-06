@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module RPC2.LogLevel where
 
 import HBS2.Prelude.Plated
@@ -5,16 +6,11 @@ import HBS2.Net.Proto.Service
 
 import Log
 
-import HBS2.Peer.RPC.Internal.Types
-import RPC2.Peer.API
+import HBS2.Peer.RPC.API.Peer
 
 import HBS2.System.Logger.Simple
 import Codec.Serialise
 
-data SetLogging =
-    DebugOn Bool
-  | TraceOn Bool
-  deriving (Generic,Eq,Show)
 
 instance Serialise SetLogging
 

@@ -1,5 +1,6 @@
-module RPC2.Peer.API where
+module HBS2.Peer.RPC.API.Peer where
 
+import HBS2.Prelude.Plated
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 import HBS2.Actors.Peer
@@ -39,4 +40,10 @@ instance (Monad m)
   => HasRpcContext PeerAPI RPC2Context (ResponseM UNIX (ReaderT RPC2Context m)) where
   -- type instance RpcContext PeerAPI = RPC2Context
   getRpcContext = lift ask
+
+
+data SetLogging =
+    DebugOn Bool
+  | TraceOn Bool
+  deriving (Generic,Eq,Show)
 

@@ -12,53 +12,20 @@ import HBS2.Base58
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Service
-import HBS2.Net.Proto.Types
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Messaging.Unix
 import HBS2.Storage
 
+import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.Internal.Types
 
 import HBS2.System.Logger.Simple
 import PeerTypes
 
-import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
 import Data.Functor
-import Codec.Serialise
 import Control.Monad.Reader
-
--- NOTE: refchan-head-endpoints
-data RpcRefChanHeadGet
-data RpcRefChanHeadFetch
-data RpcRefChanHeadPost
-
--- NOTE: refchan-endpoints
-data RpcRefChanFetch
-data RpcRefChanGet
-data RpcRefChanPropose
-
-data RpcRefChanNotify
-
-type RefChanAPI = '[ RpcRefChanHeadGet
-                   , RpcRefChanHeadFetch
-                   , RpcRefChanHeadPost
-                   , RpcRefChanGet
-                   , RpcRefChanFetch
-                   , RpcRefChanPropose
-                   , RpcRefChanNotify
-                   ]
-
-
-type RefChanAPIProto =  0xDA2374630001
-
--- FIXME: hbs2-peer-protocols-to-
-instance HasProtocol UNIX  (ServiceProto RefChanAPI UNIX) where
-  type instance ProtocolId (ServiceProto RefChanAPI UNIX) = RefChanAPIProto
-  type instance Encoded UNIX = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
 
 type RefChanContext m = (MonadIO m, HasRpcContext RefChanAPI RPC2Context m)
 

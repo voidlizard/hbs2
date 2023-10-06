@@ -8,7 +8,7 @@ import HBS2.Net.Proto.Service
 import HBS2.System.Logger.Simple
 
 import HBS2.Peer.RPC.Internal.Types
-import RPC2.Peer.API
+import HBS2.Peer.RPC.API.Peer
 
 
 instance ( MonadIO m

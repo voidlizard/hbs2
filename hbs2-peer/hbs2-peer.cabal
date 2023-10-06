@@ -133,7 +133,9 @@ library
 
     exposed-modules:
       HBS2.Peer.RPC.Class
-      HBS2.Peer.RPC.API
+      HBS2.Peer.RPC.API.Peer
+      HBS2.Peer.RPC.API.RefLog
+      HBS2.Peer.RPC.API.RefChan
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Client.StorageClient
@@ -165,7 +167,6 @@ executable hbs2-peer
                     , Fetch
                     , Log
                     , RPC2
-                    , RPC2.Peer.API
                     , RPC2.Peer
                     , RPC2.Poke
                     , RPC2.Announce

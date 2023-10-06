@@ -15,7 +15,6 @@ import HBS2.Events
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.Service
-import HBS2.Net.Proto.Types
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 
@@ -24,31 +23,13 @@ import PeerTypes
 import RefLog (doRefLogBroadCast)
 
 import HBS2.Peer.RPC.Internal.Types
+import HBS2.Peer.RPC.API.RefLog
 
 import Data.Functor
 import Lens.Micro.Platform
-import Data.ByteString.Lazy ( ByteString )
-import Codec.Serialise
 import Control.Monad.Reader
 
-data RpcRefLogGet
-data RpcRefLogFetch
-data RpcRefLogPost
-
-type RefLogAPI = '[ RpcRefLogGet
-                  , RpcRefLogFetch
-                  , RpcRefLogPost
-                  ]
-
-
 type RefLogContext m = (MonadIO m, HasRpcContext RefLogAPI RPC2Context m)
-
-instance HasProtocol UNIX  (ServiceProto RefLogAPI UNIX) where
-  type instance ProtocolId (ServiceProto RefLogAPI UNIX) = 0xDA2371620001
-  type instance Encoded UNIX = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
-
 
 instance (Monad m)
   => HasRpcContext RefLogAPI RPC2Context (ResponseM UNIX (ReaderT RPC2Context m)) where

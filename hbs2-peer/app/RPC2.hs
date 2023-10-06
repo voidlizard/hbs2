@@ -1,4 +1,11 @@
-module RPC2 where
+module RPC2
+  ( module RPC2.Peer
+  , module RPC2.RefLog
+  , module RPC2.RefChan
+  ) where
 
-import Data.Config.Suckless.KeyValue()
+
+import RPC2.Peer
+import RPC2.RefLog
+import RPC2.RefChan
 

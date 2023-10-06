@@ -11,8 +11,10 @@ import HBS2.Net.Proto.Service
 
 import HBS2.OrDie
 
+import HBS2.Peer.RPC.API.RefChan
+
 import CLI.Common
-import RPC2.RefChan
+import RPC2()
 
 import Options.Applicative
 import Data.ByteString qualified as BS
