@@ -26,6 +26,8 @@ import Control.Monad.Trans.Maybe
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Data.Text qualified as Text
+import Data.Text (Text)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Database.SQLite.Simple (Connection)
@@ -53,15 +55,15 @@ type HBS2L4Proto = L4Proto
 type API = String
 
 newtype Cookie =
-  Cookie { fromCookie :: ByteString }
+  Cookie { fromCookie :: Text }
   deriving newtype (Eq,Ord,Show)
 
 instance IsString Cookie where
   fromString s = Cookie cookie
-    where cookie = LBS.pack $ take 8
-                            $ show
-                            $ pretty
-                            $ hashObject @HbSync (LBS.pack s)
+    where cookie = fromString $ take 8
+                              $ show
+                              $ pretty
+                              $ hashObject @HbSync (LBS.pack s)
 data DBEnv =
   DBEnv { _dbFilePath :: FilePath
         , _dbCookie   :: Cookie

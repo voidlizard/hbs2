@@ -20,6 +20,8 @@ import Database.SQLite.Simple.ToField
 import Control.Monad.Reader
 import Text.InterpolatedString.Perl6 (qc)
 import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.Text.IO qualified as Text
+import Data.Text qualified as Text
 import System.Directory
 import System.FilePath
 import Data.Maybe
@@ -32,7 +34,10 @@ import Lens.Micro.Platform
 -- FIXME: move-orphans-to-separate-module
 
 instance ToField Cookie where
-  toField (Cookie lbs) = toField lbs
+  toField (Cookie x) = toField x
+
+instance FromField Cookie where
+  fromField = fmap Cookie . fromField @Text.Text
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -259,7 +264,7 @@ readOrCreateCookie = do
 
   if null cf then do
     cookie <- stateGenCookie
-    liftIO $ LBS.writeFile cfn (fromCookie cookie)
+    liftIO $ Text.writeFile cfn (fromCookie cookie)
     pure cookie
   else do
     let cookie = Cookie (fromString cf)
