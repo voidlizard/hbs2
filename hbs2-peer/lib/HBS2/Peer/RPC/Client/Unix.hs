@@ -22,8 +22,6 @@ import UnliftIO
 withRPC2 :: forall (api :: [Type]) e m . ( e ~ UNIX
                              , HasProtocol e (ServiceProto api e)
                              , MonadUnliftIO m
-                             -- FIXME: remove-this-debug-shit
-                             , MonadUnliftIO m
                              )
          => FilePath
          -> ( ServiceCaller api e -> m () )
