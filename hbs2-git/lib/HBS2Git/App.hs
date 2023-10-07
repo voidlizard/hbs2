@@ -238,7 +238,8 @@ runWithRPC action = do
 
       let answ = parseTop (LBS.unpack o) & fromRight mempty
 
-      let so = headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ]
+      so <- pure (headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ])
+              `orDie` "hbs2-peer rpc not detected"
 
       -- FIXME: logger-to-support-colors
       liftIO $ hPutDoc stderr $ yellow "rpc: found RPC" <+> pretty so
@@ -246,8 +247,7 @@ runWithRPC action = do
                                 yellow "rpc: add option" <+> parens ("rpc unix" <+> dquotes (pretty so))
                                 <+> "to the config .hbs2/config"
                                 <> line <> line
-
-      pure so `orDie` "hbs2-peer rpc not detected"
+      pure so
 
 runApp :: MonadUnliftIO m => WithLog -> App m () -> m ()
 runApp l m = do
