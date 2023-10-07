@@ -23,8 +23,6 @@ import Data.Maybe
 
 
 instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcPeers where
-  type instance Input RpcPeers = ()
-  type instance Output RpcPeers = [(PubKey 'Sign HBS2Basic, PeerAddr L4Proto)]
 
   handleMethod _ = do
    co <- getRpcContext @PeerAPI

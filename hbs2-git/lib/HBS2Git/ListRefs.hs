@@ -50,7 +50,7 @@ hbs2Prefix = "hbs2://"
 --  все известные ref-ы из стейта.
 --  Сейчас выводятся только локальные
 
-runListRefs :: MonadIO m => App m ()
+runListRefs :: (MonadIO m, HasStorage (App m)) => App m ()
 runListRefs = do
   refs <- gitGetRemotes <&> filter isHbs2
   remoteEntries <-
@@ -74,10 +74,10 @@ runListRefs = do
   where
     isHbs2 (_, b) = Text.isPrefixOf hbs2Prefix b
 
-runToolsScan :: (MonadUnliftIO m,MonadCatch m,MonadMask m) => RepoRef -> App m ()
+runToolsScan :: (MonadUnliftIO m,MonadCatch m,MonadMask m,HasStorage (App m)) => RepoRef -> App m ()
 runToolsScan ref = do
   trace $ "runToolsScan" <+> pretty ref
-  importRefLogNew False ref
+  importRefLogNew True ref
   shutUp
   pure ()
 
@@ -89,7 +89,7 @@ runToolsGetRefs ref = do
   hPrint stdout $ pretty (AsGitRefsFile rh)
   shutUp
 
-getRefVal :: (MonadIO m, HasCatAPI m) => Text -> m (Maybe HashRef)
+getRefVal :: (MonadIO m, HasStorage m) => Text -> m (Maybe HashRef)
 getRefVal url =
   case Text.stripPrefix hbs2Prefix url of
     Nothing -> do
@@ -100,9 +100,10 @@ getRefVal url =
         liftIO $ print $ pretty "can't parse ref" <+> pretty refStr
         pure Nothing
       Just ref -> do
-        mRefVal <- readRefHttp ref
+        mRefVal <- readRef ref
         case mRefVal of
           Nothing -> do
-            liftIO $ print $ pretty "readRefHttp error" <+> pretty ref
+            liftIO $ print $ pretty "readRef error" <+> pretty ref
             pure Nothing
           Just v -> pure $ Just v
+

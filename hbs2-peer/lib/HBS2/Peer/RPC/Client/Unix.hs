@@ -1,4 +1,8 @@
-module HBS2.Peer.RPC.Client.Unix where
+module HBS2.Peer.RPC.Client.Unix
+  ( module HBS2.Peer.RPC.Client.Unix
+  , module HBS2.Net.Proto.Service
+  , module HBS2.Net.Messaging.Unix
+  ) where
 
 import HBS2.Prelude.Plated
 
@@ -6,6 +10,7 @@ import HBS2.Clock
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 
+-- FIXME: to-remove-code
 import HBS2.Peer.RPC.API.Storage()
 
 import HBS2.System.Logger.Simple

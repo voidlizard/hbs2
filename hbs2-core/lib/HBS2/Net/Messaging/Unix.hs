@@ -10,6 +10,7 @@ import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging
+import HBS2.Net.Messaging.Stream
 import HBS2.Clock
 
 import HBS2.System.Logger.Simple
@@ -17,6 +18,7 @@ import HBS2.System.Logger.Simple
 import Control.Monad.Trans.Resource
 import Control.Monad
 import Control.Monad.Reader
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Function
@@ -27,11 +29,14 @@ import Data.HashMap.Strict (HashMap)
 import Network.ByteOrder hiding (ByteString)
 import Network.Socket
 import Network.Socket.ByteString
+import Network.Socket.ByteString.Lazy qualified as SL
 import Control.Concurrent.STM.TQueue (flushTQueue)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Lens.Micro.Platform
 import UnliftIO
+
+import Streaming.Prelude qualified as S
 
 import Control.Concurrent (myThreadId)
 
@@ -109,6 +114,7 @@ data ReadTimeoutException = ReadTimeoutException deriving (Show, Typeable)
 
 instance Exception ReadTimeoutException
 
+
 runMessagingUnix :: MonadUnliftIO m => MessagingUnix -> m ()
 runMessagingUnix env = do
 
@@ -179,9 +185,16 @@ runMessagingUnix env = do
 
                   maybe1 mq none $ \q -> do
                     msg <- liftIO . atomically $ readTQueue q
+
+
                     let len = fromIntegral $ LBS.length msg :: Int
+                    let bs = bytestring32 (fromIntegral len)
+
                     liftIO $ sendAll so $ bytestring32 (fromIntegral len)
-                    liftIO $ sendAll so $ LBS.toStrict msg
+
+                    -- debug $ "sendAll" <+> pretty len <+> pretty (LBS.length msg) <+> viaShow bs
+
+                    liftIO $ SL.sendAll so msg
 
                 void $ allocate (pure writer) cancel
 
@@ -192,13 +205,15 @@ runMessagingUnix env = do
 
                   let mq = Just (msgUnixRecv env)
 
-                  frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
-                  frame    <- liftIO $ recv so frameLen
+                  -- frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
+                  frameLen <- liftIO $ readFromSocket so 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
 
-                  let s = if msgUnixServer env then "S-" else "C-"
+                  -- debug $ "frameLen" <+> pretty frameLen
+
+                  frame    <- liftIO $ readFromSocket so frameLen --  <&> LBS.toStrict
 
                   maybe1 mq none $ \q -> do
-                    atomically $ writeTQueue q (From that, LBS.fromStrict frame)
+                    atomically $ writeTQueue q (From that, frame)
 
                   now <- getTimeCoarse
                   atomically $ writeTVar (msgUnixLast env) now
@@ -241,12 +256,12 @@ runMessagingUnix env = do
                     let q = msgUnixRecv env
 
                   -- Read response from server
-                    frameLen <- liftIO $ recv sock 4 <&> word32 <&> fromIntegral
-                    frame    <- liftIO $ recv sock frameLen
+                    frameLen <- liftIO $ readFromSocket sock 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
+                    frame    <- liftIO $ readFromSocket sock frameLen
 
                     -- сообщения кому? **МНЕ**
                     -- сообщения от кого? от **КОГО-ТО**
-                    atomically $ writeTQueue q (From who, LBS.fromStrict frame)
+                    atomically $ writeTQueue q (From who, frame)
 
       forever do
 
@@ -259,7 +274,7 @@ runMessagingUnix env = do
           msg <- liftIO . atomically $ readTQueue q
           let len = fromIntegral $ LBS.length msg :: Int
           liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
-          liftIO $ sendAll sock $ LBS.toStrict msg
+          liftIO $ SL.sendAll sock msg
 
       void $ waitAnyCatchCancel [reader]
 
@@ -283,7 +298,7 @@ runMessagingUnix env = do
 
     dropQueues :: MonadIO m => m ()
     dropQueues = do
-      -- liftIO $ atomically $ modifyTVar (msgUnixRecvFrom env) mempty
+      void $ liftIO $ atomically $ flushTQueue (msgUnixRecv env)
       liftIO $ atomically $ modifyTVar (msgUnixSendTo env) mempty
       -- мы не дропаем обратную очередь (принятые сообщения), потому,
       -- что нет смысла. она живёт столько, сколько живёт клиент

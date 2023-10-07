@@ -1,8 +1,10 @@
+{-# Language UndecidableInstances #-}
 module HBS2.Peer.RPC.API.Peer where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
+import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Actors.Peer
 
 import HBS2.Peer.RPC.Internal.Types
@@ -41,9 +43,34 @@ instance (Monad m)
   -- type instance RpcContext PeerAPI = RPC2Context
   getRpcContext = lift ask
 
+type instance Input RpcDie = ()
+type instance Output RpcDie = ()
+
+type instance Input RpcPoke = ()
+type instance Output RpcPoke = String
+
+type instance Input RpcPing = PeerAddr L4Proto
+type instance Output RpcPing = Bool
+
+type instance Input RpcAnnounce = HashRef
+type instance Output RpcAnnounce = ()
+
+type instance Input RpcPexInfo = ()
+type instance Output RpcPexInfo = [PeerAddr L4Proto]
+
+type instance Input RpcPeers = ()
+type instance Output RpcPeers = [(PubKey 'Sign HBS2Basic, PeerAddr L4Proto)]
+
+type instance Input RpcFetch = HashRef
+type instance Output RpcFetch = ()
+
+type instance Input RpcLogLevel = SetLogging
+type instance Output RpcLogLevel = ()
 
 data SetLogging =
     DebugOn Bool
   | TraceOn Bool
   deriving (Generic,Eq,Show)
+
+instance Serialise SetLogging
 

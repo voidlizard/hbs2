@@ -44,14 +44,14 @@ newtype RunWithConfig m a =
 runWithConfig :: MonadIO m => [Syntax C] -> RunWithConfig m a -> m a
 runWithConfig conf m = runReaderT (fromWithConf m) conf
 
+instance (Monad m, HasStorage m) => HasStorage (RunWithConfig m) where
+  getStorage = lift getStorage
+
+instance (Monad m, HasRPC m) => HasRPC (RunWithConfig m) where
+  getRPC = lift getRPC
+
 instance MonadIO m => HasConf (RunWithConfig (GitRemoteApp m)) where
   getConf = ask
-
-instance MonadIO m => HasCatAPI (RunWithConfig (GitRemoteApp m)) where
-  getHttpCatAPI = lift getHttpCatAPI
-  getHttpSizeAPI = lift getHttpSizeAPI
-  getHttpPutAPI = lift getHttpPutAPI
-  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
 instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
   getCredentials = lift . getCredentials
@@ -61,6 +61,7 @@ push :: forall  m . ( MonadIO m
                     , MonadCatch m
                     , HasProgress (RunWithConfig (GitRemoteApp m))
                     , MonadMask (RunWithConfig (GitRemoteApp m))
+                    , HasStorage (RunWithConfig (GitRemoteApp m))
                     , MonadUnliftIO m
                     , MonadMask m
                     )

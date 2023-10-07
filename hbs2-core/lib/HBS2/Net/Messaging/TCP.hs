@@ -15,6 +15,8 @@ import HBS2.Net.Messaging
 import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 
+import HBS2.Net.Messaging.Stream
+
 import HBS2.System.Logger.Simple
 
 import Control.Concurrent.STM (flushTQueue)
@@ -44,11 +46,6 @@ import UnliftIO.Async
 import UnliftIO.STM
 import UnliftIO.Exception qualified as U
 
-data SocketClosedException =
-    SocketClosedException
-    deriving stock (Show, Typeable)
-
-instance Exception SocketClosedException
 
 
 -- FIXME: control-recv-capacity-to-avoid-leaks
@@ -128,30 +125,6 @@ instance Messaging MessagingTCP L4Proto ByteString where
     forM ms $ \(p, msg) -> pure (From p, msg)
 
 
--- FIXME: why-streaming-then?
---  Ну и зачем тут вообще стриминг,
---  если чтение всё равно руками написал?
---  Если fromChunks - O(n), и reverse O(n)
---  то мы все равно пройдем все чанки, на
---  кой чёрт тогда вообще стриминг? бред
---  какой-то.
-readFromSocket :: forall m . MonadIO m
-               => Socket
-               -> Int
-               -> m ByteString
-
-readFromSocket sock size = LBS.fromChunks <$> (go size & S.toList_)
-  where
-    go 0 = pure ()
-    go n = do
-      r <- liftIO $ recv sock n
-      maybe1 r eos $ \bs -> do
-        let nread = BS.length bs
-        S.yield bs
-        go (max 0 (n - nread))
-
-    eos = do
-      liftIO $ throwIO SocketClosedException
 
 connectionId :: Word32 -> Word32 -> Word64
 connectionId a b = (fromIntegral hi `shiftL` 32) .|. fromIntegral low

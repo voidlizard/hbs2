@@ -53,14 +53,14 @@ makeLenses 'RunImportOpts
 isRunImportDry :: RunImportOpts -> Bool
 isRunImportDry o = view runImportDry o == Just True
 
-walkHashes :: HasCatAPI m => TQueue HashRef -> Hash HbSync -> m ()
+walkHashes :: (MonadIO m, HasStorage m) => TQueue HashRef -> Hash HbSync -> m ()
 walkHashes q h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
   case hr of
     Left hx -> die $ show $ pretty "missed block:" <+> pretty hx
     Right (hrr :: [HashRef]) -> do
        forM_ hrr $ liftIO . atomically . Q.writeTQueue q
 
-blockSource :: (MonadIO m, HasCatAPI m) => HashRef -> SB.ByteStream m Integer
+blockSource :: (MonadIO m, HasStorage m) => HashRef -> SB.ByteStream m Integer
 blockSource h = do
   tsize <- liftIO $ newTVarIO 0
   deepScan ScanDeep (const none) (fromHashRef h) (lift . readBlock . HashRef) $ \ha -> do
@@ -109,42 +109,11 @@ instance HasImportOpts (Bool, Bool) where
   importForce = fst
   importDontWriteGit = snd
 
--- FIXME: ASAP-will-work-only-for-one-repo
---  сейчас все транзакции помечаются, как обработанные
---  в глобальном стейте для ссылки. таким образом,
---  если мы вызвали для одного репозитория,
---  то import не будет работать для остальных, т.к. решит,
---  что всё обработано.
---
---  Решение:
---    Вариант N1. Держать стейт локально в каждом
---    каталоге git.
---    Минусы:
---      - большой оверхед по данным
---      - мусор в каталоге git
---      - например, git-hbs2-http вообще работает без "репозитория",
---        как ему быть
---
---    Вариант N2. сделать развязку через какой-то ID
---    репозитория или путь к нему.
---    Минусы:
---      - выглядит хрупко
---      - например, git-hbs2-http вообще работает без "репозитория",
---        как ему быть
---
---    Вариант N3. БД обновлять отдельно, объекты git - отдельно
---    для каждого репозитория, запоминать (где?) проигранные для
---    него логи.
---    Минусы:
---      - двойное сканирование файлов логов - получение, распаковка,
---        сканирование и т.п. сначала для БД, потом для непосредственно
---        репозитория
---
 importRefLogNew :: ( MonadIO m
                    , MonadUnliftIO m
                    , MonadCatch m
                    , MonadMask m
-                   , HasCatAPI m
+                   , HasStorage m
                    , HasImportOpts opts
                    )
                 => opts -> RepoRef -> m ()

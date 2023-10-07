@@ -131,6 +131,7 @@ reflogWorker conf adapter = do
 
   let reflogUpdate reflog _ tran = do
         signed <- verifyRefLogUpdate tran
+
         when signed do
 
           liftIO $ atomically $ writeTQueue pQ (reflog, [tran])

@@ -5,6 +5,8 @@ import HBS2.Actors.Peer
 import HBS2.Net.Proto.Service
 import HBS2.Net.Messaging.Unix
 import HBS2.Peer.RPC.Internal.Types
+import HBS2.Storage (Offset,Size)
+import HBS2.Data.Types.Refs (HashRef(..),RefAlias(..))
 
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
@@ -44,4 +46,31 @@ instance (Monad m)
 
 instance Monad m => HasStorage (ReaderT RPC2Context m) where
   getStorage = asks rpcStorage
+
+type instance Input RpcStorageHasBlock = HashRef
+type instance Output RpcStorageHasBlock = Maybe Integer
+
+type instance Input RpcStorageGetBlock = HashRef
+type instance Output RpcStorageGetBlock = Maybe ByteString
+
+type instance Input RpcStorageEnqueueBlock = ByteString
+type instance Output RpcStorageEnqueueBlock = Maybe HashRef
+
+type instance Input RpcStoragePutBlock = ByteString
+type instance Output RpcStoragePutBlock = Maybe HashRef
+
+type instance Input RpcStorageDelBlock = HashRef
+type instance Output RpcStorageDelBlock = ()
+
+type instance Input RpcStorageGetChunk = (HashRef, Offset, Size)
+type instance Output RpcStorageGetChunk = Maybe ByteString
+
+type instance Input RpcStorageGetRef = RefAlias
+type instance Output RpcStorageGetRef = Maybe HashRef
+
+type instance Input RpcStorageUpdateRef = (RefAlias, HashRef)
+type instance Output RpcStorageUpdateRef = ()
+
+type instance Input RpcStorageDelRef = RefAlias
+type instance Output RpcStorageDelRef = ()
 

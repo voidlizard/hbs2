@@ -24,7 +24,6 @@ import UnliftIO
 
 evolve :: MonadIO m => m ()
 evolve = void $ runMaybeT do
-  trace "DO EVOLVE MAZAFAKA!"
 
   here   <- liftIO getCurrentDirectory
 

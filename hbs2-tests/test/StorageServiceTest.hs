@@ -9,6 +9,8 @@ import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 import HBS2.Storage
 import HBS2.Storage.Simple (simpleStorageWorker,simpleStorageInit)
+import HBS2.Storage.Operations.ByteString qualified as OP
+import HBS2.Storage.Operations.ByteString (MerkleReader(..),TreeKey(..))
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix
 
@@ -21,12 +23,14 @@ import HBS2.OrDie
 import HBS2.System.Logger.Simple
 
 import Control.Monad.Reader
+import Control.Monad.Except (Except, ExceptT(..), runExcept, runExceptT)
 import Data.Kind
 import System.FilePath
 import UnliftIO
 import Prettyprinter
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Maybe
 import Codec.Serialise
 
@@ -168,6 +172,18 @@ main = do
       info $ "refkey via client storage" <+> pretty vjopa <+> pretty h3
 
       assertBool "ref-alias-works-3" (vjopa == Just h3)
+
+      let aaa = LBS8.replicate (256 * 1024 * 10) 'A'
+
+      aaaHref <- OP.writeAsMerkle cto aaa
+
+      info $ "writeAsMerkle" <+> pretty aaaHref
+
+      aaaWat <- runExceptT (OP.readFromMerkle cto (SimpleKey aaaHref)) `orDie` "readFromMerkle failed"
+
+      info $ "readFromMerkle" <+> pretty (LBS.length aaaWat)
+
+      assertBool "read/write" (aaa == aaaWat)
 
       pure ()
 

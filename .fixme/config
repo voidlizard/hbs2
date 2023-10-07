@@ -9,6 +9,8 @@ fixme-prefix     PR:        pr
 
 fixme-files **/*.hs docs/devlog.md
 
+fixme-files **/*.cabal
+
 fixme-files docs/pep*.txt
 fixme-files docs/drafts/**/*.txt
 fixme-files docs/notes/**/*.txt

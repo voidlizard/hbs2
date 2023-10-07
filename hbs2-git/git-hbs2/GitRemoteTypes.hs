@@ -6,6 +6,7 @@ import HBS2.Prelude
 import HBS2.OrDie
 import HBS2.Net.Auth.Credentials (PeerCredentials)
 import HBS2.Net.Proto.Definition()
+import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2Git.Types
 import Control.Monad.Reader
@@ -18,11 +19,8 @@ import Control.Monad.Trans.Resource
 
 data RemoteEnv =
   RemoteEnv
-  { _reHttpCat :: API
-  , _reHttpSize :: API
-  , _reHttpPut  :: API
-  , _reHttpRefGet  :: API
-  , _reCreds :: TVar (HashMap RepoRef (PeerCredentials Schema))
+  { _reCreds :: TVar (HashMap RepoRef (PeerCredentials Schema))
+  , _reRpc   :: RPCEndpoints
   }
 
 makeLenses 'RemoteEnv
@@ -41,14 +39,14 @@ newtype GitRemoteApp m a =
                    , MonadTrans
                    )
 
+instance Monad m => HasStorage (GitRemoteApp m) where
+  getStorage =  asks (rpcStorage . view reRpc) <&> AnyStorage . StorageClient
+
+instance Monad m => HasRPC (GitRemoteApp m) where
+  getRPC =  asks (view reRpc)
+
 runRemoteM :: MonadIO m => RemoteEnv -> GitRemoteApp m a -> m a
 runRemoteM env m = runReaderT (fromRemoteApp m) env
-
-instance MonadIO m => HasCatAPI (GitRemoteApp m) where
-  getHttpCatAPI = view (asks reHttpCat)
-  getHttpSizeAPI = view (asks reHttpSize)
-  getHttpPutAPI = view (asks reHttpPut)
-  getHttpRefLogGetAPI = view (asks reHttpRefGet)
 
 instance MonadIO m => HasRefCredentials (GitRemoteApp m) where
 

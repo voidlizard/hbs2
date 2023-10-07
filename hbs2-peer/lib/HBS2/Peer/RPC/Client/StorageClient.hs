@@ -20,6 +20,8 @@ import Data.Functor
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 
+import HBS2.System.Logger.Simple
+
 newtype StorageClient e =
   StorageClient { fromStorageClient :: ServiceCaller StorageAPI e }
 
@@ -29,10 +31,12 @@ instance ( MonadIO m
   => Storage (StorageClient e) HbSync ByteString m where
 
   putBlock s lbs = liftIO do
+    debug $  "CLIENT: putBlock!"
     callService @RpcStoragePutBlock @StorageAPI (fromStorageClient s) lbs
       <&> either (const Nothing) (fmap fromHashRef)
 
   enqueueBlock s lbs = liftIO do
+    debug $  "CLIENT: enqueueBlock!"
     callService @RpcStorageEnqueueBlock @StorageAPI (fromStorageClient s) lbs
       <&> either (const Nothing) (fmap fromHashRef)
 

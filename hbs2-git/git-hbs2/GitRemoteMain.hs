@@ -8,7 +8,6 @@ import HBS2.Git.Types
 
 import HBS2.System.Logger.Simple
 
-import HBS2Git.Types(traceTime)
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Import
@@ -17,8 +16,10 @@ import HBS2.Git.Local.CLI
 
 import HBS2Git.Export (runExport)
 
+import HBS2Git.Config as Config
 import GitRemoteTypes
 import GitRemotePush
+
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
@@ -79,6 +80,8 @@ loop :: forall m . ( MonadIO m
                    , MonadUnliftIO m
                    , MonadMask m
                    , HasProgress (RunWithConfig (GitRemoteApp m))
+                   , HasStorage (RunWithConfig (GitRemoteApp m))
+                   , HasRPC (RunWithConfig (GitRemoteApp m))
                    ) => [String] -> GitRemoteApp m ()
 loop args = do
 
@@ -106,7 +109,7 @@ loop args = do
     warn $ "reference" <+> pretty ref <+> "missing"
     warn "trying to init reference --- may be it's ours"
     liftIO $ runApp WithLog (runExport Nothing ref)
-
+    importRefLogNew True ref
 
   refsNew <- withDB db stateGetActualRefs
   let possibleHead = listToMaybe $ List.take 1 $ List.sortOn guessHead (fmap fst refsNew)
@@ -219,14 +222,14 @@ main = do
 
   evolve
 
-  env <- RemoteEnv <$> detectHBS2PeerCatAPI
-                   <*> detectHBS2PeerSizeAPI
-                   <*> detectHBS2PeerPutAPI
-                   <*> detectHBS2PeerRefLogGetAPI
-                   <*> liftIO (newTVarIO mempty)
+  (_, syn) <- Config.configInit
 
-  runRemoteM env do
-    loop args
+  runWithRPC $ \rpc -> do
+    env <- RemoteEnv <$> liftIO (newTVarIO mempty)
+                     <*> pure rpc
+
+    runRemoteM env do
+      loop args
 
   shutUp
 

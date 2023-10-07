@@ -136,7 +136,7 @@ getRpcSocketNameM = do
   syn <- getConf
 
   let soname = lastDef rpcSoDef [ Text.unpack n
-                                | ListVal @C (Key "rpc2" [SymbolVal "unix", LitStrVal n]) <- syn
+                                | ListVal @C (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
                                 ]
   pure soname
 

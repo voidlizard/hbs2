@@ -28,9 +28,15 @@ import Data.Word
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 
+
+type family Input a  :: Type
+type family Output a :: Type
+
+-- FIXME: wrap-those-instances
+type instance Input () = ()
+type instance Output () = ()
+
 class (Monad m, Serialise (Output a), Serialise (Input a)) => HandleMethod m a where
-  type family Input a  :: Type
-  type family Output a :: Type
   handleMethod :: Input a -> m (Output a)
 
 type family AllHandlers m (xs :: [Type]) :: Constraint where
@@ -52,8 +58,6 @@ instance (Monad m, EnumAll xs (Int, SomeHandler m) m, HandleMethod m x) => EnumA
       shift = map (\(i, h) -> (i + 1, h))
 
 instance Monad m => HandleMethod m () where
-  type Input () = ()
-  type Output () = ()
   handleMethod _ = pure ()
 
 data ServiceError =
@@ -176,6 +180,38 @@ runServiceClient caller = do
 
   wait proto
 
+data Endpoint e m = forall (api :: [Type]) . ( HasProtocol e (ServiceProto api e)
+                                             , HasTimeLimits e (ServiceProto api e) m
+                                             , PeerMessaging e
+                                             , Pretty (Peer e)
+                                             )
+  => Endpoint (ServiceCaller api e)
+
+runServiceClientMulti :: forall e m . ( MonadIO m
+                                      , MonadUnliftIO m
+                                      -- FIXME: remove-this-debug-shit
+                                      , Show (Peer e)
+                                      , Pretty (Peer e)
+                                      , PeerMessaging e
+                                      , HasOwnPeer e m
+                                      , HasFabriq e m
+                                      )
+                  => [ Endpoint e m ]
+                  -> m ()
+
+runServiceClientMulti endpoints = do
+  proto <- async $ runProto @e [ makeResponse @e (makeClient x) | (Endpoint x) <- endpoints ]
+  link proto
+
+  waiters <- forM endpoints $ \(Endpoint caller) -> async $ forever do
+                req <- getRequest caller
+                request @e (callPeer caller) req
+
+  mapM_ link waiters
+
+  void $ UIO.waitAnyCatchCancel $ proto : waiters
+
+
 notifyServiceCaller :: forall api e m . MonadIO m
              => ServiceCaller api e
              -> ServiceProto api e
@@ -234,7 +270,6 @@ makeClient :: forall api e m  . ( MonadIO m
                 -> m ()
 
 makeClient = notifyServiceCaller
-
 
 instance (HasProtocol e (ServiceProto api e)) => HasTimeLimits e (ServiceProto api e) IO where
   tryLockForPeriod _ _ = pure True

@@ -3,7 +3,6 @@
 module RPC2.PexInfo where
 
 import HBS2.Actors.Peer
-import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Service
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Definition()
@@ -13,11 +12,12 @@ import HBS2.Net.Proto.PeerExchange
 import HBS2.Peer.RPC.Internal.Types
 import HBS2.Peer.RPC.API.Peer
 
+import Codec.Serialise
+
 instance ( MonadIO m
          , HasRpcContext PeerAPI RPC2Context m
+         , Serialise                        (Output RpcPexInfo)
          ) => HandleMethod m RpcPexInfo where
-  type instance Input RpcPexInfo = ()
-  type instance Output RpcPexInfo = [PeerAddr L4Proto]
 
   handleMethod _ = do
    co <- getRpcContext @PeerAPI

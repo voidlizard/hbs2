@@ -31,8 +31,6 @@ import Control.Concurrent.STM
 import Data.Graph (graphFromEdges, topSort)
 import Lens.Micro.Platform
 
-import System.IO (stderr)
-
 -- FIXME: move-orphans-to-separate-module
 
 instance ToField Cookie where

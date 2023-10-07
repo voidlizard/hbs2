@@ -4,31 +4,44 @@
 module HBS2Git.App
   ( module HBS2Git.App
   , module HBS2Git.Types
+  , HasStorage(..)
   )
   where
 
 import HBS2.Prelude
+import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.OrDie
 import HBS2.Hash
+import HBS2.Clock
+import HBS2.Storage
+import HBS2.Storage.Operations.ByteString
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
 import HBS2.Git.Types
 import HBS2.Net.Proto.Definition()
+import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
 import HBS2.Net.Proto.RefLog
 import HBS2.Defaults (defBlockSize)
 
+import HBS2.Peer.RPC.Client.Unix
+import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.RefLog
+
 import HBS2Git.Types
 import HBS2Git.Config as Config
 import HBS2Git.Evolve
+import HBS2Git.PrettyStuff
 
 import Data.Maybe
 import Control.Monad.Trans.Maybe
 import Data.Foldable
 import Data.Either
 import Control.Monad.Reader
+import Control.Monad.Trans.Resource
+import Control.Monad.Except (runExceptT,throwError)
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
@@ -43,19 +56,24 @@ import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import Network.HTTP.Simple
 import Network.HTTP.Types.Status
-import Control.Concurrent.STM
+import Control.Concurrent.STM (flushTQueue)
 import Codec.Serialise
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Text qualified as Text
-import Data.IORef
+-- import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Cache qualified as Cache
-import Control.Concurrent.Async
+-- import Control.Concurrent.Async
 import System.Environment
-import System.IO
+
+import Prettyprinter.Render.Terminal
 
 import Streaming.Prelude qualified as S
+
+import UnliftIO
+
+-- instance HasTimeLimits  UNIX (ServiceProto PeerAPI UNIX) m where
 
 instance MonadIO m => HasCfgKey ConfBranch (Set String) m where
   key = "branch"
@@ -95,12 +113,6 @@ infoPrefix = toStderr
 
 data WithLog = NoLog | WithLog
 
-instance MonadIO m => HasCatAPI (App m) where
-  getHttpCatAPI = asks (view appPeerHttpCat)
-  getHttpSizeAPI = asks (view appPeerHttpSize)
-  getHttpPutAPI = asks (view appPeerHttpPut)
-  getHttpRefLogGetAPI = asks (view appPeerHttpRefLogGet)
-
 instance MonadIO m => HasRefCredentials (App m) where
   setCredentials ref cred = do
     asks (view appRefCred) >>= \t -> liftIO $ atomically $
@@ -110,6 +122,14 @@ instance MonadIO m => HasRefCredentials (App m) where
     hm <- asks (view appRefCred) >>= liftIO . readTVarIO
     pure (HashMap.lookup ref hm) `orDie` "keyring not set"
 
+instance (Monad m, HasStorage m) => (HasStorage (ResourceT m)) where
+  getStorage = lift getStorage
+
+instance MonadIO m => HasStorage (App m) where
+  getStorage =  asks (rpcStorage . view appRpc) <&> AnyStorage . StorageClient
+
+instance MonadIO m => HasRPC (App m) where
+  getRPC =  asks (view appRpc)
 
 withApp :: MonadIO m => AppEnv -> App m a -> m a
 withApp env m = runReaderT (fromApp m) env
@@ -165,10 +185,71 @@ detectHBS2PeerRefLogGetAPI = do
   let new = Text.replace "/cat" "/reflog" $ Text.pack api
   pure $ Text.unpack new
 
+
 getAppStateDir :: forall m . MonadIO m => m FilePath
 getAppStateDir = liftIO $ getXdgDirectory XdgData Config.appName
 
-runApp :: MonadIO m => WithLog -> App m () -> m ()
+
+
+runWithRPC :: forall m . MonadUnliftIO m => (RPCEndpoints -> m ()) -> m ()
+runWithRPC action = do
+
+  (_, syn) <- configInit
+
+  let soname' = lastMay [ Text.unpack n
+                        | ListVal @C (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
+                        ]
+
+  soname <- race ( pause @'Seconds 1) (maybe detectRPC pure soname') `orDie` "hbs2-peer rpc timeout!"
+
+  client <- race ( pause @'Seconds 1) (newMessagingUnix False 1.0 soname) `orDie` "hbs2-peer rpc timeout!"
+
+  rpc <- RPCEndpoints <$> makeServiceCaller (fromString soname)
+                      <*> makeServiceCaller (fromString soname)
+                      <*> makeServiceCaller (fromString soname)
+
+  messaging <- async $ runMessagingUnix client
+  link messaging
+
+  let endpoints = [ Endpoint @UNIX  (rpcPeer rpc)
+                  , Endpoint @UNIX  (rpcStorage rpc)
+                  , Endpoint @UNIX  (rpcRefLog rpc)
+                  ]
+
+  c1 <- async $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+  link c1
+
+  test <- race ( pause @'Seconds 1) (callService @RpcPoke (rpcPeer rpc) ()) `orDie` "hbs2-peer rpc timeout!"
+
+  void $ pure test `orDie` "hbs2-peer rpc error!"
+
+  debug $ "hbs2-peer RPC ok" <+> pretty soname
+
+  action rpc
+
+  cancel messaging
+
+  void $ waitAnyCatchCancel [messaging, c1]
+
+  where
+
+    detectRPC = do
+      (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+
+      let answ = parseTop (LBS.unpack o) & fromRight mempty
+
+      let so = headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ]
+
+      -- FIXME: logger-to-support-colors
+      liftIO $ hPutDoc stderr $ yellow "rpc: found RPC" <+> pretty so
+                                <> line <>
+                                yellow "rpc: add option" <+> parens ("rpc unix" <+> dquotes (pretty so))
+                                <+> "to the config .hbs2/config"
+                                <> line <> line
+
+      pure so `orDie` "hbs2-peer rpc not detected"
+
+runApp :: MonadUnliftIO m => WithLog -> App m () -> m ()
 runApp l m = do
 
   case l of
@@ -192,25 +273,11 @@ runApp l m = do
   (pwd, syn) <- Config.configInit
 
   xdgstate <- getAppStateDir
-  -- let statePath = xdgstate </> makeRelative home pwd
-  -- let dbPath = statePath </> "state.db"
-  -- db <- dbEnv dbPath
-  -- trace $ "state" <+> pretty statePath
-  -- here <- liftIO $ doesDirectoryExist statePath
-  -- unless here do
-  --   liftIO $ createDirectoryIfMissing True statePath
-  -- withDB db stateInit
 
-  reQ <- detectHBS2PeerCatAPI
-  szQ <- detectHBS2PeerSizeAPI
-  puQ <- detectHBS2PeerPutAPI
-  rlQ <- detectHBS2PeerRefLogGetAPI
-
-  mtCred <- liftIO $ newTVarIO mempty
-
-  let env = AppEnv pwd (pwd </> ".git") syn xdgstate reQ szQ puQ rlQ mtCred
-
-  runReaderT (fromApp m) env
+  runWithRPC $ \rpc -> do
+    mtCred <- liftIO $ newTVarIO mempty
+    let env = AppEnv pwd (pwd </> ".git") syn xdgstate mtCred rpc
+    runReaderT (fromApp m) (set appRpc rpc env)
 
   debug $ vcat (fmap pretty syn)
 
@@ -220,67 +287,17 @@ runApp l m = do
   setLoggingOff @TRACE
   setLoggingOff @INFO
 
-
-writeBlock :: forall m . (HasCatAPI m, MonadIO m) => ByteString -> m (Maybe (Hash HbSync))
-writeBlock bs = do
-  req <-  getHttpPutAPI
-  writeBlockIO req bs
-
-writeBlockIO :: forall m . MonadIO m => API -> ByteString -> m (Maybe (Hash HbSync))
-writeBlockIO api bs = do
-  req1 <-  liftIO $ parseRequest api
-  let request = setRequestMethod "PUT"
-                    $ setRequestHeader "Content-Type" ["application/octet-stream"]
-                    $ setRequestBodyLBS bs req1
-
-  resp <- httpLBS request
-
-  case statusCode (getResponseStatus resp) of
-
-    200 -> pure $ getResponseBody resp & LBS.unpack & fromStringMay
-    _   -> pure Nothing
-
-
-readBlock :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe ByteString)
+readBlock :: forall m . (MonadIO m, HasStorage m) => HashRef -> m (Maybe ByteString)
 readBlock h = do
-  req1 <-  getHttpCatAPI
-  readBlockFrom req1 h
+  sto <- getStorage
+  liftIO $ getBlock sto (fromHashRef h)
 
-readBlockFrom :: forall m . (MonadIO m) => API -> HashRef -> m (Maybe ByteString)
-readBlockFrom api h = do
-  let reqs = api <> "/" <> show (pretty h)
-  req  <- liftIO $ parseRequest reqs
-  resp <- httpLBS req
+readRef :: (HasStorage m, MonadIO m) => RepoRef -> m (Maybe HashRef)
+readRef ref = do
+  sto <- getStorage
+  liftIO (getRef sto (refAlias ref)) <&> fmap HashRef
 
-  case statusCode (getResponseStatus resp) of
-    200 -> pure $ Just (getResponseBody resp)
-    _   -> pure Nothing
-
-
-readRefHttp :: forall m . (HasCatAPI m, MonadIO m) => RepoRef -> m (Maybe HashRef)
-readRefHttp re = do
-  req0 <- getHttpRefLogGetAPI
-  let req = req0 <> "/" <> show (pretty re)
-  request <- liftIO $ parseRequest req
-  resp <- httpLBS request
-
-  case statusCode (getResponseStatus resp) of
-    200 -> pure $ getResponseBody resp & LBS.unpack & fromStringMay
-    _   -> pure Nothing
-
-
-getBlockSize :: forall m . (HasCatAPI m, MonadIO m) => HashRef -> m (Maybe Integer)
-getBlockSize h = do
-  req1 <-  getHttpSizeAPI
-  let reqs = req1 <> "/" <> show (pretty h)
-  req  <- liftIO $ parseRequest reqs
-  httpJSONEither req <&> getResponseBody  <&> either (const Nothing) Just
-
-readRef :: (HasCatAPI m, MonadIO m) => RepoRef -> m (Maybe HashRef)
-readRef = readRefHttp
-
-
-readHashesFromBlock :: (MonadIO m, HasCatAPI m) => HashRef -> m [HashRef]
+readHashesFromBlock :: (MonadIO m, HasStorage m) => HashRef -> m [HashRef]
 readHashesFromBlock (HashRef h) = do
   treeQ <- liftIO newTQueueIO
   walkMerkle h (readBlock . HashRef) $ \hr -> do
@@ -290,25 +307,9 @@ readHashesFromBlock (HashRef h) = do
   re <- liftIO $ atomically $ flushTQueue treeQ
   pure $ mconcat re
 
-readRefCLI :: MonadIO m => RepoRef -> m (Maybe HashRef)
-readRefCLI r = do
-  let k = pretty (AsBase58 r)
-  trace  [qc|hbs2-peer reflog get {k}|]
-  let cmd = setStdin closed $ setStderr closed
-                            $ shell [qc|hbs2-peer reflog get {k}|]
-  (code, out, _)  <- liftIO $ readProcess cmd
-
-  trace $ viaShow out
-
-  case code of
-    ExitFailure{} -> pure Nothing
-    _  -> do
-      let s = LBS.unpack <$> headMay (LBS.lines out)
-      pure $ s >>= fromStringMay
-
 type ObjType = MTreeAnn [HashRef]
 
-readObject :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m (Maybe ByteString)
+readObject :: forall m . (MonadIO m, HasStorage m) => HashRef -> m (Maybe ByteString)
 readObject h = runMaybeT do
 
   q <- liftIO newTQueueIO
@@ -329,7 +330,7 @@ readObject h = runMaybeT do
 
   mconcat <$> liftIO (atomically $ flushTQueue q)
 
-calcRank :: forall m . (MonadIO m, HasCatAPI m) => HashRef -> m Int
+calcRank :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Int
 calcRank h = fromMaybe 0 <$> runMaybeT do
 
   blk <- MaybeT $ readBlock h
@@ -347,6 +348,7 @@ calcRank h = fromMaybe 0 <$> runMaybeT do
 
 postRefUpdate :: ( MonadIO m
                  , HasRefCredentials m
+                 , HasRPC m
                  , IsRefPubKey Schema
                  )
               => RepoRef
@@ -355,7 +357,7 @@ postRefUpdate :: ( MonadIO m
               -> m ()
 
 postRefUpdate ref seqno hash = do
-  trace $ "refPostUpdate"  <+> pretty seqno <+> pretty hash
+  info $ "refPostUpdate"  <+> pretty seqno <+> pretty hash
 
   cred <- getCredentials ref
   let pubk = view peerSignPk cred
@@ -363,88 +365,35 @@ postRefUpdate ref seqno hash = do
   let tran = SequentialRef seqno (AnnotatedHashRef Nothing hash)
   let bs = serialise tran & LBS.toStrict
 
-  msg <- makeRefLogUpdate @HBS2L4Proto pubk privk bs <&> serialise
+  msg <- makeRefLogUpdate @HBS2L4Proto pubk privk bs
 
-  let input = byteStringInput msg
-  let cmd = setStdin input $ shell [qc|hbs2-peer reflog send-raw|]
+  rpc <- getRPC <&> rpcRefLog
 
-  (code, _, _)  <- liftIO $ readProcess cmd
+  callService @RpcRefLogPost rpc msg
+    >>= either (err . viaShow) (const $ pure ())
 
-  trace $ "hbs2-peer exited with code" <+> viaShow code
 
-storeObject :: (MonadIO m, HasCatAPI m, HasConf m)
+storeObject :: (MonadIO m, HasStorage m, HasConf m)
             => ByteString -> ByteString -> m (Maybe HashRef)
--- storeObject = storeObjectHBS2Store
-storeObject = storeObjectHttpPut
+storeObject = storeObjectRPC
 
-storeObjectHttpPut :: (MonadIO m, HasCatAPI m, HasConf m)
-                   => ByteString
-                   -> ByteString
-                   -> m (Maybe HashRef)
+storeObjectRPC :: (MonadIO m, HasStorage m)
+               => ByteString
+               -> ByteString
+               -> m (Maybe HashRef)
+storeObjectRPC meta bs = do
+  sto <- getStorage
+  runMaybeT do
+    h <- liftIO $ writeAsMerkle sto bs
+    let txt = LBS.unpack meta & Text.pack
+    blk <- MaybeT $ liftIO $ getBlock sto h
 
-storeObjectHttpPut meta bs = do
+    -- FIXME: fix-excess-data-roundtrip
+    mtree <- MaybeT $ deserialiseOrFail @(MTree [HashRef]) blk
+                    & either (const $ pure  Nothing) (pure . Just)
 
-  let chu = chunks (fromIntegral defBlockSize) bs
-
-  rt <- liftIO $ Cache.newCache Nothing
-
-  -- FIXME: run-concurrently
-  hashes  <- forM chu $ \s -> do
-               h <- writeBlock s `orDie` "cant write block"
-               pure (HashRef h)
-
-  let pt = toPTree (MaxSize 1024) (MaxNum 1024) hashes -- FIXME: settings
-
-  -- trace $ viaShow pt
-
-  root <- makeMerkle 0 pt $ \(h,t,bss) -> do
-            liftIO $ Cache.insert rt h (t,bss)
-            -- void $ writeBlock bss
-
-  pieces' <- liftIO $  Cache.toList rt
-  let pieces = [ bss | (_, (_,bss), _) <- pieces' ]
-
-  api <- getHttpPutAPI
-
-  liftIO $ mapConcurrently (writeBlockIO api) pieces
-
-  mtree <- liftIO $ fst <$> Cache.lookup rt root `orDie` "cant find root block"
-
-  let txt = LBS.unpack meta & Text.pack
-
-  let ann = serialise (MTreeAnn (ShortMetadata txt) NullEncryption  mtree)
-
-  writeBlock ann <&> fmap HashRef
-
--- FIXME: ASAP-store-calls-hbs2
---   Это может приводить к тому, что если пир и hbs2-peer
---   смотрят на разные каталоги --- ошибки могут быть очень загадочны.
---   Нужно починить.
---
--- FIXME: support-another-apis-for-storage
-storeObjectHBS2Store :: (MonadIO m, HasConf m) => ByteString -> ByteString -> m (Maybe HashRef)
-storeObjectHBS2Store meta bs = do
-
-  stor <- cfgValue @StoragePref @(Maybe FilePath)
-
-  -- FIXME: fix-temporary-workaround-while-hbs2-is-used
-  --  Пока не избавились от hbs2 store для сохранения объектов
-  --  можно использовать ключ storage в конфиге hbs2-git
-  let pref =  maybe "" (mappend "-p ") stor
-
-  let meta58 = show $ pretty $ B8.unpack $ toBase58 (LBS.toStrict meta)
-
-  -- trace $ "meta58" <+> pretty meta58
-
-  let input = byteStringInput bs
-  let cmd = setStdin input $ setStderr closed
-                           $ shell [qc|hbs2 store --short-meta-base58={meta58} {pref}|]
-
-  (_, out, _) <- liftIO $ readProcess cmd
-
-  case LBS.words out of
-    ["merkle-root:", h] -> pure $ Just $ fromString (LBS.unpack h)
-    _                   -> pure Nothing
+    let ann = serialise (MTreeAnn (ShortMetadata txt) NullEncryption mtree)
+    MaybeT $ liftIO $ putBlock sto ann <&> fmap HashRef
 
 
 makeDbPath :: MonadIO m => RepoRef -> m FilePath

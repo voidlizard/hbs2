@@ -75,10 +75,11 @@ exportRefDeleted :: forall  o m . ( MonadIO m
                                   , MonadCatch m
                                   , MonadMask m
                                   , MonadUnliftIO m
-                                  , HasCatAPI m
                                   , HasConf m
                                   , HasRefCredentials m
                                   , HasProgress m
+                                  , HasStorage m
+                                  , HasRPC m
                                   , ExportRepoOps o
                                   )
               => o
@@ -158,7 +159,8 @@ withExportEnv :: MonadIO m => ExportEnv -> ExportT m a -> m a
 withExportEnv env f = runReaderT (fromExportT f) env
 
 writeLogSegments :: forall m . ( MonadIO m
-                               , HasCatAPI m
+                               , HasStorage m
+                               , HasRPC m
                                , MonadMask m
                                , HasRefCredentials m
                                , HasConf m
@@ -246,10 +248,11 @@ exportRefOnly :: forall  o m . ( MonadIO m
                                , MonadCatch m
                                , MonadMask m
                                , MonadUnliftIO m
-                               , HasCatAPI m
                                , HasConf m
                                , HasRefCredentials m
                                , HasProgress m
+                               , HasStorage m
+                               , HasRPC m
                                , ExportRepoOps o
                                )
               => o
@@ -375,6 +378,8 @@ runExport :: forall m . ( MonadIO m
                         , MonadCatch m
                         , HasProgress (App m)
                         , MonadMask (App m)
+                        , HasStorage (App m)
+                        , HasRPC (App m)
                         )
 
           => Maybe FilePath -> RepoRef -> App m ()
@@ -390,6 +395,8 @@ runExport' :: forall m . ( MonadIO m
                         , MonadCatch m
                         , HasProgress (App m)
                         , MonadMask (App m)
+                        , HasStorage (App m)
+                        , HasRPC (App m)
                         )
 
           => FilePath -> App m ()
@@ -405,6 +412,8 @@ runExport'' :: forall m . ( MonadIO m
                         , MonadCatch m
                         , HasProgress (App m)
                         , MonadMask (App m)
+                        , HasStorage (App m)
+                        , HasRPC (App m)
                         )
 
           => FilePath -> RepoRef -> App m ()

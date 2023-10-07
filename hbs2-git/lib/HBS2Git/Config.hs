@@ -58,7 +58,6 @@ configPath _ = liftIO do
   git <- findGitDir pwd
   byEnv <- lookupEnv "GIT_DIR"
   path <- pure (git <|> byEnv) `orDie`  "*** hbs2-git: .git directory not found"
-  debug $ "AAAAA " <+> pretty path
   pure (takeDirectory path </> ".hbs2")
 
 data ConfigPathInfo = ConfigPathInfo {

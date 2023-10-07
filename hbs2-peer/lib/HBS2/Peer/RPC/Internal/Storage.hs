@@ -9,89 +9,78 @@ module HBS2.Peer.RPC.Internal.Storage
 
 import HBS2.Prelude.Plated
 import HBS2.Actors.Peer.Types
-import HBS2.Data.Types.Refs (HashRef(..),RefAlias(..))
+import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Storage
 import HBS2.Peer.RPC.Class
 import HBS2.Peer.RPC.API.Storage
 
 import HBS2.Net.Proto.Service
-
+import HBS2.System.Logger.Simple
 
 import Data.Functor
-import Data.ByteString.Lazy ( ByteString )
 
 -- type StorageContext m = (MonadIO m, HasStorage m)
 type StorageContext m = (MonadIO m, HasStorage m)
 
 instance (StorageContext m) => HandleMethod m RpcStorageHasBlock where
-  type instance Input RpcStorageHasBlock = HashRef
-  type instance Output RpcStorageHasBlock = Maybe Integer
 
   handleMethod href = do
+    debug $ "rpc.storage.hasBlock" <+> pretty href
     sto <- getStorage
     liftIO $ hasBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageGetBlock where
-  type instance Input RpcStorageGetBlock = HashRef
-  type instance Output RpcStorageGetBlock = Maybe ByteString
 
   handleMethod href = do
+    debug $ "rpc.storage.getBlock" <+> pretty href
     sto <- getStorage
     liftIO $ getBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageEnqueueBlock where
-  type instance Input RpcStorageEnqueueBlock = ByteString
-  type instance Output RpcStorageEnqueueBlock = Maybe HashRef
 
   handleMethod lbs = do
+    debug $ "rpc.storage.enqueueBlock"
     sto <- getStorage
     liftIO $ enqueueBlock sto lbs <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStoragePutBlock where
-  type instance Input RpcStoragePutBlock = ByteString
-  type instance Output RpcStoragePutBlock = Maybe HashRef
 
   handleMethod lbs = do
+    debug $ "rpc.storage.putBlock"
     sto <- getStorage
     liftIO $ putBlock sto lbs <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStorageDelBlock where
-  type instance Input RpcStorageDelBlock = HashRef
-  type instance Output RpcStorageDelBlock = ()
 
   handleMethod href = do
+    debug $ "rpc.storage.delBlock" <+> pretty href
     sto <- getStorage
     liftIO $ delBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageGetChunk where
-  type instance Input RpcStorageGetChunk = (HashRef, Offset, Size)
-  type instance Output RpcStorageGetChunk = Maybe ByteString
 
   handleMethod (h,o,s) = do
     sto <- getStorage
     liftIO $ getChunk sto (fromHashRef h) o s
 
 instance (StorageContext m) => HandleMethod m RpcStorageGetRef where
-  type instance Input RpcStorageGetRef = RefAlias
-  type instance Output RpcStorageGetRef = Maybe HashRef
 
   handleMethod ref = do
+    debug $ "rpc.storage.getRef" <+> pretty ref
     sto <- getStorage
     liftIO $ getRef sto ref <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStorageUpdateRef where
-  type instance Input RpcStorageUpdateRef = (RefAlias, HashRef)
-  type instance Output RpcStorageUpdateRef = ()
 
   handleMethod (ref, val) = do
+    debug $ "rpc.storage.updateRef" <+> pretty ref
     sto <- getStorage
     liftIO $ updateRef sto ref (fromHashRef val)
 
 instance (StorageContext m) => HandleMethod m RpcStorageDelRef where
-  type instance Input RpcStorageDelRef = RefAlias
-  type instance Output RpcStorageDelRef = ()
 
   handleMethod ref = do
+    debug $ "rpc.storage.delRef" <+> pretty ref
     sto <- getStorage
     liftIO $ delRef sto ref
 

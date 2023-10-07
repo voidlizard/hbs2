@@ -281,10 +281,13 @@ runCLI = do
     pPoke = do
       rpc <- pRpcCommon
       pure $ withMyRPC @PeerAPI rpc $ \caller -> do
-        r <- callService @RpcPoke caller ()
-        case r of
-          Left e -> err (viaShow e)
-          Right txt -> putStrLn txt
+        e <- race ( pause @'Seconds 0.25) do
+          r <- callService @RpcPoke caller ()
+          case r of
+            Left e -> die (show e)
+            Right txt -> putStrLn txt >> exitSuccess
+
+        liftIO $ either (const $ exitFailure) (const $ exitSuccess) e
 
     pAnnounce = do
       rpc <- pRpcCommon
@@ -914,7 +917,7 @@ runPeer opts = Exception.handle (\e -> myException e
   let refChanHeadPostAction href = do
         void $ liftIO $ withPeerM penv $ do
           let h = fromHashRef href
-          debug $ "rpc2.refChanHeadPost" <+> pretty h
+          debug $ "rpc.refChanHeadPost" <+> pretty h
           me <- ownPeer @e
           sto <- getStorage
 
@@ -935,14 +938,14 @@ runPeer opts = Exception.handle (\e -> myException e
               runResponseM me $ refChanHeadProto @e True refChanAdapter msg
 
   let refChanProposeAction (puk, box) = do
-        debug $ "rpc2.reChanPropose" <+> pretty (AsBase58 puk)
+        debug $ "rpc.reChanPropose" <+> pretty (AsBase58 puk)
         void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
             proposed <- MaybeT $ makeProposeTran @e pc puk box
             lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
 
-  -- NOTE: moved-to-rpc2
+  -- NOTE: moved-to-rpc
   let refChanNotifyAction (puk, box) = do
         void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
@@ -976,17 +979,20 @@ runPeer opts = Exception.handle (\e -> myException e
                Nothing -> mempty
                Just p  -> "http-port:" <+> pretty p
 
+  let rpc = getRpcSocketName conf
+
   let pokeAnsw = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
                              , "udp:" <+> dquotes (pretty (listenAddr mess))
                              , "local-multicast:" <+> dquotes (pretty localMulticast)
+                             , "rpc:" <+> dquotes (pretty rpc)
                              , http
                              ]
 
   let rpcSa = getRpcSocketName conf
-  rpc2msg <- newMessagingUnixOpts [MUFork] True 1.0 rpcSa
+  rpcmsg <- newMessagingUnixOpts [MUFork] True 1.0 rpcSa
 
-  let rpc2ctx = RPC2Context { rpcConfig = fromPeerConfig conf
-                            , rpcMessaging = rpc2msg
+  let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
+                            , rpcMessaging = rpcmsg
                             , rpcPokeAnswer = pokeAnsw
                             , rpcPeerEnv = penv
                             , rpcLocalMultiCast = localMulticast
@@ -997,10 +1003,10 @@ runPeer opts = Exception.handle (\e -> myException e
                             , rpcDoRefChanNotify = refChanNotifyAction
                             }
 
-  m1 <- async $ runMessagingUnix rpc2msg
+  m1 <- async $ runMessagingUnix rpcmsg
   link m1
 
-  rpcProto <- async $ flip runReaderT rpc2ctx do
+  rpcProto <- async $ flip runReaderT rpcctx do
     runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)

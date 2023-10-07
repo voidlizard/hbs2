@@ -5,6 +5,8 @@
 module HBS2Git.Types
   ( module HBS2Git.Types
   , module Control.Monad.IO.Class
+  , HasStorage(..)
+  , AnyStorage(..)
   )
   where
 
@@ -12,9 +14,15 @@ import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Base58
 import HBS2.Git.Types
+import HBS2.Actors.Peer.Types (HasStorage(..),AnyStorage(..))
+import HBS2.Peer.RPC.Client.Unix hiding (Cookie)
 import HBS2.Net.Proto.RefLog (RefLogKey(..))
 import HBS2.Net.Proto.Types hiding (Cookie)
 import HBS2.Net.Auth.Credentials
+
+import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.Storage
 
 import HBS2.System.Logger.Simple
 
@@ -80,22 +88,29 @@ data KeyRingFile
 data KeyRingFiles
 data StoragePref
 
+data RPCEndpoints =
+  RPCEndpoints
+  { rpcPeer    :: ServiceCaller PeerAPI UNIX
+  , rpcStorage :: ServiceCaller StorageAPI UNIX
+  , rpcRefLog  :: ServiceCaller RefLogAPI UNIX
+  }
+
 data AppEnv =
   AppEnv
   { _appCurDir       :: FilePath
   , _appGitDir       :: FilePath
   , _appConf         :: [Syntax C]
   , _appStateDir     :: FilePath
-  , _appPeerHttpCat  :: API
-  , _appPeerHttpSize :: API
-  , _appPeerHttpPut  :: API
-  , _appPeerHttpRefLogGet :: API
   , _appRefCred      :: TVar (HashMap RepoRef (PeerCredentials Schema))
+  , _appRpc          :: RPCEndpoints
   }
 
 makeLenses 'AppEnv
 
 newtype AsGitRefsFile a = AsGitRefsFile a
+
+class HasRPC m where
+  getRPC :: m RPCEndpoints
 
 data RepoHead =
   RepoHead
@@ -165,34 +180,9 @@ instance {-# OVERLAPPABLE #-} MonadIO m => HasProgress m where
                     , styleWidth   = ConstantWidth 60
                     }
 
-class MonadIO m => HasCatAPI m where
-  getHttpCatAPI  :: m API
-  getHttpSizeAPI :: m API
-  getHttpPutAPI  :: m API
-  getHttpRefLogGetAPI :: m API
-
 class MonadIO m => HasRefCredentials m where
   getCredentials :: RepoRef -> m (PeerCredentials Schema)
   setCredentials :: RepoRef -> PeerCredentials Schema -> m ()
-
-instance (HasCatAPI m, MonadIO m) => HasCatAPI (MaybeT m) where
-  getHttpCatAPI = lift getHttpCatAPI
-  getHttpSizeAPI = lift getHttpSizeAPI
-  getHttpPutAPI = lift getHttpPutAPI
-  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
-
-
-instance (HasCatAPI m, MonadIO m) => HasCatAPI (ResourceT m) where
-  getHttpCatAPI = lift getHttpCatAPI
-  getHttpSizeAPI = lift getHttpSizeAPI
-  getHttpPutAPI = lift getHttpPutAPI
-  getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
-
--- instance (HasCatAPI (App m), MonadIO m) => HasCatAPI (ResourceT (App m)) where
---   getHttpCatAPI = lift getHttpCatAPI
---   getHttpSizeAPI = lift getHttpSizeAPI
---   getHttpPutAPI = lift getHttpPutAPI
---   getHttpRefLogGetAPI = lift getHttpRefLogGetAPI
 
 newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
