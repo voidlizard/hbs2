@@ -111,14 +111,32 @@ loop args = do
     liftIO $ runApp WithLog (runExport Nothing ref)
     importRefLogNew True ref
 
-  refsNew <- withDB db stateGetActualRefs
-  let possibleHead = listToMaybe $ List.take 1 $ List.sortOn guessHead (fmap fst refsNew)
+  let getHeads upd = do
+        when upd do importRefLogNew False ref
+        refsNew <- withDB db stateGetActualRefs
+        let possibleHead = listToMaybe $ List.take 1 $ List.sortOn guessHead (fmap fst refsNew)
 
-  let hd = refsNew & LBS.pack . show
-                              . pretty
-                              . AsGitRefsFile
-                              . RepoHead possibleHead
-                              . HashMap.fromList
+        let hd = refsNew & LBS.pack . show
+                                    . pretty
+                                    . AsGitRefsFile
+                                    . RepoHead possibleHead
+                                    . HashMap.fromList
+        pure hd
+
+
+  hd <- getHeads True
+
+  refs <- withDB db stateGetActualRefs
+
+  let heads = [ h | h@GitHash{} <- universeBi refs ]
+
+  missed <- try (mapM (gitReadObject Nothing) heads) <&> either (\(_::SomeException) -> True) (const False)
+
+  let force = missed || List.null heads
+
+  when force do
+  -- sync state first
+    traceTime "TIMING: importRefLogNew" $ importRefLogNew True ref
 
   batch <- liftIO $ newTVarIO False
 
@@ -149,19 +167,16 @@ loop args = do
           next
 
       ["list"] -> do
-        importRefLogNew False ref
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
 
       ["list","for-push"] -> do
-        importRefLogNew False ref
         for_ (LBS.lines hd) (sendLn . LBS.toStrict)
         sendEol
         next
 
       ["fetch", sha1, x] -> do
-        importRefLogNew False ref
         trace $ "fetch" <+> pretty (BS.unpack sha1) <+> pretty (BS.unpack x)
         liftIO $ atomically $ writeTVar batch True
         -- sendEol
@@ -181,17 +196,6 @@ loop args = do
 
       other -> die $ show other
 
-  refs <- withDB db stateGetActualRefs
-
-  let heads = [ h | h@GitHash{} <- universeBi refs ]
-
-  missed <- try (mapM (gitReadObject Nothing) heads) <&> either (\(_::SomeException) -> True) (const False)
-
-  let force = missed || List.null heads
-
-  when force do
-  -- sync state first
-    traceTime "TIMING: importRefLogNew" $ importRefLogNew True ref
 
     shutUp
 
