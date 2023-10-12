@@ -1,7 +1,11 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language UndecidableInstances #-}
 module HBS2Git.State where
 
 import HBS2.Prelude
+import HBS2.Base58
+import HBS2.Net.Auth.GroupKeySymm hiding (Cookie)
+
 import HBS2Git.Types
 import HBS2.Data.Types.Refs
 import HBS2.Git.Types
@@ -10,6 +14,7 @@ import HBS2.Hash
 import HBS2.System.Logger.Simple
 
 import HBS2Git.Config (cookieFile)
+import HBS2Git.Encryption
 
 import Control.Monad.Trans.Resource
 import Data.Functor
@@ -63,6 +68,19 @@ instance ToField GitObjectType where
 instance FromField HashRef where
   fromField = fmap fromString . fromField @String
 
+instance ToField (RefLogKey HBS2Basic) where
+  toField rk = toField (show (pretty rk))
+
+newtype Base58Field a = Base58Field { unBaseB8Field :: a }
+
+instance Pretty (AsBase58 a) => ToField (Base58Field a) where
+  toField (Base58Field a) = toField (show (pretty (AsBase58 a)))
+
+instance FromStringMaybe a => FromField (Base58Field a) where
+  fromField x =
+    fromField @String x
+      <&> fromStringMay @a
+      >>= maybe (fail "can't parse base58 value") (pure  . Base58Field)
 
 newtype DB m a =
   DB { fromDB :: ReaderT DBEnv m a }
@@ -213,6 +231,35 @@ stateInit = do
   CREATE TABLE IF NOT EXISTS cookie
   ( cookie text not null
   , primary key (cookie)
+  );
+  |]
+
+
+  liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS groupkeylocal
+  ( keyhash    text not null
+  , ref        text not null
+  , timestamp  DATETIME DEFAULT CURRENT_TIMESTAMP
+  , valuehash  text not null
+  , primary key (keyhash)
+  );
+  |]
+
+  liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS gk1
+  ( gk0        text not null
+  , pk         text not null
+  , gk1        text not null
+  , primary key (gk0, pk)
+  );
+  |]
+
+  liftIO $ execute_ conn [qc|
+  CREATE TABLE IF NOT EXISTS processed
+  ( hash    text not null
+  , cookie  text not null
+  , timestamp  DATETIME DEFAULT CURRENT_TIMESTAMP
+  , primary key (hash)
   );
   |]
 
@@ -522,4 +569,90 @@ stateGenCookie = do
       void $ execute conn [qc|insert into cookie (cookie) values(?)|] (Only cookie)
       pure cookie
 
+
+stateListLocalKeys :: MonadIO m => DB m [HashRef]
+stateListLocalKeys = do
+  undefined
+
+stateGetLocalKey :: MonadIO m
+                 => KeyInfo
+                 -> DB m (Maybe HashRef)
+stateGetLocalKey ki = do
+  conn <- stateConnection
+  let h = hashObject @HbSync ki & HashRef
+  liftIO $ query conn [qc|select valuehash from groupkeylocal where keyhash = ? limit 1|] (Only h)
+            <&> fmap fromOnly . listToMaybe
+
+statePutLocalKey :: MonadIO m
+                 => KeyInfo
+                 -> HashRef
+                 -> RefLogKey HBS2Basic
+                 -> DB m ()
+
+statePutLocalKey ki gkh reflog = do
+  conn <- stateConnection
+  let sql = [qc|
+  INSERT INTO groupkeylocal (keyhash, ref, valuehash)
+  VALUES (?,?,?)
+  ON CONFLICT (keyhash) DO UPDATE SET
+    ref = excluded.ref, valuehash = excluded.valuehash
+  |]
+
+  liftIO $ execute conn sql (HashRef (hashObject @HbSync ki), reflog, gkh)
+  pure ()
+
+
+statePutProcessed :: (MonadIO m, Hashed HbSync b) => b -> DB m ()
+statePutProcessed h = do
+  conn <- stateConnection
+  cookie <- asks (view dbCookie)
+  liftIO $ execute conn [qc|
+    insert into processed (hash, cookie) values (?, ?)
+    on conflict (hash) do nothing
+  |] (HashRef (hashObject @HbSync h), cookie)
+
+stateGetProcessed :: (MonadIO m, Hashed HbSync b) => b -> DB m Bool
+stateGetProcessed h = do
+  conn <- stateConnection
+  cookie <- asks (view dbCookie)
+  r <- liftIO $ query @_ @(Only Int) conn [qc|
+    select 1 from processed where hash = ? and cookie = ? limit 1
+  |] (HashRef (hashObject @HbSync h), cookie)
+  pure $ not $ null r
+
+
+statePutGK1 :: MonadIO m => HashRef
+            -> PubKey 'Encrypt HBS2Basic
+            -> GroupKey 'Symm HBS2Basic
+            -> DB m ()
+
+statePutGK1 gk0 pk gk1 = do
+  conn <- stateConnection
+  liftIO $ execute conn [qc|
+    insert into gk1 (gk0, pk, gk1) values (?, ?, ?)
+    on conflict (gk0, pk) do nothing
+  |] (gk0, Base58Field pk, Base58Field gk1)
+
+stateGetGK1 :: MonadIO m
+            => HashRef
+            -> PubKey 'Encrypt HBS2Basic
+            -> DB m (Maybe (GroupKey 'Symm HBS2Basic))
+
+stateGetGK1 gk0 pk = do
+  conn <- stateConnection
+  r <- liftIO $ query conn [qc|
+    select gk1 from gk1 where gk0 = ? and pk = ? limit 1
+  |] (gk0, Base58Field pk)
+  pure $ listToMaybe $ fmap (unBaseB8Field . fromOnly) r
+
+stateListGK1 :: MonadIO m
+            => HashRef
+            -> DB m [GroupKey 'Symm HBS2Basic]
+
+stateListGK1 gk0 = do
+  conn <- stateConnection
+  r <- liftIO $ query conn [qc|
+    select gk1 from gk1 where gk0 = ?
+  |] (Only gk0)
+  pure $ fmap (unBaseB8Field . fromOnly) r
 

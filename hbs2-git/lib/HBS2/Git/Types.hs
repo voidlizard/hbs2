@@ -128,5 +128,7 @@ shutUp = do
   setLoggingOff @ERROR
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
+  setLoggingOff @INFO
+  setLoggingOff @WARN
 
 

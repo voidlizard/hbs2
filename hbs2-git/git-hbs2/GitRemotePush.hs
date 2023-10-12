@@ -44,6 +44,11 @@ newtype RunWithConfig m a =
 runWithConfig :: MonadIO m => [Syntax C] -> RunWithConfig m a -> m a
 runWithConfig conf m = runReaderT (fromWithConf m) conf
 
+
+instance (Monad m, HasGlobalOptions m) => HasGlobalOptions (RunWithConfig m) where
+  addGlobalOption k v = lift $ addGlobalOption k v
+  getGlobalOption k = lift $ getGlobalOption k
+
 instance (Monad m, HasStorage m) => HasStorage (RunWithConfig m) where
   getStorage = lift getStorage
 
@@ -57,44 +62,43 @@ instance MonadIO m => HasRefCredentials (RunWithConfig (GitRemoteApp m)) where
   getCredentials = lift . getCredentials
   setCredentials r c = lift $ setCredentials r c
 
+
+instance MonadIO m => HasEncryptionKeys (RunWithConfig (GitRemoteApp m)) where
+  addEncryptionKey = lift . addEncryptionKey
+  findEncryptionKey = lift . findEncryptionKey
+  enumEncryptionKeys = lift enumEncryptionKeys
+
 push :: forall  m . ( MonadIO m
                     , MonadCatch m
-                    , HasProgress (RunWithConfig (GitRemoteApp m))
-                    , MonadMask (RunWithConfig (GitRemoteApp m))
-                    , HasStorage (RunWithConfig (GitRemoteApp m))
+                    , HasConf m
+                    , HasRefCredentials m
+                    , HasEncryptionKeys m
+                    , HasGlobalOptions m
+                    , HasStorage m
+                    , HasRPC m
                     , MonadUnliftIO m
                     , MonadMask m
                     )
 
-     => RepoRef -> [Maybe GitRef] -> GitRemoteApp m (Maybe GitRef)
-
+     => RepoRef -> [Maybe GitRef] -> m (Maybe GitRef)
 
 
 push remote what@[Just bFrom , Just br] = do
-  (_, syn) <- Config.configInit
 
-  dbPath <- makeDbPath remote
-  db <- dbEnv dbPath
-
-  runWithConfig syn do
-    _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
-    loadCredentials mempty
-    trace $ "PUSH PARAMS" <+> pretty what
-    gh <- gitGetHash (normalizeRef bFrom) `orDie` [qc|can't read hash for ref {pretty br}|]
-    _ <- traceTime "TIME: exportRefOnly" $ exportRefOnly () remote (Just bFrom) br gh
-    importRefLogNew False remote
-    pure (Just br)
+  _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
+  trace $ "PUSH PARAMS" <+> pretty what
+  gh <- gitGetHash (normalizeRef bFrom) `orDie` [qc|can't read hash for ref {pretty br}|]
+  _ <- traceTime "TIME: exportRefOnly" $ exportRefOnly () remote (Just bFrom) br gh
+  importRefLogNew False remote
+  pure (Just br)
 
 push remote [Nothing, Just br]  = do
-  (_, syn) <- Config.configInit
 
-  runWithConfig syn do
-    _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
-    loadCredentials mempty
-    trace $ "deleting remote reference" <+> pretty br
-    exportRefDeleted () remote br
-    importRefLogNew False remote
-    pure (Just br)
+  _ <- cfgValue @ConfBranch  @(Set GitRef) <&> transformBi normalizeRef
+  trace $ "deleting remote reference" <+> pretty br
+  exportRefDeleted () remote br
+  importRefLogNew False remote
+  pure (Just br)
 
 push r w = do
   warn $ "ignoring weird push" <+> pretty w <+> pretty r

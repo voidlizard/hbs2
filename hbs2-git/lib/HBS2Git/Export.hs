@@ -14,7 +14,6 @@ import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Net.Proto.Definition()
-import HBS2.Clock
 import HBS2.Base58
 import HBS2.Net.Proto.RefLog
 
@@ -24,6 +23,7 @@ import HBS2.Git.Local.CLI
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Config
+import HBS2Git.KeysMetaData
 import HBS2Git.GitRepoLog
 import HBS2Git.PrettyStuff
 
@@ -77,6 +77,7 @@ exportRefDeleted :: forall  o m . ( MonadIO m
                                   , MonadUnliftIO m
                                   , HasConf m
                                   , HasRefCredentials m
+                                  , HasEncryptionKeys m
                                   , HasProgress m
                                   , HasStorage m
                                   , HasRPC m
@@ -131,7 +132,9 @@ exportRefDeleted _ repo ref = do
                             <> "type:" <+> "hbs2-git-push-log"
                             <> line
 
-  logMerkle <- storeObject meta content `orDie` [qc|Can't store push log|]
+  updateGK0  repo
+
+  logMerkle <- storeObject repo meta content `orDie` [qc|Can't store push log|]
   postRefUpdate repo 0 logMerkle
   pure logMerkle
 
@@ -155,6 +158,20 @@ newtype ExportT m a = ExportT { fromExportT :: ReaderT ExportEnv m a }
                                        , MonadThrow
                                        )
 
+instance (Monad m, HasStorage m) => HasStorage (ExportT m) where
+  getStorage = lift getStorage
+
+instance (Monad m, HasConf m) => HasConf (ExportT m) where
+  getConf = lift getConf
+
+instance (Monad m, HasRPC m) => HasRPC (ExportT m) where
+  getRPC = lift getRPC
+
+instance (Monad m, HasEncryptionKeys m) => HasEncryptionKeys (ExportT m) where
+  addEncryptionKey = lift . addEncryptionKey
+  findEncryptionKey k  = lift $ findEncryptionKey k
+  enumEncryptionKeys = lift enumEncryptionKeys
+
 withExportEnv :: MonadIO m => ExportEnv -> ExportT m a -> m a
 withExportEnv env f = runReaderT (fromExportT f) env
 
@@ -163,16 +180,18 @@ writeLogSegments :: forall m . ( MonadIO m
                                , HasRPC m
                                , MonadMask m
                                , HasRefCredentials m
+                               , HasEncryptionKeys m
                                , HasConf m
                                )
                  => ( Int -> m () )
+                 -> RepoRef
                  -> GitHash
                  -> [GitHash]
                  -> Int
                  -> [(GitLogEntry, LBS.ByteString)]
                  -> ExportT m [HashRef]
 
-writeLogSegments onProgress val objs chunkSize trailing = do
+writeLogSegments onProgress repo val objs chunkSize trailing = do
 
   db          <- asks $ view exportDB
   written     <- asks $ view exportWritten
@@ -233,7 +252,8 @@ writeLogSegments onProgress val objs chunkSize trailing = do
 
       let gzipped = compressWith compressOpts content
 
-      logMerkle <- lift $ storeObject meta gzipped `orDie` [qc|Can't store push log|]
+      -- let nonce = hashObject @HbSync (serialise segments)
+      logMerkle <- lift $ storeObject repo meta gzipped `orDie` [qc|Can't store push log|]
 
       trace $ "PUSH LOG HASH: " <+> pretty logMerkle
       trace $ "POSTING REFERENCE UPDATE TRANSACTION" <+> pretty remote <+> pretty logMerkle
@@ -250,6 +270,7 @@ exportRefOnly :: forall  o m . ( MonadIO m
                                , MonadUnliftIO m
                                , HasConf m
                                , HasRefCredentials m
+                               , HasEncryptionKeys m
                                , HasProgress m
                                , HasStorage m
                                , HasRPC m
@@ -274,6 +295,8 @@ exportRefOnly _ remote rfrom ref val = do
   r <- fromMaybe 0 <$> runMaybeT do
           h <- MaybeT $ readRef remote
           calcRank h
+
+  updateGK0 remote
 
   trace $ "exportRefOnly" <+> pretty remote <+> pretty ref <+> pretty val
 
@@ -362,16 +385,18 @@ exportRefOnly _ remote rfrom ref val = do
 
     -- we need context entries to determine log HEAD operation sequence
     -- so only the last section needs it alongwith headEntry
-    logz  <- lift $ withExportEnv env (writeLogSegments upd val objects batch [ (ctx, ctxBs)
-                                                                              , (rank, rankBs)
-                                                                              , (headEntry, repoHeadStr)
-                                                                              ])
+    logz  <- lift $ withExportEnv env (writeLogSegments upd remote val objects batch [ (ctx, ctxBs)
+                                                                                     , (rank, rankBs)
+                                                                                     , (headEntry, repoHeadStr)
+                                                                                     ])
 
     -- NOTE: отдаём только последнюю секцию лога,
     --       что бы оставить совместимость
     pure $ lastMay logz
 
 ---
+
+
 
 runExport :: forall m . ( MonadIO m
                         , MonadUnliftIO m
@@ -380,11 +405,13 @@ runExport :: forall m . ( MonadIO m
                         , MonadMask (App m)
                         , HasStorage (App m)
                         , HasRPC (App m)
+                        , HasEncryptionKeys (App m)
                         )
 
           => Maybe FilePath -> RepoRef -> App m ()
 runExport mfp repo = do
     loadCredentials (maybeToList mfp)
+    loadKeys
     let krf = fromMaybe "keyring-file" mfp & takeFileName
     runExport'' krf repo
 
@@ -397,12 +424,14 @@ runExport' :: forall m . ( MonadIO m
                         , MonadMask (App m)
                         , HasStorage (App m)
                         , HasRPC (App m)
+                        , HasEncryptionKeys (App m)
                         )
 
           => FilePath -> App m ()
 
 runExport' fp = do
     repo <- loadCredentials' fp
+    loadKeys
     runExport'' (takeFileName fp) (RefLogKey repo)
 
 ---

@@ -7,6 +7,9 @@ import HBS2.OrDie
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
 import HBS2.Hash
+import HBS2.Storage.Operations.Class
+import HBS2.Storage.Operations.ByteString(TreeKey(..))
+import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Net.Proto.RefLog
 import Text.InterpolatedString.Perl6 (qc)
 import HBS2.Data.Detect hiding (Blob)
@@ -14,7 +17,9 @@ import HBS2.Data.Detect hiding (Blob)
 import HBS2.Git.Local
 import HBS2Git.GitRepoLog
 import HBS2Git.App
+import HBS2Git.Config
 import HBS2Git.State
+import HBS2Git.KeysMetaData
 import HBS2.Git.Local.CLI
 
 import Data.Fixed
@@ -27,6 +32,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import Lens.Micro.Platform
 import Data.Set qualified as Set
 import Codec.Serialise
+import Control.Monad.Except (runExceptT)
 import Control.Monad.Catch
 import Control.Monad.Trans.Resource
 import System.Directory
@@ -36,11 +42,12 @@ import System.IO (openBinaryFile)
 import System.FilePath.Posix
 import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
-import Data.Config.Suckless
 import Data.Either
 
 import Streaming.ByteString qualified as SB
 import Streaming.Zip qualified as SZip
+
+import HBS2Git.PrettyStuff
 
 data RunImportOpts =
   RunImportOpts
@@ -114,6 +121,7 @@ importRefLogNew :: ( MonadIO m
                    , MonadCatch m
                    , MonadMask m
                    , HasStorage m
+                   , HasEncryptionKeys m
                    , HasImportOpts opts
                    )
                 => opts -> RepoRef -> m ()
@@ -121,6 +129,8 @@ importRefLogNew :: ( MonadIO m
 importRefLogNew opts ref = runResourceT do
 
   let force = importForce opts
+
+  sto <- getStorage
 
   let myTempDir = "hbs-git"
   temp <- liftIO getCanonicalTemporaryDirectory
@@ -158,12 +168,22 @@ importRefLogNew opts ref = runResourceT do
       sp0 <- withDB db savepointNew
       withDB db $ savepointBegin sp0
 
+      -- TODO: scan-metadata-transactions-first
+      --   Сканируем транзы, обрабатываем транзакции с метаданными
+      --   Пишем транзакции с журналами, что бы обрабатывались следующим
+      --   проходом только они. Таким образом не меняется сложность.
+
+      decrypt <- lift enumEncryptionKeys
+
+      debug $ "Decrypt" <> vcat (fmap pretty decrypt)
+
+      -- TODO: exclude-metadata-transactions
       forM_ entries $ \e -> do
 
         missed <- lift $ readBlock e <&> isNothing
 
         when missed do
-          debug $ "MISSED BLOCK" <+> pretty e
+          warn $ "MISSED BLOCK" <+> pretty e
 
         let fname = show (pretty e)
         let fpath = dir </> fname
@@ -172,9 +192,14 @@ importRefLogNew opts ref = runResourceT do
 
         runMaybeT $ do
           bs <- MaybeT $ lift $ readBlock e
-          refupd <- MaybeT $ pure $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs & either (const Nothing) Just
-          payload <- MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd) & either (const Nothing) Just
-          let (SequentialRef _ (AnnotatedHashRef _ h)) = payload
+          refupd <- toMPlus $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs
+          payload <- toMPlus $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd)
+
+          -- NOTE: good-place-to-process-hash-log-update-first
+          let (SequentialRef _ (AnnotatedHashRef ann' h)) = payload
+
+          forM_ ann' (withDB db . importKeysAnnotations ref e)
+
           trace $ "PUSH LOG HASH" <+> pretty h
 
           treeBs   <- MaybeT $ lift $ readBlock h
@@ -197,10 +222,43 @@ importRefLogNew opts ref = runResourceT do
 
           unless (here && not force) do
 
+            (src, enc) <- case something of
+
+              MerkleAnn (MTreeAnn _ sc@(EncryptGroupNaClSymm g nonce) tree) -> do
+
+                gk10' <- runExceptT $ readFromMerkle sto (SimpleKey g)
+
+                -- FIXME: nicer-error-handling
+                gk10'' <- either (const $ err ("GK0 not found:" <+> pretty g)  >> mzero) pure gk10'
+
+                gk10 <- toMPlus (deserialiseOrFail gk10'')
+
+                gk11 <- withDB db $ stateListGK1 (HashRef g)
+
+                let gk1 = mconcat $ gk10 : gk11
+
+                -- elbs <- runExceptT $ readFromMerkle sto (ToDecryptBS decrypt (fromHashRef h))
+                elbs <- runExceptT $ readFromMerkle sto (ToDecryptBS2 gk1 nonce decrypt tree)
+
+                case elbs of
+                  Left{} -> do
+                    let lock = toStringANSI $ red "x"
+                    hPutStrLn stderr [qc|import [{lock}] {pretty e}|]
+                    mzero
+
+                  Right lbs -> (,True) <$> pure do
+                    SB.fromLazy lbs
+                    pure (fromIntegral (LBS.length lbs))
+
+              -- FIXME: remove-debug
+              MerkleAnn{} -> pure (blockSource h, False)
+
+              _ -> pure (blockSource h, False)
+
             sz <- if gzipped then do
-              SB.toHandle fh $ SZip.gunzip (blockSource h)
+              SB.toHandle fh $ SZip.gunzip src
             else
-              SB.toHandle fh (blockSource h)
+              SB.toHandle fh src
 
             release keyFh
 
@@ -213,8 +271,10 @@ importRefLogNew opts ref = runResourceT do
             num <- liftIO $ readTVarIO tnum
             trace $ "LOG ENTRY COUNT" <+> pretty  num
 
+            let lock = toStringANSI $ if enc then yellow "@" else " "
+
             let pref = take 16 (show (pretty e))
-            let name = [qc|import {pref}... {realToFrac sz / (1024*1024) :: Fixed E3}|]
+            let name = [qc|import [{lock}] {pref}... {realToFrac sz / (1024*1024) :: Fixed E3}|]
 
             oMon  <- newProgressMonitor name  num
 

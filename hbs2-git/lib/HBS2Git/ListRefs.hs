@@ -1,5 +1,7 @@
 module HBS2Git.ListRefs where
 
+import HBS2.Prelude
+
 import HBS2Git.Types
 import HBS2.Prelude
 import HBS2Git.App
@@ -9,6 +11,7 @@ import HBS2.System.Logger.Simple
 import HBS2.Git.Local.CLI
 import HBS2.Git.Types
 import HBS2Git.Import (importRefLogNew)
+import HBS2Git.Config
 import HBS2Git.State
 import HBS2Git.PrettyStuff
 

@@ -4,6 +4,7 @@ module HBS2Git.Config
   ) where
 
 import HBS2.Prelude
+import HBS2.Base58
 import HBS2.System.Logger.Simple
 import HBS2.OrDie
 
@@ -18,9 +19,6 @@ import System.FilePath
 import System.Directory
 
 import System.Environment
-import System.IO (stderr)
-
--- type C = MegaParsec
 
 appName :: FilePath
 appName = "hbs2-git"
@@ -57,6 +55,8 @@ configPath _ = liftIO do
   pwd <- liftIO getCurrentDirectory
   git <- findGitDir pwd
   byEnv <- lookupEnv "GIT_DIR"
+  -- hPrint stderr ("BY-ENV", byEnv)
+  -- hPrint stderr =<< getEnvironment
   path <- pure (git <|> byEnv) `orDie`  "*** hbs2-git: .git directory not found"
   pure (takeDirectory path </> ".hbs2")
 
@@ -70,11 +70,9 @@ data ConfigPathInfo = ConfigPathInfo {
 getConfigPathInfo :: MonadIO m => m ConfigPathInfo
 getConfigPathInfo = do
   trace "getConfigPathInfo"
-  gitDir <- findWorkingGitDir
-  pwd <- configPath "" <&> takeDirectory
-  confP <- configPath pwd
+  confP <- configPath ""
+  let pwd = takeDirectory confP
   let confFile = confP </> "config"
-  trace $ "git dir" <+> pretty gitDir
   trace $ "confPath:" <+> pretty confP
   pure ConfigPathInfo {
       configRepoParentDir = pwd,
@@ -99,4 +97,14 @@ configInit = liftIO do
 
 cookieFile :: MonadIO m => m FilePath
 cookieFile = configPath "" <&> (</> "cookie")
+
+getAppStateDir :: forall m . MonadIO m => m FilePath
+getAppStateDir = liftIO $ getXdgDirectory XdgData appName
+
+
+makeDbPath :: MonadIO m => RepoRef -> m FilePath
+makeDbPath h = do
+  state <- getAppStateDir
+  liftIO $ createDirectoryIfMissing True state
+  pure $ state </> show (pretty (AsBase58 h))
 

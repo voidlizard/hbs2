@@ -70,6 +70,7 @@ common shared-properties
                , exceptions
                , filelock
                , filepath
+               , filepattern
                , hashable
                , http-conduit
                , interpolatedstring-perl6
@@ -102,15 +103,21 @@ library
 
     exposed-modules:
       HBS2.Git.Types
-      HBS2.Git.Local
-      HBS2.Git.Local.CLI
+      HBS2Git.Alerts
+      HBS2Git.Annotations
       HBS2Git.App
+      HBS2Git.KeysMetaData
       HBS2Git.Config
       HBS2Git.Evolve
       HBS2Git.Export
+      HBS2Git.Encryption
+      HBS2Git.Encryption.KeyInfo
       HBS2Git.GitRepoLog
       HBS2Git.Import
+      HBS2Git.KeysCommand
       HBS2Git.ListRefs
+      HBS2.Git.Local
+      HBS2.Git.Local.CLI
       HBS2Git.PrettyStuff
       HBS2Git.State
       HBS2Git.Types

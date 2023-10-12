@@ -1,0 +1,29 @@
+
+;; Plan-B file
+
+;; исходный файл гипотетической утилиты для планирования
+;; когда я её сделаю? ну, после шифрования, наверное.
+;; пока будем тут планировать
+
+;; из этой штуки можно будет и TODO генерировать для fixme
+
+[ task keyinfo
+
+]
+
+[ plan
+
+  -> git-hbs2-tools-key-command
+  -> hbs2-config-parse
+  -> key-info
+  -> key-info-test
+  -> key-data
+  -> key-metadata
+  -> inject-key-metadata
+  -> handle-key-metadata
+  -> encrypt-git-log
+  -> decrypt-git-log
+  -> git-encryption-a1
+]
+
+

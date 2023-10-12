@@ -24,6 +24,8 @@ import Control.Monad.Except
 import Data.Bifunctor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+-- hbs2-core/lib/HBS2/Net/Auth/Credentials.hs
+-- importimport Data.List.Split (chunksOf)
 
 
 instance (MonadIO m, h ~ HbSync, Storage s h ByteString m) => MerkleWriter ByteString h s m where
@@ -67,5 +69,21 @@ instance ( MonadIO m
               S.yield blk
 
     pure $ mconcat pieces
+
+
+readChunkedBS :: (Integral a, Monad m)
+              => ByteString
+              -> a
+              -> S.Stream (S.Of ByteString) m ()
+
+readChunkedBS bs size = foo bs
+  where
+    foo =
+      fix $ \loop leftover -> do
+        let (chunk, rest) = LBS.splitAt (fromIntegral size) leftover
+        unless (LBS.null chunk) do
+          S.yield chunk
+          loop rest
+
 
 

@@ -1,3 +1,4 @@
+{-# Language FunctionalDependencies #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -6,6 +7,7 @@ module HBS2.Prelude
   , void, guard, when, unless
   , maybe1
   , eitherToMaybe
+  , ToMPlus(..)
   , Hashable
   , lift
   , AsFileName(..)
@@ -16,6 +18,7 @@ module HBS2.Prelude
   , ToByteString(..)
   , FromByteString(..)
   , Text.Text
+  , (&), (<&>)
   ) where
 
 import Data.Typeable as X
@@ -25,10 +28,13 @@ import Data.ByteString (ByteString)
 import Data.String (IsString(..))
 import Safe
 import Control.Monad.IO.Class (MonadIO(..))
-import Control.Monad (void,guard,when,unless)
+import Control.Monad (guard,when,unless,MonadPlus(..))
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe
 
+import Data.Kind
 import Data.Function
+import Data.Functor
 import Data.Char qualified as Char
 import Data.Text qualified as Text
 import Data.Hashable
@@ -62,3 +68,19 @@ class ToByteString a where
 
 class FromByteString a where
   fromByteString :: ByteString -> Maybe a
+
+
+class MonadPlus m => ToMPlus m a  where
+  type family ToMPlusResult a :: Type
+  toMPlus  :: a -> m (ToMPlusResult a)
+
+instance Monad m => ToMPlus (MaybeT m) (Maybe a) where
+  type instance ToMPlusResult (Maybe a) = a
+  toMPlus Nothing = mzero
+  toMPlus (Just a) = MaybeT (pure (Just a))
+
+instance Monad m => ToMPlus (MaybeT m) (Either x a) where
+  type instance ToMPlusResult (Either x a) = a
+  toMPlus (Left{}) = mzero
+  toMPlus (Right x) = MaybeT $ pure (Just x)
+

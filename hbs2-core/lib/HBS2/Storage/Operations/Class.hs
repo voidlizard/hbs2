@@ -13,7 +13,7 @@ data OperationError =
   | DecryptionError
   | MissedBlockError
   | UnsupportedFormat
-  | GroupKeyNotFound
+  | GroupKeyNotFound Int
   deriving (Generic,Show,Data,Typeable)
 
 -- instance Exception OperationError

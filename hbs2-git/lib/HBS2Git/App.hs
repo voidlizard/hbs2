@@ -5,10 +5,11 @@ module HBS2Git.App
   ( module HBS2Git.App
   , module HBS2Git.Types
   , HasStorage(..)
+  , HasConf(..)
   )
   where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Refs
 import HBS2.Base58
@@ -16,7 +17,8 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.Clock
 import HBS2.Storage
-import HBS2.Storage.Operations.ByteString
+import HBS2.Storage.Operations.ByteString as OP
+import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
 import HBS2.Git.Types
@@ -32,8 +34,12 @@ import HBS2.Peer.RPC.API.RefLog
 
 import HBS2Git.Types
 import HBS2Git.Config as Config
+import HBS2Git.State
+import HBS2Git.KeysMetaData
+import HBS2Git.Encryption
 import HBS2Git.Evolve
 import HBS2Git.PrettyStuff
+import HBS2Git.Alerts
 
 import Data.Maybe
 import Control.Monad.Trans.Maybe
@@ -41,7 +47,9 @@ import Data.Foldable
 import Data.Either
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
-import Control.Monad.Except (runExceptT,throwError)
+-- import Control.Monad.Except (runExceptT,throwError)
+import Control.Monad.Except (runExceptT)
+import Control.Monad.Catch
 import Crypto.Saltine.Core.Sign qualified as Sign
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
@@ -50,20 +58,22 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Lens.Micro.Platform
 import System.Directory
+import System.FilePattern.Directory
 -- import System.FilePath
 import System.FilePath
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
-import Network.HTTP.Simple
-import Network.HTTP.Types.Status
+-- import Network.HTTP.Simple
+-- import Network.HTTP.Types.Status
 import Control.Concurrent.STM (flushTQueue)
 import Codec.Serialise
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.Text qualified as Text
 -- import Data.IORef
-import System.IO.Unsafe (unsafePerformIO)
-import Data.Cache qualified as Cache
+-- import System.IO.Unsafe (unsafePerformIO)
+-- import Data.Cache qualified as Cache
 -- import Control.Concurrent.Async
 import System.Environment
 
@@ -113,6 +123,16 @@ infoPrefix = toStderr
 
 data WithLog = NoLog | WithLog
 
+
+instance MonadIO m => HasGlobalOptions (App m) where
+  addGlobalOption k v =
+    asks (view appOpts ) >>= \t -> liftIO $ atomically $
+      modifyTVar' t (HashMap.insert k v)
+
+  getGlobalOption k = do
+    hm <- asks (view appOpts) >>= liftIO . readTVarIO
+    pure (HashMap.lookup k hm)
+
 instance MonadIO m => HasRefCredentials (App m) where
   setCredentials ref cred = do
     asks (view appRefCred) >>= \t -> liftIO $ atomically $
@@ -120,7 +140,18 @@ instance MonadIO m => HasRefCredentials (App m) where
 
   getCredentials ref = do
     hm <- asks (view appRefCred) >>= liftIO . readTVarIO
-    pure (HashMap.lookup ref hm) `orDie` "keyring not set"
+    pure (HashMap.lookup ref hm) `orDie` "keyring not set (1)"
+
+instance MonadIO m => HasEncryptionKeys (App m) where
+  addEncryptionKey ke = do
+    asks (view appKeys) >>= \t -> liftIO $ atomically do
+      modifyTVar' t (HashMap.insert (view krPk ke) (view krSk ke))
+
+  findEncryptionKey puk = (asks (view appKeys) >>= \t -> liftIO $ readTVarIO t) <&> HashMap.lookup puk
+
+  enumEncryptionKeys = do
+    them <- (asks (view appKeys) >>= \t -> liftIO $ readTVarIO t) <&> HashMap.toList
+    pure $ [KeyringEntry k s Nothing | (k,s) <- them ]
 
 instance (Monad m, HasStorage m) => (HasStorage (ResourceT m)) where
   getStorage = lift getStorage
@@ -133,62 +164,6 @@ instance MonadIO m => HasRPC (App m) where
 
 withApp :: MonadIO m => AppEnv -> App m a -> m a
 withApp env m = runReaderT (fromApp m) env
-
-{-# NOINLINE hBS2PeerCatAPI #-}
-hBS2PeerCatAPI :: IORef (Maybe API)
-hBS2PeerCatAPI = unsafePerformIO (newIORef Nothing)
-
-detectHBS2PeerCatAPI :: MonadIO m => m API
-detectHBS2PeerCatAPI = do
-  -- FIXME: hardcoded-hbs2-peer
-
-  v <- liftIO $ readIORef hBS2PeerCatAPI
-
-  case v of
-    Just x -> pure x
-    Nothing -> do
-      (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
-
-      let dieMsg = "hbs2-peer is down or it's http is inactive"
-
-      let answ = parseTop (LBS.unpack o) & fromRight mempty
-
-      let po = headMay [ n | ListVal (Key "http-port:" [LitIntVal n]) <- answ  ]
-      -- shutUp
-
-      pnum <- pure po `orDie`  dieMsg
-
-      debug $ pretty "using http port" <+> pretty po
-
-      let api = [qc|http://localhost:{pnum}/cat|]
-
-      liftIO $ writeIORef hBS2PeerCatAPI (Just api)
-
-      pure api
-
-
-detectHBS2PeerSizeAPI :: MonadIO m => m API
-detectHBS2PeerSizeAPI = do
-  api <- detectHBS2PeerCatAPI
-  let new = Text.replace "/cat" "/size" $ Text.pack api
-  pure $ Text.unpack new
-
-detectHBS2PeerPutAPI :: MonadIO m => m API
-detectHBS2PeerPutAPI = do
-  api <- detectHBS2PeerCatAPI
-  let new = Text.replace "/cat" "/" $ Text.pack api
-  pure $ Text.unpack new
-
-detectHBS2PeerRefLogGetAPI :: MonadIO m => m API
-detectHBS2PeerRefLogGetAPI = do
-  api <- detectHBS2PeerCatAPI
-  let new = Text.replace "/cat" "/reflog" $ Text.pack api
-  pure $ Text.unpack new
-
-
-getAppStateDir :: forall m . MonadIO m => m FilePath
-getAppStateDir = liftIO $ getXdgDirectory XdgData Config.appName
-
 
 
 runWithRPC :: forall m . MonadUnliftIO m => (RPCEndpoints -> m ()) -> m ()
@@ -276,8 +251,10 @@ runApp l m = do
 
   runWithRPC $ \rpc -> do
     mtCred <- liftIO $ newTVarIO mempty
-    let env = AppEnv pwd (pwd </> ".git") syn xdgstate mtCred rpc
-    runReaderT (fromApp m) (set appRpc rpc env)
+    mtKeys <- liftIO $ newTVarIO mempty
+    mtOpt <- liftIO $ newTVarIO mempty
+    let env = AppEnv pwd (pwd </> ".git") syn xdgstate mtCred mtKeys mtOpt rpc
+    runReaderT (fromApp (loadKeys >> m)) (set appRpc rpc env)
 
   debug $ vcat (fmap pretty syn)
 
@@ -347,7 +324,11 @@ calcRank h = fromMaybe 0 <$> runMaybeT do
   pure $ sum n
 
 postRefUpdate :: ( MonadIO m
+                 , MonadMask m
+                 , HasStorage m
+                 , HasConf m
                  , HasRefCredentials m
+                 , HasEncryptionKeys m
                  , HasRPC m
                  , IsRefPubKey Schema
                  )
@@ -362,7 +343,11 @@ postRefUpdate ref seqno hash = do
   cred <- getCredentials ref
   let pubk = view peerSignPk cred
   let privk = view peerSignSk cred
-  let tran = SequentialRef seqno (AnnotatedHashRef Nothing hash)
+
+  ann <- genKeysAnnotations ref
+
+  --  вот прямо сюда ОЧЕНЬ удобно вставить метаданные для GK1
+  let tran = SequentialRef seqno (AnnotatedHashRef ann hash)
   let bs = serialise tran & LBS.toStrict
 
   msg <- makeRefLogUpdate @HBS2L4Proto pubk privk bs
@@ -373,17 +358,46 @@ postRefUpdate ref seqno hash = do
     >>= either (err . viaShow) (const $ pure ())
 
 
-storeObject :: (MonadIO m, HasStorage m, HasConf m)
-            => ByteString -> ByteString -> m (Maybe HashRef)
-storeObject = storeObjectRPC
+storeObject :: ( MonadIO m
+               , MonadMask m
+               , HasStorage m
+               , HasConf m
+               , HasRefCredentials m
+               , HasEncryptionKeys m
+               )
+            => RepoRef
+            -> ByteString
+            -> ByteString
+            -> m (Maybe HashRef)
+storeObject repo meta bs = do
+  encrypted <- isRefEncrypted (fromRefLogKey repo)
+  info $ "encrypted" <+> pretty repo <> colon <+> if encrypted then "yes" else "no"
+  storeObjectRPC encrypted repo meta bs
 
-storeObjectRPC :: (MonadIO m, HasStorage m)
-               => ByteString
+
+
+data WriteOp = WritePlain | WriteEncrypted B8.ByteString
+
+storeObjectRPC :: ( MonadIO m
+                  , MonadMask m
+                  , HasStorage m
+                  , HasConf m
+                  , HasRefCredentials m
+                  , HasEncryptionKeys m
+                  )
+               => Bool
+               -> RepoRef
+               -> ByteString
                -> ByteString
                -> m (Maybe HashRef)
-storeObjectRPC meta bs = do
+
+storeObjectRPC False repo meta bs = do
   sto <- getStorage
+  db <- makeDbPath repo >>= dbEnv
+
   runMaybeT do
+
+
     h <- liftIO $ writeAsMerkle sto bs
     let txt = LBS.unpack meta & Text.pack
     blk <- MaybeT $ liftIO $ getBlock sto h
@@ -392,15 +406,58 @@ storeObjectRPC meta bs = do
     mtree <- MaybeT $ deserialiseOrFail @(MTree [HashRef]) blk
                     & either (const $ pure  Nothing) (pure . Just)
 
+    -- TODO: upadte-metadata-right-here
     let ann = serialise (MTreeAnn (ShortMetadata txt) NullEncryption mtree)
     MaybeT $ liftIO $ putBlock sto ann <&> fmap HashRef
 
 
-makeDbPath :: MonadIO m => RepoRef -> m FilePath
-makeDbPath h = do
-  state <- getAppStateDir
-  liftIO $ createDirectoryIfMissing True state
-  pure $ state </> show (pretty (AsBase58 h))
+storeObjectRPC True repo meta bs = do
+
+  sto <- getStorage
+  db <- makeDbPath repo >>= dbEnv
+
+  runMaybeT do
+
+    let txt = LBS.unpack meta & Text.pack
+
+    ki <- lift $ getKeyInfo (fromRefLogKey repo) >>= maybe noKeyInfo pure
+    gkh0 <- withDB db $ stateGetLocalKey ki >>= maybe noKeyFound pure
+
+    gk0  <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef gkh0)))
+               >>= either (const $ noKeyFound) (pure . deserialiseOrFail @(GroupKey 'Symm HBS2Basic))
+               >>= either (const $ noKeyFound) pure
+
+    let pk = keyInfoOwner ki
+
+    sk <- lift (findEncryptionKey pk) >>= maybe noKeyFound pure
+
+    gks <- maybe noKeyFound pure (Symm.lookupGroupKey sk pk gk0)
+
+    let nonce = hashObject @HbSync bs & serialise
+                                      & LBS.drop 2
+                                      & LBS.toStrict
+
+    let bsStream = readChunkedBS bs defBlockSize
+    let source = ToEncryptSymmBS gks nonce bsStream gk0 (ShortMetadata txt)
+
+    h <- runExceptT (writeAsMerkle sto source) >>= either (const cantWriteMerkle) pure
+
+    pure (HashRef h)
+
+  where
+
+    cantWriteMerkle :: forall a m . MonadIO m => m a
+    cantWriteMerkle = die "Can't write encrypted merkle tree"
+
+    noKeyFound :: forall a m . MonadIO m => m a
+    noKeyFound = do
+      liftIO $ hPutDoc stderr (red $ "No group key found for repo" <+> pretty repo <> line)
+      die "*** fatal"
+
+    noKeyInfo = do
+      liftIO $ hPutDoc stderr (red $ pretty (noKeyInfoMsg repo) <> line)
+      die "*** fatal"
+
 
 loadCredentials :: ( MonadIO m
                    , HasConf m
@@ -408,20 +465,23 @@ loadCredentials :: ( MonadIO m
                    ) => [FilePath] -> m ()
 loadCredentials fp = do
 
-  trace $ "loadCredentials" <+> pretty fp
+  debug $ "loadCredentials" <+> pretty fp
 
   krOpt' <- cfgValue @KeyRingFiles @(Set FilePath) <&> Set.toList
 
   let krOpt = List.nub $ fp <> krOpt'
 
-  when (null krOpt) do
-    die "keyring not set"
+  void $ runMaybeT do
 
-  for_ krOpt $ \fn -> do
-    (puk, cred) <- loadKeyring fn
-    trace $ "got creds for" <+> pretty (AsBase58 puk)
-    setCredentials (RefLogKey puk) cred
-    pure ()
+    when (null krOpt) do
+      debug "keyring not set (2)"
+      mzero
+
+    for_ krOpt $ \fn -> do
+      (puk, cred) <- loadKeyring fn
+      trace $ "got creds for" <+> pretty (AsBase58 puk)
+      lift $ setCredentials (RefLogKey puk) cred
+      pure ()
 
 loadCredentials' ::
     ( MonadIO m
@@ -429,16 +489,96 @@ loadCredentials' ::
     )
     => FilePath -> m Sign.PublicKey
 loadCredentials' fn = do
-    (puk, cred) <- loadKeyring fn
+    (puk, cred) <- runMaybeT (loadKeyring fn) `orDie` [qc|Can't load credentials {fn}|]
     trace $ "got creds for" <+> pretty (AsBase58 puk)
     setCredentials (RefLogKey puk) cred
     pure puk
 
-loadKeyring :: (MonadIO m) => FilePath -> m (Sign.PublicKey, PeerCredentials Schema)
+loadKeyring :: (MonadIO m, MonadPlus m) => FilePath -> m (Sign.PublicKey, PeerCredentials Schema)
 loadKeyring fn = do
     krData <- liftIO $ B8.readFile fn
-    cred <- pure (parseCredentials @Schema (AsCredFile krData)) `orDie` "bad keyring file"
-    let puk = view peerSignPk cred
-    pure (puk, cred)
 
+    let cred' = parseCredentials @Schema (AsCredFile krData)
+
+    maybe1 cred' mzero $ \cred -> do
+      let puk = view peerSignPk cred
+      pure (puk, cred)
+
+
+makeFilter :: String -> (String, [String])
+makeFilter = norm . over _1 sub1 . over _2 List.singleton . go ""
+  where
+    go pref ( cn : cs ) | cn `elem` "?*" = (p0, p1 <> p2)
+      where
+        (p0, p1) = splitFileName pref
+        p2 = cn : cs
+
+    go pref ( '/' : cn : cs ) | cn `elem` "?*" = (pref <> ['/'], cn : cs)
+
+    go pref ( c : cs ) = go (pref <> [c]) cs
+
+    go pref [] = (pref, "")
+
+    sub1 "" = "."
+    sub1 x = x
+
+    norm (xs, [""]) = (p1, [p2])
+      where
+        (p1, p2) = splitFileName xs
+
+    norm x = x
+
+loadKeys :: ( MonadIO m
+            , HasConf m
+            , HasEncryptionKeys m
+            , HasGlobalOptions m
+            ) => m ()
+loadKeys = do
+  conf <- getConf
+
+  trace $ "loadKeys"
+
+  kp <- liftIO $ lookupEnv "HBS2KEYS"
+
+  found1 <- findKeyFiles =<< liftIO (lookupEnv "HBS2KEYS")
+  found2 <- findKeyFiles =<< getGlobalOption "key"
+
+  found <- liftIO $ mapM canonicalizePath (found1 <> found2)
+
+  let enc = [ args | (ListVal @C (SymbolVal "encrypted" : (LitStrVal r) : args)) <- conf ]
+
+  let owners  = [ fromStringMay @(PubKey 'Encrypt Schema) (Text.unpack o)
+                | ListVal @C (Key "owner" [LitStrVal o]) <- universeBi enc
+                ] & catMaybes & HashSet.fromList
+
+
+  let members = [ fromStringMay @(PubKey 'Encrypt Schema) (Text.unpack o)
+                | ListVal @C (Key "member" [LitStrVal o]) <- universeBi enc
+                ] & catMaybes & HashSet.fromList
+
+  let decrypt =  [ Text.unpack o
+                 | ListVal @C (Key "decrypt" [LitStrVal o]) <- conf
+                 ]
+
+  let keyrings = [ Text.unpack o | ListVal @C (Key "keyring" [LitStrVal o]) <- universeBi enc
+                 ] <> decrypt <> found
+                 & List.nub
+
+  forM_ keyrings $ \k -> void $ runMaybeT do
+    trace $ "loadKeys: keyring" <+> pretty k
+    (_, pc) <- loadKeyring k
+
+    forM_ (view peerKeyring pc) $ \ke -> do
+      let pk = view krPk  ke
+
+      trace $ "loadKeyring: key" <+> pretty (AsBase58 pk)
+      lift $ addEncryptionKey ke
+
+
+  where
+    findKeyFiles w = do
+        let flt = makeFilter <$> w
+        maybe1 flt (pure mempty) $
+          \(p, fmask) -> liftIO do
+            getDirectoryFiles p fmask <&> fmap (p</>)
 

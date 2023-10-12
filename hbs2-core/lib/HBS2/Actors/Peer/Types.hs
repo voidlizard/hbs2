@@ -25,19 +25,19 @@ instance {-# OVERLAPPABLE #-}
 -- instance HasConf m => HasConf (ResponseM e m)
 
 
-instance (IsKey HbSync) => Storage AnyStorage HbSync ByteString IO where
-  putBlock (AnyStorage s) = putBlock s
-  enqueueBlock (AnyStorage s) = enqueueBlock s
-  getBlock (AnyStorage s) = getBlock s
-  getChunk (AnyStorage s) = getChunk s
-  hasBlock (AnyStorage s) = hasBlock s
-  updateRef (AnyStorage s) = updateRef s
-  getRef (AnyStorage s) = getRef s
-  delBlock (AnyStorage s) = delBlock s
-  delRef (AnyStorage s) = delRef s
+instance (IsKey HbSync, MonadIO m) => Storage AnyStorage HbSync ByteString m  where
+  putBlock (AnyStorage s) = liftIO . putBlock s
+  enqueueBlock (AnyStorage s) = liftIO . enqueueBlock s
+  getBlock (AnyStorage s) = liftIO . getBlock s
+  getChunk (AnyStorage s) h a b = liftIO $ getChunk s h a b
+  hasBlock (AnyStorage s) = liftIO . hasBlock s
+  updateRef (AnyStorage s) r v = liftIO $ updateRef s r v
+  getRef (AnyStorage s) = liftIO . getRef s
+  delBlock (AnyStorage s) = liftIO . delBlock s
+  delRef (AnyStorage s) = liftIO . delRef s
 
-data AnyStorage = forall zu . ( Storage zu HbSync ByteString IO
-                              ) => AnyStorage zu
+data AnyStorage = forall zu  . ( Storage zu HbSync ByteString IO
+                               ) => AnyStorage zu
 
 class HasStorage m where
   getStorage :: m AnyStorage

@@ -41,9 +41,11 @@ instance HasProtocol UNIX  (ServiceProto MyServiceMethods1 UNIX) where
 -- instance (MonadIO m, HasProtocol UNIX (ServiceProto MyServiceMethods1 UNIX)) => HasTimeLimits UNIX (ServiceProto MyServiceMethods1 UNIX) m where
 --   tryLockForPeriod _ _ = pure True
 
+
+type instance Input Method1 = String
+type instance Output Method1 = String
+
 instance MonadIO m => HandleMethod m Method1 where
-  type instance Input Method1 = String
-  type instance Output Method1 = String
   handleMethod n = do
     debug $ "SERVICE1. METHOD1" <+> pretty n
     case n of
@@ -51,11 +53,12 @@ instance MonadIO m => HandleMethod m Method1 where
       "PECHEN" -> pure "TRESKI"
       _        -> pure "X3"
 
-instance MonadIO m => HandleMethod m Method2 where
-  type instance Input Method2 = ()
-  type instance Output Method2 = ()
-  handleMethod _ = pure ()
 
+type instance Input Method2 = ()
+type instance Output Method2 = ()
+
+instance MonadIO m => HandleMethod m Method2 where
+  handleMethod _ = pure ()
 
 instance (HasProtocol UNIX (ServiceProto api UNIX), MonadUnliftIO m)
   => HasDeferred UNIX (ServiceProto api UNIX) m where

@@ -40,6 +40,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO as UIO
 import Control.Monad.Catch
 import Control.Monad.Trans.Resource
+import Lens.Micro.Platform
 
 
 send :: MonadIO m => BS.ByteString -> m ()
@@ -74,24 +75,48 @@ capabilities :: BS.ByteString
 capabilities = BS.unlines ["push","fetch"]
 
 
+getGlobalOptionFromURL :: HasGlobalOptions m => [String] -> m ()
+getGlobalOptionFromURL args = do
+
+  case args of
+    [_, ss] -> do
+      let (_, suff) = Text.breakOn "?" (Text.pack ss)
+                      & over _2 (Text.dropWhile (== '?'))
+                      & over _2 (Text.splitOn "&")
+                      & over _2 (fmap (over _2 (Text.dropWhile (=='=')) . Text.break (== '=')))
+                      & over _2 (filter (\(k,_) -> k /= ""))
+
+      forM_ suff $ \(k,v) -> do
+        addGlobalOption (Text.unpack k) (Text.unpack v)
+
+    _ -> pure ()
 
 loop :: forall m . ( MonadIO m
                    , MonadCatch m
                    , MonadUnliftIO m
                    , MonadMask m
-                   , HasProgress (RunWithConfig (GitRemoteApp m))
-                   , HasStorage (RunWithConfig (GitRemoteApp m))
-                   , HasRPC (RunWithConfig (GitRemoteApp m))
-                   ) => [String] -> GitRemoteApp m ()
+                   , HasProgress m
+                   , HasConf m
+                   , HasStorage m
+                   , HasRPC m
+                   , HasRefCredentials m
+                   , HasEncryptionKeys m
+                   , HasGlobalOptions m
+                   ) => [String] -> m ()
 loop args = do
 
   trace $ "args:" <+> pretty args
 
-  let ref' = case args of
-              [_, s] -> Text.stripPrefix "hbs2://" (Text.pack s) <&> fromString @RepoRef . Text.unpack
-              _      -> Nothing
+  ref <- case args of
+            [_, ss] -> do
+              let (s, _) = Text.breakOn "?" (Text.pack ss)
 
-  ref <- pure ref' `orDie` ("invalid reference: "  <> show args)
+              let r = Text.stripPrefix "hbs2://" s <&> fromString @RepoRef . Text.unpack
+
+              pure r `orDie` [qc|bad reference {args}||]
+
+            _  -> do
+                die [qc|bad reference: {args}|]
 
   trace $ "ref:" <+> pretty ref
 
@@ -230,10 +255,16 @@ main = do
 
   runWithRPC $ \rpc -> do
     env <- RemoteEnv <$> liftIO (newTVarIO mempty)
+                     <*> liftIO (newTVarIO mempty)
+                     <*> liftIO (newTVarIO mempty)
                      <*> pure rpc
 
     runRemoteM env do
-      loop args
+      runWithConfig syn $ do
+        getGlobalOptionFromURL args
+        loadCredentials mempty
+        loadKeys
+        loop args
 
   shutUp
 

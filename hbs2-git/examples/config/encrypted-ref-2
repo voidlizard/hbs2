@@ -1,0 +1,30 @@
+rpc unix "/tmp/hbs2-rpc.socket"
+
+branch "master"
+branch "hbs2-git"
+
+keyring "/home/dmz/dmz-data/hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP.key"
+keyring "/home/dmz/dmz-data/hbs2/HBcSZnjpEcA88S19S5QwC5N4yyKZY4SvAuBWqHQhK6wV.key"
+
+keyring "/home/dmz/w/hbs2/k5.key"
+
+;;keyring "/home/dmz/w/hbs2/test1.key"
+;;keyring "/home/dmz/w/hbs2/test2.key"
+;;keyring "/home/dmz/w/hbs2/test6.key"
+;; keyring "/home/dmz/w/hbs2/test3.key"
+
+decrypt "/home/dmz/w/hbs2/au11.key"
+decrypt "/home/dmz/w/hbs2/owner.key"
+decrypt "/home/dmz/w/hbs2/k5.key"
+
+[ encrypted "HFKuPTyaQLLmfgfVveu5GA4spt4c6oQBMUo1aeQ4abXG"
+  (ttl 86400)
+  (owner "21MU19xcRbhhPakPJCG6Jyrf7Xv6JMCyMDEfCk16hR5G")
+  (member "H9miZgHYg84wZM8Hu93t7iLHcKnZytAEgcB26LGbLTz4")
+  (member "2jsaezeu8iCRYBqMVBauCxnkHXvP3CkEFLeVxE8bRfvH")
+  (member "FNGD1oNh9AVXw1v7ZFpC5V2P2GGYRoUwnP6qwTw9JGpn")
+  (member "J2FWG3uib7TpZsu1k8sz8cekC3VH1ggNBhZKJxtUce4Q")
+  (member "E9WGzRzmD5G5SHbz9u7n3WKCz1eaVNPvT5f1NEKUQ6FU")
+  (keyring "/home/dmz/w/hbs2/owner.key")
+]
+

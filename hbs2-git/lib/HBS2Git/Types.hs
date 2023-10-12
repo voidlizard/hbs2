@@ -6,18 +6,19 @@ module HBS2Git.Types
   ( module HBS2Git.Types
   , module Control.Monad.IO.Class
   , HasStorage(..)
+  , HasConf(..)
   , AnyStorage(..)
+  , RefLogKey(..)
   )
   where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
-import HBS2.Base58
+import HBS2.Clock
 import HBS2.Git.Types
 import HBS2.Actors.Peer.Types (HasStorage(..),AnyStorage(..))
 import HBS2.Peer.RPC.Client.Unix hiding (Cookie)
 import HBS2.Net.Proto.RefLog (RefLogKey(..))
-import HBS2.Net.Proto.Types hiding (Cookie)
 import HBS2.Net.Auth.Credentials
 
 import HBS2.Peer.RPC.API.Peer
@@ -30,13 +31,9 @@ import Data.Config.Suckless
 
 import System.ProgressBar
 import System.Exit as Exit
-import Control.Monad.Trans.Maybe
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import Data.Text qualified as Text
-import Data.Text (Text)
-import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Database.SQLite.Simple (Connection)
 import Data.Char (isSpace)
@@ -44,14 +41,12 @@ import Data.List qualified as List
 import Lens.Micro.Platform
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Codec.Serialise
 import Control.Concurrent.STM
 import System.IO qualified as IO
 import System.IO (Handle)
 import Data.Kind
 import Control.Monad.Catch
 import Control.Monad.IO.Unlift
-import Control.Monad.Trans.Resource
 
 import System.TimeIt
 
@@ -102,6 +97,8 @@ data AppEnv =
   , _appConf         :: [Syntax C]
   , _appStateDir     :: FilePath
   , _appRefCred      :: TVar (HashMap RepoRef (PeerCredentials Schema))
+  , _appKeys         :: TVar (HashMap (PubKey 'Encrypt Schema) (PrivKey 'Encrypt Schema))
+  , _appOpts         :: TVar (HashMap String String)
   , _appRpc          :: RPCEndpoints
   }
 
@@ -184,6 +181,15 @@ class MonadIO m => HasRefCredentials m where
   getCredentials :: RepoRef -> m (PeerCredentials Schema)
   setCredentials :: RepoRef -> PeerCredentials Schema -> m ()
 
+class MonadIO m => HasGlobalOptions m where
+  addGlobalOption :: String -> String -> m ()
+  getGlobalOption :: String -> m (Maybe String)
+
+class MonadIO m => HasEncryptionKeys m where
+  addEncryptionKey  :: KeyringEntry Schema -> m ()
+  findEncryptionKey :: PubKey 'Encrypt Schema -> m (Maybe (PrivKey 'Encrypt Schema))
+  enumEncryptionKeys :: m [KeyringEntry Schema]
+
 newtype App m a =
   App { fromApp :: ReaderT AppEnv m a }
   deriving newtype ( Applicative
@@ -200,6 +206,7 @@ newtype App m a =
 
 instance MonadIO m => HasConf (App m) where
   getConf = asks (view appConf)
+
 
 hPrint :: (Show a, MonadIO m) => Handle -> a -> m ()
 hPrint h s = liftIO $ IO.hPrint h s
@@ -220,6 +227,7 @@ exitFailure = do
 die :: MonadIO m => String -> m a
 die s = do
   shutUp
+  pause @'Seconds 0.1
   liftIO $ Exit.die s
 
 traceTime :: MonadIO m => String -> m a -> m a

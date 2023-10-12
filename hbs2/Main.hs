@@ -378,7 +378,7 @@ runStore opts ss = runResourceT do
 
             let segments = readChunked fh (fromIntegral defBlockSize)
 
-            let source = ToEncryptSymmBS gks nonce segments gk
+            let source = ToEncryptSymmBS gks nonce segments gk NoMetaData
 
             r <- runExceptT $ writeAsMerkle ss source
 
@@ -415,9 +415,10 @@ runNewGroupKeyAsymm pubkeysFile = do
       List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
   print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
 
-runNewKey :: forall s . (s ~ HBS2Basic) => IO ()
-runNewKey = do
-  cred <- newCredentials @s
+runNewKey :: forall s . (s ~ HBS2Basic) => Int -> IO ()
+runNewKey n = do
+  cred0 <- newCredentials @s
+  cred <- foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
   print $ pretty $ AsCredFile $ AsBase58 cred
 
 runListKeys :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
@@ -649,7 +650,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ withStore o $ runHash $ HashOpts hash
 
     pNewKey = do
-      pure runNewKey
+      n <- optional $ option auto ( short 'n' <> long "number")
+      pure $ runNewKey (fromMaybe 0 n)
 
     pShowPeerKey = do
       fp <- optional $ strArgument ( metavar "FILE" )

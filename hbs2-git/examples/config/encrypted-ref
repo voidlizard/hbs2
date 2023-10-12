@@ -1,0 +1,18 @@
+rpc unix "/tmp/hbs2-rpc.socket"
+
+keyring "/home/dmz/dmz-data/hbs2/HBcSZnjpEcA88S19S5QwC5N4yyKZY4SvAuBWqHQhK6wV.key"
+
+keyring "/home/dmz/w/hbs2/test1.key"
+keyring "/home/dmz/w/hbs2/test2.key"
+keyring "/home/dmz/w/hbs2/test3.key"
+keyring "/home/dmz/w/hbs2/test4.key"
+keyring "/home/dmz/w/hbs2/test5.key"
+
+[ encrypted "EDRuSaFmWbCnyUNtFbgCtqfiCrYPJvnY9pZB81AbSTbr"
+  (ttl 86400)
+  (owner "21MU19xcRbhhPakPJCG6Jyrf7Xv6JMCyMDEfCk16hR5G")
+  (member "21MU19xcRbhhPakPJCG6Jyrf7Xv6JMCyMDEfCk16hR5G")
+  (member "GcTjPEDSTCKNKnwPZWBjudeTqSie2fvYfsoSAzUKTRZ5")
+]
+
+

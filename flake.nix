@@ -71,6 +71,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    shellExtBuildInputs = {pkgs}: with pkgs;  [
      haskellPackages.haskell-language-server
      haskellPackages.cbor-tool
+     haskellPackages.htags
      pkg-config
      inputs.hspup.packages.${pkgs.system}.default
      inputs.fixme.packages.${pkgs.system}.default
