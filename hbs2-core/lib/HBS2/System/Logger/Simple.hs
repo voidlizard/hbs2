@@ -17,6 +17,7 @@ module HBS2.System.Logger.Simple
   , loggerTr
   , toStderr
   , toStdout
+  , toFile
   , logPrefix
   , SetLoggerEntry
   , module HBS2.System.Logger.Simple.Class
@@ -39,6 +40,7 @@ import Lens.Micro.Platform
 
 data LoggerType = LoggerStdout
                 | LoggerStderr
+                | LoggerFile FilePath
                 | LoggerNull
 
 data LoggerEntry =
@@ -78,6 +80,9 @@ toStderr = set loggerType LoggerStderr
 toStdout :: SetLoggerEntry
 toStdout = set loggerType LoggerStdout
 
+toFile :: FilePath -> SetLoggerEntry
+toFile filePath = set loggerType (LoggerFile filePath)
+
 setLogging :: forall a m . (MonadIO m, HasLogLevel a)
            => (LoggerEntry -> LoggerEntry)
            -> m ()
@@ -104,6 +109,10 @@ setLogging f = do
         se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
         pure $ set loggerSet se e
 
+      LoggerFile filePath-> do
+        delLogger (Just e)
+        se <- liftIO $ newFileLoggerSet 10000 filePath -- FIXME: ??
+        pure $ set loggerSet se e
 
 setLoggingOff :: forall a m . (MonadIO m, HasLogLevel a) => m ()
 setLoggingOff = do

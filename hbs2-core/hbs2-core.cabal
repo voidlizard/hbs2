@@ -206,6 +206,7 @@ test-suite test
 
     other-modules:  TestFakeMessaging
                   , TestActors
+                  , TestFileLogger
                   -- , TestUniqProtoId
                   , FakeMessaging
                   , HasProtocol
@@ -222,6 +223,7 @@ test-suite test
         , bytestring
         , cache
         , containers
+        , directory
         , hashable
         , microlens-platform
         , mtl
