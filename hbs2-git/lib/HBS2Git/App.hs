@@ -338,7 +338,6 @@ postRefUpdate :: ( MonadIO m
               -> m ()
 
 postRefUpdate ref seqno hash = do
-  info $ "refPostUpdate"  <+> pretty seqno <+> pretty hash
 
   cred <- getCredentials ref
   let pubk = view peerSignPk cred

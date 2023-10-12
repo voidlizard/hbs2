@@ -140,12 +140,14 @@ reflogWorker conf adapter = do
           let bss = view refLogUpdData tran
           let what = tryDetect (hashObject bss) (LBS.fromStrict bss)
           case what of
-            SeqRef (SequentialRef _ (AnnotatedHashRef _ ref)) -> do
+            SeqRef (SequentialRef _ (AnnotatedHashRef ann ref)) -> do
               liftIO $ reflogDownload adapter (fromHashRef ref)
+              liftIO $ forM_ ann (reflogDownload adapter . fromHashRef)
 
             -- TODO: asap-download-annotation-as-well
-            AnnRef (AnnotatedHashRef _ ref) -> do
+            AnnRef (AnnotatedHashRef ann  ref) -> do
               liftIO $ reflogDownload adapter (fromHashRef ref)
+              liftIO $ forM_ ann (reflogDownload adapter . fromHashRef)
 
             -- TODO: support-other-data-structures
             _ -> pure ()

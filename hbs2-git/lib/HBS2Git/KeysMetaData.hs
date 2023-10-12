@@ -242,10 +242,9 @@ importKeysAnnotations :: forall m . ( MonadIO m
 
 importKeysAnnotations repo e href = do
   sto <- lift getStorage
-  -- db <- makeDbPath repo >>= dbEnv
   void $ runMaybeT do
-    -- liftIO $ hPutDoc stderr $ "GOT ANNOTATION" <+> pretty e <+> pretty href <> line
     ebs <- runExceptT $ readFromMerkle sto (SimpleKey (fromHashRef href))
+
     bs <- toMPlus ebs
 
     anns <- toMPlus $ deserialiseOrFail @Annotations bs
@@ -256,8 +255,6 @@ importKeysAnnotations repo e href = do
 
 
     forM_ entries $ \(GK1 gk0h gk1) -> do
-
-      -- liftIO $ hPutDoc stderr $ "IMPORTING GK1 FOR" <+> pretty gk0h <> line
 
       forM_ (HashMap.toList (recipients gk1)) $ \(pk,box) -> do
         let gk1small = GroupKeySymm @HBS2Basic (HashMap.singleton pk box)

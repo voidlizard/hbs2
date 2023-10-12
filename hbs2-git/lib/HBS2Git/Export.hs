@@ -258,7 +258,12 @@ writeLogSegments onProgress repo val objs chunkSize trailing = do
       trace $ "PUSH LOG HASH: " <+> pretty logMerkle
       trace $ "POSTING REFERENCE UPDATE TRANSACTION" <+> pretty remote <+> pretty logMerkle
 
-      lift $ postRefUpdate remote 0 logMerkle
+
+      r <- fromMaybe 0 <$> runMaybeT do
+              h <- MaybeT $ readRef remote
+              calcRank h <&> fromIntegral
+
+      lift $ postRefUpdate remote r logMerkle
 
       pure logMerkle
 

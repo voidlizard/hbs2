@@ -168,14 +168,24 @@ importRefLogNew opts ref = runResourceT do
       sp0 <- withDB db savepointNew
       withDB db $ savepointBegin sp0
 
-      -- TODO: scan-metadata-transactions-first
-      --   Сканируем транзы, обрабатываем транзакции с метаданными
-      --   Пишем транзакции с журналами, что бы обрабатывались следующим
-      --   проходом только они. Таким образом не меняется сложность.
-
       decrypt <- lift enumEncryptionKeys
 
       debug $ "Decrypt" <> vcat (fmap pretty decrypt)
+
+      pMeta  <- newProgressMonitor [qc|process metadata|]  (length entries)
+
+      forM_ entries $ \e -> runMaybeT do
+        let kDone = serialise ("processmetadata", e)
+
+        updateProgress pMeta 1
+
+        -- guard =<< withDB db (not <$> stateGetProcessed kDone)
+
+        rd <- toMPlus =<< parseRef e
+        let (SequentialRef _ (AnnotatedHashRef ann' h)) = rd
+        forM_ ann' (withDB db . importKeysAnnotations ref e)
+
+        -- withDB db $ statePutProcessed kDone
 
       -- TODO: exclude-metadata-transactions
       forM_ entries $ \e -> do
@@ -191,14 +201,12 @@ importRefLogNew opts ref = runResourceT do
         (keyFh, fh) <- allocate (openBinaryFile fpath AppendMode) hClose
 
         runMaybeT $ do
-          bs <- MaybeT $ lift $ readBlock e
-          refupd <- toMPlus $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs
-          payload <- toMPlus $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd)
 
+          refData <- toMPlus =<< parseRef e
           -- NOTE: good-place-to-process-hash-log-update-first
-          let (SequentialRef _ (AnnotatedHashRef ann' h)) = payload
+          let (SequentialRef _ (AnnotatedHashRef ann' h)) = refData
 
-          forM_ ann' (withDB db . importKeysAnnotations ref e)
+          -- forM_ ann' (withDB db . importKeysAnnotations ref e)
 
           trace $ "PUSH LOG HASH" <+> pretty h
 
@@ -355,6 +363,11 @@ importRefLogNew opts ref = runResourceT do
         savepointRelease sp0
 
   where
+
+    parseRef e = runMaybeT do
+      bs <- MaybeT $ readBlock e
+      refupd <- toMPlus $ deserialiseOrFail @(RefLogUpdate HBS2L4Proto) bs
+      toMPlus $ deserialiseOrFail (LBS.fromStrict $ view refLogUpdData refupd)
 
     writeIfNew gitHandle dir h (GitObject tp s) = do
       unless (importDontWriteGit opts) do
