@@ -146,7 +146,7 @@ minimal working example:
 
 Typically hbs2-peer config is located at
 
-$HOME/.local/hbs2-peer/config
+$HOME/.config/hbs2-peer/config
 
 ```
 
@@ -238,7 +238,7 @@ sign-key:  eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
 3. Export repo to the new reflog
 
 ```
-git hbs2 export eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk -k ./new.key
+git hbs2 export ./new.key
 ```
 
 4.  Add key to a repo's config
@@ -558,6 +558,12 @@ since 2023-03-23 this service is not an only one.
 And since 2023-03-24 I consider the
 
 hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
+
+**UPDATE:** now it's hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+for a long time. The original reference is broken
+during the repo format experiments.
+
+
 
 as the main project repository.
 
