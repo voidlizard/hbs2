@@ -1,24 +1,25 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 {-# Language TemplateHaskell #-}
-module Brains where
+module Brains
+  ( module Brains
+  , module HBS2.Peer.Brains
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
-import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.RefChan(ForRefChans)
 import HBS2.Net.Proto
 import HBS2.Hash
 import HBS2.Base58
 import HBS2.Net.IP.Addr
-import HBS2.Net.Auth.Credentials
 
+import HBS2.Peer.Brains
 import HBS2.System.Logger.Simple
 
 import PeerConfig
 
 import Crypto.Saltine.Core.Box qualified as Encrypt
-import Data.Maybe
 import Control.Monad
 import Control.Exception
 import Control.Concurrent.STM
@@ -45,140 +46,6 @@ data PeerBrainsDb
 instance HasCfgKey PeerBrainsDb (Maybe String) where
   key = "brains"
 
-class HasBrains e a where
-
-  listPolledRefs :: MonadIO m => a -> String -> m [(PubKey 'Sign (Encryption e), Int)]
-  listPolledRefs _ _  = pure mempty
-
-  isPolledRef :: MonadIO m => a -> PubKey 'Sign (Encryption e) -> m Bool
-  isPolledRef _ _ = pure False
-
-  onClientTCPConnected :: MonadIO m => a -> PeerAddr e -> Word64 -> m ()
-  onClientTCPConnected _ _ = const none
-
-  getClientTCP :: MonadIO m => a -> m [(PeerAddr e,Word64)]
-  getClientTCP = const $ pure mempty
-
-  setActiveTCPSessions :: MonadIO m => a -> [(PeerAddr e, Word64)] -> m ()
-  setActiveTCPSessions _ _ = none
-
-  listTCPPexCandidates :: MonadIO m => a -> m [PeerAddr e]
-  listTCPPexCandidates _ = pure mempty
-
-  onKnownPeers :: MonadIO m => a -> [Peer e] -> m ()
-  onKnownPeers _ _ = none
-
-  onBlockSize :: ( MonadIO m
-                 , IsPeerAddr e m
-                 )
-              => a
-              -> Peer e
-              -> Hash HbSync
-              -> Integer
-              -> m ()
-  onBlockSize _ _ _ _ = none
-
-  onBlockDownloadAttempt :: ( MonadIO m
-                            , IsPeerAddr e m
-                            )
-                         => a
-                         -> Peer e
-                         -> Hash HbSync
-                         -> m ()
-
-  onBlockDownloadAttempt _ _ _ = none
-
-  onBlockDownloaded :: MonadIO m
-                    => a
-                    -> Peer e
-                    -> Hash HbSync
-                    -> m ()
-
-  onBlockDownloaded _ _ _ = none
-
-  onBlockPostponed :: MonadIO m
-                   => a
-                   -> Hash HbSync
-                   -> m ()
-
-  onBlockPostponed _ _ = none
-
-  claimBlockCameFrom :: MonadIO m
-                     => a
-                     -> Hash HbSync
-                     -> Hash HbSync
-                     -> m ()
-
-  claimBlockCameFrom _ _ _ = none
-
-  shouldPostponeBlock :: MonadIO m
-                     => a
-                     -> Hash HbSync
-                     -> m Bool
-  shouldPostponeBlock _ _ = pure False
-
-
-  shouldDownloadBlock :: MonadIO m
-                      => a
-                      -> Peer e
-                      -> Hash HbSync
-                      -> m Bool
-  shouldDownloadBlock _ _ _ = pure False
-
-  advisePeersForBlock :: (MonadIO m, FromStringMaybe (PeerAddr e))
-                       => a
-                       -> Hash HbSync
-                       -> m [PeerAddr e]
-  advisePeersForBlock  _ _ = pure  mempty
-
-  blockSize :: forall m . MonadIO m
-            => a
-            -> Peer e
-            -> Hash HbSync
-            -> m (Maybe Integer)
-
-  blockSize _ _ _ = pure Nothing
-
-  isReflogProcessed :: (MonadIO m)
-                    => a
-                    -> Hash HbSync
-                    -> m Bool
-
-  isReflogProcessed _ _ = pure False
-
-  setReflogProcessed :: (MonadIO m)
-                     => a
-                     -> Hash HbSync
-                     -> m ()
-
-  setReflogProcessed _ _ = pure ()
-
-
-type NoBrains = ()
-
-instance Pretty (Peer e) => HasBrains e NoBrains  where
-
-data SomeBrains e = forall a . HasBrains e a => SomeBrains a
-
-instance HasBrains e (SomeBrains e) where
-  listPolledRefs (SomeBrains a) = listPolledRefs @e a
-  isPolledRef (SomeBrains a) = isPolledRef @e a
-  onClientTCPConnected (SomeBrains a) = onClientTCPConnected @e a
-  getClientTCP (SomeBrains a) = getClientTCP @e a
-  setActiveTCPSessions (SomeBrains a) = setActiveTCPSessions @e a
-  listTCPPexCandidates (SomeBrains a) = listTCPPexCandidates @e a
-  onKnownPeers (SomeBrains a) = onKnownPeers a
-  onBlockSize (SomeBrains a) = onBlockSize a
-  onBlockDownloadAttempt (SomeBrains a) = onBlockDownloadAttempt a
-  onBlockDownloaded (SomeBrains a) = onBlockDownloaded a
-  onBlockPostponed (SomeBrains a) = onBlockPostponed @e a
-  claimBlockCameFrom (SomeBrains a) = claimBlockCameFrom @e a
-  shouldPostponeBlock (SomeBrains a) = shouldPostponeBlock @e a
-  shouldDownloadBlock (SomeBrains a) = shouldDownloadBlock @e a
-  advisePeersForBlock (SomeBrains a) = advisePeersForBlock @e a
-  blockSize (SomeBrains a) = blockSize @e a
-  isReflogProcessed (SomeBrains a) = isReflogProcessed @e a
-  setReflogProcessed (SomeBrains a) = setReflogProcessed @e a
 
 newtype CommitCmd = CommitCmd { onCommited :: IO () }
 
@@ -296,18 +163,45 @@ instance ( Hashable (Peer e)
   setReflogProcessed b h = do
     updateOP b $ insertReflogProcessed b h
 
-  listPolledRefs brains tp = do
+  addPolledRef brains r s i = do
+
+    updateOP brains $ do
+      let conn = view brainsDb brains
+      liftIO $ execute conn sql (show $ pretty (AsBase58 r), s, i)
+    where
+      sql = [qc|
+      insert into statedb.poll (ref,type,interval)
+      values (?,?,?)
+      on conflict do update set interval = excluded.interval
+      |]
+
+  delPolledRef brains r = do
+    updateOP brains $ do
+      let conn = view brainsDb brains
+      liftIO $ execute conn sql (Only (show $ pretty (AsBase58 r)))
+    where
+      sql = [qc|
+      delete from statedb.poll
+      where ref = ?
+      |]
+
+  listPolledRefs brains mtp = do
     liftIO $ do
       let conn = view brainsDb brains
-      query conn [qc|select ref, interval from poll where type = ?|] (Only tp)
-              <&> fmap (\(r,i) -> (,i) <$> fromStringMay r )
-              <&> catMaybes
+      case mtp of
+        Nothing -> postprocess <$>
+          query_ conn [qc|select ref, type, interval from statedb.poll|]
+
+        Just tp -> postprocess <$>
+          query conn [qc|select ref, type, interval from statedb.poll where type = ?|] (Only tp)
+    where
+      postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
 
   isPolledRef brains ref = do
     liftIO do
       let conn = view brainsDb brains
       query @_ @(Only Int) conn [qc|
-        select 1 from poll
+        select 1 from statedb.poll
         where ref = ?
         limit 1
       |] ( Only ( show $ pretty (AsBase58 ref) ) )
@@ -707,6 +601,8 @@ newBasicBrains cfg = liftIO do
 
   conn <- open brains
 
+  debug $ "BRAINS:" <+> "state" <+> pretty stateDb
+
   execute_ conn [qc|ATTACH DATABASE '{stateDb}' as statedb|]
 
   execute_ conn [qc|
@@ -775,14 +671,13 @@ newBasicBrains cfg = liftIO do
   |]
 
   execute_ conn [qc|
-    create table if not exists poll
+    create table if not exists statedb.poll
     ( ref      text not null
     , type     text not null
     , interval int not null
-    , primary key (ref,type)
+    , primary key (ref)
     )
   |]
-
 
   execute_ conn [qc|
     create table if not exists peer_asymmkey
@@ -852,7 +747,7 @@ runBasicBrains cfg brains = do
       updateOP brains $ do
         let conn = view brainsDb brains
         liftIO $ execute conn [qc|
-          insert into poll (ref,type,interval)
+          insert into statedb.poll (ref,type,interval)
           values (?,?,?)
           on conflict do update set interval = excluded.interval
           |] (show $ pretty (AsBase58 x), show $ pretty t, mi)

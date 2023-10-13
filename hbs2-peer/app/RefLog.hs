@@ -21,10 +21,10 @@ import HBS2.Merkle
 
 import HBS2.System.Logger.Simple
 
+import Brains
 import PeerConfig
 import PeerTypes
 
-import Data.Functor
 import Data.Function(fix)
 import Data.Maybe
 import Data.Foldable(for_)
@@ -115,10 +115,11 @@ reflogWorker :: forall e s m . ( MonadIO m, MyPeer e
                                , Pretty (AsBase58 (PubKey 'Sign s))
                               )
              => PeerConfig
+             -> SomeBrains e
              -> RefLogWorkerAdapter e
              -> m ()
 
-reflogWorker conf adapter = do
+reflogWorker conf brains adapter = do
 
   sto <- getStorage
 
@@ -201,34 +202,14 @@ reflogWorker conf adapter = do
 
   let (PeerConfig syn) = conf
 
-  let mkRef = fromStringMay . Text.unpack :: (Text -> Maybe (PubKey 'Sign s))
+  poller <- liftIO $ async do
+               let listRefs = listPolledRefs @e brains (Just "reflog")
+                               <&> fmap (\(a,_,b) -> (a,b))
+                               <&> fmap (over _2 ( (*60) . fromIntegral) )
 
-  let defPoll = lastDef 10 [ x
-                           | ListVal @C (Key "poll-default" [SymbolVal "reflog", LitIntVal x]) <- syn
-                           ]
-
-  let polls = HashMap.fromListWith min $ catMaybes (
-       [ (,x) <$> mkRef ref
-       | ListVal @C (Key "poll" [SymbolVal "reflog", LitIntVal x, LitStrVal ref]) <- syn
-       ]
-       <>
-       [ (,defPoll) <$> mkRef ref
-       | ListVal @C (Key "subscribe" [SymbolVal "reflog", LitStrVal ref]) <- syn
-       ] )
-
-  let pollIntervals = HashMap.fromListWith (<>) [ (i, [r]) | (r,i) <- HashMap.toList polls ]
-                            & HashMap.toList
-
-
-  pollers' <- liftIO $ async $ do
-                pause @'Seconds 10
-                forM pollIntervals  $ \(i,refs) -> liftIO do
-                  async $ forever $ do
-                    for_ refs $ \r -> do
-                      trace $ "POLL REFERENCE" <+> pretty (AsBase58 r) <+> pretty i <> "m"
-                      reflogFetch adapter r
-
-                    pause (fromIntegral i :: Timeout 'Minutes)
+               polling (Polling 5 5) listRefs $ \ref -> do
+                debug $ "POLLING REFLOG" <+> pretty (AsBase58 ref)
+                reflogFetch adapter ref
 
   w1 <- liftIO $ async $ forever $ replicateConcurrently_ 4 do
 
@@ -275,8 +256,7 @@ reflogWorker conf adapter = do
 
           -- trace  "I'm a reflog update worker"
 
-  pollers <- liftIO $ wait pollers'
-  void $ liftIO $ waitAnyCatchCancel $ w1 : pollers
+  void $ liftIO $ waitAnyCatchCancel [w1, poller]
 
   where
 

@@ -1,19 +1,19 @@
-module HBS2Git.Evolve (evolve) where
+module HBS2Git.Evolve (evolve,makePolled) where
 
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple
-import HBS2.OrDie
+import HBS2.Net.Proto.Service
+
+import HBS2.Peer.RPC.API.Peer
 
 import HBS2Git.Types
-import HBS2.Git.Types
 import HBS2Git.Config
 import HBS2Git.PrettyStuff
 
 import Control.Monad.Trans.Maybe
-import Data.Functor
 import Data.List qualified as List
-import Prettyprinter.Render.Terminal
 import System.Directory
+import System.Random
 import System.FilePath
 import UnliftIO
 
@@ -36,6 +36,12 @@ evolve = void $ runMaybeT do
   migrateConfig
   generateCookie
 
+
+makePolled :: (MonadIO m, HasRPC m) => RepoRef -> m ()
+makePolled ref = do
+  rpc <- getRPC <&> rpcPeer
+  n <- liftIO $ randomRIO (4,7)
+  void $ callService @RpcPollAdd rpc (fromRefLogKey ref, "reflog", n)
 
 generateCookie :: MonadIO m => m ()
 generateCookie = void $ runMaybeT do

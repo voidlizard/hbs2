@@ -77,6 +77,7 @@ import HBS2.Peer.RPC.API.RefChan
 import RPC2(RPC2Context(..))
 
 import Codec.Serialise as Serialise
+import Control.Concurrent (myThreadId)
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad.Reader
@@ -86,7 +87,6 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
-import Data.Function
 import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -104,6 +104,7 @@ import System.Mem
 import System.Metrics
 import System.Posix.Process
 import System.Environment
+import Prettyprinter.Render.Terminal
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -163,7 +164,7 @@ data PeerOpts =
   , _listenRpc     :: Maybe String
   , _peerCredFile  :: Maybe FilePath
   , _peerConfig    :: Maybe FilePath
-  , _peerRespawn   :: Maybe Bool
+  , _peerRespawn   :: Bool
   }
   deriving stock (Data)
 
@@ -225,6 +226,7 @@ runCLI = do
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
+                <> command "poll"      (info pPoll  (progDesc "polling management"))
                 <> command "log"       (info pLog   (progDesc "set logging level"))
                 -- FIXME: bring-back-dialogue-over-separate-socket
                 -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
@@ -250,8 +252,10 @@ runCLI = do
 
       c <- optional confOpt
 
-      resp <- optional $ flag' True ( long "respawn" <> short 'R' <> help "respawn process")
+      resp <- (optional $ flag' True ( long "no-respawn" <> short 'R' <> help "NO respawn"))
+                     <&> isNothing
 
+      -- NOTE: respawn-by-default-now
       pure $ PeerOpts pref l r k c resp
 
     withOpts m g = do
@@ -389,6 +393,52 @@ runCLI = do
           Right Nothing -> exitFailure
           Right (Just h) -> print (pretty h) >> exitSuccess
 
+
+    pPoll = hsubparser (  command "list" (info pPollList (progDesc "list current pollers" ))
+                       <> command "add" (info  pPollAdd (progDesc "add poller" ))
+                       <> command "del" (info  pPollDel (progDesc "del poller" ))
+                       )
+
+
+    pPollAdd = do
+      rpc <- pRpcCommon
+      r <- argument refP (metavar "REF")
+      t <- strArgument (metavar "TYPE")
+      i <- argument auto (metavar "INTERVAL")
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        callService @RpcPollAdd caller (r, t, i) >>= \case
+          Left e -> die (show e)
+          _      -> liftIO do
+                       hPutDoc stdout $ "added poller for" <+> pretty (AsBase58 r)
+                       exitSuccess
+
+    pPollDel = do
+      rpc <- pRpcCommon
+      r <- argument refP (metavar "REF")
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        callService @RpcPollDel caller r >>= \case
+          Left e -> die (show e)
+          _      -> liftIO do
+                       hPutDoc stdout $ "deleted poller for" <+> pretty (AsBase58 r)
+                       exitSuccess
+
+    pPollList = do
+      rpc <- pRpcCommon
+      -- ref <- strArgument ( metavar "REFLOG-KEY" )
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        void $ runMaybeT do
+          polls <- toMPlus =<< callService @RpcPollList caller ()
+          forM_ polls $ \(r,what,t) -> do
+           liftIO $ hPutDoc stdout $ fill 44 (pretty (AsBase58 r))
+                                     -- TODO: align-right
+                                     <+> fill 3 (pretty t)
+                                     <+> pretty what
+                                     <> line
+
+    refP :: ReadM (PubKey 'Sign HBS2Basic)
+    refP = maybeReader fromStringMay
+
+
 myException :: SomeException -> IO ()
 myException e = err ( show e )
 
@@ -448,10 +498,11 @@ instance ( Monad m
 
   response = lift . response
 
-
 respawn :: PeerOpts -> IO ()
-respawn opts = case view peerRespawn opts of
-  Just True -> do
+respawn opts =
+  if not (view peerRespawn opts) then do
+    exitFailure
+  else do
     let secs = 5
     notice $ "RESPAWNING in" <+> viaShow secs <> "s"
     pause @'Seconds secs
@@ -460,18 +511,18 @@ respawn opts = case view peerRespawn opts of
     print (self, args)
     executeFile self False args Nothing
 
-  _ -> exitFailure
-
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
-runPeer opts = Exception.handle (\e -> myException e
+runPeer opts = U.handle (\e -> myException e
                         >> performGC
                         >> respawn opts
                         ) $ runResourceT do
+
+  threadSelf <- liftIO myThreadId
 
   metrics <- liftIO newStore
 
@@ -847,18 +898,20 @@ runPeer opts = Exception.handle (\e -> myException e
 
               let peerThread t mx = W.tell . L.singleton =<< (liftIO . async) do
                     withPeerM env mx
-                      `U.withException` \e -> case (fromException e) of
+                      `U.withException` \e -> case fromException e of
                         Just (e' :: AsyncCancelled) -> pure ()
-                        Nothing -> err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
+                        Nothing -> do
+                          err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
+                          throwM e -- threadSelf (SomeException e)
+
                     debug $ "peerThread Finished:" <+> t
+
               workers <- W.execWriterT do
 
                 peerThread "local multicast" $ forever $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
-
-                -- peerThread "tcpWorker" (tcpWorker conf)
 
                 peerThread "httpWorker" (httpWorker conf peerMeta denv)
 
@@ -891,7 +944,7 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "downloadQueue" (downloadQueue conf denv)
 
-                peerThread "reflogWorker" (reflogWorker @e conf rwa)
+                peerThread "reflogWorker" (reflogWorker @e conf (SomeBrains brains) rwa)
 
                 peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
 
@@ -997,6 +1050,7 @@ runPeer opts = Exception.handle (\e -> myException e
                             , rpcPeerEnv = penv
                             , rpcLocalMultiCast = localMulticast
                             , rpcStorage = AnyStorage s
+                            , rpcBrains = SomeBrains brains
                             , rpcDoFetch = liftIO . fetchHash penv denv
                             , rpcDoRefChanHeadPost = refChanHeadPostAction
                             , rpcDoRefChanPropose = refChanProposeAction

@@ -11,6 +11,7 @@ import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 import HBS2.Peer.RPC.Class
+import HBS2.Peer.Brains
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
@@ -28,6 +29,7 @@ data RPC2Context =
   , rpcPeerEnv            :: PeerEnv L4Proto
   , rpcLocalMultiCast     :: Peer L4Proto
   , rpcStorage            :: AnyStorage
+  , rpcBrains             :: SomeBrains L4Proto
   , rpcDoFetch            :: HashRef -> IO ()
   , rpcDoRefChanHeadPost  :: HashRef -> IO ()
   , rpcDoRefChanPropose   :: (PubKey 'Sign HBS2Basic, SignedBox ByteString L4Proto) -> IO ()

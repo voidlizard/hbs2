@@ -19,6 +19,7 @@ import HBS2Git.GitRepoLog
 import HBS2Git.App
 import HBS2Git.Config
 import HBS2Git.State
+import HBS2Git.Evolve
 import HBS2Git.KeysMetaData
 import HBS2.Git.Local.CLI
 
@@ -121,6 +122,7 @@ importRefLogNew :: ( MonadIO m
                    , MonadCatch m
                    , MonadMask m
                    , HasStorage m
+                   , HasRPC m
                    , HasEncryptionKeys m
                    , HasImportOpts opts
                    )
@@ -135,6 +137,8 @@ importRefLogNew opts ref = runResourceT do
   let myTempDir = "hbs-git"
   temp <- liftIO getCanonicalTemporaryDirectory
   (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
+
+  lift $ makePolled ref
 
   db <- makeDbPath ref >>= dbEnv
 

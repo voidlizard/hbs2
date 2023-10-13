@@ -1,8 +1,7 @@
 module RPC2.Peer
   ( module RPC2.Peer
   , module HBS2.Peer.RPC.API.Peer
-  , module RPC2.LogLevel
-  -- , SetLogging(..)
+  -- , module RPC2.LogLevel
   ) where
 
 import HBS2.Peer.RPC.API.Peer
@@ -15,6 +14,6 @@ import RPC2.Poke()
 import RPC2.RefLog()
 import RPC2.RefChan()
 import RPC2.Die()
-import RPC2.LogLevel
--- import RPC2.LogLevel(SetLogging(..))
+import RPC2.LogLevel()
+import RPC2.Poll()
 

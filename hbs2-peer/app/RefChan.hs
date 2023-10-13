@@ -42,7 +42,6 @@ import PeerConfig
 import BlockDownload
 import Brains
 
-import Data.Dynamic
 import Codec.Serialise
 import Control.Concurrent.STM (flushTQueue)
 import Control.Exception ()
@@ -51,19 +50,14 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
-import Data.ByteString (ByteString)
-import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.Heap ()
-import Data.Coerce
--- import Data.Heap qualified as Heap
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
-import Data.Generics.Product
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -662,7 +656,9 @@ refChanWorker env brains = do
 
     refChanPoll = do
 
-      let listRefs = listPolledRefs @e brains "refchan" <&> fmap (over _2 ( (*60) . fromIntegral) )
+      let listRefs = listPolledRefs @e brains (Just "refchan")
+                         <&> fmap (\(a,_,b) -> (a,b))
+                         <&> fmap (over _2 ( (*60) . fromIntegral) )
 
       polling (Polling 5 5) listRefs $ \ref -> do
         debug $ "POLLING REFCHAN" <+> pretty (AsBase58 ref)

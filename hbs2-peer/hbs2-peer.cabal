@@ -38,6 +38,7 @@ common common-deps
         , network-multicast
         , optparse-applicative
         , prettyprinter
+        , prettyprinter-ansi-terminal
         , random
         , random-shuffle
         , resourcet
@@ -132,6 +133,7 @@ library
     default-language: Haskell2010
 
     exposed-modules:
+      HBS2.Peer.Brains
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
@@ -176,6 +178,7 @@ executable hbs2-peer
                     , RPC2.Peers
                     , RPC2.PexInfo
                     , RPC2.Ping
+                    , RPC2.Poll
                     , RPC2.RefLog
                     , RPC2.RefChan
                     , PeerTypes

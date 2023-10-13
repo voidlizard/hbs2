@@ -79,6 +79,7 @@ common shared-properties
                , mtl
                , prettyprinter
                , prettyprinter-ansi-terminal
+               , random
                , resourcet
                , safe
                , saltine

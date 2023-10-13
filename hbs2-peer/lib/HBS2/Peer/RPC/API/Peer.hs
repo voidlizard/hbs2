@@ -22,6 +22,10 @@ data RpcFetch
 data RpcLogLevel
 data RpcDie
 
+data RpcPollList
+data RpcPollAdd
+data RpcPollDel
+
 type PeerAPI = '[ RpcPoke
                 , RpcPing
                 , RpcAnnounce
@@ -30,6 +34,9 @@ type PeerAPI = '[ RpcPoke
                 , RpcPexInfo
                 , RpcLogLevel
                 , RpcDie
+                , RpcPollList
+                , RpcPollAdd
+                , RpcPollDel
                 ]
 
 instance HasProtocol UNIX  (ServiceProto PeerAPI UNIX) where
@@ -63,6 +70,15 @@ type instance Output RpcPeers = [(PubKey 'Sign HBS2Basic, PeerAddr L4Proto)]
 
 type instance Input RpcFetch = HashRef
 type instance Output RpcFetch = ()
+
+type instance Input RpcPollList= ()
+type instance Output RpcPollList = [(PubKey 'Sign HBS2Basic, String, Int)]
+
+type instance Input RpcPollAdd = (PubKey 'Sign HBS2Basic, String, Int)
+type instance Output RpcPollAdd = ()
+
+type instance Input  RpcPollDel = PubKey 'Sign HBS2Basic
+type instance Output RpcPollDel = ()
 
 type instance Input RpcLogLevel = SetLogging
 type instance Output RpcLogLevel = ()
