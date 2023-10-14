@@ -1,7 +1,17 @@
 
-fixme-del "Hdcxv9HyaV"
-fixme-del "88SQBARzxN"
-fixme-del "8Y4sKgQvAg"
-fixme-del "8mxg7eaZPU"
-fixme-del "Cmg6HrkUAT"
-fixme-del "BfWMyLqnuJ"
+(fixme-set "assigned" "voidlizard" "De8ZgwXZEy")
+(fixme-set "workflow" "test" "De8ZgwXZEy")
+(fixme-set "assigned" "voidlizard" "De8ZgwXZEy")
+(fixme-set "workflow" "test" "De8ZgwXZEy")
+fixme-del "EfhGeqmiPS"
+fixme-del "fGDk9k9xxB"
+fixme-del "F9Hv3tGsUe"
+fixme-del "6ZwMCK59zt"
+fixme-del "45Hnd27NST"
+fixme-del "6ZwMCK59zt"
+(fixme-set "workflow" "backlog" "B2GwdXaCBw")
+(fixme-set "workflow" "done" "3RyKZjgSMH")
+fixme-del "Ap9KkCyk5S"
+fixme-del "5GjywN24WF"
+(fixme-set "workflow" "test" "BoPX4zHr3b")
+(fixme-set "workflow" "backlog" "84DTqznCfz")
