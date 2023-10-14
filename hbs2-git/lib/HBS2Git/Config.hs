@@ -3,7 +3,7 @@ module HBS2Git.Config
   , module Data.Config.Suckless
   ) where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 import HBS2.Base58
 import HBS2.System.Logger.Simple
 import HBS2.OrDie
@@ -17,6 +17,8 @@ import Control.Applicative
 import Data.Functor
 import System.FilePath
 import System.Directory
+import Data.Maybe
+import Data.Either
 
 import System.Environment
 
@@ -36,12 +38,6 @@ findGitDir dir = liftIO do
                then return Nothing
                else findGitDir parentDir
 
--- Finds .git dir inside current directory moving upwards
-findWorkingGitDir :: MonadIO m => m FilePath
-findWorkingGitDir = do
-  this <- liftIO getCurrentDirectory
-  findGitDir this `orDie` ".git directory not found"
-
 configPathOld :: MonadIO m => FilePath -> m FilePath
 configPathOld pwd = liftIO do
   xdg <- liftIO $ getXdgDirectory XdgConfig appName
@@ -55,9 +51,27 @@ configPath _ = liftIO do
   pwd <- liftIO getCurrentDirectory
   git <- findGitDir pwd
   byEnv <- lookupEnv "GIT_DIR"
-  -- hPrint stderr ("BY-ENV", byEnv)
+
+  bare <- if isJust (git <|> byEnv) then do
+            pure Nothing
+          else do
+            -- check may be it's a bare git repo
+            gitConf <- readFile "config"
+                         <&> parseTop
+                         <&> fromRight mempty
+
+            let core = or [True | SymbolVal @C "core" <- universeBi gitConf]
+            let bare = or [True | ListVal @C [SymbolVal @C "bare", _, SymbolVal @C "true"] <- universeBi gitConf ]
+            let repo = or [True | SymbolVal @C "repositoryformatversion" <- universeBi gitConf ]
+
+            if core && bare && repo then do
+                pure $ Just (pwd </> ".hbs2")
+            else
+                pure Nothing
+
+  -- hPrint stderr appName
   -- hPrint stderr =<< getEnvironment
-  path <- pure (git <|> byEnv) `orDie`  "*** hbs2-git: .git directory not found"
+  path <- pure (git <|> byEnv <|> bare) `orDie`  "*** hbs2-git: .git directory not found"
   pure (takeDirectory path </> ".hbs2")
 
 data ConfigPathInfo = ConfigPathInfo {
