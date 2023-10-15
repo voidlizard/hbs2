@@ -74,6 +74,7 @@ httpWorker conf pmeta e = do
             maybe1 va (status status404) $ \val -> do
               text [qc|{pretty val}|]
 
+      -- FIXME: to-replace-to-rpc
       post "/reflog" do
         bs <- LBS.take 4194304 <$> body
         let msg' =
@@ -86,7 +87,7 @@ httpWorker conf pmeta e = do
           Just msg -> do
             let pubk = view refLogId msg
             liftIO $ withPeerM penv $ do
-              emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, msg))
+              emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, msg, Nothing))
               doRefLogBroadCast msg
             status status200
 

@@ -24,6 +24,7 @@ import HBS2.System.Logger.Simple
 import Brains
 import PeerConfig
 import PeerTypes
+import CheckBlockAnnounce (acceptAnnouncesFromPeer)
 
 import Data.Function(fix)
 import Data.Maybe
@@ -86,17 +87,19 @@ data RefLogWorkerAdapter e =
  , reflogFetch    :: PubKey 'Sign (Encryption e) -> IO ()
  }
 
-reflogWorker :: forall e s m . ( MonadIO m, MyPeer e
+reflogWorker :: forall e s m . ( e ~ L4Proto
+                               , MonadIO m, MyPeer e
                                , EventListener e (RefLogUpdateEv e) m
                                , EventListener e (RefLogRequestAnswer e) m
-                             -- , Request e (RefLogRequest e) (Peerm
                                , HasStorage m
                                , Nonce (RefLogUpdate e) ~ BS.ByteString
                                , Serialise (RefLogUpdate e)
                                , EventEmitter e (RefLogUpdateEv e) m -- (PeerM e m)
+                               , Sessions L4Proto (KnownPeer L4Proto) m
                                , Signatures s
                                , s ~ Encryption e
                                , IsRefPubKey s
+                               , IsPeerAddr e m
                                , Pretty (AsBase58 (PubKey 'Sign s))
                               )
              => PeerConfig
@@ -138,11 +141,17 @@ reflogWorker conf brains adapter = do
             -- TODO: support-other-data-structures
             _ -> pure ()
 
-  subscribe @e RefLogUpdateEvKey $ \(RefLogUpdateEvData (reflog,v)) -> do
+  subscribe @e RefLogUpdateEvKey $ \(RefLogUpdateEvData (reflog,v, mpip)) -> do
     trace $ "reflog worker.got refupdate" <+> pretty (AsBase58 reflog)
-    liftIO $ reflogUpdate reflog Nothing v
-    liftIO $ atomically $ writeTQueue pQ (reflog, [v])
 
+    polled <- isPolledRef @e brains reflog
+    buddy <- maybe1 mpip (pure False) $ \pip -> do
+                pa <- toPeerAddr @e pip
+                acceptAnnouncesFromPeer @e conf pa
+
+    when (buddy || polled) $ liftIO do
+      reflogUpdate reflog Nothing v
+      atomically $ writeTQueue pQ (reflog, [v])
 
   reflogMon <- liftIO $ newTVarIO (mempty :: HashSet (Hash HbSync))
 

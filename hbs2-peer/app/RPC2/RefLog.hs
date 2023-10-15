@@ -64,7 +64,7 @@ instance (RefLogContext m) => HandleMethod m RpcRefLogPost where
     debug $ "rpc.reflogPost:"  <+> pretty (AsBase58 pk)
 
     liftIO $ withPeerM (rpcPeerEnv co) $ do
-      emit @L4Proto RefLogUpdateEvKey (RefLogUpdateEvData (pk, msg))
+      emit @L4Proto RefLogUpdateEvKey (RefLogUpdateEvData (pk, msg, Nothing))
       doRefLogBroadCast msg
 
 

@@ -86,7 +86,7 @@ instance Typeable (RefLogUpdateEv e) => Hashable (EventKey e (RefLogUpdateEv e))
       p = Proxy @RefLogUpdateEv
 
 newtype instance Event e (RefLogUpdateEv e) =
-  RefLogUpdateEvData (PubKey 'Sign (Encryption e), RefLogUpdate e)
+  RefLogUpdateEvData (PubKey 'Sign (Encryption e), RefLogUpdate e, Maybe (Peer e))
   deriving (Typeable)
 
 instance EventType ( Event e (RefLogUpdateEv e) ) where
@@ -222,7 +222,7 @@ refLogUpdateProto =
 
           -- FIXME: refactor:use-type-application-for-deferred
           deferred proto do
-            emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e))
+            emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e, Just p))
             gossip e
 
     where

@@ -54,9 +54,13 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
 
 
 
-acceptAnnouncesFromPeer :: forall e m . ( e ~ L4Proto
-                                        , MonadIO m
-                                        , Sessions L4Proto (KnownPeer L4Proto) m
+acceptAnnouncesFromPeer :: forall e m . ( MonadIO m
+                                        , Sessions e (KnownPeer e) m
+                                        , IsPeerAddr e m
+                                        , Ord (PubKey 'Sign (Encryption e))
+                                        , FromStringMaybe (PubKey 'Sign (Encryption e))
+                                        , Ord (PubKey 'Sign (Encryption e))
+                                        , e ~ L4Proto
                                         )
                       => PeerConfig
                       -> PeerAddr e
