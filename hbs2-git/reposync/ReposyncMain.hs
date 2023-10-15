@@ -19,8 +19,8 @@ import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.KeyValue
 
 
-import Control.Monad.Catch
-import Control.Monad.Except
+import Control.Monad.Catch (MonadThrow(..))
+import Control.Monad.Except (runExceptT,throwError)
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Either
@@ -127,9 +127,8 @@ newState so refLog =
 withConfig :: forall a m . (MonadUnliftIO m) => Maybe FilePath -> ReposyncM m a -> ReposyncM m ()
 withConfig cfg m = do
 
-  debug $ "wtf?"
-
   let defDir  = reposyncDefaultDir
+
   defConfDir <- liftIO $ getXdgDirectory XdgConfig myName
 
   realCfg <- case cfg of
@@ -137,9 +136,9 @@ withConfig cfg m = do
              Nothing -> do
                 liftIO do
                   let conf = defConfDir </> "config"
-                  createDirectoryIfMissing True defConfDir
+                  void $ try @_ @IOException $ createDirectoryIfMissing True defConfDir
                   debug $ "config-dir" <+> pretty defConfDir
-                  appendFile conf ""
+                  void $ try @_ @IOException $ appendFile conf ""
                   pure conf
 
   syn <- liftIO (readFile realCfg) <&> parseTop
