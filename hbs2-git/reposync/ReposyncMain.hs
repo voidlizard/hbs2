@@ -143,6 +143,8 @@ withConfig cfg m = do
   syn <- liftIO (readFile realCfg) <&> parseTop
                                    <&> fromRight mempty
 
+  debug $ "config" <+> pretty realCfg <> line <> pretty syn
+
   ev <- asks (view reposyncEntries)
 
   let root = runReader (cfgValue @ReposyncRootKey) syn
