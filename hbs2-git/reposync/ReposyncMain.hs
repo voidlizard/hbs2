@@ -127,6 +127,8 @@ newState so refLog =
 withConfig :: forall a m . (MonadUnliftIO m) => Maybe FilePath -> ReposyncM m a -> ReposyncM m ()
 withConfig cfg m = do
 
+  debug $ "wtf?"
+
   let defDir  = reposyncDefaultDir
   defConfDir <- liftIO $ getXdgDirectory XdgConfig myName
 
@@ -372,6 +374,8 @@ withApp cfg m = do
   r <- async $ void $ runReaderT (unReposyncM $ withConfig cfg m) state
 
   waitAnyCatchCancel [c1, messaging, r]
+
+  notice "exiting"
 
   setLoggingOff @DEBUG
   setLoggingOff @INFO
