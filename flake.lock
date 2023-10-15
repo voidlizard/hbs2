@@ -15,11 +15,11 @@
         "rev": "e9b1dcfd78dc766a2255a8125c14b24f0d728c0e",
         "revCount": 139,
         "type": "git",
-        "url": "http://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
+        "url": "https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
       },
       "original": {
         "type": "git",
-        "url": "http://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
+        "url": "https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
       }
     },
     "flake-utils": {
@@ -289,11 +289,11 @@
         "rev": "a0728838021e62742d1a345513112e6f9343f122",
         "revCount": 26,
         "type": "git",
-        "url": "http://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       },
       "original": {
         "type": "git",
-        "url": "http://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       }
     }
   },
