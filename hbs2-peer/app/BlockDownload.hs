@@ -143,7 +143,7 @@ processBlock h = do
      Just (SeqRef (SequentialRef n (AnnotatedHashRef a' b))) -> do
       maybe1 a' none $ \a -> do
         debug $ "GOT AnnotatedHashRef" <+> pretty a
-        addDownload mzero (fromHashRef a)
+        addDownload parent (fromHashRef a)
 
       addDownload parent (fromHashRef b)
 
