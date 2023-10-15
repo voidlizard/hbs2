@@ -136,6 +136,7 @@ withConfig cfg m = do
                 liftIO do
                   let conf = defConfDir </> "config"
                   createDirectoryIfMissing True defConfDir
+                  debug $ "config-dir" <+> pretty defConfDir
                   appendFile conf ""
                   pure conf
 
