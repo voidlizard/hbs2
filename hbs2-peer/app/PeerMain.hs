@@ -700,10 +700,7 @@ runPeer opts = U.handle (\e -> myException e
             runPeerM penv $ do
               adapter <- mkAdapter
 
-
-              reflogAdapter <- RefLog.mkAdapter
               reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e
-
 
               let doDownload h = do
                     pro <- isReflogProcessed @e brains h
@@ -956,7 +953,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
                     , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
                     , makeResponse (peerExchangeProto pexFilt)
-                    , makeResponse (refLogUpdateProto reflogAdapter)
+                    , makeResponse refLogUpdateProto
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto peerMeta)
                     , makeResponse (refChanHeadProto False refChanAdapter)

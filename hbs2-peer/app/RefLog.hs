@@ -28,7 +28,6 @@ import PeerTypes
 import Data.Function(fix)
 import Data.Maybe
 import Data.Foldable(for_)
-import Data.Text qualified as Text
 import Control.Concurrent.STM
 import Control.Monad
 import Data.ByteString.Lazy qualified as LBS
@@ -79,20 +78,6 @@ doOnRefLogRequest :: forall e s m . ( MonadIO m
                    =>  AnyStorage -> (Peer e, PubKey 'Sign s) -> m (Maybe (Hash HbSync))
 
 doOnRefLogRequest sto (_,pk) = liftIO $ getRef sto (RefLogKey @s pk)
-
-mkAdapter :: forall e s m . ( MonadIO m
-                           , HasPeerLocator e m
-                           , Sessions e (KnownPeer e) m
-                           , Request e (RefLogUpdate e) m
-                           , MyPeer e
-                           -- , Pretty (AsBase58 (PubKey 'Sign s))
-                           , s ~ Encryption e
-                           )
-          => m (RefLogUpdateI e (ResponseM e m ))
-
-mkAdapter = do
-  let bcast = lift . doRefLogBroadCast @e
-  pure $ RefLogUpdateI bcast
 
 
 data RefLogWorkerAdapter e =

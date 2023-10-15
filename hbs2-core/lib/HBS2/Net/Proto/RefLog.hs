@@ -10,6 +10,7 @@ import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
 import HBS2.Base58
 import HBS2.Events
+import HBS2.Actors.Peer.Types
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
@@ -71,11 +72,6 @@ deriving instance
   ) => Show (RefLogUpdate e)
 
 makeLenses 'RefLogUpdate
-
-newtype RefLogUpdateI e m =
-  RefLogUpdateI
-  { refLogBroadcast  :: RefLogUpdate e -> m ()
-  }
 
 data RefLogUpdateEv e
 data RefLogRequestAnswer e
@@ -197,6 +193,7 @@ refLogUpdateProto :: forall e s m . ( MonadIO m
                                     , Request e (RefLogUpdate e) m
                                     , Response e (RefLogUpdate e) m
                                     , HasDeferred e (RefLogUpdate e) m
+                                    , HasGossip e (RefLogUpdate e) m
                                     , IsPeerAddr e m
                                     , Pretty (Peer e)
                                     , Nonce (RefLogUpdate e) ~ ByteString
@@ -206,9 +203,9 @@ refLogUpdateProto :: forall e s m . ( MonadIO m
                                     , EventEmitter e (RefLogUpdateEv e) m
                                     , s ~ Encryption e
                                     )
-                  => RefLogUpdateI e m -> RefLogUpdate e -> m ()
+                  => RefLogUpdate e -> m ()
 
-refLogUpdateProto adapter =
+refLogUpdateProto =
   \case
     e@RefLogUpdate{} -> do
       p <- thatPeer proto
@@ -226,8 +223,7 @@ refLogUpdateProto adapter =
           -- FIXME: refactor:use-type-application-for-deferred
           deferred proto do
             emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e))
-            refLogBroadcast adapter e
-            pure ()
+            gossip e
 
     where
       proto = Proxy @(RefLogUpdate e)

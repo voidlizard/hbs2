@@ -18,6 +18,7 @@ import DownloadQ
 
 import HBS2.System.Logger.Simple
 
+import Control.Monad.Trans.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
@@ -52,6 +53,33 @@ instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
       kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
 
 
+
+acceptAnnouncesFromPeer :: forall e m . ( e ~ L4Proto
+                                        , MonadIO m
+                                        , Sessions L4Proto (KnownPeer L4Proto) m
+                                        )
+                      => PeerConfig
+                      -> PeerAddr e
+                      -> m Bool
+acceptAnnouncesFromPeer conf pa = runPlus do
+
+  pip <- lift (fromPeerAddr @e pa)
+
+  pd <- toMPlus =<< lift (find @e (KnownPeerKey pip) id)
+
+  let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
+
+  guard =<< peerBanned conf pd
+
+  case accptAnn of
+    AcceptAnnounceAll -> pure ()
+    AcceptAnnounceFrom s -> do
+      guard  (view peerSignKey pd `Set.member` s)
+
+  where
+    runPlus m = runMaybeT m <&> isJust
+
+
 checkBlockAnnounce :: forall e m . ( e ~ L4Proto
                                    , m ~ PeerM e IO
                                    )
@@ -62,49 +90,20 @@ checkBlockAnnounce :: forall e m . ( e ~ L4Proto
                    -> Hash HbSync
                    -> m ()
 
-checkBlockAnnounce conf denv nonce pa h = do
+checkBlockAnnounce conf denv nonce pa h = void $ runMaybeT do
 
-  let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
+  accept <- lift $ acceptAnnouncesFromPeer conf pa
 
-  let acceptAnnounce p pd = do
-        case accptAnn of
-          AcceptAnnounceAll    -> pure True
-          AcceptAnnounceFrom s -> pure $ view peerSignKey pd `Set.member` s
+  myNonce  <- lift $ peerNonce @e
 
-  pip <- fromPeerAddr @e pa
+  guard (nonce /= myNonce)
 
-  n1 <- peerNonce @e
+  debug $ "Accept announce from" <+> pretty pa <+> pretty accept
 
-  unless (nonce == n1) do
+  guard accept
 
-    mpde <- find @e (KnownPeerKey pip) id
-
-    debug $ "received announce from"
-                  <+> pretty pip
-                  <+> pretty h
-
-    case mpde of
-      Nothing -> do
-        sendPing @e pip
-        -- TODO: enqueue-announce-from-unknown-peer?
-
-      Just pd  -> do
-
-        banned <- peerBanned conf pd
-
-        notAccepted <- acceptAnnounce pip pd <&> not
-
-        if | banned -> do
-
-              notice $ pretty pip <+> "banned"
-
-           | notAccepted -> do
-
-              debug $ pretty pip <+> "announce-not-accepted"
-
-           | otherwise -> do
-
-              downloadLogAppend @e h
-              withDownload denv $ do
-                  processBlock h
+  lift do
+    downloadLogAppend @e h
+    withDownload denv $ do
+      processBlock h
 
