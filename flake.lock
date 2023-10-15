@@ -9,17 +9,17 @@
         "suckless-conf": "suckless-conf"
       },
       "locked": {
-        "lastModified": 1679822846,
-        "narHash": "sha256-bXGorR8cLCVm3Cu7EcTUGNtaxPwqZH8zLrch7r/ST5c=",
-        "owner": "voidlizard",
-        "repo": "fixme",
-        "rev": "ff3faeeee860b2ed2edf6e69cec26e9b49b167a3",
-        "type": "github"
+        "lastModified": 1697356303,
+        "narHash": "sha256-hJbJZtx7gdcXaKL8n5J8b/eVyoYe9VxM+037ZK7q8Gw=",
+        "ref": "refs/heads/master",
+        "rev": "e9b1dcfd78dc766a2255a8125c14b24f0d728c0e",
+        "revCount": 139,
+        "type": "git",
+        "url": "http://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
       },
       "original": {
-        "owner": "voidlizard",
-        "repo": "fixme",
-        "type": "github"
+        "type": "git",
+        "url": "http://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr"
       }
     },
     "flake-utils": {
@@ -212,21 +212,6 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1675758091,
-        "narHash": "sha256-7gFSQbSVAFUHtGCNHPF7mPc5CcqDk9M2+inlVPZSneg=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "747927516efcb5e31ba03b7ff32f61f6d47e7d87",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
         "lastModified": 1687946342,
         "narHash": "sha256-vRxti8pOuXS0rJmqjbD8ueEEFXWSK22ISHoCWkhgzzg=",
         "owner": "nixos",
@@ -246,7 +231,7 @@
         "fixme": "fixme",
         "haskell-flake-utils": "haskell-flake-utils_3",
         "hspup": "hspup",
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": "nixpkgs",
         "saltine": "saltine",
         "suckless-conf": "suckless-conf_2"
       }
@@ -271,14 +256,17 @@
     "suckless-conf": {
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils_2",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": [
+          "fixme",
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1679815688,
-        "narHash": "sha256-xLvIoeG5krM0CXfWRcwSgHGP7W8i8dsoKP5hUb182hE=",
+        "lastModified": 1697354514,
+        "narHash": "sha256-5doedGj2QU4vPuw1VZor1GGEJTxu0zFeO/PsybFIcn8=",
         "owner": "voidlizard",
         "repo": "suckless-conf",
-        "rev": "04c432681d3627f180a402674523736f409f964d",
+        "rev": "3f87278bc10ac4f14a6d9d2c75cbbed228509129",
         "type": "github"
       },
       "original": {
@@ -295,18 +283,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1697251648,
-        "narHash": "sha256-dT305J8wIJLIbuVi4YhtaeaquNtVxFhutbB2tgsu938=",
-        "owner": "voidlizard",
-        "repo": "suckless-conf",
-        "rev": "a79097e5b28da8a098405dc9c15235a57f887160",
-        "type": "github"
+        "lastModified": 1697360115,
+        "narHash": "sha256-0XgKnuvxF83IxShuYEwCKPC0FHJcQd85Z9PxbInLET4=",
+        "ref": "refs/heads/master",
+        "rev": "a0728838021e62742d1a345513112e6f9343f122",
+        "revCount": 26,
+        "type": "git",
+        "url": "http://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       },
       "original": {
-        "owner": "voidlizard",
-        "ref": "master",
-        "repo": "suckless-conf",
-        "type": "github"
+        "type": "git",
+        "url": "http://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       }
     }
   },

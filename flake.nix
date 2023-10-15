@@ -9,10 +9,10 @@ inputs = {
     hspup.url = "github:voidlizard/hspup";
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
-    fixme.url = "github:voidlizard/fixme";
+    fixme.url = "git+http://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
-    suckless-conf.url = "github:voidlizard/suckless-conf/master";
+    suckless-conf.url = "git+http://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {

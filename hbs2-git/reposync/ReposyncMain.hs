@@ -335,11 +335,11 @@ initRepo e@(RepoEntry{..}) = do
 
 detectRPC :: (MonadUnliftIO m) => m (Maybe FilePath)
 detectRPC = do
+
   (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
   let answ = parseTop (LBS.unpack o) & fromRight mempty
 
   pure (headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ])
-
 
 withApp :: forall a m . MonadUnliftIO m
         => Maybe FilePath
@@ -353,6 +353,8 @@ withApp cfg m = do
   setLogging @ERROR  errorPrefix
   setLogging @WARN   warnPrefix
   setLogging @NOTICE noticePrefix
+
+  -- lrpc =
 
   soname <- detectRPC `orDie` "RPC not found"
 
