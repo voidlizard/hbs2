@@ -130,12 +130,6 @@ loop args = do
 
   checkRef <- readRef ref <&> isJust
 
-  unless checkRef do
-    warn $ "reference" <+> pretty ref <+> "missing"
-    warn "trying to init reference --- may be it's ours"
-    liftIO $ runApp WithLog (runExport Nothing ref)
-    importRefLogNew True ref
-
   let getHeads upd = do
         when upd do importRefLogNew False ref
         refsNew <- withDB db stateGetActualRefs

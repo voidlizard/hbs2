@@ -52,8 +52,6 @@ import Streaming.Zip qualified as SZip
 
 import HBS2Git.PrettyStuff
 
-import System.Environment
-
 data RunImportOpts =
   RunImportOpts
   { _runImportDry    :: Maybe Bool
@@ -76,13 +74,12 @@ findMissedBlocks href = do
     walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
         -- FIXME: investigate-this-wtf
-        Left{}   -> pure () -- err ("ONE" <+> pretty hx) >> S.yield (HashRef hx)
+        Left{}   -> pure ()
         Right (hrr :: [HashRef]) -> do
           forM_ hrr $ \hx -> runMaybeT do
               blk <- lift $ getBlock sto (fromHashRef hx)
 
               unless (isJust blk) do
-                -- err $ "TWO" <+> pretty hx
                 lift $ S.yield hx
 
               maybe1 blk none $ \bs -> do
@@ -177,9 +174,9 @@ importRefLogNew opts ref = runResourceT do
 
   db <- makeDbPath ref >>= dbEnv
 
-  do
+  void $ runMaybeT do
     trace $ "importRefLogNew" <+> pretty ref
-    logRoot <- lift $ readRef ref `orDie` [qc|can't read ref {pretty ref}|]
+    logRoot <- toMPlus =<< readRef ref
     trace $ "ROOT" <+> pretty logRoot
 
     trans <- withDB db $ stateGetAllTranImported <&> Set.fromList
@@ -204,8 +201,7 @@ importRefLogNew opts ref = runResourceT do
                     if null missed then do
                       S.yield e
                     else do
-                      -- forM_ missed $ \m -> do
-                      err $ "missed blocks in tree" <+> pretty e --  <+> pretty m
+                      trace $ "missed blocks in tree" <+> pretty e --  <+> pretty m
 
       pCommit <- liftIO $ startGitHashObject Commit
       pTree <- liftIO $ startGitHashObject Tree
@@ -220,7 +216,7 @@ importRefLogNew opts ref = runResourceT do
       sp0 <- withDB db savepointNew
       withDB db $ savepointBegin sp0
 
-      decrypt <- lift enumEncryptionKeys
+      decrypt <- lift $ lift enumEncryptionKeys
 
       debug $ "Decrypt" <> vcat (fmap pretty decrypt)
 
@@ -252,7 +248,7 @@ importRefLogNew opts ref = runResourceT do
 
         (keyFh, fh) <- allocate (openBinaryFile fpath AppendMode) hClose
 
-        runMaybeT $ do
+        void $ runMaybeT $ do
 
           refData <- toMPlus =<< parseTx e
           -- NOTE: good-place-to-process-hash-log-update-first
@@ -338,11 +334,11 @@ importRefLogNew opts ref = runResourceT do
 
             oMon  <- newProgressMonitor name  num
 
-            lift $ gitRepoLogScan True fpathReal $ \entry s -> do
+            lift $ lift $ gitRepoLogScan True fpathReal $ \entry s -> void $ runMaybeT do
 
               updateProgress oMon 1
 
-              lbs <- pure s `orDie` [qc|git object not read from log|]
+              lbs <- toMPlus s
 
               withDB db do
 
