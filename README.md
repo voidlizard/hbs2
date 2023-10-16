@@ -116,7 +116,7 @@ Assuming you know what the Nix and Nix flakes are
 and nix flake support is turned on on your system:
 
 ```
-nix profile install github:voidlizard/hbs2/master
+nix profile install github:voidlizard/hbs2/stable-0.8pre1
 ```
 
 It will take time. Patience, we're working on rolling
