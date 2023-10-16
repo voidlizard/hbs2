@@ -430,16 +430,16 @@ getKnownPeers  = do
   pure $ mconcat r
 
 mkPeerMeta :: PeerConfig -> PeerEnv e -> AnnMetaData
-mkPeerMeta conf penv = do
+mkPeerMeta (PeerConfig syn) penv = do
     let mHttpPort :: Maybe Integer
-        mHttpPort = cfgValue @PeerHttpPortKey conf <&> fromIntegral
+        mHttpPort = runReader (cfgValue @PeerHttpPortKey) syn
     let mTcpPort :: Maybe Word16
         mTcpPort =
           (
           fmap (\(L4Address _ (IPAddrPort (_, p))) -> p)
             . fromStringMay @(PeerAddr L4Proto)
           )
-          =<< cfgValue @PeerListenTCPKey conf
+          =<< runReader (cfgValue @PeerListenTCPKey) syn
     annMetaFromPeerMeta . PeerMeta $ W.execWriter do
       mHttpPort `forM` \p -> elem "http-port" (TE.encodeUtf8 . Text.pack . show $ p)
       mTcpPort `forM` \p -> elem "listen-tcp" (TE.encodeUtf8 . Text.pack . show $ p)

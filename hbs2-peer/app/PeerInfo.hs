@@ -1,12 +1,12 @@
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language TypeOperators #-}
 module PeerInfo where
 
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Data.Types
 import HBS2.Events
-import HBS2.Net.Auth.Credentials
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
@@ -38,7 +38,7 @@ import Data.HashMap.Strict qualified as HashMap
 data PeerPingIntervalKey
 
 -- TODO: ping-interval-specifically-for-peer
-instance HasCfgKey PeerPingIntervalKey (Maybe Integer) where
+instance Monad m => HasCfgKey PeerPingIntervalKey (Maybe Integer) m where
   key = "ping-interval"
 
 
@@ -149,13 +149,13 @@ peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , e ~ L4Proto
                              )
              => PeerConfig -> PeerEnv e -> m ()
-peerPingLoop cfg penv = do
+peerPingLoop (PeerConfig syn) penv = do
 
   e <- ask
 
   pl <- getPeerLocator @e
 
-  let pingTime = cfgValue @PeerPingIntervalKey cfg
+  let pingTime = runReader (cfgValue @PeerPingIntervalKey) syn
                       & fromMaybe 30
                       & realToFrac
 

@@ -17,7 +17,6 @@ import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.AnyRef
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto.Definition
 import HBS2.Data.Bundle
 import HBS2.Net.Auth.Credentials
 import HBS2.Data.Detect
@@ -31,22 +30,18 @@ import QBLF.Proto
 
 import Demo.QBLF.Transactions
 import Data.Config.Suckless
-import Data.Config.Suckless.KeyValue
 
-import Data.Ord
 import Control.Monad.Trans.Maybe
 import Codec.Serialise
 import Control.Monad.Reader
 import Data.ByteString(ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Functor
 import Data.List qualified as List
 import Lens.Micro.Platform hiding ((.=))
 import Options.Applicative hiding (info)
 import Options.Applicative qualified as O
 import System.Directory
-import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -55,20 +50,12 @@ import Data.Word
 import System.Random
 import UnliftIO
 
-import Data.Time.Clock.POSIX (getPOSIXTime)
-
-import Data.Aeson hiding (json)
 import Web.Scotty hiding (request,header)
-import Web.Scotty qualified as Scotty
 import Network.HTTP.Types.Status
-import Data.Monoid (mconcat)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 
 import Control.Monad.Except
-
-
-import Streaming.Prelude qualified as S
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -93,7 +80,7 @@ instance {-# OVERLAPPING #-} (HasConf m, HasCfgKey HttpPortOpt (Maybe Int) m) =>
   cfgValue  = val <$> getConf
     where
       val syn = lastMay [ fromIntegral e
-                | ListVal @C (Key s [LitIntVal e]) <- syn, s == key @HttpPortOpt @(Maybe Int) @m
+                | ListVal (Key s [LitIntVal e]) <- syn, s == key @HttpPortOpt @(Maybe Int) @m
                 ]
 
 instance Monad m => HasCfgKey RefChanOpt (Maybe String) m where

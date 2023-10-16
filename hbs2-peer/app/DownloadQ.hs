@@ -23,12 +23,10 @@ import Control.Concurrent.STM.TSem
 import Data.ByteString.Char8 qualified as B8
 import Data.List (nub)
 import Data.Maybe
-import Data.Functor
-import Data.Function
 import Control.Exception
 import Control.Monad
+import Control.Monad.Reader
 import Control.Concurrent.Async
-import System.IO
 
 
 downloadLogAppend :: forall e m . ( MonadIO m
@@ -48,7 +46,7 @@ downloadQueue :: forall e m . ( MyPeer e
                               , EventListener e (DownloadReq e) m
                               ) => PeerConfig -> DownloadEnv e -> m ()
 
-downloadQueue conf denv = do
+downloadQueue (PeerConfig syn) denv = do
 
   sto <- getStorage
   hq <- liftIO newTQueueIO
@@ -56,7 +54,7 @@ downloadQueue conf denv = do
 
   pause @'Seconds 2
 
-  let qfile' = cfgValue @PeerDownloadLogKey conf :: Maybe String
+  let qfile' = runReader (cfgValue @PeerDownloadLogKey) syn
 
   subscribe @e DownloadReqKey $ \(DownloadReqData h) -> do
     liftIO $ atomically $ writeTQueue hq h

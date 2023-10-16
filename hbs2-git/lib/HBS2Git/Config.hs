@@ -61,7 +61,7 @@ configPath _ = liftIO do
                          <&> fromRight mempty
 
             let core = or [True | SymbolVal @C "core" <- universeBi gitConf]
-            let bare = or [True | ListVal @C [SymbolVal @C "bare", _, SymbolVal @C "true"] <- universeBi gitConf ]
+            let bare = or [True | ListVal [SymbolVal @C "bare", _, SymbolVal "true"] <- universeBi gitConf ]
             let repo = or [True | SymbolVal @C "repositoryformatversion" <- universeBi gitConf ]
 
             if core && bare && repo then do

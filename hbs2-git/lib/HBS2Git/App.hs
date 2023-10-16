@@ -47,7 +47,6 @@ import Data.Foldable
 import Data.Either
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
--- import Control.Monad.Except (runExceptT,throwError)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Catch
 import Crypto.Saltine.Core.Sign qualified as Sign
@@ -59,22 +58,15 @@ import Data.Set qualified as Set
 import Lens.Micro.Platform
 import System.Directory
 import System.FilePattern.Directory
--- import System.FilePath
 import System.FilePath
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
--- import Network.HTTP.Simple
--- import Network.HTTP.Types.Status
 import Control.Concurrent.STM (flushTQueue)
 import Codec.Serialise
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.Text qualified as Text
--- import Data.IORef
--- import System.IO.Unsafe (unsafePerformIO)
--- import Data.Cache qualified as Cache
--- import Control.Concurrent.Async
 import System.Environment
 
 import Prettyprinter.Render.Terminal
@@ -172,7 +164,7 @@ runWithRPC action = do
   (_, syn) <- configInit
 
   let soname' = lastMay [ Text.unpack n
-                        | ListVal @C (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
+                        | ListVal (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
                         ]
 
   soname <- race ( pause @'Seconds 1) (maybe detectRPC pure soname') `orDie` "hbs2-peer rpc timeout!"
@@ -537,29 +529,28 @@ loadKeys = do
 
   trace $ "loadKeys"
 
-  kp <- liftIO $ lookupEnv "HBS2KEYS"
-
   found1 <- findKeyFiles =<< liftIO (lookupEnv "HBS2KEYS")
   found2 <- findKeyFiles =<< getGlobalOption "key"
 
   found <- liftIO $ mapM canonicalizePath (found1 <> found2)
 
-  let enc = [ args | (ListVal @C (SymbolVal "encrypted" : (LitStrVal r) : args)) <- conf ]
+  let enc = [ args | (ListVal (SymbolVal "encrypted" : (LitStrVal r) : args)) <- conf ]
 
   let owners  = [ fromStringMay @(PubKey 'Encrypt Schema) (Text.unpack o)
-                | ListVal @C (Key "owner" [LitStrVal o]) <- universeBi enc
+                | ListVal (Key "owner" [LitStrVal o]) :: Syntax C <- universeBi enc
                 ] & catMaybes & HashSet.fromList
 
 
   let members = [ fromStringMay @(PubKey 'Encrypt Schema) (Text.unpack o)
-                | ListVal @C (Key "member" [LitStrVal o]) <- universeBi enc
+                | ListVal (Key "member" [LitStrVal o]) :: Syntax C <- universeBi enc
                 ] & catMaybes & HashSet.fromList
 
   let decrypt =  [ Text.unpack o
-                 | ListVal @C (Key "decrypt" [LitStrVal o]) <- conf
+                 | ListVal (Key "decrypt" [LitStrVal o]) <- conf
                  ]
 
-  let keyrings = [ Text.unpack o | ListVal @C (Key "keyring" [LitStrVal o]) <- universeBi enc
+  let keyrings = [ Text.unpack o | (ListVal (Key "keyring" [LitStrVal o]) :: Syntax C)
+                 <- universeBi enc
                  ] <> decrypt <> found
                  & List.nub
 

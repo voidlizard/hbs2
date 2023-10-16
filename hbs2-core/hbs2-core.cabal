@@ -62,6 +62,7 @@ common shared-properties
                      , StandaloneDeriving
                      , TupleSections
                      , TypeApplications
+                     , TypeOperators
                      , TypeFamilies
                      , TemplateHaskell
                      , ViewPatterns

@@ -1,6 +1,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 {-# Language TemplateHaskell #-}
+{-# Language TypeOperators #-}
 module Brains
   ( module Brains
   , module HBS2.Peer.Brains
@@ -21,6 +22,7 @@ import PeerConfig
 
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Control.Monad
+import Control.Monad.Reader
 import Control.Exception
 import Control.Concurrent.STM
 import Database.SQLite.Simple
@@ -43,9 +45,8 @@ import UnliftIO (MonadUnliftIO(..),async,race)
 
 data PeerBrainsDb
 
-instance HasCfgKey PeerBrainsDb (Maybe String) where
+instance Monad m => HasCfgKey PeerBrainsDb (Maybe String) m where
   key = "brains"
-
 
 newtype CommitCmd = CommitCmd { onCommited :: IO () }
 
@@ -593,7 +594,8 @@ newBasicBrains cfg = liftIO do
 
   let stateDb = sdir </> "brains.db"
 
-  let brains = fromMaybe ":memory:" $ cfgValue @PeerBrainsDb cfg
+  brains <- runReaderT (cfgValue @PeerBrainsDb @(Maybe String)) cfg
+              <&> fromMaybe ":memory:"
 
   unless ( brains == ":memory:" ) do
     here <- doesFileExist brains
@@ -737,7 +739,7 @@ runBasicBrains cfg brains = do
   let (PeerConfig syn) = cfg
   let polls = catMaybes (
        [ (tp,n,) <$> fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack ref)
-       | ListVal @C (Key "poll" [SymbolVal tp, LitIntVal n, LitStrVal ref]) <- syn
+       | ListVal (Key "poll" [SymbolVal tp, LitIntVal n, LitStrVal ref]) <- syn
        ] )
 
   void $ async $ do

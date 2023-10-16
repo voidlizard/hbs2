@@ -35,7 +35,7 @@ instance Hashed HbSync KeyInfo where
 
 
 keyInfoFrom :: POSIXTime -> Syntax C -> Maybe KeyInfo
-keyInfoFrom t (ListVal @C (SymbolVal "encrypted" : (LitStrVal r) : args)) =
+keyInfoFrom t (ListVal (SymbolVal "encrypted" : (LitStrVal r) : args)) =
   KeyInfo <$> nonce
           <*> ref
           <*> owner
@@ -44,11 +44,11 @@ keyInfoFrom t (ListVal @C (SymbolVal "encrypted" : (LitStrVal r) : args)) =
   where
     nonce = Just $ maybe 0 (round t `div`) ttl
     ref = fromStringMay  (Text.unpack r)
-    ttl = Just $ lastDef 86400 [ x | ListVal @C (Key "ttl" [LitIntVal x]) <- args ]
-    owner = fromStringMay =<< lastMay [ Text.unpack o | ListVal @C (Key "owner" [LitStrVal o]) <- args ]
+    ttl = Just $ lastDef 86400 [ x | ListVal (Key "ttl" [LitIntVal x]) <- args ]
+    owner = fromStringMay =<< lastMay [ Text.unpack o | ListVal (Key "owner" [LitStrVal o]) <- args ]
     members = Just $ HashSet.fromList
                    $ catMaybes
-                   [ fromStringMay (Text.unpack o) | ListVal @C (Key "member" [LitStrVal o]) <- args ]
+                   [ fromStringMay (Text.unpack o) | ListVal (Key "member" [LitStrVal o]) <- args ]
 
     -- keypath = lastMay [ Text.unpack p | ListVal @C (Key "keyring" [LitStrVal p]) <- args ]
 

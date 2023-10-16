@@ -30,7 +30,7 @@ isRefEncrypted ref = do
   conf <- getConf
 
   let ee = [ True
-           | (ListVal @C (SymbolVal "encrypted" : (LitStrVal r) : _))  <- conf
+           | (ListVal (SymbolVal "encrypted" : (LitStrVal r) : _))  <- conf
            , fromStringMay (Text.unpack r) == Just ref
            ]
 

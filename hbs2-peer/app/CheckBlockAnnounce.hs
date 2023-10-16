@@ -1,4 +1,4 @@
-{-# Language MultiWayIf #-}
+{-# Language TypeOperators #-}
 module CheckBlockAnnounce where
 
 import HBS2.Prelude.Plated
@@ -19,6 +19,7 @@ import DownloadQ
 import HBS2.System.Logger.Simple
 
 import Control.Monad.Trans.Maybe
+import Control.Monad.Reader
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Lens.Micro.Platform
@@ -39,19 +40,20 @@ instance Pretty AcceptAnnounce where
 
 
 
-instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
+instance Monad m => HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce m where
   key = "accept-block-announce"
 
-instance HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce where
-  cfgValue (PeerConfig syn) = fromMaybe (AcceptAnnounceFrom lst) fromAll
+instance (Monad m, HasConf m) => HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce m where
+  cfgValue = do
+    syn <- getConf
+    pure $ fromMaybe (AcceptAnnounceFrom (lst syn)) (fromAll syn)
     where
-      fromAll = headMay [ AcceptAnnounceAll | ListVal @C (Key s [SymbolVal "*"]) <- syn, s == kk ]
-      lst = Set.fromList $
+      fromAll syn = headMay [ AcceptAnnounceAll | ListVal (Key s [SymbolVal "*"]) <- syn, s == kk ]
+      lst syn = Set.fromList $
                 catMaybes [ fromStringMay @(PubKey 'Sign (Encryption L4Proto)) (Text.unpack e)
-                          | ListVal @C (Key s [LitStrVal e]) <- syn, s == kk
+                          | ListVal (Key s [LitStrVal e]) <- syn, s == kk
                           ]
-      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
-
+      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce @m
 
 
 acceptAnnouncesFromPeer :: forall e m . ( MonadIO m
@@ -65,13 +67,13 @@ acceptAnnouncesFromPeer :: forall e m . ( MonadIO m
                       => PeerConfig
                       -> PeerAddr e
                       -> m Bool
-acceptAnnouncesFromPeer conf pa = runPlus do
+acceptAnnouncesFromPeer conf@(PeerConfig syn) pa = runPlus do
 
   pip <- lift (fromPeerAddr @e pa)
 
   pd <- toMPlus =<< lift (find @e (KnownPeerKey pip) id)
 
-  let accptAnn = cfgValue @PeerAcceptAnnounceKey conf :: AcceptAnnounce
+  let accptAnn = runReader (cfgValue @PeerAcceptAnnounceKey) syn
 
   guard =<< peerBanned conf pd
 

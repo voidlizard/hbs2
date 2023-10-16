@@ -5,6 +5,7 @@ module PeerConfig
   ( module PeerConfig
   , module Data.Config.Suckless.Syntax
   , module Data.Config.Suckless.Parse
+  , module Data.Config.Suckless.KeyValue
   ) where
 
 import HBS2.Prelude.Plated
@@ -12,11 +13,10 @@ import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
-import Data.Config.Suckless.KeyValue(HasConf(..))
+import Data.Config.Suckless.KeyValue
 
 import Control.Exception
 import Control.Monad.Reader
-import Data.Functor
 import Data.Maybe
 import System.Directory
 import System.FilePath
@@ -29,20 +29,6 @@ data FeatureSwitch =
   FeatureOn | FeatureOff
   deriving (Eq,Ord,Show,Generic)
 
--- FIXME: ASAP-switch-to-Suckless-KeyValue-1
-class HasCfgKey a b where
-  -- type family CfgValue a :: Type
-  key :: Id
-
--- FIXME: ASAP-switch-to-Suckless-KeyValue-2
-class HasCfgKey a b => HasCfgValue a b where
-  cfgValue :: PeerConfig -> b
-
-type C = MegaParsec
-
-pattern Key :: forall {c}. Id -> [Syntax c] -> [Syntax c]
-pattern Key n ns <- SymbolVal  n : ns
-
 data PeerListenTCPKey
 data PeerDownloadLogKey
 data PeerHttpPortKey
@@ -52,25 +38,33 @@ data PeerUseHttpDownload
 instance Monad m => HasConf (ReaderT PeerConfig m) where
   getConf = asks (\(PeerConfig syn) -> syn)
 
-instance HasCfgKey PeerListenTCPKey (Maybe String) where
+instance Monad m => HasCfgKey PeerListenTCPKey (Maybe String) m where
   key = "listen-tcp"
 
-instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
+instance Monad m => HasCfgKey PeerHttpPortKey (Maybe Integer) m where
   key = "http-port"
 
-instance HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) where
+instance Monad m => HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) m where
   key = "tcp-probe-wait"
 
-instance HasCfgKey PeerUseHttpDownload FeatureSwitch where
+instance Monad m => HasCfgKey PeerUseHttpDownload b m where
   key = "http-download"
 
-instance HasCfgKey PeerDownloadLogKey (Maybe String) where
+instance Monad m => HasCfgKey PeerDownloadLogKey (Maybe String) m where
   key = "download-log"
 
 data PeerKnownPeersFile
 
-instance HasCfgKey PeerKnownPeersFile [String] where
+instance Monad m => HasCfgKey PeerKnownPeersFile (Set String) m where
   key = "known-peers-file"
+
+
+instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b m) => HasCfgValue a FeatureSwitch m where
+  cfgValue = lastDef FeatureOff . val <$> getConf
+    where
+      val syn = [ if e == "on" then FeatureOn else FeatureOff
+                | ListVal (Key s [SymbolVal e]) <- syn, s == key @a @b @m
+                ]
 
 cfgName :: FilePath
 cfgName = "config"
@@ -136,7 +130,7 @@ getRpcSocketNameM = do
   syn <- getConf
 
   let soname = lastDef rpcSoDef [ Text.unpack n
-                                | ListVal @C (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
+                                | ListVal (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
                                 ]
   pure soname
 
@@ -174,7 +168,8 @@ peerConfigRead mbfp = do
 
     confData' <- parseConf cfgPath
 
-    knownPeersFiles <- mapM (canonicalizePath' dir) (cfgValue @PeerKnownPeersFile $ PeerConfig confData')
+    knownPeersFiles <- flip runReaderT confData' $ (Set.toList <$> cfgValue @PeerKnownPeersFile)
+                         >>= mapM (canonicalizePath' dir)
 
     knownPeersConfData <- concat <$> mapM parseConf knownPeersFiles
 
@@ -197,45 +192,4 @@ peerConfigRead mbfp = do
             pure $ List @C co [Symbol co k, Literal co (mkLit (Text.pack canonicalPath))]
           else pure x
       canonicalizeConfPaths _ _ x = pure x
-
-
-instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a (Maybe b)) => HasCfgValue a (Maybe b) where
-  cfgValue (PeerConfig syn) = val
-    where
-      val =
-        lastMay [ fromString (show $ pretty e)
-                | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Maybe b)
-                ]
-
-
-instance {-# OVERLAPPABLE #-} (HasCfgKey a (Maybe Integer)) => HasCfgValue a (Maybe Integer) where
-  cfgValue (PeerConfig syn) = val
-    where
-      val =
-        lastMay [ e
-                | ListVal @C (Key s [LitIntVal e]) <- syn, s == key @a @(Maybe Integer)
-                ]
-
-instance (HasCfgKey a FeatureSwitch) => HasCfgValue a FeatureSwitch where
-  cfgValue (PeerConfig syn) = val
-    where
-      val =
-        lastDef FeatureOff
-                [ FeatureOn
-                | ListVal @C (Key s [SymbolVal (Id e)]) <- syn, s == key @a @FeatureSwitch, e == "on"
-                ]
-
-instance {-# OVERLAPPABLE #-} (IsString b, HasCfgKey a [b]) => HasCfgValue a [b] where
-  cfgValue (PeerConfig syn) = val
-    where
-      val = [ fromString (show $ pretty e)
-            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @[b]
-            ]
-
-instance {-# OVERLAPPABLE #-} (Ord b, IsString b, HasCfgKey a (Set b)) => HasCfgValue a (Set b) where
-  cfgValue (PeerConfig syn) = Set.fromList val
-    where
-      val = [ fromString (show $ pretty e)
-            | ListVal @C (Key s [LitStrVal e]) <- syn, s == key @a @(Set b)
-            ]
 

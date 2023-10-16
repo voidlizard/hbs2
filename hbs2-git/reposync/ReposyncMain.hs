@@ -165,12 +165,12 @@ withConfig cfg m = do
     entries root syn = do
 
       let findKeys w = [ Text.unpack p
-                       | ListVal @C (Key "decrypt" [LitStrVal p]) <- w
+                       | ListVal (Key "decrypt" [LitStrVal p]) <- w
                        ]
 
       let reflogs = catMaybes [ (,) <$> fromStringMay @(RefLogKey HBS2Basic) (Text.unpack o)
                                     <*> pure (findKeys args)
-                              | ListVal @C (Key "reflog" (LitStrVal o : args)) <- syn
+                              | ListVal (Key "reflog" (LitStrVal o : args)) <- syn
                               ]
 
       forM reflogs $ \(repo, keys) -> do

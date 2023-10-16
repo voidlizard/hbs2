@@ -122,6 +122,7 @@ common shared-properties
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , TypeOperators
 
 
 library

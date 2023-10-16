@@ -1,3 +1,4 @@
+{-# Language TypeOperators #-}
 module HttpWorker where
 
 import HBS2.Prelude
@@ -13,14 +14,12 @@ import PeerTypes
 import PeerConfig
 import RefLog ( doRefLogBroadCast )
 
-import Data.Functor
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
 import Codec.Serialise (deserialiseOrFail)
-import Data.Function ((&))
 import Data.Aeson (object, (.=))
 import Control.Monad.Reader
 import Lens.Micro.Platform (view)
@@ -36,10 +35,10 @@ httpWorker :: forall e s m . ( MyPeer e
                              , e ~ L4Proto
                              ) => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
 
-httpWorker conf pmeta e = do
+httpWorker (PeerConfig syn) pmeta e = do
 
   sto <- getStorage
-  let port' = cfgValue @PeerHttpPortKey conf  <&>  fromIntegral
+  let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
   penv <- ask
 
   maybe1 port' none $ \port -> liftIO do

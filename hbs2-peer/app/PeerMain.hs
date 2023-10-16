@@ -135,25 +135,25 @@ data PeerTrace1Key
 data PeerProxyFetchKey
 
 
-instance HasCfgKey PeerDebugKey FeatureSwitch where
+instance Monad m => HasCfgKey PeerDebugKey a m where
   key = "debug"
 
-instance HasCfgKey PeerTraceKey FeatureSwitch where
+instance Monad m => HasCfgKey PeerTraceKey a m where
   key = "trace"
 
-instance HasCfgKey PeerTrace1Key FeatureSwitch where
+instance Monad m => HasCfgKey PeerTrace1Key a m where
   key = "trace1"
 
-instance HasCfgKey PeerListenKey (Maybe String) where
+instance Monad m => HasCfgKey PeerListenKey (Maybe String) m where
   key = "listen"
 
-instance HasCfgKey PeerKeyFileKey (Maybe String) where
+instance Monad m => HasCfgKey PeerKeyFileKey (Maybe String) m where
   key = "key"
 
-instance HasCfgKey PeerStorageKey (Maybe String) where
+instance Monad m => HasCfgKey PeerStorageKey (Maybe String) m where
   key = "storage"
 
-instance HasCfgKey PeerProxyFetchKey (Set String) where
+instance Monad m => HasCfgKey PeerProxyFetchKey (Set String) m where
   key = "proxy-fetch-for"
 
 
@@ -522,23 +522,26 @@ runPeer opts = U.handle (\e -> myException e
                         >> respawn opts
                         ) $ runResourceT do
 
-  threadSelf <- liftIO myThreadId
-
   metrics <- liftIO newStore
 
   xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
 
-  conf <- peerConfigRead (view peerConfig opts)
+  conf@(PeerConfig syn) <- peerConfigRead (view peerConfig opts)
 
-  -- let (PeerConfig syn) = conf
   liftIO $ print $ pretty conf
 
-  let listenConf = cfgValue @PeerListenKey conf
-  let keyConf = cfgValue @PeerKeyFileKey conf
-  let storConf = cfgValue @PeerStorageKey conf <&> StoragePrefix
-  let traceConf = cfgValue @PeerTraceKey conf :: FeatureSwitch
-  let debugConf = cfgValue @PeerDebugKey conf :: FeatureSwitch
-  let trace1Conf = cfgValue @PeerTrace1Key conf :: FeatureSwitch
+  let listenConf      = runReader (cfgValue @PeerListenKey)  syn
+  let keyConf         = runReader (cfgValue @PeerKeyFileKey) syn
+  let storConf        = runReader (cfgValue @PeerStorageKey) syn <&> StoragePrefix
+  let traceConf       = runReader (cfgValue @PeerTraceKey)   syn
+  let debugConf       = runReader (cfgValue @PeerDebugKey)   syn :: FeatureSwitch
+  let trace1Conf      = runReader (cfgValue @PeerTrace1Key)  syn :: FeatureSwitch
+  let helpFetchKeys   = runReader (cfgValue @PeerProxyFetchKey) syn & toKeys
+  let useHttpDownload = runReader (cfgValue @PeerUseHttpDownload) syn  & (== FeatureOn)
+  let tcpListen       = runReader (cfgValue @PeerListenTCPKey) syn & fromMaybe ""
+  let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
+                          & fromInteger @(Timeout 'Seconds) . fromMaybe 300
+
 
   let listenSa = view listenOn opts <|> listenConf <|> Just defListenUDP
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
@@ -547,8 +550,9 @@ runPeer opts = U.handle (\e -> myException e
 
   debug $ "storage prefix:" <+> pretty pref
 
-  debug $ pretty "trace: " <+> pretty (show traceConf)
-  debug $ pretty "trace1: " <+> pretty (show trace1Conf)
+  liftIO $ print $ pretty "debug: " <+> pretty (show debugConf)
+  liftIO $ print $ pretty "trace: " <+> pretty (show traceConf)
+  liftIO $ print $ pretty "trace1: " <+> pretty (show trace1Conf)
 
   when (traceConf == FeatureOn) do
     setLogging @TRACE tracePrefix
@@ -561,9 +565,6 @@ runPeer opts = U.handle (\e -> myException e
     setLogging @TRACE1 tracePrefix
 
 
-  let helpFetchKeys = cfgValue @PeerProxyFetchKey conf & toKeys
-
-  let useHttpDownload = cfgValue @PeerUseHttpDownload conf & (== FeatureOn)
 
   let ps = mempty
 
@@ -605,7 +606,6 @@ runPeer opts = U.handle (\e -> myException e
 
   denv <- newDownloadEnv brains
 
-  let tcpListen = cfgValue @PeerListenTCPKey conf & fromMaybe ""
   let addr' = fromStringMay @(PeerAddr L4Proto) tcpListen
 
   trace $ "TCP addr:" <+> pretty tcpListen <+> pretty addr'
@@ -927,8 +927,6 @@ runPeer opts = U.handle (\e -> myException e
                 peerThread "encryptionHandshakeWorker"
                     (EncryptionKeys.encryptionHandshakeWorker @e conf pc encryptionHshakeAdapter)
 
-                let tcpProbeWait :: Timeout 'Seconds
-                    tcpProbeWait = (fromInteger . fromMaybe 300) (cfgValue @PeerTcpProbeWaitKey conf)
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
@@ -1025,7 +1023,7 @@ runPeer opts = U.handle (\e -> myException e
 
   let k = view peerSignPk pc
 
-  let http = case cfgValue @PeerHttpPortKey conf :: Maybe Integer of
+  let http = case runReader (cfgValue @PeerHttpPortKey @(Maybe Integer)) syn of
                Nothing -> mempty
                Just p  -> "http-port:" <+> pretty p
 

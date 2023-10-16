@@ -11,7 +11,6 @@ import HBS2.Net.Proto.Definition()
 
 import RunShow
 
-import Data.Functor
 import Options.Applicative as O
 import Control.Monad
 
