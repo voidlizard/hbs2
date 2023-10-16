@@ -171,12 +171,6 @@ importRefLogNew opts ref = runResourceT do
   let myTempDir = "hbs-git"
   temp <- liftIO getTemporaryDirectory
 
-  wtf <- liftIO getEnvironment
-
-  hPrint stderr $ "CREATE TEMP DIR" <+> pretty temp <> line <> pretty wtf
-
-  -- liftIO $ void $ createDirectoryIfMissing True temp
-
   (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
 
   lift $ makePolled ref
