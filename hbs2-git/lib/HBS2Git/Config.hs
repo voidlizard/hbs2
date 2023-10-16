@@ -19,8 +19,11 @@ import System.FilePath
 import System.Directory
 import Data.Maybe
 import Data.Either
+import Data.List (isSuffixOf)
 
 import System.Environment
+
+import System.IO (stderr)
 
 appName :: FilePath
 appName = "hbs2-git"
@@ -46,8 +49,6 @@ configPathOld pwd = liftIO do
 
 configPath :: MonadIO m => FilePath -> m FilePath
 configPath _ = liftIO do
-  env <- liftIO getEnvironment
-  -- hPrint stderr $ pretty env
   pwd <- liftIO getCurrentDirectory
   git <- findGitDir pwd
   byEnv <- lookupEnv "GIT_DIR"
@@ -65,14 +66,18 @@ configPath _ = liftIO do
             let repo = or [True | SymbolVal @C "repositoryformatversion" <- universeBi gitConf ]
 
             if core && bare && repo then do
-                pure $ Just (pwd </> ".hbs2")
+                pure $ Just pwd
             else
                 pure Nothing
 
-  -- hPrint stderr appName
-  -- hPrint stderr =<< getEnvironment
-  path <- pure (git <|> byEnv <|> bare) `orDie`  "*** hbs2-git: .git directory not found"
-  pure (takeDirectory path </> ".hbs2")
+  path <- pure (dropSuffix <$> (git <|> byEnv <|> bare)) `orDie`  "*** hbs2-git: .git directory not found"
+
+  pure (path </> ".hbs2")
+
+  where
+    dropSuffix s | isSuffixOf ".git/" s = takeDirectory s
+                 | isSuffixOf ".git" s  = takeDirectory s
+                 | otherwise = s
 
 data ConfigPathInfo = ConfigPathInfo {
   configRepoParentDir :: FilePath,

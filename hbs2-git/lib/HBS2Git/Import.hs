@@ -52,6 +52,8 @@ import Streaming.Zip qualified as SZip
 
 import HBS2Git.PrettyStuff
 
+import System.Environment
+
 data RunImportOpts =
   RunImportOpts
   { _runImportDry    :: Maybe Bool
@@ -167,7 +169,14 @@ importRefLogNew opts ref = runResourceT do
   sto <- getStorage
 
   let myTempDir = "hbs-git"
-  temp <- liftIO getCanonicalTemporaryDirectory
+  temp <- liftIO getTemporaryDirectory
+
+  wtf <- liftIO getEnvironment
+
+  hPrint stderr $ "CREATE TEMP DIR" <+> pretty temp <> line <> pretty wtf
+
+  -- liftIO $ void $ createDirectoryIfMissing True temp
+
   (_,dir) <- allocate (createTempDirectory temp myTempDir) removeDirectoryRecursive
 
   lift $ makePolled ref
@@ -408,7 +417,10 @@ importRefLogNew opts ref = runResourceT do
 
       withDB db $ do
         stateUpdateCommitDepths
-        statePutRefImported logRoot
+
+        when (length entries == length entries') do
+          statePutRefImported logRoot
+
         savepointRelease sp0
 
   where
