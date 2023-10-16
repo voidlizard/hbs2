@@ -73,12 +73,14 @@ findMissedBlocks href = do
 
     walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
-        Left hx   -> S.yield (HashRef hx)
+        -- FIXME: investigate-this-wtf
+        Left{}   -> pure () -- err ("ONE" <+> pretty hx) >> S.yield (HashRef hx)
         Right (hrr :: [HashRef]) -> do
           forM_ hrr $ \hx -> runMaybeT do
               blk <- lift $ getBlock sto (fromHashRef hx)
 
               unless (isJust blk) do
+                -- err $ "TWO" <+> pretty hx
                 lift $ S.yield hx
 
               maybe1 blk none $ \bs -> do
@@ -199,7 +201,8 @@ importRefLogNew opts ref = runResourceT do
                     if null missed then do
                       S.yield e
                     else do
-                      debug $ "missed blocks in tree" <+> pretty e
+                      -- forM_ missed $ \m -> do
+                      err $ "missed blocks in tree" <+> pretty e --  <+> pretty m
 
       pCommit <- liftIO $ startGitHashObject Commit
       pTree <- liftIO $ startGitHashObject Tree
