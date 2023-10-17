@@ -11,6 +11,7 @@ import HBS2Git.Config
 import HBS2Git.PrettyStuff
 
 import Control.Monad.Trans.Maybe
+import Control.Monad.Catch (MonadThrow(..))
 import Data.List qualified as List
 import System.Directory
 import System.Random
@@ -22,7 +23,7 @@ import UnliftIO
 --   новыми версиями.
 --   например, переносит конфиг
 
-evolve :: MonadIO m => m ()
+evolve :: (MonadIO m, MonadThrow m) => m ()
 evolve = void $ runMaybeT do
 
   here   <- liftIO getCurrentDirectory
@@ -43,7 +44,7 @@ makePolled ref = do
   n <- liftIO $ randomRIO (4,7)
   void $ callService @RpcPollAdd rpc (fromRefLogKey ref, "reflog", n)
 
-generateCookie :: MonadIO m => m ()
+generateCookie :: (MonadIO m, MonadThrow m) => m ()
 generateCookie = void $ runMaybeT do
   file <- cookieFile
 
@@ -57,7 +58,7 @@ generateCookie = void $ runMaybeT do
   liftIO $ writeFile file ""
 
 
-migrateConfig :: MonadIO m => m ()
+migrateConfig :: (MonadIO m, MonadThrow m) => m ()
 migrateConfig = void $ runMaybeT do
   here   <- liftIO getCurrentDirectory
 

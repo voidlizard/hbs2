@@ -14,16 +14,24 @@ import HBS2Git.Types
 
 import Control.Applicative
 
-import Data.Functor
+import Control.Exception
+import Control.Monad.Catch (MonadThrow, throwM)
 import System.FilePath
 import System.Directory
 import Data.Maybe
 import Data.Either
 import Data.List (isSuffixOf)
+import Control.Monad.Trans.Maybe
 
 import System.Environment
 
 import System.IO (stderr)
+
+data NoWorkDirException =
+  NoWorkDirException
+  deriving (Show, Typeable)
+
+instance Exception NoWorkDirException
 
 appName :: FilePath
 appName = "hbs2-git"
@@ -47,30 +55,35 @@ configPathOld pwd = liftIO do
   home <- liftIO getHomeDirectory
   pure $ xdg </> makeRelative home pwd
 
-configPath :: MonadIO m => FilePath -> m FilePath
-configPath _ = liftIO do
+configPath :: (MonadIO m, MonadThrow m) => FilePath -> m FilePath
+configPath _ = do
   pwd <- liftIO getCurrentDirectory
   git <- findGitDir pwd
-  byEnv <- lookupEnv "GIT_DIR"
+  byEnv <- liftIO $ lookupEnv "GIT_DIR"
 
   bare <- if isJust (git <|> byEnv) then do
             pure Nothing
-          else do
+          else runMaybeT do
             -- check may be it's a bare git repo
-            gitConf <- readFile "config"
-                         <&> parseTop
-                         <&> fromRight mempty
+            gitConf <- toMPlus =<< liftIO ( try @IOException $
+                                             readFile "config"
+                                                <&> parseTop
+                                                <&> fromRight mempty )
 
             let core = or [True | SymbolVal @C "core" <- universeBi gitConf]
             let bare = or [True | ListVal [SymbolVal @C "bare", _, SymbolVal "true"] <- universeBi gitConf ]
             let repo = or [True | SymbolVal @C "repositoryformatversion" <- universeBi gitConf ]
 
             if core && bare && repo then do
-                pure $ Just pwd
+              pure pwd
             else
-                pure Nothing
+              MaybeT $ pure Nothing
 
-  path <- pure (dropSuffix <$> (git <|> byEnv <|> bare)) `orDie`  "*** hbs2-git: .git directory not found"
+  let maybePath = dropSuffix <$> (git <|> byEnv <|> bare)
+
+  path <- maybe (throwM NoWorkDirException)
+                pure
+                maybePath
 
   pure (path </> ".hbs2")
 
@@ -86,7 +99,7 @@ data ConfigPathInfo = ConfigPathInfo {
 } deriving (Eq, Show)
 
 -- returns git repository parent dir, config directory and config file path
-getConfigPathInfo :: MonadIO m => m ConfigPathInfo
+getConfigPathInfo :: (MonadIO m, MonadThrow m) => m ConfigPathInfo
 getConfigPathInfo = do
   trace "getConfigPathInfo"
   confP <- configPath ""
@@ -100,7 +113,7 @@ getConfigPathInfo = do
     }
 
 -- returns current directory, where found .git directory
-configInit :: MonadIO m => m (FilePath, [Syntax C])
+configInit :: (MonadIO m, MonadThrow m) => m (FilePath, [Syntax C])
 configInit = liftIO do
   trace "configInit"
   ConfigPathInfo{..} <- getConfigPathInfo
@@ -114,7 +127,7 @@ configInit = liftIO do
   cfg <- readFile configFilePath <&> parseTop <&> either mempty id
   pure (configRepoParentDir, cfg)
 
-cookieFile :: MonadIO m => m FilePath
+cookieFile :: (MonadIO m, MonadThrow m) => m FilePath
 cookieFile = configPath "" <&> (</> "cookie")
 
 getAppStateDir :: forall m . MonadIO m => m FilePath

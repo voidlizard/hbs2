@@ -6,7 +6,7 @@ import HBS2.Base58
 import HBS2Git.App
 import HBS2Git.State
 import HBS2Git.Config
-import HBS2Git.ListRefs
+import HBS2Git.Tools
 import HBS2Git.PrettyStuff
 
 import Control.Monad.Catch (MonadMask)

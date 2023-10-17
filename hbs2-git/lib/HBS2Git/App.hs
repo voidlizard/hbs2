@@ -73,7 +73,12 @@ import Prettyprinter.Render.Terminal
 
 import Streaming.Prelude qualified as S
 
-import UnliftIO
+import UnliftIO as UIO
+
+data NoRPCException = NoRPCException
+  deriving stock (Show, Typeable)
+
+instance Exception NoRPCException
 
 -- instance HasTimeLimits  UNIX (ServiceProto PeerAPI UNIX) m where
 
@@ -158,7 +163,29 @@ withApp :: MonadIO m => AppEnv -> App m a -> m a
 withApp env m = runReaderT (fromApp m) env
 
 
-runWithRPC :: forall m . MonadUnliftIO m => (RPCEndpoints -> m ()) -> m ()
+detectRPC :: (MonadIO m, MonadThrow m) => Bool -> m FilePath
+detectRPC noisy = do
+  (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
+
+  let answ = parseTop (LBS.unpack o) & fromRight mempty
+
+  so <- case headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ] of
+          Nothing -> throwM NoRPCException
+          Just w  -> pure w
+
+  when noisy do
+
+    -- FIXME: logger-to-support-colors
+    liftIO $ hPutDoc stderr $ yellow "rpc: found RPC" <+> pretty so
+                              <> line <>
+                              yellow "rpc: add option" <+> parens ("rpc unix" <+> dquotes (pretty so))
+                              <+> "to the config .hbs2/config"
+                              <> line <> line
+
+
+  pure so
+
+runWithRPC :: forall m . (MonadUnliftIO m, MonadThrow m) => (RPCEndpoints -> m ()) -> m ()
 runWithRPC action = do
 
   (_, syn) <- configInit
@@ -167,7 +194,7 @@ runWithRPC action = do
                         | ListVal (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
                         ]
 
-  soname <- race ( pause @'Seconds 1) (maybe detectRPC pure soname') `orDie` "hbs2-peer rpc timeout!"
+  soname <- race ( pause @'Seconds 1) (maybe (detectRPC False) pure soname') `orDie` "hbs2-peer rpc timeout!"
 
   client <- race ( pause @'Seconds 1) (newMessagingUnix False 1.0 soname) `orDie` "hbs2-peer rpc timeout!"
 
@@ -198,63 +225,60 @@ runWithRPC action = do
 
   void $ waitAnyCatchCancel [messaging, c1]
 
-  where
+runInit :: (MonadUnliftIO m, MonadThrow m) => m () -> m ()
+runInit m = m
 
-    detectRPC = do
-      (_, o, _) <- readProcess (shell [qc|hbs2-peer poke|])
-
-      let answ = parseTop (LBS.unpack o) & fromRight mempty
-
-      so <- pure (headMay [ Text.unpack r | ListVal (Key "rpc:" [LitStrVal r]) <- answ  ])
-              `orDie` "hbs2-peer rpc not detected"
-
-      -- FIXME: logger-to-support-colors
-      liftIO $ hPutDoc stderr $ yellow "rpc: found RPC" <+> pretty so
-                                <> line <>
-                                yellow "rpc: add option" <+> parens ("rpc unix" <+> dquotes (pretty so))
-                                <+> "to the config .hbs2/config"
-                                <> line <> line
-      pure so
-
-runApp :: MonadUnliftIO m => WithLog -> App m () -> m ()
+runApp :: (MonadUnliftIO m, MonadThrow m) => WithLog -> App m () -> m ()
 runApp l m = do
 
-  case l of
-    NoLog   -> pure ()
-    WithLog -> do
-      setLogging @ERROR  errorPrefix
-      setLogging @NOTICE noticePrefix
-      setLogging @INFO   infoPrefix
+  flip UIO.catches dealWithException do
 
-  doTrace <- liftIO $ lookupEnv "HBS2TRACE" <&> isJust
+    case l of
+      NoLog   -> pure ()
+      WithLog -> do
+        setLogging @ERROR  errorPrefix
+        setLogging @NOTICE noticePrefix
+        setLogging @INFO   infoPrefix
 
-  if doTrace then do
-    setLogging @DEBUG  debugPrefix
-    setLogging @TRACE  tracePrefix
-  else do
+    doTrace <- liftIO $ lookupEnv "HBS2TRACE" <&> isJust
+
+    if doTrace then do
+      setLogging @DEBUG  debugPrefix
+      setLogging @TRACE  tracePrefix
+    else do
+      setLoggingOff @DEBUG
+      setLoggingOff @TRACE
+
+    evolve
+
+    (pwd, syn) <- Config.configInit
+
+    xdgstate <- getAppStateDir
+
+    runWithRPC $ \rpc -> do
+      mtCred <- liftIO $ newTVarIO mempty
+      mtKeys <- liftIO $ newTVarIO mempty
+      mtOpt <- liftIO $ newTVarIO mempty
+      let env = AppEnv pwd (pwd </> ".git") syn xdgstate mtCred mtKeys mtOpt rpc
+      runReaderT (fromApp (loadKeys >> m)) (set appRpc rpc env)
+
+    debug $ vcat (fmap pretty syn)
+
     setLoggingOff @DEBUG
+    setLoggingOff @ERROR
+    setLoggingOff @NOTICE
     setLoggingOff @TRACE
+    setLoggingOff @INFO
 
-  evolve
+  where
+    dealWithException = [ noWorkDir ]
 
-  (pwd, syn) <- Config.configInit
-
-  xdgstate <- getAppStateDir
-
-  runWithRPC $ \rpc -> do
-    mtCred <- liftIO $ newTVarIO mempty
-    mtKeys <- liftIO $ newTVarIO mempty
-    mtOpt <- liftIO $ newTVarIO mempty
-    let env = AppEnv pwd (pwd </> ".git") syn xdgstate mtCred mtKeys mtOpt rpc
-    runReaderT (fromApp (loadKeys >> m)) (set appRpc rpc env)
-
-  debug $ vcat (fmap pretty syn)
-
-  setLoggingOff @DEBUG
-  setLoggingOff @ERROR
-  setLoggingOff @NOTICE
-  setLoggingOff @TRACE
-  setLoggingOff @INFO
+    noWorkDir = Handler $
+      \NoWorkDirException -> liftIO do
+        hPutDoc stderr $ "hbs2-git:" <+> red "*** no git working directory found."
+                                     <+> yellow "Perhaps you'd call" <+> "'git init'" <+> "first"
+                                     <> line
+        exitFailure
 
 readBlock :: forall m . (MonadIO m, HasStorage m) => HashRef -> m (Maybe ByteString)
 readBlock h = do

@@ -145,7 +145,7 @@ shutdownDB env = liftIO do
     pure conn
   maybe1 co none close
 
-stateInit :: MonadIO m => DB m ()
+stateInit :: (MonadIO m, MonadThrow m) => DB m ()
 stateInit = do
   conn <- stateConnection
   liftIO $ execute_ conn [qc|
@@ -304,7 +304,7 @@ stateInit = do
       let fs = [x | ((_, x, _, _, _, _) :: (Int, String, String, Int, Maybe String, Int)) <- fields ]
       pure ( col `elem` fs )
 
-readOrCreateCookie :: MonadIO m => DB m Cookie
+readOrCreateCookie :: (MonadIO m, MonadThrow m) => DB m Cookie
 readOrCreateCookie = do
   cfn <- cookieFile
   cf <- liftIO $ readFile cfn <&> take 4096

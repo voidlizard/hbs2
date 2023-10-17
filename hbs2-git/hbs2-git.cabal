@@ -72,6 +72,7 @@ common shared-properties
                , filelock
                , filepath
                , filepattern
+               , generic-lens
                , hashable
                , http-conduit
                , interpolatedstring-perl6
@@ -117,7 +118,7 @@ library
       HBS2Git.GitRepoLog
       HBS2Git.Import
       HBS2Git.KeysCommand
-      HBS2Git.ListRefs
+      HBS2Git.Tools
       HBS2.Git.Local
       HBS2.Git.Local.CLI
       HBS2Git.PrettyStuff

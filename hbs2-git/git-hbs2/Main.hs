@@ -5,7 +5,7 @@ import HBS2.OrDie
 
 import HBS2Git.App
 import HBS2Git.Export
-import HBS2Git.ListRefs
+import HBS2Git.Tools
 import HBS2Git.KeysCommand
 import HBS2.Net.Proto.Definition()
 
@@ -23,7 +23,7 @@ main = join . customExecParser (prefs showHelpOnError) $
   )
   where
     parser ::  Parser (IO ())
-    parser = hsubparser (  command "export"    (info pExport (progDesc "export repo"))
+    parser = hsubparser (  command "init"      (info pInit (progDesc "init new hbs2 repo"))
                         <> command "list-refs" (info pListRefs (progDesc "list refs"))
                         <> command "show"      (info pShow (progDesc "show various types of objects"))
                         <> command "tools"     (info pTools (progDesc "misc tools"))
@@ -49,6 +49,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ runApp NoLog (runShow object)
 
     pTools = hsubparser (    command "scan" (info pToolsScan (progDesc "scan reference"))
+                          <> command "export"    (info pExport (progDesc "export repo"))
                           <> command "refs" (info pToolsGetRefs (progDesc "list references"))
 
                         )
@@ -84,4 +85,30 @@ main = join . customExecParser (prefs showHelpOnError) $
         rk <- pure (fromStringMay ref) `orDie` "invalid REF-KEY"
         runApp WithLog (runKeysList rk)
 
+    pInit = do
+      opts <- pOpts
+      pure do
+        runInit (runInitRepo opts)
+
+      where
+        pOpts = pInteractive
+
+        pInteractive = NewRepoOpts <$> optional pKeyring
+                                   <*> pEncryption
+
+
+        pEncryption = pEncryptionHere <|> pure Nothing
+
+        pEncryptionHere = do
+          puk <- option pEncPk ( short 'p' <> long "encryption-pk" <> help "public key for encryption")
+          fn  <- strOption ( short 'e' <> long "keyring-enc" <> help "keyring for encryption" )
+          pure $ Just (puk, fn)
+
+
+        pEncPk :: ReadM (PubKey 'Encrypt (Encryption L4Proto))
+        pEncPk  = eitherReader $
+            maybe (Left "invalid encryption public key") pure . fromStringMay
+
+        pKeyring = do
+          strOption (short 'k' <> long "keyring" <> help "reference keyring file")
 
