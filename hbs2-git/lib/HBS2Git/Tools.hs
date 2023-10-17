@@ -21,10 +21,10 @@ import HBS2Git.PrettyStuff
 
 import Data.HashMap.Strict qualified as HashMap
 import Data.ByteString.Char8 qualified as BS8
-import Control.Monad.Trans.Maybe
 import Data.Text qualified as Text
 import Data.Traversable
 import Data.Maybe
+import Data.Either
 import Prettyprinter.Render.Terminal
 import Control.Monad.IO.Unlift
 import Control.Monad.Catch (MonadCatch,MonadThrow,MonadMask)
@@ -34,7 +34,6 @@ import System.FilePath
 import System.Directory
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
-import System.FilePattern.Directory
 import System.IO.Temp
 import System.IO (stdout,stderr)
 
@@ -194,6 +193,23 @@ runInitInteractive opts = do
 
   liftIO $ hPutStrLn stdout ""
 
+  syn <- if not confHere then do
+           pure (mempty :: [Syntax C])
+         else do
+           liftIO $ try @_ @IOException (readFile confFile)
+                                <&> fromRight mempty
+                                <&> parseTop
+                                <&> fromRight mempty
+
+  let rpcHere = or [ True | (SymbolVal "rpc" :: Syntax C) <- universeBi syn ]
+
+  maybe1 rpc none $ \r -> do
+    unless rpcHere $ liftIO do
+      appendFile confFile $ show
+                          $ "rpc" <+> "unix" <+> dquotes (pretty r)
+                            <> line
+                            <> line
+
   puk <- case view (field @"newRepoKeyring") opts of
     Just kr -> liftIO do
       addKeyring confFile kr
@@ -249,7 +265,8 @@ runInitInteractive opts = do
 
     pure ()
 
-  liftIO $ hPutDoc stderr $ green "succeed!" <> line <> line
+  liftIO $ hPutDoc stderr $ green "Succeed!" <> line <> line
+  liftIO $ hPutDoc stderr $ pretty confFile <> line <> line
   liftIO $ readFile confFile >>= putStrLn
 
   where

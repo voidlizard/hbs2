@@ -194,7 +194,7 @@ runWithRPC action = do
                         | ListVal (Key "rpc" [SymbolVal "unix", LitStrVal n]) <- syn
                         ]
 
-  soname <- race ( pause @'Seconds 1) (maybe (detectRPC False) pure soname') `orDie` "hbs2-peer rpc timeout!"
+  soname <- race ( pause @'Seconds 1) (maybe (detectRPC True) pure soname') `orDie` "hbs2-peer rpc timeout!"
 
   client <- race ( pause @'Seconds 1) (newMessagingUnix False 1.0 soname) `orDie` "hbs2-peer rpc timeout!"
 
