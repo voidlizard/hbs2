@@ -33,7 +33,6 @@ import Control.Monad.Reader
 import Control.Concurrent.STM
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Foldable (for_)
-import Data.Functor
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.HashSet (HashSet)
@@ -207,6 +206,10 @@ writeLogSegments onProgress repo val objs chunkSize trailing = do
   --   такое и будет жить всегда
   let compressOpts = defaultCompressParams { compressLevel = bestSpeed }
 
+  rank <- fromMaybe 0 <$> runMaybeT do
+            h <- MaybeT $ readRef remote
+            calcRank h <&> fromIntegral
+
   -- FIXME: fix-code-dup
   let meta = fromString $ show
                         $     "hbs2-git"
@@ -219,7 +222,13 @@ writeLogSegments onProgress repo val objs chunkSize trailing = do
   let segments = chunksOf chunkSize objs
   let totalSegments = length segments
 
-  forM (zip segments [1..]) $ \(segment, segmentIndex) -> do
+  -- TODO: no-sense-in-temp-files
+  --   временные файлы больше не имеют смысла, т.к мы
+  --   1) нарезаем на небольшие сегменты
+  --   2) всё равно их читаем обратно в память, что бы сжать gzip
+  --   нужно удалить, будет работать чуть быстрее
+
+  r <- forM (zip segments [1..]) $ \(segment, segmentIndex) -> do
     let fpath = dir </> fname <> "_" <> show segmentIndex
     bracket (liftIO $ openBinaryFile fpath AppendMode)
             (const $ pure ()) $ \fh -> do
@@ -258,14 +267,22 @@ writeLogSegments onProgress repo val objs chunkSize trailing = do
       trace $ "PUSH LOG HASH: " <+> pretty logMerkle
       trace $ "POSTING REFERENCE UPDATE TRANSACTION" <+> pretty remote <+> pretty logMerkle
 
-
-      r <- fromMaybe 0 <$> runMaybeT do
-              h <- MaybeT $ readRef remote
-              calcRank h <&> fromIntegral
-
-      lift $ postRefUpdate remote r logMerkle
+      lift $ postRefUpdate remote rank logMerkle
 
       pure logMerkle
+
+
+  if not (null r) then do
+    pure r
+  else do
+    let content = foldMap (uncurry (gitRepoLogMakeEntry opts)) trailing
+                   & compressWith compressOpts
+
+    logMerkle <- lift $ storeObject repo meta content `orDie` [qc|Can't store push log|]
+
+    lift $ postRefUpdate remote rank logMerkle
+
+    pure [logMerkle]
 
 -- | Exports only one ref to the repo.
 --   Corresponds to a single ```git push``` operation
