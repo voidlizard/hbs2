@@ -393,6 +393,7 @@ balances :: forall e s m . ( e ~ L4Proto
                            , s ~ Encryption e
                            , ToBalance L4Proto (EmitTx L4Proto)
                            , ToBalance L4Proto (MoveTx L4Proto)
+                           , Pretty (AsBase58 (PubKey 'Sign s))
                            )
          => HashRef
          -> m (HashMap (Account e) Amount)

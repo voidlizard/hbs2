@@ -66,11 +66,17 @@ type IsRefPubKey s =  ( Eq (PubKey 'Sign s)
                       , Serialise (PubKey 'Sign s)
                       , FromStringMaybe (PubKey 'Sign s)
                       , Hashable (PubKey 'Sign s)
+                      , Pretty (AsBase58 (PubKey 'Sign s))
                       )
 
 type ForSomeRefKey a = ( Hashed HbSync a )
 
 newtype SomeRefKey a = SomeRefKey a
+
+instance Hashed HbSync (SomeRefKey a)  => Pretty (SomeRefKey a) where
+  pretty a = pretty $ hashObject @HbSync a
+-- instance Hashed HbSync (SomeRefKey a) => Pretty (AsBase58 (SomeRefKey a)) where
+--   pretty a = pretty $ AsBase58 (hashObject @HbSync a)
 
 -- TODO: fix-slow-hash-calculation
 instance Serialise a => Hashed HbSync (SomeRefKey a) where

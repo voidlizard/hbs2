@@ -12,6 +12,7 @@ import Lens.Micro.Platform
 
 import HBS2.Actors.Peer
 import HBS2.Data.Types.Refs
+import HBS2.Base58
 import HBS2.Hash
 import HBS2.Net.Dialog.Core
 import HBS2.Net.Proto.RefLog
@@ -66,6 +67,7 @@ dialogRoutes' :: forall m .
     , Serialise (PubKey 'Sign (Encryption L4Proto))
     , FromStringMaybe (PubKey 'Sign (Encryption L4Proto))
     , Hashable (PubKey 'Sign (Encryption L4Proto))
+    , Pretty (AsBase58 (PubKey 'Sign (Encryption L4Proto)))
     )
     => PeerEnv L4Proto
     -> DialogRequestRouter m
@@ -145,6 +147,7 @@ type Unconstraints =
     ( Serialise (PubKey 'Sign (Encryption L4Proto))
     , Hashable (PubKey 'Sign (Encryption L4Proto))
     , Show (PubKey 'Sign (Encryption L4Proto))
+    , Pretty (AsBase58 (PubKey 'Sign (Encryption L4Proto)))
     , Typeable (PubKey 'Sign (Encryption L4Proto))
     , FromStringMaybe (PubKey 'Sign (Encryption L4Proto))
     )

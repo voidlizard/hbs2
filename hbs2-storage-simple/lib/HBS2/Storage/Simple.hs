@@ -368,17 +368,18 @@ simpleWriteLinkRawRef ss h ref = do
       `catchAny` \_ -> do
         err $ "simpleWriteLinkRawRef" <+> pretty h <+> pretty ref <+> pretty fnr
 
-simpleReadLinkRaw :: IsKey h
+simpleReadLinkRaw :: forall r h . ( IsKey h, Hashed h r, Pretty r)
                   => SimpleStorage h
-                  -> Hash h
+                  -> r
                   -> IO (Maybe LBS.ByteString)
 
-simpleReadLinkRaw ss hash = do
+simpleReadLinkRaw ss ref = do
+  let hash = hashObject @h ref
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
           -- FIXME: log-this-situation
           (Just <$> LBS.readFile fn) `catchAny` \e -> do
-            err $ "simpleReadLinkRaw" <+> pretty hash <+> pretty fn <+> viaShow e
+            err $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
             pure Nothing
 
   pure $ fromMaybe Nothing rs
@@ -426,9 +427,9 @@ instance ( MonadIO m, IsKey hash
     void $ liftIO $ simpleWriteLinkRawRef ss refHash v
 
   getRef ss ref = do
-    let refHash = hashObject @hash ref
     runMaybeT do
-      bs <- MaybeT $ liftIO $ simpleReadLinkRaw ss refHash
+      -- debug $ "REF" <+> pretty (AsBase58 ref)
+      bs <- MaybeT $ liftIO $ simpleReadLinkRaw ss ref
       let bss = LBS.toStrict bs
       parsed <- MaybeT $ pure $ fromByteString bss
       pure $ unAsBase58 parsed

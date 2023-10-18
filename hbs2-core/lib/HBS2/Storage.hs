@@ -6,6 +6,8 @@ import HBS2.Prelude.Plated
 
 import Data.Kind
 import Lens.Micro.Platform
+import Data.ByteString.Lazy (ByteString)
+import Control.Monad.Trans.Maybe
 
 import Codec.Serialise()
 
@@ -46,9 +48,36 @@ class ( Monad m
 
   updateRef :: Hashed h k => a -> k -> Key h -> m ()
 
-  getRef :: Hashed h k => a -> k -> m (Maybe (Key h))
+  getRef :: (Hashed h k, Pretty k) => a -> k -> m (Maybe (Key h))
 
   delRef :: Hashed h k => a -> k -> m ()
+
+
+data AnyStorage = forall zu  . ( Storage zu HbSync ByteString IO
+                               ) => AnyStorage zu
+
+class HasStorage m where
+  getStorage :: m AnyStorage
+
+
+instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
+  getStorage = lift getStorage
+
+
+instance (IsKey HbSync, MonadIO m) => Storage AnyStorage HbSync ByteString m  where
+  putBlock (AnyStorage s) = liftIO . putBlock s
+  enqueueBlock (AnyStorage s) = liftIO . enqueueBlock s
+  getBlock (AnyStorage s) = liftIO . getBlock s
+  getChunk (AnyStorage s) h a b = liftIO $ getChunk s h a b
+  hasBlock (AnyStorage s) = liftIO . hasBlock s
+  updateRef (AnyStorage s) r v = liftIO $ updateRef s r v
+  getRef (AnyStorage s) = liftIO . getRef s
+  delBlock (AnyStorage s) = liftIO . delBlock s
+  delRef (AnyStorage s) = liftIO . delRef s
+
+
+
+
 
 calcChunks :: forall a b . (Integral a, Integral b)
            => Integer  -- | block size

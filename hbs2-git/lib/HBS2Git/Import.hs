@@ -9,6 +9,7 @@ import HBS2.Merkle
 import HBS2.Hash
 import HBS2.Storage
 import HBS2.Storage.Operations.Class
+import HBS2.Storage.Operations.Missed
 import HBS2.Storage.Operations.ByteString(TreeKey(..))
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Net.Proto.RefLog
@@ -64,32 +65,6 @@ isRunImportDry :: RunImportOpts -> Bool
 isRunImportDry o = view runImportDry o == Just True
 
 
-findMissedBlocks :: (MonadIO m, HasStorage m) => HashRef -> m [HashRef]
-findMissedBlocks href = do
-
-  sto <- getStorage
-
-  S.toList_ $
-
-    walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
-      case hr of
-        -- FIXME: investigate-this-wtf
-        Left{}   -> pure ()
-        Right (hrr :: [HashRef]) -> do
-          forM_ hrr $ \hx -> runMaybeT do
-              blk <- lift $ getBlock sto (fromHashRef hx)
-
-              unless (isJust blk) do
-                lift $ S.yield hx
-
-              maybe1 blk none $ \bs -> do
-                let w = tryDetect (fromHashRef hx) bs
-                r <- case w of
-                      Merkle{}    -> lift $ lift $ findMissedBlocks hx
-                      MerkleAnn{} -> lift $ lift $ findMissedBlocks hx
-                      _ -> pure mempty
-
-                lift $ mapM_ S.yield r
 
 walkHashes :: (MonadIO m, HasStorage m) => TQueue HashRef -> Hash HbSync -> m ()
 walkHashes q h = walkMerkle h (readBlock . HashRef) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
@@ -197,7 +172,7 @@ importRefLogNew opts ref = runResourceT do
       -- TODO: might-be-slow
       entries <- S.toList_ $ forM_ entries' $ \e -> do
                     updateProgress pMiss 1
-                    missed <- lift $ findMissedBlocks e
+                    missed <- lift $ findMissedBlocks sto e
                     if null missed then do
                       S.yield e
                     else do

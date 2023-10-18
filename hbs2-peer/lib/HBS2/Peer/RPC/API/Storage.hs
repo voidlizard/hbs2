@@ -5,7 +5,7 @@ import HBS2.Actors.Peer
 import HBS2.Net.Proto.Service
 import HBS2.Net.Messaging.Unix
 import HBS2.Peer.RPC.Internal.Types
-import HBS2.Storage (Offset,Size)
+import HBS2.Storage
 import HBS2.Data.Types.Refs (HashRef(..),RefAlias(..))
 
 import Control.Monad.Reader

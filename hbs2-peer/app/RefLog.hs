@@ -12,6 +12,7 @@ import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
 import HBS2.Base58
 import HBS2.Storage
+import HBS2.Storage.Operations.Missed
 import HBS2.Hash
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.RefLog
@@ -169,11 +170,11 @@ reflogWorker conf brains adapter = do
           trace $ "reflog worker. GOT REFLOG ANSWER" <+> pretty (AsBase58 reflog) <+> pretty h
           reflogDownload adapter h
           fix \next -> do
-            missed <- missedEntries sto h
+            missed <- findMissedBlocks sto (HashRef h)
             if not (null missed) then do
-              for_ missed $ reflogDownload adapter
+              for_ missed $ reflogDownload adapter . fromHashRef
               pause @'Seconds 1
-              trace $ "reflogWorker: missed refs for" <+> pretty h <+> pretty missed
+              debug $ "reflogWorker: MISSED REFS FOR" <+> pretty h <+> pretty missed
               next
             else do
               trace $ "block" <+> pretty h <+> "is downloaded"
@@ -264,17 +265,5 @@ reflogWorker conf brains adapter = do
       re <- liftIO $ atomically $ flushTQueue treeQ
       pure $ mconcat re
 
-    missedEntries sto h = do
-      missed <- liftIO $ newTVarIO mempty
-      walkMerkle h (getBlock sto) $ \hr -> do
-        case hr of
-          Left ha -> do
-            atomically $ modifyTVar missed (ha:)
-          Right (hs :: [HashRef]) -> do
-            w <- mapM ( hasBlock sto . fromHashRef ) hs <&> fmap isJust
-            let mi = [ hx | (False,hx) <- zip w hs ]
-            for_ mi $ \hx -> liftIO $ atomically $ modifyTVar missed (fromHashRef hx:)
-
-      liftIO $ readTVarIO missed
 
 

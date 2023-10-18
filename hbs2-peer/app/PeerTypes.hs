@@ -23,6 +23,7 @@ import HBS2.Net.Proto.Definition
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.Storage.Operations.Missed
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto.PeerMeta
 import HBS2.System.Logger.Simple
@@ -477,15 +478,10 @@ pingPeerWait pa = do
 checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
 checkDownloaded hr = do
   sto <- getStorage
-  let readBlock h = liftIO $ getBlock sto h
 
-  result <- S.toList_ $
-              deepScan ScanDeep (const $ S.yield Nothing) (fromHashRef hr) readBlock $ \ha -> do
-                unless (fromHashRef hr == ha) do
-                  here <- liftIO $ hasBlock sto ha
-                  S.yield here
+  missed <- findMissedBlocks sto hr
 
-  pure $ maybe False (not . List.null)  $ sequence result
+  pure $ null missed
 
 data Polling =
   Polling

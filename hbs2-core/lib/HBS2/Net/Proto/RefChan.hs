@@ -68,7 +68,7 @@ data RefChanHeadBlock e =
 makeLenses 'RefChanHeadBlockSmall
 
 type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
-                     -- , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+                     , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , Signatures (Encryption e)
                      , Serialise (Signature (Encryption e))

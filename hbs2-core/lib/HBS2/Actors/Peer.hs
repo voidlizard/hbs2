@@ -6,16 +6,14 @@
 module HBS2.Actors.Peer
   ( module HBS2.Actors.Peer
   , module HBS2.Actors.Peer.Types
+  , HasStorage(..), AnyStorage(..)
   ) where
 
 import HBS2.Actors
 import HBS2.Actors.Peer.Types
 import HBS2.Clock
-import HBS2.Data.Types.Crypto
-import HBS2.Data.Types.Peer
 import HBS2.Defaults
 import HBS2.Events
-import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging
 import HBS2.Net.PeerLocator
@@ -28,7 +26,6 @@ import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.KeyValue (HasConf(..))
 
-import Control.Applicative
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
@@ -37,7 +34,6 @@ import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
 import Data.Foldable hiding (find)
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
@@ -46,15 +42,9 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
-import UnliftIO (MonadUnliftIO(..))
-import Crypto.Saltine.Core.SecretBox qualified as SBox  -- Симметричное шифрование с nonce без подписи
-import Crypto.Saltine.Core.Box qualified as Encrypt  -- Асимметричное шифрование без подписи
 import Control.Monad.IO.Unlift
 
 import Codec.Serialise (serialise, deserialiseOrFail)
-
-import Prettyprinter hiding (pipe)
--- import Debug.Trace
 
 
 data AnyMessage enc e = AnyMessage !Integer !(Encoded e)

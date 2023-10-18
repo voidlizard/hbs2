@@ -1,9 +1,9 @@
 module TestSimpleStorage where
 
+import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.Hash
 import HBS2.Clock
-import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Storage.Simple
@@ -195,20 +195,20 @@ testSimpleStorageRefs  = do
 
     link worker
 
-    let k  = "JOPAKITA" :: LBS.ByteString
+    let k  = SomeRefKey "JOPAKITA" -- :: LBS.ByteString
     let v  = "PECHENTRESKI" :: LBS.ByteString
 
     vh <- putBlock storage v `orDie` "cant write"
 
     updateRef storage k vh
 
-    qqq <- simpleReadLinkRaw storage (hashObject k)
+    qqq <- simpleReadLinkRaw storage k
 
     pechen <- getRef storage k
 
     assertEqual "kv1" (Just vh) pechen
 
-    non <- getRef storage ("QQQQQ" :: LBS.ByteString)
+    non <- getRef storage (SomeRefKey "QQQQQ")
 
     assertEqual "kv2" Nothing non
 
