@@ -1064,6 +1064,7 @@ runPeer opts = U.handle (\e -> myException e
       ]
 
   link rpcProto
+  link loop
 
   void $ waitAnyCancel $ w <> [ udp
                               , loop
