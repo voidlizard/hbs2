@@ -18,16 +18,14 @@ import Data.Maybe
 findMissedBlocks :: (MonadIO m) => AnyStorage -> HashRef -> m [HashRef]
 findMissedBlocks sto href = do
 
-  trace $ "findMissedBlocks" <+> pretty href
+  -- trace $ "findMissedBlocks" <+> pretty href
 
-  S.toList_ $
+  S.toList_ $ do
 
     walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
-
         -- FIXME: investigate-this-wtf
-        Left hx | fromHashRef href /= hx -> S.yield (HashRef hx)
-                | otherwise -> pure ()
+        Left hx -> S.yield (HashRef hx)
 
         Right (hrr :: [HashRef]) -> do
           forM_ hrr $ \hx -> runMaybeT do

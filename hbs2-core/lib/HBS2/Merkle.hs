@@ -166,20 +166,24 @@ walkMerkle' :: (Serialise (MTree a), Monad m)
 walkMerkle' root flookup sink = go root
   where
     go hash = do
-      -- t <- (either (error . show) id . deserialiseOrFail <$>) <$> flookup hash
+      -- t <- (either (error . show . tryDetect) id . deserialiseOrFail <$>) <$> flookup hash
       t <- ((either (const Nothing) Just . deserialiseOrFail) =<<) <$> flookup hash
       case t of
         Just n@(MLeaf _) -> sink (Right n)
         Just n@(MNode _ hashes) -> sink (Right n) >> traverse_ go hashes
-        Nothing -> sink (Left hash)
+        Nothing -> do
+          sink (Left hash)
 
-walkMerkle :: (Serialise (MTree a), Monad m)
+walkMerkle :: forall a m . (Serialise (MTree a), Serialise (MTreeAnn a), Serialise a, Monad m)
            => Hash HbSync
            -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
            -> ( Either (Hash HbSync) a -> m () )
            -> m ()
 
-walkMerkle root flookup sink = walkMerkle' root flookup withTree
+walkMerkle root flookup sink = do
+
+  walkMerkle' root flookup withTree
+
   where
     withTree = \case
         (Right (MLeaf s))   -> sink (Right s)
@@ -187,7 +191,7 @@ walkMerkle root flookup sink = walkMerkle' root flookup withTree
         Left hx             -> sink (Left hx)
 
 
-walkMerkleTree :: (Serialise (MTree a), Monad m)
+walkMerkleTree :: (Serialise (MTree a), Serialise a, Monad m)
            => MTree a
            -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
            -> ( Either (Hash HbSync) a -> m () )

@@ -176,7 +176,9 @@ importRefLogNew opts ref = runResourceT do
                     if null missed then do
                       S.yield e
                     else do
-                      trace $ "missed blocks in tree" <+> pretty e --  <+> pretty m
+                      S.yield e
+                      forM_ missed $ \m -> do
+                        debug $ "missed blocks in tree" <+> pretty e  <+> pretty m
 
       pCommit <- liftIO $ startGitHashObject Commit
       pTree <- liftIO $ startGitHashObject Tree
@@ -382,9 +384,11 @@ importRefLogNew opts ref = runResourceT do
 
       withDB db $ do
         stateUpdateCommitDepths
-
-        when (length entries == length entries') do
+--         statePutRefImported logRoot
+        if (length entries == length entries') then do
           statePutRefImported logRoot
+        else do
+          warn "Some entries not processed!"
 
         savepointRelease sp0
 
