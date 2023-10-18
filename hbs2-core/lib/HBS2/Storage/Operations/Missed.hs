@@ -24,8 +24,11 @@ findMissedBlocks sto href = do
 
     walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
+
         -- FIXME: investigate-this-wtf
-        Left hx -> S.yield (HashRef hx)
+        Left hx | fromHashRef href /= hx -> S.yield (HashRef hx)
+                | otherwise -> pure ()
+
         Right (hrr :: [HashRef]) -> do
           forM_ hrr $ \hx -> runMaybeT do
               blk <- lift $ getBlock sto (fromHashRef hx)
