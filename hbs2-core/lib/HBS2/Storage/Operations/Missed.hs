@@ -7,6 +7,8 @@ import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Storage
 
+import HBS2.System.Logger.Simple
+
 import Streaming.Prelude qualified as S
 import Control.Monad.Trans.Maybe
 import Control.Monad
@@ -16,12 +18,14 @@ import Data.Maybe
 findMissedBlocks :: (MonadIO m) => AnyStorage -> HashRef -> m [HashRef]
 findMissedBlocks sto href = do
 
+  trace $ "findMissedBlocks" <+> pretty href
+
   S.toList_ $
 
     walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
         -- FIXME: investigate-this-wtf
-        Left{}   -> pure ()
+        Left hx -> S.yield (HashRef hx)
         Right (hrr :: [HashRef]) -> do
           forM_ hrr $ \hx -> runMaybeT do
               blk <- lift $ getBlock sto (fromHashRef hx)

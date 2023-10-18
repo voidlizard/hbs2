@@ -524,7 +524,7 @@ runMe conf = withLogging $ flip runReaderT conf do
   when here do
     liftIO $ removeFile sa
 
-  server <- newMessagingUnix True 1.0 sa
+  server <- newMessagingUnixOpts [MUNoFork] True 1.0 sa
 
   abus <- async $ runMessagingUnix server
 

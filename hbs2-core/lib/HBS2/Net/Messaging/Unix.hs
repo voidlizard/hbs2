@@ -60,7 +60,7 @@ instance Hashable (Peer UNIX) where
 {- HLINT ignore "Use newtype instead of data" -}
 data MessagingUnixOpts =
     MUWatchdog Int
-  | MUFork
+  | MUNoFork
   deriving (Eq,Ord,Show,Generic,Data)
 
 -- FIXME: use-bounded-queues
@@ -137,7 +137,12 @@ runMessagingUnix env = do
       liftIO $ bind sock $ SockAddrUnix (msgUnixSockPath env)
       liftIO $ listen sock 5
 
-      let withSession  = void . async . runResourceT
+      -- let withSession  = void . async . runResourceT
+
+      let doFork  = not $ Set.member MUNoFork (msgUnixOpts env)
+
+      let withSession | doFork    = void . async . runResourceT
+                      | otherwise = void . runResourceT
 
       watchdog <- async $ do
 
@@ -174,7 +179,10 @@ runMessagingUnix env = do
 
               withSession do
 
-                let that = msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
+                let that = if doFork then
+                             msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
+                           else
+                             msgUnixSelf env
 
                 void $ allocate ( createQueues env that ) dropQueuesFor
 

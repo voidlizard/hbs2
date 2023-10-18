@@ -1037,7 +1037,7 @@ runPeer opts = U.handle (\e -> myException e
                              ]
 
   let rpcSa = getRpcSocketName conf
-  rpcmsg <- newMessagingUnixOpts [MUFork] True 1.0 rpcSa
+  rpcmsg <- newMessagingUnix True 1.0 rpcSa
 
   let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
                             , rpcMessaging = rpcmsg

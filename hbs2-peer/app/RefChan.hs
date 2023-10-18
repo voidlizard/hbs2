@@ -34,6 +34,7 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 import HBS2.Storage
+import HBS2.Storage.Operations.Missed
 
 import HBS2.System.Logger.Simple
 
