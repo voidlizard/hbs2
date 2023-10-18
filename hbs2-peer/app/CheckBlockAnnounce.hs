@@ -75,10 +75,12 @@ acceptAnnouncesFromPeer conf@(PeerConfig syn) pa = runPlus do
 
   let accptAnn = runReader (cfgValue @PeerAcceptAnnounceKey) syn
 
-  guard =<< peerBanned conf pd
+  guard . not =<< peerBanned conf pd
 
   case accptAnn of
-    AcceptAnnounceAll -> pure ()
+    AcceptAnnounceAll -> do
+      pure ()
+
     AcceptAnnounceFrom s -> do
       guard  (view peerSignKey pd `Set.member` s)
 
