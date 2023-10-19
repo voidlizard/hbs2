@@ -803,8 +803,6 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
 
   peer <- thatPeer proto
 
-  debug $ "&&& refChanNotifyProto" <+> pretty self
-
   let h0 = hashObject @HbSync (serialise msg)
 
   auth <- find (KnownPeerKey peer) id <&> isJust
@@ -814,6 +812,8 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
     guard =<< lift (refChanSubscribed adapter rchan)
 
     guard (self || auth)
+
+    debug $ "&&& refChanNotifyProto" <+> pretty self
 
     deferred proto do
 
