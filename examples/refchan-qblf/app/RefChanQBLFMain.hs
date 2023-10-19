@@ -26,7 +26,7 @@ import HBS2.Storage.Simple
 
 import HBS2.System.Logger.Simple
 
-import QBLF.Proto
+import HBS2.Net.Proto.QBLF
 
 import Demo.QBLF.Transactions
 import Data.Config.Suckless

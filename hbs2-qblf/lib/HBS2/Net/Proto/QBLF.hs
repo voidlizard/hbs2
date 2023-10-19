@@ -2,7 +2,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 {-# Language MultiWayIf #-}
-module QBLF.Proto where
+module HBS2.Net.Proto.QBLF where
 
 import HBS2.Prelude.Plated
 import HBS2.System.Logger.Simple

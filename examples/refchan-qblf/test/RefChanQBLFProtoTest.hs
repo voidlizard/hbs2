@@ -7,7 +7,7 @@ import HBS2.Clock
 import HBS2.Hash
 import HBS2.Base58
 
-import QBLF.Proto
+import HBS2.Net.Proto.QBLF
 
 import Data.Ord
 import Data.Functor
