@@ -39,6 +39,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"
      "hbs2-storage-simple"
      "hbs2-git"
+     "hbs2-qblf"
    ];
 
    packageDirs = {
