@@ -5,6 +5,7 @@ module HBS2.Merkle where
 import HBS2.Prelude
 import HBS2.Hash
 
+import Control.Applicative
 import Codec.Serialise (serialise, deserialiseOrFail)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -15,6 +16,8 @@ import Data.List qualified as List
 import Data.Text (Text)
 import GHC.Generics
 import Lens.Micro.Platform
+import Control.Monad.Trans.Maybe
+import Control.Monad
 import Prettyprinter
 
 newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
@@ -157,7 +160,14 @@ makeMerkle h0 pt f = fst <$> go h0 pt
 
 
 
-walkMerkle' :: (Serialise (MTree a), Monad m)
+-- NOTE: MerkleAnn-note
+--   MerkleAnn ломает всю красоту, но, видимо,
+--   с этим уже ничего не поделать, пусть живёт.
+--   Надо было аннотации просто класть 0-ым блоком
+--   в меркл дерево, или вообще делать cons-ячейки,
+--   но что уж теперь.
+
+walkMerkle' :: forall a m . (Serialise (MTree a), (Serialise (MTreeAnn a)), Monad m)
            => Hash HbSync
            -> ( Hash HbSync -> m (Maybe LBS.ByteString) )
            -> ( Either (Hash HbSync) (MTree a) -> m () )
@@ -165,14 +175,26 @@ walkMerkle' :: (Serialise (MTree a), Monad m)
 
 walkMerkle' root flookup sink = go root
   where
-    go hash = do
-      -- t <- (either (error . show . tryDetect) id . deserialiseOrFail <$>) <$> flookup hash
-      t <- ((either (const Nothing) Just . deserialiseOrFail) =<<) <$> flookup hash
+    go hash = void $ runMaybeT do
+
+      bs0 <- lift $ flookup hash
+
+      bs <- MaybeT $ maybe1 bs0 (sink (Left hash) >> pure Nothing) (pure . Just)
+
+      let t1 = deserialiseOrFail @(MTree a) bs
+
+      either (const $ runWithAnnTree hash bs) runWithTree t1
+
+    runWithAnnTree hash bs  = do
+      let t = deserialiseOrFail @(MTreeAnn a) bs
       case t of
-        Just n@(MLeaf _) -> sink (Right n)
-        Just n@(MNode _ hashes) -> sink (Right n) >> traverse_ go hashes
-        Nothing -> do
-          sink (Left hash)
+        Left{} -> lift (sink (Left hash)) >> mzero
+        Right (MTreeAnn { _mtaTree = t1 }) -> runWithTree t1
+
+    runWithTree t = lift do
+      case t of
+        n@(MLeaf _) -> sink (Right n)
+        n@(MNode _ hashes) -> sink (Right n) >> traverse_ go hashes
 
 walkMerkle :: forall a m . (Serialise (MTree a), Serialise (MTreeAnn a), Serialise a, Monad m)
            => Hash HbSync
