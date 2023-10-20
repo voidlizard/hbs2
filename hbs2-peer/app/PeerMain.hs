@@ -711,7 +711,7 @@ runPeer opts = U.handle (\e -> myException e
   let pexFilt pips = do
         tcpex <- listTCPPexCandidates @e brains -- <&> HashSet.fromList
         pips2 <- filter onlyUDP <$> mapM toPeerAddr pips
-        pure (L.nub (pips2  <> tcpex))
+        mapM fromPeerAddr (L.nub (pips2  <> tcpex))
         where
           onlyUDP = \case
             (L4Address UDP _) -> True
