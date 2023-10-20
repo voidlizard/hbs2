@@ -112,7 +112,6 @@ instance ( Hashable (Peer e)
     updateOP br (deleteDownload br what)
 
   onKnownPeers br ps = do
-    trace $ "BRAINS: onKnownPeers" <+> pretty ps
     let tv = view brainsPeers br
     liftIO $ atomically $ writeTVar tv ps
     updateOP br $ do

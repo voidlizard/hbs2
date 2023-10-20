@@ -55,7 +55,7 @@ defBlockSizeCacheTime :: TimeSpec
 defBlockSizeCacheTime = toTimeSpec ( 30 :: Timeout 'Seconds )
 
 defRequestLimitSec :: Timeout 'Seconds
-defRequestLimitSec = 300
+defRequestLimitSec = 10 -- 300
 
 defBlockBanTime :: TimeSpec
 defBlockBanTime = toTimeSpec defBlockBanTimeSec
@@ -70,7 +70,7 @@ defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 20
+defBlockInfoTimeout = 1
 
 defBlockInfoTimeoutSpec :: TimeSpec
 defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout

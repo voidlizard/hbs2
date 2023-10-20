@@ -72,7 +72,7 @@ instance HasProtocol L4Proto (BlockInfo L4Proto) where
 
   -- FIXME: requestMinPeriod-breaks-fast-block-download
   --
-  requestPeriodLim = ReqLimPerMessage 1
+  requestPeriodLim = ReqLimPerMessage 0.5
 
 instance HasProtocol L4Proto (BlockChunks L4Proto) where
   type instance ProtocolId (BlockChunks L4Proto) = 2
@@ -116,7 +116,7 @@ instance HasProtocol L4Proto (RefLogUpdate L4Proto) where
   encode = serialise
 
   -- TODO: find-out-optimal-max-safe-frequency
-  requestPeriodLim = ReqLimPerMessage 600
+  requestPeriodLim = ReqLimPerMessage 60
 
 instance HasProtocol L4Proto (RefLogRequest L4Proto) where
   type instance ProtocolId (RefLogRequest L4Proto) = 8
@@ -148,7 +148,7 @@ instance HasProtocol L4Proto (EncryptionHandshake L4Proto) where
   decode = deserialiseCustom
   encode = serialise
 
-  requestPeriodLim = ReqLimPerProto 0.5
+  requestPeriodLim = ReqLimPerProto 0.1
 
 
 instance HasProtocol L4Proto (RefChanUpdate L4Proto) where
