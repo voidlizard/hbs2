@@ -16,4 +16,5 @@ import RPC2.RefChan()
 import RPC2.Die()
 import RPC2.LogLevel()
 import RPC2.Poll()
+import RPC2.Downloads()
 

@@ -87,24 +87,28 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
+import Data.HashSet qualified as HashSet
 import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.HashSet qualified as HashSet
+import Data.Time.Clock (UTCTime, NominalDiffTime, diffUTCTime, getCurrentTime)
+import Data.Time.Clock.POSIX
+import Data.Time.LocalTime
+import Data.Time.Format
 import Lens.Micro.Platform as Lens
 import Network.Socket
 import Options.Applicative
+import Prettyprinter.Render.Terminal
 import System.Directory
+import System.Environment
 import System.Exit
 import System.IO
 import System.Mem
 import System.Metrics
 import System.Posix.Process
-import System.Environment
-import Prettyprinter.Render.Terminal
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -226,6 +230,7 @@ runCLI = do
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
+                <> command "download"  (info pDownload  (progDesc "download management"))
                 <> command "poll"      (info pPoll  (progDesc "polling management"))
                 <> command "log"       (info pLog   (progDesc "set logging level"))
                 -- FIXME: bring-back-dialogue-over-separate-socket
@@ -435,9 +440,39 @@ runCLI = do
                                      <+> pretty what
                                      <> line
 
+
+    pDownload = hsubparser (  command "list" (info pDownList (progDesc "list current downloads" ))
+                           <> command "del" (info pDownDel (progDesc "delete download" ))
+                           )
+
+    pDownDel = do
+      rpc <- pRpcCommon
+      href <- argument hashP ( metavar "HASH-REF")
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        void $ runMaybeT do
+         toMPlus =<< callService @RpcDownloadDel caller href
+
+    pDownList = do
+      rpc <- pRpcCommon
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        void $ runMaybeT do
+         -- now <- getU
+         d <- toMPlus =<< callService @RpcDownloadList caller ()
+         now <- liftIO getPOSIXTime
+         liftIO $ print $ vcat (fmap (fmt now) d)
+         pure ()
+
+      where
+        fmt now (h,u) = pretty (AsBase58 h) <+> pretty diff
+          where
+            delta = now - fromIntegral u
+            diff = formatTime defaultTimeLocale "%d:%H:%M:%S" delta
+
     refP :: ReadM (PubKey 'Sign HBS2Basic)
     refP = maybeReader fromStringMay
 
+    hashP :: ReadM HashRef
+    hashP = maybeReader fromStringMay
 
 myException :: SomeException -> IO ()
 myException e = err ( show e )
@@ -924,9 +959,10 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
+                peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
+
                 peerThread "encryptionHandshakeWorker"
                     (EncryptionKeys.encryptionHandshakeWorker @e conf pc encryptionHshakeAdapter)
-
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
@@ -937,7 +973,6 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "postponedLoop" (postponedLoop denv)
 
-                peerThread "downloadQueue" (downloadQueue conf denv)
 
                 peerThread "reflogWorker" (reflogWorker @e conf (SomeBrains brains) rwa)
 

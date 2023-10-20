@@ -8,6 +8,7 @@ import HBS2.Net.Proto
 import HBS2.Hash
 
 import Data.Word
+import HBS2.Data.Types.Refs (HashRef(..))
 
 -- TODO: rename
 class HasBrains e a where
@@ -41,6 +42,12 @@ class HasBrains e a where
 
   listTCPPexCandidates :: MonadIO m => a -> m [PeerAddr e]
   listTCPPexCandidates _ = pure mempty
+
+  listDownloads :: MonadIO m => a -> m [(HashRef, Integer)]
+  listDownloads _ = pure mempty
+
+  delDownload :: MonadIO m => a -> HashRef -> m ()
+  delDownload _ _ = pure ()
 
   onKnownPeers :: MonadIO m => a -> [Peer e] -> m ()
   onKnownPeers _ _ = none
@@ -82,7 +89,7 @@ class HasBrains e a where
 
   claimBlockCameFrom :: MonadIO m
                      => a
-                     -> Hash HbSync
+                     -> Maybe (Hash HbSync)
                      -> Hash HbSync
                      -> m ()
 
@@ -146,6 +153,10 @@ instance HasBrains e (SomeBrains e) where
   getClientTCP (SomeBrains a) = getClientTCP @e a
   setActiveTCPSessions (SomeBrains a) = setActiveTCPSessions @e a
   listTCPPexCandidates (SomeBrains a) = listTCPPexCandidates @e a
+
+  listDownloads (SomeBrains a) = listDownloads @e a
+  delDownload (SomeBrains a) = delDownload @e a
+
   onKnownPeers (SomeBrains a) = onKnownPeers a
   onBlockSize (SomeBrains a) = onBlockSize a
   onBlockDownloadAttempt (SomeBrains a) = onBlockDownloadAttempt a

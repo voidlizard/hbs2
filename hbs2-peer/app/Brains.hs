@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 {-# Language TemplateHaskell #-}
@@ -10,6 +11,7 @@ module Brains
 import HBS2.Prelude.Plated
 import HBS2.Clock
 import HBS2.Net.Proto.RefChan(ForRefChans)
+import HBS2.Data.Types.Refs
 import HBS2.Net.Proto
 import HBS2.Hash
 import HBS2.Base58
@@ -20,13 +22,14 @@ import HBS2.System.Logger.Simple
 
 import PeerConfig
 
-import Crypto.Saltine.Core.Box qualified as Encrypt
+import Control.Concurrent.STM
+import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
-import Control.Exception
-import Control.Concurrent.STM
+import Crypto.Saltine.Core.Box qualified as Encrypt
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
+import Database.SQLite.Simple.ToField
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Either
@@ -35,6 +38,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
+import Data.Time.Clock (UTCTime)
 import Data.Word
 import Lens.Micro.Platform
 import System.Directory
@@ -44,6 +48,16 @@ import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO (MonadUnliftIO(..),async,race)
 
 data PeerBrainsDb
+
+
+-- FIXME: move-that-orphans-somewhere
+
+instance ToField HashRef where
+  toField h = toField (show $ pretty h)
+
+instance FromField HashRef where
+  fromField = fmap fromString . fromField @String
+
 
 instance Monad m => HasCfgKey PeerBrainsDb (Maybe String) m where
   key = "brains"
@@ -90,6 +104,10 @@ instance ( Hashable (Peer e)
 
   listTCPPexCandidates = liftIO . selectTCPPexCandidates
 
+  listDownloads = liftIO . selectDownloads
+
+  delDownload br what  = updateOP br (deleteDownload br what)
+
   onKnownPeers br ps = do
     trace $ "BRAINS: onKnownPeers" <+> pretty ps
     let tv = view brainsPeers br
@@ -118,19 +136,27 @@ instance ( Hashable (Peer e)
       liftIO $ Cache.insert cache h ()
       let doAlter = HashMap.alter (maybe (Just 0) (Just . succ)) (peer,h)
       liftIO $ atomically $ modifyTVar (view brainsPostponeDown b) doAlter
+      -- updateOP b $ insertDownload b
 
   onBlockDownloaded b p h = do
     -- trace $ "BRAINS: onBlockDownloaded" <+> pretty p <+> pretty h
     cleanupPostponed b h
-    updateOP b $ insertPeer b h p
+    updateOP b do
+      insertPeer b h p
 
   onBlockPostponed b h  = do
     -- trace $ "BRAINS: onBlockPostponed" <+> pretty h
     cleanupPostponed b h
 
-  claimBlockCameFrom b f t = do
+  claimBlockCameFrom b (Just f) t = do
     -- trace $ "BRAINS: claimBlockCameFrom" <+> pretty f <+> pretty t
-    updateOP b $ insertAncestor b f t
+    updateOP b do
+      insertAncestor b f t
+      insertDownload b (Just $ HashRef f) (HashRef t)
+
+  claimBlockCameFrom b p h = do
+    updateOP b do
+      insertDownload b (HashRef <$> p) (HashRef h)
 
   shouldPostponeBlock b h = do
     peers <- liftIO $ readTVarIO (view brainsPeers b)
@@ -587,6 +613,42 @@ deletePeerAsymmKey' br key =
         WHERE peer = ?
     |] (Only key)
 
+
+insertDownload :: forall e  . ( e ~ L4Proto)
+               => BasicBrains e
+               -> Maybe HashRef
+               -> HashRef
+               -> IO ()
+insertDownload br parent hash = do
+  let conn = view brainsDb br
+  liftIO $ execute conn [qc|
+    insert into statedb.download (hash, parent)
+    values (?, ?)
+    on conflict (hash) do update set parent = excluded.parent
+  |] (hash, parent)
+
+
+deleteDownload :: forall e . (e ~ L4Proto)
+               => BasicBrains e
+               -> HashRef
+               -> IO ()
+deleteDownload br hash = do
+  let conn = view brainsDb br
+  liftIO $ execute conn [qc|
+    delete from statedb.download where hash = ?
+  |] (Only hash)
+
+
+
+selectDownloads  :: forall e . (e ~ L4Proto)
+                 => BasicBrains e
+                 -> IO [(HashRef, Integer)]
+selectDownloads br = do
+  let conn = view brainsDb br
+  liftIO $ query_ conn [qc|
+    select hash, ts from statedb.download
+  |]
+
 ---
 
 -- FIXME: eventually-close-db
@@ -617,6 +679,14 @@ newBasicBrains cfg = liftIO do
 
   execute_ conn [qc|
   create table if not exists statedb.processed ( hash text not null primary key );
+  |]
+
+  execute_ conn [qc|
+  create table if not exists statedb.download
+    ( hash    text not null primary key
+    , parent  text null
+    , ts INTEGER DEFAULT (strftime('%s','now'))
+    );
   |]
 
   execute_ conn [qc|

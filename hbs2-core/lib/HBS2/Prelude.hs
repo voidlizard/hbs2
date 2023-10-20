@@ -40,6 +40,9 @@ import Data.Text qualified as Text
 import Data.Hashable
 import Prettyprinter
 import Data.Word
+import GHC.Generics
+import Data.Time.Clock (NominalDiffTime(..))
+import Codec.Serialise
 
 none :: forall m . Monad m => m ()
 none = pure ()
@@ -50,8 +53,10 @@ maybe1 mb n j = maybe n j mb
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe = either (const Nothing) Just
 
-newtype AsFileName a = AsFileName a
+-- deriving instance Generic NominalDiffTime
+-- instance Serialise NominalDiffTime
 
+newtype AsFileName a = AsFileName a
 
 instance Pretty a => Pretty (AsFileName a) where
   pretty (AsFileName f) = pretty x <> "@" <> uniq

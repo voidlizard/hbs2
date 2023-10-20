@@ -20,6 +20,7 @@ import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
+import HBS2.Storage.Operations.Missed
 import HBS2.System.Logger.Simple
 
 import PeerTypes
@@ -143,7 +144,7 @@ processBlock h = do
      Just (SeqRef (SequentialRef n (AnnotatedHashRef a' b))) -> do
       maybe1 a' none $ \a -> do
         debug $ "GOT AnnotatedHashRef" <+> pretty a
-        addDownload parent (fromHashRef a)
+        processBlock (fromHashRef a)
 
       addDownload parent (fromHashRef b)
 

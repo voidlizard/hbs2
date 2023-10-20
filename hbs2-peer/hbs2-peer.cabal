@@ -180,6 +180,7 @@ executable hbs2-peer
                     , RPC2.PexInfo
                     , RPC2.Ping
                     , RPC2.Poll
+                    , RPC2.Downloads
                     , RPC2.RefLog
                     , RPC2.RefChan
                     , PeerTypes

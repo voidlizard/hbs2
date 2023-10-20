@@ -111,7 +111,6 @@ checkBlockAnnounce conf denv nonce pa h = void $ runMaybeT do
   guard accept
 
   lift do
-    downloadLogAppend @e h
     withDownload denv $ do
       processBlock h
 

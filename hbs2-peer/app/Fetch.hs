@@ -3,13 +3,15 @@ module Fetch where
 import HBS2.Prelude
 import HBS2.Actors.Peer
 import HBS2.Data.Types.Refs
+import HBS2.Storage.Operations.Missed
 import HBS2.Net.Proto.Types
 
 import HBS2.System.Logger.Simple
 
 import PeerTypes
-import DownloadQ
 import BlockDownload
+
+import Data.Foldable (for_)
 
 fetchHash :: forall e m . (e ~ L4Proto, MonadIO m)
       => PeerEnv e
@@ -20,8 +22,11 @@ fetchHash :: forall e m . (e ~ L4Proto, MonadIO m)
 fetchHash penv denv href  = do
   debug  $ "fetchAction" <+> pretty h
   liftIO $ withPeerM penv $ do
-    downloadLogAppend @e h
-    withDownload denv (processBlock h)
+    sto <- getStorage
+    missed <- findMissedBlocks sto href
+    for_ missed $ \miss -> do
+      withDownload denv (processBlock (fromHashRef miss))
+
   where
     h = fromHashRef href
 

@@ -9,6 +9,7 @@ import HBS2.Actors.Peer
 
 import HBS2.Peer.RPC.Internal.Types
 
+import Data.Time.Clock.POSIX (POSIXTime)
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
@@ -26,6 +27,9 @@ data RpcPollList
 data RpcPollAdd
 data RpcPollDel
 
+data RpcDownloadList
+data RpcDownloadDel
+
 type PeerAPI = '[ RpcPoke
                 , RpcPing
                 , RpcAnnounce
@@ -37,6 +41,8 @@ type PeerAPI = '[ RpcPoke
                 , RpcPollList
                 , RpcPollAdd
                 , RpcPollDel
+                , RpcDownloadList
+                , RpcDownloadDel
                 ]
 
 instance HasProtocol UNIX  (ServiceProto PeerAPI UNIX) where
@@ -73,6 +79,12 @@ type instance Output RpcFetch = ()
 
 type instance Input RpcPollList= ()
 type instance Output RpcPollList = [(PubKey 'Sign HBS2Basic, String, Int)]
+
+type instance Input RpcDownloadList = ()
+type instance Output RpcDownloadList = [(HashRef, Integer)]
+
+type instance Input RpcDownloadDel = HashRef
+type instance Output RpcDownloadDel = ()
 
 type instance Input RpcPollAdd = (PubKey 'Sign HBS2Basic, String, Int)
 type instance Output RpcPollAdd = ()

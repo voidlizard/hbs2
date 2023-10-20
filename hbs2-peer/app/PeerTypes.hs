@@ -309,7 +309,7 @@ addDownload mbh h = do
   if here then do
     removeFromWip h
   else do
-    maybe1 mbh none $ \hp -> claimBlockCameFrom @e brains hp h
+    claimBlockCameFrom @e brains mbh h
     liftIO $ atomically $ modifyTVar tinq $ HashMap.insert h ()
 
 postponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int

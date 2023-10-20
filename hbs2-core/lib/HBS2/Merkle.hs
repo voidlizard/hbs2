@@ -179,7 +179,7 @@ walkMerkle' root flookup sink = go root
 
       bs0 <- lift $ flookup hash
 
-      bs <- MaybeT $ maybe1 bs0 (sink (Left hash) >> pure Nothing) (pure . Just)
+      bs <- MaybeT $ maybe1 bs0 (sink (Left hash) >> pure mzero) (pure . Just)
 
       let t1 = deserialiseOrFail @(MTree a) bs
 
@@ -188,7 +188,7 @@ walkMerkle' root flookup sink = go root
     runWithAnnTree hash bs  = do
       let t = deserialiseOrFail @(MTreeAnn a) bs
       case t of
-        Left{} -> lift (sink (Left hash)) >> mzero
+        Left{} -> pure ()
         Right (MTreeAnn { _mtaTree = t1 }) -> runWithTree t1
 
     runWithTree t = lift do

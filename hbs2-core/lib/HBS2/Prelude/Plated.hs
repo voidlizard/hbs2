@@ -9,7 +9,7 @@ module HBS2.Prelude.Plated
 import Data.Data
 import Data.Generics.Uniplate.Data()
 import Data.Generics.Uniplate.Operations
-import GHC.Generics(Generic)
+import GHC.Generics()
 import Safe
 
 import HBS2.Prelude
@@ -25,3 +25,5 @@ uniFirstMay = headMay . universeBi
 
 uniFirstDef :: forall from to . (Data from, Data to) => to -> from -> to
 uniFirstDef d = headDef d . universeBi
+
+
