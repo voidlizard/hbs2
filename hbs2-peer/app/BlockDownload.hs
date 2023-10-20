@@ -514,7 +514,6 @@ blockDownloadLoop env0 = do
       wipNum  <- asks (view blockInQ) >>= liftIO . readTVarIO <&> HashMap.size
 
       when (wipNum == 0) do
-        trace "NOTHING TO DOWNLOAD"
         pause @'Seconds 1
         next
 
@@ -528,7 +527,7 @@ blockDownloadLoop env0 = do
                  pure $ not busy
 
       when (List.null pips) do
-        void $ liftIO $ race (pause @'Seconds 1) $ do
+        void $ liftIO $ race (pause @'Seconds 5) $ do
           trace "ALL PEERS BUSY"
           void $ liftIO $ atomically $ do
             p <- readTQueue released
@@ -570,7 +569,7 @@ blockDownloadLoop env0 = do
                 liftIO $ atomically $ modifyTVar downMiss succ
 
               Right (Just size) -> do
-                trace $ "BLOCK SIZE" <+> pretty p <+> pretty h <+> pretty size
+                -- trace $ "BLOCK SIZE" <+> pretty p <+> pretty h <+> pretty size
                 let downFail = view peerDownloadFail pinfo
                 let downBlk  = view peerDownloadedBlk pinfo
 
