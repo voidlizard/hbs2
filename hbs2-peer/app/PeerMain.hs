@@ -44,7 +44,6 @@ import HBS2.System.Logger.Simple hiding (info)
 import Brains
 import PeerTypes
 import BlockDownload
-import BlockHttpDownload
 import CheckBlockAnnounce (checkBlockAnnounce)
 import CheckPeer (peerBanned)
 import DownloadQ
@@ -965,11 +964,6 @@ runPeer opts = U.handle (\e -> myException e
                     (EncryptionKeys.encryptionHandshakeWorker @e conf pc encryptionHshakeAdapter)
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
-
-                -- FIXME: clumsy-code
-                -- Is it better now ?
-                when useHttpDownload do
-                  peerThread "blockHttpDownloadLoop" (blockHttpDownloadLoop denv)
 
                 peerThread "postponedLoop" (postponedLoop denv)
 

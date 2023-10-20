@@ -154,13 +154,11 @@ executable hbs2-peer
 
     other-modules:
                       BlockDownload
-                    , BlockHttpDownload
                     , DownloadQ
                     , DownloadMon
                     , EncryptionKeys
                     , Bootstrap
                     , PeerInfo
-                    -- , PeerMain.DialogCliCommand
                     , PeerMain.Dialog.Server
                     , PeerMain.Dialog.Spec
                     , PeerMeta
