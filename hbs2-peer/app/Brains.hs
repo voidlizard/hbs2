@@ -137,19 +137,27 @@ instance ( Hashable (Peer e)
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
 
     r <- forM peers $ \p -> do
-           let v = HashMap.lookup (p,h) downs & fromMaybe 0 & (<4)
+           let v = HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK)
            pure [v]
 
     let postpone = not (List.null r || or (mconcat r) )
 
     pure postpone
+    where
+      simK = 10
 
+  -- FIXME: investigate-simK-affects-anything
+  --   проверить
   shouldDownloadBlock b p h = do
     noPeers <- liftIO $ readTVarIO (view brainsPeers b) <&> List.null
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
-    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<4)
+    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK)
     -- trace $ "shouldDownloadBlock" <+> pretty noPeers <+> pretty doo
-    pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<4))
+    pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK))
+    where
+      -- TODO: simK-to-settings
+      --   в настройки, если на что-либо влияет
+      simK = 10
 
   advisePeersForBlock b h = do
     r <- liftIO $ findPeers b h
