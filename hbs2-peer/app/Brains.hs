@@ -69,6 +69,7 @@ data BasicBrains e =
   { _brainsPeers        :: TVar [Peer e]
   , _brainsPostponeDown :: TVar (HashMap (Peer e, Hash HbSync) Int )
   , _brainsExpire       :: Cache (Hash HbSync) ()
+  , _brainsRemoved      :: Cache HashRef ()
   , _brainsDb           :: Connection
   , _brainsPipeline     :: TQueue (IO ())
   , _brainsCommit       :: TQueue CommitCmd
@@ -106,7 +107,9 @@ instance ( Hashable (Peer e)
 
   listDownloads = liftIO . selectDownloads
 
-  delDownload br what  = updateOP br (deleteDownload br what)
+  delDownload br what  = do
+    liftIO $ Cache.insert (view brainsRemoved br) what ()
+    updateOP br (deleteDownload br what)
 
   onKnownPeers br ps = do
     trace $ "BRAINS: onKnownPeers" <+> pretty ps
@@ -161,6 +164,7 @@ instance ( Hashable (Peer e)
   shouldPostponeBlock b h = do
     peers <- liftIO $ readTVarIO (view brainsPeers b)
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
+    kicked <- liftIO $ Cache.lookup (view brainsRemoved b) (HashRef h) <&> isJust
 
     r <- forM peers $ \p -> do
            let v = HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK)
@@ -168,18 +172,18 @@ instance ( Hashable (Peer e)
 
     let postpone = not (List.null r || or (mconcat r) )
 
-    pure postpone
+    pure (not kicked && postpone)
     where
       simK = 10
 
   -- FIXME: investigate-simK-affects-anything
   --   проверить
   shouldDownloadBlock b p h = do
+    kicked <- liftIO $ Cache.lookup (view brainsRemoved b) (HashRef h) <&> isJust
     noPeers <- liftIO $ readTVarIO (view brainsPeers b) <&> List.null
     downs <- liftIO $ readTVarIO (view brainsPostponeDown b)
-    let doo = HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK)
     -- trace $ "shouldDownloadBlock" <+> pretty noPeers <+> pretty doo
-    pure $ noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK))
+    pure $ not kicked && noPeers || (HashMap.lookup (p,h) downs & fromMaybe 0 & (<simK))
     where
       -- TODO: simK-to-settings
       --   в настройки, если на что-либо влияет
@@ -772,6 +776,7 @@ newBasicBrains cfg = liftIO do
   BasicBrains <$> newTVarIO mempty
               <*> newTVarIO mempty
               <*> Cache.newCache (Just (toTimeSpec (30 :: Timeout 'Seconds)))
+              <*> Cache.newCache (Just (toTimeSpec (60 :: Timeout 'Seconds)))
               <*> pure conn
               <*> newTQueueIO
               <*> newTQueueIO
