@@ -709,14 +709,13 @@ runPeer opts = U.handle (\e -> myException e
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
   let pexFilt pips = do
-        tcpex <- listTCPPexCandidates @e brains <&> HashSet.fromList
-        fset  <- forM pips $ \p -> do
-                   toPeerAddr p >>= \case
-                    (L4Address UDP _) -> pure $ Just p
-                    pa@(L4Address TCP _) | HashSet.member pa tcpex -> pure $ Just p
-                    _ -> pure Nothing
-
-        pure (catMaybes fset)
+        tcpex <- listTCPPexCandidates @e brains -- <&> HashSet.fromList
+        pips2 <- filter onlyUDP <$> mapM toPeerAddr pips
+        pure (L.nub (pips2  <> tcpex))
+        where
+          onlyUDP = \case
+            (L4Address UDP _) -> True
+            _                 -> False
 
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
