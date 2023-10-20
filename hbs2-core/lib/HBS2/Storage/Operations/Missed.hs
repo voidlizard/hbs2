@@ -17,6 +17,8 @@ import Data.Maybe
 -- TODO: slow-dangerous
 findMissedBlocks :: (MonadIO m) => AnyStorage -> HashRef -> m [HashRef]
 findMissedBlocks sto href = do
+  -- TODO: limit-recursion-depth?
+  -- TODO: cache-results-limit-calls-freq
 
   -- trace $ "findMissedBlocks" <+> pretty href
 
@@ -38,7 +40,16 @@ findMissedBlocks sto href = do
                 let w = tryDetect (fromHashRef hx) bs
                 r <- case w of
                       Merkle{}    -> lift $ lift $ findMissedBlocks sto hx
-                      MerkleAnn{} -> lift $ lift $ findMissedBlocks sto hx
+                      MerkleAnn t -> lift $ lift do
+                        -- FIXME: make-tail-recursive
+
+                        b0 <- case _mtaMeta t of
+                                AnnHashRef hm -> findMissedBlocks sto (HashRef hm)
+                                _ -> pure mempty
+
+                        b1 <- findMissedBlocks sto hx
+                        pure (b0 <> b1)
+
                       _ -> pure mempty
 
                 lift $ mapM_ S.yield r
