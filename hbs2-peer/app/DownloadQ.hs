@@ -42,9 +42,9 @@ downloadQueue _ brains denv = do
         addDownload mzero (fromHashRef h)
 
   -- FIXME: timeout-hardcodes
-  let refs = listDownloads @e brains <&> fmap (set _2 10)
+  let refs = listDownloads @e brains <&> fmap (set _2 30)
 
-  polling (Polling 5 10) refs $ \ref -> do
+  polling (Polling 5 20) refs $ \ref -> do
     missed <- findMissedBlocks sto ref
 
     debug $ "DownloadQ. check" <+> pretty ref <+> pretty (length missed)
