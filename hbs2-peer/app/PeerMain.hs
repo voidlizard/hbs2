@@ -572,7 +572,6 @@ runPeer opts = U.handle (\e -> myException e
   let debugConf       = runReader (cfgValue @PeerDebugKey)   syn :: FeatureSwitch
   let trace1Conf      = runReader (cfgValue @PeerTrace1Key)  syn :: FeatureSwitch
   let helpFetchKeys   = runReader (cfgValue @PeerProxyFetchKey) syn & toKeys
-  let useHttpDownload = runReader (cfgValue @PeerUseHttpDownload) syn  & (== FeatureOn)
   let tcpListen       = runReader (cfgValue @PeerListenTCPKey) syn & fromMaybe ""
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
