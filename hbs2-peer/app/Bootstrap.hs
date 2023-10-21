@@ -8,6 +8,7 @@ import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Peer
 import HBS2.Clock
 import HBS2.Net.Proto.Sessions
+import HBS2.Peer.Brains
 
 import PeerConfig
 import HBS2.System.Logger.Simple
@@ -19,6 +20,7 @@ import Data.Foldable
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.List qualified as List
 import Control.Monad.Trans.Maybe
 
 
@@ -82,8 +84,10 @@ knownPeersPingLoop :: forall e m . ( HasPeer e
                                    , Pretty (Peer e)
                                    , e ~ L4Proto
                                    , MonadIO m)
-                   => PeerConfig -> m ()
-knownPeersPingLoop (PeerConfig syn) = do
+                   => PeerConfig
+                   -> SomeBrains e
+                   -> m ()
+knownPeersPingLoop (PeerConfig syn) brains = do
   -- FIXME: add validation and error handling
   -- FIXME: tcp-addr-support-2
   let parseKnownPeers xs = do
@@ -91,8 +95,17 @@ knownPeersPingLoop (PeerConfig syn) = do
         mapM fromPeerAddr pa
 
   let them = runReader (cfgValue @PeerKnownPeer) syn & Set.toList
+
+  pex <- listPexInfo @e brains >>= liftIO . mapM fromPeerAddr
+
   knownPeers' <- liftIO $ parseKnownPeers them
+
+  let pips = List.nub (knownPeers' <> pex)
+
   forever do
-    forM_ knownPeers' (sendPing @e)
-    pause @'Minutes 20
+    forM_ pips (sendPing @e)
+    pause @'Minutes 10
+
+
+
 

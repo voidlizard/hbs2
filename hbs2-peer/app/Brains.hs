@@ -107,6 +107,10 @@ instance ( Hashable (Peer e)
 
   listDownloads = liftIO . selectDownloads
 
+  listPexInfo = liftIO . selectPexInfo
+
+  updatePexInfo b pex = updateOP b $ insertPexInfo b pex
+
   delDownload br what  = do
     liftIO $ Cache.insert (view brainsRemoved br) what ()
     updateOP br (deleteDownload br what)
@@ -544,6 +548,7 @@ SAVEPOINT zzz1;
 DELETE FROM ancestors WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM seenby WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > 300;
+DELETE FROM statedb.pexinfo where seen <  datetime('now', '-7 days');
 
 RELEASE SAVEPOINT zzz1;
 
@@ -655,6 +660,33 @@ selectDownloads br = do
 
 ---
 
+insertPexInfo :: forall e  . ( e ~ L4Proto)
+               => BasicBrains e
+               -> [PeerAddr e]
+               -> IO ()
+insertPexInfo br peers = liftIO do
+  let conn = view brainsDb br
+  forM_ peers $ \p -> do
+    execute conn [qc|
+    insert into statedb.pexinfo (peer)
+    values(?)
+    on conflict (peer)
+      do update set seen =  datetime('now','localtime')
+    |] (Only (show $ pretty p))
+
+
+selectPexInfo :: forall e . (e ~ L4Proto)
+              => BasicBrains e
+              -> IO [PeerAddr e]
+selectPexInfo br = liftIO do
+  let conn = view brainsDb br
+  query_ conn [qc|
+    select peer from statedb.pexinfo where seen >= datetime('now', '-7 days')
+    order by seen desc
+    limit 100
+  |] <&> fmap (fromStringMay . fromOnly)
+     <&> catMaybes
+
 -- FIXME: eventually-close-db
 newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
                => PeerConfig
@@ -690,6 +722,13 @@ newBasicBrains cfg = liftIO do
     ( hash    text not null primary key
     , parent  text null
     , ts INTEGER DEFAULT (strftime('%s','now'))
+    );
+  |]
+
+  execute_ conn [qc|
+  create table if not exists statedb.pexinfo
+    ( peer    text not null primary key
+    , seen    DATE DEFAULT (datetime('now','localtime'))
     );
   |]
 

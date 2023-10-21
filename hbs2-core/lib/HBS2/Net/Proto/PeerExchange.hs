@@ -67,11 +67,10 @@ peerExchangeProto :: forall e m . ( MonadIO m
                                   , Pretty (Peer e)
                                   , e ~ L4Proto
                                   )
-                  => ( [Peer e] -> m [Peer e] )
-                  ->  PeerExchange e
+                  => PeerExchange e
                   -> m ()
 
-peerExchangeProto pexFilt  msg = do
+peerExchangeProto msg = do
   case msg of
     PeerExchangeGet n -> peerExchangeGet PEX1 n
     PeerExchangeGet2 n -> peerExchangeGet PEX2 n
@@ -110,9 +109,6 @@ peerExchangeProto pexFilt  msg = do
 
       debug $ "PeerExchangeGet" <+> "from" <+> pretty that
 
-      pl   <- getPeerLocator @e
-      pips <- knownPeers @e pl >>= pexFilt
-
       case pex of
         PEX1 -> do
           pa <- take defPexMaxPeers <$> getAllPex1Peers
@@ -131,7 +127,7 @@ getAllPex1Peers :: forall e m .
   => m [IPAddrPort L4Proto]
 getAllPex1Peers = do
     pl   <- getPeerLocator @e
-    pips <- knownPeers @e pl
+    pips <- knownPeersForPEX @e pl
     -- TODO: tcp-peer-support-in-pex
     pa' <- forM pips $ \p -> do
                 auth <- find (KnownPeerKey p) id <&> isJust
@@ -143,7 +139,6 @@ getAllPex1Peers = do
 
 type PexInfoContext e m = ( Sessions e (KnownPeer e) m
                           , HasPeerLocator L4Proto m
-                          -- , Expired e (
                           )
 
 getAllPex2Peers :: forall e m .
@@ -154,12 +149,9 @@ getAllPex2Peers :: forall e m .
   => m [PeerAddr L4Proto]
 getAllPex2Peers = do
     pl   <- getPeerLocator @e
-    pips <- knownPeers @e pl
-    pa' <- forM pips $ \p -> do
-                auth <- find (KnownPeerKey p) id
-                maybe1 auth (pure mempty) ( const $ fmap L.singleton (toPeerAddr p) )
-    -- FIXME: asap-random-shuffle-peers
-    pure $ mconcat pa'
+    pips <- knownPeersForPEX @e pl
+    -- FIXME: random-shuffle
+    forM pips toPeerAddr
 
 newtype instance SessionKey e (PeerExchange e) =
   PeerExchangeKey (Nonce (PeerExchange e))

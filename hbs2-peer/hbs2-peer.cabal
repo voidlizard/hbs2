@@ -154,6 +154,7 @@ executable hbs2-peer
 
     other-modules:
                       BlockDownload
+                    , BrainyPeerLocator
                     , DownloadQ
                     , DownloadMon
                     , EncryptionKeys

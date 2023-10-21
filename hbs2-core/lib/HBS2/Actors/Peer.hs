@@ -383,17 +383,18 @@ newPeerEnv :: forall e m . ( MonadIO m
                            , Hashable (PubKey 'Sign (Encryption e))
                            , Hashable PeerNonce
                            )
-          => AnyStorage
+          => AnyPeerLocator e
+          -> AnyStorage
           -> Fabriq e
           -> Peer e
           -> m (PeerEnv e)
 
-newPeerEnv s bus p = do
+newPeerEnv pl s bus p = do
   let _envSelf      = p
   _envPeerNonce     <- newNonce @()
   let _envFab       = bus
   let _envStorage   = s
-  _envPeerLocator   <- AnyPeerLocator <$> newStaticPeerLocator @e mempty
+  let _envPeerLocator = pl
   _envDeferred      <- newPipeline defProtoPipelineSize
   _envSessions      <- liftIO (Cache.newCache (Just defCookieTimeout))
   _envEvents        <- liftIO (newTVarIO mempty)

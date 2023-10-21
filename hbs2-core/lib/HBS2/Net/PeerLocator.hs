@@ -13,16 +13,20 @@ class PeerLocator e l where
   bestPeers    :: forall m . (HasPeer e, MonadIO m) => l -> m [Peer e]
   addExcluded  :: forall m . (HasPeer e, MonadIO m) => l -> [Peer e] -> m ()
 
+  knownPeersForPEX :: forall m . (HasPeer e, MonadIO m) => l -> m [Peer e]
+  knownPeersForPEX = knownPeers
+
 data AnyPeerLocator e = forall a . PeerLocator e a => AnyPeerLocator a
 
 instance HasPeer e => PeerLocator e (AnyPeerLocator e) where
   knownPeers (AnyPeerLocator l) = knownPeers  l
+  knownPeersForPEX (AnyPeerLocator l) = knownPeersForPEX  l
   addPeers (AnyPeerLocator l) = addPeers l
   delPeers (AnyPeerLocator l) = delPeers l
   addExcluded (AnyPeerLocator l) = addExcluded l
 
   -- FIXME: a better algorithm of choice
-  bestPeers (AnyPeerLocator l) = liftIO $ knownPeers l >>= shuffleM
+  bestPeers (AnyPeerLocator l) = knownPeers l >>= liftIO . shuffleM
 
 class Monad m => HasPeerLocator e m where
   getPeerLocator ::  m (AnyPeerLocator e)

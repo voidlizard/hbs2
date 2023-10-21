@@ -42,6 +42,7 @@ import HBS2.Data.Detect
 import HBS2.System.Logger.Simple hiding (info)
 
 import Brains
+import BrainyPeerLocator
 import PeerTypes
 import BlockDownload
 import CheckBlockAnnounce (checkBlockAnnounce)
@@ -640,6 +641,8 @@ runPeer opts = U.handle (\e -> myException e
 
   denv <- newDownloadEnv brains
 
+  pl <- AnyPeerLocator <$> newBrainyPeerLocator @e (SomeBrains @e brains) mempty
+
   let addr' = fromStringMay @(PeerAddr L4Proto) tcpListen
 
   trace $ "TCP addr:" <+> pretty tcpListen <+> pretty addr'
@@ -683,7 +686,7 @@ runPeer opts = U.handle (\e -> myException e
                       peer
 
           }
-      penv <- newPeerEnv (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
+      penv <- newPeerEnv pl (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
       pure (proxy, penv)
 
   proxyThread <- async $ runProxyMessaging proxy
@@ -707,15 +710,6 @@ runPeer opts = U.handle (\e -> myException e
                            }
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
-
-  let pexFilt pips = do
-        tcpex <- listTCPPexCandidates @e brains -- <&> HashSet.fromList
-        pips2 <- filter onlyUDP <$> mapM toPeerAddr pips
-        mapM fromPeerAddr (L.nub (pips2  <> tcpex))
-        where
-          onlyUDP = \case
-            (L4Address UDP _) -> True
-            _                 -> False
 
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
@@ -949,7 +943,7 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "peerPingLoop" (peerPingLoop @e conf penv)
 
-                peerThread "knownPeersPingLoop" (knownPeersPingLoop @e conf)
+                peerThread "knownPeersPingLoop" (knownPeersPingLoop @e conf (SomeBrains brains))
 
                 peerThread "bootstrapDnsLoop" (bootstrapDnsLoop @e conf)
 
@@ -978,7 +972,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
                     , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
-                    , makeResponse (peerExchangeProto pexFilt)
+                    , makeResponse peerExchangeProto
                     , makeResponse refLogUpdateProto
                     , makeResponse (refLogRequestProto reflogReqAdapter)
                     , makeResponse (peerMetaProto peerMeta)
@@ -1028,7 +1022,7 @@ runPeer opts = U.handle (\e -> myException e
           runMaybeT do
             lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (Notify @e puk box)
 
-  menv <- newPeerEnv (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
+  menv <- newPeerEnv pl (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
 
   ann <- liftIO $ async $ runPeerM menv $ do
 

@@ -43,6 +43,12 @@ class HasBrains e a where
   listTCPPexCandidates :: MonadIO m => a -> m [PeerAddr e]
   listTCPPexCandidates _ = pure mempty
 
+  listPexInfo :: MonadIO m => a -> m [PeerAddr e]
+  listPexInfo _ = pure mempty
+
+  updatePexInfo :: MonadIO m => a -> [PeerAddr e] -> m ()
+  updatePexInfo _ _ = pure ()
+
   listDownloads :: MonadIO m => a -> m [(HashRef, Integer)]
   listDownloads _ = pure mempty
 
@@ -153,6 +159,9 @@ instance HasBrains e (SomeBrains e) where
   getClientTCP (SomeBrains a) = getClientTCP @e a
   setActiveTCPSessions (SomeBrains a) = setActiveTCPSessions @e a
   listTCPPexCandidates (SomeBrains a) = listTCPPexCandidates @e a
+
+  listPexInfo (SomeBrains a) = listPexInfo @e a
+  updatePexInfo (SomeBrains a) = updatePexInfo @e a
 
   listDownloads (SomeBrains a) = listDownloads @e a
   delDownload (SomeBrains a) = delDownload @e a
