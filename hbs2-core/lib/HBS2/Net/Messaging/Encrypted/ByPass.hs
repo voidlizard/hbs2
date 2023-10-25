@@ -256,6 +256,11 @@ instance (ForByPass e, Messaging w e ByteString)
           atomically $ modifyTVar (bypassed bus) succ
           sendTo (proxied bus) t f m
 
+        -- TODO: stop-sending-hey-after-while
+        --   Если адрес кривой и мы его не знаем/не можем
+        --   на него послать/ничего с него не получаем ---
+        --   надо переставать слать на него HEY с какого-то момента
+
         -- TODO: fix-timeout-hardcode
         withHeySent bus 30 whom do
           sendHey bus whom
