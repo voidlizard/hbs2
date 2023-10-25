@@ -298,7 +298,7 @@ instance (ForByPass e, Messaging w e ByteString)
         -- FIXME: check-code
         guard ( code == Just heySeed )
 
-        debug $ "HEY CODE:" <+> pretty orig <> pretty code
+        debug $ "HEY CODE:" <> parens (pretty code) <+> pretty orig
 
         guard (not (LBS.null hbs))
 
