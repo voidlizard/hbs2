@@ -162,9 +162,6 @@ lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
   -- error $ "DECRYPTED SHIT!"
   MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict gkBs) & either (const Nothing) Just
 
--- FIXME: move-to-appropriate-place
-class NonceFrom nonce a where
-  nonceFrom :: a -> nonce
 
 typicalNonceLength :: Integral a => a
 typicalNonceLength = unsafePerformIO SK.newNonce & Saltine.encode & B8.length & fromIntegral

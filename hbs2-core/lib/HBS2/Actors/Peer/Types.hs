@@ -36,7 +36,15 @@ class Monad m => HasOwnPeer e m where
 
 data Fabriq e = forall bus . (Messaging bus e (Encoded e)) => Fabriq bus
 
+
 class HasFabriq e m where
   getFabriq :: m (Fabriq e)
 
+data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
+                       deriving stock (Generic)
+
+type PeerMessaging e = ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
+                       , Eq (Encoded e)
+                       , Hashable (Encoded e)
+                       )
 

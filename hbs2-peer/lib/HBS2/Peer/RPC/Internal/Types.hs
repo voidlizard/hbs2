@@ -6,10 +6,11 @@ module HBS2.Peer.RPC.Internal.Types
 
 import HBS2.Actors.Peer
 import HBS2.Net.Proto.Types
-import HBS2.Storage
+import HBS2.Storage()
 import HBS2.Data.Types.Refs (HashRef)
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
+import HBS2.Net.Messaging.Encrypted.ByPass (ByPassStat)
 import HBS2.Net.Proto.Service
 import HBS2.Peer.RPC.Class
 import HBS2.Peer.Brains
@@ -31,6 +32,7 @@ data RPC2Context =
   , rpcLocalMultiCast     :: Peer L4Proto
   , rpcStorage            :: AnyStorage
   , rpcBrains             :: SomeBrains L4Proto
+  , rpcByPassInfo         :: IO ByPassStat
   , rpcDoFetch            :: HashRef -> IO ()
   , rpcDoRefChanHeadPost  :: HashRef -> IO ()
   , rpcDoRefChanPropose   :: (PubKey 'Sign HBS2Basic, SignedBox ByteString L4Proto) -> IO ()

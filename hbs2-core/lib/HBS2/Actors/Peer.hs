@@ -47,20 +47,6 @@ import Control.Monad.IO.Unlift
 import Codec.Serialise (serialise, deserialiseOrFail)
 
 
-data AnyMessage enc e = AnyMessage !Integer !(Encoded e)
-                       deriving stock (Generic)
-
-
-class ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
-      , Eq (Encoded e)
-      , Hashable (Encoded e)
-      ) => PeerMessaging e
-
-instance ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
-         , Eq (Encoded e)
-         , Hashable (Encoded e)
-         )
-  => PeerMessaging e
 
 class ( Eq (SessionKey e a)
       , Hashable (SessionKey e a)
@@ -379,6 +365,7 @@ newPeerEnv :: forall e m . ( MonadIO m
                            , Ord (Peer e)
                            , Pretty (Peer e)
                            , HasNonces () m
+                           , PeerMessaging e
                            , Asymm (Encryption e)
                            , Hashable (PubKey 'Sign (Encryption e))
                            , Hashable PeerNonce
@@ -457,7 +444,7 @@ runProto hh = do
 
       case Map.lookup n disp of
         Nothing -> do
-          err $ "PROTO not found" <+> pretty n <+> pretty (fmap fst resp)
+          -- err $ "PROTO not found" <+> pretty n <+> pretty (fmap fst resp)
           pure () -- FIXME: error counting! and statistics counting feature
 
         Just (AnyProtocol { protoDecode = decoder

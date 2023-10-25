@@ -29,6 +29,9 @@ import Data.ByteString (ByteString)
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
 
+class NonceFrom nonce a where
+  nonceFrom :: a -> nonce
+
 data CryptoAction = Sign | Encrypt
 
 data GroupKeyScheme = Symm | Asymm

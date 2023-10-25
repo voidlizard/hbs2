@@ -1,4 +1,3 @@
-{-# Language FunctionalDependencies #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -18,7 +17,7 @@ module HBS2.Prelude
   , ToByteString(..)
   , FromByteString(..)
   , Text.Text
-  , (&), (<&>)
+  , (&), (<&>), for_, for
   ) where
 
 import Data.Typeable as X
@@ -32,6 +31,9 @@ import Control.Monad (guard,when,unless,MonadPlus(..))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 
+
+import Data.Foldable(for_)
+import Data.Traversable(for)
 import Data.Kind
 import Data.Function
 import Data.Functor

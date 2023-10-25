@@ -210,7 +210,7 @@ main = do
                     ]
 
   pp2 <- async $ runPingPong env2 do
-                    -- request (view tcpOwnPeer env1) (Ping @L4Proto 1)
+                    request (view tcpOwnPeer env1) (Ping @L4Proto 1)
                     runProto @L4Proto
                         [ makeResponse (pingPongHandler 3)
                         ]

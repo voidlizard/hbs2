@@ -21,11 +21,10 @@ import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
 import HBS2.Net.Messaging.Unix
+import HBS2.Net.Messaging.Encrypted.ByPass
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
--- import HBS2.Net.Proto.Dialog
-import HBS2.Net.Proto.EncryptionHandshake
 import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
@@ -43,6 +42,7 @@ import HBS2.System.Logger.Simple hiding (info)
 
 import Brains
 import BrainyPeerLocator
+import ByPassWorker
 import PeerTypes
 import BlockDownload
 import CheckBlockAnnounce (checkBlockAnnounce)
@@ -52,13 +52,10 @@ import PeerInfo
 import PeerConfig
 import Bootstrap
 import CheckMetrics
-import EncryptionKeys
 import RefLog qualified
 import RefLog (reflogWorker)
 import HttpWorker
-import ProxyMessaging
--- import PeerMain.DialogCliCommand
--- import PeerMain.Dialog.Server
+import DispatchProxy
 import PeerMeta
 import CLI.Common
 import CLI.RefChan
@@ -233,6 +230,7 @@ runCLI = do
                 <> command "download"  (info pDownload  (progDesc "download management"))
                 <> command "poll"      (info pPoll  (progDesc "polling management"))
                 <> command "log"       (info pLog   (progDesc "set logging level"))
+                <> command "bypass"    (info pByPass (progDesc "bypass"))
                 -- FIXME: bring-back-dialogue-over-separate-socket
                 -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
                 )
@@ -468,6 +466,16 @@ runCLI = do
             delta = now - fromIntegral u
             diff = formatTime defaultTimeLocale "%d:%H:%M:%S" delta
 
+    pByPass = hsubparser (  command "show" (info pByPassShow (progDesc "show bypass info" ))
+                         )
+
+    pByPassShow = do
+      rpc <- pRpcCommon
+      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
+        void $ runMaybeT do
+         d <- toMPlus =<< callService @RpcByPassInfo caller ()
+         liftIO $ print $ pretty d
+
     refP :: ReadM (PubKey 'Sign HBS2Basic)
     refP = maybeReader fromStringMay
 
@@ -629,6 +637,8 @@ runPeer opts = U.handle (\e -> myException e
 
   udp <- async $ runMessagingUDP mess
 
+  let udpAddr = getOwnPeer mess
+
   mcast <- newMessagingUDPMulticast defLocalMulticast
             `orDie` "Can't start RPC listener"
 
@@ -652,43 +662,36 @@ runPeer opts = U.handle (\e -> myException e
            void $ async $ runMessagingTCP tcpEnv
            pure $ Just tcpEnv
 
-  (proxy, penv) <- mdo
-      proxy <- newProxyMessaging mess tcp >>= \proxy' -> pure proxy'
-            { _proxy_getEncryptionKey = \peer -> do
-                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
-                      withPeerM penv $ find (KnownPeerKey peer) id
-                  mkey <- join <$> forM mencKeyID \encKeyID ->
-                      getEncryptionKey proxy encKeyID
-                  case mkey of
-                      Nothing ->
-                          trace1 $ "ENCRYPTION empty getEncryptionKey"
-                              <+> pretty peer <+> viaShow mencKeyID
-                      Just k ->
-                          trace1 $ "ENCRYPTION success getEncryptionKey"
-                              <+> pretty peer <+> viaShow mencKeyID <+> viaShow k
-                  pure mkey
+  let mudp = Just $ Dispatched mess
 
-            , _proxy_clearEncryptionKey = \peer -> do
-                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
-                      withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mencKeyID \encKeyID -> setEncryptionKey proxy peer encKeyID Nothing
-                  -- deletePeerAsymmKey brains peer
-                  forM_ mencKeyID \encKeyID ->
-                      deletePeerAsymmKey' brains (show encKeyID)
+  let tcpaddr = view tcpOwnPeer <$> tcp
 
-            , _proxy_sendResetEncryptionKeys = \peer -> withPeerM penv do
-                  sendResetEncryptionKeys peer
+  let mtcp = Dispatched <$> tcp
 
-            , _proxy_sendBeginEncryptionExchange = \peer -> withPeerM penv do
-                  sendBeginEncryptionExchange pc
-                      ((pubKeyFromKeypair @s . _proxy_asymmetricKeyPair) proxy)
-                      peer
+  let points = catMaybes [ (udpAddr ,) <$> mudp
+                         , (,) <$> tcpaddr <*> mtcp
+                         ]
 
-          }
-      penv <- newPeerEnv pl (AnyStorage s) (Fabriq proxy) (getOwnPeer mess)
-      pure (proxy, penv)
+  proxy <- newDispatchProxy points $ \_ pip -> case view sockType pip of
+             TCP -> pure mtcp
+             UDP -> pure mudp
 
-  proxyThread <- async $ runProxyMessaging proxy
+  -- TODO: get-rid-of-from-addr
+  --   From addres в Messaging -- пережиток,
+  --   ни на что не влияет, ни для чего не нужен.
+  --   Таскается везде со времени, когда Messaging был
+  --   через TQueue. Нужно его удалить повсеместно
+  --   Или сделать некий AnyAddr/DefaultAddr
+  byPass <- newByPassMessaging @L4Proto
+                          byPassDef
+                          proxy
+                          (getOwnPeer mess)
+                          (view peerSignPk pc)
+                          (view peerSignSk pc)
+
+  penv <- newPeerEnv pl (AnyStorage s) (Fabriq byPass) (getOwnPeer mess)
+
+  proxyThread <- async $ runDispatchProxy proxy
 
   let peerMeta = mkPeerMeta conf penv
 
@@ -733,8 +736,8 @@ runPeer opts = U.handle (\e -> myException e
                     if pro then do
                       withPeerM penv $ withDownload denv (addDownload mzero h)
                     else do
+                      -- FIXME: separate-process-to-mark-logs-processed
                       withPeerM penv $ withDownload denv (processBlock h)
-                      setReflogProcessed @e brains h
 
               let doFetchRef puk = do
                    withPeerM penv $ do
@@ -753,45 +756,6 @@ runPeer opts = U.handle (\e -> myException e
 
               let hshakeAdapter = PeerHandshakeAdapter addNewRtt
 
-              let encryptionHshakeAdapter ::
-                      ( MonadIO m
-                      , EventEmitter e (PeerAsymmInfo e) m
-                      ) => EncryptionHandshakeAdapter L4Proto m s
-                  encryptionHshakeAdapter = EncryptionHandshakeAdapter
-                    { encHandshake_considerPeerAsymmKey = \peer mpubkey -> withPeerM penv do
-                          mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
-                              withPeerM penv $ find (KnownPeerKey peer) id
-                          case mpubkey of
-                              Nothing -> do
-                                  -- trace $ "ENCRYPTION delete key" <+> pretty peer <+> viaShow mencKeyID
-                                  -- deletePeerAsymmKey brains peer
-                                  forM_ mencKeyID \encKeyID ->
-                                      deletePeerAsymmKey' brains (show encKeyID)
-                              Just pk -> do
-                                  -- emit PeerAsymmInfoKey (PeerAsymmPubKey peer pk)
-                                  let symmk = genCommonSecret @s
-                                          (privKeyFromKeypair @s (_proxy_asymmetricKeyPair proxy))
-                                          pk
-                                  case mencKeyID of
-                                      Nothing -> do
-                                          -- insertPeerAsymmKey brains peer pk symmk
-                                          -- insertPeerAsymmKey' brains (show peer) pk symmk
-                                          trace $ "ENCRYPTION can not store key. No encKeyID"
-                                              <+> pretty peer <+> viaShow mencKeyID
-                                      Just encKeyID -> do
-                                          liftIO $ setEncryptionKey proxy peer encKeyID (Just symmk)
-                                          insertPeerAsymmKey' brains (show encKeyID) pk symmk
-
-                    , encAsymmetricKeyPair = _proxy_asymmetricKeyPair proxy
-
-                    , encGetEncryptionKey = liftIO . getEncryptionKey proxy
-
-                    }
-
-              -- dialReqProtoAdapter <- do
-              --     dialReqProtoAdapterDApp <- pure dialogRoutes
-              --     pure DialReqProtoAdapter {..}
-
               env <- ask
 
               pnonce <- peerNonce @e
@@ -799,14 +763,6 @@ runPeer opts = U.handle (\e -> myException e
               pl <- getPeerLocator @e
 
               addPeers @e pl ps
-
-              subscribe @e PeerExpiredEventKey \(PeerExpiredEvent peer {-mpeerData-}) -> liftIO do
-                  mencKeyID <- (fmap . fmap) encryptionKeyIDKeyFromPeerData $
-                               withPeerM penv $ find (KnownPeerKey peer) id
-                  forM_ mencKeyID \encKeyID -> setEncryptionKey proxy peer encKeyID Nothing
-                  -- deletePeerAsymmKey brains peer
-                  forM_ mencKeyID \encKeyID ->
-                      deletePeerAsymmKey' brains (show encKeyID)
 
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do
@@ -936,6 +892,8 @@ runPeer opts = U.handle (\e -> myException e
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
+                peerThread "byPassWorker" (byPassWorker byPass penv)
+
                 peerThread "httpWorker" (httpWorker conf peerMeta denv)
 
                 peerThread "checkMetrics" (checkMetrics metrics)
@@ -952,13 +910,9 @@ runPeer opts = U.handle (\e -> myException e
 
                 peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
 
-                peerThread "encryptionHandshakeWorker"
-                    (EncryptionKeys.encryptionHandshakeWorker @e conf pc encryptionHshakeAdapter)
-
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
                 peerThread "postponedLoop" (postponedLoop denv)
-
 
                 peerThread "reflogWorker" (reflogWorker @e conf (SomeBrains brains) rwa)
 
@@ -970,7 +924,7 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
-                    , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
+                    -- , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
                     , makeResponse peerExchangeProto
                     , makeResponse refLogUpdateProto
                     , makeResponse (refLogRequestProto reflogReqAdapter)
@@ -1067,6 +1021,7 @@ runPeer opts = U.handle (\e -> myException e
                             , rpcLocalMultiCast = localMulticast
                             , rpcStorage = AnyStorage s
                             , rpcBrains = SomeBrains brains
+                            , rpcByPassInfo = liftIO (getStat byPass)
                             , rpcDoFetch = liftIO . fetchHash penv denv
                             , rpcDoRefChanHeadPost = refChanHeadPostAction
                             , rpcDoRefChanPropose = refChanProposeAction
@@ -1084,6 +1039,7 @@ runPeer opts = U.handle (\e -> myException e
       , makeResponse (makeServer @StorageAPI)
       ]
 
+  link proxyThread
   link rpcProto
   link loop
 
@@ -1093,6 +1049,7 @@ runPeer opts = U.handle (\e -> myException e
                               , rpcProto
                               , ann
                               , messMcast
+                              , proxyThread
                               , brainsThread
                               ]
 

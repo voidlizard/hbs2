@@ -3,7 +3,10 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language MultiWayIf #-}
-module PeerTypes where
+module PeerTypes
+  ( module PeerTypes
+  , module HBS2.Net.PeerLocator
+  ) where
 
 import HBS2.Actors.Peer
 import HBS2.Clock

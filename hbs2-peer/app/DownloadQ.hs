@@ -46,8 +46,7 @@ downloadQueue _ brains denv = do
 
   polling (Polling 5 20) refs $ \ref -> do
     missed <- findMissedBlocks sto ref
-
-    debug $ "DownloadQ. check" <+> pretty ref <+> pretty (length missed)
+    trace $ "DownloadQ. check" <+> pretty ref <+> pretty (length missed)
 
     when (null missed) do
       delDownload @e brains ref

@@ -751,6 +751,60 @@ executable topsort-commits
         -- , vector
         -- , fast-logger
 
+executable test-enc-1
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+
+    ghc-options:
+      -- -prof
+      -- -fprof-auto
+
+    other-modules:
+
+    -- other-extensions:
+
+    -- type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestEnc.hs
+
+    build-depends:
+          base, hbs2-core
+        -- , async
+        -- , attoparsec
+        , bytestring
+        -- , cache
+        -- , clock
+        , containers
+        , interpolatedstring-perl6
+        -- , data-default
+        -- , data-textual
+        -- , directory
+        -- , hashable
+        -- , microlens-platform
+        -- , mtl
+        -- , mwc-random
+        , memory
+        , network-byte-order
+        -- , network
+        -- , network-ip
+        , prettyprinter
+        -- , random
+        , safe
+        , serialise
+        -- , stm
+        -- , streaming
+        , saltine
+        , text
+        , time
+        -- , typed-process
+        -- , transformers
+        , uniplate
+        , unliftio
+        -- , vector
+        -- , fast-logger
+
+
 
 executable create-raw-tx
     import:           shared-properties

@@ -1,7 +1,9 @@
-{-# Language FunctionalDependencies #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Net.Messaging where
+module HBS2.Net.Messaging
+  ( module HBS2.Net.Messaging
+  , module HBS2.Net.Proto
+  ) where
 
 import HBS2.Net.Proto
 
@@ -19,4 +21,5 @@ class HasPeer proto => Messaging bus proto msg  where
 
   sendTo  :: MonadIO m => bus -> To proto -> From proto -> msg -> m ()
   receive :: MonadIO m => bus -> To proto -> m [(From proto, msg)]
+
 
