@@ -71,7 +71,10 @@ mkRefLogRequestAdapter = do
   sto <- getStorage
   pure $ RefLogRequestI (doOnRefLogRequest sto) dontHandle
 
-
+-- FIXME: check-if-subscribed
+--   не дергать диск для неизвестных ссылок
+--   должно уменьшить дергание диска и флуд
+--   в логе
 doOnRefLogRequest :: forall e s m . ( MonadIO m
                                     , MyPeer e
                                     , s ~ Encryption e
