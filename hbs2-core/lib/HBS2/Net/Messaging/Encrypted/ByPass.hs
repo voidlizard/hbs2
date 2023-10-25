@@ -256,6 +256,9 @@ instance (ForByPass e, Messaging w e ByteString)
           atomically $ modifyTVar (bypassed bus) succ
           sendTo (proxied bus) t f m
 
+        -- TODO: wtf?
+        --   почему кэширование сборки отвалилось?
+
         -- TODO: stop-sending-hey-after-while
         --   Если адрес кривой и мы его не знаем/не можем
         --   на него послать/ничего с него не получаем ---
