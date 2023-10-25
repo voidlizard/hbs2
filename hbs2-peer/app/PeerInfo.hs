@@ -107,15 +107,7 @@ pexLoop brains tcpEnv = do
 
     setActiveTCPSessions @e brains ssids
 
-    tcp <- getClientTCP @e brains
-
-    forM_ tcp $ \(pa, ssid) -> do
-      debug $ "TCP PEX CANDIDATE" <+> pretty pa <+> pretty ssid
-
-    pex <- listTCPPexCandidates @e brains
-
-    forM_ pex $ \pa -> do
-      debug $ "BRAINS: TCP PEX CANDIDATE" <+> pretty pa
+    pure ()
 
   liftIO $ mapM_ link [tcpPexInfo]
 
