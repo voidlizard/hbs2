@@ -178,7 +178,7 @@ instance ( Hashable (Peer e)
 
     pure (not kicked && postpone)
     where
-      simK = 4
+      simK = 2
 
   -- FIXME: investigate-simK-affects-anything
   --   проверить
@@ -191,7 +191,7 @@ instance ( Hashable (Peer e)
     where
       -- TODO: simK-to-settings
       --   в настройки, если на что-либо влияет
-      simK = 4
+      simK = 2
 
   advisePeersForBlock b h = do
     r <- liftIO $ findPeers b h
