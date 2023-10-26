@@ -778,7 +778,7 @@ runPeer opts = U.handle (\e -> myException e
             runPeerM penv $ do
               adapter <- mkAdapter
 
-              reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e
+              reflogReqAdapter <- RefLog.mkRefLogRequestAdapter @e (SomeBrains brains)
 
               let doDownload h = do
                     pro <- isReflogProcessed @e brains h

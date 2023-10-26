@@ -66,10 +66,11 @@ mkRefLogRequestAdapter :: forall e s m . ( MonadIO m
                                          , Pretty (AsBase58 (PubKey 'Sign s))
                                          , s ~ Encryption e
                                          )
-          => m (RefLogRequestI e (ResponseM e m ))
-mkRefLogRequestAdapter = do
+          => SomeBrains e -> m (RefLogRequestI e (ResponseM e m ))
+mkRefLogRequestAdapter brains = do
   sto <- getStorage
-  pure $ RefLogRequestI (doOnRefLogRequest sto) dontHandle
+  pure $ RefLogRequestI (doOnRefLogRequest sto) dontHandle (isPolledRef @e brains)
+
 
 -- FIXME: check-if-subscribed
 --   не дергать диск для неизвестных ссылок
@@ -82,7 +83,8 @@ doOnRefLogRequest :: forall e s m . ( MonadIO m
                                     )
                    =>  AnyStorage -> (Peer e, PubKey 'Sign s) -> m (Maybe (Hash HbSync))
 
-doOnRefLogRequest sto (_,pk) = liftIO $ getRef sto (RefLogKey @s pk)
+doOnRefLogRequest sto (_,pk) = do
+  liftIO $ getRef sto (RefLogKey @s pk)
 
 
 data RefLogWorkerAdapter e =
@@ -164,6 +166,7 @@ reflogWorker conf brains adapter = do
     -- TODO: ASAP-start-only-one-instance-for-link-monitor
     -- TODO: ASAP-dont-do-if-already-done
 
+    -- TODO: use-download-mon
     here <- liftIO $ readTVarIO reflogMon <&> HashSet.member h
     unless here do
       liftIO $ atomically $ modifyTVar' reflogMon (HashSet.insert h)

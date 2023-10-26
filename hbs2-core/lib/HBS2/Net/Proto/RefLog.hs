@@ -17,6 +17,7 @@ import HBS2.Data.Types.Refs
 
 import HBS2.System.Logger.Simple
 
+import Control.Monad.Trans.Maybe
 import Data.Maybe
 import Data.Hashable hiding (Hashed)
 import Data.ByteString (ByteString)
@@ -48,8 +49,13 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefLogKey s) where
 
 
 data RefLogRequest e =
-    RefLogRequest  (PubKey 'Sign (Encryption e))
-  | RefLogResponse (PubKey 'Sign (Encryption e)) (Hash HbSync)
+    RefLogRequest
+    { refLog :: PubKey 'Sign (Encryption e)
+    }
+  | RefLogResponse
+    { refLog      :: PubKey 'Sign (Encryption e)
+    , refLogValue :: Hash HbSync
+    }
   deriving stock (Generic)
 
 deriving instance
@@ -148,6 +154,7 @@ data RefLogRequestI e m =
   RefLogRequestI
   { onRefLogRequest :: (Peer e, PubKey 'Sign (Encryption e)) -> m (Maybe (Hash HbSync))
   , onRefLogResponse :: (Peer e, PubKey 'Sign (Encryption e), Hash HbSync) -> m ()
+  , isRefLogSubscribed :: PubKey 'Sign (Encryption e) -> m Bool
   }
 
 refLogRequestProto :: forall e s m . ( MonadIO m
@@ -164,23 +171,22 @@ refLogRequestProto :: forall e s m . ( MonadIO m
                   => RefLogRequestI e m -> RefLogRequest e -> m ()
 
 refLogRequestProto adapter cmd = do
-
   p <- thatPeer proto
-  auth <- find (KnownPeerKey p) id <&> isJust
 
-  when auth do
+  void $ runMaybeT do
 
-    -- FIXME: asap-only-accept-response-if-we-have-asked
+    guard =<< lift (find (KnownPeerKey p) id <&> isJust)
+    guard =<< lift (isRefLogSubscribed adapter (refLog cmd))
 
     case cmd of
-      (RefLogRequest pk) -> do
+      (RefLogRequest pk) -> lift do
          trace $ "got RefLogUpdateRequest for" <+> pretty (AsBase58 pk)
          pip <- thatPeer proto
          answ' <- onRefLogRequest adapter (pip,pk)
          maybe1 answ' none $ \answ -> do
           response (RefLogResponse @e pk answ)
 
-      (RefLogResponse pk h) -> do
+      (RefLogResponse pk h) -> lift do
          trace $ "got RefLogResponse for" <+> pretty (AsBase58 pk) <+> pretty h
          pip <- thatPeer proto
          emit RefLogReqAnswerKey (RefLogReqAnswerData @e pk h)
