@@ -256,9 +256,6 @@ instance (ForByPass e, Messaging w e ByteString)
           atomically $ modifyTVar (bypassed bus) succ
           sendTo (proxied bus) t f m
 
-        -- TODO: wtf?
-        --   почему кэширование сборки отвалилось?
-
         -- TODO: stop-sending-hey-after-while
         --   Если адрес кривой и мы его не знаем/не можем
         --   на него послать/ничего с него не получаем ---
@@ -316,8 +313,6 @@ instance (ForByPass e, Messaging w e ByteString)
           HEY{..} -> do-- void $ runMaybeT do
             debug $ "GOT HEY MESSAGE" <+> parens (pretty code) <+> pretty heyNonceA
 
-            -- FIXME: check-if-key-authorized
-
             let mbx = unboxSignedBox0 heyBox
 
             when (isNothing mbx) do
@@ -325,7 +320,6 @@ instance (ForByPass e, Messaging w e ByteString)
 
             n <- toMPlus mbx
 
-            -- FIXME: authorize-pk-right-here
             (pks, HEYBox t puk) <- toMPlus mbx
 
             let dt = byPassTimeRange o
