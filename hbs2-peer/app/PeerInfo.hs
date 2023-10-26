@@ -90,6 +90,14 @@ pexLoop brains tcpEnv = do
 
   pl <- getPeerLocator @e
 
+  -- TODO: investigate-tcp-session-cleanup
+  --  Есть подозрения, что TCP сессии не чистятся
+  --  надлежащим образом. Требуется расследовать.
+
+  -- NOTE: tcpPexInfo
+  --   Этот кусок говорит Brains о том,
+  --   какие TCP сессии есть в наличии.
+  --   Убирать пока нельзя
   tcpPexInfo <- liftIO $ async $ forever do
     -- FIXME: fix-hardcode
     pause @'Seconds 20

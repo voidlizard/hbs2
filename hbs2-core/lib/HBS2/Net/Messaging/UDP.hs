@@ -143,6 +143,8 @@ runMessagingUDP udpMess = liftIO $ do
     bind so addr
 
   w <- async $ udpWorker udpMess (sock udpMess)
+  link w
+
   waitCatch w >>= either throwIO (const $ pure ())
 
 instance Messaging MessagingUDP L4Proto ByteString where
