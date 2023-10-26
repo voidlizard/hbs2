@@ -23,9 +23,7 @@ import HBS2.Net.Messaging.TCP
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Messaging.Encrypted.ByPass
 import HBS2.Net.PeerLocator
-import HBS2.Net.Proto as Proto
 import HBS2.Net.Proto.Definition
-import HBS2.Net.Proto.Event.PeerExpired
 import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerAnnounce
 import HBS2.Net.Proto.PeerExchange
@@ -84,16 +82,13 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
-import Data.HashSet qualified as HashSet
 import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Data.Time.Clock (UTCTime, NominalDiffTime, diffUTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX
-import Data.Time.LocalTime
 import Data.Time.Format
 import Lens.Micro.Platform as Lens
 import Network.Socket
@@ -113,6 +108,11 @@ import UnliftIO.Async as U
 
 import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
+
+data GoAgainException = GoAgainException
+                        deriving (Eq,Ord,Show,Typeable)
+
+instance Exception GoAgainException
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
@@ -565,6 +565,8 @@ runPeer opts = U.handle (\e -> myException e
                         >> respawn opts
                         ) $ runResourceT do
 
+  myself <- liftIO myThreadId
+
   metrics <- liftIO newStore
 
   xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
@@ -881,7 +883,6 @@ runPeer opts = U.handle (\e -> myException e
                         Just (e' :: AsyncCancelled) -> pure ()
                         Nothing -> do
                           err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
-                          throwM e -- threadSelf (SomeException e)
 
                     debug $ "peerThread Finished:" <+> t
 
@@ -924,7 +925,6 @@ runPeer opts = U.handle (\e -> myException e
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
-                    -- , makeResponse (withCredentials @e pc . encryptionHandshakeProto encryptionHshakeAdapter)
                     , makeResponse peerExchangeProto
                     , makeResponse refLogUpdateProto
                     , makeResponse (refLogRequestProto reflogReqAdapter)
@@ -936,6 +936,7 @@ runPeer opts = U.handle (\e -> myException e
                     ]
 
               void $ liftIO $ waitAnyCancel workers
+              liftIO $ throwTo myself GoAgainException
 
   let refChanHeadPostAction href = do
         void $ liftIO $ withPeerM penv $ do
@@ -1029,7 +1030,6 @@ runPeer opts = U.handle (\e -> myException e
                             }
 
   m1 <- async $ runMessagingUnix rpcmsg
-  link m1
 
   rpcProto <- async $ flip runReaderT rpcctx do
     runProto @UNIX
@@ -1038,10 +1038,6 @@ runPeer opts = U.handle (\e -> myException e
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
       ]
-
-  link proxyThread
-  link rpcProto
-  link loop
 
   void $ waitAnyCancel $ w <> [ udp
                               , loop
@@ -1054,8 +1050,10 @@ runPeer opts = U.handle (\e -> myException e
                               ]
 
   liftIO $ simpleStorageStop s
+  pause @'Seconds 1
 
-
+  -- we want to clean up all resources
+  throwM GoAgainException
 
 emitToPeer :: ( MonadIO m
               , EventEmitter e a (PeerM e IO)
