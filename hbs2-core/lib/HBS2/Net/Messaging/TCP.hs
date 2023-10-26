@@ -3,6 +3,7 @@ module HBS2.Net.Messaging.TCP
   ( MessagingTCP
   , runMessagingTCP
   , newMessagingTCP
+  , tcpSOCKS5
   , tcpOwnPeer
   , tcpPeerConn
   , tcpCookie
@@ -12,7 +13,6 @@ module HBS2.Net.Messaging.TCP
 import HBS2.Clock
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging
-import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 
 import HBS2.Net.Messaging.Stream
@@ -20,14 +20,12 @@ import HBS2.Net.Messaging.Stream
 import HBS2.System.Logger.Simple
 
 import Control.Concurrent.STM (flushTQueue)
-import Control.Exception (try,Exception,SomeException,throwIO)
+import Control.Exception (try,SomeException)
 import Control.Monad
 import Data.Bits
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString qualified as BS
 import Data.Function
-import Data.Functor
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as L
@@ -37,8 +35,6 @@ import Lens.Micro.Platform
 import Network.ByteOrder hiding (ByteString)
 import Network.Simple.TCP
 import Network.Socket hiding (listen,connect)
--- import Network.Socket.ByteString.Lazy hiding (send,recv)
-import Streaming.Prelude qualified as S
 import System.Random hiding (next)
 import Control.Monad.Trans.Resource
 
@@ -53,7 +49,8 @@ import UnliftIO.Exception qualified as U
 -- | TCP Messaging environment
 data MessagingTCP =
   MessagingTCP
-  { _tcpOwnPeer          :: Peer L4Proto
+  { _tcpSOCKS5           :: Maybe (PeerAddr L4Proto)
+  , _tcpOwnPeer          :: Peer L4Proto
   , _tcpCookie           :: Word32
   , _tcpConnPeer         :: TVar (HashMap Word64 (Peer L4Proto))
   , _tcpPeerConn         :: TVar (HashMap (Peer L4Proto) Word64)
@@ -76,18 +73,19 @@ newMessagingTCP :: ( MonadIO m
                 -> m MessagingTCP
 
 newMessagingTCP pa = liftIO do
-  MessagingTCP <$> fromPeerAddr pa
-               <*> randomIO
-               <*> newTVarIO mempty
-               <*> newTVarIO mempty
-               <*> newTVarIO mempty
-               <*> newTVarIO mempty
-               <*> newTVarIO mempty
-               <*> newTVarIO mempty
-               <*> newTQueueIO
-               <*> newTVarIO mempty
-               <*> newTQueueIO
-               <*> pure (\_ _ -> none) -- do nothing by default
+  MessagingTCP Nothing
+    <$> fromPeerAddr pa
+    <*> randomIO
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTQueueIO
+    <*> newTVarIO mempty
+    <*> newTQueueIO
+    <*> pure (\_ _ -> none) -- do nothing by default
 
 instance Messaging MessagingTCP L4Proto ByteString where
 
@@ -330,9 +328,31 @@ connectPeerTCP env peer = liftIO do
   pa <- toPeerAddr peer
   let (L4Address _ (IPAddrPort (i,p))) = pa
 
-  connect (show i) (show p) $ \(sock, remoteAddr) -> do
-    spawnConnection Client env sock remoteAddr
-    shutdown sock ShutdownBoth
+
+  here <- readTVarIO (view tcpPeerConn env) <&> HashMap.member peer
+
+  unless here do
+
+    case view tcpSOCKS5 env of
+      Nothing -> do
+
+        connect (show i) (show p) $ \(sock, remoteAddr) -> do
+          spawnConnection Client env sock remoteAddr
+          shutdown sock ShutdownBoth
+
+      Just socks5 -> do
+
+        let (L4Address _ (IPAddrPort (socks,socksp))) = socks5
+
+        connectSOCKS5 (show socks) (show socksp) (show i) (show p) $ \(sock, socksAddr, _) -> do
+
+          let (PeerL4{..}) = peer
+
+          debug $ "CONNECTED VIA SOCKS5" <+> pretty socksAddr <+> pretty pa
+
+          spawnConnection Client env sock _sockAddr
+
+          shutdown sock ShutdownBoth
 
 -- FIXME: link-all-asyncs
 

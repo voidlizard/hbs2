@@ -134,6 +134,7 @@ data PeerDebugKey
 data PeerTraceKey
 data PeerTrace1Key
 data PeerProxyFetchKey
+data PeerTcpSOCKS5
 
 
 instance Monad m => HasCfgKey PeerDebugKey a m where
@@ -157,6 +158,11 @@ instance Monad m => HasCfgKey PeerStorageKey (Maybe String) m where
 instance Monad m => HasCfgKey PeerProxyFetchKey (Set String) m where
   key = "proxy-fetch-for"
 
+-- NOTE: socks5-auth
+--   Network.Simple.TCP does not support
+--   SOCKS5 authentification
+instance Monad m => HasCfgKey PeerTcpSOCKS5 (Maybe String) m where
+  key = "tcp.socks5"
 
 data PeerOpts =
   PeerOpts
@@ -586,6 +592,7 @@ runPeer opts = U.handle (\e -> myException e
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
 
+  let useSocks5  = runReader (cfgValue @PeerTcpSOCKS5) syn
 
   let listenSa = view listenOn opts <|> listenConf
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
@@ -684,8 +691,15 @@ runPeer opts = U.handle (\e -> myException e
                 pure (env, (udpAddr, Dispatched env))
 
   tcpPoint <- runMaybeT do
+
                 addr <- toMPlus $ fromStringMay @(PeerAddr L4Proto) tcpListen
-                tcpEnv <- newMessagingTCP addr <&> set tcpOnClientStarted (onClientTCPConnected brains)
+
+                let socks5 = useSocks5 >>= fromStringMay @(PeerAddr L4Proto)
+
+                tcpEnv <- newMessagingTCP addr
+                             <&> set tcpOnClientStarted (onClientTCPConnected brains)
+                             <&> set tcpSOCKS5 socks5
+
                 void $ liftIO ( async do
                           runMessagingTCP tcpEnv
                             `U.withException` \(e :: SomeException) -> do

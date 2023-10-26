@@ -1,20 +1,60 @@
 ;; hbs2-peer config file
 
-;; dquotes cause number literals
-;; starts from digit!
+; listen "0.0.0.0:84"
 
-listen "0.0.0.0:7353"
-rpc    "127.0.0.1:13333"
+; listen "0.0.0.0:7354"
+
+listen-tcp "tcp://0.0.0.0:3001"
+
+;; SOCKS5
+;; Warning: login/password auth not supported yet
+
+tcp.socks5 "127.0.0.1:1080"
+
+; listen-tcp "tcp://0.0.0.0:45"
+
+rpc    "127.0.0.1:13334"
+
+; default storage is $HOME/.local/share/hbs2
+;storage "/home/dmz/.local/share/hbs2-anat"
+
+; edit path to a keyring file
 key    "./key"
 
+brains "/tmp/hbs2-brains.db"
 
-storage "./storage"
+accept-block-announce *
 
-;; other parameters
+poll reflog 5 "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
 
-blacklist "G4SPdgMAd3Vvu7fHaDuHSDUAB82nAWnovwaRYdxwvwS1"
+;[ validate refchan "Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepG1"
+;  (socket unix "/tmp/validate-Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepG1")
+;]
 
-;; blacklist "AAh9rjcgg2Zfmd9c8xAhVPBEmUCyYM7wHGxjjqYDZYRb"
 
-;; accept-block-announce *
-;; accept-block-announce "AAh9rjcgg2Zfmd9c8xAhVPBEmUCyYM7wHGxjjqYDZYRb"
+;[ notify refchan "Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP1"
+;  (socket unix "/tmp/notify-Atg67E6CPMJWKvR9BvwZTTEjg3Hjz4CYCaEARGANepGP1")
+;]
+
+; known-peer "192.168.1.49:7353"
+
+; whitelist "35gKUG1mwBTr3tQpjWwR2kBYEnDmHxesoJL5Lj7tMjq3"
+; whitelist "5tZfGUoQ79EzFUvyyY5Wh1LzN2oaqhrn9kPnfk6ByHpf"
+
+; blacklist "BmjRCrSAu33b9XVhfvku4n8iTcr89Mj1r1tn2un4YmbB"
+
+http-port 5000
+
+http-download on
+
+trace off
+
+trace1 off
+
+debug on
+
+(rpc unix "/tmp/hbs2-rpc.socket")
+
+;; debug stuff
+
+
