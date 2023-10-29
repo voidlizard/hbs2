@@ -158,6 +158,7 @@ instance ( Serialise  (PeerCredentials e)
     where
      bs = LBS.toStrict $ serialise c
 
+-- FIXME: move-thouse-instances-to-appropriate-place-ASAP
 
 instance Pretty (AsBase58 Sign.PublicKey) where
   pretty (AsBase58 pk) = pretty $ B8.unpack $ toBase58 (Crypto.encode pk)

@@ -27,7 +27,7 @@ import System.Random (randomIO)
 import Data.Word
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-
+import Control.Exception (bracket_)
 
 type family Input a  :: Type
 type family Output a :: Type
@@ -243,22 +243,24 @@ callService caller input = do
 
   resp <- UIO.newTQueueIO
 
-  atomically $ do
-    UIO.modifyTVar (callWaiters caller) (HashMap.insert (reqNum req) resp)
-    UIO.writeTQueue (callInQ caller) req
+  let addWaiter = atomically $ do
+        UIO.modifyTVar (callWaiters caller) (HashMap.insert (reqNum req) resp)
+        UIO.writeTQueue (callInQ caller) req
 
-  msg <- atomically $ UIO.readTQueue resp
+  let removeWaiter = atomically $
+        UIO.modifyTVar (callWaiters caller) (HashMap.delete (reqNum req))
 
-  case msg of
-    ServiceResponse _ (Right bs) -> do
-      case deserialiseOrFail @(Output method) bs of
-        Left _  -> pure (Left ErrorInvalidResponse)
-        Right x -> pure (Right x)
+  liftIO $ bracket_ addWaiter removeWaiter $ do
+    msg <- atomically $ UIO.readTQueue resp
 
+    case msg of
+      ServiceResponse _ (Right bs) ->
+        case deserialiseOrFail @(Output method) bs of
+          Left _  -> pure (Left ErrorInvalidResponse)
+          Right x -> pure (Right x)
 
-    ServiceResponse _ (Left wtf) -> pure (Left wtf)
-
-    _ -> pure (Left ErrorInvalidResponse)
+      ServiceResponse _ (Left wtf) -> pure (Left wtf)
+      _ -> pure (Left ErrorInvalidResponse)
 
 
 makeClient :: forall api e m  . ( MonadIO m

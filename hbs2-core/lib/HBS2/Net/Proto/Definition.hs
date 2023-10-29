@@ -42,6 +42,8 @@ import Crypto.Saltine.Core.Sign qualified as Sign
 import Crypto.Saltine.Core.Box qualified as Encrypt
 
 
+
+-- FIXME: move-to-types-crypto-ASAP
 type instance Encryption L4Proto = HBS2Basic
 
 type instance Encryption UNIX = HBS2Basic
