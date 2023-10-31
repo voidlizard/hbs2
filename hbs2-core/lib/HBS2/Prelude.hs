@@ -6,6 +6,7 @@ module HBS2.Prelude
   , void, guard, when, unless
   , maybe1
   , eitherToMaybe
+  , asyncLinked
   , ToMPlus(..)
   , Hashable
   , lift
@@ -93,4 +94,14 @@ instance Monad m => ToMPlus (MaybeT m) (Either x a) where
   type instance ToMPlusResult (Either x a) = a
   toMPlus (Left{}) = mzero
   toMPlus (Right x) = MaybeT $ pure (Just x)
+
+
+asyncLinked :: MonadUnliftIO m => m a -> m (Async a)
+asyncLinked m = do
+  l <- async m
+  link l
+  pure l
+
+
+-- asyncLinked :: forall m . MonadUnliftIO m =>
 

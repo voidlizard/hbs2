@@ -78,7 +78,7 @@ main = do
 
     let soname = tmp </> "unix.socket"
 
-    server <- newMessagingUnixOpts [MUFork] True 1.0 soname
+    server <- newMessagingUnix True 1.0 soname
     client1 <- newMessagingUnix False 1.0 soname
 
     m1 <- async $ runMessagingUnix server
