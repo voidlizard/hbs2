@@ -91,6 +91,7 @@ data RefLogWorkerAdapter e =
  RefLogWorkerAdapter
  { reflogDownload :: Hash HbSync -> IO ()
  , reflogFetch    :: PubKey 'Sign (Encryption e) -> IO ()
+ , reflogUpdated  :: (RefLogKey (Encryption e), Hash HbSync) -> IO ()
  }
 
 reflogWorker :: forall e s m . ( e ~ L4Proto
@@ -252,7 +253,7 @@ reflogWorker conf brains adapter = do
                 pure nref
 
               -- TODO: old-root-to-delete
-
+              reflogUpdated adapter (reflogkey, newRoot)
               trace $ "new reflog value" <+> pretty (AsBase58 r) <+> pretty (hashObject @HbSync reflogkey) <+> pretty newRoot
 
           -- trace  "I'm a reflog update worker"

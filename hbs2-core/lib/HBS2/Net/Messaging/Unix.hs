@@ -15,25 +15,22 @@ import HBS2.Clock
 
 import HBS2.System.Logger.Simple
 
-import Control.Monad.Trans.Resource
 import Control.Monad
-import Control.Monad.Reader
-import Data.ByteString qualified as BS
+import Control.Monad.Reader hiding (reader)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
-import Data.Function
-import Data.Functor
 import Data.Hashable
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
 import Network.ByteOrder hiding (ByteString)
 import Network.Socket
-import Network.Socket.ByteString
+import Network.Socket.ByteString hiding (sendTo)
 import Network.Socket.ByteString.Lazy qualified as SL
 import Control.Concurrent.STM.TQueue (flushTQueue)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Lens.Micro.Platform
+import Control.Monad.Trans.Cont
 import UnliftIO
 
 import Streaming.Prelude qualified as S
@@ -61,6 +58,8 @@ instance Hashable (Peer UNIX) where
 data MessagingUnixOpts =
     MUWatchdog Int
   | MUNoFork
+  | MUDontRetry
+  | MUKeepAlive Int
   deriving (Eq,Ord,Show,Generic,Data)
 
 -- FIXME: use-bounded-queues
@@ -114,177 +113,201 @@ data ReadTimeoutException = ReadTimeoutException deriving (Show, Typeable)
 
 instance Exception ReadTimeoutException
 
+data UnixMessagingStopped = UnixMessagingStopped deriving (Show,Typeable)
+
+instance Exception UnixMessagingStopped
 
 runMessagingUnix :: MonadUnliftIO m => MessagingUnix -> m ()
 runMessagingUnix env = do
 
   if msgUnixServer env then
-    runServer
+    liftIO runServer
   else
     runClient
 
   where
 
-    runServer = forever $ handleAny cleanupAndRetry $ runResourceT do
+    runServer = forever $ handleAny cleanupAndRetry $ flip runContT pure $ do
 
       t0 <- getTimeCoarse
       atomically $ writeTVar (msgUnixLast env) t0
 
-      sock <- liftIO $ socket AF_UNIX Stream defaultProtocol
+      forked <- newTVarIO (mempty :: [Async ()])
 
-      void $ allocate (pure sock) (`shutdown` ShutdownBoth)
+      let fork w = do
+            l <- async w
+            atomically $ modifyTVar forked (l :)
+
+      let doFork  = not $ Set.member MUNoFork (msgUnixOpts env)
+
+      let withSession | doFork    = void . liftIO . fork
+                      | otherwise = void . liftIO
+
+      -- watchdog <- liftIO $ async runWatchDog
+
+      let openSock = liftIO $ socket AF_UNIX Stream defaultProtocol
+      let closeSock = liftIO . close
+
+      sock <- ContT $ bracket openSock closeSock
+
+      _ <- ContT $ bracket (pure forked)  $ \clients -> do
+             readTVarIO clients >>= mapM_ cancel
 
       liftIO $ bind sock $ SockAddrUnix (msgUnixSockPath env)
       liftIO $ listen sock 5
 
-      -- let withSession  = void . async . runResourceT
+      forever do
+        (so, sa) <- liftIO $ accept sock
 
-      let doFork  = not $ Set.member MUNoFork (msgUnixOpts env)
+        peerNum <- atomically $ do
+          n <- readTVar (msgUnixAccepts env)
+          modifyTVar    (msgUnixAccepts env) succ
+          pure n
 
-      let withSession | doFork    = void . async . runResourceT
-                      | otherwise = void . runResourceT
+        withSession $ flip runContT void do
 
-      watchdog <- async $ do
+          seen <- getTimeCoarse >>= newTVarIO
 
-        let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env)  ]
+          let that = if doFork then
+                       msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
+                     else
+                       msgUnixSelf env
 
-        maybe1 mwd (forever (pause @'Seconds 60)) $ \wd -> do
+          let writer = liftIO $ async $ forever do
+                mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup that
 
-          forever do
-
-            pause $ TimeoutSec $ realToFrac $ min (wd `div` 2) 1
-
-            now  <- getTimeCoarse
-            seen <- readTVarIO (msgUnixLast env)
-            acc  <- readTVarIO (msgUnixAccepts env)
-
-            trace $ "watchdog" <+> pretty now <+> pretty seen <+> pretty acc
-
-            let diff = toNanoSeconds $ TimeoutTS (now - seen)
-
-            when ( acc > 0 && diff >= toNanoSeconds (TimeoutSec $ realToFrac wd) ) do
-              throwIO ReadTimeoutException
-
-      run <- async $ forever $ runResourceT do
-              (so, sa) <- liftIO $ accept sock
-
-              -- FIXME: fixing-unix-sockets
-              --  Вот тут: нумеруем клиентов, в PeerAddr ставим
-              --  строку или номер.
-
-              peerNum <- atomically $ do
-                n <- readTVar (msgUnixAccepts env)
-                modifyTVar    (msgUnixAccepts env) succ
-                pure n
-
-              withSession do
-
-                let that = if doFork then
-                             msgUnixSelf env & over fromPeerUnix (<> "#" <> show peerNum)
-                           else
-                             msgUnixSelf env
-
-                void $ allocate ( createQueues env that ) dropQueuesFor
-
-                void $ allocate (pure so) close
-
-                writer <- async $ forever do
-                  mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup that
-
-                  maybe1 mq none $ \q -> do
-                    msg <- liftIO . atomically $ readTQueue q
+                maybe1 mq none $ \q -> do
+                  msg <- liftIO . atomically $ readTQueue q
 
 
-                    let len = fromIntegral $ LBS.length msg :: Int
-                    let bs = bytestring32 (fromIntegral len)
+                  let len = fromIntegral $ LBS.length msg :: Int
+                  let bs = bytestring32 (fromIntegral len)
 
-                    liftIO $ sendAll so $ bytestring32 (fromIntegral len)
+                  liftIO $ sendAll so $ bytestring32 (fromIntegral len)
 
-                    -- debug $ "sendAll" <+> pretty len <+> pretty (LBS.length msg) <+> viaShow bs
+                  -- debug $ "sendAll" <+> pretty len <+> pretty (LBS.length msg) <+> viaShow bs
 
-                    liftIO $ SL.sendAll so msg
+                  liftIO $ SL.sendAll so msg
 
-                void $ allocate (pure writer) cancel
+          void $ ContT $ bracket (createQueues env that) dropQueuesFor
 
-                link writer
+          void $ ContT $ bracket writer cancel
 
-                fix \next -> do
-                  me <- liftIO myThreadId
+          void $ ContT $ bracket ( pure so ) closeSock
 
-                  let mq = Just (msgUnixRecv env)
+          void $ ContT $ bracket ( debug $ "Client thread started" <+> pretty that )
+                                 ( \_ -> debug $ "Client thread finished" <+> pretty that  )
 
-                  -- frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
-                  frameLen <- liftIO $ readFromSocket so 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
+          fix \next -> do
 
-                  -- debug $ "frameLen" <+> pretty frameLen
+            let mq = Just (msgUnixRecv env)
 
-                  frame    <- liftIO $ readFromSocket so frameLen --  <&> LBS.toStrict
+            -- frameLen <- liftIO $ recv so 4 <&> word32 <&> fromIntegral
+            frameLen <- liftIO $ readFromSocket so 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
 
-                  maybe1 mq none $ \q -> do
-                    atomically $ writeTQueue q (From that, frame)
+            -- debug $ "frameLen" <+> pretty frameLen
 
-                  now <- getTimeCoarse
-                  atomically $ writeTVar (msgUnixLast env) now
-                  next
+            if frameLen == 0 then do
+              -- answer to empty message
+              liftIO $ sendAll so $ bytestring32 0
+            else do
+              frame    <- liftIO $ readFromSocket so frameLen --  <&> LBS.toStrict
 
-      (_, r) <- waitAnyCatchCancel [run, watchdog]
+              maybe1 mq none $ \q -> do
+                atomically $ writeTQueue q (From that, frame)
 
-      case r of
-        Left e  -> throwIO e
-        Right{} -> pure ()
+            now <- getTimeCoarse
+            -- TODO: to-remove-global-watchdog
+            atomically $ writeTVar (msgUnixLast env) now
+            atomically $ writeTVar seen now
+            next
 
+    handleClient | MUDontRetry `elem` msgUnixOpts env  = \_ w -> handleAny throwStopped w
+                 | otherwise = handleAny
 
-    runClient = liftIO $ forever $ handleAny logAndRetry $ runResourceT do
+    throwStopped _ = throwIO UnixMessagingStopped
+
+    runClient = liftIO $ forever $ handleClient logAndRetry $ flip runContT pure $ do
 
       let sa   = SockAddrUnix (msgUnixSockPath env)
       let p  = msgUnixSockPath env
       let who = PeerUNIX p
+      tseen <- getTimeCoarse >>= newTVarIO
 
-      createQueues env who
+      void $ ContT $ bracket (createQueues env who) dropQueuesFor
 
-      sock <- liftIO $ socket AF_UNIX Stream defaultProtocol
+      let openSock = liftIO $ socket AF_UNIX Stream defaultProtocol
+      let closeSock = close
 
-      void $ allocate (pure sock) close
+      sock <- ContT $ bracket openSock closeSock
 
       let attemptConnect = do
             result <- liftIO $ try $ connect sock $ SockAddrUnix (msgUnixSockPath env)
             case result of
-              Right _ -> return ()
+              Right _ -> none
               Left (e :: SomeException) -> do
                 pause (msgUnixRetryTime env)
                 warn $ "MessagingUnix. failed to connect" <+> pretty sa <+> viaShow e
+                pause @'Seconds 2.5
                 attemptConnect
 
       attemptConnect
 
-      -- TODO: create-queues!
+      reader <- ContT $ liftIO . withAsync do
+            forever do
+              let q = msgUnixRecv env
 
-      reader <- async $ do
+            -- Read response from server
+              frameLen <- liftIO $ readFromSocket sock 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
+
+              getTimeCoarse >>= (atomically . writeTVar tseen)
+
+              when (frameLen > 0) do
+                frame    <- liftIO $ readFromSocket sock frameLen
+                -- сообщения кому? **МНЕ**
+                -- сообщения от кого? от **КОГО-ТО**
+                atomically $ writeTQueue q (From who, frame)
+
+      watchdog <- ContT $ liftIO . withAsync do
+            let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env) ]
+            case mwd of
+              Nothing -> forever (pause @'Seconds 600)
+              Just n  -> forever do
+
+                sendTo env (To who) (From who) (mempty :: ByteString)
+
+                now <- getTimeCoarse
+                seen <- readTVarIO tseen
+
+                let diff = toNanoSeconds $ TimeoutTS (now - seen)
+
+                trace $ "I'm a watchdog!" <+> pretty diff
+
+                when ( diff > toNanoSeconds (TimeoutSec $ realToFrac n) ) do
+                  trace "watchdog fired!"
+                  throwIO ReadTimeoutException
+
+                pause (TimeoutSec (max 1 (realToFrac n / 2)))
+
+      writer <- ContT $ liftIO . withAsync  do
                   forever do
-                    let q = msgUnixRecv env
 
-                  -- Read response from server
-                    frameLen <- liftIO $ readFromSocket sock 4 <&> LBS.toStrict <&> word32 <&> fromIntegral
-                    frame    <- liftIO $ readFromSocket sock frameLen
+                    -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
+                    -- У нас один контрагент, имя сокета (файла) == адрес пира.
+                    -- Как в TCP порт сервиса (а отвечает тот с другого порта)
+                    mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup who
 
-                    -- сообщения кому? **МНЕ**
-                    -- сообщения от кого? от **КОГО-ТО**
-                    atomically $ writeTQueue q (From who, frame)
+                    maybe1 mq none $ \q -> do
+                      msg <- liftIO . atomically $ readTQueue q
+                      let len = fromIntegral $ LBS.length msg :: Int
+                      liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
+                      liftIO $ SL.sendAll sock msg
 
-      forever do
+      r <- waitAnyCatchCancel [reader, writer, watchdog]
 
-        -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
-        -- У нас один контрагент, имя сокета (файла) == адрес пира.
-        -- Как в TCP порт сервиса (а отвечает тот с другого порта)
-        mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup who
-
-        maybe1 mq none $ \q -> do
-          msg <- liftIO . atomically $ readTQueue q
-          let len = fromIntegral $ LBS.length msg :: Int
-          liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
-          liftIO $ SL.sendAll sock msg
-
-      void $ waitAnyCatchCancel [reader]
+      case snd r of
+        Right{} -> pure ()
+        Left e  -> throwIO e
 
     cleanupAndRetry e = liftIO do
       warn $ "MessagingUnix. client seems gone. restaring server" <+> pretty (msgUnixSelf env)

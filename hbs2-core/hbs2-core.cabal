@@ -79,6 +79,7 @@ library
                     , HBS2.Base58
                     , HBS2.Clock
                     , HBS2.Crypto
+                    , HBS2.ScheduledAction
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Crypto
@@ -161,6 +162,7 @@ library
                     , fast-logger
                     , filelock
                     , filepath
+                    , exceptions
                     , generic-lens
                     , hashable
                     , interpolatedstring-perl6
@@ -180,6 +182,7 @@ library
                     , random-shuffle
                     , resourcet
                     , safe
+                    , safe-exceptions
                     , saltine ^>=0.2.0.1
                     , serialise
                     , sockaddr
@@ -216,6 +219,7 @@ test-suite test
                   , FakeMessaging
                   , HasProtocol
                   , DialogSpec
+                  , TestScheduled
 
     -- other-extensions:
 

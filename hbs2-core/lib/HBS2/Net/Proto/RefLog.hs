@@ -25,6 +25,9 @@ import Type.Reflection (someTypeRep)
 import Lens.Micro.Platform
 
 newtype RefLogKey s = RefLogKey { fromRefLogKey :: PubKey 'Sign s }
+                      deriving stock Generic
+
+instance Serialise (PubKey 'Sign s) => Serialise (RefLogKey s)
 
 deriving stock instance IsRefPubKey s => Eq (RefLogKey s)
 

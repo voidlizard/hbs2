@@ -20,6 +20,7 @@ import Data.Kind
 import Data.List qualified as List
 import Data.Word
 import Control.Concurrent.STM (flushTQueue)
+import Data.Maybe
 import UnliftIO
 
 
@@ -352,7 +353,7 @@ data SomeCallback ev =
 data SomeNotifySource ev =
   SomeNotifySource
   { handleCount :: TVar NotifyHandle
-  , listeners   :: TVar (HashMap NotifyHandle (SomeCallback ev))
+  , listeners   :: TVar (HashMap (NotifyKey ev) [(NotifyHandle, SomeCallback ev)])
   }
 
 newSomeNotifySource :: forall ev m . (MonadIO m, ForNotify ev)
@@ -365,18 +366,20 @@ instance ForNotify ev => NotifySource ev (SomeNotifySource ev) where
 
   startNotify src key fn = do
     ha <- atomically $ stateTVar (handleCount src) $ \s -> (s, succ s)
-    atomically $ modifyTVar (listeners src) (HashMap.insert ha (SomeCallback @ev fn))
+    atomically $ modifyTVar (listeners src) (HashMap.insertWith (<>) key [(ha, SomeCallback @ev fn)])
     pure ha
 
   stopNotify src ha = do
-    atomically $ modifyTVar (listeners src) (HashMap.delete ha)
+    atomically do
+      modifyTVar (listeners src) (HashMap.map (filter ((/= ha) . fst )))
+      modifyTVar (listeners src) (HashMap.filter (not . null))
 
-emitNotify :: forall ev m . MonadIO m
+emitNotify :: forall ev m . (ForNotify ev, MonadIO m)
            => SomeNotifySource ev
            -> (NotifyKey ev, NotifyData ev)
           -> m ()
 
-emitNotify src (_,d) = do
-  who <- readTVarIO (listeners src) <&> HashMap.toList
+emitNotify src (k,d) = do
+  who <- readTVarIO (listeners src) <&> HashMap.lookup k <&> fromMaybe mempty
   for_ who $ \(h, SomeCallback cb) -> cb h d
 

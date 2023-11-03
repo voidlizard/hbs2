@@ -3,11 +3,16 @@ module Main where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
+import HBS2.Base58
+import HBS2.Actors.Peer
+import HBS2.Actors.Peer.Types
+import HBS2.Net.Proto.Notify
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.RefLog
 import HBS2.Peer.RPC.Client.Unix hiding (Cookie)
 import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.Notify
 import HBS2.Clock
 
 -- import HBS2Git.PrettyStuff
@@ -21,6 +26,7 @@ import Data.Config.Suckless.KeyValue
 
 import Control.Monad.Catch (MonadThrow(..))
 import Control.Monad.Except (runExceptT,throwError)
+import Control.Monad.Cont
 import Control.Monad.Reader
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Either
@@ -37,6 +43,7 @@ import System.Directory
 import System.FilePath
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
+import Control.Concurrent.STM (flushTQueue)
 import UnliftIO
 import Web.Scotty hiding (header,next)
 
@@ -88,6 +95,7 @@ data ReposyncState =
   ReposyncState
   { _rpcSoname         :: FilePath
   , _rpcRefLog         :: ServiceCaller RefLogAPI UNIX
+  , _rpcNotifySink     :: NotifySink (RefLogEvents L4Proto) UNIX
   , _reposyncBaseDir   :: FilePath
   , _reposyncPort      :: Int
   , _reposyncEntries   :: TVar [RepoEntry]
@@ -119,10 +127,11 @@ reposyncDefaultDir = unsafePerformIO do
 newState :: MonadUnliftIO m
          => FilePath
          -> ServiceCaller RefLogAPI UNIX
+         -> NotifySink (RefLogEvents L4Proto) UNIX
          -> m ReposyncState
 
-newState so refLog =
-  ReposyncState so refLog reposyncDefaultDir 4017 <$> newTVarIO mempty
+newState so refLog sink =
+  ReposyncState so refLog sink reposyncDefaultDir 4017 <$> newTVarIO mempty
 
 withConfig :: forall a m . (MonadUnliftIO m) => Maybe FilePath -> ReposyncM m a -> ReposyncM m ()
 withConfig cfg m = do
@@ -186,6 +195,7 @@ runSync = do
   so <- asks (view rpcSoname)
 
   refLogRPC <- asks (view rpcRefLog)
+  sink      <- asks (view rpcNotifySink)
 
   root <- asks (view reposyncBaseDir)
   port <- asks (view reposyncPort) <&> fromIntegral
@@ -196,19 +206,37 @@ runSync = do
               get "/" $ do
                 text "This is hbs2-reposync"
 
-  r <- forM es $ \entry -> async $ void $ do
-          let rk = fromRefLogKey $ repoRef entry
+  r <- forM es $ \entry -> async $ void $ flip runContT pure do
+          let ref = repoRef entry
+          let rk = fromRefLogKey ref
           tv <- newTVarIO Nothing
+
+          upd <- newTQueueIO
 
           debug $ "STARTED WITH" <+> pretty (repoPath entry)
 
-          initRepo entry
+          let notif =
+                liftIO $ async do
+                          debug $ "Subscribed" <+> pretty ref
+                          runNotifySink sink (RefLogNotifyKey ref) $ \(RefLogUpdateNotifyData _ h) -> do
+                            debug $ "Got notification" <+> pretty ref <+> pretty h
+                            atomically $ writeTQueue upd ()
+
+          void $ ContT $ bracket notif cancel
+
+          lift $ initRepo entry
+
+          lift $ syncRepo entry
 
           fix \next -> do
 
-            rr' <- race (pause @'Seconds 1) do
+            rr' <- liftIO $ race (pause @'Seconds 1) do
                       callService @RpcRefLogGet refLogRPC rk
                           <&> fromRight Nothing
+
+            void $ liftIO $ race (pause @'Seconds 60) (atomically (peekTQueue upd))
+            pause @'Seconds 5
+            liftIO $ atomically $ flushTQueue upd
 
             rr <- either (const $ pause @'Seconds 10 >> warn "rpc call timeout" >>  next) pure rr'
 
@@ -216,20 +244,21 @@ runSync = do
 
             r0 <- readTVarIO tv
 
-            if rr == r0 then do
-              pause @'Seconds 60
-            else do
-              debug $ "Syncronize repoes!" <+> pretty (repoPath entry)
-              syncRepo entry >>= \case
-                Left{} -> pause @'Seconds 60
-                Right{} -> do
-                  atomically $ writeTVar tv rr
-                  pause @'Seconds 10
+            unless ( rr == r0 ) do
+              debug $ "Syncronize repo!" <+> pretty (repoPath entry)
+              fix \again -> do
+                lift (syncRepo entry) >>= \case
+                  Left{} -> do
+                    debug $ "Failed to update:" <+> pretty (repoPath entry)
+                    pause @'Seconds 1
+                    again
+
+                  Right{} -> do
+                    atomically $ writeTVar tv rr
 
             next
 
-  mapM_ waitCatch (http : r)
-
+  void $ waitAnyCatchCancel (http : r)
 
 data SyncError = SyncError
 
@@ -356,27 +385,46 @@ withApp cfg m = do
 
   -- lrpc =
 
-  soname <- detectRPC `orDie` "RPC not found"
+  forever $ handleAny cleanup $ do
 
-  client <- race ( pause @'Seconds 1) (newMessagingUnix False 1.0 soname) `orDie` "hbs2-peer rpc timeout!"
+    soname <- detectRPC `orDie` "RPC not found"
 
-  rpc <- makeServiceCaller (fromString soname)
+    let o = [MUWatchdog 20, MUDontRetry]
 
-  messaging <- async $ runMessagingUnix client
-  link messaging
+    client <- race ( pause @'Seconds 1) (newMessagingUnixOpts o False 1.0 soname)
+                `orDie` "hbs2-peer rpc timeout!"
 
-  let endpoints = [ Endpoint @UNIX  rpc
-                  ]
+    clientN <- newMessagingUnixOpts o False 1.0 soname
 
-  c1 <- async $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+    rpc <- makeServiceCaller (fromString soname)
 
-  state <- newState soname rpc
+    messaging <- async $ runMessagingUnix client
 
-  r <- async $ void $ runReaderT (unReposyncM $ withConfig cfg m) state
+    mnotify   <- async $ runMessagingUnix clientN
 
-  waitAnyCatchCancel [c1, messaging, r]
+    sink <- newNotifySink
 
-  notice "exiting"
+    wNotify <- liftIO $ async $ flip runReaderT clientN $ do
+                debug "notify restarted!"
+                runNotifyWorkerClient sink
+
+    nProto <- liftIO $ async $ flip runReaderT clientN $ do
+        runProto @UNIX
+          [ makeResponse (makeNotifyClient @(RefLogEvents L4Proto) sink)
+          ]
+
+    let endpoints = [ Endpoint @UNIX  rpc
+                    ]
+
+    c1 <- async $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+
+    state <- newState soname rpc sink
+
+    r <- async $ void $ runReaderT (unReposyncM $ withConfig cfg m) state
+
+    void $ waitAnyCatchCancel [c1, messaging, mnotify, nProto, wNotify, r]
+
+    notice "exiting"
 
   setLoggingOff @DEBUG
   setLoggingOff @INFO
@@ -384,6 +432,12 @@ withApp cfg m = do
   setLoggingOff @WARN
   setLoggingOff @NOTICE
 
+
+  where
+    cleanup e = do
+      err (viaShow e)
+      warn "Something bad happened. Retrying..."
+      pause @'Seconds 2.5
 
 main :: IO ()
 main = runMe .  customExecParser (prefs showHelpOnError) $

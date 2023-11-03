@@ -135,6 +135,7 @@ library
 
     exposed-modules:
       HBS2.Peer.Brains
+      HBS2.Peer.Notify
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog

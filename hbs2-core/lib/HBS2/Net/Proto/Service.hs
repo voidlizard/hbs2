@@ -201,16 +201,15 @@ runServiceClientMulti :: forall e m . ( MonadIO m
 
 runServiceClientMulti endpoints = do
   proto <- async $ runProto @e [ makeResponse @e (makeClient x) | (Endpoint x) <- endpoints ]
-  link proto
 
   waiters <- forM endpoints $ \(Endpoint caller) -> async $ forever do
                 req <- getRequest caller
                 request @e (callPeer caller) req
 
-  mapM_ link waiters
 
-  void $ UIO.waitAnyCatchCancel $ proto : waiters
+  r <- UIO.waitAnyCatchCancel $ proto : waiters
 
+  either UIO.throwIO (const $ pure ()) (snd r)
 
 notifyServiceCaller :: forall api e m . MonadIO m
              => ServiceCaller api e

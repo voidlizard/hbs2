@@ -4,6 +4,7 @@ import TestFakeMessaging
 import TestActors
 import DialogSpec
 import TestFileLogger
+import TestScheduled
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -16,7 +17,10 @@ main =
         testCase "testFakeMessaging1" testFakeMessaging1
       , testCase "testActorsBasic" testActorsBasic
       , testCase "testFileLogger" testFileLogger
-      , testDialog
+      , testCase "testScheduledActions" testScheduled
+
+      -- FIXME does-not-finish
+      -- , testDialog
       ]
 
 

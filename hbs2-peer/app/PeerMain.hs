@@ -68,6 +68,7 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.Notify
 
 import RPC2(RPC2Context(..))
 
@@ -547,6 +548,7 @@ instance ( Monad m
 
   response = lift . response
 
+
 respawn :: PeerOpts -> IO ()
 respawn opts =
   if not (view peerRespawn opts) then do
@@ -616,6 +618,8 @@ runPeer opts = U.handle (\e -> myException e
     setLogging @TRACE1 tracePrefix
 
 
+  refChanNotifySource <- newSomeNotifySource @(RefChanEvents L4Proto)
+  refLogNotifySource  <- newSomeNotifySource @(RefLogEvents L4Proto)
 
   let ps = mempty
 
@@ -752,13 +756,21 @@ runPeer opts = U.handle (\e -> myException e
 
   rce <- refChanWorkerEnv conf penv denv
 
-  let refChanAdapter = RefChanAdapter
-                           { refChanOnHead = refChanOnHeadFn rce
-                           , refChanSubscribed = isPolledRef @e brains
-                           , refChanWriteTran = refChanWriteTranFn rce
-                           , refChanValidatePropose = refChanValidateTranFn @e rce
-                           , refChanNotifyRely = refChanNotifyRelyFn @e rce
-                           }
+  let refChanAdapter =
+        RefChanAdapter
+        { refChanOnHead = refChanOnHeadFn rce
+        , refChanSubscribed = isPolledRef @e brains
+        , refChanWriteTran = refChanWriteTranFn rce
+        , refChanValidatePropose = refChanValidateTranFn @e rce
+
+        , refChanNotifyRely = \r u -> do
+           debug "refChanNotifyRely MOTHERFUCKER!"
+           refChanNotifyRelyFn @e rce r u
+           case u of
+             Notify rr s -> do
+               emitNotify refChanNotifySource (RefChanNotifyKey r, RefChanNotifyData rr s)
+             _ -> pure ()
+        }
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
@@ -796,6 +808,11 @@ runPeer opts = U.handle (\e -> myException e
               let rwa = RefLog.RefLogWorkerAdapter
                    { RefLog.reflogDownload = doDownload
                    , RefLog.reflogFetch = doFetchRef
+                   , RefLog.reflogUpdated = \(r,v) -> do
+                        debug $ "EMIT REFLOG UPDATE" <+> pretty (AsBase58 r)
+                        emitNotify refLogNotifySource ( RefLogNotifyKey @L4Proto r
+                                                      , RefLogUpdateNotifyData @L4Proto r (HashRef v)
+                                                      )
                    }
 
               let addNewRtt (p,rttNew) = withPeerM penv $ void $ runMaybeT do
@@ -1080,12 +1097,19 @@ runPeer opts = U.handle (\e -> myException e
   m1 <- async $ runMessagingUnix rpcmsg
 
   rpcProto <- async $ flip runReaderT rpcctx do
+    env <- newNotifyEnvServer @(RefChanEvents L4Proto) refChanNotifySource
+    envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
+    w1 <- asyncLinked $ runNotifyWorkerServer env
+    w2 <- asyncLinked $ runNotifyWorkerServer envrl
     runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
+      , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
+      , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
+    mapM_ wait [w1,w2]
 
   void $ waitAnyCancel $ w <> [ loop
                               , m1
