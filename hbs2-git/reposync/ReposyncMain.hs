@@ -228,17 +228,18 @@ runSync = do
 
           lift $ syncRepo entry
 
-          fix \next -> do
 
-            rr' <- liftIO $ race (pause @'Seconds 1) do
-                      callService @RpcRefLogGet refLogRPC rk
-                          <&> fromRight Nothing
+          fix \next -> do
 
             void $ liftIO $ race (pause @'Seconds 60) (atomically (peekTQueue upd))
             pause @'Seconds 5
             liftIO $ atomically $ flushTQueue upd
 
-            rr <- either (const $ pause @'Seconds 10 >> warn "rpc call timeout" >>  next) pure rr'
+            rr' <- liftIO $ race (pause @'Seconds 1) do
+                      callService @RpcRefLogGet refLogRPC rk
+                          <&> fromRight Nothing
+
+            rr <- either (const $ pause @'Seconds 1 >> warn "rpc call timeout" >>  next) pure rr'
 
             debug $ "REFLOG VALUE:" <+> pretty rr
 
@@ -250,7 +251,7 @@ runSync = do
                 lift (syncRepo entry) >>= \case
                   Left{} -> do
                     debug $ "Failed to update:" <+> pretty (repoPath entry)
-                    pause @'Seconds 1
+                    pause @'Seconds 5
                     again
 
                   Right{} -> do

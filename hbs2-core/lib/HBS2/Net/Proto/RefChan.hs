@@ -832,7 +832,9 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
       -- теперь пересылаем по госсипу
       lift $ gossip msg
 
-      debug $ "^^^ refChanNotifyProto" <+> pretty peer <+> pretty h0
+      -- FIXME: remove-debug
+      let h1 = hashObject @HbSync (serialise box)
+      debug $ "^^^ refChanNotifyProto" <+> pretty peer <+> pretty h0 <+> pretty h1
 
       -- тут надо заслать во внешнее приложение,
       -- равно как и в остальных refchan-протоколах

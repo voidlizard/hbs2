@@ -21,7 +21,9 @@ import Data.List qualified as List
 import Data.Word
 import Control.Concurrent.STM (flushTQueue)
 import Data.Maybe
+import Data.Either
 import UnliftIO
+import System.IO (hPrint)
 
 
 instance (HasProtocol UNIX (NotifyProto ev0 UNIX)) => HasTimeLimits UNIX (NotifyProto ev0 UNIX) IO where
@@ -59,7 +61,9 @@ class (ForNotify ev) => NotifySource ev source where
 --  Или нет? Наверное, да, так как для каждого типа
 --  эвента свой какой-то код их генерирует
 data NotifyProto ev e =
-    NotifyWant   Word64 (NotifyKey ev)
+    NotifyPing
+  | NotifyPong
+  | NotifyWant   Word64 (NotifyKey ev)
   | NotifyGiven  Word64 NotifyHandle
   | NotifyAlive  NotifyHandle
   | Notify       NotifyHandle (NotifyEvent ev)
@@ -103,6 +107,7 @@ newNotifyEnvServer src = NotifyEnv src <$> newTVarIO mempty
 makeNotifyServer :: forall ev src e m  . ( MonadIO m
                                          , Response e (NotifyProto ev e) m
                                          , NotifySource ev src
+                                         , HasDeferred e (NotifyProto ev e) m
                                          , Pretty (Peer e)
                                          )
                 => NotifyEnv ev src e
@@ -111,10 +116,12 @@ makeNotifyServer :: forall ev src e m  . ( MonadIO m
 
 makeNotifyServer (NotifyEnv{..}) what = do
 
-  case what of
-    NotifyWant rn key -> do
+  let proxy = Proxy @(NotifyProto ev e)
 
-      trace "SERVER: NotifyWant"
+  case what of
+    NotifyWant rn key -> deferred proxy do
+
+      debug "SERVER: NotifyWant"
 
       who <- thatPeer (Proxy @(NotifyProto ev e))
 
@@ -127,6 +134,7 @@ makeNotifyServer (NotifyEnv{..}) what = do
         modifyTVar notifyAlive (HashMap.insert hndl now)
         modifyTVar notifyWho (HashMap.insert hndl who)
 
+      debug $ "SEND GIVEN TO" <+> viaShow hndl <+> pretty who
       response (NotifyGiven @ev @e rn hndl)
 
     NotifyBye ha -> do
@@ -139,12 +147,16 @@ makeNotifyServer (NotifyEnv{..}) what = do
 
     NotifyError{} -> pure ()
 
+    NotifyPing{} -> do
+      response (NotifyPong @ev @e)
+
     _ -> response (NotifyError @ev @e NotifyErrUnexpected)
 
 
 runNotifyWorkerServer :: forall ev src e m . ( Request e (NotifyProto ev e) m
                                        , ForNotify ev
                                        , NotifySource ev src
+                                       , Pretty (Peer e)
                                        , MonadUnliftIO m
                                        )
                 => NotifyEnv ev src e
@@ -188,6 +200,7 @@ runNotifyWorkerServer env = do
   work <- async $ forever do
     -- TODO: several-threads
     (ha, pip, ev) <- atomically $ readTQueue (notifyQ env)
+    debug $ "SENT-NOTIFY-TO" <+> pretty pip
     request pip (Notify @ev @e ha ev)
 
   mapM_ link  [cleanup, work]
@@ -199,10 +212,13 @@ data NotifySinkTask ev e =
     NotifySinkSubscribe Word64 (NotifyKey ev) (TQueue NotifyHandle)
   | NotifySinkAlive     NotifyHandle
   | NotifySinkBye       NotifyHandle
+  | NotifySinkPing
 
 data NotifySink ev e =
   NotifySink
   { sinkPipeline :: TQueue (NotifySinkTask ev e)
+  , sinkPong     :: TQueue ()
+  , sinkPongNum  :: TVar Int
   , sinkNotify   :: TVar (HashMap NotifyHandle (TQueue (Maybe (NotifyData ev))))
   , sinkWaiters  :: TVar (HashMap Word64 (TQueue NotifyHandle))
   , sinkRnum     :: TVar Word64
@@ -210,6 +226,8 @@ data NotifySink ev e =
 
 newNotifySink :: MonadIO m => m (NotifySink ev e)
 newNotifySink = NotifySink <$> newTQueueIO
+                           <*> newTQueueIO
+                           <*> newTVarIO 0
                            <*> newTVarIO mempty
                            <*> newTVarIO mempty
                            <*> newTVarIO 1
@@ -226,22 +244,38 @@ runNotifyWorkerClient :: forall ev e m  . ( MonadUnliftIO m
 runNotifyWorkerClient sink = do
   let waiters = sinkWaiters sink
   pip <- ownPeer
+
+  atomically $ writeTVar (sinkPongNum sink) 0
+
+  fix \next -> do
+    request @e pip (NotifyPing @ev @e)
+    what <- race (pause @'Seconds 2) do
+      debug "runNotifyWorkerClient.sendPing"
+      atomically $ readTQueue (sinkPong sink)
+    either (const next) (const none) what
+    atomically $ modifyTVar (sinkPongNum sink) succ
+
+  debug "runNotifyWorkerClient.run"
+
   forever do
     atomically (readTQueue (sinkPipeline sink)) >>= \case
 
       NotifySinkSubscribe r k w -> do
         atomically $ modifyTVar waiters (HashMap.insert r w)
 
-        void $ asyncLinked $ do
+        void $ asyncLinked $ void $ try @_ @SomeException $ do
           -- если ничего не произошло, через минуту удаляем
           pause @'Seconds 60
           atomically $ modifyTVar waiters (HashMap.delete r)
 
-        trace $ "CLIENT:" <+> "NotifySinkSubscribe"
+        trace $ "CLIENT:" <+> "SEND NotifySinkSubscribe" <+> pretty r
         request @e pip (NotifyWant @ev @e r k)
 
       NotifySinkAlive h ->
         request @e pip (NotifyAlive @ev @e h)
+
+      NotifySinkPing -> do
+        request @e pip (NotifyPing @ev @e)
 
       NotifySinkBye h -> do
         trace $ "CLIENT:" <+> "NotifySinkBye" <+> viaShow h
@@ -265,12 +299,17 @@ makeNotifyClient sink what = do
 
   case what of
     Notify ha (NotifyEvent _ kd) -> do
-      -- debug $ "CLIENT: GOT NOTIFY!" <+> pretty ha
+      trace $ "CLIENT: GOT NOTIFY!" <+> pretty ha
       mq <- readTVarIO (sinkNotify sink) <&> HashMap.lookup ha
+
       forM_ mq $ \q -> do
         r <- try @_ @SomeException $ atomically $ writeTQueue q (Just kd)
 
+        when (isLeft r) do
+          debug "LEFT writeTQueue"
+
         let unsbscribe _ = do
+              debug "UNSUBSCRIBE!"
               -- на том конце очередь сдохла? удаляем
               request @e pip (NotifyBye @ev @e ha)
               atomically (modifyTVar (sinkNotify sink) (HashMap.delete ha))
@@ -279,13 +318,15 @@ makeNotifyClient sink what = do
         either unsbscribe (const none) r
 
     NotifyGiven rn ha -> do
+      trace $ "CLIENT: GOT NOTIFY GIVEN!" <+> pretty ha
       waiter <- atomically $ do
                   w <- readTVar waiters <&> HashMap.lookup rn
                   modifyTVar waiters (HashMap.delete rn)
                   pure w
 
       forM_ waiter $ \wa -> do
-        void $ try @_ @SomeException $ atomically $ writeTQueue wa ha
+        r  <- try @_ @SomeException $ atomically $ writeTQueue wa ha
+        debug $ "NOTIFY CLIENT SUBSCRIBED" <+> viaShow rn
 
     NotifyBye ha  -> do
       mq <- readTVarIO (sinkNotify sink) <&> HashMap.lookup ha
@@ -293,6 +334,9 @@ makeNotifyClient sink what = do
         void $ try @_ @SomeException $ atomically $ writeTQueue q Nothing
 
       void $ atomically $ modifyTVar (sinkNotify sink) $ HashMap.delete ha
+
+    NotifyPong{} -> do
+      void $ atomically $ writeTQueue (sinkPong sink) ()
 
     NotifyError e -> do
       err $ "*** makeNotifyClient:" <+> viaShow e
@@ -312,25 +356,42 @@ runNotifySink :: forall ev e m . MonadUnliftIO m
 
 runNotifySink sink k action = do
 
-  my <- nextRNum sink
+  fix \next -> do
+    snum <- readTVarIO (sinkPongNum sink)
+    if snum > 0 then
+      none
+    else do
+      pause @'Seconds 0.5
+      next
 
-  answ <- newTQueueIO
+  ha <- fix \next -> do
 
-  debug "runNotifySink 1"
-  atomically $ writeTQueue (sinkPipeline sink) (NotifySinkSubscribe my k answ)
+          r <- race (pause @'Seconds 1) do
+                  my <- nextRNum sink
 
-  -- ждём первый ответ, потом бы дропнуть или ЗАКРЫТЬ очередь
-  ha <- atomically $ do
-          r <- readTQueue answ
-          flushTQueue answ
-          pure r
+                  answ <- newTQueueIO
+
+                  atomically $ writeTQueue (sinkPipeline sink) (NotifySinkSubscribe my k answ)
+
+                  -- ждём первый ответ, потом бы дропнуть или ЗАКРЫТЬ очередь
+                  atomically $ do
+                    r <- readTQueue answ
+                    flushTQueue answ
+                    pure r
+
+          case r of
+            Right x -> pure x
+            Left{}  -> do
+              debug "Retry subscribing..."
+              pause @'Seconds 1
+              next
 
   myQ <- newTQueueIO
   atomically $ modifyTVar (sinkNotify sink) (HashMap.insert ha myQ)
 
   w <- async $ forever do
-    pause @'Seconds 30
     atomically $ writeTQueue (sinkPipeline sink) (NotifySinkAlive ha)
+    pause @'Seconds 30
 
   -- NOTE: run-notify-sink-cleanup
   --  если нас пристрелили --- попрощаться с NotifySink хотя бы
@@ -366,6 +427,7 @@ instance ForNotify ev => NotifySource ev (SomeNotifySource ev) where
 
   startNotify src key fn = do
     ha <- atomically $ stateTVar (handleCount src) $ \s -> (s, succ s)
+    debug $ "Start notify!"
     atomically $ modifyTVar (listeners src) (HashMap.insertWith (<>) key [(ha, SomeCallback @ev fn)])
     pure ha
 

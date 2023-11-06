@@ -32,6 +32,7 @@ import HBS2.Net.Proto.RefLog
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Service
+import HBS2.Net.Proto.Notify (NotifyProto)
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Data.Detect
@@ -548,6 +549,8 @@ instance ( Monad m
 
   response = lift . response
 
+instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred UNIX (NotifyProto ev e) m where
+  deferred _ m = void $ async m
 
 respawn :: PeerOpts -> IO ()
 respawn opts =

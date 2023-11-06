@@ -1,7 +1,7 @@
 module Main where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
+import HBS2.Clock hiding (sec)
 import HBS2.Net.Proto
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Notify
@@ -38,12 +38,19 @@ instance HasProtocol UNIX  (NotifyProto Tick UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
+instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred UNIX (NotifyProto ev e) m where
+  deferred _ m = void $ async m
 
+data WhatTick = Odd | Even
+     deriving stock (Generic,Eq)
+
+instance Hashable WhatTick
+instance Serialise WhatTick
 
 newtype instance NotifyKey Tick  =
-  TickNotifyKey ()
-  deriving (Generic,Eq)
-  deriving newtype Hashable
+  TickNotifyKey WhatTick
+  deriving (Generic)
+  deriving newtype (Hashable,Eq)
 
 newtype instance NotifyData Tick =
   TickNotifyData Int
@@ -88,7 +95,10 @@ main = do
                  sec <- newTVarIO 0
                  forever do
                    sn <- atomically $ stateTVar sec (\s -> (s, succ s))
-                   emitNotify src (TickNotifyKey (), TickNotifyData sn)
+                   if even sn then do
+                     emitNotify src (TickNotifyKey Even, TickNotifyData sn)
+                   else
+                     emitNotify src (TickNotifyKey Odd, TickNotifyData sn)
                    debug "SERVER: TICK!"
                    pause @'Seconds 1
 
@@ -110,17 +120,17 @@ main = do
                       [ makeResponse (makeNotifyClient @Tick sink)
                       ]
 
-    s1 <- asyncLinked $ runNotifySink sink (TickNotifyKey ()) $ \(TickNotifyData td) -> do
+    s1 <- asyncLinked $ runNotifySink sink (TickNotifyKey Even) $ \(TickNotifyData td) -> do
       debug $ "CLIENT1:" <+> viaShow td
 
-    s2 <- asyncLinked $ runNotifySink sink (TickNotifyKey ()) $ \(TickNotifyData td) -> do
+    s2 <- asyncLinked $ runNotifySink sink (TickNotifyKey Odd) $ \(TickNotifyData td) -> do
       debug $ "CLIENT2:" <+> viaShow td
 
-    s3 <- async $ runNotifySink sink (TickNotifyKey ()) $ \(TickNotifyData td) -> do
+    s3 <- async $ runNotifySink sink (TickNotifyKey Odd) $ \(TickNotifyData td) -> do
       debug $ "CLIENT3:" <+> viaShow td
 
     void $ async do
-      pause @'Seconds 3
+      pause @'Seconds 10
       cancelWith s3 (toException (userError "Fuck you!"))
 
     void $ waitAnyCatchCancel [p1,p2,m1,m2,s1,s2]

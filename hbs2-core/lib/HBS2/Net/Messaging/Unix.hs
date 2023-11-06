@@ -159,12 +159,12 @@ runMessagingUnix env = do
       forever do
         (so, sa) <- liftIO $ accept sock
 
-        peerNum <- atomically $ do
-          n <- readTVar (msgUnixAccepts env)
-          modifyTVar    (msgUnixAccepts env) succ
-          pure n
-
         withSession $ flip runContT void do
+
+          peerNum <- atomically $ do
+            n <- readTVar (msgUnixAccepts env)
+            modifyTVar    (msgUnixAccepts env) succ
+            pure n
 
           seen <- getTimeCoarse >>= newTVarIO
 
@@ -173,12 +173,11 @@ runMessagingUnix env = do
                      else
                        msgUnixSelf env
 
-          let writer = liftIO $ async $ forever do
+          let writer = liftIO $ async $ pause @'Seconds 0.001 >> forever do
                 mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup that
 
                 maybe1 mq none $ \q -> do
                   msg <- liftIO . atomically $ readTQueue q
-
 
                   let len = fromIntegral $ LBS.length msg :: Int
                   let bs = bytestring32 (fromIntegral len)
@@ -189,14 +188,14 @@ runMessagingUnix env = do
 
                   liftIO $ SL.sendAll so msg
 
-          void $ ContT $ bracket (createQueues env that) dropQueuesFor
-
-          void $ ContT $ bracket writer cancel
-
           void $ ContT $ bracket ( pure so ) closeSock
+
+          void $ ContT $ bracket (createQueues env that) dropQueuesFor
 
           void $ ContT $ bracket ( debug $ "Client thread started" <+> pretty that )
                                  ( \_ -> debug $ "Client thread finished" <+> pretty that  )
+
+          void $ ContT $ bracket writer cancel
 
           fix \next -> do
 
@@ -208,11 +207,10 @@ runMessagingUnix env = do
             -- debug $ "frameLen" <+> pretty frameLen
 
             if frameLen == 0 then do
-              -- answer to empty message
+              -- answer to watchdog message
               liftIO $ sendAll so $ bytestring32 0
             else do
               frame    <- liftIO $ readFromSocket so frameLen --  <&> LBS.toStrict
-
               maybe1 mq none $ \q -> do
                 atomically $ writeTQueue q (From that, frame)
 
@@ -234,12 +232,13 @@ runMessagingUnix env = do
       let who = PeerUNIX p
       tseen <- getTimeCoarse >>= newTVarIO
 
-      void $ ContT $ bracket (createQueues env who) dropQueuesFor
-
       let openSock = liftIO $ socket AF_UNIX Stream defaultProtocol
       let closeSock = close
 
       sock <- ContT $ bracket openSock closeSock
+
+      void $ ContT $ bracket (createQueues env who) dropQueuesFor
+
 
       let attemptConnect = do
             result <- liftIO $ try $ connect sock $ SockAddrUnix (msgUnixSockPath env)
@@ -262,11 +261,12 @@ runMessagingUnix env = do
 
               getTimeCoarse >>= (atomically . writeTVar tseen)
 
-              when (frameLen > 0) do
-                frame    <- liftIO $ readFromSocket sock frameLen
+              frame    <- liftIO $ readFromSocket sock frameLen
+
+              -- when (frameLen > 0) do
                 -- сообщения кому? **МНЕ**
                 -- сообщения от кого? от **КОГО-ТО**
-                atomically $ writeTQueue q (From who, frame)
+              atomically $ writeTQueue q (From who, frame)
 
       watchdog <- ContT $ liftIO . withAsync do
             let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env) ]
@@ -274,7 +274,7 @@ runMessagingUnix env = do
               Nothing -> forever (pause @'Seconds 600)
               Just n  -> forever do
 
-                sendTo env (To who) (From who) (mempty :: ByteString)
+                pause (TimeoutSec (realToFrac n))
 
                 now <- getTimeCoarse
                 seen <- readTVarIO tseen
@@ -287,9 +287,22 @@ runMessagingUnix env = do
                   trace "watchdog fired!"
                   throwIO ReadTimeoutException
 
-                pause (TimeoutSec (max 1 (realToFrac n / 2)))
 
       writer <- ContT $ liftIO . withAsync  do
+
+                  let mwd = headMay [ n | MUWatchdog n <- Set.toList (msgUnixOpts env) ]
+
+                  let withWD m = case mwd of
+                        Nothing -> m
+                        Just n -> do
+                          let nwait = max 1 (realToFrac n * 0.7)
+                          e <- race (pause (TimeoutSec nwait)) m
+                          case e of
+                            Right{} -> pure ()
+                            Left{}  -> do
+                              liftIO $ sendAll sock $ bytestring32 0
+                              -- liftIO $ SL.sendAll sock ""
+
                   forever do
 
                     -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
@@ -298,10 +311,12 @@ runMessagingUnix env = do
                     mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup who
 
                     maybe1 mq none $ \q -> do
-                      msg <- liftIO . atomically $ readTQueue q
-                      let len = fromIntegral $ LBS.length msg :: Int
-                      liftIO $ sendAll sock $ bytestring32 (fromIntegral len)
-                      liftIO $ SL.sendAll sock msg
+                      -- если WD установлен, то просыпаемся, скажем, wd/2 и
+                      -- шлём пустую строку серверу
+                      withWD do
+                        msg <- liftIO $ atomically $ readTQueue q
+                        let len = fromIntegral $ LBS.length msg :: Int
+                        liftIO $ SL.sendAll sock $ ( LBS.fromStrict (bytestring32 (fromIntegral len)) <> msg)
 
       r <- waitAnyCatchCancel [reader, writer, watchdog]
 
@@ -362,7 +377,7 @@ instance Messaging MessagingUnix UNIX ByteString where
 
   sendTo bus (To who) (From me) msg = liftIO do
 
-    createQueues bus who
+    -- createQueues bus who
 
     -- FIXME: handle-no-queue-for-rcpt-situation-1
 
