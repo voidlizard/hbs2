@@ -28,7 +28,7 @@ import HBS2.System.Logger.Simple.Class
 
 import Prelude hiding (log)
 import Data.Functor
-import Data.Foldable(for_)
+import Data.Foldable (for_)
 import Control.Monad.IO.Class
 import System.Log.FastLogger
 import Data.IORef
@@ -37,16 +37,19 @@ import Prettyprinter
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Lens.Micro.Platform
+import Data.Map (Map)
+import Data.Map.Strict qualified as Map
+import Control.Concurrent.STM
 
 data LoggerType = LoggerStdout
                 | LoggerStderr
                 | LoggerFile FilePath
                 | LoggerNull
+  deriving (Eq, Ord)
 
 data LoggerEntry =
   LoggerEntry
-  { _loggerSet  :: !LoggerSet
-  , _loggerTr   :: LogStr -> LogStr
+  { _loggerTr   :: LogStr -> LogStr
   , _loggerType :: !LoggerType
   }
 
@@ -60,19 +63,49 @@ defLog = id
 loggers :: IORef (IntMap LoggerEntry)
 loggers = unsafePerformIO $ newIORef mempty
 
+data LoggerSetWrapper = LoggerSetWrapper
+  { _loggerSet :: LoggerSet,
+    _loggerSetUsedBy :: Int
+  }
+
+makeLenses 'LoggerSetWrapper
+
+{-# OPTIONS_GHC -fno-cse #-}
+{-# NOINLINE loggerSets #-}
+loggerSets :: TVar (Map LoggerType LoggerSetWrapper)
+loggerSets = unsafePerformIO $ newTVarIO mempty
+
 withSimpleLogger :: IO () -> IO ()
 withSimpleLogger program = do
   void program
-  lo <- readIORef loggers <&> IntMap.elems
-  for_ lo (flushLogStr . view loggerSet)
+  loggers' <- readIORef loggers <&> IntMap.elems
+  loggerSets' <- readTVarIO loggerSets
+  for_
+    loggers'
+    ( \loggerEntry -> do
+        let loggerType' = view loggerType loggerEntry
+        let maybeLoggerSet = Map.lookup loggerType' loggerSets'
+        maybe (pure ()) (flushLogStr . view loggerSet) maybeLoggerSet
+    )
 
 type SetLoggerEntry  = ( LoggerEntry -> LoggerEntry )
 
-delLogger :: forall m . MonadIO m => Maybe LoggerEntry -> m ()
-delLogger e =
-  case view loggerSet <$> e of
-    Nothing -> pure ()
-    Just s  -> liftIO $ rmLoggerSet s
+delLoggerSet :: forall m . MonadIO m => LoggerType -> m ()
+delLoggerSet loggerType' = do
+  action <- liftIO $ atomically $ do
+    loggerSets' <- readTVar loggerSets
+    case Map.lookup loggerType' loggerSets' of
+      Nothing -> pure $ pure ()
+      Just loggerSet' -> do
+        let usedBy = view loggerSetUsedBy loggerSet'
+        if usedBy < 2
+          then do
+            modifyTVar' loggerSets (Map.delete loggerType')
+            pure $ rmLoggerSet (view loggerSet loggerSet')
+          else do
+            modifyTVar' loggerSets (Map.adjust (over loggerSetUsedBy (\x -> x - 1)) loggerType')
+            pure $ pure ()
+  liftIO action
 
 toStderr :: SetLoggerEntry
 toStderr = set loggerType LoggerStderr
@@ -83,77 +116,82 @@ toStdout = set loggerType LoggerStdout
 toFile :: FilePath -> SetLoggerEntry
 toFile filePath = set loggerType (LoggerFile filePath)
 
+createLoggerSet :: MonadIO m => LoggerType -> m ()
+createLoggerSet loggerType' = liftIO $ do
+  loggerSets' <- readTVarIO loggerSets
+  if Map.member loggerType' loggerSets'
+    then
+      -- Increment `_loggerSetUsedBy` value if logger set of a given type already exist
+      atomically $ modifyTVar' loggerSets (Map.adjust (over loggerSetUsedBy (+ 1)) loggerType')
+    else do
+      -- Otherwise create new logger set
+      newLoggerSet' <- case loggerType' of
+        LoggerStdout -> Just <$> newStdoutLoggerSet defaultBufSize
+        LoggerStderr -> Just <$> newStderrLoggerSet defaultBufSize
+        LoggerFile f -> Just <$> newFileLoggerSet defaultBufSize f
+        LoggerNull -> pure Nothing
+      case newLoggerSet' of
+        Nothing -> pure ()
+        Just loggerSet' ->
+          atomically $ modifyTVar' loggerSets (Map.insert loggerType' $ LoggerSetWrapper loggerSet' 0)
+
 setLogging :: forall a m . (MonadIO m, HasLogLevel a)
            => (LoggerEntry -> LoggerEntry)
            -> m ()
-
-setLogging f = do
-  se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
-  def <- updateLogger $ f (LoggerEntry se id LoggerNull)
+setLogging setLoggerEntry = do
   let key = logKey @a
-  e <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key def x, IntMap.lookup key x))
-  delLogger e
+      dummyLoggerEntry = LoggerEntry id LoggerStdout
+      loggerEntry = setLoggerEntry dummyLoggerEntry
+      loggerType' = view loggerType loggerEntry
+  liftIO $ createLoggerSet loggerType'
+  liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.insert key loggerEntry x, ()))
 
-  where
-    updateLogger e = case view loggerType e of
-
-      LoggerNull -> pure e
-
-      LoggerStderr -> do
-        delLogger (Just e)
-        se <- liftIO $ newStderrLoggerSet 10000 -- FIXME: ??
-        pure $ set loggerSet se e
-
-      LoggerStdout -> do
-        delLogger (Just e)
-        se <- liftIO $ newStdoutLoggerSet 10000 -- FIXME: ??
-        pure $ set loggerSet se e
-
-      LoggerFile filePath-> do
-        delLogger (Just e)
-        se <- liftIO $ newFileLoggerSet 10000 filePath -- FIXME: ??
-        pure $ set loggerSet se e
-
-setLoggingOff :: forall a m . (MonadIO m, HasLogLevel a) => m ()
+setLoggingOff :: forall a m. (MonadIO m, HasLogLevel a) => m ()
 setLoggingOff = do
   let key = logKey @a
-  e <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.delete key x, IntMap.lookup key x))
-  delLogger e
+  maybeLoggerEntry <- liftIO $ atomicModifyIORef' loggers (\x -> (IntMap.delete key x, IntMap.lookup key x))
+  case maybeLoggerEntry of
+    Nothing -> pure ()
+    Just loggerEntry -> do
+      let loggerType' = view loggerType loggerEntry
+      delLoggerSet loggerType'
 
 withLogger :: forall a m . (HasLogLevel a, MonadIO m) => (LoggerEntry -> m ()) -> m ()
 withLogger f = do
-  lo <- liftIO $ readIORef loggers <&> IntMap.lookup (logKey @a)
-  maybe (pure ()) f lo
+  maybeLoggerEntry <- liftIO $ readIORef loggers <&> IntMap.lookup (logKey @a)
+  maybe (pure ()) f maybeLoggerEntry
 
 log :: forall a s m . (MonadIO m, HasLogLevel a, ToLogStr s) => s -> m ()
-log s = liftIO $ withLogger @a
-               $ \le -> pushLogStrLn (view loggerSet le)
-                                     (view loggerTr le (toLogStr s))
+log s = liftIO $ withLogger @a $ \loggerEntry -> do
+  loggerSets' <- readTVarIO loggerSets
+  let loggerType' = view loggerType loggerEntry
+      maybeLoggerSet = Map.lookup loggerType' loggerSets'
+      msg = view loggerTr loggerEntry (toLogStr s)
+  maybe (pure ()) (\x -> pushLogStrLn (view loggerSet x) msg) maybeLoggerSet
 
-
-trace :: (MonadIO m, ToLogStr a) => a -> m ()
+trace :: (ToLogStr a, MonadIO m) => a -> m ()
 trace = log @TRACE
 
-debug :: (MonadIO m, ToLogStr a) => a -> m ()
+debug :: (ToLogStr a, MonadIO m) => a -> m ()
 debug = log @DEBUG
 
-warn :: (MonadIO m, ToLogStr a) => a -> m ()
+warn :: (ToLogStr a, MonadIO m) => a -> m ()
 warn = log @WARN
 
-err :: (MonadIO m, ToLogStr a) => a -> m ()
+err :: (ToLogStr a, MonadIO m) => a -> m ()
 err = log @ERROR
 
-notice :: (MonadIO m, ToLogStr a) => a -> m ()
+notice :: (ToLogStr a, MonadIO m) => a -> m ()
 notice = log @NOTICE
 
-info :: (MonadIO m, ToLogStr a) => a -> m ()
+info :: (ToLogStr a, MonadIO m) => a -> m ()
 info = log @INFO
 
 -- instance {-# OVERLAPPABLE #-} Pretty a => ToLogStr a where
 --   toLogStr p = toLogStr (show (pretty p))
 
 instance {-# OVERLAPPABLE #-} ToLogStr (Doc ann) where
-  toLogStr p = toLogStr (show p)
+  toLogStr = toLogStr . show
 
 logPrefix :: LogStr -> LoggerEntry-> LoggerEntry
 logPrefix s = set loggerTr (s <>)

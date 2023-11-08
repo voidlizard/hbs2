@@ -133,6 +133,7 @@ library
                     , HBS2.Storage.Operations.ByteString
                     , HBS2.Storage.Operations.Missed
                     , HBS2.System.Logger.Simple
+                    , HBS2.System.Logger.Simple.ANSI
                     , HBS2.System.Logger.Simple.Class
                     , HBS2.Net.Dialog.Core
                     , HBS2.Net.Dialog.Client
@@ -177,6 +178,7 @@ library
                     , network-simple
                     , network-byte-order
                     , prettyprinter
+                    , prettyprinter-ansi-terminal
                     , mwc-random
                     , random
                     , random-shuffle
