@@ -1038,6 +1038,7 @@ runPeer opts = U.handle (\e -> myException e
 
   -- NOTE: moved-to-rpc
   let refChanNotifyAction (puk, box) = do
+        emitNotify refChanNotifySource (RefChanNotifyKey puk, RefChanNotifyData puk box)
         void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
