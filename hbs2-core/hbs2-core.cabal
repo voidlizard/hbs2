@@ -90,6 +90,7 @@ library
                     , HBS2.Data.Bundle
                     , HBS2.Defaults
                     , HBS2.Events
+                    , HBS2.Polling
                     , HBS2.Hash
                     , HBS2.Merkle
                     , HBS2.Net.Auth.GroupKeyAsymm
@@ -166,6 +167,7 @@ library
                     , exceptions
                     , generic-lens
                     , hashable
+                    , heaps
                     , interpolatedstring-perl6
                     , iproute
                     , memory
