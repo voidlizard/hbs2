@@ -4,6 +4,7 @@ import HBS2.Base58
 import HBS2.Data.Detect
 import HBS2.Data.Types
 import HBS2.Data.Types.EncryptedBox
+import HBS2.Data.Types.SignedBox
 import HBS2.Defaults
 import HBS2.Merkle
 import HBS2.Net.Proto.Types
@@ -12,6 +13,7 @@ import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Net.Auth.GroupKeySymm
 -- (ToEncrypt(..))
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.Credentials.Sigil
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefLog(RefLogKey(..))
 import HBS2.Net.Proto.AnyRef(AnyRefKey(..))
@@ -538,6 +540,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
                         <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
                         <> command "keyring-key-del" (info pKeyDel (progDesc "removes a keypair from the keyring"))
+                        <> command "sigil"           (info pSigil (progDesc "sigil functions"))
                         <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
                         <> command "groupkey"        (info pGroupKey (progDesc "group key commands"))
                         <> command "reflog"          (info pReflog (progDesc "reflog commands"))
@@ -835,6 +838,41 @@ main = join . customExecParser (prefs showHelpOnError) $
         outSection _ x@(Nothing, _) = printHash x
 
         printHash = void . print . pretty . fst
+
+
+    pSigil = hsubparser (  command  "create" (info pCreateSigil (progDesc "create sigil"))
+                        <> command "check" (info pCheckSigil (progDesc "check sigil"))
+                        )
+
+    pCheckSigil = do
+      _ <- common
+      fn <- optional $ strArgument ( metavar "SIGIL-FILE" )
+      pure $ do
+        handle <- maybe1 fn (pure stdin) (flip openFile ReadMode)
+        sigil <- (BS.hGetContents handle <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+                    `orDie` "parse sigil failed"
+        (_,sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+                  `orDie` "signature check failed"
+        print $ parens ("sigil" <> line <> indent 2 (vcat $ [pretty sigil, pretty sd]))
+
+    pCreateSigil = do
+      _ <- common
+      krf <- strOption   (long "keyring" <> short 'k' <> help "keyring")
+      txt <- optional $ strOption ( long "description" <> short 'm' <> help "short sigil information")
+      href <- optional $ option phref ( long "metadata-ref" <> help "reference to metadata" )
+      pk <- argument ppk (metavar "PUBKEY")
+      pure $ do
+        sc <- BS.readFile krf
+        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+        sigil <- pure (makeSigilFromCredentials @L4Proto creds pk txt href)
+                  `orDie` "public key not found in credentials file"
+        print $ pretty (AsBase58 sigil)
+
+    ppk = maybeReader fromStringMay
+    phref = maybeReader fromStringMay
+
+
+
 
 
 

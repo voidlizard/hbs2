@@ -96,6 +96,7 @@ library
                     , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm
                     , HBS2.Net.Auth.Credentials
+                    , HBS2.Net.Auth.Credentials.Sigil
                     , HBS2.Net.IP.Addr
                     , HBS2.Net.Messaging
                     , HBS2.Net.Messaging.Fake

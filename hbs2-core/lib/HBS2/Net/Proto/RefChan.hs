@@ -57,23 +57,49 @@ type Weight = Integer
 
 data RefChanHeadBlock e =
   RefChanHeadBlockSmall
-  { _refChanHeadVersion     :: Integer
-  , _refChanHeadQuorum      :: Integer
-  , _refChanHeadWaitAccept  :: Integer
-  , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
-  , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   { _refChanHeadVersion     :: Integer
+   , _refChanHeadQuorum      :: Integer
+   , _refChanHeadWaitAccept  :: Integer
+   , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+   , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   }
+  | RefChanHeadBlock1
+  {  _refChanHeadVersion     :: Integer
+   , _refChanHeadQuorum      :: Integer
+   , _refChanHeadWaitAccept  :: Integer
+   , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+   , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
+   , _refChanHeadExt         :: ByteString
   }
   deriving stock (Generic)
 
-makeLenses 'RefChanHeadBlockSmall
+makeLenses ''RefChanHeadBlock
+
+
 
 type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
+                     , FromStringMaybe (PubKey 'Encrypt (Encryption e))
                      , Signatures (Encryption e)
                      , Serialise (Signature (Encryption e))
+                     , Serialise (PubKey 'Encrypt (Encryption e))
+                     , Hashable (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Sign (Encryption e))
                      )
+
+refChanHeadReaders :: ForRefChans e => Lens (RefChanHeadBlock e)
+                           (RefChanHeadBlock e)
+                           (HashSet (PubKey 'Encrypt (Encryption e)))
+                           (HashSet (PubKey 'Encrypt (Encryption e)))
+
+refChanHeadReaders = lens g s
+  where
+    g (RefChanHeadBlockSmall{}) = mempty
+    g (RefChanHeadBlock1{..})   = _refChanHeadReaders'
+    s v@(RefChanHeadBlock1{}) x = v { _refChanHeadReaders' = x }
+    s x _ = x
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
 
@@ -915,11 +941,23 @@ makeProposeTran creds chan box1 = do
 
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
-  fromStringMay str = RefChanHeadBlockSmall <$> version
-                                          <*> quorum
-                                          <*> wait
-                                          <*> pure (HashMap.fromList peers)
-                                          <*> pure (HashSet.fromList authors)
+
+  fromStringMay str =
+    case readers of
+      [] -> RefChanHeadBlockSmall <$> version
+                                  <*> quorum
+                                  <*> wait
+                                  <*> pure (HashMap.fromList peers)
+                                  <*> pure (HashSet.fromList authors)
+
+      rs -> RefChanHeadBlock1 <$> version
+                              <*> quorum
+                              <*> wait
+                              <*> pure (HashMap.fromList peers)
+                              <*> pure (HashSet.fromList authors)
+                              <*> pure (HashSet.fromList rs)
+                              <*> pure mempty
+
     where
       parsed = parseTop str & fromRight mempty
       version = lastMay [ n | (ListVal [SymbolVal "version", LitIntVal n] ) <- parsed ]
@@ -932,6 +970,10 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
 
       authors = catMaybes [ fromStringMay (Text.unpack s)
                           | (ListVal [SymbolVal "author", LitStrVal s] ) <- parsed
+                          ]
+
+      readers = catMaybes [ fromStringMay @(PubKey 'Encrypt  (Encryption e)) (Text.unpack s)
+                          | (ListVal [SymbolVal "reader", LitStrVal s] ) <- parsed
                           ]
 
 instance (ForRefChans e, Pretty (AsBase58 (PubKey 'Sign (Encryption e)))) => Pretty (RefChanHeadBlock e) where

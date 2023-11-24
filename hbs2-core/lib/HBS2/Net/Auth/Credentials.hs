@@ -87,6 +87,8 @@ instance SerialisedCredentials e => Serialise (PeerCredentials e)
 
 newtype AsCredFile a = AsCredFile a
 
+
+
 -- FIXME: integration-regression-test-for-keyring
 --   Добавить тест: сгенерировали keypair/распарсили keypair
 
