@@ -976,7 +976,10 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                           | (ListVal [SymbolVal "reader", LitStrVal s] ) <- parsed
                           ]
 
-instance (ForRefChans e, Pretty (AsBase58 (PubKey 'Sign (Encryption e)))) => Pretty (RefChanHeadBlock e) where
+instance (ForRefChans e
+         , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+         , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
+         ) => Pretty (RefChanHeadBlock e) where
   pretty blk = parens ("version" <+> pretty (view refChanHeadVersion blk)) <> line
                <>
                parens ("quorum" <+> pretty (view refChanHeadQuorum blk)) <> line
@@ -986,11 +989,13 @@ instance (ForRefChans e, Pretty (AsBase58 (PubKey 'Sign (Encryption e)))) => Pre
                vcat (fmap peer (HashMap.toList $ view refChanHeadPeers blk)) <> line
                <>
                vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
+               <>
+               vcat (fmap reader (HashSet.toList $ view refChanHeadReaders blk)) <> line
 
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
-
+      reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
 
 
 -- FIXME: reconnect-validator-client-after-restart
