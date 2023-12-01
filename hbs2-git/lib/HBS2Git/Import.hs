@@ -257,7 +257,7 @@ importRefLogNew opts ref = runResourceT do
 
             (src, enc) <- case something of
 
-              MerkleAnn (MTreeAnn _ sc@(EncryptGroupNaClSymm g nonce) tree) -> do
+              MerkleAnn ann@(MTreeAnn _ sc@(EncryptGroupNaClSymm g nonce) tree) -> do
 
                 gk10' <- runExceptT $ readFromMerkle sto (SimpleKey g)
 
@@ -271,7 +271,7 @@ importRefLogNew opts ref = runResourceT do
                 let gk1 = mconcat $ gk10 : gk11
 
                 -- elbs <- runExceptT $ readFromMerkle sto (ToDecryptBS decrypt (fromHashRef h))
-                elbs <- runExceptT $ readFromMerkle sto (ToDecryptBS2 gk1 nonce decrypt tree)
+                elbs <- runExceptT $ readFromMerkle sto (ToDecryptBS2 gk1 nonce decrypt ann)
 
                 case elbs of
                   Left{} -> do

@@ -453,7 +453,7 @@ storeObjectRPC True repo meta bs = do
                                       & LBS.toStrict
 
     let bsStream = readChunkedBS bs defBlockSize
-    let source = ToEncryptSymmBS gks nonce bsStream gk0 (ShortMetadata txt)
+    let source = ToEncryptSymmBS gks nonce bsStream gk0 (ShortMetadata txt) Nothing
 
     h <- runExceptT (writeAsMerkle sto source) >>= either (const cantWriteMerkle) pure
 

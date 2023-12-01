@@ -1,4 +1,5 @@
 {-# Language RecordWildCards #-}
+{-# Language PatternSynonyms, ViewPatterns #-}
 module Main where
 
 import HBS2.Prelude
@@ -42,6 +43,27 @@ a1Str = lens g s
 --   старая версия ломается точно, голова остаётся той версии, которая была
 --   новая версия: должна понимать и старую, и новую голову.
 --
+
+
+data W = A | B0 | B1 Bool
+
+isB a = case a of
+          B0   -> True
+          B1 _ -> True
+          _    -> False
+
+-- -- Определяем паттерн-синоним для B, который будет сопоставлять B0 и B1
+pattern B :: Bool -> W
+pattern B b <- (isB -> b)
+
+{-# COMPLETE A, B #-}
+
+-- -- Функция test использует паттерн B для сопоставления с образцом
+test :: W -> String
+test w = case w of
+  B val -> "Match B with value " ++ show val
+  A     -> "Match A"
+
 
 main :: IO ()
 main = do

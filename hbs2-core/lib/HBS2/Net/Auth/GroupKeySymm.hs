@@ -1,5 +1,4 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language ConstraintKinds #-}
@@ -23,6 +22,8 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.Storage(Storage(..))
 
 
+import Data.ByteArray.Hash qualified as BA
+import Data.ByteArray.Hash (SipHash(..), SipKey(..))
 import Codec.Serialise
 import Crypto.KDF.HKDF qualified as HKDF
 import Control.Monad
@@ -58,6 +59,7 @@ import Data.Bits (xor)
 
 type GroupSecretAsymm = Key
 
+
 -- NOTE: breaking-change
 
 -- NOTE: not-a-monoid
@@ -88,6 +90,7 @@ data instance ToEncrypt 'Symm s LBS.ByteString =
   , toEncryptData        :: Stream (Of LBS.ByteString) IO ()
   , toEncryptGroupKey    :: GroupKey 'Symm s
   , toEncryptMeta        :: AnnMetaData
+  , toEncryptOpts        :: Maybe EncryptGroupNaClSymmOpts
   }
   deriving (Generic)
 
@@ -219,33 +222,30 @@ instance ( MonadIO m
 
     let key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
 
-    -- NOTE: new-format-and-compatibility
-    --  мы можем:
-    --    1. поменять схему и схему вычисления нонсов
-    --    сделать зависимой от схемы. Вот мы пишем
-    --    её внизу, это ок.
-    --    Минусы: сложнее код, менее локальный
-    --    Плюсы: надёжнее
-    --    Совместимость: обратная? старая версия
-    --    не будет читать новые блоки.
-    --
-    --    2. сериализовать блок с параметрами
-    --    при чтении: пытаемся десереализовать,
-    --    как блок (читать голову). если не удаётся
-    --    --- читаем, как байтстроку.
-    --    минусы: будет медленнее --- лишняя проверка/попытка
-    --    десереализации на каждый блок.
-    --    плюсы: более локальные изменения
-    --
+    let method = case toEncryptOpts source of
+          Nothing ->
+            EncryptGroupNaClSymm1 (fromHashRef gkh) nonceS
+
+          Just o@(EncryptGroupNaClSymmBlockSIP{}) ->
+            EncryptGroupNaClSymm2 o (fromHashRef gkh) nonceS
+
+    let onBlock (i,bs) = do
+          case toEncryptOpts source of
+            Just (EncryptGroupNaClSymmBlockSIP (a,b)) -> do
+              let bss = LBS.toStrict bs
+              let (SipHash sip) = BA.sipHash (SipKey a b) bss
+              let nonceI = nonceFrom (nonce0, i + sip)
+              let encrypted = SK.secretbox key0 nonceI  bss
+              pure $ serialise (nonceI, encrypted)
+
+            _  -> do
+                    let nonceI = nonceFrom (nonce0, i)
+                    let encrypted = SK.secretbox key0 nonceI (LBS.toStrict bs)
+                    pure (LBS.fromStrict encrypted)
 
     hashes' <- liftIO $ toEncryptData source
                 & S.zip (S.enumFrom (1 :: Word64) )
-                & S.mapM ( \(i,bs) -> do
-                             let nonceI = nonceFrom (nonce0, i)
-                             let encrypted = SK.secretbox key0 nonceI (LBS.toStrict bs)
-                             pure (LBS.fromStrict encrypted)
-                         )
-
+                & S.mapM onBlock
                 & S.mapM (enqueueBlock sto)
                 & S.map (fmap HashRef)
                 & S.toList_
@@ -264,10 +264,12 @@ instance ( MonadIO m
 
     tree <- maybe (throwError StorageError) pure root
 
-    let ann = MTreeAnn (toEncryptMeta source) (EncryptGroupNaClSymm (fromHashRef gkh) nonceS) tree
+    let ann = MTreeAnn (toEncryptMeta source) method tree
 
     putBlock sto (serialise ann) >>= maybe (throwError StorageError) pure
 
+
+data EncMethod = Method1 | Method2
 
 instance ( MonadIO m
          , MonadError OperationError m
@@ -279,7 +281,7 @@ instance ( MonadIO m
 
   data instance TreeKey (ToDecrypt 'Symm sch ByteString) =
       ToDecryptBS   [KeyringEntry sch] (Hash HbSync)
-    | ToDecryptBS2  (GroupKey 'Symm sch) B8.ByteString [KeyringEntry sch] (MTree [HashRef])
+    | ToDecryptBS2  (GroupKey 'Symm sch) B8.ByteString [KeyringEntry sch] (MTreeAnn [HashRef])
 
   type instance ToBlockR  (ToDecrypt 'Symm sch ByteString) = ByteString
   type instance ReadResult (ToDecrypt 'Symm sch ByteString) = ByteString
@@ -297,22 +299,32 @@ instance ( MonadIO m
     let nonce0 = nonceFrom @SK.Nonce nonceS
 
     hashes <- S.toList_ $
-      walkMerkleTree tree (lift . getBlock sto) $ \case
+      walkMerkleTree (_mtaTree tree) (lift . getBlock sto) $ \case
         Left{} -> throwError MissedBlockError
         Right hrr -> S.each hrr
+
+
+    method <- case _mtaCrypt tree of
+          EncryptGroupNaClSymm1{} -> pure Method1
+          EncryptGroupNaClSymm2 (EncryptGroupNaClSymmBlockSIP _) _ _ -> pure Method2
+          _ -> throwError UnsupportedFormat
 
     ss <- forM (zip [1..] hashes) $ \(i :: Word64,h) -> do
       blk <- getBlock sto (fromHashRef h) >>= maybe (throwError MissedBlockError) pure
 
-      let nonceI = nonceFrom (nonce0, i)
-
-      let unboxed = SK.secretboxOpen key0 nonceI (LBS.toStrict blk)
-
-      maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
+      case method of
+        Method1 -> do
+          let nonceI = nonceFrom (nonce0, i)
+          let unboxed = SK.secretboxOpen key0 nonceI (LBS.toStrict blk)
+          maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
+        Method2 -> do
+          (nonce, bss) <- deserialiseOrFail @(SK.Nonce, N.ByteString) blk
+                            & either (const $ throwError UnsupportedFormat) pure
+          let unboxed = SK.secretboxOpen key0 nonce bss
+          maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
 
     -- FIXME: stream-unboxed-blocks
     pure $ mconcat ss
-
 
     where
 
@@ -328,7 +340,7 @@ instance ( MonadIO m
           let what = tryDetect h bs
 
           let tree' = case what of
-                MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm g n}) -> Just (_mtaTree ann, (g,n))
+                MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm g n}) -> Just (ann, (g,n))
                 _ -> Nothing
 
           (tree, (gkh,nonceS)) <- maybe1 tree' (throwError UnsupportedFormat) pure

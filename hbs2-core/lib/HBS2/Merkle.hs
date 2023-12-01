@@ -1,5 +1,7 @@
 {-# Language  TemplateHaskell #-}
 {-# Language  DeriveFunctor #-}
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 module HBS2.Merkle where
 
 import HBS2.Prelude
@@ -14,11 +16,14 @@ import Data.Data
 import Data.Foldable (forM_, traverse_)
 import Data.List qualified as List
 import Data.Text (Text)
+import Data.Word
 import GHC.Generics
 import Lens.Micro.Platform
 import Control.Monad.Trans.Maybe
 import Control.Monad
 import Prettyprinter
+
+
 
 newtype MerkleHash = MerkleHash { fromMerkleHash :: Hash HbSync }
                      deriving newtype (Eq,Ord,IsString,Pretty)
@@ -97,13 +102,32 @@ instance Serialise a => Serialise (MTreeAnn a)
 data MerkleEncryptionType
   deriving stock (Data)
 
+data EncryptGroupNaClSymmOpts =
+  EncryptGroupNaClSymmBlockSIP (Word64, Word64)
+  deriving stock (Eq,Ord,Show,Generic,Data)
+
+instance Serialise EncryptGroupNaClSymmOpts
+
 data MTreeEncryption
   = NullEncryption
   | CryptAccessKeyNaClAsymm (Hash HbSync)
-  | EncryptGroupNaClSymm (Hash HbSync) ByteString
+  | EncryptGroupNaClSymm1 (Hash HbSync) ByteString
+  | EncryptGroupNaClSymm2 EncryptGroupNaClSymmOpts (Hash HbSync) ByteString
   deriving stock (Eq,Generic,Data,Show)
 
 instance Serialise MTreeEncryption
+
+pattern EncryptGroupNaClSymm :: Hash HbSync -> ByteString -> MTreeEncryption
+pattern EncryptGroupNaClSymm a b  <- ( isEncryptGroupNaClSymm -> Just (a, b) ) where
+  EncryptGroupNaClSymm a b = EncryptGroupNaClSymm1 a b
+
+isEncryptGroupNaClSymm :: MTreeEncryption
+                       -> Maybe (Hash HbSync, ByteString)
+isEncryptGroupNaClSymm = \case
+  EncryptGroupNaClSymm2 _ a b -> Just (a,b)
+  EncryptGroupNaClSymm1  a b  -> Just (a,b)
+  _                           -> Nothing
+
 
 data MTree a = MNode MNodeData [Hash HbSync] | MLeaf a
                deriving stock (Generic,Data,Show)

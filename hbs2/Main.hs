@@ -380,7 +380,7 @@ runStore opts ss = runResourceT do
 
             let segments = readChunked fh (fromIntegral defBlockSize)
 
-            let source = ToEncryptSymmBS gks nonce segments gk NoMetaData
+            let source = ToEncryptSymmBS gks nonce segments gk NoMetaData Nothing
 
             r <- runExceptT $ writeAsMerkle ss source
 
