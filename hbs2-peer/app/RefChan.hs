@@ -953,7 +953,7 @@ logMergeProcess penv env q = withPeerM penv do
                     pure [(href, (quo,mempty))]
 
                   Accept  _ box -> do
-                    (pk, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
+                    (pk, AcceptTran _ headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
 
                     lift $ lift $ downloadMissedHead sto chan headRef
 

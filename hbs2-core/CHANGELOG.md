@@ -1,5 +1,5 @@
 # Revision history for hbs2-core
 
-## 0.1.0.0 -- YYYY-mm-dd
+## 0.1.1.0 -- 2023-12-16
 
-* First version. Released on an unsuspecting world.
+* RefChan breaking change. Timestamp field added to Accept transaction.

@@ -3,6 +3,7 @@
 {-# Language TemplateHaskell #-}
 {-# Language FunctionalDependencies #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 module HBS2.Net.Proto.RefChan where
 
 import HBS2.Prelude.Plated
@@ -21,7 +22,6 @@ import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Peer
-import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Storage
 
 import Data.Config.Suckless
@@ -32,20 +32,21 @@ import Codec.Serialise
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe
+import Data.Word
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Data.Hashable hiding (Hashed)
 import Type.Reflection (someTypeRep)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import UnliftIO
+
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -141,7 +142,7 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanHeadKey s) where
   pretty (RefChanHeadKey k) = pretty (AsBase58 k)
 
 
-newtype RefChanLogKey s = RefChanLogKey (PubKey 'Sign s)
+newtype RefChanLogKey s = RefChanLogKey { fromRefChanLogKey :: PubKey 'Sign s }
 
 deriving stock instance IsRefPubKey s => Eq (RefChanLogKey s)
 
@@ -183,13 +184,34 @@ instance ForRefChans e => Serialise (RefChanHead e)
 data ProposeTran e = ProposeTran HashRef (SignedBox ByteString e) -- произвольная бинарная транзакция,
                      deriving stock (Generic)                     -- подписанная ключом **АВТОРА**, который её рассылает
 
+newtype AcceptTime = AcceptTime Word64
+                     deriving stock (Eq,Ord,Data,Generic)
+                     deriving newtype (Enum,Num,Real,Integral)
 
-data AcceptTran e = AcceptTran HashRef HashRef -- ссылка на (ProposTran e)
+instance Serialise AcceptTime
+
+data AcceptTran e = AcceptTran1 HashRef HashRef -- ссылка на (ProposTran e)
+                  | AcceptTran2 (Maybe AcceptTime) HashRef HashRef
                     deriving stock (Generic)
+
+acceptTime :: SimpleGetter (AcceptTran e) (Maybe AcceptTime)
+acceptTime = to getter
+  where
+    getter (AcceptTran1 _ _) = Nothing
+    getter (AcceptTran2 a _ _) = a
+
+unpackAcceptTran :: AcceptTran e -> (Maybe AcceptTime, HashRef, HashRef)
+unpackAcceptTran (AcceptTran1 a b) = (Nothing, a, b)
+unpackAcceptTran (AcceptTran2 t a b) = (t, a, b)
+
+pattern AcceptTran :: Maybe AcceptTime -> HashRef -> HashRef -> AcceptTran e
+pattern AcceptTran t a b <- (unpackAcceptTran -> (t, a, b))
+  where
+    AcceptTran Nothing a b = AcceptTran1 a b
+    AcceptTran (Just t) a b = AcceptTran2 (Just t) a b
 
 instance ForRefChans e => Serialise (ProposeTran e)
 instance ForRefChans e => Serialise (AcceptTran e)
-
 
 data RefChanRound e =
   RefChanRound
@@ -586,7 +608,8 @@ refChanUpdateProto self pc adapter msg = do
         -- если нет - то и всё, просто перешлём
         -- по госсипу исходную транзу
 
-        let tran = AcceptTran headRef (HashRef hash)
+        ts <- liftIO getPOSIXTime <&> round <&> Just
+        let tran = AcceptTran ts headRef (HashRef hash)
 
         -- --  генерируем Accept
         let accept = Accept chan (makeSignedBox @e pk sk tran)
@@ -609,7 +632,7 @@ refChanUpdateProto self pc adapter msg = do
 
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
-       (peerKey, AcceptTran headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
+       (peerKey, AcceptTran _ headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
 
        let refchanKey = RefChanHeadKey @s chan
 
