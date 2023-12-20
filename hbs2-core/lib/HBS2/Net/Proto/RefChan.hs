@@ -913,8 +913,7 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
         debug $ "^^^ CALL refChanNotifyRely" <+> pretty h0
         lift $ refChanNotifyRely adapter rchan msg
 
-        debug $ "FUCKING EMIT RefChanNotifyEventKey" <+> pretty (AsBase58 rchan)
-        lift $ emit @e (RefChanNotifyEventKey rchan) (RefChanNotifyEvent (HashRef h0) msg)
+      lift $ emit @e (RefChanNotifyEventKey rchan) (RefChanNotifyEvent (HashRef h0) msg)
 
   where
     proto = Proxy @(RefChanNotify e)
