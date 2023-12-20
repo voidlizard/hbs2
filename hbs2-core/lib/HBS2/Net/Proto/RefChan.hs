@@ -56,6 +56,7 @@ type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
 type Weight = Integer
 
+
 data RefChanHeadBlock e =
   RefChanHeadBlockSmall
    { _refChanHeadVersion     :: Integer
@@ -89,6 +90,8 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      , Hashable (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Sign (Encryption e))
                      )
+
+
 
 refChanHeadReaders :: ForRefChans e => Lens (RefChanHeadBlock e)
                            (RefChanHeadBlock e)
@@ -815,7 +818,24 @@ refChanRequestProto self adapter msg = do
     proto = Proxy @(RefChanRequest e)
 
 
--- instance Coercible (SignedBox L4Proto
+newtype instance EventKey e (RefChanNotify e) =
+  RefChanNotifyEventKey (RefChanId e)
+
+deriving stock instance ForRefChans e => Typeable (EventKey e (RefChanNotify e))
+deriving stock instance ForRefChans e => Eq  (EventKey e (RefChanNotify e))
+deriving newtype instance ForRefChans e => Hashable  (EventKey e (RefChanNotify e))
+
+data instance Event e (RefChanNotify e) =
+  RefChanNotifyEvent HashRef (RefChanNotify e)
+
+-- FIXME: remove-default-instance?
+instance EventType (Event e (RefChanNotify e)) where
+  isPersistent = True
+
+instance Expires (EventKey e (RefChanNotify e)) where
+  expiresIn = const Nothing -- (Just defCookieTimeoutSec)
+
+
 
 refChanNotifyProto :: forall e s m . ( MonadIO m
                                      , Request e (RefChanNotify e) m
@@ -827,6 +847,7 @@ refChanNotifyProto :: forall e s m . ( MonadIO m
                                      , Pretty (Peer e)
                                      , Sessions e (RefChanHeadBlock e) m
                                      , Sessions e (KnownPeer e) m
+                                     , EventEmitter e (RefChanNotify e) m
                                      , HasStorage m
                                      , Signatures s
                                      , IsRefPubKey s
@@ -891,6 +912,9 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
       unless self do
         debug $ "^^^ CALL refChanNotifyRely" <+> pretty h0
         lift $ refChanNotifyRely adapter rchan msg
+
+        debug $ "FUCKING EMIT RefChanNotifyEventKey" <+> pretty (AsBase58 rchan)
+        lift $ emit @e (RefChanNotifyEventKey rchan) (RefChanNotifyEvent (HashRef h0) msg)
 
   where
     proto = Proxy @(RefChanNotify e)

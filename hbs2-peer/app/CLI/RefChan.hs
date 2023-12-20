@@ -8,10 +8,16 @@ import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Proto.Service
+import HBS2.Data.Detect
+import HBS2.Storage
+import HBS2.Data.Types.Refs
 
 import HBS2.OrDie
 
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client.StorageClient
+import HBS2.Peer.RefChanNotifyLog
 
 import CLI.Common
 import RPC2()
@@ -20,9 +26,9 @@ import Options.Applicative
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Lens.Micro.Platform
-import Codec.Serialise
 import Data.Maybe
 import System.Exit
+import Control.Monad.Trans.Maybe
 
 pRefChan :: Parser (IO ())
 pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
@@ -109,10 +115,9 @@ pRefChanPropose = do
   kra <- strOption (long "author" <> short 'a' <> help "author credentials")
   fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
   dry <- optional (flag' True (long "dry" <> short 'n' <> help "only dump transaction")) <&> fromMaybe False
-  sref <- strArgument (metavar "REFCHAH-KEY")
+  puk <- argument pRefChanId (metavar "REFCHAH-KEY")
   pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     sc <- BS.readFile kra
-    puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
     creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
 
     lbs <- maybe1 fn LBS.getContents LBS.readFile
@@ -125,19 +130,59 @@ pRefChanPropose = do
       -- FIXME: proper-error-handling
       void $ callService @RpcRefChanPropose caller (puk, box)
 
+
 pRefChanNotify :: Parser (IO ())
-pRefChanNotify = do
+pRefChanNotify =
+  hsubparser (  command  "post"  (info pRefChanNotifyPost    (progDesc "post notify message"))
+             <> command  "log"   (info pRefChanNotifyLog     (progDesc  "post notify message"))
+             <> command  "tail"  (info pRefChanNotifyLogTail (progDesc  "output last messages"))
+             )
+
+pRefChanNotifyPost :: Parser (IO ())
+pRefChanNotifyPost = do
   opts <- pRpcCommon
   kra <- strOption (long "author" <> short 'a' <> help "author credentials")
   fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
-  sref <- strArgument (metavar "REFCHAH-REF")
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
   pure $ withMyRPC @RefChanAPI opts $ \caller -> do
     sc <- BS.readFile kra
-    puk <- pure (fromStringMay @(RefChanId L4Proto) sref) `orDie` "can't parse refchan/public key"
     creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
     lbs <- maybe1 fn LBS.getContents LBS.readFile
     let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
     void $ callService @RpcRefChanNotify caller (puk, box)
+
+
+pRefChanId :: ReadM (RefChanId L4Proto)
+pRefChanId = maybeReader (fromStringMay @(RefChanId L4Proto))
+
+pRefChanNotifyLog :: Parser (IO ())
+pRefChanNotifyLog = do
+  opts <- pRpcCommon
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
+  pure $ withMyRPC @StorageAPI opts $ \caller -> do
+    let sto = AnyStorage (StorageClient caller)
+    href <- getRef sto (refAlias (makeRefChanNotifyLogKey @L4Proto puk)) <&> fmap HashRef
+    maybe1 href exitFailure $ \r -> do
+      print $ pretty r
+      exitSuccess
+
+pRefChanNotifyLogTail :: Parser (IO ())
+pRefChanNotifyLogTail = do
+  opts <- pRpcCommon
+
+  n <- optional (option auto ( short 'n' <> long "lines" <> help "output last NUM lines" ))
+          <&> fromMaybe 10
+
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
+  pure $ withMyRPC @StorageAPI opts $ \caller -> void $ runMaybeT do
+    let sto = AnyStorage (StorageClient caller)
+    href <- getRef sto (refAlias (makeRefChanNotifyLogKey @L4Proto puk)) <&> fmap HashRef
+              >>= toMPlus
+
+    rs <- readLog (getBlock sto) href
+             <&> reverse . take n . reverse
+
+    liftIO $ print $ vcat (fmap pretty rs)
 
 pRefChanGet :: Parser (IO ())
 pRefChanGet = do

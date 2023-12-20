@@ -55,6 +55,7 @@ newtype Internal a = Internal a
 class Hashed t a where
   hashObject :: a -> Hash t
 
+deriving newtype instance Hashed HbSync (Hash HbSync)
 
 instance Hashed HbSync ByteString where
   hashObject s = HbSyncHash $! BA.convert digest

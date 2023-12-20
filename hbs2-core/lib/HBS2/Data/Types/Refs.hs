@@ -14,9 +14,8 @@ import Codec.Serialise(serialise)
 import Data.Data
 
 newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
-                  deriving newtype (Eq,Ord,IsString,Pretty,Hashable)
+                  deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
                   deriving stock (Data,Generic,Show)
-
 
 
 instance Pretty (AsBase58 HashRef) where

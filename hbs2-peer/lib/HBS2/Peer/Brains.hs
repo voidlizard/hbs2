@@ -10,6 +10,8 @@ import HBS2.Hash
 import Data.Word
 import HBS2.Data.Types.Refs (HashRef(..))
 
+import Data.Time.Clock (NominalDiffTime)
+
 -- TODO: rename
 class HasBrains e a where
 
@@ -143,6 +145,11 @@ class HasBrains e a where
 
   setReflogProcessed _ _ = pure ()
 
+  setSeen :: (Hashed HbSync x, MonadIO m) => a -> x -> NominalDiffTime -> m ()
+  setSeen _ _ _ = pure ()
+
+  isSeen :: (Hashed HbSync x, MonadIO m) => a -> x -> m Bool
+  isSeen _ _ = pure False
 
 type NoBrains = ()
 
@@ -179,4 +186,6 @@ instance HasBrains e (SomeBrains e) where
   isReflogProcessed (SomeBrains a) = isReflogProcessed @e a
   setReflogProcessed (SomeBrains a) = setReflogProcessed @e a
 
+  setSeen (SomeBrains a) = setSeen @e a
+  isSeen (SomeBrains a) = isSeen @e a
 

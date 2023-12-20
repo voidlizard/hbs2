@@ -38,7 +38,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
-import Data.Time.Clock (UTCTime)
+import Data.Time.Clock (addUTCTime,getCurrentTime)
 import Data.Word
 import Lens.Micro.Platform
 import System.Directory
@@ -249,6 +249,25 @@ instance ( Hashable (Peer e)
         limit 1
       |] ( Only ( show $ pretty (AsBase58 ref) ) )
         <&> isJust . listToMaybe
+
+  setSeen brains w ts = do
+    utc <- liftIO getCurrentTime <&> addUTCTime ts
+    let h = show $ pretty $ hashObject @HbSync w
+    liftIO do
+      let conn = view brainsDb brains
+      void $ execute conn [qc|
+        insert into seen (hash,ts)
+        values (?,?)
+        on conflict (hash) do update set ts = excluded.ts
+      |] (h,utc)
+    commitNow brains False
+
+  isSeen brains w = do
+    let h = show $ pretty $ hashObject @HbSync w
+    liftIO do
+      let conn = view brainsDb brains
+      r <- query @_ @(Only Int) conn [qc|select 1 from seen where hash = ? limit 1|] (Only h)
+      pure $ not $ List.null r
 
 commitNow :: forall e m . MonadIO m
           => BasicBrains e
@@ -549,6 +568,7 @@ DELETE FROM ancestors WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM seenby WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > 300;
 DELETE FROM statedb.pexinfo where seen <  datetime('now', '-7 days');
+DELETE FROM seen where ts < datetime('now');
 
 RELEASE SAVEPOINT zzz1;
 
@@ -809,6 +829,14 @@ newBasicBrains cfg = liftIO do
     , symmkey text not null
     , ts DATE DEFAULT (datetime('now','localtime'))
     , primary key (peer)
+    )
+  |]
+
+  execute_ conn [qc|
+    create table if not exists seen
+    ( hash text not null
+    , ts not null
+    , primary key (hash)
     )
   |]
 

@@ -59,6 +59,7 @@ import PeerMeta
 import CLI.Common
 import CLI.RefChan
 import RefChan
+import RefChanNotifyLog
 import Fetch (fetchHash)
 import Log
 
@@ -985,6 +986,8 @@ runPeer opts = Exception.handle (\e -> myException e
                 peerThread "reflogWorker" (reflogWorker @e conf (SomeBrains brains) rwa)
 
                 peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
+
+                peerThread "refChanNotifyLogWorker" (refChanNotifyLogWorker @e conf (SomeBrains brains))
 
                 peerThread "all protos" do
                   runProto @e

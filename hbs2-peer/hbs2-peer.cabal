@@ -136,6 +136,7 @@ library
     exposed-modules:
       HBS2.Peer.Brains
       HBS2.Peer.Notify
+      HBS2.Peer.RefChanNotifyLog
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
@@ -188,6 +189,7 @@ executable hbs2-peer
                     , PeerConfig
                     , RefLog
                     , RefChan
+                    , RefChanNotifyLog
                     , CheckMetrics
                     , HttpWorker
                     , Brains
