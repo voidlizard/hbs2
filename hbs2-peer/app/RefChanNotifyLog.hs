@@ -9,7 +9,6 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Hash
 import HBS2.Base58
-import HBS2.Clock
 import HBS2.Events
 import HBS2.Polling
 import HBS2.Data.Detect
@@ -31,19 +30,16 @@ import PeerTypes hiding (downloads)
 import PeerConfig
 import Brains
 
-import Data.Time.Clock (NominalDiffTime(..))
+import Data.Time.Clock (NominalDiffTime)
 import Data.List qualified as List
 import Control.Concurrent.STM (flushTQueue)
 
 import Data.Hashable
 import Control.Exception ()
-import Control.Monad
 import Control.Monad.Except ()
-import Data.HashMap.Strict qualified as HashMap
 import Data.Maybe
 import Data.Text qualified as Text
 import UnliftIO
-import Control.Monad.Trans.Maybe
 import Data.Function (on)
 
 import Streaming()
@@ -148,7 +144,7 @@ refChanNotifyLogWorker conf brains = do
       headDef 1 [ fromIntegral n | ListVal [SymbolVal "write-time", LitIntVal n] <- syn ]
 
     getTrim syn = Just $
-      headDef 0 [ fromIntegral n | ListVal [SymbolVal "trim", LitIntVal n] <- syn ]
+      headDef 10000 [ fromIntegral n | ListVal [SymbolVal "trim", LitIntVal n] <- syn ]
 
     toPolling qs = pure $ fmap (\(l,q) -> (MyPoll (listenChan l) l q, listenWriteTime l)) qs
 
