@@ -197,6 +197,7 @@ simpleBlockFileName ss h = path
   where
     (pref,suf) = splitAt 1 (show (pretty h))
     path = view storageBlocks ss </> pref </> suf
+{-# INLINE simpleBlockFileName #-}
 
 simpleRefFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
 simpleRefFileName ss h = path
@@ -275,13 +276,8 @@ simplePutBlockLazy :: (IsKey h, Hashed h LBS.ByteString)
 simplePutBlockLazy doWait s lbs = do
 
   let hash = hashObject lbs
-  let fn = simpleBlockFileName s hash
-  let fntmp = takeFileName fn
-  let tmp = view storageTemp s
 
   stop <- atomically $ TV.readTVar ( s ^. storageStopWriting )
-
-  size <- simpleBlockExists s hash <&> fromMaybe 0
 
   if stop then do
     pure Nothing
@@ -290,15 +286,12 @@ simplePutBlockLazy doWait s lbs = do
 
     waits <- TBQ.newTBQueueIO 1 :: IO (TBQueue Bool)
 
-    let action | size > 0 = atomically $ TBQ.writeTBQueue waits True
-               | otherwise = do
+    let action = do
           handle (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
                  do
-                   withTempFile tmp fntmp $ \tname h -> do
-                     BS.hPut h (LBS.toStrict lbs)
-                     hClose h
-                     renameFile tname fn
-                     atomically $ TBQ.writeTBQueue waits True
+                   let fn = simpleBlockFileName s hash
+                   AwBS.atomicWriteFile fn (LBS.toStrict lbs)
+                   atomically $ TBQ.writeTBQueue waits True
 
     simpleAddTask s action
 
@@ -306,7 +299,7 @@ simplePutBlockLazy doWait s lbs = do
       ok <- atomically $ TBQ.readTBQueue waits
 
       unless ok do
-        err $ "simplePutBlockLazy" <+> pretty hash <+> pretty fn
+        err $ "simplePutBlockLazy" <+> pretty hash
 
       pure $! if ok then Just hash else Nothing
     else
