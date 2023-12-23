@@ -53,6 +53,8 @@ type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
 type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
 type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 
+type instance KeyActionOf Sign.PublicKey = 'Sign
+type instance KeyActionOf Encrypt.PublicKey = 'Encrypt
 
 -- FIXME: proper-serialise-for-keys
 --   Возможно, нужно написать ручные инстансы Serialise

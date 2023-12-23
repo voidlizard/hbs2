@@ -15,6 +15,9 @@ inputs = {
     suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
+    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
+    db-pipe.inputs.nixpkgs.follows = "nixpkgs";
+
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
       flake = false;
@@ -31,6 +34,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
    haskellFlakes = with inputs; [
      suckless-conf
+     db-pipe
    ];
 
    packageNames = [
@@ -40,6 +44,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-storage-simple"
      "hbs2-git"
      "hbs2-qblf"
+     "hbs2-keyman"
    ];
 
    packageDirs = {
@@ -48,6 +53,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core" = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer" = "./hbs2-peer";
+     "hbs2-keyman" = "./hbs2-keyman";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
@@ -72,6 +78,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    shellExtBuildInputs = {pkgs}: with pkgs;  [
      haskellPackages.haskell-language-server
      haskellPackages.htags
+     haskellPackages.hoogle
      pkg-config
      inputs.hspup.packages.${pkgs.system}.default
      inputs.fixme.packages.${pkgs.system}.default

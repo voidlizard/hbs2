@@ -80,6 +80,7 @@ library
                     , HBS2.Clock
                     , HBS2.Crypto
                     , HBS2.ScheduledAction
+                    , HBS2.Data.KeyRing
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
                     , HBS2.Data.Types.Crypto
@@ -165,6 +166,7 @@ library
                     , fast-logger
                     , filelock
                     , filepath
+                    , filepattern
                     , exceptions
                     , generic-lens
                     , hashable

@@ -42,6 +42,8 @@ type family PrivKey (a :: CryptoAction) e  :: Type
 
 type family Encryption e :: Type
 
+type family KeyActionOf k :: CryptoAction
+
 data family GroupKey (scheme :: GroupKeyScheme) s
 
 -- TODO: move-to-an-appropriate-place

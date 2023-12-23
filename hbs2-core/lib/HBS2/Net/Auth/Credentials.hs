@@ -3,7 +3,9 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language ConstraintKinds #-}
-module HBS2.Net.Auth.Credentials where
+module HBS2.Net.Auth.Credentials
+  ( module HBS2.Net.Auth.Credentials
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
@@ -18,7 +20,6 @@ import Crypto.Saltine.Class (IsEncoding)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Char8 (ByteString)
-import Data.Function
 import Data.List.Split (chunksOf)
 import Data.List qualified as List
 import Lens.Micro.Platform
@@ -72,6 +73,7 @@ type ForHBS2Basic s = ( Signatures s
                       , PrivKey 'Sign s ~ Sign.SecretKey
                       , PubKey 'Sign s ~ Sign.PublicKey
                       , IsEncoding (PubKey 'Encrypt s)
+                      , Eq (PubKey 'Encrypt HBS2Basic)
                       , s ~ HBS2Basic
                       )
 

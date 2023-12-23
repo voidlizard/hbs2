@@ -1,0 +1,123 @@
+cabal-version:      3.0
+name:               hbs2-keyman
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           Data
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall -fno-warn-type-defaults
+
+common common-deps
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple, suckless-conf, db-pipe
+        , async
+        , bytestring
+        , cache
+        , containers
+        , data-default
+        , deepseq
+        , directory
+        , filepath
+        , filepattern
+        , generic-lens
+        , hashable
+        , heaps
+        , microlens-platform
+        , mtl
+        , mwc-random
+        , prettyprinter
+        , QuickCheck
+        , random
+        , random-shuffle
+        , resourcet
+        , safe
+        , serialise
+        , split
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , temporary
+        , timeit
+        , transformers
+        , uniplate
+        , unordered-containers
+        , vector
+        , prettyprinter-ansi-terminal
+        , interpolatedstring-perl6
+        , unliftio
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , OverloadedLabels
+                     , QuasiQuotes
+                     , RankNTypes
+                     , RecordWildCards
+                     , RecursiveDo
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+                     , TypeOperators
+
+
+
+library
+    import:           warnings
+    import:           common-deps
+
+    exposed-modules:
+      HBS2.KeyMan.App.Types
+      HBS2.KeyMan.Config
+      HBS2.KeyMan.State
+      HBS2.KeyMan.Keys
+      HBS2.KeyMan.Keys.Direct
+
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base
+    hs-source-dirs:   src
+    default-language: GHC2021
+
+executable hbs2-keyman
+    import:           warnings
+    import:           common-deps
+
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base,
+        hbs2-keyman,
+        optparse-applicative
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+
