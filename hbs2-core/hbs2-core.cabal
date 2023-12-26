@@ -88,6 +88,7 @@ library
                     , HBS2.Data.Types.Refs
                     , HBS2.Data.Types.SignedBox
                     , HBS2.Data.Types.EncryptedBox
+                    , HBS2.Data.Types.SmallEncryptedBlock
                     , HBS2.Data.Bundle
                     , HBS2.Defaults
                     , HBS2.Events

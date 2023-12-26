@@ -1,6 +1,7 @@
 {-# Language TemplateHaskell #-}
 module CLI.Common where
 
+import HBS2.Clock
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Service
@@ -32,5 +33,16 @@ withMyRPC o m = do
   conf  <- peerConfigRead (view rpcOptConf o)
   let soname = getRpcSocketName conf
   withRPC2 @api  @UNIX soname m
+
+withRPCMessaging :: MonadIO m => RPCOpt -> (MessagingUnix  -> m ()) -> m ()
+withRPCMessaging o action = do
+  conf  <- peerConfigRead (view rpcOptConf o)
+  let soname = getRpcSocketName conf
+  client1 <- newMessagingUnix False 1.0 soname
+  m1 <- liftIO $ async $ runMessagingUnix client1
+  link m1
+  action client1
+  pause @'Seconds 0.05
+  cancel m1
 
 

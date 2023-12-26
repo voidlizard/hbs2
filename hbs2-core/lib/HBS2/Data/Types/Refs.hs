@@ -11,7 +11,13 @@ import HBS2.Net.Proto.Types
 import HBS2.Prelude
 
 import Codec.Serialise(serialise)
+import Data.Map (Map)
+import Data.Map qualified as Map
 import Data.Data
+
+class RefMetaData a where
+  refMetaData :: a -> [(String, String)]
+  refMetaData = const mempty
 
 newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
@@ -72,6 +78,8 @@ type ForSomeRefKey a = ( Hashed HbSync a )
 
 newtype SomeRefKey a = SomeRefKey a
 
+instance RefMetaData (SomeRefKey a)
+
 instance Hashed HbSync (SomeRefKey a)  => Pretty (SomeRefKey a) where
   pretty a = pretty $ hashObject @HbSync a
 -- instance Hashed HbSync (SomeRefKey a) => Pretty (AsBase58 (SomeRefKey a)) where
@@ -88,8 +96,25 @@ newtype RefAlias = RefAlias { unRefAlias :: HashRef }
 instance Hashed HbSync RefAlias  where
   hashObject (RefAlias h) = fromHashRef h
 
+refAlias :: (Hashed HbSync ref, RefMetaData ref) => ref -> RefAlias2
+refAlias x = RefAlias2 (Map.fromList $ refMetaData x) (HashRef $ hashObject @HbSync x)
 
-refAlias :: Hashed HbSync ref => ref -> RefAlias
-refAlias x = RefAlias (HashRef $ hashObject @HbSync x)
+data RefAlias2  =
+  RefAlias2 { unRefAliasMeta :: Map String String
+            , unRefAlias2    :: HashRef
+            }
+  deriving stock (Eq,Ord,Show,Generic)
 
+instance Hashed HbSync RefAlias2  where
+  hashObject (RefAlias2 _ h) = fromHashRef h
+
+instance Serialise RefAlias2
+
+instance Pretty RefAlias2 where
+  pretty (RefAlias2 _ h) = pretty h
+
+instance RefMetaData RefAlias2 where
+  refMetaData x = Map.toList (unRefAliasMeta x)
+
+type LoadedRef a = Either HashRef a
 

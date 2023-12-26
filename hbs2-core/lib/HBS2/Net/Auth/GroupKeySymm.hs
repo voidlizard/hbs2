@@ -11,6 +11,7 @@ module HBS2.Net.Auth.GroupKeySymm
 import HBS2.Prelude.Plated
 import HBS2.Base58
 import HBS2.Data.Types.EncryptedBox
+import HBS2.Data.Types.SmallEncryptedBlock
 import HBS2.Data.Types.Refs
 import HBS2.Hash
 import HBS2.Merkle
@@ -57,7 +58,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Data.Bits (xor)
 
-type GroupSecretAsymm = Key
+type GroupSecret = Key
 
 
 -- NOTE: breaking-change
@@ -69,7 +70,7 @@ type GroupSecretAsymm = Key
 --  ключ может быть потерян. а что делать-то, с другой стороны?
 data instance GroupKey 'Symm s =
   GroupKeySymm
-  { recipients :: HashMap (PubKey 'Encrypt s) (EncryptedBox GroupSecretAsymm)
+  { recipients :: HashMap (PubKey 'Encrypt s) (EncryptedBox GroupSecret)
   }
   deriving stock (Generic)
 
@@ -85,10 +86,10 @@ instance Serialise SK.Nonce
 -- NOTE: hardcoded-hbs2-basic-auth-type
 data instance ToEncrypt 'Symm s LBS.ByteString =
   ToEncryptSymmBS
-  { toEncryptSecret      :: GroupSecretAsymm
+  { toEncryptSecret      :: GroupSecret
+  , toEncryptGroupKey    :: LoadedRef (GroupKey 'Symm s)
   , toEncryptNonce       :: BS.ByteString
   , toEncryptData        :: Stream (Of LBS.ByteString) IO ()
-  , toEncryptGroupKey    :: GroupKey 'Symm s
   , toEncryptMeta        :: AnnMetaData
   , toEncryptOpts        :: Maybe EncryptGroupNaClSymmOpts
   }
@@ -98,7 +99,7 @@ type ForGroupKeySymm s = ( Eq (PubKey 'Encrypt s)
                          , PubKey 'Encrypt s ~ AK.PublicKey
                          , PrivKey 'Encrypt s ~ AK.SecretKey
                          , Serialise (PubKey 'Encrypt s)
-                         , Serialise GroupSecretAsymm
+                         , Serialise GroupSecret
                          , Serialise SK.Nonce
                          , FromStringMaybe (PubKey 'Encrypt s)
                          )
@@ -139,8 +140,9 @@ instance ( Serialise  (GroupKey 'Symm s)
   pretty (AsBase58 c) =
     pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
 
+
 generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m)
-                 => Maybe GroupSecretAsymm
+                 => Maybe GroupSecret
                  -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
 
@@ -152,11 +154,30 @@ generateGroupKey mbk pks = GroupKeySymm <$> create
         box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
         pure (pk, box)
 
+
+generateGroupKeyPure :: forall s nonce . (ForGroupKeySymm s, NonceFrom SK.Nonce nonce)
+                 => GroupSecret
+                 -> nonce
+                 -> [PubKey 'Encrypt s]
+                 -> GroupKey 'Symm s
+
+generateGroupKeyPure sec nonce pks = GroupKeySymm gk0
+  where
+    nonce0 = nonceFrom @SK.Nonce nonce
+    gk0 = undefined
+    -- gk0 = [ AK.box
+    -- HashMap.fromList <$> do
+    --   sk <- maybe1 mbk (liftIO SK.newKey) pure
+    --   forM pks $ \pk -> do
+    --     box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
+    --     pure (pk, box)
+
+
 lookupGroupKey :: ForGroupKeySymm s
                => PrivKey 'Encrypt s
                -> PubKey 'Encrypt s
                -> GroupKey 'Symm s
-               -> Maybe GroupSecretAsymm
+               -> Maybe GroupSecret
 
 lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
   (EncryptedBox bs) <- MaybeT $ pure $ HashMap.lookup pk (recipients gk)
@@ -216,7 +237,7 @@ instance ( MonadIO m
 
     let nonce0 = nonceFrom @SK.Nonce (toEncryptNonce source)
 
-    gkh <- writeAsMerkle sto (serialise gk) <&> HashRef
+    gkh <- either pure (\k -> HashRef <$> writeAsMerkle sto (serialise k)) gk
 
     let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode key)
 
@@ -350,4 +371,75 @@ instance ( MonadIO m
           gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm sch) gkbs)
 
           pure (keys, gk, nonceS, tree)
+
+
+
+encryptBlock :: ( MonadIO m
+                , Storage sto h ByteString m
+                , ForGroupKeySymm s
+                , Serialise t
+                , h ~ HbSync
+                )
+             => sto
+             -> GroupSecret
+             -> LoadedRef (GroupKey 'Symm s)
+             -> Maybe BS.ByteString           -- ^ nonce
+             -> t
+             -> m (SmallEncryptedBlock t)
+
+encryptBlock sto gks gk mnonce x = do
+
+  nonceS <- maybe (liftIO AK.newNonce <&> Saltine.encode) pure mnonce
+
+  let nonce0 = nonceFrom @SK.Nonce nonceS
+
+  gkh <- either pure (\k -> HashRef <$> writeAsMerkle sto (serialise k)) gk
+
+  let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode gks)
+
+  let key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
+
+  let encrypted = SK.secretbox key0 nonce0  (serialise x & LBS.toStrict)
+
+  pure $ SmallEncryptedBlock gkh nonceS (EncryptedBox encrypted)
+
+decryptBlock :: forall t s sto h m . ( MonadIO m
+                                     , MonadError OperationError m
+                                     , Storage sto h ByteString m
+                                     , ForGroupKeySymm s
+                                     , h ~ HbSync
+                                     , Serialise t
+                                     )
+
+             => sto
+             -> [KeyringEntry s]
+             -> SmallEncryptedBlock t
+             -> m t
+
+decryptBlock sto keys (SmallEncryptedBlock{..}) = do
+
+  gkbs <- readFromMerkle sto (SimpleKey (fromHashRef sebGK0))
+  gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm s) gkbs)
+
+  let gksec' = [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
+
+  gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
+
+  let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode gksec)
+  let key0 = HKDF.expand prk sebNonce typicalKeyLength & Saltine.decode & fromJust
+  let nonce0 = nonceFrom @SK.Nonce sebNonce
+
+  let unboxed = SK.secretboxOpen key0 nonce0 (unEncryptedBox sebBox)
+
+  lbs <- maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
+
+  either (const $ throwError UnsupportedFormat) pure (deserialiseOrFail lbs)
+
+
+deriveGroupSecret :: NonceFrom SK.Nonce n => n -> BS.ByteString -> GroupSecret
+deriveGroupSecret n bs = key0
+  where
+    nonceS = nonceFrom @SK.Nonce n & Saltine.encode & hashObject @HbSync & fromHbSyncHash
+    prk = HKDF.extractSkip @_ @HbSyncHash bs
+    key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
 

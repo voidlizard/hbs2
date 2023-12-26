@@ -42,7 +42,7 @@ type family HashType ( a :: Type) where
 type HbSyncHash = HashType HbSync
 
 newtype instance Hash HbSync =
-  HbSyncHash ByteString
+  HbSyncHash { fromHbSyncHash :: ByteString }
   deriving stock (Eq,Ord,Data,Generic)
   deriving newtype (Hashable,Show)
 

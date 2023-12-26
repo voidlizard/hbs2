@@ -5,6 +5,7 @@ import HBS2.Data.Detect
 import HBS2.Data.Types
 import HBS2.Data.Types.EncryptedBox
 import HBS2.Data.Types.SignedBox
+import HBS2.Data.KeyRing as KeyRing
 import HBS2.Defaults
 import HBS2.Merkle
 import HBS2.Net.Proto.Types
@@ -380,7 +381,7 @@ runStore opts ss = runResourceT do
 
             let segments = readChunked fh (fromIntegral defBlockSize)
 
-            let source = ToEncryptSymmBS gks nonce segments gk NoMetaData Nothing
+            let source = ToEncryptSymmBS gks (Right gk) nonce segments  NoMetaData Nothing
 
             r <- runExceptT $ writeAsMerkle ss source
 
@@ -536,6 +537,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "fsck"            (info pFsck (progDesc "check storage constistency"))
                         <> command "deps"            (info pDeps (progDesc "print dependencies"))
                         <> command "del"             (info pDel (progDesc "del block"))
+                        <> command "keyring"         (info pKeyRing (progDesc "keyring commands"))
                         <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
                         <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
                         <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
@@ -673,6 +675,16 @@ main = join . customExecParser (prefs showHelpOnError) $
       s <- strArgument ( metavar "PUB-KEY-BASE58" )
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyDel s f)
+
+    pKeyRing = hsubparser ( command "find" (info pKeyRingFind (progDesc "find keyring"))
+                          )
+
+    pKeyRingFind = do
+      spk <- option pPubKey ( long "sign-key" <> short 's' <> help "sign-key" )
+      masks <- many (strArgument (metavar "PATHS"))
+      pure do
+        krf <- KeyRing.findKeyRing masks spk
+        print $ vcat (fmap pretty krf)
 
     pReflog = hsubparser ( command "get" (info pRefLogGet (progDesc "get reflog root") )  )
 
@@ -871,6 +883,8 @@ main = join . customExecParser (prefs showHelpOnError) $
     ppk = maybeReader fromStringMay
     phref = maybeReader fromStringMay
 
+
+    pPubKey = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
 
 
 

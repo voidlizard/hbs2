@@ -3,6 +3,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language ConstraintKinds #-}
+{-# Language PatternSynonyms #-}
 module HBS2.Net.Auth.Credentials
   ( module HBS2.Net.Auth.Credentials
   ) where
@@ -55,6 +56,9 @@ data KeyringEntry e =
   }
   deriving stock (Generic)
 
+pattern KeyringKeys :: forall {s} . PubKey 'Encrypt s -> PrivKey 'Encrypt s -> KeyringEntry s
+pattern KeyringKeys a b <- KeyringEntry a b _
+
 deriving stock instance (Eq (PubKey 'Encrypt e), Eq (PrivKey 'Encrypt e))
   => Eq (KeyringEntry e)
 
@@ -72,6 +76,7 @@ makeLenses 'PeerCredentials
 type ForHBS2Basic s = ( Signatures s
                       , PrivKey 'Sign s ~ Sign.SecretKey
                       , PubKey 'Sign s ~ Sign.PublicKey
+                      , Eq (PubKey 'Encrypt HBS2Basic)
                       , IsEncoding (PubKey 'Encrypt s)
                       , Eq (PubKey 'Encrypt HBS2Basic)
                       , s ~ HBS2Basic

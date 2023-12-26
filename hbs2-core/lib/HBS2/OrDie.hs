@@ -1,8 +1,12 @@
-module HBS2.OrDie where
+module HBS2.OrDie
+  ( module HBS2.OrDie
+  ) where
 
 import Data.Kind
 import Control.Monad.IO.Class
 import System.Exit
+import Prettyprinter
+import UnliftIO
 
 class OrDie m a where
   type family OrDieResult a :: Type
@@ -28,3 +32,31 @@ instance MonadIO m => OrDie m ExitCode where
   orDie mv err = mv >>= \case
     ExitSuccess   -> pure ()
     ExitFailure{} -> liftIO $ die err
+
+
+-- TODO: move-to-library
+class OrThrow a  where
+  type family OrThrowResult a :: Type
+  orThrow :: forall e m  . (MonadIO m, Exception e) =>  e -> a -> m (OrThrowResult a)
+
+instance OrThrow (Maybe a) where
+  type instance OrThrowResult (Maybe a) = a
+  orThrow e a = case a of
+    Nothing -> throwIO e
+    Just x  -> pure x
+
+
+instance OrThrow (Either b a) where
+  type instance OrThrowResult (Either b a) = a
+  orThrow e a = case a of
+    Left{}  -> throwIO e
+    Right x -> pure x
+
+orThrowUser :: (OrThrow a1, MonadIO m)
+            => Doc ann
+            -> a1
+            -> m (OrThrowResult a1)
+
+orThrowUser p = orThrow (userError (show p))
+
+

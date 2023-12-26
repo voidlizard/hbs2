@@ -124,6 +124,8 @@ instance Expires (SessionKey L4Proto (RefChanHeadBlock L4Proto)) where
 
 newtype RefChanHeadKey s = RefChanHeadKey (PubKey 'Sign s)
 
+instance RefMetaData (RefChanHeadKey s)
+
 deriving stock instance IsRefPubKey s => Eq (RefChanHeadKey s)
 
 instance IsRefPubKey s => Hashable (RefChanHeadKey s) where
@@ -146,6 +148,8 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanHeadKey s) where
 
 
 newtype RefChanLogKey s = RefChanLogKey { fromRefChanLogKey :: PubKey 'Sign s }
+
+instance RefMetaData (RefChanLogKey s)
 
 deriving stock instance IsRefPubKey s => Eq (RefChanLogKey s)
 

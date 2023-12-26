@@ -2,6 +2,7 @@ module HBS2.Data.Types
   ( module X
   -- , module HBS2.Data.Types.Crypto
   , AsSyntax(..)
+  , LoadedRef(..)
   )
   where
 
@@ -15,4 +16,5 @@ import HBS2.Data.Types.Peer as X
 -- newtype FromSyntax c = FromSyntax [Syntax c]
 
 newtype AsSyntax c = AsSyntax c
+
 

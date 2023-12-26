@@ -22,7 +22,6 @@ class (MonadIO m, Storage storage hash (ToBlockW s) m) => MerkleWriter s hash st
   type family ToBlockW s :: Type
   writeAsMerkle :: storage -> s -> m (Hash hash)
 
-
 class (MonadIO m, Storage storage h (ToBlockR s) m) => MerkleReader s storage h m where
   data family TreeKey s :: Type
   type family ToBlockR s :: Type

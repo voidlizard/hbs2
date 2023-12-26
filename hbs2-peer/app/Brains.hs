@@ -50,6 +50,10 @@ import UnliftIO (MonadUnliftIO(..),async,race)
 data PeerBrainsDb
 
 
+-- TODO: refactor-brains
+--   переключить на db-pipe
+--   асинки - в runContT
+
 -- FIXME: move-that-orphans-somewhere
 
 instance ToField HashRef where

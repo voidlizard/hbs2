@@ -2,15 +2,26 @@ module CLI.RefChan where
 
 import HBS2.Prelude.Plated
 
+import HBS2.Hash
+import HBS2.Clock
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.Credentials.Sigil
 import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Types
+import HBS2.Data.Types.Refs
+import HBS2.Merkle
+import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Proto.Service
 import HBS2.Data.Detect
 import HBS2.Storage
+import HBS2.Storage.Operations.ByteString
 import HBS2.Data.Types.Refs
+import HBS2.Net.Messaging.Unix
+import HBS2.Net.Auth.GroupKeySymm
+
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.OrDie
 
@@ -22,13 +33,27 @@ import HBS2.Peer.RefChanNotifyLog
 import CLI.Common
 import RPC2()
 
-import Options.Applicative
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as LBS
-import Lens.Micro.Platform
-import Data.Maybe
-import System.Exit
+import HBS2.System.Logger.Simple hiding (info)
+import HBS2.System.Logger.Simple qualified as Log
+
+import Control.Monad.Cont
+import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as BS
+import Data.HashSet qualified as HashSet
+import Data.Maybe
+import Lens.Micro.Platform
+import Options.Applicative
+import System.Exit
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Control.Monad.Except (runExceptT)
+import Data.Word
+import Codec.Serialise
+import UnliftIO
+import Streaming.Prelude qualified as S
+
 
 pRefChan :: Parser (IO ())
 pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
@@ -36,6 +61,7 @@ pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head comm
                        <> command "notify"  (info pRefChanNotify (progDesc "post notify message"))
                        <> command "fetch"   (info pRefChanFetch (progDesc "fetch and sync refchan value"))
                        <> command "get"     (info pRefChanGet (progDesc "get refchan value"))
+                       <> command "gk"      (info pRefChanGK  (progDesc "generate a group key"))
                       )
 
 
@@ -138,19 +164,150 @@ pRefChanNotify =
              <> command  "tail"  (info pRefChanNotifyLogTail (progDesc  "output last messages"))
              )
 
+data EncMethod = EncryptWithSigil FilePath
+               | NoEncryption
+
 pRefChanNotifyPost :: Parser (IO ())
 pRefChanNotifyPost = do
   opts <- pRpcCommon
-  kra <- strOption (long "author" <> short 'a' <> help "author credentials")
-  fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
-  puk <- argument pRefChanId (metavar "REFCHAH-REF")
-  pure $ withMyRPC @RefChanAPI opts $ \caller -> do
-    sc <- BS.readFile kra
-    creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
-    lbs <- maybe1 fn LBS.getContents LBS.readFile
-    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
-    void $ callService @RpcRefChanNotify caller (puk, box)
 
+  si  <- strOption (long "sigil" <> short 's' <> help "sigil file")
+  fn   <- optional $ strOption (long "file" <> short 'f' <> help "file")
+
+  encrypt  <- encryptOpt
+  -- EncMethod <$> optional (switch (long "encrypt" <> help "encrypt transaction"))
+  --                       <*> optional (strOption (long "sigil" <> help "using sigil"))
+
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
+
+  pure $ flip runContT pure do
+
+    client <- ContT $ withRPCMessaging opts
+
+    self <- runReaderT (ownPeer @UNIX) client
+    refChanAPI  <- makeServiceCaller @RefChanAPI self
+    storageAPI  <- makeServiceCaller @StorageAPI self
+
+    let endpoints = [ Endpoint @UNIX refChanAPI
+                    , Endpoint @UNIX storageAPI
+                    ]
+
+    void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+    -- caller <- ContT $ withMyRPC @RefChanAPI opts
+
+    sigil <- liftIO $ (BS.readFile si <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+                        `orDie` "parse sigil failed"
+
+    (auPk, sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+                   >>= orThrowUser "malformed sigil/bad signature"
+
+    keys <- liftIO $ runKeymanClient do
+              creds  <- loadCredentials auPk >>= orThrowUser "can't load credentials"
+              encKey <- loadKeyRingEntry (sigilDataEncKey sd)
+              pure (creds,encKey)
+
+    let creds = view _1 keys
+
+    lbs <- liftIO $ maybe1 fn LBS.getContents LBS.readFile
+
+    let sto = AnyStorage (StorageClient storageAPI)
+
+    ss <- if not encrypt then do
+            pure lbs
+          else do
+            -- итак нам тут нужно знать:
+            --   2.   старый gk или новый
+            --   2.1  если старый - то где взять
+            --   2.2  стоит обновить gk или нет
+            --   2.3  стоит сохранять gk или нет
+            --
+            --   допустим так: ключ равно: голова + эпоха + enc SigilData
+            --
+            --   тогда: 1) где его хранить? в кеймане или в стейте?
+            --
+            --   + в кеймане, допустим?
+            --   в кеймане может быть блокировка sqlite, нехорошо
+
+            -- можно сохранять в hbs2:
+            --   1. групповой ключ и так там сохраняется
+            --   2. ссылок не должно быть много, если
+            --      ссылка ~ hash(канал, ключ пользователя)
+            --   3. обновление ключа:  если явно сказано!
+            --      иначе -- берём существующий
+            --   4. если голова поменялась -- можем
+            --      удалить ссылку?
+
+            kre@(KeyringKeys pk sk) <- orThrowUser "encryption key not found for given sigil" (view _2 keys)
+            let kreHash = hashObject @HbSync (serialise kre)
+
+            hh <- callService @RpcRefChanHeadGet refChanAPI puk
+                    >>= orThrowUser "RPC error"
+                    >>= orThrowUser "refchan head not available"
+
+            hd <- getRefChanHead @L4Proto sto (RefChanHeadKey puk)
+                    >>= orThrowUser "head block not found"
+
+            let rcpts = view refChanHeadReaders hd
+
+            when ( HashSet.null rcpts ) do
+              throwIO (userError "empty recipients list -- encryption is not possible")
+
+            notice $ "refchan head" <+> pretty hh
+
+            -- FIXME: key-rotation-factor-hardcode
+            --   около раза в месяц. может, нормально и так
+            t <- liftIO $ getPOSIXTime <&> round
+
+            let gkkey0 = SomeRefKey (hh,kreHash)
+
+            notice $ "gkkey0" <+> pretty (hashObject @HbSync gkkey0)
+
+            mgk <- runMaybeT do
+                    gkv <- toMPlus =<< getRef sto gkkey0
+
+                    notice $ "FOUND REF VAL" <+> pretty gkv
+
+                    gks <- runExceptT (readFromMerkle sto (SimpleKey gkv))
+                             >>= toMPlus
+
+                    gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gks
+                            & toMPlus
+
+                    notice $ "found GK0" <+> pretty gkv
+
+                    pure gk
+
+            gk <- case mgk of
+                    Just x -> pure x
+                    Nothing -> do
+                      gknew <- generateGroupKey @HBS2Basic Nothing (HashSet.toList rcpts)
+
+                      gkh <- writeAsMerkle sto (serialise gknew)
+
+                      -- FIXME: key-expiration-hardcode
+                      let gkkey1 = ExpiredAfter (t+1209600) gkkey0
+
+                      notice $ "UPDATE REF" <+> pretty (hashObject @HbSync gkkey1) <+> pretty gkh
+                      updateRef sto gkkey1  gkh
+
+                      notice $ "generated! GK0" <+> pretty gkh
+
+                      pure gknew
+
+            gks <- orThrowUser "can't decrypt group key" $ lookupGroupKey sk pk gk
+            -- FIXME: use-deterministic-nonce
+            lift $ encryptBlock sto gks (Right gk) Nothing lbs <&> serialise
+
+    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict ss)
+    void $ callService @RpcRefChanNotify refChanAPI (puk, box)
+
+  where
+    encryptOpt = do
+      optional (switch (long "encrypt" <> help "post encrypted")) <&> fromMaybe False
+
+    -- noEncryption = pure NoEncryption
+    -- encryptWithSigil = EncryptWithSigil <$> strOption (long "sigil" <> help "sigil file")
 
 pRefChanId :: ReadM (RefChanId L4Proto)
 pRefChanId = maybeReader (fromStringMay @(RefChanId L4Proto))
@@ -203,4 +360,33 @@ pRefChanFetch = do
     href <- pure (fromStringMay ref) `orDie` "invalid REFCHAN-HEAD-REF"
     void $ callService @RpcRefChanFetch caller href
 
+
+pRefChanGK :: Parser (IO ())
+pRefChanGK = do
+  opts <- pRpcCommon
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
+  pure $ flip runContT pure do
+
+    client <- ContT $ withRPCMessaging opts
+
+    self <- runReaderT (ownPeer @UNIX) client
+    refChanAPI  <- makeServiceCaller @RefChanAPI self
+    storageAPI  <- makeServiceCaller @StorageAPI self
+
+    let endpoints = [ Endpoint @UNIX refChanAPI
+                    , Endpoint @UNIX storageAPI
+                    ]
+
+    void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+    let sto = AnyStorage (StorageClient storageAPI)
+
+    hd <- getRefChanHead @L4Proto sto (RefChanHeadKey puk)
+           >>= orThrowUser "head block not found"
+
+    let readers = view refChanHeadReaders' hd
+
+    gk <- generateGroupKey @HBS2Basic Nothing (HashSet.toList readers)
+
+    liftIO $ print $ pretty (AsGroupKeyFile gk)
 

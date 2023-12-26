@@ -8,7 +8,7 @@ module HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Prelude.Plated
 
 import HBS2.Hash
-import HBS2.Data.Types.Refs (HashRef(..),refAlias)
+import HBS2.Data.Types.Refs (HashRef(..),refAlias,refMetaData)
 import HBS2.Net.Proto.Service
 import HBS2.Storage
 
@@ -56,6 +56,7 @@ instance ( MonadIO m
     void $ callService @RpcStorageDelBlock (fromStorageClient s) (HashRef h)
 
   updateRef s ref v = liftIO do
+    notice $ "metadata!" <+> pretty (refMetaData ref)
     void $ callService @RpcStorageUpdateRef (fromStorageClient s) (refAlias ref, HashRef v)
 
   getRef s ref = liftIO do

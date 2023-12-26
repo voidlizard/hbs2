@@ -1,13 +1,16 @@
 {-# Language FunctionalDependencies #-}
+{-# Language DefaultSignatures #-}
 module HBS2.Storage where
 
-import HBS2.Hash
 import HBS2.Prelude.Plated
+import HBS2.Hash
+import HBS2.Data.Types.Refs (RefMetaData(..))
 
 import Data.Kind
 import Lens.Micro.Platform
 import Data.ByteString.Lazy (ByteString)
 import Control.Monad.Trans.Maybe
+import Data.Word
 
 import Codec.Serialise()
 
@@ -29,6 +32,12 @@ newtype Size = Size Integer
                deriving newtype (Eq,Ord,Enum,Num,Real,Integral,Hashable,Pretty,Serialise)
                deriving stock (Show)
 
+data ExpiredAfter a = ExpiredAfter Word64 a
+                      deriving stock (Generic)
+
+instance Serialise a => Serialise (ExpiredAfter a)
+
+
 class ( Monad m
       , IsKey h
       , Hashed h block
@@ -46,11 +55,11 @@ class ( Monad m
 
   hasBlock :: a -> Key h -> m (Maybe Integer)
 
-  updateRef :: Hashed h k => a -> k -> Key h -> m ()
+  updateRef :: (Hashed h k, RefMetaData k) => a -> k -> Key h -> m ()
 
-  getRef :: (Hashed h k, Pretty k) => a -> k -> m (Maybe (Key h))
+  getRef :: (Hashed h k, Pretty k, RefMetaData k) => a -> k -> m (Maybe (Key h))
 
-  delRef :: Hashed h k => a -> k -> m ()
+  delRef :: (Hashed h k, RefMetaData k) => a -> k -> m ()
 
 
 data AnyStorage = forall zu  . ( Storage zu HbSync ByteString IO
@@ -59,10 +68,14 @@ data AnyStorage = forall zu  . ( Storage zu HbSync ByteString IO
 class HasStorage m where
   getStorage :: m AnyStorage
 
-
 instance (Monad m, HasStorage m) => HasStorage (MaybeT m) where
   getStorage = lift getStorage
 
+instance Hashed h a => Hashed h (ExpiredAfter a) where
+  hashObject (ExpiredAfter _ a) = hashObject a
+
+instance RefMetaData a => RefMetaData (ExpiredAfter a) where
+  refMetaData (ExpiredAfter t x) = [("expires", show t)] <> refMetaData x
 
 instance (IsKey HbSync, MonadIO m) => Storage AnyStorage HbSync ByteString m  where
   putBlock (AnyStorage s) = liftIO . putBlock s

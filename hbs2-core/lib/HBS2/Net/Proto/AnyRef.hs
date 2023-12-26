@@ -12,6 +12,8 @@ import Data.Hashable hiding (Hashed)
 
 newtype AnyRefKey t s = AnyRefKey (PubKey 'Sign s)
 
+instance RefMetaData (AnyRefKey t s)
+
 deriving stock instance IsRefPubKey s => Eq (AnyRefKey n s)
 
 instance (IsRefPubKey s) => Hashable (AnyRefKey t s) where

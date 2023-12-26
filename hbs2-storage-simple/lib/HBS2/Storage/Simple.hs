@@ -10,6 +10,7 @@ module HBS2.Storage.Simple
 import HBS2.Clock
 import HBS2.Hash
 import HBS2.Prelude.Plated
+import HBS2.Data.Types.Refs (refMetaData)
 import HBS2.Storage
 import HBS2.Base58
 
@@ -27,6 +28,9 @@ import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.List qualified as L
 import Data.Maybe
+import Data.Map (Map)
+import Data.Map qualified as Map
+import Data.Either
 import Lens.Micro.Platform
 import Prettyprinter
 import System.Directory
@@ -36,6 +40,7 @@ import System.IO.Error
 import System.IO.Temp
 import System.AtomicWrite.Writer.LazyByteString qualified as AwLBS
 import System.AtomicWrite.Writer.ByteString qualified as AwBS
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -48,6 +53,7 @@ import Control.Concurrent.STM.TBMQueue qualified as TBMQ
 import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TV
 
+import Codec.Serialise
 
 
 -- NOTE:  random accessing files in a git-like storage
@@ -350,16 +356,29 @@ simpleWriteLinkRawRef :: forall h . ( IsSimpleStorageKey h
                                  , ToByteString (AsBase58 (Hash h))
                                  )
                       => SimpleStorage h
+                      -> [(String, String)]
                       -> Hash h
                       -> Hash h
                       -> IO ()
 
-simpleWriteLinkRawRef ss h ref = do
+simpleWriteLinkRawRef ss meta h ref = do
   let fnr = simpleRefFileName ss h
   void $ spawnAndWait ss $ do
     AwBS.atomicWriteFile fnr (toByteString (AsBase58 ref))
       `catchAny` \_ -> do
         err $ "simpleWriteLinkRawRef" <+> pretty h <+> pretty ref <+> pretty fnr
+
+    unless (null meta) do
+      let metaname = fnr `addExtension` "metadata"
+      meta0 <- try @IOError (LBS.readFile metaname)
+                              <&> fromRight mempty
+                              <&> deserialiseOrFail @(Map String String)
+                              <&> fromRight mempty
+      let meta1 = meta0 <> Map.fromList meta
+      r <- try @IOError $ AwBS.atomicWriteFile metaname (LBS.toStrict $ serialise meta1)
+      case r of
+        Right{} -> pure ()
+        Left e  -> err $ "simpleWriteLinkRawRef" <+> viaShow e
 
 simpleReadLinkRaw :: forall r h . ( IsKey h, Hashed h r, Pretty r)
                   => SimpleStorage h
@@ -370,13 +389,42 @@ simpleReadLinkRaw ss ref = do
   let hash = hashObject @h ref
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
-          -- FIXME: log-this-situation
-          (Just <$> LBS.readFile fn) `catchAny` \e -> do
-            err $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
+          meta <- try @IOError (LBS.readFile (fn `addExtension` "metadata"))
+                     >>= \case
+                            Left{}    -> pure mempty
+                            Right sm  -> pure $ deserialiseOrFail @(Map String String) sm & fromRight mempty
+
+          deleted <- runMaybeT do
+            ts <- toMPlus $ Map.lookup "expires" meta
+            t0 <- toMPlus $ readMay @Int ts
+            now <- liftIO $ getPOSIXTime <&> round
+
+            if now <= t0 then do
+              pure False
+            else do
+              liftIO $ simpleDelRef ss hash
+              pure True
+
+          if deleted == Just True then do
             pure Nothing
+          else do
+            -- FIXME: log-this-situation
+            (Just <$> LBS.readFile fn) `catchAny` \e -> do
+              -- TODO: update-stats-instead-of-spamming
+              err $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
+              pure Nothing
 
   pure $ fromMaybe Nothing rs
 
+
+simpleDelRef :: IsKey h => SimpleStorage h -> Hash h -> IO ()
+simpleDelRef ss hash = do
+  let fn = simpleRefFileName ss hash
+  here <- doesFileExist fn
+  when here (removeFile fn)
+  let meta = fn `addExtension` "metadata"
+  mhere <- doesFileExist meta
+  when mhere (removeFile meta)
 
 simpleReadLinkVal :: ( IsKey h
                      , IsSimpleStorageKey h
@@ -416,8 +464,9 @@ instance ( MonadIO m, IsKey hash
 
   updateRef ss ref v = do
     let refHash = hashObject @hash ref
+    let meta = refMetaData ref
     debug $ "updateRef:" <+> pretty refHash
-    void $ liftIO $ simpleWriteLinkRawRef ss refHash v
+    void $ liftIO $ simpleWriteLinkRawRef ss meta refHash v
 
   getRef ss ref = do
     runMaybeT do
@@ -435,8 +484,7 @@ instance ( MonadIO m, IsKey hash
 
   delRef ss ref = do
     let refHash = hashObject @hash ref
-    let fn = simpleRefFileName ss refHash
     void $ liftIO $ spawnAndWait ss $ do
-      here <- doesFileExist fn
-      when here (removeFile fn)
+      simpleDelRef ss refHash
+
 

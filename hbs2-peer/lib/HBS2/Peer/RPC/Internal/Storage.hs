@@ -9,7 +9,7 @@ module HBS2.Peer.RPC.Internal.Storage
 
 import HBS2.Prelude.Plated
 import HBS2.Actors.Peer.Types
-import HBS2.Data.Types.Refs (HashRef(..))
+import HBS2.Data.Types.Refs (HashRef(..),refMetaData)
 import HBS2.Storage
 import HBS2.Peer.RPC.Class
 import HBS2.Peer.RPC.API.Storage
@@ -73,7 +73,7 @@ instance (StorageContext m) => HandleMethod m RpcStorageGetRef where
 instance (StorageContext m) => HandleMethod m RpcStorageUpdateRef where
 
   handleMethod (ref, val) = do
-    debug $ "rpc.storage.updateRef" <+> pretty ref
+    debug $ "rpc.storage.updateRef" <+> pretty ref <+> pretty (refMetaData ref)
     sto <- getStorage
     liftIO $ updateRef sto ref (fromHashRef val)
 
