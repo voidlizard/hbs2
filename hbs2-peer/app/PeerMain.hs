@@ -550,8 +550,8 @@ instance ( Monad m
 
   response = lift . response
 
-instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred UNIX (NotifyProto ev e) m where
-  deferred _ m = void $ async m
+instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred (NotifyProto ev e) UNIX m where
+  deferred m = void $ async m
 
 respawn :: PeerOpts -> IO ()
 respawn opts =

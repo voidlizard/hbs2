@@ -455,8 +455,8 @@ runProto hh = do
 instance (Monad m, HasProtocol e p) => HasThatPeer e p (ResponseM e m) where
   thatPeer _ = asks (view answTo)
 
-instance HasProtocol e p => HasDeferred e p (ResponseM e (PeerM e IO)) where
-  deferred _ action = do
+instance HasProtocol e p => HasDeferred p e (ResponseM e (PeerM e IO)) where
+  deferred action = do
     who <- asks (view answTo)
     pip <- lift $ asks (view envDeferred)
     env <- lift ask

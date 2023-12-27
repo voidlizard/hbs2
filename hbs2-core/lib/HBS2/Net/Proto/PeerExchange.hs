@@ -54,19 +54,20 @@ sendPeerExchangeGet pip = do
   request pip (PeerExchangeGet @e nonce)
   request pip (PeerExchangeGet2 @e nonce)
 
-peerExchangeProto :: forall e m . ( MonadIO m
-                                  , Response e (PeerExchange e) m
-                                  , HasPeerLocator e m
-                                  , HasDeferred e (PeerExchange e) m
-                                  , HasNonces (PeerExchange e) m
-                                  , IsPeerAddr e m
-                                  , Sessions e (KnownPeer e) m
-                                  , Sessions e (PeerExchange e) m
-                                  , EventEmitter e (PeerExchangePeersEv e) m
-                                  , Eq (Nonce (PeerExchange e))
-                                  , Pretty (Peer e)
-                                  , e ~ L4Proto
-                                  )
+peerExchangeProto :: forall e m proto . ( MonadIO m
+                                        , Response e proto m
+                                        , HasPeerLocator e m
+                                        , HasDeferred proto e m
+                                        , HasNonces proto m
+                                        , IsPeerAddr e m
+                                        , Sessions e (KnownPeer e) m
+                                        , Sessions e proto m
+                                        , EventEmitter e (PeerExchangePeersEv e) m
+                                        , Eq (Nonce proto)
+                                        , Pretty (Peer e)
+                                        , e ~ L4Proto
+                                        , proto ~ PeerExchange e
+                                        )
                   => PeerExchange e
                   -> m ()
 
@@ -104,7 +105,7 @@ peerExchangeProto msg = do
         expire @e (PeerExchangeKey nonce)
         emit @e PeerExchangePeersKey (PeerExchangePeersData  sa)
 
-    peerExchangeGet pex n = deferred proto do
+    peerExchangeGet pex n = deferred @proto do
       that <- thatPeer proto
 
       debug $ "PeerExchangeGet" <+> "from" <+> pretty that

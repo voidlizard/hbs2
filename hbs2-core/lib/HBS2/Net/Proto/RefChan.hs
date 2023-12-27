@@ -389,21 +389,22 @@ instance HasRefChanId e (RefChanNotify e) where
 instance HasRefChanId e (RefChanValidate e) where
   getRefChanId = rcvChan
 
-refChanHeadProto :: forall e s m . ( MonadIO m
-                                   , Request e (RefChanHead e) m
-                                   , Request e (BlockAnnounce e) m
-                                   , Response e (RefChanHead e) m
-                                   , HasPeerNonce e m
-                                   , HasDeferred e (RefChanHead e) m
-                                   , IsPeerAddr e m
-                                   , Pretty (Peer e)
-                                   , Sessions e (KnownPeer e) m
-                                   , HasStorage m
-                                   , Signatures s
-                                   , IsRefPubKey s
-                                   , Pretty (AsBase58 (PubKey 'Sign s))
-                                   , s ~ Encryption e
-                                   )
+refChanHeadProto :: forall e s m proto . ( MonadIO m
+                                         , Request e proto m
+                                         , Response e proto m
+                                         , Request e (BlockAnnounce e) m
+                                         , HasPeerNonce e m
+                                         , HasDeferred proto e m
+                                         , IsPeerAddr e m
+                                         , Pretty (Peer e)
+                                         , Sessions e (KnownPeer e) m
+                                         , HasStorage m
+                                         , Signatures s
+                                         , IsRefPubKey s
+                                         , Pretty (AsBase58 (PubKey 'Sign s))
+                                         , s ~ Encryption e
+                                         , proto ~ RefChanHead e
+                                         )
                   => Bool
                   -> RefChanAdapter e m
                   -> RefChanHead e
@@ -431,7 +432,7 @@ refChanHeadProto self adapter msg = do
         --   откуда мы знаем, от кого мы получали данное сообщение?
         lift $ refChanOnHead adapter chan pkt
 
-      RefChanGetHead chan -> deferred proto do
+      RefChanGetHead chan -> deferred @proto do
         trace $ "RefChanGetHead" <+> pretty self <+> pretty (AsBase58 chan)
 
         sto <- getStorage
@@ -447,26 +448,25 @@ refChanHeadProto self adapter msg = do
     proto = Proxy @(RefChanHead e)
 
 
-refChanUpdateProto :: forall e s m . ( MonadIO m
-                                     , MonadUnliftIO m
-                                     , Request e (RefChanUpdate e) m
-                                     , Response e (RefChanUpdate e) m
-                                     , HasDeferred e (RefChanUpdate e) m
-                                     , IsPeerAddr e m
-                                     , Pretty (Peer e)
-                                     , Sessions e (KnownPeer e) m
-                                     , Sessions e (RefChanHeadBlock e) m
-                                     , Sessions e (RefChanRound e) m
-                                     , EventEmitter e (RefChanRound e) m
-                                     , HasStorage m
-                                     , HasGossip e (RefChanUpdate e) m
-                                     , Signatures s
-                                     , IsRefPubKey s
-                                     , Pretty (AsBase58 (PubKey 'Sign s))
-                                     -- , Serialise (Signature s)
-                                     , ForRefChans e
-                                     , s ~ Encryption e
-                                     )
+refChanUpdateProto :: forall e s m proto . ( MonadIO m
+                                           , MonadUnliftIO m
+                                           , Request e proto m
+                                           , Response e proto m
+                                           , HasDeferred proto e m
+                                           , IsPeerAddr e m
+                                           , Pretty (Peer e)
+                                           , Sessions e (KnownPeer e) m
+                                           , Sessions e (RefChanHeadBlock e) m
+                                           , Sessions e (RefChanRound e) m
+                                           , EventEmitter e (RefChanRound e) m
+                                           , HasStorage m
+                                           , HasGossip e proto m
+                                           , Signatures s
+                                           , IsRefPubKey s
+                                           , ForRefChans e
+                                           , s ~ Encryption e
+                                           , proto ~ RefChanUpdate e
+                                           )
                    => Bool
                    -> PeerCredentials s
                    -> RefChanAdapter e m
@@ -509,7 +509,7 @@ refChanUpdateProto self pc adapter msg = do
 
        debug $ "RefChanUpdate/Propose" <+> pretty h0
 
-       deferred proto do
+       deferred @proto do
 
         -- проверили подпись пира
         (peerKey, ProposeTran headRef abox) <- MaybeT $ pure $ unboxSignedBox0 box
@@ -628,7 +628,7 @@ refChanUpdateProto self pc adapter msg = do
         -- --  рассылаем ли себе? что бы был хоть один accept
         lift $ refChanUpdateProto True pc adapter accept
 
-     Accept chan box -> deferred proto do
+     Accept chan box -> deferred @proto do
 
        -- что если получили ACCEPT раньше PROPOSE ?
        -- что если PROPOSE еще обрабатывается?
@@ -768,7 +768,7 @@ checkACL theHead mbPeerKey authorKey = match
 refChanRequestProto :: forall e s m . ( MonadIO m
                                      , Request e (RefChanRequest e) m
                                      , Response e (RefChanRequest e) m
-                                     , HasDeferred e (RefChanRequest e) m
+                                     , HasDeferred (RefChanRequest e) e m
                                      , IsPeerAddr e m
                                      , Pretty (Peer e)
                                      , Sessions e (KnownPeer e) m
@@ -778,7 +778,6 @@ refChanRequestProto :: forall e s m . ( MonadIO m
                                      , Signatures s
                                      , IsRefPubKey s
                                      , Pretty (AsBase58 (PubKey 'Sign s))
-                                     -- , Serialise (Signature s)
                                      , ForRefChans e
                                      , s ~ Encryption e
                                      )
@@ -841,24 +840,24 @@ instance Expires (EventKey e (RefChanNotify e)) where
 
 
 
-refChanNotifyProto :: forall e s m . ( MonadIO m
-                                     , Request e (RefChanNotify e) m
-                                     , Response e (RefChanNotify e) m
-                                     , HasRefChanId e (RefChanNotify e)
-                                     , HasDeferred e (RefChanNotify e) m
-                                     , HasGossip e (RefChanNotify e) m
-                                     , IsPeerAddr e m
-                                     , Pretty (Peer e)
-                                     , Sessions e (RefChanHeadBlock e) m
-                                     , Sessions e (KnownPeer e) m
-                                     , EventEmitter e (RefChanNotify e) m
-                                     , HasStorage m
-                                     , Signatures s
-                                     , IsRefPubKey s
-                                     , ForRefChans e
-                                     , Pretty (AsBase58 (PubKey 'Sign s))
-                                     , s ~ Encryption e
-                                     )
+refChanNotifyProto :: forall e s m proto . ( MonadIO m
+                                           , Request e proto m
+                                           , Response e proto m
+                                           , HasRefChanId e proto
+                                           , HasDeferred proto e m
+                                           , HasGossip e proto m
+                                           , IsPeerAddr e m
+                                           , Pretty (Peer e)
+                                           , Sessions e (RefChanHeadBlock e) m
+                                           , Sessions e (KnownPeer e) m
+                                           , EventEmitter e proto m
+                                           , HasStorage m
+                                           , Signatures s
+                                           , IsRefPubKey s
+                                           , ForRefChans e
+                                           , s ~ Encryption e
+                                           , proto ~ RefChanNotify e
+                                           )
                   => Bool
                   -> RefChanAdapter e m
                   -> RefChanNotify e
@@ -889,7 +888,7 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
 
     debug $ "&&& refChanNotifyProto" <+> pretty self
 
-    deferred proto do
+    deferred @proto do
 
       guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 

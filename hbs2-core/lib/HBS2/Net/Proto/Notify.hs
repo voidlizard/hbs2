@@ -104,22 +104,21 @@ newNotifyEnvServer src = NotifyEnv src <$> newTVarIO mempty
                                        <*> newTVarIO mempty
                                        <*> newTQueueIO
 
-makeNotifyServer :: forall ev src e m  . ( MonadIO m
-                                         , Response e (NotifyProto ev e) m
-                                         , NotifySource ev src
-                                         , HasDeferred e (NotifyProto ev e) m
-                                         , Pretty (Peer e)
-                                         )
+makeNotifyServer :: forall ev src e m proto . ( MonadIO m
+                                              , Response e proto m
+                                              , NotifySource ev src
+                                              , HasDeferred proto e m
+                                              , Pretty (Peer e)
+                                              , proto ~ NotifyProto ev e
+                                              )
                 => NotifyEnv ev src e
                 -> NotifyProto ev e
                 -> m ()
 
 makeNotifyServer (NotifyEnv{..}) what = do
 
-  let proxy = Proxy @(NotifyProto ev e)
-
   case what of
-    NotifyWant rn key -> deferred proxy do
+    NotifyWant rn key -> deferred @proto do
 
       debug "SERVER: NotifyWant"
 

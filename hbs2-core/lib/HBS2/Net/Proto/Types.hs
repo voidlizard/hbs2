@@ -110,15 +110,16 @@ class ( Eq (PeerAddr e)
   toPeerAddr   :: Peer e -> m (PeerAddr e)
   fromPeerAddr :: PeerAddr e -> m (Peer e)
 
+-- FIXME: type-application-instead-of-proxy
 class (Monad m, HasProtocol e p) => HasThatPeer e p (m :: Type -> Type) where
   thatPeer :: Proxy p -> m (Peer e)
 
-class (MonadIO m, HasProtocol e p) => HasDeferred e p m | p -> e where
-  deferred :: Proxy p -> m () -> m ()
+class (MonadIO m, HasProtocol e p) => HasDeferred p e m | p -> e where
+  deferred :: m () -> m ()
 
 -- TODO: actually-no-idea-if-it-works
-instance (HasDeferred e p m, Monad m) => HasDeferred e p (MaybeT m) where
-  deferred p a = lift $ deferred p (void $ runMaybeT a)
+instance (HasDeferred p e m, Monad m) => HasDeferred p e (MaybeT m) where
+  deferred a = lift $ deferred @p (void $ runMaybeT a)
 
 class ( MonadIO m
       , HasProtocol e p

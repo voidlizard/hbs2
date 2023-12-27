@@ -165,7 +165,7 @@ data RefLogRequestI e m =
 refLogRequestProto :: forall e s m . ( MonadIO m
                                      , Request e (RefLogRequest e) m
                                      , Response e (RefLogRequest e) m
-                                     , HasDeferred e (RefLogRequest e) m
+                                     , HasDeferred (RefLogRequest e) e m
                                      , Sessions e (KnownPeer e) m
                                      , IsPeerAddr e m
                                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
@@ -200,20 +200,21 @@ refLogRequestProto adapter cmd = do
   where
     proto = Proxy @(RefLogRequest e)
 
-refLogUpdateProto :: forall e s m . ( MonadIO m
-                                    , Request e (RefLogUpdate e) m
-                                    , Response e (RefLogUpdate e) m
-                                    , HasDeferred e (RefLogUpdate e) m
-                                    , HasGossip e (RefLogUpdate e) m
-                                    , IsPeerAddr e m
-                                    , Pretty (Peer e)
-                                    , Nonce (RefLogUpdate e) ~ ByteString
-                                    , Sessions e (KnownPeer e) m
-                                    , Signatures s
-                                    , Pretty (AsBase58 (PubKey 'Sign s))
-                                    , EventEmitter e (RefLogUpdateEv e) m
-                                    , s ~ Encryption e
-                                    )
+refLogUpdateProto :: forall e s m proto . ( MonadIO m
+                                          , Request e proto m
+                                          , Response e proto m
+                                          , HasDeferred proto e m
+                                          , HasGossip e (RefLogUpdate e) m
+                                          , IsPeerAddr e m
+                                          , Pretty (Peer e)
+                                          , Nonce (RefLogUpdate e) ~ ByteString
+                                          , Sessions e (KnownPeer e) m
+                                          , Signatures s
+                                          , Pretty (AsBase58 (PubKey 'Sign s))
+                                          , EventEmitter e (RefLogUpdateEv e) m
+                                          , s ~ Encryption e
+                                          , proto ~ RefLogUpdate e
+                                          )
                   => RefLogUpdate e -> m ()
 
 refLogUpdateProto =
@@ -232,7 +233,7 @@ refLogUpdateProto =
           trace "RefLogUpdate is signed properly"
 
           -- FIXME: refactor:use-type-application-for-deferred
-          deferred proto do
+          deferred @proto do
             emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e, Just p))
             gossip e
 

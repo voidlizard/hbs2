@@ -61,20 +61,21 @@ testCmd p1 s p2 = do
            <+> s
            <+> parens (pretty p2)
 
-pingPongHandler :: forall e m  . ( MonadIO m
-                                 , Response e (PingPong e) m
-                                 , HasProtocol e (PingPong e)
-                                 , HasOwnPeer e m
-                                 , HasDeferred e (PingPong e) m
-                                 , Pretty (Peer e)
-                                 )
+pingPongHandler :: forall e m proto  . ( MonadIO m
+                                       , Response e (PingPong e) m
+                                       , HasProtocol e (PingPong e)
+                                       , HasOwnPeer e m
+                                       , HasDeferred proto e m
+                                       , Pretty (Peer e)
+                                       , proto ~ PingPong e
+                                       )
                 => Int
                 -> PingPong e
                 -> m ()
 
-pingPongHandler n req = do
+pingPongHandler _ req = do
 
-  that <- thatPeer (Proxy @(PingPong e))
+  that <- thatPeer (Proxy @proto)
   own <- ownPeer @e
 
   case req of
@@ -82,7 +83,7 @@ pingPongHandler n req = do
     Ping c -> do
       testCmd own ("RECV PING <<<" <+> pretty c) that
 
-      deferred (Proxy @(PingPong e)) do
+      deferred @proto do
         pause @'Seconds 1
         testCmd own ("SEND PONG >>>" <+> pretty (succ c)) that
         response (Pong @e (succ c))
@@ -90,7 +91,7 @@ pingPongHandler n req = do
     Pong c -> do
       testCmd own ("RECV PONG <<<" <+> pretty c) that
 
-      deferred (Proxy @(PingPong e)) do
+      deferred @proto  do
         pause @'Seconds 1
         testCmd own ("SEND PING >>>" <+> pretty (succ c)) that
         response (Ping @e c)
@@ -125,8 +126,8 @@ instance HasTimeLimits L4Proto (PingPong L4Proto) IO where
   tryLockForPeriod _ _ = pure True
 
 
-instance HasDeferred L4Proto (PingPong L4Proto) (ResponseM L4Proto (PingPongM L4Proto IO)) where
-  deferred _ m = do
+instance HasDeferred (PingPong L4Proto) L4Proto  (ResponseM L4Proto (PingPongM L4Proto IO)) where
+  deferred m = do
     self <- lift $ asks (view ppSelf)
     bus  <- lift $ asks (view ppFab)
     who <- thatPeer (Proxy @(PingPong L4Proto))

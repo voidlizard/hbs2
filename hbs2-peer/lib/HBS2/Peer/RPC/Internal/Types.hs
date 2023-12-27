@@ -46,7 +46,7 @@ instance Monad m => HasOwnPeer UNIX (ReaderT RPC2Context m) where
   ownPeer = asks ( msgUnixSelf . rpcMessaging )
 
 instance (MonadUnliftIO m, HasProtocol UNIX (ServiceProto (api :: [Type]) UNIX))
-  => HasDeferred UNIX (ServiceProto api UNIX) m where
-  deferred _ m = void $ async m
+  => HasDeferred (ServiceProto api UNIX) UNIX  m where
+  deferred m = void $ async m
 
 

@@ -27,13 +27,14 @@ data PeerMetaProto e
 instance Serialise (PeerMetaProto e)
 
 
-peerMetaProto :: forall e m  . ( MonadIO m
-                                , Response e (PeerMetaProto e) m
-                                , HasDeferred e (PeerMetaProto e) m
-                                , EventEmitter e (PeerMetaProto e) m
-                                , Sessions e (KnownPeer e) m
-                                , Pretty (Peer e)
-                                )
+peerMetaProto :: forall e m proto  . ( MonadIO m
+                                     , Response e proto m
+                                     , HasDeferred proto e m
+                                     , EventEmitter e proto m
+                                     , Sessions e (KnownPeer e) m
+                                     , Pretty (Peer e)
+                                     , proto ~ PeerMetaProto e
+                                     )
                => AnnMetaData
                -> PeerMetaProto e
                -> m ()
@@ -45,7 +46,7 @@ peerMetaProto peerMeta =
       auth <- find (KnownPeerKey p) id <&> isJust
       when auth do
         debug $ "PEER META: ANSWERING" <+> pretty p <+> viaShow peerMeta
-        deferred (Proxy @(PeerMetaProto e)) do
+        deferred @proto do
           response (ThePeerMeta @e peerMeta)
 
     ThePeerMeta meta -> do

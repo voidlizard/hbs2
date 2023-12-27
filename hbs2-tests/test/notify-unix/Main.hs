@@ -38,8 +38,8 @@ instance HasProtocol UNIX  (NotifyProto Tick UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred UNIX (NotifyProto ev e) m where
-  deferred _ m = void $ async m
+instance  (MonadUnliftIO m, HasProtocol UNIX (NotifyProto ev e)) => HasDeferred (NotifyProto ev e) UNIX m where
+  deferred m = void $ async m
 
 data WhatTick = Odd | Even
      deriving stock (Generic,Eq)

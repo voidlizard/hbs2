@@ -131,20 +131,19 @@ makeRequestR input = do
 runWithContext :: r -> ReaderT r m a -> m a
 runWithContext co m = runReaderT m co
 
-makeServer :: forall api e m  . ( MonadIO m
-                                , EnumAll api (Int, SomeHandler m) m
-                                , Response e (ServiceProto api e) m
-                                , HasProtocol e (ServiceProto api e)
-                                , HasDeferred e (ServiceProto api e) m
-                                , Pretty (Peer e)
-                                )
+makeServer :: forall api e m proto . ( MonadIO m
+                                     , EnumAll api (Int, SomeHandler m) m
+                                     , Response e (ServiceProto api e) m
+                                     , HasProtocol e proto
+                                     , HasDeferred proto e m
+                                     , Pretty (Peer e)
+                                     , proto ~ ServiceProto api e
+                                     )
                 => ServiceProto api e
                 -> m ()
 
 makeServer msg = do
-  deferred proxy $ dispatch @api @e msg >>= response
-  where
-    proxy = Proxy @(ServiceProto api e)
+  deferred @proto $ dispatch @api @e msg >>= response
 
 data ServiceCaller api e =
   ServiceCaller

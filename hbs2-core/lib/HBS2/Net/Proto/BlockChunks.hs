@@ -3,7 +3,6 @@ module HBS2.Net.Proto.BlockChunks where
 
 import HBS2.Events
 import HBS2.Hash
-import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Peer
 import HBS2.Prelude.Plated
@@ -11,14 +10,9 @@ import HBS2.Storage
 import HBS2.Actors.Peer
 import HBS2.Net.Proto.Sessions
 
-import Data.Functor
 import Data.Word
-import Prettyprinter
 import Data.ByteString.Lazy (ByteString)
-import Data.Foldable hiding (find)
 import Data.Maybe
-
-import System.Random.Shuffle
 
 newtype ChunkSize = ChunkSize Word16
                     deriving newtype (Num,Enum,Real,Integral,Pretty)
@@ -82,13 +76,14 @@ data instance Event e (BlockChunks e) =
   | BlockChunksLost (Hash HbSync)
   deriving stock (Typeable)
 
-blockChunksProto :: forall e m  . ( MonadIO m
-                                  , Response e (BlockChunks e) m
-                                  , HasDeferred e (BlockChunks e) m
-                                  , HasOwnPeer e m
-                                  , Sessions e (KnownPeer e) m
-                                  , Pretty (Peer e)
-                                  )
+blockChunksProto :: forall e m proto . ( MonadIO m
+                                       , Response e (BlockChunks e) m
+                                       , HasDeferred (BlockChunks e) e m
+                                       , HasOwnPeer e m
+                                       , Sessions e (KnownPeer e) m
+                                       , Pretty (Peer e)
+                                       , proto ~ BlockChunks e
+                                       )
                  => BlockChunksI e m
                  -> BlockChunks e
                  -> m ()
@@ -109,20 +104,11 @@ blockChunksProto adapter (BlockChunks c p) = do
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = take (fromIntegral num) $ drop (fromIntegral n1) $ zip offsets' [0..]
 
-        -- liftIO $ print $ "sending " <+> pretty (length offsets)
-        --                             <+> "chunks for block"
-        --                             <+> pretty h
-
-        -- for_ offsets $ \((o,sz),i) -> deferred proto do
-        for_ offsets $ \((o,sz),i) -> deferred proto do
-          -- liftIO $ print $ "send chunk " <+> pretty i <+> pretty sz
+        for_ offsets $ \((o,sz),i) -> deferred @proto do
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
     BlockGetAllChunks h size | auth -> do
-
-      me <- ownPeer @e
-      who <- thatPeer proto
 
       bsz' <- blkSize adapter h
 
@@ -131,17 +117,12 @@ blockChunksProto adapter (BlockChunks c p) = do
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = zip offsets' [0..]
 
-        -- liftIO $ print $ "sending " <+> pretty (length offsets)
-        --                             <+> "chunks for block"
-        --                             <+> pretty h
-
-        for_ offsets $ \((o,sz),i) -> deferred proto do
+        for_ offsets $ \((o,sz),i) -> deferred @proto do
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
-    BlockChunk n bs | auth -> deferred proto do
+    BlockChunk n bs | auth -> deferred @(BlockChunks e) do
       who <- thatPeer proto
-      me <- ownPeer @e
       h <- blkGetHash adapter (who, c)
 
       maybe1 h (response_ (BlockLost @e)) $ \hh -> do
