@@ -84,7 +84,7 @@ dialReqProto :: forall e s m .
     -> DialReq e
     -> m ()
 dialReqProto adapter = unDialReq >>> \frames -> do
-    peer <- thatPeer dialReqProtoProxy
+    peer <- thatPeer @(DialReq e)
 
     -- let dialReqEnv :: DialogRequestEnv m (Peer e) (Maybe (PeerData e))
     --     dialReqEnv = DialogRequestEnv
@@ -100,8 +100,6 @@ dialReqProto adapter = unDialReq >>> \frames -> do
 
     liftIO $ (dialReqProtoAdapterDApp adapter) frames replyToPeerIO
 
- where
-   dialReqProtoProxy = Proxy @(DialReq e)
 
 ---
 

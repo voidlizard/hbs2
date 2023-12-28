@@ -49,7 +49,7 @@ pingPongHandlerS :: forall e m  . ( MonadIO m
 
 pingPongHandlerS tv n msg = do
 
-    that <- thatPeer (Proxy @(PingPong e))
+    that <- thatPeer @(PingPong e)
 
     UIO.atomically $ UIO.modifyTVar tv ((that,msg):)
 

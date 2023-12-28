@@ -14,6 +14,7 @@ import Data.ByteString qualified as BS
 import Lens.Micro.Platform
 import UnliftIO
 import Control.Monad.Trans.Maybe
+import Data.HashSet qualified as HashSet
 
 
 splitPattern :: FilePath -> (FilePath, FilePath)
@@ -64,22 +65,26 @@ findKeyRing fp kr = do
 
   pure (catMaybes kf)
 
-findKeyRingEntry :: forall s m . ( MonadUnliftIO m
-                                 , SerialisedCredentials s
-                                 , ForHBS2Basic s
-                                 )
+findKeyRingEntries :: forall s m . ( MonadUnliftIO m
+                                   , SerialisedCredentials s
+                                   , Hashable (PubKey 'Encrypt s)
+                                   -- , ForHBS2Basic s
+                                   )
                  => [FilePattern]
-                 -> PubKey 'Encrypt s
-                 -> m (Maybe (KeyringEntry s))
+                 -> [PubKey 'Encrypt s]
+                 -> m [KeyringEntry s]
 
-findKeyRingEntry fp pk0 = do
+findKeyRingEntries fp pkl = do
+
+  let pks = HashSet.fromList pkl
+
   fs <- findFilesBy fp
 
   w <- for fs $ \f -> runMaybeT do
     bs <- liftIO (try @_ @IOException (BS.readFile f))
            >>= toMPlus
     krf <- parseCredentials (AsCredFile bs) & toMPlus
-    MaybeT $ pure $ headMay [ e | e@(KeyringEntry pk _ _) <- _peerKeyring krf, pk == pk0 ]
+    MaybeT $ pure $ headMay [ e | e@(KeyringEntry pk _ _) <- _peerKeyring krf, pk `HashSet.member` pks ]
 
-  pure $ headMay (catMaybes w)
+  pure $ catMaybes w
 

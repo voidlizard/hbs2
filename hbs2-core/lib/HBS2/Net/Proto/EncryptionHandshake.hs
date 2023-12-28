@@ -76,7 +76,7 @@ data EncryptionHandshakeAdapter e m s = EncryptionHandshakeAdapter
   }
 
 
-encryptionHandshakeProto :: forall e s m .
+encryptionHandshakeProto :: forall e s m proto .
     ( MonadIO m
     , Response e (EncryptionHandshake e) m
     , Request e (EncryptionHandshake e) m
@@ -91,6 +91,7 @@ encryptionHandshakeProto :: forall e s m .
     , PubKey 'Encrypt s ~ Encrypt.PublicKey
     , Show (PubKey 'Sign s)
     , Show (Nonce ())
+    , proto ~ EncryptionHandshake e
     )
   => EncryptionHandshakeAdapter e m s
   -> EncryptionHandshake e
@@ -99,7 +100,7 @@ encryptionHandshakeProto :: forall e s m .
 encryptionHandshakeProto EncryptionHandshakeAdapter{..} = \case
 
   ResetEncryptionKeys -> do
-      peer <- thatPeer proto
+      peer <- thatPeer @proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
       trace $ "ENCRYPTION EHSP ResetEncryptionKeys from" <+> viaShow (peer, mpeerData)
@@ -112,7 +113,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} = \case
       sendBeginEncryptionExchange @e creds ourpubkey peer
 
   BeginEncryptionExchange theirsign theirpubkey -> do
-      peer <- thatPeer proto
+      peer <- thatPeer @proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 
@@ -137,7 +138,7 @@ encryptionHandshakeProto EncryptionHandshakeAdapter{..} = \case
       encHandshake_considerPeerAsymmKey peer (Just theirpubkey)
 
   AckEncryptionExchange theirsign theirpubkey -> do
-      peer <- thatPeer proto
+      peer <- thatPeer @proto
       mpeerData <- find (KnownPeerKey peer) id
       -- TODO: check theirsign
 

@@ -10,6 +10,7 @@ import PeerConfig
 
 import HBS2.Peer.RPC.Client.Unix
 
+import Options.Applicative
 import Data.Kind
 import Lens.Micro.Platform
 import UnliftIO
@@ -45,4 +46,15 @@ withRPCMessaging o action = do
   pause @'Seconds 0.05
   cancel m1
 
+rpcOpt :: Parser String
+rpcOpt = strOption ( short 'r' <> long "rpc"
+                               <> help "addr:port" )
 
+-- FIXME: options-duped-with-peer-main
+confOpt :: Parser FilePath
+confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
+
+pRpcCommon :: Parser RPCOpt
+pRpcCommon = do
+  RPCOpt <$> optional confOpt
+         <*> optional rpcOpt

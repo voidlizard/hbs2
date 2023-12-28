@@ -244,12 +244,6 @@ runCLI = do
                 -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
                 )
 
-    confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
-
-    rpcOpt = strOption ( short 'r' <> long "rpc"
-                                   <> help "addr:port" )
-
-
     common = do
       pref <- optional $ strOption ( short 'p' <> long "prefix"
                                                <> help "storage prefix" )
@@ -282,10 +276,6 @@ runCLI = do
 
     pRun = do
       runPeer <$> common
-
-    pRpcCommon = do
-      RPCOpt <$> optional confOpt
-             <*> optional rpcOpt
 
     pDie = do
       rpc <- pRpcCommon
@@ -535,8 +525,8 @@ instance (Monad m, s ~ Encryption e) => HasCredentials s (CredentialsM e s m) wh
 instance (Monad m, s ~ Encryption e) => HasCredentials s (ResponseM e (CredentialsM e s m)) where
   getCredentials = lift getCredentials
 
-instance (Monad m, HasThatPeer e p m, s ~ Encryption e) => HasThatPeer e p (CredentialsM e s m) where
-  thatPeer = lift . thatPeer
+instance (Monad m, HasThatPeer p e m, s ~ Encryption e) => HasThatPeer p e (CredentialsM e s m) where
+  thatPeer = lift (thatPeer @p)
 
 instance ( EventEmitter e p m
          ) => EventEmitter e p (CredentialsM e s m) where
@@ -768,7 +758,7 @@ runPeer opts = Exception.handle (\e -> myException e
         , refChanValidatePropose = refChanValidateTranFn @e rce
 
         , refChanNotifyRely = \r u -> do
-           debug "refChanNotifyRely MOTHERFUCKER!"
+           trace "refChanNotifyRely!"
            refChanNotifyRelyFn @e rce r u
            case u of
              Notify rr s -> do
@@ -893,8 +883,6 @@ runPeer opts = Exception.handle (\e -> myException e
                         $ knownPeers @e pl >>= mapM \pip ->
                               fmap (, pip) <$> find (KnownPeerKey pip) (view peerOwnNonce)
 
-                    let proto1 = view sockType p
-
                     case Map.lookup thatNonce pdkv of
 
                       -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
@@ -948,7 +936,7 @@ runPeer opts = Exception.handle (\e -> myException e
               let peerThread t mx = W.tell . L.singleton =<< (liftIO . async) do
                     withPeerM env mx
                       `U.withException` \e -> case fromException e of
-                        Just (e' :: AsyncCancelled) -> pure ()
+                        Just (_ :: AsyncCancelled) -> pure ()
                         Nothing -> do
                           err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
 
@@ -1018,8 +1006,8 @@ runPeer opts = Exception.handle (\e -> myException e
           chunks <- S.toList_ $ do
             deepScan ScanDeep (const none) h (liftIO . getBlock sto) $ \ha -> do
               unless (ha == h) do
-                blk <- liftIO $ getBlock sto ha
-                maybe1 blk none S.yield
+                blk1 <- liftIO $ getBlock sto ha
+                maybe1 blk1 none S.yield
 
           let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) e) (LBS.concat chunks)
 
@@ -1058,7 +1046,7 @@ runPeer opts = Exception.handle (\e -> myException e
                       pa <- toPeerAddr p
                       checkBlockAnnounce conf denv no pa (view biHash bi)
 
-                   subscribe @e PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent pip nonce) -> do
+                   subscribe @e PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent{}) -> do
                       -- debug $ "Got peer announce!" <+> pretty pip
                       emitToPeer penv PeerAnnounceEventKey pe
 
@@ -1087,19 +1075,20 @@ runPeer opts = Exception.handle (\e -> myException e
   let rpcSa = getRpcSocketName conf
   rpcmsg <- newMessagingUnix True 1.0 rpcSa
 
+
   let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
-                            , rpcMessaging = rpcmsg
-                            , rpcPokeAnswer = pokeAnsw
-                            , rpcPeerEnv = penv
-                            , rpcLocalMultiCast = localMulticast
-                            , rpcStorage = AnyStorage s
-                            , rpcBrains = SomeBrains brains
-                            , rpcByPassInfo = liftIO (getStat byPass)
-                            , rpcDoFetch = liftIO . fetchHash penv denv
-                            , rpcDoRefChanHeadPost = refChanHeadPostAction
-                            , rpcDoRefChanPropose = refChanProposeAction
-                            , rpcDoRefChanNotify = refChanNotifyAction
-                            }
+                           , rpcMessaging = rpcmsg
+                           , rpcPokeAnswer = pokeAnsw
+                           , rpcPeerEnv = penv
+                           , rpcLocalMultiCast = localMulticast
+                           , rpcStorage = AnyStorage s
+                           , rpcBrains = SomeBrains brains
+                           , rpcByPassInfo = liftIO (getStat byPass)
+                           , rpcDoFetch = liftIO . fetchHash penv denv
+                           , rpcDoRefChanHeadPost = refChanHeadPostAction
+                           , rpcDoRefChanPropose = refChanProposeAction
+                           , rpcDoRefChanNotify = refChanNotifyAction
+                           }
 
   m1 <- async $ runMessagingUnix rpcmsg
 

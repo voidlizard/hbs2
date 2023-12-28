@@ -162,21 +162,21 @@ data RefLogRequestI e m =
   , isRefLogSubscribed :: PubKey 'Sign (Encryption e) -> m Bool
   }
 
-refLogRequestProto :: forall e s m . ( MonadIO m
-                                     , Request e (RefLogRequest e) m
-                                     , Response e (RefLogRequest e) m
-                                     , HasDeferred (RefLogRequest e) e m
-                                     , Sessions e (KnownPeer e) m
-                                     , IsPeerAddr e m
-                                     , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
-                                     , EventEmitter e (RefLogRequestAnswer e) m
-                                     , Pretty (Peer e)
-                                     , s ~ Encryption e
-                                     )
+refLogRequestProto :: forall e s m proto . ( MonadIO m
+                                           , Request e proto m
+                                           , Response e proto m
+                                           , Sessions e (KnownPeer e) m
+                                           , IsPeerAddr e m
+                                           , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+                                           , EventEmitter e (RefLogRequestAnswer e) m
+                                           , Pretty (Peer e)
+                                           , s ~ Encryption e
+                                           , proto ~ RefLogRequest e
+                                           )
                   => RefLogRequestI e m -> RefLogRequest e -> m ()
 
 refLogRequestProto adapter cmd = do
-  p <- thatPeer proto
+  p <- thatPeer @proto
 
   void $ runMaybeT do
 
@@ -186,19 +186,16 @@ refLogRequestProto adapter cmd = do
     case cmd of
       (RefLogRequest pk) -> lift do
          trace $ "got RefLogUpdateRequest for" <+> pretty (AsBase58 pk)
-         pip <- thatPeer proto
+         pip <- thatPeer @proto
          answ' <- onRefLogRequest adapter (pip,pk)
          maybe1 answ' none $ \answ -> do
           response (RefLogResponse @e pk answ)
 
       (RefLogResponse pk h) -> lift do
          trace $ "got RefLogResponse for" <+> pretty (AsBase58 pk) <+> pretty h
-         pip <- thatPeer proto
+         pip <- thatPeer @proto
          emit RefLogReqAnswerKey (RefLogReqAnswerData @e pk h)
          onRefLogResponse adapter (pip,pk,h)
-
-  where
-    proto = Proxy @(RefLogRequest e)
 
 refLogUpdateProto :: forall e s m proto . ( MonadIO m
                                           , Request e proto m
@@ -220,7 +217,7 @@ refLogUpdateProto :: forall e s m proto . ( MonadIO m
 refLogUpdateProto =
   \case
     e@RefLogUpdate{} -> do
-      p <- thatPeer proto
+      p <- thatPeer @proto
       auth <- find (KnownPeerKey p) id <&> isJust
 
       when auth do
@@ -236,9 +233,6 @@ refLogUpdateProto =
           deferred @proto do
             emit @e RefLogUpdateEvKey (RefLogUpdateEvData (pubk, e, Just p))
             gossip e
-
-    where
-      proto = Proxy @(RefLogUpdate e)
 
 instance  ( Serialise (PubKey 'Sign (Encryption e))
           , Serialise (Nonce (RefLogUpdate e))

@@ -94,18 +94,7 @@ pRefChanHeadDump= do
     print $ pretty hdblk
 
 
--- FIXME: options-duped-with-peer-main
-confOpt :: Parser FilePath
-confOpt = strOption ( long "config"  <> short 'c' <> help "config" )
 
-rpcOpt :: Parser String
-rpcOpt = strOption ( short 'r' <> long "rpc"
-                               <> help "addr:port" )
-
-pRpcCommon :: Parser RPCOpt
-pRpcCommon = do
-  RPCOpt <$> optional confOpt
-         <*> optional rpcOpt
 
 pRefChanHeadPost :: Parser (IO ())
 pRefChanHeadPost = do

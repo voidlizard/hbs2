@@ -42,7 +42,7 @@ peerMetaProto :: forall e m proto  . ( MonadIO m
 peerMetaProto peerMeta =
   \case
     GetPeerMeta -> do
-      p <- thatPeer (Proxy @(PeerMetaProto e))
+      p <- thatPeer @proto
       auth <- find (KnownPeerKey p) id <&> isJust
       when auth do
         debug $ "PEER META: ANSWERING" <+> pretty p <+> viaShow peerMeta
@@ -50,7 +50,7 @@ peerMetaProto peerMeta =
           response (ThePeerMeta @e peerMeta)
 
     ThePeerMeta meta -> do
-      that <- thatPeer (Proxy @(PeerMetaProto e))
+      that <- thatPeer @proto
       debug $ "GOT PEER META FROM" <+> pretty that <+> viaShow meta
       emit @e (PeerMetaEventKey that) (PeerMetaEvent meta)
 

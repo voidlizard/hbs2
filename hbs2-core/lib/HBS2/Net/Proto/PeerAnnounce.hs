@@ -40,7 +40,7 @@ peerAnnounceProto :: forall e m  . ( MonadIO m
 peerAnnounceProto =
   \case
     PeerAnnounce nonce -> do
-      who <- thatPeer (Proxy @(PeerAnnounce e))
+      who <- thatPeer @(PeerAnnounce e)
       emit @e PeerAnnounceEventKey (PeerAnnounceEvent who nonce)
 
 

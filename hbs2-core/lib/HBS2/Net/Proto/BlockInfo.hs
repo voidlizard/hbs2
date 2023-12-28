@@ -37,7 +37,7 @@ blockSizeProto getBlockSize evHasBlock onNoBlock =
   \case
     GetBlockSize h -> do
       -- liftIO $ print "GetBlockSize"
-      p <- thatPeer (Proxy @(BlockInfo e))
+      p <- thatPeer @proto
       auth <- find (KnownPeerKey p) id <&> isJust
       when auth do
         deferred @proto $ do
@@ -48,12 +48,12 @@ blockSizeProto getBlockSize evHasBlock onNoBlock =
               response (NoBlock @e h)
 
     NoBlock h       -> do
-      that <- thatPeer (Proxy @(BlockInfo e))
+      that <- thatPeer @proto
       emit @e (BlockSizeEventKey h) (NoBlockEvent that)
       evHasBlock ( that, h, Nothing )
 
     BlockSize h sz  -> do
-      that <- thatPeer (Proxy @(BlockInfo e))
+      that <- thatPeer @proto
       emit @e (BlockSizeEventKey h) (BlockSizeEvent (that, h, sz))
       evHasBlock ( that, h, Just sz )
 

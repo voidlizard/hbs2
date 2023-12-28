@@ -75,7 +75,7 @@ pingPongHandler :: forall e m proto  . ( MonadIO m
 
 pingPongHandler _ req = do
 
-  that <- thatPeer (Proxy @proto)
+  that <- thatPeer @proto
   own <- ownPeer @e
 
   case req of
@@ -130,7 +130,7 @@ instance HasDeferred (PingPong L4Proto) L4Proto  (ResponseM L4Proto (PingPongM L
   deferred m = do
     self <- lift $ asks (view ppSelf)
     bus  <- lift $ asks (view ppFab)
-    who <- thatPeer (Proxy @(PingPong L4Proto))
+    who <- thatPeer @(PingPong L4Proto)
     void $ liftIO $ async $ runPingPong self bus (runResponseM who m)
 
 main :: IO ()

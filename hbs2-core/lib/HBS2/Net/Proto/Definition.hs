@@ -191,6 +191,7 @@ instance HasProtocol L4Proto (RefChanNotify L4Proto) where
   -- возьмем пока 10 секунд
   requestPeriodLim = NoLimit
 
+
 instance HasProtocol L4Proto (DialReq L4Proto) where
   type instance ProtocolId (DialReq L4Proto) = 96000
   type instance Encoded L4Proto = ByteString

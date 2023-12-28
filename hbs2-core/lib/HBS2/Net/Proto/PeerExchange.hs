@@ -79,12 +79,11 @@ peerExchangeProto msg = do
     PeerExchangePeers2 nonce pips -> peerExchangePeers2 nonce pips
 
    where
-    proto = Proxy @(PeerExchange e)
 
     fromPEXAddr1 = fromPeerAddr . L4Address UDP
 
     peerExchangePeers1 nonce pips = do
-      pip <- thatPeer proto
+      pip <- thatPeer @proto
 
       ok <- find (PeerExchangeKey @e nonce) id <&> isJust
 
@@ -95,7 +94,7 @@ peerExchangeProto msg = do
         emit @e PeerExchangePeersKey (PeerExchangePeersData  sa)
 
     peerExchangePeers2 nonce pips = do
-      pip <- thatPeer proto
+      pip <- thatPeer @proto
 
       ok <- find (PeerExchangeKey @e nonce) id <&> isJust
 
@@ -106,7 +105,7 @@ peerExchangeProto msg = do
         emit @e PeerExchangePeersKey (PeerExchangePeersData  sa)
 
     peerExchangeGet pex n = deferred @proto do
-      that <- thatPeer proto
+      that <- thatPeer @proto
 
       debug $ "PeerExchangeGet" <+> "from" <+> pretty that
 

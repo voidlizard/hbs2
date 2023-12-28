@@ -50,7 +50,7 @@ main = do
             <> header "Raw tx test"
         )
   krData <- BS.readFile $ credentialsFile options
-  creds <- pure (parseCredentials (AsCredFile krData)) `orDie` "bad keyring file"
+  creds <- pure (parseCredentials @HBS2Basic (AsCredFile krData)) `orDie` "bad keyring file"
   let pubk = view peerSignPk creds
   let privk = view peerSignSk creds
   bs <- pure (fromBase58 $ BS8.pack $ tx options) `orDie` "transaction is not in Base58 format"
@@ -67,6 +67,6 @@ main = do
 
   case statusCode (getResponseStatus resp) of
     200 -> do
-      let r = LBS.unpack $ getResponseBody resp 
+      let r = LBS.unpack $ getResponseBody resp
       print r
     s -> print $ "error: status " <> show s

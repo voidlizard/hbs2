@@ -111,8 +111,8 @@ class ( Eq (PeerAddr e)
   fromPeerAddr :: PeerAddr e -> m (Peer e)
 
 -- FIXME: type-application-instead-of-proxy
-class (Monad m, HasProtocol e p) => HasThatPeer e p (m :: Type -> Type) where
-  thatPeer :: Proxy p -> m (Peer e)
+class (Monad m, HasProtocol e p) => HasThatPeer p e (m :: Type -> Type) where
+  thatPeer :: m (Peer e)
 
 class (MonadIO m, HasProtocol e p) => HasDeferred p e m | p -> e where
   deferred :: m () -> m ()
@@ -123,7 +123,7 @@ instance (HasDeferred p e m, Monad m) => HasDeferred p e (MaybeT m) where
 
 class ( MonadIO m
       , HasProtocol e p
-      , HasThatPeer e p m
+      , HasThatPeer p e m
       ) => Response e p m | p -> e where
 
   response :: p -> m ()

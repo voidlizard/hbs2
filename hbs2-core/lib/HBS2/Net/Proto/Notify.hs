@@ -122,7 +122,7 @@ makeNotifyServer (NotifyEnv{..}) what = do
 
       debug "SERVER: NotifyWant"
 
-      who <- thatPeer (Proxy @(NotifyProto ev e))
+      who <- thatPeer @(NotifyProto ev e)
 
       hndl <- startNotify @ev @src @m notifySource key $ \ha d -> do
                atomically $ writeTQueue notifyQ (ha, who, NotifyEvent key d)

@@ -452,8 +452,8 @@ runProto hh = do
                           }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
 
 
-instance (Monad m, HasProtocol e p) => HasThatPeer e p (ResponseM e m) where
-  thatPeer _ = asks (view answTo)
+instance (Monad m, HasProtocol e p) => HasThatPeer p e (ResponseM e m) where
+  thatPeer = asks (view answTo)
 
 instance HasProtocol e p => HasDeferred p e (ResponseM e (PeerM e IO)) where
   deferred action = do
@@ -465,6 +465,7 @@ instance HasProtocol e p => HasDeferred p e (ResponseM e (PeerM e IO)) where
 
 instance ( HasProtocol e p
          , MonadTrans (ResponseM e)
+         , HasThatPeer p e (ResponseM e m)
          , HasStorage (PeerM e IO)
          , Pretty (Peer e)
          , PeerMessaging e
@@ -475,7 +476,7 @@ instance ( HasProtocol e p
 
   response msg = do
     let proto = protoId @e @p (Proxy @p)
-    who <-  thatPeer (Proxy @p)
+    who <-  thatPeer @p
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
     sendTo fab (To who) (From self) (AnyMessage @(Encoded e) @e proto (encode msg))

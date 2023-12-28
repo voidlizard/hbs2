@@ -494,7 +494,7 @@ instance (ForGossip e p (PeerM e IO)) => HasGossip e p (PeerM e IO) where
 
 instance (ForGossip e p (ResponseM e m), HasGossip e p m) => HasGossip e p (ResponseM e m) where
   gossip msg = do
-    that <- thatPeer (Proxy @p)
+    that <- thatPeer @p
     forKnownPeers $ \pip _ -> do
       unless (that == pip) do
         request @e pip msg

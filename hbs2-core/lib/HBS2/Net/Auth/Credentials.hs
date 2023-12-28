@@ -58,6 +58,7 @@ data KeyringEntry e =
 
 pattern KeyringKeys :: forall {s} . PubKey 'Encrypt s -> PrivKey 'Encrypt s -> KeyringEntry s
 pattern KeyringKeys a b <- KeyringEntry a b _
+{-# COMPLETE KeyringKeys #-}
 
 deriving stock instance (Eq (PubKey 'Encrypt e), Eq (PrivKey 'Encrypt e))
   => Eq (KeyringEntry e)
@@ -139,8 +140,8 @@ delKeyPair (AsBase58 pks) cred = do
   pure $ cred & set peerKeyring rest
 
 
-parseCredentials :: forall s . ( ForHBS2Basic s
-                               , SerialisedCredentials s
+parseCredentials :: forall s . ( -- ForHBS2Basic s
+                                 SerialisedCredentials s
                                )
                  =>  AsCredFile ByteString -> Maybe (PeerCredentials s)
 parseCredentials (AsCredFile bs) = parseSerialisableFromBase58 bs

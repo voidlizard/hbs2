@@ -90,7 +90,7 @@ blockChunksProto :: forall e m proto . ( MonadIO m
 
 blockChunksProto adapter (BlockChunks c p) = do
 
-  peer <- thatPeer (Proxy @(BlockChunks e))
+  peer <- thatPeer @proto
   auth <- find (KnownPeerKey peer) id <&> isJust
 
   case p of
@@ -122,7 +122,7 @@ blockChunksProto adapter (BlockChunks c p) = do
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
     BlockChunk n bs | auth -> deferred @(BlockChunks e) do
-      who <- thatPeer proto
+      who <- thatPeer @proto
       h <- blkGetHash adapter (who, c)
 
       maybe1 h (response_ (BlockLost @e)) $ \hh -> do
@@ -140,7 +140,6 @@ blockChunksProto adapter (BlockChunks c p) = do
       pure ()
 
   where
-    proto = Proxy @(BlockChunks e)
     response_ pt = response (BlockChunks c pt)
 
 

@@ -57,7 +57,7 @@ blockAnnounceProto :: forall e m  . ( MonadIO m
 blockAnnounceProto =
   \case
     BlockAnnounce n info -> do
-      that <- thatPeer (Proxy @(BlockAnnounce e))
+      that <- thatPeer @(BlockAnnounce e)
       emit @e BlockAnnounceInfoKey (BlockAnnounceEvent that info n)
 
 data instance EventKey e (BlockAnnounce e) =

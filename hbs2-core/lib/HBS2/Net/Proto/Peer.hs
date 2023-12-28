@@ -91,24 +91,25 @@ newtype PeerHandshakeAdapter e m =
   }
 
 
-peerHandShakeProto :: forall e s m . ( MonadIO m
-                                     , Response e (PeerHandshake e) m
-                                     , Request e (PeerHandshake e) m
-                                     , Sessions e (PeerHandshake e) m
-                                     , Sessions e (KnownPeer e) m
-                                     , HasNonces (PeerHandshake e) m
-                                     , HasPeerNonce e m
-                                     , Nonce (PeerHandshake e) ~ PingNonce
-                                     , Pretty (Peer e)
-                                     , EventEmitter e (PeerHandshake e) m
-                                     , EventEmitter e (ConcretePeer e) m
-                                     , HasCredentials s m
-                                     , Asymm s
-                                     , Signatures s
-                                     , Serialise (PubKey 'Encrypt (Encryption e))
-                                     , s ~ Encryption e
-                                     , e ~ L4Proto
-                                     )
+peerHandShakeProto :: forall e s m proto . ( MonadIO m
+                                           , Response e proto m
+                                           , Request e proto m
+                                           , Sessions e proto m
+                                           , Sessions e (KnownPeer e) m
+                                           , HasNonces proto m
+                                           , HasPeerNonce e m
+                                           , Nonce proto ~ PingNonce
+                                           , Pretty (Peer e)
+                                           , EventEmitter e proto m
+                                           , EventEmitter e (ConcretePeer e) m
+                                           , HasCredentials s m
+                                           , Asymm s
+                                           , Signatures s
+                                           , Serialise (PubKey 'Encrypt (Encryption e))
+                                           , s ~ Encryption e
+                                           , e ~ L4Proto
+                                           , proto ~ PeerHandshake e
+                                           )
                    => PeerHandshakeAdapter e m
                    -> PeerEnv e
                    -> PeerHandshake e
@@ -117,7 +118,7 @@ peerHandShakeProto :: forall e s m . ( MonadIO m
 peerHandShakeProto adapter penv =
   \case
     PeerPing nonce  -> do
-      pip <- thatPeer proto
+      pip <- thatPeer @proto
       -- взять свои ключи
       creds <- getCredentials @s
 
@@ -137,7 +138,7 @@ peerHandShakeProto adapter penv =
         sendPing pip
 
     PeerPong nonce0 sign d -> do
-      pip <- thatPeer proto
+      pip <- thatPeer @proto
 
       se' <- find @e (PeerHandshakeKey (nonce0,pip)) id
 
@@ -162,9 +163,6 @@ peerHandShakeProto adapter penv =
 
           emit AnyKnownPeerEventKey (KnownPeerEvent pip d)
           emit (ConcretePeerKey pip) (ConcretePeerData pip d)
-
-  where
-    proto = Proxy @(PeerHandshake e)
 
 data ConcretePeer e = ConcretePeer
 
