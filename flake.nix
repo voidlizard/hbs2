@@ -45,6 +45,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-git"
      "hbs2-qblf"
      "hbs2-keyman"
+     "hbs2-share"
    ];
 
    packageDirs = {
@@ -54,6 +55,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer" = "./hbs2-peer";
      "hbs2-keyman" = "./hbs2-keyman";
+     "hbs2-share"  = "./hbs2-share";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {

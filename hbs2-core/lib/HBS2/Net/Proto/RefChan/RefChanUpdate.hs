@@ -47,7 +47,7 @@ data ProposeTran e = ProposeTran HashRef (SignedBox ByteString e) -- произ�
 
 newtype AcceptTime = AcceptTime Word64
                      deriving stock (Eq,Ord,Data,Generic)
-                     deriving newtype (Enum,Num,Real,Integral)
+                     deriving newtype (Enum,Num,Real,Pretty,Integral)
 
 instance Serialise AcceptTime
 

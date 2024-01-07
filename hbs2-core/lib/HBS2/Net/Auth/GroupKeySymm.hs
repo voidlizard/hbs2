@@ -154,25 +154,6 @@ generateGroupKey mbk pks = GroupKeySymm <$> create
         box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
         pure (pk, box)
 
-
-generateGroupKeyPure :: forall s nonce . (ForGroupKeySymm s, NonceFrom SK.Nonce nonce)
-                 => GroupSecret
-                 -> nonce
-                 -> [PubKey 'Encrypt s]
-                 -> GroupKey 'Symm s
-
-generateGroupKeyPure sec nonce pks = GroupKeySymm gk0
-  where
-    nonce0 = nonceFrom @SK.Nonce nonce
-    gk0 = undefined
-    -- gk0 = [ AK.box
-    -- HashMap.fromList <$> do
-    --   sk <- maybe1 mbk (liftIO SK.newKey) pure
-    --   forM pks $ \pk -> do
-    --     box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
-    --     pure (pk, box)
-
-
 lookupGroupKey :: ForGroupKeySymm s
                => PrivKey 'Encrypt s
                -> PubKey 'Encrypt s

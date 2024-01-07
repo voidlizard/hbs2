@@ -1,10 +1,11 @@
 dist-newstyle
 .direnv/
-hbs2.prof
 .fixme/state.db
 result
 # VS Code
 settings.json
 
 cabal.project.local
+
+*.key
 
