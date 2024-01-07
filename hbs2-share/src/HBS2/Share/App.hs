@@ -69,6 +69,8 @@ import Codec.Serialise
 import Codec.Compression.GZip as GZip
 import System.AtomicWrite.Writer.LazyByteString qualified as AwL
 
+import System.TimeIt
+
 import Streaming.Prelude qualified as S
 
 
@@ -422,7 +424,7 @@ updateFileMethod UpdateFileSync rpc fe = do
         fnew <- renameFileUniq fpath
         info $ "renamed" <+> pretty fpath <+> pretty fnew
 
-      info $ "create dir" <+> pretty fpath
+      debug $ "create dir" <+> pretty fpath
       liftIO $ createDirectoryIfMissing True fpath
 
     let h = view remoteTree fe & fromHashRef
@@ -494,11 +496,14 @@ scanState rpc = do
   debug $ "refchan value" <+> pretty rv
 
   withState do
-    scanTx sto rv
-    commitAll
+    seen <- selectSeen rv
+    unless seen do
+      scanTx sto rv
+      commitAll
 
   props <- withState selectProposes
 
+  -- FIXME: cache-somehow
   ((px,e), meta) <- findGoodNewBlock kr sto props
                       >>= orThrowUser "no meta block found"
 
@@ -512,16 +517,20 @@ scanState rpc = do
   for_ rfs $ \rf -> do
     updateFile rpc rf
 
+  withState $ insertSeen rv
+
   pure px
 
   where
 
     findGoodNewBlock kr sto props = do
       runMaybeT (go props)
+
       where
 
         go [] = mzero
         go (p:ps) = do
+
           let btx = fst p
           missed <- lift $ isMissed sto btx
           if missed then
@@ -530,7 +539,9 @@ scanState rpc = do
 
             what <- S.head_ do
               walkMerkle (fromHashRef btx) (getBlock sto) $ \case
-                Right ( (hx:_) :: [HashRef] ) -> S.yield hx
+                Right ( (hx:_) :: [HashRef] ) -> do
+                  S.yield hx
+
                 _ -> pure ()
 
             hmeta <- toMPlus what
@@ -555,6 +566,12 @@ scanState rpc = do
           trace $ "got some" <+> pretty (length hs)
 
           for_ hs $ \htx -> void $ runMaybeT do
+
+            seen <- lift $ lift $ selectSeen htx
+
+            -- debug $ "SEEN" <+> pretty seen <+> pretty htx
+            guard (not seen)
+
             bs <- toMPlus =<< getBlock sto (fromHashRef htx)
             tx <- toMPlus $ deserialiseOrFail @(RefChanUpdate L4Proto) bs
 
@@ -575,6 +592,8 @@ scanState rpc = do
 
                 trace $ "tx propose" <+> pretty htx <+> pretty mytx
                 lift $ lift $ insertPropose htx mytx
+
+            lift $ lift $ insertSeen htx
 
 dontPost :: AppPerks m => ShareCLI m Bool
 dontPost = do

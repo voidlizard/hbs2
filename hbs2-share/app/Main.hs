@@ -14,7 +14,7 @@ globalOptions = do
              <&> maybe mempty (const [AppDebugOpt])
 
   trace <- optional (flag' True (long "trace" <> help "allow more debug output"))
-             <&> maybe mempty (const [AppDebugOpt])
+             <&> maybe mempty (const [AppTraceOpt])
 
 
   replica <- optional (flag' True (long "replica" <> help "replica (slave) mode"))

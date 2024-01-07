@@ -54,6 +54,9 @@ instance HasHash HashRef  where
 newtype HashVal = HashVal { fromHashVal :: HashRef }
                   deriving newtype (IsString)
 
+wrapHash :: HasHash hx => hx -> HashVal
+wrapHash hx = HashVal (HashRef (toHash hx))
+
 instance ToField GK0Key where
   toField (GK0Key hs) = toField (show (pretty hs))
 
@@ -127,6 +130,7 @@ populateState = do
          |]
 
   createRemoteFileTable
+  createSeenTable
 
   commitAll
 
@@ -342,4 +346,34 @@ selectRemoteFile px k = do
     from remotefile where propose = ? and key = ?
     limit 1
   |] (HashVal px, k) <&> listToMaybe
+
+
+createSeenTable :: MonadUnliftIO m => DBPipeM m ()
+createSeenTable = do
+  ddl [qc|create table if not exists seen
+          ( hash text not null
+          , primary key (hash)
+          )
+         |]
+
+
+insertSeen :: (MonadUnliftIO m, HasHash hx)
+           => hx
+           -> DBPipeM m ()
+insertSeen hx = do
+  insert [qc|
+    insert into seen (hash)
+    values (?)
+    on conflict (hash)
+    do nothing
+  |] (Only $ wrapHash hx)
+
+selectSeen :: (MonadUnliftIO m, HasHash hx)
+           => hx
+           -> DBPipeM m Bool
+selectSeen hx = do
+  select [qc|
+    select 1 from seen where hash = ? limit 1
+  |] (Only $ wrapHash hx)
+  <&> (maybe False fromOnly . listToMaybe)
 

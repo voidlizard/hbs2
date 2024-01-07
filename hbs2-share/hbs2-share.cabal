@@ -75,6 +75,7 @@ common shared-properties
       , stm
       , text
       , time
+      , timeit
       , transformers
       , typed-process
       , unordered-containers
