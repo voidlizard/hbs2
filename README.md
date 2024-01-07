@@ -93,18 +93,29 @@ MVP. Means that it is not fully working, but it's
 useful. It is useful right now for data sharing,
 including git repositories.
 
-Encryption status: wip, partially works.
+Encryption status: wip, works.
 
 Encryption for arbitrary merkle trees/blocks:
-implemented, not really tested.
+implemented, works, being tested.
 
-Encryption for protocols: wip, right now is turned
-off!
+Encryption for protocols: implemented, turned on:
 
-So right now it is useful for distributing any non-sensitive
-non-private data, like opensource projects, which is exactly
-what this project is.
+```
+[user@host:~]$ hbs2-peer bypass show
+bypassed:       57
+encrypted:      3902
+decrypted:      3642
+decryptFails:   0
+sent:           3959
+received:       4207
+flowNum:        22
+peers:          28
+authFail:       0
+```
 
+So right now it is useful for distributing any data.
+
+We're using it for our non-public projects.
 
 # HOWTO
 
@@ -116,7 +127,7 @@ Assuming you know what the Nix and Nix flakes are
 and nix flake support is turned on on your system:
 
 ```
-nix profile install github:voidlizard/hbs2/stable-0.8pre1
+nix profile install github:voidlizard/hbs2/master
 ```
 
 It will take time. Patience, we're working on rolling
