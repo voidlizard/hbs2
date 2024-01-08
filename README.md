@@ -29,6 +29,25 @@
 
 # ABOUT
 
+P2P CAS / Data Replication Solution
+
+This solution facilitates decentralized P2P git repository
+synchronization with automatic peer discovery, requiring
+no server or service.
+
+## Status update 2024-08-01
+
+We have been using hbs2 and hbs2-git for approximately 10 months.
+While functional, the experience for newcomers is not entirely smooth.
+This may be attributed to certain design choices made in favor of
+performance over user experience and consistency.
+
+Currently, we are in the process of redesigning hbs2-git to enhance
+its performance, leveraging new mechanisms such as refchans and
+hbs2-share. This may also lead to a new repository structure.
+
+The redesign is expected to take a few weeks, approximately 2 to 3.
+
 ## What is it
 
 It is an experimental distributed P2P content addressable storage with
