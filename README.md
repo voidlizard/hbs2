@@ -42,9 +42,10 @@ While functional, the experience for newcomers is not entirely smooth.
 This may be attributed to certain design choices made in favor of
 performance over user experience and consistency.
 
-Currently, we are in the process of redesigning hbs2-git to enhance
-its performance, leveraging new mechanisms such as refchans and
-hbs2-share. This may also lead to a new repository structure.
+Currently, we are in the process of redesigning hbs2-git to
+fix those issues and enhance its performance, leveraging new
+mechanisms such as refchans and hbs2-share. This may also lead
+to a new repository structure.
 
 The redesign is expected to take a few weeks, approximately 2 to 3.
 
