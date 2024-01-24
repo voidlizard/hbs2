@@ -35,6 +35,7 @@ import HBS2.Net.Proto.Service
 import HBS2.Net.Proto.Notify (NotifyProto)
 import HBS2.OrDie
 import HBS2.Storage.Simple
+import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
 import HBS2.System.Logger.Simple hiding (info)
@@ -71,6 +72,7 @@ import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.Notify
+import HBS2.Peer.RPC.Client.StorageClient
 
 import RPC2(RPC2Context(..))
 
@@ -85,6 +87,7 @@ import Crypto.Saltine (sodiumInit)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
+import Data.Fixed
 import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -104,6 +107,7 @@ import System.IO
 import System.Mem
 import System.Metrics
 import System.Posix.Process
+import Control.Monad.Trans.Cont
 
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
@@ -111,6 +115,8 @@ import UnliftIO.Async
 
 import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
+
+import Graphics.Vty qualified as Vty
 
 data GoAgainException = GoAgainException
                         deriving (Eq,Ord,Show,Typeable)
@@ -303,9 +309,58 @@ runCLI = do
 
     pFetch = do
       rpc <- pRpcCommon
+      pro   <- optional (switch (short 'p' <> long "progress" <> help "display progress"))
+                 <&> fromMaybe False
       h   <- strArgument ( metavar "HASH" )
-      pure $ withMyRPC @PeerAPI rpc $ \caller -> do
-        void $ callService @RpcFetch caller h
+
+      pure $ flip runContT pure do
+
+        client <- ContT $ withRPCMessaging rpc
+
+        self <- runReaderT (ownPeer @UNIX) client
+        -- refChanAPI  <- makeServiceCaller @RefChanAPI self
+        peerAPI  <- makeServiceCaller @PeerAPI self
+        storageAPI  <- makeServiceCaller @StorageAPI self
+        let sto = AnyStorage (StorageClient storageAPI)
+
+        let endpoints = [ Endpoint @UNIX peerAPI
+                        , Endpoint @UNIX storageAPI
+                        ]
+
+        void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+        t0 <- getTimeCoarse
+
+        void $ callService @RpcFetch peerAPI h
+
+        liftIO do
+          when pro $ flip runContT pure do
+            cfg <- liftIO $ Vty.standardIOConfig
+            vty <- ContT $ bracket (Vty.mkVty cfg) Vty.shutdown
+
+            fix \next -> do
+              miss <- findMissedBlocks sto h
+
+              let l = length miss
+              t1 <- getTimeCoarse
+              let elapsed = toNanoSeconds (TimeoutTS (t1 - t0))
+                               & realToFrac @_ @Double
+                               & (/1e9)
+                               & realToFrac @_ @(Fixed E3)
+                               & showFixed True
+
+              let msg = show $
+                             "fetch tree:"   <+> pretty h <> line
+                          <> "blocks left:"  <+> pretty l <> line
+                          <> "time elapsed:" <+> pretty elapsed
+
+              let pic = Vty.picForImage $ Vty.string Vty.defAttr msg
+              liftIO $ Vty.update vty pic
+
+              unless (l == 0) do
+                pause @'Seconds 2
+                next
+
 
     pPing = do
       rpc <- pRpcCommon

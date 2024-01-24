@@ -198,7 +198,7 @@ executable hbs2-peer
                     , CLI.RefChan
 
     -- other-extensions:
-    build-depends:    base, hbs2-peer, hbs2-keyman
+    build-depends:    base, hbs2-peer, hbs2-keyman, vty
 
     hs-source-dirs:   app
 
