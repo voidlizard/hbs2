@@ -127,12 +127,6 @@ instance Exception GoAgainException
 defStorageThreads :: Integral a => a
 defStorageThreads = 4
 
-defListenUDP :: String
-defListenUDP = "0.0.0.0:7351"
-
-defRpcUDP :: String
-defRpcUDP = "localhost:13331"
-
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
 
@@ -177,7 +171,6 @@ data PeerOpts =
   PeerOpts
   { _storage       :: Maybe StoragePrefix
   , _listenOn      :: Maybe String
-  , _listenRpc     :: Maybe String
   , _peerCredFile  :: Maybe FilePath
   , _peerConfig    :: Maybe FilePath
   , _peerRespawn   :: Bool
@@ -231,7 +224,8 @@ runCLI = do
       (,) <$> ( GOpts <$> switch (long "debug" <> short 'd' <> help "debug mode on")
                       <*> switch (long "trace" <> help "trace on" )
               )
-          <*> hsubparser (  command "init"      (info pInit (progDesc "creates default config"))
+          <*> hsubparser (
+                   command "init"      (info pInit (progDesc "creates default config"))
                 <> command "run"       (info pRun  (progDesc "run peer"))
                 <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                 <> command "die"       (info pDie (progDesc "die cmd"))
@@ -257,8 +251,6 @@ runCLI = do
       l    <- optional $ strOption ( short 'l' <> long "listen"
                                     <> help "addr:port" )
 
-      r    <- optional rpcOpt
-
       k    <- optional $ strOption ( short 'k' <> long "key"
                                     <> help "peer keys file" )
 
@@ -268,7 +260,7 @@ runCLI = do
                      <&> isNothing
 
       -- NOTE: respawn-by-default-now
-      pure $ PeerOpts pref l r k c resp
+      pure $ PeerOpts pref l k c resp
 
     withOpts m g = do
 
@@ -645,7 +637,8 @@ runPeer opts = Exception.handle (\e -> myException e
 
   let useSocks5  = runReader (cfgValue @PeerTcpSOCKS5) syn
 
-  let listenSa = view listenOn opts <|> listenConf
+  let listenSa = view listenOn opts <|> listenConf <|> Just "0.0.0.0:7351"
+
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
 
   let pref = view storage opts <|> storConf <|> Just xdg
@@ -746,6 +739,7 @@ runPeer opts = Exception.handle (\e -> myException e
   tcpPoint <- runMaybeT do
 
                 addr <- toMPlus $ fromStringMay @(PeerAddr L4Proto) tcpListen
+                                     <|> Just "tcp://0.0.0.0:10351"
 
                 let socks5 = useSocks5 >>= fromStringMay @(PeerAddr L4Proto)
 

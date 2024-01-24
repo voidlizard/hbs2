@@ -9,6 +9,10 @@ module PeerConfig
   ) where
 
 import HBS2.Prelude.Plated
+import HBS2.Base58
+import HBS2.Net.Proto.Types
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Proto.Definition()
 import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.Syntax
@@ -90,7 +94,7 @@ defConfigData :: String
 defConfigData = [qc|
 
 listen "0.0.0.0:7351"
-rpc    "127.0.0.1:13331"
+listen-tcp "0.0.0.0:10351"
 
 ; default storage is $HOME/.local/share/hbs2
 ; storage "./storage"
@@ -101,6 +105,7 @@ rpc    "127.0.0.1:13331"
 
 peerConfigInit :: MonadIO m => Maybe FilePath -> m ()
 peerConfigInit mbfp = liftIO do
+
   debug $ "peerConfigInit" <+> pretty mbfp
 
   defDir <- peerConfigDefault <&> takeDirectory
@@ -114,12 +119,23 @@ peerConfigInit mbfp = liftIO do
   here <- liftIO $ doesFileExist conf
 
   unless here do
-    appendFile (dir</>cfgName) ";; hbs2-peer config file"
-    appendFile (dir</>cfgName) defConfigData
+    let cfgPath = dir</>cfgName
+    appendFile cfgPath ";; hbs2-peer config file"
+    appendFile cfgPath defConfigData
+
+    cred0 <- newCredentials @HBS2Basic
+    let keyname = "default.key"
+    let keypath = dir</>keyname
+
+    khere <- doesFileExist keypath
+
+    unless khere do
+      writeFile keypath (show $ pretty (AsCredFile $ AsBase58 cred0))
+      appendFile cfgPath [qc|key "./default.key"|]
+      appendFile cfgPath ""
 
 peerConfDef :: String
 peerConfDef = [qc|
-  download-log  "./download-log"
 |]
 
 rpcSoDef :: FilePath
