@@ -184,12 +184,12 @@ $HOME/.config/hbs2-peer/config
 ; ip/port to for UDP
 listen "0.0.0.0:7351"
 
-; ip/port for rpc
-rpc    "127.0.0.1:13331"
+; tcp
+listen-tcp "0.0.0.0:10351"
 
 ; port for HTTP service.
-; required by hbs2-git
 ; it's on you to pass it outside or not.
+; optional
 
 http-port 5001
 
