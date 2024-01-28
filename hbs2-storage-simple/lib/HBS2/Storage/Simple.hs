@@ -408,10 +408,8 @@ simpleReadLinkRaw ss ref = do
           if deleted == Just True then do
             pure Nothing
           else do
-            -- FIXME: log-this-situation
             (Just <$> LBS.readFile fn) `catchAny` \e -> do
-              -- TODO: update-stats-instead-of-spamming
-              err $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
+              warn $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
               pure Nothing
 
   pure $ fromMaybe Nothing rs
