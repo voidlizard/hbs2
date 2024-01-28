@@ -409,7 +409,7 @@ simpleReadLinkRaw ss ref = do
             pure Nothing
           else do
             (Just <$> LBS.readFile fn) `catchAny` \e -> do
-              warn $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
+              trace $ "simpleReadLinkRaw" <+> pretty ref <+> pretty fn <+> viaShow e
               pure Nothing
 
   pure $ fromMaybe Nothing rs
