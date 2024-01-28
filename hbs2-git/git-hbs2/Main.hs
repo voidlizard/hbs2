@@ -8,11 +8,16 @@ import HBS2Git.Export
 import HBS2Git.Tools
 import HBS2Git.KeysCommand
 import HBS2.Net.Proto.Definition()
+import HBS2.Version
 
 import RunShow
 
 import Options.Applicative as O
 import Control.Monad
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LBS
+
+import Paths_hbs2_git qualified as Pkg
 
 main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $
@@ -28,7 +33,11 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "show"      (info pShow (progDesc "show various types of objects"))
                         <> command "tools"     (info pTools (progDesc "misc tools"))
                         <> command "key"       (info pKeys (progDesc "manage keys"))
+                        <> command "version"   (info pVersion (progDesc "show program version"))
                         )
+
+    pVersion = pure do
+        LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
     pExport = do
       keyfile   <- strArgument (metavar "KEIRING-FILE")

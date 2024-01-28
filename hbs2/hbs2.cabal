@@ -52,6 +52,7 @@ common shared-properties
                      , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
+                     , TemplateHaskell
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
@@ -60,7 +61,8 @@ common shared-properties
 executable hbs2
     import:           shared-properties
     main-is:          Main.hs
-    -- other-modules:
+    other-modules:
+      Paths_hbs2
     -- other-extensions:
     build-depends:    base, hbs2-core, hbs2-storage-simple
                     , aeson

@@ -26,7 +26,18 @@ inputs = {
 };
 
 outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
-
+  let
+    packageNames = [
+     "hbs2"
+     "hbs2-peer"
+     "hbs2-core"
+     "hbs2-storage-simple"
+     "hbs2-git"
+     "hbs2-qblf"
+     "hbs2-keyman"
+     "hbs2-share"
+    ];
+  in
  haskell-flake-utils.lib.simpleCabalProject2flake {
    inherit self nixpkgs;
    systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
@@ -37,16 +48,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      db-pipe
    ];
 
-   packageNames = [
-     "hbs2"
-     "hbs2-peer"
-     "hbs2-core"
-     "hbs2-storage-simple"
-     "hbs2-git"
-     "hbs2-qblf"
-     "hbs2-keyman"
-     "hbs2-share"
-   ];
+   inherit packageNames;
 
    packageDirs = {
      "hbs2" = "./hbs2";
@@ -75,16 +77,38 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
     justStaticExecutables
 
     dontCheck
+
+    (compose.overrideCabal (drv: {
+        preBuild = ''
+          export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
+        '';
+      }))
+
    ];
 
-   shellExtBuildInputs = {pkgs}: with pkgs;  [
-     haskellPackages.haskell-language-server
-     haskellPackages.htags
-     haskellPackages.hoogle
-     pkg-config
-     inputs.hspup.packages.${pkgs.system}.default
-     inputs.fixme.packages.${pkgs.system}.default
-   ];
+   shell = {pkgs, ...}:
+      pkgs.haskellPackages.shellFor {
+        packages = _: pkgs.lib.attrsets.attrVals packageNames pkgs.haskellPackages;
+        # withHoogle = true;
+        buildInputs = (
+          with pkgs.haskellPackages; ([
+            ghcid
+            cabal-install
+            haskell-language-server
+            htags
+          ])
+          ++
+          [ pkgs.pkg-config
+            inputs.hspup.packages.${pkgs.system}.default
+            inputs.fixme.packages.${pkgs.system}.default
+          ]
+        );
+
+        shellHook = ''
+          export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
+        '';
+
+      };
 
  };
 

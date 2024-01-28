@@ -147,6 +147,7 @@ library
                     , HBS2.Net.Dialog.Client
                     , HBS2.Net.Dialog.Helpers.List
                     , HBS2.Net.Dialog.Helpers.Streaming
+                    , HBS2.Version
 
 
     -- other-modules:
@@ -205,6 +206,7 @@ library
                     , streaming
                     , string-conversions
                     , suckless-conf
+                    , template-haskell
                     , temporary
                     , text
                     , time

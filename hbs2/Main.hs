@@ -24,6 +24,8 @@ import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.Data.Bundle
 import HBS2.OrDie
+import HBS2.Version
+import Paths_hbs2 qualified as Pkg
 
 
 import HBS2.System.Logger.Simple hiding (info)
@@ -38,6 +40,7 @@ import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Resource
 import Crypto.Saltine.Core.Box qualified as Encrypt
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -548,11 +551,14 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "reflog"          (info pReflog (progDesc "reflog commands"))
                         <> command "bundle"          (info pBundle (progDesc "bundle commands"))
                         <> command "anyref"          (info pAnyRef (progDesc "anyref commands"))
+                        <> command "version"         (info pVersion (progDesc "show program version"))
                         )
-
     common = do
       pref <- optional $ strOption ( short 'p' <> long "prefix" <> help "storage prefix" )
       pure $ CommonOpts pref
+
+    pVersion = pure do
+        LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
     pStore = do
       o <- common

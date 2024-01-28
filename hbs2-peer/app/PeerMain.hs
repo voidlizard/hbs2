@@ -39,6 +39,8 @@ import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
 import HBS2.System.Logger.Simple hiding (info)
+import HBS2.Version
+import Paths_hbs2_peer qualified as Pkg
 
 import Brains
 import BrainyPeerLocator
@@ -84,6 +86,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Writer.CPS qualified as W
 import Crypto.Saltine (sodiumInit)
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
@@ -240,6 +243,7 @@ runCLI = do
                 <> command "poll"      (info pPoll  (progDesc "polling management"))
                 <> command "log"       (info pLog   (progDesc "set logging level"))
                 <> command "bypass"    (info pByPass (progDesc "bypass"))
+                <> command "version"   (info pVersion (progDesc "show program version"))
                 -- FIXME: bring-back-dialogue-over-separate-socket
                 -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
                 )
@@ -271,6 +275,9 @@ runCLI = do
         setLogging @TRACE ( tracePrefix  . toStderr )
 
       m
+
+    pVersion = pure do
+        LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
     pRun = do
       runPeer <$> common

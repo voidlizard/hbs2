@@ -53,6 +53,7 @@ common shared-properties
                      , TypeApplications
                      , TypeOperators
                      , TypeFamilies
+                     , TemplateHaskell
 
 
   build-depends: hbs2-core, hbs2-peer
@@ -148,12 +149,14 @@ executable git-hbs2
 
     other-modules:
       RunShow
+      Paths_hbs2_git
 
     -- other-extensions:
     build-depends:
         base, hbs2-git
       , optparse-applicative
       , http-types
+      , template-haskell
 
     hs-source-dirs:   git-hbs2
     default-language: Haskell2010

@@ -75,6 +75,7 @@ common common-deps
         , heaps
         , psqueues
         , string-conversions
+        , template-haskell
 
 common shared-properties
   ghc-options:
@@ -119,6 +120,7 @@ common shared-properties
                      , RecursiveDo
                      , ScopedTypeVariables
                      , StandaloneDeriving
+                     , TemplateHaskell
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
@@ -196,6 +198,8 @@ executable hbs2-peer
                     , DispatchProxy
                     , CLI.Common
                     , CLI.RefChan
+
+                    , Paths_hbs2_peer
 
     -- other-extensions:
     build-depends:    base, hbs2-peer, hbs2-keyman, vty
