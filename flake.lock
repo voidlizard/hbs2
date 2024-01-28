@@ -1,22 +1,5 @@
 {
   "nodes": {
-    "bloomfilter": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1691177623,
-        "narHash": "sha256-B/q0JxkARnZRUPe2CIN11QUQbum9nT0+jL3sn5tdYFE=",
-        "owner": "haskell-pkg-janitors",
-        "repo": "bloomfilter",
-        "rev": "0838caf5301da25830a7ff4ca4b4b7ce3bf9d441",
-        "type": "github"
-      },
-      "original": {
-        "owner": "haskell-pkg-janitors",
-        "repo": "bloomfilter",
-        "rev": "0838caf5301da25830a7ff4ca4b4b7ce3bf9d441",
-        "type": "github"
-      }
-    },
     "db-pipe": {
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils",
@@ -299,7 +282,6 @@
     },
     "root": {
       "inputs": {
-        "bloomfilter": "bloomfilter",
         "db-pipe": "db-pipe",
         "fixme": "fixme",
         "haskell-flake-utils": "haskell-flake-utils_4",
