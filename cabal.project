@@ -1,7 +1,7 @@
 packages: **/*.cabal
   examples/*/*.cabal
 
--- allow-newer: all
+allow-newer: all
 
 -- executable-static: True
 -- profiling: True

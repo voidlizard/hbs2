@@ -69,23 +69,24 @@ mkRefLogRequestAdapter :: forall e s m . ( MonadIO m
           => SomeBrains e -> m (RefLogRequestI e (ResponseM e m ))
 mkRefLogRequestAdapter brains = do
   sto <- getStorage
-  pure $ RefLogRequestI (doOnRefLogRequest sto) dontHandle (isPolledRef @e brains)
+  pure $ RefLogRequestI (doOnRefLogRequest brains sto) dontHandle (isPolledRef @e brains)
 
-
--- FIXME: check-if-subscribed
---   не дергать диск для неизвестных ссылок
---   должно уменьшить дергание диска и флуд
---   в логе
 doOnRefLogRequest :: forall e s m . ( MonadIO m
                                     , MyPeer e
                                     , s ~ Encryption e
                                     , IsRefPubKey s
                                     )
-                   =>  AnyStorage -> (Peer e, PubKey 'Sign s) -> m (Maybe (Hash HbSync))
+                   =>  SomeBrains e
+                   -> AnyStorage
+                   -> (Peer e, PubKey 'Sign s)
+                   -> m (Maybe (Hash HbSync))
 
-doOnRefLogRequest sto (_,pk) = do
-  liftIO $ getRef sto (RefLogKey @s pk)
-
+doOnRefLogRequest brains sto (_,pk) = runMaybeT do
+  isPolledRef @e brains pk >>= guard
+  ref <- liftIO $ getRef sto (RefLogKey @s pk)
+  when (isNothing ref) do
+    warn $ "missed reflog value" <+> pretty ref
+  toMPlus ref
 
 data RefLogWorkerAdapter e =
  RefLogWorkerAdapter

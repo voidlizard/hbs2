@@ -439,7 +439,7 @@ simpleReadLinkVal ss hash = do
   let fn = simpleRefFileName ss hash
   rs <- spawnAndWait ss $ do
         (Just <$> BS.readFile fn) `catchAny` \e -> do
-          err $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn <+> viaShow e
+          trace $ "simpleReadLinkVal" <+> pretty hash <+> pretty fn <+> viaShow e
           pure Nothing
 
   runMaybeT do
@@ -465,7 +465,6 @@ instance ( MonadIO m, IsKey hash
   updateRef ss ref v = do
     let refHash = hashObject @hash ref
     let meta = refMetaData ref
-    debug $ "updateRef:" <+> pretty refHash
     void $ liftIO $ simpleWriteLinkRawRef ss meta refHash v
 
   getRef ss ref = do

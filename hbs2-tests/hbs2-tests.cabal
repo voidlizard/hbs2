@@ -981,5 +981,11 @@ executable  test-repo-export
         , temporary
         , unliftio
         , unordered-containers
+        , bloomfilter >=2.0.1.2
+        , timeit
+        , memory
+        , deepseq
+        , xxhash-ffi
+
 
 

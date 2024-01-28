@@ -23,6 +23,11 @@ inputs = {
       flake = false;
     };
 
+    bloomfilter = {
+      url = "github:haskell-pkg-janitors/bloomfilter/0838caf5301da25830a7ff4ca4b4b7ce3bf9d441";
+      flake = false;
+    };
+
 };
 
 outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
@@ -60,6 +65,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
      saltine = prev.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
+     # bloomfilter =  prev.callCabal2nix "bloomfilter" inputs.bloomfilter { };
    };
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
