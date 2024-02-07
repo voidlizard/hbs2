@@ -135,7 +135,7 @@ instance ( Hashable (Peer e)
     updateOP b $ insertSize b p h size
     commitNow b True
     -- FIXME: wait-till-really-commited
-    sz <- liftIO $ selectBlockSize b p h
+    -- sz <- liftIO $ selectBlockSize b p h
     -- trace $ "BRAINS: onBlockSize" <+> pretty p <+> pretty h <+> pretty sz
     pure ()
 
