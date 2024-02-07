@@ -21,6 +21,7 @@ import HBS2.Net.Proto.Types
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage(Storage(..))
+import HBS2.Defaults
 
 
 import Data.ByteArray.Hash qualified as BA
@@ -255,7 +256,7 @@ instance ( MonadIO m
     let hashes = catMaybes hashes'
 
 --     -- FIXME: handle-hardcode
-    let pt = toPTree (MaxSize 4096) (MaxNum 256) hashes -- FIXME: settings
+    let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) hashes -- FIXME: settings
 
     -- FIXME: this-might-not-be-true
     result <- runWriterT $ makeMerkle 0 pt $ \(hx,mt,bss) -> do

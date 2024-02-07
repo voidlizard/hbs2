@@ -111,3 +111,12 @@ defInterBlockDelay :: Timeout 'Seconds
 defInterBlockDelay = 0.0085
 
 
+defHashListChunk :: Integral a => a
+defHashListChunk = 1024
+{-# INLINE defHashListChunk #-}
+
+defTreeChildNum :: Integral a => a
+defTreeChildNum = 256
+{-# INLINE defTreeChildNum #-}
+
+
