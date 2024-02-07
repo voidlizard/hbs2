@@ -30,7 +30,7 @@ import Streaming qualified as S
 import System.IO
 
 pieces :: Integral a => a
-pieces = 1024
+pieces = 4096
 
 -- FIXME: to-remove-in-a-sake-of-operations-class
 class MonadIO m => SimpleStorageExtra a m  where
@@ -89,7 +89,7 @@ instance MonadIO m => SimpleStorageExtra (S.Stream (S.Of ByteString) m ()) m whe
 instance MonadIO m => SimpleStorageExtra [HashRef] m where
   putAsMerkle ss hashes = do
 
-    let pt = toPTree (MaxSize pieces) (MaxNum pieces) hashes -- FIXME: settings
+    let pt = toPTree (MaxSize pieces) (MaxNum 256) hashes -- FIXME: settings
 
     root <- makeMerkle 0 pt $ \(_,_,bs) -> void $ putBlock ss bs
 
@@ -105,7 +105,7 @@ instance MonadIO m => SimpleStorageExtra ByteString m where
                 & S.map (HashRef . hashObject)
                 & S.toList_
 
-    let pt = toPTree (MaxSize pieces) (MaxNum pieces) hashes -- FIXME: settings
+    let pt = toPTree (MaxSize pieces) (MaxNum 256) hashes -- FIXME: settings
 
     root <- makeMerkle 0 pt $ \(_,_,bss) -> void $ putBlock ss bss
 

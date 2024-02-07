@@ -255,7 +255,7 @@ instance ( MonadIO m
     let hashes = catMaybes hashes'
 
 --     -- FIXME: handle-hardcode
-    let pt = toPTree (MaxSize 256) (MaxNum 256) hashes -- FIXME: settings
+    let pt = toPTree (MaxSize 4096) (MaxNum 256) hashes -- FIXME: settings
 
     -- FIXME: this-might-not-be-true
     result <- runWriterT $ makeMerkle 0 pt $ \(hx,mt,bss) -> do

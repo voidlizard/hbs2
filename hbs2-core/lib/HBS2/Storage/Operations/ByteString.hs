@@ -41,7 +41,7 @@ instance (MonadIO m, h ~ HbSync, Storage s h ByteString m) => MerkleWriter ByteS
                 & S.toList_
 
     -- FIXME: handle-hardcode
-    let pt = toPTree (MaxSize 256) (MaxNum 256) hashes -- FIXME: settings
+    let pt = toPTree (MaxSize 4096) (MaxNum 256) hashes -- FIXME: settings
 
     makeMerkle 0 pt $ \(_,_,bss) -> do
       void $ putBlock sto bss
