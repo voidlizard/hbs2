@@ -141,6 +141,7 @@ data PeerTraceKey
 data PeerTrace1Key
 data PeerProxyFetchKey
 data PeerTcpSOCKS5
+data PeerDownloadThreadKey
 
 
 instance Monad m => HasCfgKey PeerDebugKey a m where
@@ -169,6 +170,9 @@ instance Monad m => HasCfgKey PeerProxyFetchKey (Set String) m where
 --   SOCKS5 authentification
 instance Monad m => HasCfgKey PeerTcpSOCKS5 (Maybe String) m where
   key = "tcp.socks5"
+
+instance Monad m => HasCfgKey PeerDownloadThreadKey (Maybe Int) m where
+  key = "download-threads"
 
 data PeerOpts =
   PeerOpts
@@ -642,6 +646,8 @@ runPeer opts = Exception.handle (\e -> myException e
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
 
+  let downloadThreadNum = runReader (cfgValue @PeerDownloadThreadKey) syn & fromMaybe 2
+
   let useSocks5  = runReader (cfgValue @PeerTcpSOCKS5) syn
 
   let listenSa = view listenOn opts <|> listenConf <|> Just "0.0.0.0:7351"
@@ -1019,7 +1025,8 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "pexLoop" (pexLoop @e brains tcp)
 
-                peerThread "blockDownloadLoop" (blockDownloadLoop denv)
+                replicateM_ downloadThreadNum do
+                  peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
 
