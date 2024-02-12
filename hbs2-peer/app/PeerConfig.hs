@@ -39,6 +39,7 @@ data PeerDownloadLogKey
 data PeerHttpPortKey
 data PeerTcpProbeWaitKey
 data PeerUseHttpDownload
+data PeerBrainsDBPath
 
 instance Monad m => HasConf (ReaderT PeerConfig m) where
   getConf = asks (\(PeerConfig syn) -> syn)
@@ -54,6 +55,9 @@ instance Monad m => HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) m where
 
 instance Monad m => HasCfgKey PeerUseHttpDownload b m where
   key = "http-download"
+
+instance Monad m => HasCfgKey PeerBrainsDBPath b m where
+  key = "brains-db"
 
 instance Monad m => HasCfgKey PeerDownloadLogKey (Maybe String) m where
   key = "download-log"
