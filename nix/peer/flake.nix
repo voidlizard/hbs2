@@ -6,7 +6,7 @@
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?rev=039d2bfefcd11f67ed957a71d650e877f8500611";
+    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=new-git-export-3";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
@@ -54,7 +54,16 @@
                       home.stateVersion = "23.05";
 
                       xdg.configFile = {
-                        ".hbs2-peer/config".text = ''
+
+                        "hbs2-peer/default.key".text = ''
+# hbs2 credentials file
+# keep it private
+
+rmbTHUgv7NPkygrgEbPWTjQbVTx9uwWJ7sJVQRKK7ygM73q5Q7JVYhpwfytK
+kzoNq65jn1zDCUUMwLFzXeu4ETjG4bhYNM7FHU9xY4VdwEww156iJeoydJ2y
+j1u3RJEr8kosBH2DR8XMY6Mj8s
+'';
+                        "hbs2-peer/config".text = ''
 ;; hbs2-peer config file
 
 listen "0.0.0.0:7351"
