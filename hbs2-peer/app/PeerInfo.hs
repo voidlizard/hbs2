@@ -60,7 +60,7 @@ medianPeerRTT pinfo = do
   pure $ median rttBuffer
 
 rttBufferCapacity :: Int
-rttBufferCapacity = 10
+rttBufferCapacity = 1024
 
 -- | New values are added to the head of the list, old values are discarded when the list is full.
 insertRTT :: MonadIO m => Integer -> TVar [Integer] -> m ()

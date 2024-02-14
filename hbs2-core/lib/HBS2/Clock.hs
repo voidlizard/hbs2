@@ -35,6 +35,16 @@ class IsTimeout a where
   toTimeSpec    :: Timeout a -> TimeSpec
   toTimeSpec x = fromNanoSecs (fromIntegral (toNanoSeconds x))
 
+class Expired timeout interval where
+  expired :: timeout -> interval -> Bool
+
+
+instance IsTimeout t => Expired (Timeout t) TimeSpec where
+  expired t ts = fromIntegral (toNanoSecs ts) > toNanoSeconds t
+
+-- expired :: IsTimeout t => Timeout 't -> TimeSpec -> Bool
+-- expired timeout ts = False
+
 toNominalDiffTime :: IsTimeout t => Timeout t -> NominalDiffTime
 toNominalDiffTime = fromRational . (/ (10^6)) . fromIntegral . toMicroSeconds
 

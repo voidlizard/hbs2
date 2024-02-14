@@ -646,7 +646,7 @@ runPeer opts = Exception.handle (\e -> myException e
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
 
-  let downloadThreadNum = runReader (cfgValue @PeerDownloadThreadKey) syn & fromMaybe 2
+  -- let downloadThreadNum = runReader (cfgValue @PeerDownloadThreadKey) syn & fromMaybe 1
 
   let useSocks5  = runReader (cfgValue @PeerTcpSOCKS5) syn
 
@@ -1025,8 +1025,7 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "pexLoop" (pexLoop @e brains tcp)
 
-                replicateM_ downloadThreadNum do
-                  peerThread "blockDownloadLoop" (blockDownloadLoop denv)
+                peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
 
@@ -1042,7 +1041,7 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "all protos" do
                   runProto @e
-                    [ makeResponse (blockSizeProto blk dontHandle onNoBlock)
+                    [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)

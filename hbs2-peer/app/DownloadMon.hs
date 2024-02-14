@@ -28,9 +28,9 @@ downloadMonLoop env = do
   debug "I'm a download monitor"
 
   -- FIXME: timeout-hardcodes
-  let refs = readTVarIO (view downloads env) <&> HashMap.keys <&> fmap (,2)
+  let refs = readTVarIO (view downloads env) <&> HashMap.keys <&> fmap (,10)
 
-  polling (Polling 2.5 1) refs $ \ref -> do
+  polling (Polling 2.5 2) refs $ \ref -> do
     debug $ "DownloadMon. check" <+> pretty ref
     done <- checkDownloaded ref
     when done do

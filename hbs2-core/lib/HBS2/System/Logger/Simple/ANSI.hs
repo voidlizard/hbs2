@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module HBS2.System.Logger.Simple.ANSI 
+module HBS2.System.Logger.Simple.ANSI
   ( trace
   , debug
   , err
@@ -8,10 +8,14 @@ module HBS2.System.Logger.Simple.ANSI
   , info
   , AnsiStyle
   , ToLogStr(..)
+  , INFO,NOTICE,WARN,ERROR,DEBUG,TRACE
+  , setLogging,setLoggingOff
+  , toStderr,toStdout,logPrefix,defLog
   ) where
 
 import Prettyprinter.Render.Terminal
 import HBS2.System.Logger.Simple qualified as Logger
+import HBS2.System.Logger.Simple (INFO,NOTICE,WARN,ERROR,DEBUG,TRACE,setLoggingOff,setLogging,toStderr,toStdout,logPrefix,defLog)
 import Control.Monad.IO.Class
 import Prettyprinter
 import System.Log.FastLogger
@@ -35,4 +39,4 @@ info :: MonadIO m => Doc AnsiStyle -> m ()
 info = Logger.info @(Doc AnsiStyle)
 
 instance ToLogStr (Doc AnsiStyle) where
-  toLogStr = toLogStr . renderStrict . layoutPretty defaultLayoutOptions 
+  toLogStr = toLogStr . renderStrict . layoutPretty defaultLayoutOptions

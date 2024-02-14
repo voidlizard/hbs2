@@ -95,7 +95,11 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
             ghcid
             cabal-install
             haskell-language-server
+            hoogle
             htags
+            text-icu
+            pkgs.icu72
+            pkgs.openssl
           ])
           ++
           [ pkgs.pkg-config
@@ -105,7 +109,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
         );
 
         shellHook = ''
-          export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
+        export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
+        export STAN_USE_DEFAULT_CONFIG=True
         '';
 
       };

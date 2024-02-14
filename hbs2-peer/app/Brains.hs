@@ -23,6 +23,7 @@ import HBS2.System.Logger.Simple
 import PeerConfig
 
 import Control.Concurrent.STM
+import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
@@ -77,6 +78,8 @@ data BasicBrains e =
   , _brainsDb           :: Connection
   , _brainsPipeline     :: TQueue (IO ())
   , _brainsCommit       :: TQueue CommitCmd
+  , _brainsDelDownload  :: TQueue (Hash HbSync)
+  , _brainsSizeCache    :: Cache (Peer e, Hash HbSync) Integer
   }
 
 makeLenses 'BasicBrains
@@ -132,12 +135,8 @@ instance ( Hashable (Peer e)
     commitNow br True
 
   onBlockSize b p h size = do
+    liftIO $ Cache.insert (_brainsSizeCache b) (p,h) size
     updateOP b $ insertSize b p h size
-    commitNow b True
-    -- FIXME: wait-till-really-commited
-    -- sz <- liftIO $ selectBlockSize b p h
-    -- trace $ "BRAINS: onBlockSize" <+> pretty p <+> pretty h <+> pretty sz
-    pure ()
 
   onBlockDownloadAttempt b peer h = do
     -- trace $ "BRAINS: onBlockDownloadAttempt" <+> pretty peer <+> pretty h
@@ -151,9 +150,11 @@ instance ( Hashable (Peer e)
 
   onBlockDownloaded b p h = do
     -- trace $ "BRAINS: onBlockDownloaded" <+> pretty p <+> pretty h
-    cleanupPostponed b h
+    -- cleanupPostponed b h
     updateOP b do
       insertPeer b h p
+      atomically $ writeTQueue (_brainsDelDownload b) h
+      -- deleteDownload b (HashRef h)
 
   onBlockPostponed b h  = do
     -- trace $ "BRAINS: onBlockPostponed" <+> pretty h
@@ -202,7 +203,9 @@ instance ( Hashable (Peer e)
     pure $ mapMaybe fromStringMay r
 
   blockSize b p h = do
-    liftIO $ selectBlockSize b p h
+    let cs = view brainsSizeCache b
+    found <- liftIO $ Cache.lookup cs (p,h)
+    maybe (liftIO $ selectBlockSize b p h) (pure . Just) found
 
   isReflogProcessed b h = do
     liftIO $ selectReflogProcessed b h
@@ -570,7 +573,7 @@ SAVEPOINT zzz1;
 
 DELETE FROM ancestors WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM seenby WHERE strftime('%s','now') - strftime('%s', ts) > 600;
-DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > 300;
+DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > 1200;
 DELETE FROM statedb.pexinfo where seen <  datetime('now', '-7 days');
 DELETE FROM seen where ts < datetime('now');
 
@@ -851,6 +854,8 @@ newBasicBrains cfg = liftIO do
               <*> pure conn
               <*> newTQueueIO
               <*> newTQueueIO
+              <*> newTQueueIO
+              <*> Cache.newCache (Just (toTimeSpec (1200:: Timeout 'Seconds)))
 
 runBasicBrains :: forall e m . ( e ~ L4Proto
                                , MonadUnliftIO m
@@ -865,12 +870,13 @@ runBasicBrains cfg brains = do
 
   let pip = view brainsPipeline brains
   let expire = view brainsExpire brains
+  let sizes = view brainsSizeCache brains
   let commit = view brainsCommit brains
 
   -- FIXME: async-error-handling
   void $ liftIO $ async $ forever do
 
-    ewaiters <- race (pause @'Seconds 5) $ do
+    ewaiters <- race (pause @'Seconds 10) $ do
       atomically $ do
         c  <- readTQueue commit
         cs <- flushTQueue commit
@@ -884,9 +890,15 @@ runBasicBrains cfg brains = do
     transactional brains (sequence_ (w:ws))
     sequence_ waiters
 
-  void $ liftIO $ async $ forever do
-    pause @'Seconds 60
-    updateOP brains (cleanupHashes brains)
+  void $ liftIO $ async do
+      del <- liftIO $ atomically $ flushTQueue (_brainsDelDownload brains)
+      forever do
+        pause @'Seconds 60
+
+        updateOP brains (cleanupHashes brains)
+
+        for_ del $ \d -> do
+          delDownload @e brains (HashRef d)
 
   trace "runBasicBrains init"
 
@@ -897,7 +909,7 @@ runBasicBrains cfg brains = do
        ] )
 
   void $ async $ do
-    -- pause @'Seconds 5
+    pause @'Seconds 10
     forM_ polls $ \(t,mi,x) -> do
       trace $ "BRAINS: poll" <+> pretty t <+> pretty (AsBase58 x) <+> pretty mi
       updateOP brains $ do
@@ -907,14 +919,24 @@ runBasicBrains cfg brains = do
           values (?,?,?)
           on conflict do update set interval = excluded.interval
           |] (show $ pretty (AsBase58 x), show $ pretty t, mi)
-      commitNow brains True
+      -- commitNow brains True
 
   void $ forever do
-    pause @'Seconds 15
+    pause @'Seconds 20
     ee <- liftIO $ Cache.toList expire
     let eee = [ h | (h,_,Just{}) <- ee ]
     forM_ eee $ \h -> do
       cleanupPostponed brains h
+
     liftIO $ Cache.purgeExpired expire
+    liftIO $ Cache.purgeExpired sizes
+
+    del <- liftIO $ atomically $ flushTQueue (_brainsDelDownload brains)
+    for_ del $ \d -> do
+      delDownload @e brains (HashRef d)
+
+
+
+
 
 

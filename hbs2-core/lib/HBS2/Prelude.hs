@@ -19,6 +19,7 @@ module HBS2.Prelude
   , FromByteString(..)
   , Text.Text
   , (&), (<&>), for_, for
+  , HasErrorStatus(..), ErrorStatus(..), SomeError(..)
   ) where
 
 import Data.Typeable as X
@@ -95,6 +96,22 @@ instance Monad m => ToMPlus (MaybeT m) (Either x a) where
   toMPlus (Left{}) = mzero
   toMPlus (Right x) = MaybeT $ pure (Just x)
 
+
+data ErrorStatus = Complete
+                 | HasIssuesButOkay
+                 | Failed
+                 | SNAFU
+                 | Unknown
+                 deriving stock (Eq,Ord,Show,Enum,Generic)
+
+class HasErrorStatus e where
+  getStatus :: e -> ErrorStatus
+
+-- instance {-# OVERLAPPABLE #-} HasErrorStatus e where
+--   getStatus _ = Unknown
+
+data SomeError = forall e . (Show e, HasErrorStatus e) =>
+  SomeError e
 
 asyncLinked :: MonadUnliftIO m => m a -> m (Async a)
 asyncLinked m = do

@@ -1,11 +1,12 @@
 # See how this flake is used in ./usage.sh
+# on host: sudo sysctl -w net.ipv4.ip_forward=1
 {
   description = "hbs2-container";
 
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    hbs2.url = "github:voidlizard/hbs2/injecting-tcp";
+    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?rev=039d2bfefcd11f67ed957a71d650e877f8500611";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
@@ -27,28 +28,68 @@
         # If unset, the nixpkgs input of extra-container flake is used
         nixpkgs = inputs.nixpkgs;
 
-        # home-manager.homeConfigurations = {
-        #   # FIXME replace with your username@hostname
-        #   "root@minipig" = home-manager.lib.homeManagerConfiguration {
-        #     pkgs = nixpkgs.legacyPackages.x86_64-linux; # Home-manager requires 'pkgs' instance
-        #     extraSpecialArgs = { inherit inputs; }; # Pass flake inputs to our config
-        #     # > Our main home-manager configuration file <
-        #     modules = [ ./home/home.nix ];
-        #   };
-        # };
 
         # Set this to disable `nix run` support
         # addRunner = false;
 
         config = {
           containers.hbs2-test = {
-            extra.addressPrefix = "10.250.0";
+            extra = {
+              addressPrefix = "10.250.0";
+              exposeLocalhost = true;
+              firewallAllowHost = true;
+              enableWAN = true;
+            };
 
             config = { pkgs, ... }: {
+
+
+              imports = [
+                 home-manager.nixosModules.home-manager
+                 {
+                   home-manager.useGlobalPkgs = true;
+                   home-manager.useUserPackages = true;
+                   home-manager.users.hbs2 = {
+                      # import ./config/home.nix;
+                      home.stateVersion = "23.05";
+
+                      xdg.configFile = {
+                        ".hbs2-peer/config".text = ''
+;; hbs2-peer config file
+
+listen "0.0.0.0:7351"
+listen-tcp "0.0.0.0:10351"
+
+known-peer "10.250.0.1:7354"
+
+; edit path to a keyring file
+; key    "./key"
+key "./default.key"
+                        '';
+                      };
+                   };
+                   home-manager.extraSpecialArgs = {
+                                                     # inherit inputs;
+                                                   };
+                                                 }
+              ];
+
+
+              # settings.trusted-users = [ "root" "hbs2" ];
+
+
+              nix = {
+                package = pkgs.nixFlakes;
+                extraOptions = ''
+                  experimental-features = nix-command flakes
+                '';
+                #settings.trusted-users = [ "root" "dmz" ];
+              };
 
               users.users.hbs2 = {
                 isNormalUser = true;
                 home  = "/home/hbs2";
+                packages = with pkgs; [];
               };
 
               systemd.services.hello = {
@@ -99,10 +140,8 @@ http-port 5001
 key    "./key"
 storage  "/root/.local/share/hbs2"
 accept-block-announce *
-download-log "/tmp/download-log"
 bootstrap-dns "bootstrap.hbs2.net"
 known-peer "10.250.0.1:7354"
-known-peer "10.250.0.1:7351"
 
 ; poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
 

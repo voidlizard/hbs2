@@ -395,7 +395,7 @@ runNotifySink sink k action = do
   -- NOTE: run-notify-sink-cleanup
   --  если нас пристрелили --- попрощаться с NotifySink хотя бы
   let cleanup = do
-        trace $ "CLIENT: cleanip and exit" <+> pretty ha
+        trace $ "CLIENT: cleanup and exit" <+> pretty ha
         atomically $ writeTQueue (sinkPipeline sink) (NotifySinkBye ha)
         atomically $ modifyTVar (sinkNotify sink) (HashMap.delete ha)
         cancel w

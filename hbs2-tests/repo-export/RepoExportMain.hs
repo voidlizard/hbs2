@@ -29,34 +29,14 @@ import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
 import Data.Maybe
 import Data.HashSet qualified as HS
+import Data.Vector qualified as V
+import Data.Vector ((!))
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
 
-import Data.ByteArray.Hash (SipHash(..), SipKey(..))
-import Data.ByteArray.Hash qualified as BA
+import Text.InterpolatedString.Perl6 (qc)
 
-import System.TimeIt
-
--- import Data.BloomFilter.Easy qualified as B
-import Data.BloomFilter qualified as B
-import Data.BloomFilter.Easy qualified as B
-import Data.BloomFilter.Hash qualified as B
-import Control.Concurrent.STM (flushTQueue)
-import Control.DeepSeq (deepseq)
-import Data.Bits
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
-import Data.Word
-import Data.Bits
-
-import Data.Vector.Mutable qualified as V
-import Data.IntMap qualified as IntMap
-import Data.IntMap (IntMap)
-
-import Data.Hashable
-import Data.Digest.XXHash.FFI
-
-import Streaming.Prelude qualified as S
-
--- import Control.Concurrent.BloomFilter qualified as U
+import Options.Generic
 
 data RPCEndpoints =
   RPCEndpoints
@@ -102,130 +82,113 @@ runWithRPC action = do
   void $ waitAnyCatchCancel [messaging, c1]
 
 
+data CLI = CLI { nThreads :: Maybe Int }
+  deriving (Generic)
 
-doAlter :: (Bits a1, Integral a2, Num a1) => a2 -> Maybe a1 -> Maybe a1
-doAlter j = \case
-  Nothing -> Just (setBit 0 (fromIntegral j))
-  Just x  -> Just (setBit x (fromIntegral j))
-{-# INLINE doAlter #-}
+instance ParseRecord CLI
+
 
 main :: IO ()
 main = do
-  ls <- LBS8.readFile "input.txt" <&> LBS8.lines
+  bs <- gitRunCommand [qc|git cat-file --batch-check='%(objectname)'  --batch-all-object --unordered --buffer|]
+          >>= orThrowUser "oopsie"
+  let ls = LBS8.lines bs -- & HashSet.fromList
+  print $ length ls
 
-  z <- newIORef 0
-
-  let (sz, hn) = B.suggestSizing 5000000 0.01
-
-  let bloom = B.fromList (\s -> [ xxh32 (LBS.toStrict s) x | x <- [1 .. fromIntegral hn] ]) sz ls
-  -- let bloom = B.fromList (\s -> [ xxh32 (LBS.toStrict s) x | x <- [1 .. fromIntegral 2] ]) sz ls
-  -- let bloom = B.fromList (\s -> [ fromIntegral (hashWithSalt x ls) | x <- [1 .. hn] ]) sz ls
-
-  print $ B.length bloom
-
-  -- v <- V.new @_ @Word8 (sz `div` 8)
-
-  -- thm <- newIORef (HashMap.empty @Word64 @Word64)
-  -- thi <- newIORef (IntMap.empty @Word64)
-  -- tvm <- newTVarIO (HashMap.empty @Word64 @Word64)
-
-  -- tq <- newTQueueIO
-
-  -- haha <- for ls $ \s -> do
-  --   let hashes = [ xxh32 s x `mod` fromIntegral sz | x <- [1 .. 7] ]
-  --   vals <- for hashes $ \h -> do
-               -- let (w,b) = h `divMod` 64
-               -- pure (w, setBit 0 (fromIntegral b) :: Word64)
-  --   pure $ HashMap.fromListWith (.|.) vals
-
-  -- let result = HashMap.unions haha
-
-  -- print $ length result
-
-    -- for_ hashes $ \i -> do
-    --   let (w,b) = i `divMod` 64
-    --   pure
-    --   pure ()
-
-    -- atomically $ mapM_ (writeTQueue tq) hashes
-
-  -- print "FUCK!"
-
-  -- pure ()
-  --     modifyIORef thm (HashMap.alter (doAlter j) (fromIntegral i))
-
-  -- w <- readIORef z
-  -- print w
-
-  -- let bloom = B.easyList 0.01 ls
-
-  -- print $ B.length bloom
-
-  --dir <- findGitDir "." >>= orThrowUser "not a git dir"
-
-  --flip runContT pure do
-
-  --  o <- gitListAllObjects
-
-  --  ep <- ContT runWithRPC
-
-  --  let sto = StorageClient (rpcStorage ep)
-
-  --  cat <- startGitCatFile
-
-  --  -- h <- gitGetHash "HEAD" >>= orThrowUser "wtf1"
-  --  -- rvl <- gitRevList Nothing h
-  --  --
-
-  --  items <- for o $ \(a,GitHash b) -> do
-  --             pure b
-
-  --  liftIO $ print $ "bloom params" <+> pretty (B.suggestSizing (length items) 0.01)
-
-  --  timeItNamed (show $ "build bloom filter" <+> pretty (length items)) do
-  --    let bloom = B.easyList 0.01 items
-
-  --    liftIO $ print $ "bloom filter size" <+> pretty (B.length bloom) <> line
-  --                       <> "data size" <+> pretty (LBS.length (serialise items))
-
-  --  timeItNamed  "calc siphashes" do
-
-  --    let w = 67108864
-  --    tvm  <- newTVarIO (HashMap.empty @Word64 @Bool)
-  --    -- q <- newTQueueIO
-
-  --    for_ items $ \it -> do
-  --      for_ (B.cheapHashes 7 it) $ \hx -> do
-  --        let k = fromIntegral (hx `mod` w)
-  --        atomically $ modifyTVar tvm (HashMap.insert k True)
+main1 :: IO ()
+main1 = do
+  dir <- findGitDir "." >>= orThrowUser "not a git dir"
 
 
-  --    wtf <- liftIO $ readTVarIO tvm
-  --    liftIO $ print $ length wtf
+  let hrs = [ "A9Y5k28STYMg2XGUA5xwpAU3CcQg3Fh5j56E4v1QYV7A"
+            , "BZuMNqPy1vpxev4H5yKJ4TjTHrZ5HAqPzxDM1ZN74XY2"
+            , "Bs2jEFJTSQnY7z5nActjBBanCEWSYnbzUzC41xhhHwtX"
+            , "2rZxtNqi8haDEhQkVd2v1ddSfDub9bMH4BB9tgwqvxCF"
+            , "Fe1cLjj9BPqHcLowTNwZvHkwT7tAL7dywBocdN3VYeMn"
+            ] :: [HashRef]
 
-      -- liftIO $ print $ LBS.length $ serialise bloom
+  let pt = toPTree (MaxSize 256) (MaxNum 256) hrs
+
+  root <- makeMerkle 0 pt $ \(hx,_,bss) -> do
+            liftIO $ print $ "block:" <+> pretty hx
+
+  print $ pretty root
+  error "stop"
+
+  (CLI mn) <- getRecord  "export git repo"
+
+  let n = fromMaybe 1 mn
+
+  flip runContT pure do
+
+    o <- gitListAllObjects
+
+    ep <- ContT runWithRPC
+
+    let sto = StorageClient (rpcStorage ep)
+
+    ou <- newTQueueIO
+
+    qqs <- V.fromList <$> replicateM n newTQueueIO
+
+    w <- liftIO $ async do
+           for_ (zip [0..] o) $ \(i,x) -> do
+            let j = i `mod` V.length qqs
+            atomically $ writeTQueue (qqs ! j) (Just x)
+           for_ qqs $ \q -> do
+             atomically $ writeTQueue q Nothing
+
+    ws <- liftIO $ for (V.toList qqs) $ \q -> async do
+            cat <- startGitCatFile
+            fix \next -> do
+              e <- atomically $ readTQueue q
+              case e of
+                Nothing -> pure ()
+                Just (_,h)  -> do
+                  void $ runMaybeT do
+                    GitObject t lbs <- toMPlus =<< gitReadFromCatFileBatch cat h
+                    atomically $ writeTQueue ou (t, h, LBS.length lbs)
+                  next
+
+    wou <- liftIO $ async do
+             fix \next -> do
+               r <- atomically $ readTQueue ou
+               print $ pretty r
+               next
+
+    mapM_ wait (w:ws)
+
+    cancel wou
+
+    -- for_ [q1, q2] -> do
+
+    -- cat2 <- startGitCatFile
+
+    -- h <- gitGetHash "HEAD" >>= orThrowUser "wtf1"
+    -- rvl <- gitRevList Nothing h
 
     -- liftIO do
-    --   allShit' <- for  o $ \r@(o,h) -> runMaybeT do
-    --     GitObject t lbs <- toMPlus =<< gitReadFromCatFileBatch cat h
-    --     liftIO $ print $ pretty (t, h)
-    --     ght <- writeAsMerkle sto lbs
+    --   for_  o $ \r@(o,h) -> runMaybeT do
+    --     pure ()
+        -- GitObject t lbs <- toMPlus =<< gitReadFromCatFileBatch cat h
+        -- liftIO $ print $ pretty (t, h, LBS.length lbs)
+        -- ght <- writeAsMerkle sto lbs
 
-    --     tt <- getBlock sto ght
-    --                >>= toMPlus
-    --                >>= orThrowUser "FUCK" . (deserialiseOrFail @(MTree [HashRef]))
+        -- tt <- getBlock sto ght
+        --            >>= toMPlus
+        --            >>= orThrowUser "FUCK" . (deserialiseOrFail @(MTree [HashRef]))
 
-    --     let txt = fromString (show $ pretty t)
-    --     let ann = MTreeAnn (ShortMetadata txt) NullEncryption tt
-    --     putBlock sto (serialise ann) >>= toMPlus
+        -- let txt = fromString (show $ pretty t)
+        -- let ann = MTreeAnn (ShortMetadata txt) NullEncryption tt
+        -- putBlock sto (serialise ann) >>= toMPlus
 
-    --   let pt = HS.fromList (HashRef <$> catMaybes allShit')
-    --             & HS.toList
-    --             & toPTree (MaxSize 256) (MaxNum 256)
+      -- let pt = HS.fromList (HashRef <$> catMaybes allShit')
+        --         & HS.toList
+        --         & toPTree (MaxSize 256) (MaxNum 256)
 
-    --   ht <- makeMerkle 0 pt $ \(_,_,bss) -> do
-    --           void $ putBlock sto bss
+      -- ht <- makeMerkle 0 pt $ \(_,_,bss) -> do
+        --       void $ putBlock sto bss
 
-    --   print $ pretty (HashRef ht)
+      -- print $ pretty (HashRef ht)
 
 

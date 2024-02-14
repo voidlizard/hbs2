@@ -10,7 +10,7 @@ license-file:       LICENSE
 -- copyright:
 category:           Network
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
+-- extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
@@ -57,6 +57,7 @@ common common-deps
         , time
         , timeit
         , transformers
+        , typed-process
         , uniplate
         , unordered-containers
         , vector
@@ -89,7 +90,7 @@ common shared-properties
         -- -fno-warn-unused-binds
         -threaded
         -rtsopts
-        "-with-rtsopts=-N4 -A64m -AL256m -I0 -T"
+        "-with-rtsopts=-N -A64m -AL256m -I0 -T"
 
 
   default-language:    Haskell2010
@@ -148,6 +149,7 @@ library
       HBS2.Peer.RPC.Client.StorageClient
       HBS2.Peer.RPC.Internal.Storage
       HBS2.Peer.RPC.Internal.Types
+      HBS2.Peer.CLI.Detect
 
     other-modules:
 

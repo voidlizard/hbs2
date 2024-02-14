@@ -10,7 +10,7 @@ license-file:       LICENSE
 -- copyright:
 category:           Network
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
+-- extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
@@ -143,10 +143,12 @@ library
                     , HBS2.System.Logger.Simple
                     , HBS2.System.Logger.Simple.ANSI
                     , HBS2.System.Logger.Simple.Class
+                    , HBS2.System.Dir
                     , HBS2.Net.Dialog.Core
                     , HBS2.Net.Dialog.Client
                     , HBS2.Net.Dialog.Helpers.List
                     , HBS2.Net.Dialog.Helpers.Streaming
+                    , HBS2.Misc.PrettyStuff
                     , HBS2.Version
 
 

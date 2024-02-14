@@ -10,7 +10,7 @@ maintainer:         dzuikov@gmail.com
 -- copyright:
 category:           System
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
+-- extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common shared-properties
@@ -96,7 +96,6 @@ library
       HBS2.Share.MetaData
 
     other-modules:
-      HBS2.Peer.CLI.Detect
 
     -- other-modules:
     -- other-extensions:

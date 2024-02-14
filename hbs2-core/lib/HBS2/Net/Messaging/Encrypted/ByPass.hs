@@ -303,7 +303,7 @@ instance (ForByPass e, Messaging w e ByteString)
         -- FIXME: check-code
         guard ( code == Just heySeed )
 
-        debug $ "HEY CODE:" <> parens (pretty code) <+> pretty orig
+        trace $ "HEY CODE:" <> parens (pretty code) <+> pretty orig
 
         guard (not (LBS.null hbs))
 

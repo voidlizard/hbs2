@@ -15,7 +15,6 @@ import HBS2.Clock
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Peer
 import HBS2.Data.Types.Refs
-import HBS2.Data.Detect
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -38,8 +37,6 @@ import Brains
 import PeerConfig
 
 import Prelude hiding (log)
-import Data.Foldable (for_)
-import Control.Concurrent.Async
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
 import Data.ByteString.Lazy (ByteString)
@@ -56,15 +53,12 @@ import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import Data.Heap qualified as Heap
-import Data.Heap (Entry(..))
-import Data.Time.Clock
 import Data.Word
-import Data.List qualified as List
 import Data.Set qualified as Set
 import Data.Set (Set)
 
 import UnliftIO.STM
+import UnliftIO
 
 import Streaming.Prelude qualified as S
 
@@ -163,6 +157,7 @@ instance Expires (EventKey e (DownloadReq e)) where
 
 type DownloadFromPeerStuff e m = ( MyPeer e
                                  , MonadIO m
+                                 , MonadUnliftIO m
                                  , ForSignedBox e
                                  , Request e (BlockInfo e) m
                                  , Request e (BlockChunks e) m
@@ -215,12 +210,16 @@ newtype instance SessionKey e (BlockChunks e) =
 deriving newtype instance Hashable (SessionKey L4Proto (BlockChunks L4Proto))
 deriving stock instance Eq (SessionKey L4Proto (BlockChunks L4Proto))
 
+data BlkS =
+    BlkNew
+  | BlkSizeAsked       TimeSpec
+  | BlkDownloadStarted TimeSpec
+
 data BlockState =
   BlockState
-  { _bsStart         :: TimeSpec
-  , _bsReqSizeTimes  :: TVar Int
-  , _bsLastSeen      :: TVar TimeSpec
-  , _bsHasSize       :: TVar Bool
+  { _bsStart  :: TimeSpec
+  , _bsWip    :: Maybe TimeSpec
+  , _bsState  :: TVar BlkS
   }
 
 makeLenses 'BlockState
@@ -246,8 +245,11 @@ downloadMonAdd env h whenDone = do
 
 data DownloadEnv e =
   DownloadEnv
-  { _blockInQ       :: TVar   (HashMap (Hash HbSync) ())
-  , _blockPostponed :: TVar   (HashMap (Hash HbSync) () )
+  { _blockInQ       :: TVar (HashMap (Hash HbSync) BlockState)
+  , _blockInDirty   :: TVar Bool
+     -- FIXME: trim!!
+  , _blockSizeCache :: TVar (HashMap (Hash HbSync) (HashMap (Peer e) Integer))
+  , _blockPostponed :: TVar (HashMap (Hash HbSync) () )
   , _blockPostponedTo :: Cache  (Hash HbSync) ()
   , _blockDelayTo   :: TQueue (Hash HbSync)
   , _blockProposed  :: Cache (Hash HbSync, Peer e) ()
@@ -261,6 +263,8 @@ makeLenses 'DownloadEnv
 newDownloadEnv :: (MonadIO m, MyPeer e, HasBrains e brains) => brains -> m (DownloadEnv e)
 newDownloadEnv brains = liftIO do
   DownloadEnv <$> newTVarIO mempty
+              <*> newTVarIO False
+              <*> newTVarIO mempty
               <*> newTVarIO mempty
               <*> Cache.newCache (Just defBlockBanTime)
               <*> newTQueueIO
@@ -274,6 +278,7 @@ newtype BlockDownloadM e m a =
                    , Applicative
                    , Monad
                    , MonadIO
+                   , MonadUnliftIO
                    , MonadReader (DownloadEnv e)
                    , MonadTrans
                    )
@@ -308,14 +313,22 @@ addDownload :: forall e m . ( DownloadConstr e m
 addDownload mbh h = do
 
   tinq <- asks (view blockInQ)
+  dirty <- asks (view blockInDirty)
   brains <- asks (view downloadBrains)
   here <- isBlockHereCached h
 
   if here then do
     removeFromWip h
   else do
+    newBlock <- BlockState
+                  <$> liftIO getTimeCoarse
+                  <*> pure Nothing
+                  <*> liftIO (newTVarIO BlkNew)
+
     claimBlockCameFrom @e brains mbh h
-    liftIO $ atomically $ modifyTVar tinq $ HashMap.insert h ()
+    liftIO $ atomically $ do
+      modifyTVar tinq $ HashMap.insert h newBlock
+      writeTVar dirty True
 
 postponedNum :: forall e  m . (MyPeer e, MonadIO m) => BlockDownloadM e m Int
 postponedNum = do
@@ -332,6 +345,16 @@ delayLittleBit :: forall e  m . (MyPeer e, MonadIO m) => Hash HbSync -> BlockDow
 delayLittleBit h = do
   q <- asks (view blockDelayTo)
   liftIO $ atomically $ writeTQueue q h
+
+deleteBlockFromQ :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
+deleteBlockFromQ h = do
+  inq <- asks (view blockInQ)
+  po  <- asks (view blockPostponed)
+  ca  <- asks (view blockSizeCache)
+  liftIO $ atomically $ modifyTVar' inq (HashMap.delete h)
+  liftIO $ atomically $ modifyTVar' po (HashMap.delete h)
+  liftIO $ atomically $ modifyTVar' po (HashMap.delete h)
+  liftIO $ atomically $ modifyTVar' ca (HashMap.delete h)
 
 postponeBlock :: forall e  m . (MyPeer e, MonadIO m) => Hash HbSync -> BlockDownloadM e m ()
 postponeBlock h = do
@@ -484,7 +507,7 @@ checkDownloaded :: forall m . (MonadIO m, HasStorage m) => HashRef -> m Bool
 checkDownloaded hr = do
   sto <- getStorage
 
-  missed <- findMissedBlocks sto hr
+  missed <- S.head_ $ findMissedBlocks2 sto hr
 
   pure $ null missed
 

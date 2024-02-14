@@ -10,7 +10,7 @@ maintainer:         dzuikov@gmail.com
 -- copyright:
 category:           Network
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
+-- extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common shared-properties
