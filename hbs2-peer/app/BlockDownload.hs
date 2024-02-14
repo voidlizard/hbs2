@@ -208,7 +208,7 @@ downloadFromWithPeer peer thisBkSize h = do
   rtt <- medianPeerRTT pinfo <&> fmap ( (/1e9) . realToFrac )
                              <&> fromMaybe defChunkWaitMax
 
-  let w = 4 * rtt * 256 -- realToFrac (length bursts)
+  let w = 10 * rtt * realToFrac (length bursts)
 
   let burstTime = min defChunkWaitMax $ realToFrac w :: Timeout 'Seconds
 
