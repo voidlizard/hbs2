@@ -112,8 +112,55 @@ key "./default.key"
 
               networking.firewall.enable = false;
 
+              nixpkgs.overlays = [
+                inputs.hbs2.overlays.default
+                (let
+                  packagePostOverrides = with pkgs; with haskell.lib; [
+                    disableExecutableProfiling
+                    disableLibraryProfiling
+                    dontBenchmark
+                    dontCoverage
+                    dontDistribute
+                    dontHaddock
+                    dontCheck
+                  ];
+
+                  hsPkgsToOverride = [
+                    "hbs2"
+                    "hbs2-peer"
+                    "hbs2-core"
+                    "hbs2-storage-simple"
+                    "hbs2-git"
+                    "hbs2-qblf"
+                    "hbs2-keyman"
+                    "hbs2-share"
+                    "hbs21-git"
+                    "hspup"
+                    "fixme"
+                    "suckless-conf"
+                    "db-pipe"
+                    "saltine"
+                  ];
+
+                  foldCompose = builtins.foldl' (f: g: a: f (g a)) (x: x);
+                  getAttrs = names: attrs: pkgs.lib.attrsets.genAttrs names (n: attrs.${n});
+                  hpOverrides = new: old:
+                    (builtins.mapAttrs
+                      (_name: (foldCompose packagePostOverrides))
+                      (getAttrs hsPkgsToOverride old)
+                    );
+
+                  in final: prev: {
+                    haskellPackages = prev.haskellPackages.override (oldAttrs: {
+                      overrides = prev.lib.composeExtensions (oldAttrs.overrides or (_: _: { })) hpOverrides;
+                    });
+                  }
+                )
+
+              ];
+
               environment.systemPackages = with pkgs; [
-                inputs.hbs2.packages.${pkgs.system}.default
+                haskellPackages.hbs2
                 screen
                 tshark
                 tmux
