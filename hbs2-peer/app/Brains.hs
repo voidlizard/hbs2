@@ -720,18 +720,12 @@ newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
                -> m (BasicBrains e)
 
 newBasicBrains cfg = liftIO do
-  stateDb <-
-      flip runReaderT cfg (cfgValue @PeerBrainsDBPath @(Maybe String))
-          >>= maybe
-              ( do
-                  sdir <- peerStateDirDefault
-                  liftIO $ createDirectoryIfMissing True sdir
-                  pure $ sdir </> "brains.db"
-              )
-              ( \p ->
-                  p <$ do
-                      liftIO $ createDirectoryIfMissing True (takeDirectory p)
-              )
+
+  stateDbFile <- runReaderT (cfgValue @PeerBrainsDBPath @(Maybe String)) cfg
+
+  stateDb <- maybe (peerStateDirDefault <&> (</> "brains.db")) pure stateDbFile
+
+  liftIO $ createDirectoryIfMissing True (takeDirectory stateDb)
 
   brains <- runReaderT (cfgValue @PeerBrainsDb @(Maybe String)) cfg
               <&> fromMaybe ":memory:"
