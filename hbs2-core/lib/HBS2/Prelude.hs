@@ -1,3 +1,4 @@
+{-# Language FunctionalDependencies #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -19,7 +20,7 @@ module HBS2.Prelude
   , FromByteString(..)
   , Text.Text
   , (&), (<&>), for_, for
-  , HasErrorStatus(..), ErrorStatus(..), SomeError(..)
+  , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
   ) where
 
 import Data.Typeable as X
@@ -47,6 +48,7 @@ import Data.Word
 import GHC.Generics
 import Data.Time.Clock (NominalDiffTime(..))
 import Codec.Serialise
+import Control.Monad.Except
 
 import UnliftIO
 import Control.Monad.IO.Unlift
@@ -112,6 +114,41 @@ class HasErrorStatus e where
 
 data SomeError = forall e . (Show e, HasErrorStatus e) =>
   SomeError e
+
+instance Show SomeError where
+  show (SomeError x) = show x
+
+instance HasErrorStatus SomeError where
+  getStatus (SomeError e) = getStatus e
+
+someE :: forall e . (Show e, HasErrorStatus e) => e -> SomeError
+someE = SomeError
+
+mayE :: forall e b . (Show e, HasErrorStatus e) => e -> b -> SomeError
+mayE e _ = SomeError e
+
+class WithSomeError m a b | a -> b where
+  toSomeError :: (forall e . Show e => e -> SomeError) -> m a -> ExceptT SomeError m b
+
+
+instance Monad m => WithSomeError m (Maybe a) a where
+  toSomeError f m = do
+    lift m >>= \case
+      Nothing -> throwError (f ())
+      Just v  -> pure v
+
+instance (Monad m, Show e) => WithSomeError m (Either e a) a where
+  toSomeError f m = do
+    lift m >>= \case
+      Left e  -> throwError (f e)
+      Right v -> pure v
+
+
+instance (MonadUnliftIO m, Exception e) => MonadUnliftIO (ExceptT e m) where
+    withRunInIO exceptToIO = ExceptT $ try $ do
+        withRunInIO $ \runInIO ->
+            exceptToIO (runInIO . (either throwIO pure <=< runExceptT))
+
 
 asyncLinked :: MonadUnliftIO m => m a -> m (Async a)
 asyncLinked m = do

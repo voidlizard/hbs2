@@ -9,7 +9,6 @@ import HBS2.Net.PeerLocator
 import HBS2.Peer.Brains
 import HBS2.Storage
 import HBS2.Storage.Operations.Missed
-import HBS2.System.Logger.Simple
 
 import PeerTypes
 import PeerConfig

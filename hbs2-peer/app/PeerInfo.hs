@@ -14,7 +14,6 @@ import HBS2.Net.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
-import HBS2.System.Logger.Simple
 
 import HBS2.Net.Messaging.TCP
 
@@ -22,8 +21,8 @@ import PeerConfig
 import PeerTypes
 import Brains
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
+-- import Control.Concurrent.Async
+import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.Reader
 import Data.Foldable hiding (find)
@@ -33,6 +32,11 @@ import Lens.Micro.Platform
 import Numeric (showGFloat)
 import System.Random.Shuffle
 import Data.HashMap.Strict qualified as HashMap
+import Data.Either
+import Control.Monad.Trans.Cont
+import Control.Exception qualified as E
+
+import UnliftIO
 
 
 data PeerPingIntervalKey
@@ -80,11 +84,11 @@ pexLoop :: forall e brains m . ( HasPeerLocator e m
                                , HasNonces (PeerExchange e) m
                                , Request e (PeerExchange e) m
                                , Sessions e (PeerExchange e) m
-                               , MonadIO m
+                               , MonadUnliftIO m
                                , e ~ L4Proto
                                ) => brains -> Maybe MessagingTCP -> m ()
 
-pexLoop brains tcpEnv = do
+pexLoop brains tcpEnv = forever do
 
   pause @'Seconds 5
 
@@ -94,44 +98,50 @@ pexLoop brains tcpEnv = do
   --  Есть подозрения, что TCP сессии не чистятся
   --  надлежащим образом. Требуется расследовать.
 
-  -- NOTE: tcpPexInfo
-  --   Этот кусок говорит Brains о том,
-  --   какие TCP сессии есть в наличии.
-  --   Убирать пока нельзя
-  tcpPexInfo <- liftIO $ async $ forever do
-    -- FIXME: fix-hardcode
-    pause @'Seconds 20
+  flip runContT pure do
 
-    pips <- knownPeers @e pl
-    onKnownPeers brains pips
+    -- NOTE: tcpPexInfo
+    --   Этот кусок говорит Brains о том,
+    --   какие TCP сессии есть в наличии.
+    --   Убирать пока нельзя
+    void $ ContT $ withAsync $ forever do
+      -- FIXME: fix-hardcode
+      pause @'Seconds 20
 
-    conns <- maybe1 (view tcpPeerConn <$> tcpEnv) (pure mempty)  $ \tconn -> do
-               liftIO $ readTVarIO tconn <&> HashMap.toList
+      pips <- knownPeers @e pl
+      onKnownPeers brains pips
 
-    ssids <- forM conns $ \(p,coo) -> do
-                debug $ "ACTUAL TCP SESSIONS" <+> pretty p <+> pretty coo
-                pa <- toPeerAddr p
-                pure (pa, coo)
+      conns <- maybe1 (view tcpPeerConn <$> tcpEnv) (pure mempty)  $ \tconn -> do
+                 try @_ @SomeException $ readTVarIO tconn <&> HashMap.toList
+                 >>= either (const $ warn "tcpSessionWait issue" >> pause @'Seconds 1 >> pure mempty) pure
 
-    setActiveTCPSessions @e brains ssids
+      ssids <- forM conns $ \(p,coo) -> do
+                  debug $ "ACTUAL TCP SESSIONS" <+> pretty p <+> pretty coo
+                  pa <- toPeerAddr p
+                  pure (pa, coo)
 
-    pure ()
+      setActiveTCPSessions @e brains ssids
 
-  liftIO $ mapM_ link [tcpPexInfo]
+      pure ()
 
-  forever do
+    void $ ContT $ withAsync $ forever do
 
-    pips <- knownPeers @e pl
+      pips <- knownPeers @e pl
 
-    peers' <- forM pips $ \p -> do
-                au <- find @e (KnownPeerKey p) id
-                pure $ maybe1 au mempty (const [p])
+      peers' <- forM pips $ \p -> do
+                  au <- find @e (KnownPeerKey p) id
+                  pure $ maybe1 au mempty (const [p])
 
-    peers <- liftIO (shuffleM (mconcat peers')) <&> take 10 -- FIXME: defaults
+      peers <- liftIO (shuffleM (mconcat peers')) <&> take 10 -- FIXME: defaults
 
-    for_ peers sendPeerExchangeGet
+      for_ peers sendPeerExchangeGet
 
-    pause @'Seconds 180  -- FIXME: defaults
+      pause @'Seconds 180  -- FIXME: defaults
+
+    forever do
+      pips <- knownPeers @e pl
+      onKnownPeers brains pips
+      pause @'Seconds 60
 
 peerPingLoop :: forall e m . ( HasPeerLocator e m
                              , HasPeer e
@@ -170,81 +180,83 @@ peerPingLoop (PeerConfig syn) penv = do
   --   liftIO $ atomically $ writeTQueue wake [p]
 
 
-  -- TODO: peer info loop
-  infoLoop <- liftIO $ async $ forever $ withPeerM e $ do
-    pause @'Seconds 10
-    pee <- knownPeers @e pl
+  flip runContT pure do
 
-    npi <- newPeerInfo
+    -- TODO: peer info loop
+    void $ ContT $ withAsync $ forever $ withPeerM e $ do
+      pause @'Seconds 10
+      pee <- knownPeers @e pl
 
-    now <- getTimeCoarse
+      npi <- newPeerInfo
 
-    debug $ "known peers" <+> pretty pee
+      now <- getTimeCoarse
 
-    for_ pee $ \p -> do
-      pinfo <- fetch True npi (PeerInfoKey p) id
-      burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
-      buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
-      errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
-      downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
-      downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
-      down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
-      rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
-      httpDownloaded <- liftIO $ readTVarIO (_peerHttpDownloaded pinfo)
-      seen      <- liftIO $ readTVarIO (view peerLastWatched pinfo)
-      let l = realToFrac (toNanoSecs $ now - seen) / 1e9
+      debug $ "known peers" <+> pretty pee
 
-      let rttMs = (/1e6) <$> rtt <&> (\x -> showGFloat (Just 2) x "") <&> (<> "ms")
-      let ls = showGFloat (Just 2) l "" <> "s"
+      for_ pee $ \p -> do
+        pinfo <- fetch True npi (PeerInfoKey p) id
+        burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
+        buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
+        errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
+        downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
+        downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
+        down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
+        rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
+        httpDownloaded <- liftIO $ readTVarIO (_peerHttpDownloaded pinfo)
+        seen      <- liftIO $ readTVarIO (view peerLastWatched pinfo)
+        let l = realToFrac (toNanoSecs $ now - seen) / 1e9
 
-      notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
-                                   <+> "burst-max:" <+> pretty buM
-                                   <+> "errors:" <+> pretty (downFails + errors)
-                                   <+> "down:" <+> pretty down
-                                   <+> "miss:" <+> pretty downMiss
-                                   <+> "rtt:" <+> pretty rttMs
-                                   <+> "http:" <+> pretty httpDownloaded
-                                   <+> "seen" <+> pretty ls
-      pure ()
+        let rttMs = (/1e6) <$> rtt <&> (\x -> showGFloat (Just 2) x "") <&> (<> "ms")
+        let ls = showGFloat (Just 2) l "" <> "s"
+
+        notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
+                                     <+> "burst-max:" <+> pretty buM
+                                     <+> "errors:" <+> pretty (downFails + errors)
+                                     <+> "down:" <+> pretty down
+                                     <+> "miss:" <+> pretty downMiss
+                                     <+> "rtt:" <+> pretty rttMs
+                                     <+> "http:" <+> pretty httpDownloaded
+                                     <+> "seen" <+> pretty ls
+        pure ()
 
 
-  watch <- liftIO $ async $ forever $ withPeerM e $ do
-             pause @'Seconds 120
-             pips <- getKnownPeers @e
-             now <- getTimeCoarse
-             for_ pips $ \p -> do
-               pinfo' <- find (PeerInfoKey p) id
-               maybe1 pinfo' none $ \pinfo -> do
-                seen <- liftIO $ readTVarIO (view peerLastWatched pinfo)
-                -- FIXME: do-something-with-this-nanosec-boilerplate-everywhere
-                let l = realToFrac (toNanoSecs $ now - seen) / 1e9
-                -- FIXME: time-hardcode
-                when ( l > 300 ) do
-                  mpeerData <- find (KnownPeerKey p) id
-                  delPeers pl [p]
-                  expire (PeerInfoKey p)
-                  expire (KnownPeerKey p)
-                  emit PeerExpiredEventKey (PeerExpiredEvent @e p {-mpeerData-})
+    void $ ContT $ withAsync $ liftIO $ forever $ withPeerM e $ do
+               pause @'Seconds 120
+               pips <- getKnownPeers @e
+               now <- getTimeCoarse
+               for_ pips $ \p -> do
+                 pinfo' <- find (PeerInfoKey p) id
+                 maybe1 pinfo' none $ \pinfo -> do
+                  seen <- liftIO $ readTVarIO (view peerLastWatched pinfo)
+                  -- FIXME: do-something-with-this-nanosec-boilerplate-everywhere
+                  let l = realToFrac (toNanoSecs $ now - seen) / 1e9
+                  -- FIXME: time-hardcode
+                  when ( l > 300 ) do
+                    mpeerData <- find (KnownPeerKey p) id
+                    delPeers pl [p]
+                    expire (PeerInfoKey p)
+                    expire (KnownPeerKey p)
+                    emit PeerExpiredEventKey (PeerExpiredEvent @e p {-mpeerData-})
 
-  liftIO $ mapM_ link [watch, infoLoop]
 
-  forever do
+    forever do
 
-    -- FIXME: defaults
-    r <- liftIO $ race (pause @'Seconds pingTime)
-                       (atomically $ readTQueue wake)
+      -- FIXME: defaults
+      r <- liftIO $ race (pause @'Seconds pingTime)
+                         (atomically $ readTQueue wake)
 
-    sas' <- liftIO $ atomically $ flushTQueue wake <&> mconcat
+      sas' <- liftIO $ atomically $ STM.flushTQueue wake <&> mconcat
 
-    let sas = case r of
-          Left{}   -> sas'
-          Right sa -> sa <> sas'
+      let sas = case r of
+            Left{}   -> sas'
+            Right sa -> sa <> sas'
 
-    debug "peerPingLoop"
+      debug "peerPingLoop"
 
-    pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
+      pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
 
-    for_ pips $ \p -> do
-      -- trace $ "SEND PING TO" <+> pretty p
-      sendPing @e p
-      -- trace $ "SENT PING TO" <+> pretty p
+      for_ pips $ \p -> do
+        -- trace $ "SEND PING TO" <+> pretty p
+        lift $ sendPing @e p
+        -- trace $ "SENT PING TO" <+> pretty p
+

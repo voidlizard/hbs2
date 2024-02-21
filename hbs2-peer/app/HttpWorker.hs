@@ -11,8 +11,6 @@ import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.RefLog
 import HBS2.Events
 
-import HBS2.System.Logger.Simple
-
 import PeerTypes
 import PeerConfig
 import RefLog ( doRefLogBroadCast )

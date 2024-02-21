@@ -36,8 +36,6 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Storage
 import HBS2.Storage.Operations.Missed
 
-import HBS2.System.Logger.Simple
-
 import PeerTypes hiding (downloads)
 import PeerConfig
 import BlockDownload
@@ -512,6 +510,8 @@ runRefChanRelyWorker env adapter = liftIO $ forever do
     mess <- atomically $ readTQueue (view refChanWorkerNotifiersInbox env)
     runResponseM me $ do
       refChanNotifyProto True adapter mess
+
+{- HLINT ignore "Functor law" -}
 
 refChanWorker :: forall e s m . ( MonadIO m
                                 , MonadUnliftIO m

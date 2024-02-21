@@ -3,6 +3,7 @@ module TestFileLogger where
 import HBS2.System.Logger.Simple
 import System.Directory
 import Test.Tasty.HUnit
+import Prettyprinter
 
 logFile :: FilePath
 logFile = "/tmp/testFileLogger.log"
@@ -21,8 +22,8 @@ testFileLogger = do
   setLogging @DEBUG debugPrefix
   setLogging @WARN warnPrefix
 
-  debug msg1
-  warn msg2
+  debug $ pretty msg1
+  warn $ pretty msg2
 
   setLoggingOff @DEBUG
   setLoggingOff @WARN

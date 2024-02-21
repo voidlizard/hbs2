@@ -44,7 +44,7 @@ import HBS2.Share.Keys
 import HBS2.Share.MetaData
 import HBS2.Share.LocalHash
 
-import HBS2.System.Logger.Simple
+import HBS2.System.Logger.Simple.ANSI
 import DBPipe.SQLite
 
 import Control.Applicative

@@ -18,7 +18,6 @@ import HBS2.Net.Proto.Service
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 
-import HBS2.System.Logger.Simple
 import PeerTypes
 import RefLog (doRefLogBroadCast)
 

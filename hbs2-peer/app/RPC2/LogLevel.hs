@@ -8,7 +8,6 @@ import Log
 
 import HBS2.Peer.RPC.API.Peer
 
-import HBS2.System.Logger.Simple
 
 instance (MonadIO m) => HandleMethod m RpcLogLevel where
 

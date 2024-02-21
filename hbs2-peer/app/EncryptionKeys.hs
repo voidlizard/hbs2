@@ -17,7 +17,6 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Net.Proto.Definition()
-import HBS2.System.Logger.Simple
 
 import PeerConfig
 import PeerTypes

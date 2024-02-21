@@ -2,12 +2,10 @@ module CheckMetrics where
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
-import HBS2.System.Logger.Simple
 
-import Data.Foldable
-import Data.Functor
+import PeerLogger
+
 import Control.Monad
--- import GHC.Stats
 import System.Metrics
 import Data.HashMap.Strict qualified as HashMap
 

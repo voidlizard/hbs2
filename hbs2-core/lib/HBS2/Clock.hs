@@ -2,8 +2,10 @@
 module HBS2.Clock
   ( module HBS2.Clock
   , module System.Clock
+  , POSIXTime, getPOSIXTime, getEpoch
   )where
 
+import Data.Functor
 import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
 import Data.Fixed
@@ -13,6 +15,8 @@ import Data.Time
 import Prettyprinter
 import System.Clock
 import Data.Time.Clock
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
+import Data.Word
 
 data TimeoutKind = MilliSeconds | Seconds | Minutes | NomDiffTime | TS
 
@@ -103,6 +107,9 @@ class Expires a where
 
   -- FIXME: dangerous!
   expiresIn _ = Nothing
+
+getEpoch :: MonadIO m => m Word64
+getEpoch = liftIO getPOSIXTime <&> floor
 
 -- | Use coarse clock timer. This timer has 1ms resolution but is much
 -- faster comparing to the ordinary one. Is used on Linux, on MacOS

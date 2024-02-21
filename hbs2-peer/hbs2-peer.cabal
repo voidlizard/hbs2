@@ -152,6 +152,7 @@ library
       HBS2.Peer.CLI.Detect
 
     other-modules:
+      -- HBS2.System.Logger.Simple
 
 executable hbs2-peer
     import:           shared-properties
@@ -190,6 +191,7 @@ executable hbs2-peer
                     , RPC2.RefLog
                     , RPC2.RefChan
                     , PeerTypes
+                    , PeerLogger
                     , PeerConfig
                     , RefLog
                     , RefChan

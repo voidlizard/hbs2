@@ -21,7 +21,7 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Storage.Operations.Missed
-import HBS2.System.Logger.Simple
+import HBS2.Misc.PrettyStuff
 
 import PeerTypes
 import PeerInfo
@@ -635,7 +635,6 @@ blockDownloadLoop env0 = do
       let refs = withPeerM e (getKnownPeers @e <&> fmap (,60))
 
       polling (Polling 5 60) refs $ \peer -> do
-        debug $ "SOME FUCKING PEER:" <+> pretty peer
 
         -- ШАГ 1. Поллим пиров, создаём новых, если для них нет зареганой очереди
         here <- readTVarIO (_dPeerInbox state) <&> HashMap.member peer
@@ -676,16 +675,16 @@ blockDownloadLoop env0 = do
                             next (PWork todo)
 
                      PCheckPeer -> do
-                        debug $ "PEER CHECK" <+> pretty peer
+                        trace $ "PEER CHECK" <+> pretty peer
                         auth <- withPeerM e (find (KnownPeerKey peer) id <&> isJust)
 
                         when auth do
                           next PIdle
 
-                        debug "PEER FINISHING"
+                        debug $ yellow "PEER FINISHING" <+> pretty peer
 
                      PWork (DTask{..}) -> do
-                        debug $ "PEER IS WORKING"  <+> pretty peer <+> pretty _dtaskBlock
+                        trace $ "PEER IS WORKING"  <+> pretty peer <+> pretty _dtaskBlock
 
                         let (p,h) = (peer, _dtaskBlock)
 
@@ -703,7 +702,7 @@ blockDownloadLoop env0 = do
                               -- liftIO $ atomically $ modifyTVar downFail succ
                               failedDownload p h
                               atomically $ modifyTVar downFail succ
-                              debug $ "DOWNLOAD FAILED!" <+> pretty p <+> pretty h
+                              trace $ "DOWNLOAD FAILED!" <+> pretty p <+> pretty h
                               -- addDownload Nothing h
 
                             Right{} -> do
@@ -712,7 +711,7 @@ blockDownloadLoop env0 = do
                                 writeTVar  downFail 0
                                 modifyTVar downBlk succ
 
-                              debug $ "DOWNLOAD SUCCEED" <+> pretty p <+> pretty h
+                              trace $ "DOWNLOAD SUCCEED" <+> pretty p <+> pretty h
 
                         next PIdle
 
@@ -748,24 +747,26 @@ postponedLoop env0 = do
 
   pause @'Seconds 2.57
 
-  void $ liftIO $ async $ withPeerM e $ withDownload env0 do
-    q <- asks (view blockDelayTo)
-    fix \next -> do
-      w <- liftIO $ atomically $ readTQueue q
-      pause defInterBlockDelay
-      addDownload mzero w
-      -- ws <- liftIO $ atomically $ flushTQueue q
-      -- for_ (w:ws) $ addDownload mzero
-      next
+  flip runContT pure do
 
-  void $ liftIO $ withPeerM e $ withDownload env0 do
-    forever do
-      pause @'Seconds 30
-      trace "UNPOSTPONE LOOP"
-      po <- asks (view blockPostponedTo) >>= liftIO . Cache.toList
-      for_ po $ \(h, _, expired) -> do
-        when (isJust expired) do
-          unpostponeBlock h
+    void $ ContT $ withAsync $ liftIO $ withPeerM e $ withDownload env0 do
+      q <- asks (view blockDelayTo)
+      fix \next -> do
+        w <- liftIO $ atomically $ readTQueue q
+        pause defInterBlockDelay
+        addDownload mzero w
+        -- ws <- liftIO $ atomically $ flushTQueue q
+        -- for_ (w:ws) $ addDownload mzero
+        next
+
+    void $ liftIO $ withPeerM e $ withDownload env0 do
+      forever do
+        pause @'Seconds 30
+        trace "UNPOSTPONE LOOP"
+        po <- asks (view blockPostponedTo) >>= liftIO . Cache.toList
+        for_ po $ \(h, _, expired) -> do
+          when (isJust expired) do
+            unpostponeBlock h
 
 doBlockSizeRequest :: forall e m . ( MyPeer e
                                  , Sessions e (KnownPeer e) m

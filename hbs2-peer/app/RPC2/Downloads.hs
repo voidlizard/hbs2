@@ -5,11 +5,12 @@ module RPC2.Downloads where
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Service
 import HBS2.Peer.Brains
-import HBS2.System.Logger.Simple
 import HBS2.Net.Proto.Definition()
 
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.Internal.Types
+
+import PeerLogger
 
 instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcDownloadList where
 

@@ -7,7 +7,7 @@ module HBS2.System.Logger.Simple
   ( withSimpleLogger
   , trace
   , debug
-  , log
+  , writeLog
   , err
   , warn
   , notice
@@ -40,6 +40,8 @@ import Lens.Micro.Platform
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Control.Concurrent.STM
+
+import Prettyprinter.Render.Terminal
 
 data LoggerType = LoggerStdout
                 | LoggerStderr
@@ -161,37 +163,40 @@ withLogger f = do
   maybeLoggerEntry <- liftIO $ readIORef loggers <&> IntMap.lookup (logKey @a)
   maybe (pure ()) f maybeLoggerEntry
 
-log :: forall a s m . (MonadIO m, HasLogLevel a, ToLogStr s) => s -> m ()
-log s = liftIO $ withLogger @a $ \loggerEntry -> do
+writeLog :: forall a s m . (MonadIO m, HasLogLevel a, ToLogStr s) => s -> m ()
+writeLog s = liftIO $ withLogger @a $ \loggerEntry -> do
   loggerSets' <- readTVarIO loggerSets
   let loggerType' = view loggerType loggerEntry
       maybeLoggerSet = Map.lookup loggerType' loggerSets'
       msg = view loggerTr loggerEntry (toLogStr s)
   maybe (pure ()) (\x -> pushLogStrLn (view loggerSet x) msg) maybeLoggerSet
 
-trace :: (ToLogStr a, MonadIO m) => a -> m ()
-trace = log @TRACE
+trace :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+trace = writeLog @TRACE
 
-debug :: (ToLogStr a, MonadIO m) => a -> m ()
-debug = log @DEBUG
+debug :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+debug = writeLog @DEBUG
 
-warn :: (ToLogStr a, MonadIO m) => a -> m ()
-warn = log @WARN
+warn :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+warn = writeLog @WARN
 
-err :: (ToLogStr a, MonadIO m) => a -> m ()
-err = log @ERROR
+err :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+err = writeLog @ERROR
 
-notice :: (ToLogStr a, MonadIO m) => a -> m ()
-notice = log @NOTICE
+notice :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+notice = writeLog @NOTICE
 
-info :: (ToLogStr a, MonadIO m) => a -> m ()
-info = log @INFO
+info :: forall a m . (ToLogStr (Doc a), MonadIO m) => Doc a -> m ()
+info = writeLog @INFO
 
 -- instance {-# OVERLAPPABLE #-} Pretty a => ToLogStr a where
 --   toLogStr p = toLogStr (show (pretty p))
 
+
 instance {-# OVERLAPPABLE #-} ToLogStr (Doc ann) where
   toLogStr = toLogStr . show
 
+
 logPrefix :: LogStr -> LoggerEntry-> LoggerEntry
 logPrefix s = set loggerTr (s <>)
+

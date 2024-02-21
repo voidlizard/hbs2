@@ -20,8 +20,6 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Net.Auth.Credentials
 import HBS2.Merkle
 
-import HBS2.System.Logger.Simple
-
 import Brains
 import PeerConfig
 import PeerTypes
@@ -95,6 +93,8 @@ data RefLogWorkerAdapter e =
  , reflogUpdated  :: (RefLogKey (Encryption e), Hash HbSync) -> IO ()
  }
 
+{- HLINT ignore "Functor law" -}
+
 reflogWorker :: forall e s m . ( e ~ L4Proto
                                , MonadIO m, MyPeer e
                                , EventListener e (RefLogUpdateEv e) m
@@ -164,10 +164,6 @@ reflogWorker conf brains adapter = do
   reflogMon <- liftIO $ newTVarIO (mempty :: HashSet (Hash HbSync))
 
   subscribe @e RefLogReqAnswerKey $ \(RefLogReqAnswerData reflog h) -> do
-    -- TODO: ASAP-only-process-link-if-we-subscribed
-    -- TODO: ASAP-start-only-one-instance-for-link-monitor
-    -- TODO: ASAP-dont-do-if-already-done
-
     -- TODO: use-download-mon
     here <- liftIO $ readTVarIO reflogMon <&> HashSet.member h
     unless here do

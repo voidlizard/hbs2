@@ -13,11 +13,12 @@ import HBS2.Base58
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Definition()
-import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
 import Data.Config.Suckless.KeyValue
+
+import PeerLogger
 
 import Control.Exception
 import Control.Monad.Reader

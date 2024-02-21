@@ -9,7 +9,7 @@ module DispatchProxy
 import HBS2.Prelude.Plated
 import HBS2.Net.Messaging
 
-import HBS2.System.Logger.Simple
+import PeerLogger
 
 import Control.Concurrent.STM.TQueue qualified as TQ
 import Data.ByteString.Lazy (ByteString)

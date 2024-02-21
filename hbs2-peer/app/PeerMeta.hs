@@ -13,7 +13,6 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.PeerMeta
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
-import HBS2.System.Logger.Simple
 
 import PeerTypes
 

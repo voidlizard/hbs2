@@ -5,6 +5,7 @@
 {-# Language MultiWayIf #-}
 module PeerTypes
   ( module PeerTypes
+  , module PeerLogger
   , module HBS2.Net.PeerLocator
   , module HBS2.Polling
   ) where
@@ -30,11 +31,10 @@ import HBS2.Storage
 import HBS2.Storage.Operations.Missed
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto.PeerMeta
-import HBS2.System.Logger.Simple
 
--- import PeerInfo
 import Brains
 import PeerConfig
+import PeerLogger
 
 import Prelude hiding (log)
 import Control.Monad.Reader
@@ -541,12 +541,5 @@ simpleBlockAnnounce size h = do
     let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta size h
     pure $ BlockAnnounce @e no annInfo
 
-data TRACE1
-
-instance HasLogLevel TRACE1 where
-  type instance LogLevel TRACE1 = 101
-
-trace1 :: (MonadIO m, ToLogStr a) => a -> m ()
-trace1 = log @TRACE1
 
 

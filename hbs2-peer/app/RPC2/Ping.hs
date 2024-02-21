@@ -6,8 +6,6 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Net.Proto.Service
 
-import HBS2.System.Logger.Simple
-
 import HBS2.Peer.RPC.Internal.Types
 
 import PeerTypes

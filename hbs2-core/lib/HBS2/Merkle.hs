@@ -114,6 +114,7 @@ data MTreeEncryption
   | EncryptGroupNaClSymm1 (Hash HbSync) ByteString
   | EncryptGroupNaClSymm2 EncryptGroupNaClSymmOpts (Hash HbSync) ByteString
   deriving stock (Eq,Generic,Data,Show)
+{-# COMPLETE NullEncryption, CryptAccessKeyNaClAsymm, EncryptGroupNaClSymm #-}
 
 instance Serialise MTreeEncryption
 

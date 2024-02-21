@@ -18,8 +18,8 @@ import HBS2.Base58
 import HBS2.Net.IP.Addr
 
 import HBS2.Peer.Brains
-import HBS2.System.Logger.Simple
 
+import PeerLogger
 import PeerConfig
 
 import Control.Concurrent.STM

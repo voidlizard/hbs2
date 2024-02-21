@@ -99,7 +99,7 @@ library
 
     -- other-modules:
     -- other-extensions:
-    build-depends:    base
+    build-depends:    base, hbs2-peer
     hs-source-dirs:   src
 
 executable hbs2-share
@@ -108,7 +108,7 @@ executable hbs2-share
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, hbs2-share
+        base, hbs2-share, hbs2-peer
         , optparse-applicative
 
     hs-source-dirs:   app

@@ -6,8 +6,6 @@ import HBS2.Data.Types.Refs
 import HBS2.Storage.Operations.Missed
 import HBS2.Net.Proto.Types
 
-import HBS2.System.Logger.Simple
-
 import PeerTypes
 import BlockDownload
 

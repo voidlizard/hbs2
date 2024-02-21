@@ -277,6 +277,7 @@ instance ( MonadIO m
     allowed <- tryLockForPeriod peer_e msg
 
     unless allowed do
+      -- trace $ "REQUEST: not allowed to send for proto" <+> viaShow proto
       trace $ "REQUEST: not allowed to send for proto" <+> viaShow proto
 
     when allowed do

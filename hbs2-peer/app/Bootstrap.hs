@@ -11,7 +11,7 @@ import HBS2.Net.Proto.Sessions
 import HBS2.Peer.Brains
 
 import PeerConfig
-import HBS2.System.Logger.Simple
+import PeerLogger
 
 import Network.DNS
 import Control.Monad.Reader

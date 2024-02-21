@@ -1,6 +1,8 @@
-module Log where
+module Log (module Log, module PeerLogger) where
 
-import HBS2.System.Logger.Simple
+import PeerLogger
+
+-- import HBS2.System.Logger.Simple (SetLoggerEntry)
 
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] "

@@ -32,9 +32,7 @@ import HBS2.Peer.RefChanNotifyLog
 
 import CLI.Common
 import RPC2()
-
-import HBS2.System.Logger.Simple hiding (info)
-import HBS2.System.Logger.Simple qualified as Log
+import PeerLogger hiding (info)
 
 import Control.Monad.Cont
 import Control.Monad.Reader

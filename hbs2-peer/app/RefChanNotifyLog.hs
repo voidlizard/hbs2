@@ -22,8 +22,6 @@ import HBS2.Net.Proto.Peer
 import HBS2.Net.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 
-import HBS2.System.Logger.Simple
-
 import HBS2.Peer.RefChanNotifyLog
 
 import PeerTypes hiding (downloads)

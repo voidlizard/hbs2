@@ -1,3 +1,4 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.OrDie
   ( module HBS2.OrDie
   ) where
@@ -7,6 +8,7 @@ import Control.Monad.IO.Class
 import System.Exit
 import Prettyprinter
 import UnliftIO
+import Control.Monad.Except
 
 class OrDie m a where
   type family OrDieResult a :: Type
@@ -39,12 +41,12 @@ class OrThrow a  where
   type family OrThrowResult a :: Type
   orThrow :: forall e m  . (MonadIO m, Exception e) =>  e -> a -> m (OrThrowResult a)
 
+
 instance OrThrow (Maybe a) where
   type instance OrThrowResult (Maybe a) = a
   orThrow e a = case a of
     Nothing -> throwIO e
     Just x  -> pure x
-
 
 instance OrThrow (Either b a) where
   type instance OrThrowResult (Either b a) = a

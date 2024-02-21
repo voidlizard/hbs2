@@ -9,8 +9,6 @@ import HBS2.Net.Proto.BlockAnnounce
 
 import PeerTypes
 
-import HBS2.System.Logger.Simple
-
 sendBlockAnnounce :: forall e m . (e ~ L4Proto, MonadIO m)
                   => PeerEnv e
                   -> Peer e

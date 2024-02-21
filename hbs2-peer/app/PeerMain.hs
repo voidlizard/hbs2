@@ -38,14 +38,13 @@ import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
-import HBS2.System.Logger.Simple hiding (info)
 import HBS2.Version
 import Paths_hbs2_peer qualified as Pkg
 
 import Brains
 import BrainyPeerLocator
 import ByPassWorker
-import PeerTypes
+import PeerTypes hiding (info)
 import BlockDownload
 import CheckBlockAnnounce (checkBlockAnnounce)
 import CheckPeer (peerBanned)
@@ -64,8 +63,9 @@ import CLI.RefChan
 import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
-import Log
+import Log hiding (info)
 
+import HBS2.Misc.PrettyStuff
 import HBS2.Peer.RPC.Internal.Types()
 import HBS2.Peer.RPC.Internal.Storage()
 
@@ -540,8 +540,7 @@ runCLI = do
     hashP = maybeReader fromStringMay
 
 myException :: SomeException -> IO ()
-myException e = err ( show e )
-
+myException e = err ( viaShow e )
 
 newtype CredentialsM e s m a =
   CredentialsM { fromCredentials :: ReaderT (PeerCredentials s) m a }
@@ -995,16 +994,15 @@ runPeer opts = Exception.handle (\e -> myException e
                 debug "sending first peer announce"
                 request localMulticast (PeerAnnounce @e pnonce)
 
-              let peerThread t mx = W.tell . L.singleton =<< (liftIO . async) do
-                    withPeerM env mx
-                      `U.withException` \e -> case fromException e of
-                        Just (_ :: AsyncCancelled) -> pure ()
-                        Nothing -> do
-                          err ("peerThread" <+> viaShow t <+> "Failed with" <+> viaShow e)
+              let peerThread t mx = ContT $ withAsync $ liftIO $
+                                      withPeerM env mx
+                                       `U.withException` \e -> case fromException e of
+                                          Just (_ :: AsyncCancelled) -> pure ()
+                                          Nothing -> do
+                                            err $ red "Exception" <+> "in thread" <+> pretty t <+> viaShow e
+                                            liftIO $ throwTo myself GoAgainException
 
-                    debug $ "peerThread Finished:" <+> t
-
-              workers <- W.execWriterT do
+              flip runContT pure do
 
                 peerThread "local multicast" $ forever $ do
                   pause defPeerAnnounceTime -- FIXME: setting!
@@ -1039,7 +1037,7 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "refChanNotifyLogWorker" (refChanNotifyLogWorker @e conf (SomeBrains brains))
 
-                peerThread "all protos" do
+                liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
                     , makeResponse (blockChunksProto adapter)
@@ -1055,8 +1053,6 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     ]
 
-              void $ liftIO $ waitAnyCancel workers
-              liftIO $ throwTo myself GoAgainException
 
   let refChanHeadPostAction href = do
         void $ liftIO $ withPeerM penv $ do

@@ -3,8 +3,6 @@ module DownloadMon where
 
 import HBS2.Prelude.Plated
 
-import HBS2.System.Logger.Simple
-
 import HBS2.Actors.Peer
 import PeerTypes
 

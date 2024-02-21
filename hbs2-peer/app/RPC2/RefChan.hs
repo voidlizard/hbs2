@@ -19,7 +19,6 @@ import HBS2.Storage
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.Internal.Types
 
-import HBS2.System.Logger.Simple
 import PeerTypes
 
 import Data.Functor

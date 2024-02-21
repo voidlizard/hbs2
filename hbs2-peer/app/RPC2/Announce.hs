@@ -6,12 +6,12 @@ import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Net.Proto.Service
 
-import HBS2.System.Logger.Simple
-
 import SendBlockAnnounce
 
 import HBS2.Peer.RPC.Internal.Types
 import HBS2.Peer.RPC.API.Peer
+
+import PeerLogger
 
 
 instance (MonadIO m,HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcAnnounce where

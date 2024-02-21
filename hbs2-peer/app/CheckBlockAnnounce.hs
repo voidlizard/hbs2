@@ -16,8 +16,6 @@ import CheckPeer (peerBanned)
 import BlockDownload
 import DownloadQ
 
-import HBS2.System.Logger.Simple
-
 import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
 import Data.Set qualified as Set

@@ -6,7 +6,7 @@
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=new-git-export-3";
+    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=newest-hbs2-git";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
