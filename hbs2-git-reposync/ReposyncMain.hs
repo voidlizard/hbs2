@@ -267,8 +267,10 @@ runSync = do
                              ("GIT_HTTP_EXPORT_ALL", "")
                           ]
 
-                 let p = shell "/usr/bin/env git-http-backend" & setEnv env & setStderr closed
+                 let p = shell "/usr/bin/env git-http-backend" & setEnv env -- & setStderr closed
                  (code, out) <- readProcessStdout p
+
+                 liftIO $ LBS.putStrLn out
 
                  (s, h, body) <- parseResp out
 
