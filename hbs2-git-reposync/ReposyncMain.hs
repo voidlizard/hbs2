@@ -270,6 +270,7 @@ runSync = do
                  let p = shell "/usr/bin/env git-http-backend" & setEnv env -- & setStderr closed
                  (code, out) <- readProcessStdout p
 
+                 -- FIXME: remove
                  liftIO $ LBS.putStrLn out
 
                  (s, h, body) <- parseResp out
