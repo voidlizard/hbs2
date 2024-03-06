@@ -45,8 +45,12 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
 
+import Data.Cache
+import Data.Cache qualified as Cache
+
 import System.IO.Posix.MMap ( unsafeMMapFile )
 
+import Control.Monad.Trans.Cont
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TBQueue qualified as TBQ
 import Control.Concurrent.STM.TBMQueue qualified as TBMQ
@@ -54,6 +58,8 @@ import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TV
 
 import Codec.Serialise
+import System.Random
+import System.Mem
 
 
 -- NOTE:  random accessing files in a git-like storage
@@ -84,6 +90,7 @@ data SimpleStorage a =
   , _storageStopWriting :: TVar Bool
   , _storageMMaped      :: TVar (HashMap (Key a) ByteString)
   , _storageMMapedLRU   :: TVar (HashMap (Key a) TimeSpec)
+  , _storageSizeCache   :: Cache (Key a) (Maybe Integer)
   }
 
 makeLenses ''SimpleStorage
@@ -138,6 +145,7 @@ simpleStorageInit opts = liftIO $ do
                 <*> TV.newTVarIO False
                 <*> TV.newTVarIO mempty
                 <*> TV.newTVarIO mempty
+                <*> Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
   createDirectoryIfMissing True (stor ^. storageTemp)
@@ -171,32 +179,42 @@ simpleStorageStop ss = do
 simpleStorageWorker :: IsSimpleStorageKey h => SimpleStorage h -> IO ()
 simpleStorageWorker ss = do
 
-  ops <- async $ fix \next -> do
-    s <- atomically $ do TBMQ.readTBMQueue ( ss ^. storageOpQ )
-    case s of
-      Nothing -> pure ()
-      Just a  -> a >> next
+  lastKick <- newTVarIO =<< getTimeCoarse
 
-  killer <- async $ forever $ do
-    pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
-    simpleAddTask ss $ do
+  flip runContT pure do
 
-      atomically $ do
+    ContT $ withAsync $ forever $ do
+      pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting
+      simpleAddTask ss $ do
 
-        alive  <- readTVar ( ss ^. storageMMapedLRU )
-        mmaped <- readTVar ( ss ^. storageMMaped )
+        atomically $ do
 
-        let survived = mmaped `HashMap.intersection` alive
+          alive  <- readTVar ( ss ^. storageMMapedLRU )
+          mmaped <- readTVar ( ss ^. storageMMaped )
 
-        writeTVar ( ss ^. storageMMaped ) survived
+          let survived = mmaped `HashMap.intersection` alive
 
-  killerLRU <- async $ forever $ do
-    pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
-    atomically $ writeTVar ( ss ^. storageMMapedLRU ) mempty
+          writeTVar ( ss ^. storageMMaped ) survived
 
-  (_, e) <- waitAnyCatchCancel [ops,killer, killerLRU]
+    ContT $ withAsync $ do
+      let lru = ss ^. storageMMapedLRU
+      let timeout = 5 :: Timeout 'Seconds
+      forever $ do
+        pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
+        now <- getTimeCoarse
+        let notExpired t0 = not (expired timeout (now - t0))
+        atomically do
+          modifyTVar lru (HashMap.filter notExpired)
 
-  pure ()
+    liftIO do
+      fix \next -> do
+        s <- atomically $ do TBMQ.readTBMQueue ( ss ^. storageOpQ )
+        case s of
+          Nothing -> pure ()
+          Just a  -> do
+            now <- getTimeCoarse
+            atomically $ writeTVar lastKick now
+            a >> next
 
 simpleBlockFileName :: Pretty (Hash h) => SimpleStorage h -> Hash h -> FilePath
 simpleBlockFileName ss h = path
@@ -273,13 +291,15 @@ simpleGetChunkLazy s key off size = do
 
   atomically $ TBMQ.readTBMQueue resQ >>= maybe (pure Nothing) pure
 
-simplePutBlockLazy :: (IsKey h, Hashed h LBS.ByteString)
+simplePutBlockLazy :: (IsSimpleStorageKey h, Hashed h LBS.ByteString)
                    => Bool -- | wait
                    -> SimpleStorage h
                    -> LBS.ByteString
                    -> IO (Maybe (Hash h))
 
 simplePutBlockLazy doWait s lbs = do
+
+  let cache = view storageSizeCache s
 
   let hash = hashObject lbs
 
@@ -296,7 +316,8 @@ simplePutBlockLazy doWait s lbs = do
           handle (\(_ :: IOError) -> atomically $ TBQ.writeTBQueue waits False)
                  do
                    let fn = simpleBlockFileName s hash
-                   AwBS.atomicWriteFile fn (LBS.toStrict lbs)
+                   let blk = LBS.toStrict lbs
+                   AwBS.atomicWriteFile fn blk
                    atomically $ TBQ.writeTBQueue waits True
 
     simpleAddTask s action
@@ -312,16 +333,26 @@ simplePutBlockLazy doWait s lbs = do
       pure $ Just hash
 
 -- TODO: should be async as well?
-simpleBlockExists :: IsKey h
+simpleBlockExists :: IsSimpleStorageKey h
                   => SimpleStorage h
                   -> Hash h
                   -> IO (Maybe Integer)
 
 simpleBlockExists ss hash = runMaybeT $ do
   let fn = simpleBlockFileName ss hash
-  exists <- liftIO $ doesFileExist fn
-  unless exists mzero
-  liftIO $ getFileSize fn
+
+  let cache = view storageSizeCache ss
+  mbsize <- liftIO $ Cache.lookup cache hash
+
+  case mbsize of
+    Just (Just n) -> do
+      pure n
+    _ -> do
+        exists <- liftIO $ doesFileExist fn
+        unless exists mzero
+        s <- liftIO $ getFileSize fn
+        liftIO $ Cache.insert cache hash (Just s)
+        pure s
 
 spawnAndWait :: SimpleStorage h -> IO a -> IO (Maybe a)
 spawnAndWait s act = do
@@ -474,10 +505,12 @@ instance ( MonadIO m, IsKey hash
       pure $ unAsBase58 parsed
 
   delBlock ss h = do
+    let cache = view storageSizeCache ss
     let fn = simpleBlockFileName ss h
     void $ liftIO $ spawnAndWait ss do
       exists <- doesFileExist fn
       when exists (removeFile fn)
+      Cache.delete cache h
 
   delRef ss ref = do
     let refHash = hashObject @hash ref

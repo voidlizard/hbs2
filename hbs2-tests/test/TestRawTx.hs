@@ -6,9 +6,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import HBS2.Base58 (fromBase58)
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto hiding (request)
-import HBS2.Net.Proto.Definition ()
-import HBS2.Net.Proto.RefLog (makeRefLogUpdate)
+import HBS2.Peer.Proto hiding (request)
 import HBS2.OrDie
 import HBS2.Prelude
 import Lens.Micro.Platform

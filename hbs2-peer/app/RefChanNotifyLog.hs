@@ -17,9 +17,8 @@ import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 
 import HBS2.Peer.RefChanNotifyLog

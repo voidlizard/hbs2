@@ -5,16 +5,14 @@ module RPC2.RefLog
   , module HBS2.Peer.RPC.Internal.Types
   ) where
 
-import HBS2.Prelude.Plated
+import HBS2.Peer.Prelude
 
 import HBS2.Actors.Peer
 import HBS2.Hash
 import HBS2.Base58
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Events
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.RefLog
-import HBS2.Net.Proto.Service
+import HBS2.Peer.Proto
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 
@@ -24,7 +22,6 @@ import RefLog (doRefLogBroadCast)
 import HBS2.Peer.RPC.Internal.Types
 import HBS2.Peer.RPC.API.RefLog
 
-import Data.Functor
 import Lens.Micro.Platform
 import Control.Monad.Reader
 

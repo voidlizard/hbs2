@@ -137,9 +137,27 @@ library
     default-language: Haskell2010
 
     exposed-modules:
+      HBS2.Peer.Prelude
       HBS2.Peer.Brains
       HBS2.Peer.Notify
       HBS2.Peer.RefChanNotifyLog
+
+      HBS2.Peer.Proto
+      HBS2.Peer.Proto.Peer
+      HBS2.Peer.Proto.PeerAnnounce
+      HBS2.Peer.Proto.PeerMeta
+      HBS2.Peer.Proto.BlockAnnounce
+      HBS2.Peer.Proto.BlockChunks
+      HBS2.Peer.Proto.BlockInfo
+      HBS2.Peer.Proto.PeerExchange
+      HBS2.Peer.Proto.RefLog
+      HBS2.Peer.Proto.RefChan
+      HBS2.Peer.Proto.RefChan.Types
+      HBS2.Peer.Proto.RefChan.RefChanHead
+      HBS2.Peer.Proto.RefChan.RefChanNotify
+      HBS2.Peer.Proto.RefChan.RefChanUpdate
+      HBS2.Peer.Proto.AnyRef
+
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
@@ -167,8 +185,6 @@ executable hbs2-peer
                     , DownloadMon
                     , Bootstrap
                     , PeerInfo
-                    , PeerMain.Dialog.Server
-                    , PeerMain.Dialog.Spec
                     , PeerMeta
                     , SendBlockAnnounce
                     , CheckBlockAnnounce
@@ -178,6 +194,7 @@ executable hbs2-peer
                     , RPC2
                     , RPC2.Peer
                     , RPC2.Poke
+                    , RPC2.PerformGC
                     , RPC2.Announce
                     , RPC2.Fetch
                     , RPC2.Die

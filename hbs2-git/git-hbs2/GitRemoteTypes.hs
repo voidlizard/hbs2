@@ -6,7 +6,6 @@ import HBS2.Prelude
 import HBS2.OrDie
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Definition()
 import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2Git.Types

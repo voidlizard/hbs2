@@ -1,28 +1,41 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Proto.Peer where
+module HBS2.Peer.Proto.Peer where
 
 -- import HBS2.Base58
 import HBS2.Actors.Peer
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Types
 import HBS2.Clock
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
-import HBS2.System.Logger.Simple
 
-import Control.Monad
-import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.Maybe
 import Codec.Serialise()
-import Data.ByteString qualified as BS
 import Data.Hashable
-import Data.String.Conversions (cs)
 import Lens.Micro.Platform
 import Type.Reflection (someTypeRep)
+
+data PeerExpires = PeerExpires
+
+data instance EventKey e PeerExpires =
+  PeerExpiredEventKey
+  deriving stock (Typeable, Eq, Generic)
+
+data instance Event e PeerExpires =
+  PeerExpiredEvent (Peer e) -- (Maybe (PeerData e))
+  deriving stock (Typeable)
+
+instance EventType (Event e PeerExpires) where
+  isPersistent = True
+
+instance Expires (EventKey e PeerExpires) where
+  expiresIn _ = Nothing
+
+instance Hashable (EventKey e PeerExpires)
+
 
 data PeerHandshake e =
     PeerPing  PingNonce

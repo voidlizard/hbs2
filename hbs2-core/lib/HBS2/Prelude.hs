@@ -3,7 +3,9 @@ module HBS2.Prelude
   ( module Data.String
   , module Safe
   , module X
-  , MonadIO(..)
+  , module Numeric.Natural
+  , module HBS2.Clock
+  , MonadIO(..), MonadPlus(..)
   , void, guard, when, unless
   , maybe1
   , eitherToMaybe
@@ -23,15 +25,14 @@ module HBS2.Prelude
   , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
   ) where
 
+import HBS2.Clock
+
 import Data.Typeable as X
 import GHC.Generics as X (Generic)
 
 import Data.ByteString (ByteString)
 import Data.String (IsString(..))
 import Safe
-import Control.Monad.IO.Class (MonadIO(..))
-import Control.Monad (guard,when,unless,MonadPlus(..))
-import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 
 
@@ -46,12 +47,10 @@ import Data.Hashable
 import Prettyprinter
 import Data.Word
 import GHC.Generics
-import Data.Time.Clock (NominalDiffTime(..))
-import Codec.Serialise
 import Control.Monad.Except
+import Numeric.Natural
 
 import UnliftIO
-import Control.Monad.IO.Unlift
 
 none :: forall m . Monad m => m ()
 none = pure ()
@@ -61,9 +60,6 @@ maybe1 mb n j = maybe n j mb
 
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe = either (const Nothing) Just
-
--- deriving instance Generic NominalDiffTime
--- instance Serialise NominalDiffTime
 
 newtype AsFileName a = AsFileName a
 

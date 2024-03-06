@@ -19,7 +19,6 @@ import HBS2.Prelude.Plated
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Hash
-import HBS2.Clock
 import HBS2.Data.Detect
 import HBS2.Defaults
 import HBS2.Data.Types.Refs
@@ -28,13 +27,10 @@ import HBS2.Events
 import HBS2.Merkle
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Proto.Sessions
 import HBS2.Storage
-import HBS2.Storage.Operations.Missed
 
 import PeerTypes hiding (downloads)
 import PeerConfig
@@ -204,7 +200,7 @@ refChanAddDownload env chan r onComlete = do
   penv <- ask
   t <- getTimeCoarse
   withPeerM penv $ withDownload (_refChanWorkerEnvDEnv env)
-                 $ processBlock @e (fromHashRef r)
+                 $ addDownload @e Nothing (fromHashRef r)
 
   atomically $ modifyTVar (view refChanWorkerEnvDownload env) (HashMap.insert r (chan,(t, onComlete)))
 

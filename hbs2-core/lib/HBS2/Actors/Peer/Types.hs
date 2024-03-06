@@ -8,9 +8,9 @@ import HBS2.Net.Messaging
 import HBS2.Hash
 
 import Control.Monad.Trans.Class
-import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy (ByteString)
-
+import Control.Monad
+import Codec.Serialise
 
 class HasProtocol e p => HasTimeLimits e p m where
   tryLockForPeriod :: Peer e -> p -> m Bool
@@ -47,4 +47,6 @@ type PeerMessaging e = ( Messaging (Fabriq e) e (AnyMessage (Encoded e) e)
                        , Eq (Encoded e)
                        , Hashable (Encoded e)
                        )
+
+
 

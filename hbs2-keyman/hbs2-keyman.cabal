@@ -47,6 +47,7 @@ common common-deps
         , tasty
         , tasty-hunit
         , temporary
+        , text
         , timeit
         , transformers
         , uniplate
@@ -95,9 +96,9 @@ library
 
     exposed-modules:
       HBS2.KeyMan.App.Types
+      HBS2.KeyMan.Prelude
       HBS2.KeyMan.Config
       HBS2.KeyMan.State
-      HBS2.KeyMan.Keys
       HBS2.KeyMan.Keys.Direct
 
     -- other-modules:

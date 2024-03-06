@@ -1,11 +1,13 @@
-module HBS2.Net.Proto.BlockInfo where
+module HBS2.Peer.Proto.BlockInfo where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Events
 import HBS2.Hash
+
+import HBS2.System.Logger.Simple
 
 import Data.Maybe
 

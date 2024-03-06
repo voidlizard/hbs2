@@ -7,7 +7,6 @@ import Data.Hashable
 import Lens.Micro.Platform
 
 import HBS2.Prelude
-import HBS2.Data.Types.Crypto
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Types
 

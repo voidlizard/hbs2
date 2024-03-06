@@ -4,12 +4,11 @@ module HBS2Git.Encryption
   , module HBS2.Net.Auth.GroupKeySymm
   ) where
 
-import HBS2.Prelude.Plated
+import HBS2Git.Prelude
 
-import HBS2.Base58
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Types hiding (Cookie)
 import HBS2.Net.Auth.GroupKeySymm hiding (Cookie)
-import HBS2.Net.Proto.Definition()
 
 
 import HBS2Git.Encryption.KeyInfo
@@ -17,7 +16,6 @@ import HBS2Git.Encryption.KeyInfo
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.KeyValue
 
-import Data.Function
 import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Text qualified as Text

@@ -16,11 +16,11 @@ defBurstMax :: Integral a => a
 defBurstMax = 128
 
 defBurst :: Integral a => a
-defBurst = defBurstMax `div` 2
+defBurst = defBurstMax `div` 8
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
-defChunkSize = 1420
+defChunkSize = 1400
 -- defChunkSize = 480
 
 defBlockSize :: Integer
@@ -70,7 +70,7 @@ defBlockWipTimeout :: TimeSpec
 defBlockWipTimeout = defCookieTimeout
 
 defBlockInfoTimeout :: Timeout 'Seconds
-defBlockInfoTimeout = 2
+defBlockInfoTimeout = 5
 
 defBlockInfoTimeoutSpec :: TimeSpec
 defBlockInfoTimeoutSpec = toTimeSpec defBlockInfoTimeout

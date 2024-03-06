@@ -33,6 +33,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"
      "hbs2-storage-simple"
      "hbs2-git"
+     "hbs2-git-reposync"
      "hbs2-qblf"
      "hbs2-keyman"
      "hbs2-share"
@@ -58,6 +59,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-peer" = "./hbs2-peer";
      "hbs2-keyman" = "./hbs2-keyman";
      "hbs2-share"  = "./hbs2-share";
+     "hbs2-git"    = "./hbs2-git";
+     "hbs2-git-reposync"   = "./hbs2-git-reposync";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
@@ -100,6 +103,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
             text-icu
             pkgs.icu72
             pkgs.openssl
+            weeder
           ])
           ++
           [ pkgs.pkg-config
@@ -110,7 +114,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
         shellHook = ''
         export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
-        export STAN_USE_DEFAULT_CONFIG=True
         '';
 
       };

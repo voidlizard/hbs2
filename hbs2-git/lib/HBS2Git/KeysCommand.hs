@@ -4,17 +4,16 @@ module HBS2Git.KeysCommand
   , CryptoAction(..)
   ) where
 
-import HBS2.Prelude.Plated
-import HBS2.Base58
+
+import HBS2Git.Prelude
+import HBS2Git.App
+import HBS2Git.Encryption
+
 import HBS2.OrDie
 import HBS2.Net.Proto.Types
 
-import HBS2Git.App
-import HBS2Git.Encryption
 import HBS2.System.Logger.Simple
 
-
-import Data.Function
 import Data.Time.Clock.POSIX
 import Data.Maybe
 

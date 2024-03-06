@@ -10,7 +10,6 @@ module HBS2Git.App
   where
 
 import HBS2.Prelude.Plated
-import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.OrDie
@@ -22,10 +21,9 @@ import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.System.Logger.Simple
 import HBS2.Merkle
 import HBS2.Git.Types
-import HBS2.Net.Proto.Definition()
 import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Net.Auth.Credentials hiding (getCredentials)
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto
 import HBS2.Defaults (defBlockSize)
 
 import HBS2.Peer.RPC.Client.Unix

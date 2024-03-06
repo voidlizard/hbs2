@@ -2,10 +2,9 @@
 {-# Language UndecidableInstances #-}
 module RPC2.Poll where
 
-import HBS2.Prelude.Plated
+import HBS2.Peer.Prelude
 import HBS2.Net.Proto.Service
 import HBS2.Peer.Brains
-import HBS2.Net.Proto.Definition()
 
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.Internal.Types

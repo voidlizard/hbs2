@@ -5,18 +5,21 @@ import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Storage
 
+import Control.Exception
 import Data.Kind
 
 data OperationError =
     StorageError
   | CryptoError
+  | DecryptError
   | DecryptionError
   | MissedBlockError
   | UnsupportedFormat
+  | IncompleteData
   | GroupKeyNotFound Int
   deriving (Generic,Show,Data,Typeable)
 
--- instance Exception OperationError
+instance Exception OperationError
 
 class (MonadIO m, Storage storage hash (ToBlockW s) m) => MerkleWriter s hash storage m where
   type family ToBlockW s :: Type

@@ -1,7 +1,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language TemplateHaskell #-}
-module HBS2.Net.Proto.RefLog where
+module HBS2.Peer.Proto.RefLog where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
@@ -11,7 +11,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Base58
 import HBS2.Events
 import HBS2.Actors.Peer.Types
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
 

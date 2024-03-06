@@ -5,6 +5,7 @@ module HBS2.Peer.RPC.Internal.Types
   ) where
 
 import HBS2.Actors.Peer
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Types
 import HBS2.Storage()
 import HBS2.Data.Types.Refs (HashRef)

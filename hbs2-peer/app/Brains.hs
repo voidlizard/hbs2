@@ -10,7 +10,7 @@ module Brains
 
 import HBS2.Prelude.Plated
 import HBS2.Clock
-import HBS2.Net.Proto.RefChan(ForRefChans)
+import HBS2.Peer.Proto.RefChan(ForRefChans)
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto
 import HBS2.Hash
@@ -18,6 +18,8 @@ import HBS2.Base58
 import HBS2.Net.IP.Addr
 
 import HBS2.Peer.Brains
+
+import HBS2.Misc.PrettyStuff
 
 import PeerLogger
 import PeerConfig
@@ -218,6 +220,9 @@ instance ( Hashable (Peer e)
     updateOP brains $ do
       let conn = view brainsDb brains
       liftIO $ execute conn sql (show $ pretty (AsBase58 r), s, i)
+
+    commitNow brains True
+
     where
       sql = [qc|
       insert into statedb.poll (ref,type,interval)
@@ -559,6 +564,17 @@ SELECT s.peer
   liftIO $ query conn sql (Only (show $ pretty child) ) <&> fmap fromOnly
 
 
+delAllDownloads :: BasicBrains e  -> IO ()
+delAllDownloads brains = do
+
+  let conn = view brainsDb brains
+
+  let sql = [qc|
+DELETE FROM statedb.download;
+  |]
+
+  void $ try @SomeException $ liftIO $ execute_ conn sql
+
 cleanupHashes :: BasicBrains e
               -> IO ()
 
@@ -857,6 +873,12 @@ newBasicBrains cfg = liftIO do
               <*> newTQueueIO
               <*> Cache.newCache (Just (toTimeSpec (1200:: Timeout 'Seconds)))
 
+
+data PeerDownloadsDelOnStart
+
+instance Monad m => HasCfgKey PeerDownloadsDelOnStart b m where
+  key = "downloads-del-on-start"
+
 runBasicBrains :: forall e m . ( e ~ L4Proto
                                , MonadUnliftIO m
                                , ForRefChans e
@@ -903,6 +925,14 @@ runBasicBrains cfg brains = do
   trace "runBasicBrains init"
 
   let (PeerConfig syn) = cfg
+
+  let delDowns = runReader (cfgValue @PeerDownloadsDelOnStart) cfg :: FeatureSwitch
+
+  when (delDowns == FeatureOn ) do
+    debug $ yellow "CLEAN ALL DOWNLOADS"
+    updateOP brains (delAllDownloads brains)
+    commitNow brains True
+
   let polls = catMaybes (
        [ (tp,n,) <$> fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack ref)
        | ListVal (Key "poll" [SymbolVal tp, LitIntVal n, LitStrVal ref]) <- syn

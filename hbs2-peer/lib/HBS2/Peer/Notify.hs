@@ -18,14 +18,12 @@ module HBS2.Peer.Notify
 import HBS2.Prelude
 import HBS2.Base58
 import HBS2.Data.Types.Refs
-import HBS2.Actors.Peer.Types
 import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Notify
-import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.RefLog
 import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Data.Types.SignedBox
-import HBS2.Net.Proto.Definition()
 
 import Codec.Serialise
 import Data.ByteString.Lazy (ByteString)

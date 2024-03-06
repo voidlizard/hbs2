@@ -1,72 +1,43 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module HBS2.Net.Proto.Definition
-  ( module HBS2.Net.Proto.BlockAnnounce
-  , module HBS2.Net.Proto.BlockChunks
-  , module HBS2.Net.Proto.BlockInfo
-  )
-  where
+module HBS2.Peer.Proto
+  ( module HBS2.Peer.Proto.PeerMeta
+  , module HBS2.Peer.Proto.BlockAnnounce
+  , module HBS2.Peer.Proto.BlockChunks
+  , module HBS2.Peer.Proto.BlockInfo
+  , module HBS2.Peer.Proto.Peer
+  , module HBS2.Peer.Proto.PeerAnnounce
+  , module HBS2.Peer.Proto.PeerExchange
+  , module HBS2.Peer.Proto.RefLog
+  , module HBS2.Peer.Proto.RefChan
+  , module HBS2.Peer.Proto.AnyRef
+  , module HBS2.Net.Proto.Types
+  , module HBS2.Net.Proto.Sessions
+  , module HBS2.Net.Proto.Service
+  ) where
 
--- FIXME: move-module-to-hbs2-peer
+import HBS2.Peer.Prelude
+import HBS2.Net.Proto.Types
+import HBS2.Peer.Proto.PeerMeta
+import HBS2.Peer.Proto.BlockAnnounce
+import HBS2.Peer.Proto.BlockChunks
+import HBS2.Peer.Proto.BlockInfo
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.PeerAnnounce
+import HBS2.Peer.Proto.PeerExchange
+import HBS2.Peer.Proto.RefLog
+import HBS2.Peer.Proto.RefChan hiding (Notify)
+import HBS2.Peer.Proto.AnyRef
 
-import HBS2.Clock
-import HBS2.Defaults
-import HBS2.Hash
 import HBS2.Actors.Peer.Types
-import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto
-import HBS2.Net.Proto.BlockAnnounce
-import HBS2.Net.Proto.BlockChunks
-import HBS2.Net.Proto.BlockInfo
-import HBS2.Net.Proto.Dialog
-import HBS2.Net.Proto.EncryptionHandshake
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerAnnounce
-import HBS2.Net.Proto.PeerExchange
-import HBS2.Net.Proto.PeerMeta
-import HBS2.Net.Proto.RefLog
-import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.Service
 import HBS2.Net.Messaging.Unix (UNIX)
-import HBS2.Prelude.Plated
+import HBS2.Net.Proto.Sessions
+import HBS2.Net.Proto.Service
 
-import Control.Monad
-import Data.Functor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BSL
-import Codec.Serialise (deserialiseOrFail,serialise)
-
+import Codec.Serialise
 import Crypto.Saltine.Core.Box qualified as Crypto
 import Crypto.Saltine.Class qualified as Crypto
-import Crypto.Saltine.Core.Sign qualified as Sign
-import Crypto.Saltine.Core.Box qualified as Encrypt
-
-
-
--- FIXME: move-to-types-crypto-ASAP
-type instance Encryption L4Proto = HBS2Basic
-
-type instance Encryption UNIX = HBS2Basic
-
-type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
-type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
-type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
-type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
-
-type instance KeyActionOf Sign.PublicKey = 'Sign
-type instance KeyActionOf Encrypt.PublicKey = 'Encrypt
-
--- FIXME: proper-serialise-for-keys
---   Возможно, нужно написать ручные инстансы Serialise
---   использовать encode/decode для каждого инстанса ниже $(c:end + 4)
---   и это будет более правильная сериализация.
---   но возможно, будет работать и так, ведь ключи
---   это же всего лишь байтстроки внутри.
-
-deserialiseCustom :: (Serialise a, MonadPlus m) => ByteString -> m a
-deserialiseCustom = either (const mzero) pure . deserialiseOrFail
--- deserialiseCustom = either (\msg -> trace ("deserialiseCustom: " <> show msg) mzero) pure . deserialiseOrFail
--- deserialiseCustom = either (error . show) pure . deserialiseOrFail
 
 instance HasProtocol L4Proto (BlockInfo L4Proto) where
   type instance ProtocolId (BlockInfo L4Proto) = 1
@@ -128,14 +99,6 @@ instance HasProtocol L4Proto (RefLogRequest L4Proto) where
   decode = deserialiseCustom
   encode = serialise
 
-instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
-  type instance ProtocolId (PeerMetaProto L4Proto) = 9
-  type instance Encoded L4Proto = ByteString
-  decode = deserialiseCustom
-  encode = serialise
-
-  -- FIXME: real-period
-  requestPeriodLim = ReqLimPerMessage 0.25
 
 instance HasProtocol L4Proto (RefChanHead L4Proto) where
   type instance ProtocolId (RefChanHead L4Proto) = 11001
@@ -145,14 +108,6 @@ instance HasProtocol L4Proto (RefChanHead L4Proto) where
 
   -- TODO: find-out-optimal-max-frequency
   requestPeriodLim = ReqLimPerMessage 60
-
-instance HasProtocol L4Proto (EncryptionHandshake L4Proto) where
-  type instance ProtocolId (EncryptionHandshake L4Proto) = 10
-  type instance Encoded L4Proto = ByteString
-  decode = deserialiseCustom
-  encode = serialise
-
-  requestPeriodLim = ReqLimPerProto 0.5
 
 
 instance HasProtocol L4Proto (RefChanUpdate L4Proto) where
@@ -191,18 +146,6 @@ instance HasProtocol L4Proto (RefChanNotify L4Proto) where
   -- возьмем пока 10 секунд
   requestPeriodLim = NoLimit
 
-
-instance HasProtocol L4Proto (DialReq L4Proto) where
-  type instance ProtocolId (DialReq L4Proto) = 96000
-  type instance Encoded L4Proto = ByteString
-  decode = dialReqDecode . BSL.toStrict
-  encode = BSL.fromStrict . dialReqEncode
-
-instance HasProtocol L4Proto (DialResp L4Proto) where
-  type instance ProtocolId (DialResp L4Proto) = 96001
-  type instance Encoded L4Proto = ByteString
-  decode = dialRespDecode . BSL.toStrict
-  encode = BSL.fromStrict . dialRespEncode
 
 instance Serialise (RefChanValidate UNIX) => HasProtocol UNIX (RefChanValidate UNIX) where
   type instance ProtocolId (RefChanValidate UNIX) = 0xFFFA0001
@@ -252,12 +195,6 @@ instance Expires (SessionKey L4Proto (PeerHandshake L4Proto)) where
 instance Expires (EventKey L4Proto (PeerAnnounce L4Proto)) where
   expiresIn _ = Nothing
 
-instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
-  expiresIn _ = Just 600
-
-instance Expires (SessionKey L4Proto (EncryptionHandshake L4Proto)) where
-  expiresIn _ = Just defCookieTimeoutSec
-
 instance MonadIO m => HasNonces (PeerHandshake L4Proto) m where
   type instance Nonce (PeerHandshake L4Proto) = BS.ByteString
   newNonce = do
@@ -281,17 +218,4 @@ instance MonadIO m => HasNonces () m where
   newNonce = do
     n <- liftIO ( Crypto.newNonce <&> Crypto.encode )
     pure $ BS.take 32 n
-
-instance Asymm HBS2Basic where
-  type AsymmKeypair HBS2Basic = Encrypt.Keypair
-  type AsymmPrivKey HBS2Basic = Encrypt.SecretKey
-  type AsymmPubKey HBS2Basic = Encrypt.PublicKey
-  type CommonSecret HBS2Basic = Encrypt.CombinedKey
-  asymmNewKeypair = liftIO Encrypt.newKeypair
-  privKeyFromKeypair = Encrypt.secretKey
-  pubKeyFromKeypair = Encrypt.publicKey
-  genCommonSecret = Encrypt.beforeNM
-
-instance Hashed HbSync Sign.PublicKey where
-  hashObject pk = hashObject (Crypto.encode pk)
 

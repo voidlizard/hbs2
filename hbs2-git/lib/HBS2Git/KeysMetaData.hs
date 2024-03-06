@@ -1,19 +1,7 @@
 module HBS2Git.KeysMetaData where
 
-import HBS2.Prelude.Plated
-import HBS2.Hash
-import HBS2.Base58
-import HBS2.Data.Detect
-import HBS2.Data.Types.Refs
-import HBS2.Merkle
-import HBS2.Net.Auth.GroupKeySymm
-import HBS2.Net.Proto.RefLog
-import HBS2.OrDie
-import HBS2.Storage
-import HBS2.Storage.Operations.ByteString
-import HBS2.System.Logger.Simple
-import HBS2.Net.Proto.Definition()
 
+import HBS2Git.Prelude
 import HBS2Git.Types
 import HBS2Git.Alerts
 import HBS2Git.Annotations
@@ -22,7 +10,15 @@ import HBS2Git.State
 import HBS2Git.PrettyStuff
 import HBS2Git.Config
 
-import Codec.Serialise
+
+import HBS2.Data.Detect
+import HBS2.Merkle
+import HBS2.Peer.Proto
+import HBS2.OrDie
+import HBS2.Storage
+import HBS2.Storage.Operations.ByteString
+import HBS2.System.Logger.Simple
+
 import Control.Monad
 import Control.Monad.Catch (MonadMask)
 import Control.Monad.Except (runExceptT)
@@ -33,7 +29,6 @@ import Data.Either
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
-import Data.Function (on)
 import Data.Maybe
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S

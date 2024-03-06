@@ -1,5 +1,5 @@
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Proto.AnyRef where
+module HBS2.Peer.Proto.AnyRef where
 
 import HBS2.Prelude
 import HBS2.Hash

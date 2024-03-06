@@ -1,6 +1,7 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Peer.RPC.API.RefChan where
 
+import HBS2.Peer.Prelude
 import HBS2.Net.Proto.Service
 import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Data.Types.Refs (HashRef(..))

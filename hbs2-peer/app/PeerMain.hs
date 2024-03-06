@@ -9,7 +9,6 @@ import HBS2.Prelude.Plated
 
 import HBS2.Actors.Peer
 import HBS2.Base58
-import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -23,16 +22,9 @@ import HBS2.Net.Messaging.TCP
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Messaging.Encrypted.ByPass
 import HBS2.Net.PeerLocator
-import HBS2.Net.Proto.Definition
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerAnnounce
-import HBS2.Net.Proto.PeerExchange
-import HBS2.Net.Proto.PeerMeta
-import HBS2.Net.Proto.RefLog
-import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.Sessions
-import HBS2.Net.Proto.Service
-import HBS2.Net.Proto.Notify (NotifyProto)
+import HBS2.Peer.Proto
+import HBS2.Peer.Proto.RefChan qualified as R
+import HBS2.Net.Proto.Notify
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
@@ -128,7 +120,7 @@ instance Exception GoAgainException
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
-defStorageThreads = 4
+defStorageThreads = 1
 
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
@@ -247,9 +239,8 @@ runCLI = do
                 <> command "poll"      (info pPoll  (progDesc "polling management"))
                 <> command "log"       (info pLog   (progDesc "set logging level"))
                 <> command "bypass"    (info pByPass (progDesc "bypass"))
+                <> command "gc"        (info pRunGC (progDesc "run RAM garbage collector"))
                 <> command "version"   (info pVersion (progDesc "show program version"))
-                -- FIXME: bring-back-dialogue-over-separate-socket
-                -- <> command "dial"      (info pDialog (progDesc "dialog commands"))
                 )
 
     common = do
@@ -532,6 +523,13 @@ runCLI = do
         void $ runMaybeT do
          d <- toMPlus =<< callService @RpcByPassInfo caller ()
          liftIO $ print $ pretty d
+
+    pRunGC = do
+      rpc <- pRpcCommon
+      pure do
+        withMyRPC @PeerAPI rpc $ \caller -> do
+          void $ runMaybeT do
+           void $ callService @RpcPerformGC caller ()
 
     refP :: ReadM (PubKey 'Sign HBS2Basic)
     refP = maybeReader fromStringMay
@@ -822,7 +820,7 @@ runPeer opts = Exception.handle (\e -> myException e
            trace "refChanNotifyRely!"
            refChanNotifyRelyFn @e rce r u
            case u of
-             Notify rr s -> do
+             R.Notify rr s -> do
                emitNotify refChanNotifySource (RefChanNotifyKey r, RefChanNotifyData rr s)
              _ -> pure ()
         }
@@ -853,7 +851,7 @@ runPeer opts = Exception.handle (\e -> myException e
                       withPeerM penv $ withDownload denv (addDownload mzero h)
                     else do
                       -- FIXME: separate-process-to-mark-logs-processed
-                      withPeerM penv $ withDownload denv (processBlock h)
+                      withPeerM penv $ withDownload denv (addDownload Nothing h)
 
               let doFetchRef puk = do
                    withPeerM penv $ do
@@ -946,10 +944,6 @@ runPeer opts = Exception.handle (\e -> myException e
 
                     case Map.lookup thatNonce pdkv of
 
-                      -- TODO: prefer-local-peer-with-same-nonce-over-remote-peer
-                      --   remove remote peer
-                      --   add local peer
-
                       -- FIXME: move-protocol-comparison-to-peer-nonce
                       --
 
@@ -1029,8 +1023,6 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
-                peerThread "postponedLoop" (postponedLoop denv)
-
                 peerThread "reflogWorker" (reflogWorker @e conf (SomeBrains brains) rwa)
 
                 peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
@@ -1091,7 +1083,7 @@ runPeer opts = Exception.handle (\e -> myException e
         void $ liftIO $ withPeerM penv $ do
           me <- ownPeer @e
           runMaybeT do
-            lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (Notify @e puk box)
+            lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (R.Notify @e puk box)
 
   menv <- newPeerEnv pl (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
 

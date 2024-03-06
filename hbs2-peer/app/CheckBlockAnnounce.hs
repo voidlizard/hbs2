@@ -6,7 +6,7 @@ import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Data.Types.Peer
 import HBS2.Hash
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Types
 
@@ -110,5 +110,6 @@ checkBlockAnnounce conf denv nonce pa h = void $ runMaybeT do
 
   lift do
     withDownload denv $ do
-      processBlock h
+      -- TODO: use-brains-to-download-direct
+      addDownload Nothing h
 

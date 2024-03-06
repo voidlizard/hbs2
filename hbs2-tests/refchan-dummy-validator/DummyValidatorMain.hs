@@ -5,15 +5,13 @@ import HBS2.Base58
 import HBS2.OrDie
 import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto
 import HBS2.Net.Messaging.Unix
-import HBS2.Net.Proto.Definition()
 import HBS2.Net.Auth.Credentials()
 
 import HBS2.System.Logger.Simple
 
 import Control.Monad.Reader
-import Data.Functor
 import Data.List qualified as List
 import Options.Applicative hiding (info)
 import Options.Applicative qualified as O

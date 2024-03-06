@@ -1,10 +1,10 @@
 {-# Language RankNTypes #-}
-module HBS2.Net.Proto.BlockChunks where
+module HBS2.Peer.Proto.BlockChunks where
 
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Prelude.Plated
 import HBS2.Storage
 import HBS2.Actors.Peer

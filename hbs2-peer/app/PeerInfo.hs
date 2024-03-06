@@ -8,9 +8,8 @@ import HBS2.Clock
 import HBS2.Data.Types
 import HBS2.Events
 import HBS2.Net.PeerLocator
-import HBS2.Net.Proto.Event.PeerExpired
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerExchange
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
@@ -116,13 +115,21 @@ pexLoop brains tcpEnv = forever do
                  >>= either (const $ warn "tcpSessionWait issue" >> pause @'Seconds 1 >> pure mempty) pure
 
       ssids <- forM conns $ \(p,coo) -> do
-                  debug $ "ACTUAL TCP SESSIONS" <+> pretty p <+> pretty coo
+                  trace $ "ACTUAL TCP SESSIONS" <+> pretty p <+> pretty coo
                   pa <- toPeerAddr p
                   pure (pa, coo)
 
       setActiveTCPSessions @e brains ssids
 
       pure ()
+
+
+  --     pee <- knownPeers @e pl
+  --     npi <- newPeerInfo
+
+  --     for_ pee $ \p -> do
+  --       pinfo <- fetch True npi (PeerInfoKey p) id
+  --       updatePeerInfo False p pinfo
 
     void $ ContT $ withAsync $ forever do
 

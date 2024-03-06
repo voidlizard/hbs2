@@ -16,14 +16,13 @@ import HBS2.Defaults (defBlockSize)
 import HBS2.Hash
 import HBS2.Clock
 import HBS2.OrDie
-import HBS2.Net.Proto.RefChan.Types
+import HBS2.Peer.Proto.RefChan.Types
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Credentials.Sigil
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.RefChan
 
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service

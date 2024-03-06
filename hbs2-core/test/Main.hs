@@ -5,6 +5,7 @@ import TestActors
 import DialogSpec
 import TestFileLogger
 import TestScheduled
+import TestDerivedKey
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -18,6 +19,7 @@ main =
       , testCase "testActorsBasic" testActorsBasic
       , testCase "testFileLogger" testFileLogger
       , testCase "testScheduledActions" testScheduled
+      , testCase "testDerivedKeys1" testDerivedKeys1
 
       -- FIXME does-not-finish
       -- , testDialog

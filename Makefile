@@ -12,6 +12,7 @@ BINS := \
   hbs2-peer         \
   hbs2-reposync     \
   hbs2-keyman       \
+	hbs2-git-reposync \
   git-remote-hbs2   \
   git-hbs2          \
 

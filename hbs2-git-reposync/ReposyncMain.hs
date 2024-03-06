@@ -2,40 +2,33 @@
 module Main where
 
 import HBS2.Prelude.Plated
+import HBS2.Net.Auth.Credentials
 import HBS2.OrDie
-import HBS2.Base58
+import HBS2.Data.Types.Refs
 import HBS2.Actors.Peer
-import HBS2.Actors.Peer.Types
 import HBS2.Net.Proto.Notify
-import HBS2.Data.Types.Refs (HashRef(..))
-import HBS2.Net.Proto.Types
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto
 import HBS2.Peer.RPC.Client.Unix hiding (Cookie)
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.Notify
-import HBS2.Clock
 
--- import HBS2Git.PrettyStuff
 import HBS2.System.Logger.Simple hiding (info)
-import HBS2.System.Logger.Simple qualified as Log
 
 import Data.Config.Suckless
-import Data.Config.Suckless.Syntax
-import Data.Config.Suckless.KeyValue
 
-
+import Data.Char qualified as Char
 import Control.Monad.Catch (MonadThrow(..))
 import Control.Monad.Except (runExceptT,throwError)
 import Control.Monad.Cont
 import Control.Monad.Reader
+import Data.ByteString.Builder hiding (writeFile)
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Either
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
-import Network.Wai (Middleware, pathInfo, rawPathInfo, lazyRequestBody)
-import Network.Wai.Middleware.Static (staticPolicy, addBase)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Options.Applicative
 import qualified Data.Text.Encoding as TE
@@ -47,9 +40,13 @@ import Control.Concurrent.STM (flushTQueue)
 import UnliftIO
 import Web.Scotty hiding (header,next)
 
--- import Control.Monad
+import Network.HTTP.Types
+import Network.Wai
+
 import System.Exit qualified as Exit
 import System.IO.Unsafe (unsafePerformIO)
+
+import Streaming.Prelude qualified as S
 
 -- TODO: support-encrypted-repoes
 
@@ -117,7 +114,7 @@ newtype ReposyncM m a =
 
 
 myName :: FilePath
-myName = "hbs2-reposync"
+myName = "hbs2-git-reposync"
 
 reposyncDefaultDir :: FilePath
 reposyncDefaultDir = unsafePerformIO do
@@ -133,6 +130,7 @@ newState :: MonadUnliftIO m
 newState so refLog sink =
   ReposyncState so refLog sink reposyncDefaultDir 4017 <$> newTVarIO mempty
 
+{- HLINT ignore "Functor law" -}
 withConfig :: forall a m . (MonadUnliftIO m) => Maybe FilePath -> ReposyncM m a -> ReposyncM m ()
 withConfig cfg m = do
 
@@ -188,7 +186,64 @@ withConfig cfg m = do
         pure $ RepoEntry (root </> path) repo keys mt
 
 
--- WTF1?
+
+data S = S0 (Builder, LBS.ByteString)
+       | S1 (LBS.ByteString, Builder, LBS.ByteString)
+       | S2 LBS.ByteString
+
+data R = Hdr Header
+       | HdrS (Maybe Status)
+       | Content LBS.ByteString
+       deriving (Data,Generic)
+
+parseResp :: MonadIO m => LBS.ByteString -> m (Maybe Status, [(HeaderName, BS8.ByteString)], LBS.ByteString)
+parseResp lbs = do
+
+  let yieldHeader (h, v) = do
+        if fmap Char.toLower (LBS.unpack h) == "status" then do
+          case LBS.words v of
+            (code : rest) -> do
+              let cnum = readMay @Int (LBS.unpack code)
+              st <- forM cnum $ \n -> pure $ mkStatus n (LBS.toStrict (LBS.unwords rest))
+              S.yield $ HdrS st
+
+            _             -> S.yield (HdrS Nothing)
+        else do
+          S.yield $ Hdr (fromString $ LBS.unpack h, LBS.toStrict v)
+
+  chunks <- S.toList_ do
+    void $ flip fix (S0 (mempty,lbs)) $ \next -> \case
+      S0 (h,s) -> case LBS.uncons s of
+        Nothing          -> pure ()
+
+        Just (':', rest) -> next (S1 (toLazyByteString h, mempty, LBS.dropWhile (`elem` "\t ") rest))
+        Just (c,   rest) -> next (S0 (h <> char8 c, rest))
+
+      S1 (h, v, s) -> case LBS.uncons s of
+        Nothing -> do
+          yieldHeader (h,toLazyByteString v)
+          pure ()
+
+        Just ('\r',rest) -> do
+          yieldHeader (h,toLazyByteString v)
+          next (S2 rest)
+
+        Just (c,rest) -> next (S1 (h, v <> char8 c, rest))
+
+      S2 rest -> do
+        let (fin, content) = LBS.splitAt 3 rest
+        if fin == "\n\r\n" then do
+          S.yield (Content content)
+        else do
+          next (S0 (mempty, LBS.drop 1 rest))
+
+
+  let hdr = [ s | Hdr s <- chunks ]
+  let st = headDef Nothing [ s | HdrS s <- chunks ]
+  let content = mconcat    [ s | Content s <- chunks ]
+
+  pure (st, hdr, content)
+
 runSync :: (MonadUnliftIO m, MonadThrow m) => ReposyncM m ()
 runSync = do
   es <- asks (view reposyncEntries) >>= readTVarIO
@@ -197,14 +252,31 @@ runSync = do
   refLogRPC <- asks (view rpcRefLog)
   sink      <- asks (view rpcNotifySink)
 
-  root <- asks (view reposyncBaseDir)
-  port <- asks (view reposyncPort) <&> fromIntegral
+  port <- asks (fromIntegral . view reposyncPort)
 
   http <- async $ liftIO $ scotty port $ do
-              middleware $ staticPolicy (addBase root)
+              -- middleware $ staticPolicy (addBase root)
+              middleware $ (\a req r2 -> do
+
+                 let env = [ ("REQUEST_METHOD", BS8.unpack $ requestMethod req),
+                             ("PATH_INFO",      BS8.unpack $ rawPathInfo req),
+                             ("QUERY_STRING",   BS8.unpack $ rawQueryString req),
+                             ("CONTENT_TYPE",   maybe "" BS8.unpack $ lookup "Content-Type" $ requestHeaders req),
+                             ("CONTENT_LENGTH", maybe "" BS8.unpack $ lookup "Content-Length" $ requestHeaders req),
+                             ("GIT_PROJECT_ROOT", "/home/dmz/.local/share/hbs2-reposync/repo"),
+                             ("GIT_HTTP_EXPORT_ALL", "")
+                          ]
+
+                 let p = shell "/usr/bin/env git-http-backend" & setEnv env & setStderr closed
+                 (code, out) <- readProcessStdout p
+
+                 (s, h, body) <- parseResp out
+
+                 let st = fromMaybe status200 s
+
+                 r2 $ responseLBS st h body
+                )
               middleware logStdoutDev
-              get "/" $ do
-                text "This is hbs2-reposync"
 
   r <- forM es $ \entry -> async $ void $ flip runContT pure do
           let ref = repoRef entry

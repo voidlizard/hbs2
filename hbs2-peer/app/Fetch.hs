@@ -23,7 +23,7 @@ fetchHash penv denv href  = do
     sto <- getStorage
     missed <- findMissedBlocks sto href
     for_ missed $ \miss -> do
-      withDownload denv (processBlock (fromHashRef miss))
+      withDownload denv (addDownload Nothing (fromHashRef miss))
 
   where
     h = fromHashRef href

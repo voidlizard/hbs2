@@ -16,9 +16,8 @@ module HBS2.Share.App.Types
 import HBS2.Prelude.Plated
 import HBS2.Base58
 import HBS2.Data.Types.Refs
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Proto.Types
-import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
 

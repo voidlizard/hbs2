@@ -14,9 +14,7 @@ import HBS2.Base58
 import HBS2.Storage
 import HBS2.Storage.Operations.Missed
 import HBS2.Hash
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.RefLog
-import HBS2.Net.Proto.Sessions
+import HBS2.Peer.Proto
 import HBS2.Net.Auth.Credentials
 import HBS2.Merkle
 

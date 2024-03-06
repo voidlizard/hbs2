@@ -6,15 +6,17 @@ module HBS2.KeyMan.App.Types
   , module Prettyprinter
   ) where
 
+import HBS2.KeyMan.Prelude
+import HBS2.KeyMan.Config
+import HBS2.KeyMan.State
+
 import HBS2.Prelude
 import HBS2.Base58
 
 -- FIXME: remove-this
-import HBS2.Net.Proto.Definition ()
+import HBS2.Net.Auth.Credentials()
 import HBS2.Net.Proto.Types
 
-import HBS2.KeyMan.Config
-import HBS2.KeyMan.State
 
 import HBS2.System.Logger.Simple
 import Data.Config.Suckless

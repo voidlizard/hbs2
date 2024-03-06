@@ -83,7 +83,6 @@ library
                     , HBS2.Data.KeyRing
                     , HBS2.Data.Detect
                     , HBS2.Data.Types
-                    , HBS2.Data.Types.Crypto
                     , HBS2.Data.Types.Peer
                     , HBS2.Data.Types.Refs
                     , HBS2.Data.Types.SignedBox
@@ -95,6 +94,7 @@ library
                     , HBS2.Polling
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Net.Auth.Schema
                     , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm
                     , HBS2.Net.Auth.Credentials
@@ -111,27 +111,9 @@ library
                     , HBS2.Net.PeerLocator
                     , HBS2.Net.PeerLocator.Static
                     , HBS2.Net.Proto
-                    , HBS2.Net.Proto.BlockAnnounce
-                    , HBS2.Net.Proto.BlockChunks
-                    , HBS2.Net.Proto.BlockInfo
-                    , HBS2.Net.Proto.Definition
-                    , HBS2.Net.Proto.Dialog
+                    , HBS2.Net.Proto.Sessions
                     , HBS2.Net.Proto.Service
                     , HBS2.Net.Proto.Notify
-                    , HBS2.Net.Proto.EncryptionHandshake
-                    , HBS2.Net.Proto.Event.PeerExpired
-                    , HBS2.Net.Proto.Peer
-                    , HBS2.Net.Proto.PeerAnnounce
-                    , HBS2.Net.Proto.PeerExchange
-                    , HBS2.Net.Proto.PeerMeta
-                    , HBS2.Net.Proto.Sessions
-                    , HBS2.Net.Proto.RefLog
-                    , HBS2.Net.Proto.RefChan
-                    , HBS2.Net.Proto.RefChan.Types
-                    , HBS2.Net.Proto.RefChan.RefChanHead
-                    , HBS2.Net.Proto.RefChan.RefChanNotify
-                    , HBS2.Net.Proto.RefChan.RefChanUpdate
-                    , HBS2.Net.Proto.AnyRef
                     , HBS2.Net.Proto.Types
                     , HBS2.OrDie
                     , HBS2.Prelude
@@ -236,6 +218,7 @@ test-suite test
                   , HasProtocol
                   , DialogSpec
                   , TestScheduled
+                  , TestDerivedKey
 
     -- other-extensions:
 

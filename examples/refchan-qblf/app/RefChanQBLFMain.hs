@@ -13,8 +13,8 @@ import HBS2.OrDie
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer
-import HBS2.Net.Proto.RefChan
-import HBS2.Net.Proto.AnyRef
+import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.AnyRef
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
 import HBS2.Data.Bundle

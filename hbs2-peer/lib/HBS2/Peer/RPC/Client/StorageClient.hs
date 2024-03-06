@@ -16,7 +16,6 @@ import HBS2.Peer.RPC.Internal.Storage()
 
 import HBS2.Peer.RPC.API.Storage
 
-import Data.Functor
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 

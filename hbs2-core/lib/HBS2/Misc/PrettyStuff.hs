@@ -19,6 +19,9 @@ red = annotate (color Red)
 blue :: Doc AnsiStyle -> Doc AnsiStyle
 blue = annotate (color Blue)
 
+ul :: Doc AnsiStyle -> Doc AnsiStyle
+ul = annotate underlined
+
 section :: Doc ann
 section = line <> line
 

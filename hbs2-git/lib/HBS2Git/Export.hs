@@ -13,9 +13,8 @@ import HBS2.Prelude.Plated
 import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.System.Logger.Simple
-import HBS2.Net.Proto.Definition()
 import HBS2.Base58
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -32,7 +31,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Concurrent.STM
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.Foldable (for_)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.HashSet (HashSet)

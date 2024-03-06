@@ -2,13 +2,11 @@
 module HttpWorker where
 
 import HBS2.Prelude
-import HBS2.Clock
 import HBS2.Actors.Peer
 import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Merkle (AnnMetaData)
-import HBS2.Net.Proto.Types
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto
 import HBS2.Events
 
 import PeerTypes

@@ -4,14 +4,11 @@ module Demo.QBLF.Transactions where
 import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Base58
-import HBS2.Net.Proto.Types
-import HBS2.Actors.Peer.Types
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.Unix (UNIX)
-import HBS2.Net.Proto.Definition()
 
 import Data.Hashable(Hashable(..))
 import Codec.Serialise

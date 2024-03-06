@@ -6,11 +6,9 @@ import HBS2.Actors.Peer
 import HBS2.Data.Types.Peer
 import HBS2.Net.Proto.Types
 import HBS2.Net.Proto.Service
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
-
-import HBS2.Net.Proto.Definition()
 
 import PeerTypes
 

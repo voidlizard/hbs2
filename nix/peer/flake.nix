@@ -6,7 +6,8 @@
   inputs = {
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    hbs2.url = "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=newest-hbs2-git";
+    hbs2.url =
+      "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=totally-new-download&rev=a6e955aa611c3f9485976ce7eba33570a43f2eb7";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
@@ -112,55 +113,8 @@ key "./default.key"
 
               networking.firewall.enable = false;
 
-              nixpkgs.overlays = [
-                inputs.hbs2.overlays.default
-                (let
-                  packagePostOverrides = with pkgs; with haskell.lib; [
-                    disableExecutableProfiling
-                    disableLibraryProfiling
-                    dontBenchmark
-                    dontCoverage
-                    dontDistribute
-                    dontHaddock
-                    dontCheck
-                  ];
-
-                  hsPkgsToOverride = [
-                    "hbs2"
-                    "hbs2-peer"
-                    "hbs2-core"
-                    "hbs2-storage-simple"
-                    "hbs2-git"
-                    "hbs2-qblf"
-                    "hbs2-keyman"
-                    "hbs2-share"
-                    "hbs21-git"
-                    "hspup"
-                    "fixme"
-                    "suckless-conf"
-                    "db-pipe"
-                    "saltine"
-                  ];
-
-                  foldCompose = builtins.foldl' (f: g: a: f (g a)) (x: x);
-                  getAttrs = names: attrs: pkgs.lib.attrsets.genAttrs names (n: attrs.${n});
-                  hpOverrides = new: old:
-                    (builtins.mapAttrs
-                      (_name: (foldCompose packagePostOverrides))
-                      (getAttrs hsPkgsToOverride old)
-                    );
-
-                  in final: prev: {
-                    haskellPackages = prev.haskellPackages.override (oldAttrs: {
-                      overrides = prev.lib.composeExtensions (oldAttrs.overrides or (_: _: { })) hpOverrides;
-                    });
-                  }
-                )
-
-              ];
-
               environment.systemPackages = with pkgs; [
-                haskellPackages.hbs2
+                inputs.hbs2.packages.${pkgs.system}.default
                 screen
                 tshark
                 tmux

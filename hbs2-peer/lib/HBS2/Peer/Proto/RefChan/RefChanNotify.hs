@@ -1,6 +1,6 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Net.Proto.RefChan.RefChanNotify where
+module HBS2.Peer.Proto.RefChan.RefChanNotify where
 
 
 import HBS2.Prelude.Plated
@@ -8,14 +8,14 @@ import HBS2.Hash
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
 import HBS2.Events
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Actors.Peer.Types
 import HBS2.Storage
 
-import HBS2.Net.Proto.RefChan.Types
+import HBS2.Peer.Proto.RefChan.Types
 
 import HBS2.System.Logger.Simple
 

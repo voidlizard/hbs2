@@ -1,13 +1,16 @@
-module HBS2.Net.Proto.PeerMeta where
+module HBS2.Peer.Proto.PeerMeta where
 
 import HBS2.Base58
+import HBS2.Clock
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Peer
+import HBS2.Peer.Proto.Peer
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
+
+import HBS2.Actors.Peer.Types
 
 import HBS2.System.Logger.Simple
 
@@ -18,6 +21,19 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Functor
 import Data.Maybe
 import Data.Text.Encoding qualified as TE
+
+instance HasProtocol L4Proto (PeerMetaProto L4Proto) where
+  type instance ProtocolId (PeerMetaProto L4Proto) = 9
+  type instance Encoded L4Proto = LBS.ByteString
+  decode = deserialiseCustom
+  encode = serialise
+
+  -- FIXME: real-period
+  requestPeriodLim = ReqLimPerMessage 0.25
+
+instance Expires (EventKey L4Proto (PeerMetaProto L4Proto)) where
+  expiresIn _ = Just 600
+
 
 data PeerMetaProto e
   = GetPeerMeta

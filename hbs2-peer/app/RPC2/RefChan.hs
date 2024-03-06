@@ -5,14 +5,13 @@ module RPC2.RefChan
   , module HBS2.Peer.RPC.Internal.Types
   ) where
 
-import HBS2.Prelude.Plated
+import HBS2.Peer.Prelude
 
 import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Data.Types.Refs (HashRef(..))
-import HBS2.Net.Proto.Definition()
 import HBS2.Net.Proto.Service
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Messaging.Unix
 import HBS2.Storage
 
@@ -21,7 +20,6 @@ import HBS2.Peer.RPC.Internal.Types
 
 import PeerTypes
 
-import Data.Functor
 import Control.Monad.Reader
 
 type RefChanContext m = (MonadIO m, HasRpcContext RefChanAPI RPC2Context m)

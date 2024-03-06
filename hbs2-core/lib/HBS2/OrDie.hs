@@ -54,6 +54,19 @@ instance OrThrow (Either b a) where
     Left{}  -> throwIO e
     Right x -> pure x
 
+class OrThrowError a where
+  type family OrThrowErrorResult a :: Type
+  orThrowError :: forall e m . (MonadError e m ) => e -> a -> m (OrThrowErrorResult a)
+
+{- HLINT ignore "Eta reduce" -}
+instance OrThrowError (Maybe a) where
+  type instance (OrThrowErrorResult (Maybe a)) = a
+  orThrowError e a = maybe (throwError e) pure a
+
+instance OrThrowError (Either b a) where
+  type instance (OrThrowErrorResult (Either b a)) = a
+  orThrowError e a = either (const $ throwError e) pure a
+
 orThrowUser :: (OrThrow a1, MonadIO m)
             => Doc ann
             -> a1

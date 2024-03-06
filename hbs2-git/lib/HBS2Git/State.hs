@@ -2,19 +2,17 @@
 {-# Language UndecidableInstances #-}
 module HBS2Git.State where
 
-import HBS2.Prelude
-import HBS2.Base58
-import HBS2.Net.Auth.GroupKeySymm hiding (Cookie)
-
+import HBS2Git.Prelude hiding (getCredentials)
 import HBS2Git.Types
-import HBS2.Data.Types.Refs
+import HBS2Git.Config (cookieFile)
+import HBS2Git.Encryption
 import HBS2.Git.Types
+
+import HBS2.Data.Types.Refs
 import HBS2.Hash
 
 import HBS2.System.Logger.Simple
 
-import HBS2Git.Config (cookieFile)
-import HBS2Git.Encryption
 
 import Control.Monad.Trans.Resource
 import Data.Functor

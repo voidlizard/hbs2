@@ -10,9 +10,7 @@ module PeerConfig
 
 import HBS2.Prelude.Plated
 import HBS2.Base58
-import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Definition()
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse

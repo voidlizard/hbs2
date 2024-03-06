@@ -9,8 +9,8 @@ import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.TCP
 import HBS2.Net.PeerLocator
 import HBS2.Net.Proto
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerMeta
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.PeerMeta
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 

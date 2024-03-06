@@ -12,7 +12,7 @@ import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.Missed
 import HBS2.Storage.Operations.ByteString(TreeKey(..))
 import HBS2.Net.Auth.GroupKeySymm
-import HBS2.Net.Proto.RefLog
+import HBS2.Peer.Proto
 import Text.InterpolatedString.Perl6 (qc)
 import HBS2.Data.Detect hiding (Blob)
 

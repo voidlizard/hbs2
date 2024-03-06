@@ -24,7 +24,7 @@ import System.Random qualified as Random
 import Codec.Serialise
 import Data.Maybe
 import Control.Monad.Trans.Maybe
-import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (ByteString)
 
 -- e -> Transport (like, UDP or TChan)
 -- p -> L4 Protocol (like Ping/Pong)
@@ -46,6 +46,10 @@ type family KeyActionOf k :: CryptoAction
 
 data family GroupKey (scheme :: GroupKeyScheme) s
 
+-- NOTE: throws-error
+class  MonadIO m => HasDerivedKey s (a :: CryptoAction) nonce m where
+  derivedKey :: nonce -> PrivKey a s -> m (PubKey a s, PrivKey a s)
+
 -- TODO: move-to-an-appropriate-place
 newtype AsGroupKeyFile a = AsGroupKeyFile a
 
@@ -54,7 +58,6 @@ data family ToEncrypt (scheme :: GroupKeyScheme) s a -- = ToEncrypt a
 data family ToDecrypt (scheme :: GroupKeyScheme) s a
 
 -- FIXME: move-to-a-crypto-definition-modules
-data HBS2Basic
 
 data L4Proto = UDP | TCP
                deriving stock (Eq,Ord,Generic)
@@ -229,4 +232,8 @@ instance FromStringMaybe (PeerAddr L4Proto) where
 
 instance Serialise L4Proto
 instance Serialise (PeerAddr L4Proto)
+
+
+deserialiseCustom :: (Serialise a, MonadPlus m) => ByteString -> m a
+deserialiseCustom = either (const mzero) pure . deserialiseOrFail
 

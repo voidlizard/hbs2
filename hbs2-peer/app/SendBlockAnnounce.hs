@@ -5,7 +5,7 @@ import HBS2.Hash
 import HBS2.Actors.Peer
 import HBS2.Storage(Storage(..))
 import HBS2.Net.Proto.Types
-import HBS2.Net.Proto.BlockAnnounce
+import HBS2.Peer.Proto.BlockAnnounce
 
 import PeerTypes
 

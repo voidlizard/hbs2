@@ -1,11 +1,11 @@
+{-# Language UndecidableInstances #-}
 module HBS2Git.Encryption.KeyInfo where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
+import HBS2.Net.Auth.Credentials
 
 import HBS2.Net.Proto.Types hiding (Cookie)
--- import HBS2.Net.Auth.GroupKeySymm hiding (Cookie)
-import HBS2.Net.Proto.Definition()
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.KeyValue
@@ -27,11 +27,12 @@ data KeyInfo =
   }
   deriving (Eq,Ord,Show,Generic)
 
-instance Serialise KeyInfo
+type ForKeys s = (Serialise (PubKey 'Sign s), Serialise (PubKey 'Encrypt s))
 
-instance Hashed HbSync KeyInfo where
+instance ForKeys HBS2Basic => Serialise KeyInfo
+
+instance ForKeys HBS2Basic => Hashed HbSync KeyInfo where
   hashObject ki = hashObject (serialise ki)
-
 
 
 keyInfoFrom :: POSIXTime -> Syntax C -> Maybe KeyInfo

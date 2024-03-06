@@ -3,23 +3,20 @@ module Main where
 import HBS2.Base58
 import HBS2.Data.Detect
 import HBS2.Data.Types
-import HBS2.Data.Types.EncryptedBox
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.KeyRing as KeyRing
 import HBS2.Defaults
 import HBS2.Merkle
-import HBS2.Net.Proto.Types
+import HBS2.Peer.Proto
 import HBS2.Net.Auth.GroupKeyAsymm as Asymm
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Net.Auth.GroupKeySymm
--- (ToEncrypt(..))
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Credentials.Sigil
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.RefLog(RefLogKey(..))
-import HBS2.Net.Proto.AnyRef(AnyRefKey(..))
 import HBS2.Prelude.Plated
+import HBS2.Storage
 import HBS2.Storage.Operations.Class
+import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.Simple
 import HBS2.Storage.Simple.Extra
 import HBS2.Data.Bundle
@@ -27,11 +24,11 @@ import HBS2.OrDie
 import HBS2.Version
 import Paths_hbs2 qualified as Pkg
 
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.System.Logger.Simple hiding (info)
 
 import Data.Config.Suckless
-import Data.Config.Suckless.KeyValue
 
 import Codec.Serialise
 import Control.Concurrent.STM qualified as STM
@@ -47,13 +44,10 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.ByteArray.Hash (SipHash(..), SipKey(..))
 import Data.ByteArray.Hash qualified as BA
+import Data.HashMap.Strict qualified as HM
 import Data.Either
-import Data.Function
-import Data.Functor
 import Data.List qualified as List
-import Data.Map.Strict qualified as Map
 import Data.Maybe
-import Data.Monoid qualified as Monoid
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Options.Applicative
@@ -64,8 +58,6 @@ import System.Exit qualified as Exit
 import System.IO qualified as IO
 import System.IO.Temp (emptySystemTempFile)
 import UnliftIO
-import Network.ByteOrder qualified as N
-
 
 tracePrefix :: SetLoggerEntry
 tracePrefix  = logPrefix "[trace] " . toStderr
@@ -219,56 +211,6 @@ runCat opts ss = do
 
       let walk h = walkMerkle h (getBlock ss) stepInside
 
-      -- FIXME: switch-to-deep-scan
-      -- TODO: to-the-library
-      let walkAnn :: MTreeAnn [HashRef] -> IO ()
-          walkAnn ann = do
-            bprocess :: Hash HbSync -> ByteString -> IO ByteString <- case (_mtaCrypt ann) of
-              NullEncryption -> pure (const pure)
-
-              EncryptGroupNaClSymm{} -> do
-                die "EncryptGroupNaClSymm is not supported yet"
-
-              CryptAccessKeyNaClAsymm crypth -> do
-
-                  keyringFile <- pure (uniLastMay @OptKeyringFile opts <&> unOptKeyringFile)
-                      `orDie` "block encrypted. keyring required"
-                  s <- BS.readFile keyringFile
-                  ourKeys <- _peerKeyring
-                      <$> pure (parseCredentials @s (AsCredFile s))
-                      `orDie` "bad keyring file"
-
-                  blkc <- getBlock ss crypth `orDie` (show $ "missed block: " <+> pretty crypth)
-                  recipientKeys :: [(PubKey 'Encrypt s, EncryptedBox (KeyringEntry s))]
-                    <- pure (deserialiseMay blkc)
-                      `orDie` "can not deserialise access key"
-
-                  (ourkr, box)
-                      <- pure (Monoid.getFirst
-                                (foldMap (\kr@(KeyringEntry pk _ _)
-                                           -> Monoid.First ((kr, )
-                                          <$> Map.lookup pk (Map.fromList recipientKeys)))
-                                         ourKeys))
-                      `orDie` "no available recipient key"
-
-                  kr <- pure (openEncryptedKey box ourkr)
-                      `orDie` "can not open sealed secret key with our key"
-
-                  pure $ \hx blk ->
-                      pure ((fmap LBS.fromStrict . Encrypt.boxSealOpen (_krPk kr) (_krSk kr) . LBS.toStrict) blk)
-                      `orDie` (show $ "can not decode block: " <+> pretty hx)
-
-            walkMerkleTree (_mtaTree ann) (getBlock ss) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
-              case hr of
-                Left hx -> void $ hPrint stderr $ "missed block:" <+> pretty hx
-                Right (hrr :: [HashRef]) -> do
-                  forM_ hrr $ \(HashRef hx) -> do
-                    if honly then do
-                      print $ pretty hx
-                    else do
-                      blk <- getBlock ss hx `orDie` (show $ "missed block: " <+> pretty hx)
-                      LBS.putStr =<< bprocess hx blk
-
       case q of
         Blob h -> getBlock ss h >>= maybe (die "blob not found") LBS.putStr
 
@@ -279,19 +221,29 @@ runCat opts ss = do
             Left hx  -> err $ "missed block" <+> pretty hx
             Right hr -> print $ vcat (fmap pretty hr)
 
-        MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm{}}) -> do
+        MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
+          keyring <- case uniLastMay @OptKeyringFile opts of
+                       Just krf -> do
+                        s <- BS.readFile (unOptKeyringFile krf)
+                        cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
+                        pure $ view peerKeyring cred
 
-          krf <- pure (uniLastMay @OptKeyringFile opts) `orDie` "keyring file not set"
-          s <- BS.readFile (unOptKeyringFile krf)
-          cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
-          let keyring = view peerKeyring cred
+                       Nothing -> fromMaybe mempty <$> runMaybeT do
+                         rcpts <- runExceptT (readFromMerkle (AnyStorage ss) (SimpleKey gkh))
+                                    >>= toMPlus
+                                    <&> deserialiseOrFail @(GroupKey 'Symm s)
+                                    >>= toMPlus
+                                    <&> HM.keys . recipients
+
+                         lift $ runKeymanClient do
+                           loadKeyRingEntries rcpts <&> fmap snd
 
           elbs <- runExceptT $ readFromMerkle ss (ToDecryptBS keyring mhash)
           case elbs of
             Right lbs -> LBS.putStr lbs
             Left e    -> die (show e)
 
-        MerkleAnn ann -> walkAnn ann
+        MerkleAnn ann -> die "asymmetric gropup encryption is deprecated"
 
         -- FIXME: what-if-multiple-seq-ref-?
         SeqRef (SequentialRef _ (AnnotatedHashRef _ h)) -> do
@@ -351,9 +303,8 @@ runStore opts ss = runResourceT do
     Just gkfile -> do
 
       gkSymm  <- liftIO $ Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile <$> LBS.readFile (unOptGroupkeyFile gkfile)
-      gkAsymm <- liftIO $ Asymm.parseGroupKey . AsGroupKeyFile <$> BS.readFile (unOptGroupkeyFile gkfile)
 
-      let mbGk = EncSymm <$> gkSymm <|> EncAsymm <$> gkAsymm
+      let mbGk = EncSymm <$> gkSymm
 
       case mbGk of
         Nothing -> die "unknown or invalid group key"
@@ -584,23 +535,41 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ withStore o $ runCat
           $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile) raw
 
-    pGroupKey = hsubparser (  command "asymm" (info pGroupKeyAsymm (progDesc "asymmetric group keys") )
-                           <> command "symm"  (info pGroupKeySymm  (progDesc "symmetric group keys") )
-                           )
-
-
-    pGroupKeyAsymm = hsubparser (  command "gen" (info pGroupKeyAsymmNew (progDesc "generate") )
-                                )
-
-    pGroupKeyAsymmNew = do
-      pubkeysFile <- strArgument ( metavar "FILE" <> help "path to a file with a list of recipient public keys" )
-      pure $ runNewGroupKeyAsymm pubkeysFile
-
+    pGroupKey = pGroupKeySymm
 
     pGroupKeySymm = hsubparser (  command "gen" (info pGroupKeySymmGen (progDesc "generate") )
+                               <> command "from-sigils" (info pGroupKeyFromSigils (progDesc "generate from sigils") )
+                               <> command "from-keys" (info pGroupKeyFromKeys (progDesc "generate from list of encryption pubkeys") )
                                <> command "dump" (info pGroupKeySymmDump (progDesc "dump") )
                                <> command "update" (info pGroupKeySymmUpdate (progDesc "update") )
                                )
+
+
+    pGroupKeyFromSigils = do
+      fns <- many $ strArgument ( metavar "SIGIL-FILES" <> help "sigil file list" )
+      pure $ do
+        members <- for fns $ \fn -> do
+
+          sigil <- (BS.readFile fn <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+                      `orDie` "parse sigil failed"
+          (_,sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+                    `orDie` ("signature check failed "  <> fn)
+
+          pure (sigilDataEncKey sd)
+
+        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
+        print $ pretty (AsGroupKeyFile gk)
+
+    pGroupKeyFromKeys = do
+      pure $ do
+        input <- getContents <&> words
+        members <- for input $ \s -> do
+                     fromStringMay @(PubKey 'Encrypt HBS2Basic) s
+                       & maybe (die "invalid public key") pure
+
+        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
+        print $ pretty (AsGroupKeyFile gk)
+
 
     pGroupKeySymmGen = do
       fn <- optional $ strArgument ( metavar "FILE" <> help "group key definition file" )

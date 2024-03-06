@@ -1,6 +1,6 @@
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Proto.BlockAnnounce where
+module HBS2.Peer.Proto.BlockAnnounce where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto

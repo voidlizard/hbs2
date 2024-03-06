@@ -73,6 +73,7 @@ library
                     , microlens-platform
                     , mtl
                     , prettyprinter
+                    , random
                     , stm
                     , stm-chans
                     , streaming

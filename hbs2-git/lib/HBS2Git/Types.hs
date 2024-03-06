@@ -14,12 +14,11 @@ module HBS2Git.Types
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
-import HBS2.Clock
 import HBS2.Git.Types
 import HBS2.Storage
 import HBS2.Peer.RPC.Client.Unix hiding (Cookie)
-import HBS2.Net.Proto.RefLog (RefLogKey(..))
 import HBS2.Net.Auth.Credentials
+import HBS2.Peer.Proto hiding (Cookie)
 
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog

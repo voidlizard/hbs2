@@ -64,7 +64,7 @@ executable hbs2
     other-modules:
       Paths_hbs2
     -- other-extensions:
-    build-depends:    base, hbs2-core, hbs2-storage-simple
+    build-depends:    base, hbs2-core, hbs2-peer, hbs2-storage-simple, hbs2-keyman
                     , aeson
                     , async
                     , base58-bytestring
@@ -100,6 +100,7 @@ executable hbs2
                     , stm
                     , unliftio
                     , network-byte-order
+                    , unordered-containers
 
     hs-source-dirs:   .
     default-language: Haskell2010

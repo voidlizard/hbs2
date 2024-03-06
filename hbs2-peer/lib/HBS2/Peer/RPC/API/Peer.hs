@@ -2,6 +2,7 @@
 module HBS2.Peer.RPC.API.Peer where
 
 import HBS2.Prelude.Plated
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 import HBS2.Data.Types.Refs (HashRef(..))
@@ -10,7 +11,6 @@ import HBS2.Net.Messaging.Encrypted.ByPass(ByPassStat)
 
 import HBS2.Peer.RPC.Internal.Types
 
-import Data.Time.Clock.POSIX (POSIXTime)
 import Control.Monad.Reader
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
@@ -33,6 +33,8 @@ data RpcDownloadDel
 
 data RpcByPassInfo
 
+data RpcPerformGC
+
 type PeerAPI = '[ RpcPoke
                 , RpcPing
                 , RpcAnnounce
@@ -47,6 +49,7 @@ type PeerAPI = '[ RpcPoke
                 , RpcDownloadList
                 , RpcDownloadDel
                 , RpcByPassInfo
+                , RpcPerformGC
                 ]
 
 instance HasProtocol UNIX  (ServiceProto PeerAPI UNIX) where
@@ -101,6 +104,9 @@ type instance Output RpcLogLevel = ()
 
 type instance Input RpcByPassInfo = ()
 type instance Output RpcByPassInfo = ByPassStat
+
+type instance Input RpcPerformGC = ()
+type instance Output RpcPerformGC = ()
 
 data SetLogging =
     DebugOn Bool

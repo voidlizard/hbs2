@@ -5,8 +5,8 @@ import HBS2.Clock
 import HBS2.Actors.Peer
 import HBS2.Net.Messaging.Encrypted.ByPass
 
-import HBS2.Net.Proto.Peer
-import HBS2.Net.Proto.PeerExchange
+import HBS2.Peer.Proto.Peer
+import HBS2.Peer.Proto.PeerExchange
 import HBS2.Net.Proto.Sessions
 import HBS2.Net.Proto.Types
 

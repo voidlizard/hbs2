@@ -3,21 +3,17 @@ module CLI.RefChan where
 import HBS2.Prelude.Plated
 
 import HBS2.Hash
-import HBS2.Clock
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Credentials.Sigil
-import HBS2.Net.Proto.Definition()
-import HBS2.Net.Proto.RefChan
+import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs
-import HBS2.Merkle
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Proto.Service
 import HBS2.Data.Detect
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
-import HBS2.Data.Types.Refs
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Auth.GroupKeySymm
 
@@ -44,13 +40,9 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Options.Applicative
 import System.Exit
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Clock.POSIX (getPOSIXTime)
 import Control.Monad.Except (runExceptT)
-import Data.Word
 import Codec.Serialise
 import UnliftIO
-import Streaming.Prelude qualified as S
 
 
 pRefChan :: Parser (IO ())

@@ -6,11 +6,14 @@
 {-# Language PatternSynonyms #-}
 module HBS2.Net.Auth.Credentials
   ( module HBS2.Net.Auth.Credentials
+  , module HBS2.Net.Auth.Schema
   ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
+import HBS2.Net.Auth.Schema
 import HBS2.Base58
+import HBS2.Hash
 
 import Codec.Serialise
 import Crypto.Saltine.Core.Sign (Keypair(..))
@@ -26,7 +29,24 @@ import Data.List qualified as List
 import Lens.Micro.Platform
 import Data.Kind
 
+type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
+type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
+type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
+type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 
+instance Signatures HBS2Basic where
+  type Signature HBS2Basic = Sign.Signature
+  makeSign = Sign.signDetached
+  verifySign = Sign.signVerifyDetached
+
+type instance KeyActionOf Sign.PublicKey = 'Sign
+type instance KeyActionOf Encrypt.PublicKey = 'Encrypt
+
+instance Serialise Sign.Signature
+instance Serialise Sign.PublicKey
+instance Serialise Sign.SecretKey
+instance Serialise Encrypt.PublicKey
+instance Serialise Encrypt.SecretKey
 
 type family EncryptPubKey e :: Type
 
@@ -212,4 +232,20 @@ instance ( IsEncoding (PubKey 'Sign e), Pretty (KeyringEntry e) )
 instance IsEncoding (PubKey 'Encrypt e)
   => Pretty (KeyringEntry e) where
   pretty ke = fill 10 "pub-key:" <+> pretty (AsBase58 (Crypto.encode (view krPk ke)))
+
+
+instance Asymm HBS2Basic where
+  type AsymmKeypair HBS2Basic = Encrypt.Keypair
+  type AsymmPrivKey HBS2Basic = Encrypt.SecretKey
+  type AsymmPubKey HBS2Basic = Encrypt.PublicKey
+  type CommonSecret HBS2Basic = Encrypt.CombinedKey
+  asymmNewKeypair = liftIO Encrypt.newKeypair
+  privKeyFromKeypair = Encrypt.secretKey
+  pubKeyFromKeypair = Encrypt.publicKey
+  genCommonSecret = Encrypt.beforeNM
+
+instance Hashed HbSync Sign.PublicKey where
+  hashObject pk = hashObject (Crypto.encode pk)
+
+
 

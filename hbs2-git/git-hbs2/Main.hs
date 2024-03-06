@@ -7,7 +7,6 @@ import HBS2Git.App
 import HBS2Git.Export
 import HBS2Git.Tools
 import HBS2Git.KeysCommand
-import HBS2.Net.Proto.Definition()
 import HBS2.Version
 
 import RunShow
