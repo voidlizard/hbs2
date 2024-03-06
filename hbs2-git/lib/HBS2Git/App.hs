@@ -286,7 +286,7 @@ readBlock h = do
 readRef :: (HasStorage m, MonadIO m) => RepoRef -> m (Maybe HashRef)
 readRef ref = do
   sto <- getStorage
-  liftIO (getRef sto (refAlias ref)) <&> fmap HashRef
+  liftIO (getRef sto ref) <&> fmap HashRef
 
 readHashesFromBlock :: (MonadIO m, HasStorage m) => HashRef -> m [HashRef]
 readHashesFromBlock (HashRef h) = do
