@@ -37,6 +37,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-qblf"
      "hbs2-keyman"
      "hbs2-share"
+     "hbs21-git"
     ];
   in
  haskell-flake-utils.lib.simpleCabalProject2flake {
@@ -60,6 +61,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-keyman" = "./hbs2-keyman";
      "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
+     "hbs21-git"   = "./hbs21-git";
      "hbs2-git-reposync"   = "./hbs2-git-reposync";
    };
 
