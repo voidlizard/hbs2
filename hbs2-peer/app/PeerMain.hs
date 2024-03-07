@@ -120,7 +120,7 @@ instance Exception GoAgainException
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
-defStorageThreads = 1
+defStorageThreads = 2
 
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"

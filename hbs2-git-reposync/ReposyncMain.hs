@@ -29,6 +29,7 @@ import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
 import Lens.Micro.Platform
+import Network.Wai.Middleware.Static (staticPolicy, addBase)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Options.Applicative
 import qualified Data.Text.Encoding as TE
@@ -187,62 +188,6 @@ withConfig cfg m = do
 
 
 
-data S = S0 (Builder, LBS.ByteString)
-       | S1 (LBS.ByteString, Builder, LBS.ByteString)
-       | S2 LBS.ByteString
-
-data R = Hdr Header
-       | HdrS (Maybe Status)
-       | Content LBS.ByteString
-       deriving (Data,Generic)
-
-parseResp :: MonadIO m => LBS.ByteString -> m (Maybe Status, [(HeaderName, BS8.ByteString)], LBS.ByteString)
-parseResp lbs = do
-
-  let yieldHeader (h, v) = do
-        if fmap Char.toLower (LBS.unpack h) == "status" then do
-          case LBS.words v of
-            (code : rest) -> do
-              let cnum = readMay @Int (LBS.unpack code)
-              st <- forM cnum $ \n -> pure $ mkStatus n (LBS.toStrict (LBS.unwords rest))
-              S.yield $ HdrS st
-
-            _             -> S.yield (HdrS Nothing)
-        else do
-          S.yield $ Hdr (fromString $ LBS.unpack h, LBS.toStrict v)
-
-  chunks <- S.toList_ do
-    void $ flip fix (S0 (mempty,lbs)) $ \next -> \case
-      S0 (h,s) -> case LBS.uncons s of
-        Nothing          -> pure ()
-
-        Just (':', rest) -> next (S1 (toLazyByteString h, mempty, LBS.dropWhile (`elem` "\t ") rest))
-        Just (c,   rest) -> next (S0 (h <> char8 c, rest))
-
-      S1 (h, v, s) -> case LBS.uncons s of
-        Nothing -> do
-          yieldHeader (h,toLazyByteString v)
-          pure ()
-
-        Just ('\r',rest) -> do
-          yieldHeader (h,toLazyByteString v)
-          next (S2 rest)
-
-        Just (c,rest) -> next (S1 (h, v <> char8 c, rest))
-
-      S2 rest -> do
-        let (fin, content) = LBS.splitAt 3 rest
-        if fin == "\n\r\n" then do
-          S.yield (Content content)
-        else do
-          next (S0 (mempty, LBS.drop 1 rest))
-
-
-  let hdr = [ s | Hdr s <- chunks ]
-  let st = headDef Nothing [ s | HdrS s <- chunks ]
-  let content = mconcat    [ s | Content s <- chunks ]
-
-  pure (st, hdr, content)
 
 runSync :: (MonadUnliftIO m, MonadThrow m) => ReposyncM m ()
 runSync = do
@@ -252,34 +197,14 @@ runSync = do
   refLogRPC <- asks (view rpcRefLog)
   sink      <- asks (view rpcNotifySink)
 
+  root <- asks (view reposyncBaseDir)
   port <- asks (fromIntegral . view reposyncPort)
 
   http <- async $ liftIO $ scotty port $ do
-              -- middleware $ staticPolicy (addBase root)
-              middleware $ (\a req r2 -> do
-
-                 let env = [ ("REQUEST_METHOD", BS8.unpack $ requestMethod req),
-                             ("PATH_INFO",      BS8.unpack $ rawPathInfo req),
-                             ("QUERY_STRING",   BS8.unpack $ rawQueryString req),
-                             ("CONTENT_TYPE",   maybe "" BS8.unpack $ lookup "Content-Type" $ requestHeaders req),
-                             ("CONTENT_LENGTH", maybe "" BS8.unpack $ lookup "Content-Length" $ requestHeaders req),
-                             ("GIT_PROJECT_ROOT", "/home/dmz/.local/share/hbs2-reposync/repo"),
-                             ("GIT_HTTP_EXPORT_ALL", "")
-                          ]
-
-                 let p = shell "/usr/bin/env git-http-backend" & setEnv env -- & setStderr closed
-                 (code, out) <- readProcessStdout p
-
-                 -- FIXME: remove
-                 liftIO $ LBS.putStrLn out
-
-                 (s, h, body) <- parseResp out
-
-                 let st = fromMaybe status200 s
-
-                 r2 $ responseLBS st h body
-                )
+              middleware $ staticPolicy (addBase root)
               middleware logStdoutDev
+              get "/" $ do
+                text "This is hbs2-git-reposync"
 
   r <- forM es $ \entry -> async $ void $ flip runContT pure do
           let ref = repoRef entry
