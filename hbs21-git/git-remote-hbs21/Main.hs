@@ -123,6 +123,16 @@ main = do
                                   <> "If it's not a new reflog --- just wait until it became available"
                       liftIO exitFailure
                   )
+          `catch` ( \(ImportTxApplyError h) -> do
+                      onProgress ip ImportAllDone
+                      pause @'Seconds 0.25
+                      liftIO $ hFlush stderr
+                      liftIO $ hPutDoc stderr $ red "Can not apply tx" <+>  pretty h <> line <> line
+                                      <> "It means you don't have a key do decrypt this tx or the data is not completely downloaded yet"
+                                      <> line
+
+                      liftIO exitFailure
+                  )
 
         void $ runExceptT do
 

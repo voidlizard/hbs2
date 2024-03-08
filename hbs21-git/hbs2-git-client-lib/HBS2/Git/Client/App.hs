@@ -90,6 +90,10 @@ drawProgress (ProgressQ q) = do
               put ("apply tx" <+> pretty h)
               next quiet
 
+            ImportApplyTxError h s -> do
+              limit 0.25 $ put $ red ("failed" <+> pretty s) <+> pretty h
+              next quiet
+
             ImportReadBundleChunk meta (Progress s _) -> do
               let h = bundleHash meta
               let e = if bundleEncrypted meta then yellow "@" else ""

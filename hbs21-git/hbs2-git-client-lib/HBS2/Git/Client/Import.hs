@@ -14,9 +14,12 @@ import HBS2.Git.Data.Tx
 
 import Data.ByteString.Lazy qualified as LBS
 
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (qc)
 import Streaming.Prelude qualified as S
 import System.IO (hPrint)
+import Data.Maybe
 import System.Environment
 import System.Exit
 
@@ -25,6 +28,14 @@ data ImportRefLogNotFound = ImportRefLogNotFound
 
 
 instance Exception ImportRefLogNotFound
+
+
+data ImportTxApplyError = ImportTxApplyError HashRef
+                          deriving stock (Typeable,Show)
+
+
+instance Exception ImportTxApplyError
+
 
 data ImportTxError =
     ImportTxReadError HashRef
@@ -58,6 +69,8 @@ importRepoWait  puk = do
   subscribeRefLog puk
 
   ip <- asks _progress
+
+  meet <- newTVarIO (mempty :: HashMap HashRef Int)
 
   flip fix (IWaitRefLog 20) $ \next -> \case
     IWaitRefLog w | w <= 0 -> do
@@ -99,13 +112,26 @@ importRepoWait  puk = do
 
     IApplyTx h -> do
       onProgress ip (ImportApplyTx h)
+
       r <- runExceptT (applyTx h)
+             `catch` \case
+               ImportUnbundleError{}  -> pure (Left IncompleteData)
+               _ -> throwIO (userError "tx apply / state read error")
+
+
       case r of
 
         Left MissedBlockError -> do
           next =<< repeatOrExit
 
         Left IncompleteData -> do
+          atomically $ modifyTVar meet (HM.insertWith (+) h 1)
+          onProgress ip (ImportApplyTxError h (Just "read/decrypt"))
+          attempts <- readTVarIO meet <&> fromMaybe 0 . HM.lookup h
+
+          when (attempts >= 10 ) do
+            throwIO (ImportTxApplyError h)
+
           next =<< repeatOrExit
 
         Left e  -> do
@@ -220,7 +246,7 @@ applyTx h = do
         unless here do
 
           BundleWithMeta meta bytes <- lift (runExceptT $ readBundle sto r bu)
-                                          >>= orThrow (ImportUnbundleError bu)
+                                          >>=  orThrow (ImportUnbundleError bu)
 
           (_,_,idx,lbs) <- unpackPackMay bytes
                              &  orThrow (ImportUnbundleError bu)

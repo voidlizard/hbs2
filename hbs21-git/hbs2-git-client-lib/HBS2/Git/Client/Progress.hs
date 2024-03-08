@@ -26,6 +26,7 @@ data ProgressEvent =
   | ImportWaitTx HashRef
   | ImportScanTx HashRef
   | ImportApplyTx HashRef
+  | ImportApplyTxError HashRef (Maybe String)
   | ImportReadBundleChunk BundleMeta (Progress Int)
   | ImportSetQuiet Bool
   | ImportAllDone
