@@ -67,6 +67,7 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.Notify
 import HBS2.Peer.RPC.Client.StorageClient
 
@@ -1160,6 +1161,7 @@ runPeer opts = Exception.handle (\e -> myException e
       , makeResponse (makeServer @RefLogAPI)
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
+      , makeResponse (makeServer @LWWRefAPI)
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]

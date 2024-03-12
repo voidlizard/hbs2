@@ -63,7 +63,9 @@ lwwRefProto pkt@(LWWRefProto1 req) = do
 
     LWWProtoSet key box -> void $ runMaybeT do
 
-      (_, lww) <- MaybeT $ pure $ unboxSignedBox0 box
+      (puk, lww) <- MaybeT $ pure $ unboxSignedBox0 box
+
+      guard ( puk == fromLwwRefKey key )
 
       deferred @proto do
 

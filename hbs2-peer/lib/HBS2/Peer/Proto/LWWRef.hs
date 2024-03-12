@@ -10,6 +10,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Schema()
 
+import Data.ByteString (ByteString)
 import Data.Hashable hiding (Hashed)
 import Data.Maybe
 import Data.Word
@@ -26,9 +27,9 @@ data LWWRefProto e =
 
 data LWWRef e =
   LWWRef
-  { lwwSeq   :: Word64
-  , lwwProof :: Maybe HashRef
-  , lwwValue :: HashRef
+  { lwwSeq      :: Word64
+  , lwwProof    :: Maybe HashRef
+  , lwwValue    :: HashRef
   }
   deriving stock (Generic)
 
@@ -41,7 +42,7 @@ instance ForLWWRefProto e => Serialise (LWWRef e)
 
 newtype LWWRefKey s =
   LWWRefKey
-  { lwwRefKey :: PubKey 'Sign s
+  { fromLwwRefKey :: PubKey 'Sign s
   }
   deriving stock (Generic)
 
@@ -69,4 +70,13 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (LWWRefKey s)) 
 
 instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (LWWRefKey s) where
   pretty (LWWRefKey k) = pretty (AsBase58 k)
+
+
+instance Pretty (LWWRef e) where
+  pretty (LWWRef{..}) = braces $ "lwwref" <> line
+                          <> indent 2
+                               ( "seq" <+> pretty lwwSeq <> line
+                                 <> "val" <+> pretty lwwValue <> line
+                                 <> "proof" <+> pretty lwwProof <> line
+                               )
 

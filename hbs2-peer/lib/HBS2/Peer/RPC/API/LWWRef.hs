@@ -11,13 +11,14 @@ import HBS2.Peer.Proto.RefLog (RefLogUpdate)
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
 
-data LWWRefGet
-data LWWRefUpdate
+data RpcLWWRefGet
+data RpcLWWRefUpdate
+data RpcLWWRefFetch
 
-type LWWRefAPI = '[ LWWRefGet    -- may be done via storage
-                  , LWWRefUpdate --
+type LWWRefAPI = '[ RpcLWWRefGet    -- may be done via storage
+                  , RpcLWWRefUpdate --
+                  , RpcLWWRefFetch  --
                   ]
-
 
 instance HasProtocol UNIX  (ServiceProto LWWRefAPI UNIX) where
   type instance ProtocolId (ServiceProto LWWRefAPI UNIX) = 16267229472009458342
@@ -25,11 +26,15 @@ instance HasProtocol UNIX  (ServiceProto LWWRefAPI UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-type instance Input LWWRefGet   = LWWRefKey HBS2Basic
-type instance Output LWWRefGet  = Maybe (LWWRef L4Proto)
+type instance Input RpcLWWRefGet   = LWWRefKey HBS2Basic
+type instance Output RpcLWWRefGet  = Maybe (LWWRef L4Proto)
 
-type instance Input LWWRefUpdate = SignedBox (LWWRef L4Proto) L4Proto
-type instance Output LWWRefUpdate = ()
+type instance Input RpcLWWRefFetch   = LWWRefKey HBS2Basic
+type instance Output RpcLWWRefFetch  = ()
+
+type instance Input RpcLWWRefUpdate = SignedBox (LWWRef L4Proto) L4Proto
+type instance Output RpcLWWRefUpdate = ()
+
 
 
 
