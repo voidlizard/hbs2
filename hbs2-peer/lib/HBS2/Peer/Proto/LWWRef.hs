@@ -14,11 +14,9 @@ import Data.Hashable hiding (Hashed)
 import Data.Maybe
 import Data.Word
 
-type Epoch = Word64
-
 data LWWRefProtoReq e =
     LWWProtoGet (LWWRefKey (Encryption e))
-  | LWWProtoSet (SignedBox (LWWRef e) e)
+  | LWWProtoSet (LWWRefKey (Encryption e)) (SignedBox (LWWRef e) e)
   deriving stock Generic
 
 
@@ -28,7 +26,7 @@ data LWWRefProto e =
 
 data LWWRef e =
   LWWRef
-  { lwwEpoch :: Epoch
+  { lwwSeq   :: Word64
   , lwwProof :: Maybe HashRef
   , lwwValue :: HashRef
   }
@@ -47,6 +45,8 @@ newtype LWWRefKey s =
   }
   deriving stock (Generic)
 
+
+instance RefMetaData (LWWRefKey s)
 
 deriving stock instance IsRefPubKey s => Eq (LWWRefKey s)
 

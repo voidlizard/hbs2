@@ -1049,7 +1049,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     -- TODO: change-all-to-authorized
-                    , makeResponse (authorized lwwRefProto)
+                    , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProto)
                     ]
 
 
