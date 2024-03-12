@@ -28,8 +28,8 @@ data LWWRefProto e =
 data LWWRef e =
   LWWRef
   { lwwSeq      :: Word64
-  , lwwProof    :: Maybe HashRef
   , lwwValue    :: HashRef
+  , lwwProof    :: Maybe HashRef
   }
   deriving stock (Generic)
 
@@ -73,10 +73,13 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (LWWRefKey s) where
 
 
 instance Pretty (LWWRef e) where
-  pretty (LWWRef{..}) = braces $ "lwwref" <> line
-                          <> indent 2
-                               ( "seq" <+> pretty lwwSeq <> line
-                                 <> "val" <+> pretty lwwValue <> line
-                                 <> "proof" <+> pretty lwwProof <> line
-                               )
+  pretty (LWWRef{..}) = parens ( "lwwref" <> line
+                          <> indent 2 ( seqno <> line <> val <> line <> proof)
+                        )
+    where
+      seqno = parens ( "seq" <+> pretty lwwSeq )
+      val   = parens ( "value" <+> pretty lwwValue )
+      proof | isNothing lwwProof = mempty
+            | otherwise = parens ( "proof" <+> pretty lwwProof)
+
 

@@ -1,11 +1,15 @@
 module CLI.LWWRef where
 
 import HBS2.Prelude.Plated
+import HBS2.OrDie
 import HBS2.Net.Proto.Service
+import HBS2.Net.Auth.Credentials
+import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.Schema
 import HBS2.Peer.Proto.LWWRef
 
 import HBS2.Peer.RPC.API.LWWRef
+import HBS2.KeyMan.Keys.Direct
 
 import CLI.Common
 import RPC2()
@@ -14,10 +18,13 @@ import PeerLogger hiding (info)
 import System.Exit
 
 import Options.Applicative
+import Data.Word
+import Lens.Micro.Platform
 
 pLwwRef :: Parser (IO ())
-pLwwRef = hsubparser (   command "fetch" (info pLwwRefFetch (progDesc "fetch lwwref"))
-                      <> command "get"   (info pLwwRefGet (progDesc "get lwwref"))
+pLwwRef = hsubparser (   command "fetch"  (info pLwwRefFetch  (progDesc "fetch lwwref"))
+                      <> command "get"    (info pLwwRefGet    (progDesc "get lwwref"))
+                      <> command "update" (info pLwwRefUpdate (progDesc "update lwwref"))
                      )
 pLwwRefFetch :: Parser (IO ())
 pLwwRefFetch = do
@@ -40,4 +47,18 @@ pLwwRefGet = do
       Left e  -> err (viaShow e) >> exitFailure
       Right r -> print $ pretty r
 
+pLwwRefUpdate :: Parser (IO ())
+pLwwRefUpdate = do
+  rpc <- pRpcCommon
+  puk <- argument pPubKey (metavar "LWWREF")
+  seq <- option @Word64 auto (short 's' <> long "seq" <> help "seqno" <>metavar "SEQ")
+  val <- option (maybeReader fromStringMay) (short 'v' <> long "value" <> help "value" <> metavar "VALUE")
+  pure $ withMyRPC @LWWRefAPI rpc $ \caller -> do
+    (sk,pk) <- liftIO $ runKeymanClient do
+                 creds  <- loadCredentials puk >>= orThrowUser "can't load credentials"
+                 pure ( view peerSignSk  creds, view peerSignPk creds )
+    let box =  makeSignedBox @L4Proto pk sk (LWWRef @L4Proto seq val Nothing)
+    callService @RpcLWWRefUpdate caller box >>= \case
+      Left e  -> err (viaShow e) >> exitFailure
+      Right r -> print $ pretty r
 

@@ -9,6 +9,7 @@ import HBS2.Actors.Peer
 import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.LWWRef
+import HBS2.Peer.Proto.LWWRef.Internal
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 
@@ -57,8 +58,17 @@ instance LWWRefContext m => HandleMethod m RpcLWWRefFetch where
 instance LWWRefContext m => HandleMethod m RpcLWWRefUpdate where
 
   handleMethod box = do
-    -- co <- getRpcContext @LWWRefAPI
+    co <- getRpcContext @LWWRefAPI
     debug "rpc.LWWRefUpdate"
-    pure ()
+
+    let penv = rpcPeerEnv co
+
+    void $ runMaybeT do
+      (puk, _) <- unboxSignedBox0 box & toMPlus
+
+      liftIO $ withPeerM penv do
+        me <- ownPeer @L4Proto
+        runResponseM me $ do
+          lwwRefProto (LWWRefProto1 (LWWProtoSet @L4Proto (LWWRefKey puk) box))
 
 
