@@ -16,6 +16,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.Schema()
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
@@ -67,6 +68,8 @@ import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.Notify
 import HBS2.Peer.RPC.Client.StorageClient
+
+import HBS2.Peer.Proto.LWWRef.Internal
 
 import RPC2(RPC2Context(..))
 
@@ -614,6 +617,8 @@ respawn opts =
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
+                        -- , ForLWWRefProto e
+                        -- , Serialise (PubKey 'Sign (Encryption e))
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
@@ -1043,6 +1048,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
+                    , makeResponse lwwRefProto
                     ]
 
 
