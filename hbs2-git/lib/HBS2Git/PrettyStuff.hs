@@ -25,3 +25,6 @@ section = line <> line
 toStringANSI :: Doc AnsiStyle -> String
 toStringANSI doc = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions doc
 
+
+-- asHex ::
+
