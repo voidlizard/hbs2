@@ -1048,7 +1048,8 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
-                    , makeResponse lwwRefProto
+                    -- TODO: change-all-to-authorized
+                    , makeResponse (authorized lwwRefProto)
                     ]
 
 

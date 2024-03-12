@@ -5,6 +5,7 @@ module HBS2.Peer.Proto.LWWRef.Internal
 
 import HBS2.Prelude.Plated
 import HBS2.Peer.Proto.LWWRef
+import HBS2.Storage
 
 import HBS2.Hash
 import HBS2.Clock
@@ -33,6 +34,7 @@ lwwRefProto :: forall e s m proto . ( MonadIO m
                                     , Response e proto m
                                     , HasDeferred proto e m
                                     , HasGossip e (LWWRefProto e) m
+                                    , HasStorage m
                                     , IsPeerAddr e m
                                     , Pretty (Peer e)
                                     , Sessions e (KnownPeer e) m

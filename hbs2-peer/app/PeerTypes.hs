@@ -481,4 +481,15 @@ simpleBlockAnnounce size h = do
     pure $ BlockAnnounce @e no annInfo
 
 
+authorized :: forall e proto m . ( MonadIO m
+                                 , Request e proto m
+                                 , Response e proto m
+                                 , Sessions e (KnownPeer e) m
+                                 )
+           => (proto -> m ()) -> proto -> m ()
+authorized f req = do
+  p <- thatPeer @proto
+  auth <- find (KnownPeerKey p) id <&> isJust
+  when auth (f req)
+
 
