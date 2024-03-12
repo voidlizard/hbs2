@@ -53,6 +53,7 @@ import DispatchProxy
 import PeerMeta
 import CLI.Common
 import CLI.RefChan
+import CLI.LWWRef
 import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
@@ -236,6 +237,7 @@ runCLI = do
                 <> command "fetch"     (info pFetch (progDesc "fetch block"))
                 <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
+                <> command "lwwref"    (info pLwwRef (progDesc "lwwref commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                 <> command "download"  (info pDownload  (progDesc "download management"))
@@ -452,7 +454,6 @@ runCLI = do
                        <> command "add" (info  pPollAdd (progDesc "add poller" ))
                        <> command "del" (info  pPollDel (progDesc "del poller" ))
                        )
-
 
     pPollAdd = do
       rpc <- pRpcCommon
