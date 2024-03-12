@@ -164,6 +164,7 @@ library
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
       HBS2.Peer.RPC.API.RefChan
+      HBS2.Peer.RPC.API.LWWRef
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Client.StorageClient
@@ -257,6 +258,7 @@ executable hbs2-peer
                     , RPC2.Downloads
                     , RPC2.RefLog
                     , RPC2.RefChan
+                    , RPC2.LWWRef
                     , PeerTypes
                     , PeerLogger
                     , PeerConfig
