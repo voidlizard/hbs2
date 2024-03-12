@@ -78,7 +78,7 @@ instance Pretty (LWWRef e) where
                         )
     where
       seqno = parens ( "seq" <+> pretty lwwSeq )
-      val   = parens ( "value" <+> pretty lwwValue )
+      val   = parens ( "value" <+> dquotes (pretty lwwValue) )
       proof | isNothing lwwProof = mempty
             | otherwise = parens ( "proof" <+> pretty lwwProof)
 
