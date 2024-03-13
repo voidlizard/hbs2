@@ -81,6 +81,8 @@ httpWorker (PeerConfig syn) pmeta e = do
           Just n -> do
             json n
 
+      -- TODO: key-to-disable-tree-streaming
+
       get "/ref/:key" do
 
         void $ flip runContT pure do
