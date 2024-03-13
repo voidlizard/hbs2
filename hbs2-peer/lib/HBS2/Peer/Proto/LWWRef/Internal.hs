@@ -28,6 +28,12 @@ import Data.Maybe
 
 {- HLINT ignore "Functor law" -}
 
+
+data LWWRefProtoAdapter e m =
+  LWWRefProtoAdapter
+  { lwwFetchBlock :: Hash HbSync -> m ()
+  }
+
 lwwRefProto :: forall e s m proto . ( MonadIO m
                                     , ForLWWRefProto e
                                     , Request e proto m
@@ -43,9 +49,10 @@ lwwRefProto :: forall e s m proto . ( MonadIO m
                                     , s ~ Encryption e
                                     , proto ~ LWWRefProto e
                                     )
-                  => LWWRefProto e -> m ()
+                  => LWWRefProtoAdapter e m
+                  -> LWWRefProto e -> m ()
 
-lwwRefProto pkt@(LWWRefProto1 req) = do
+lwwRefProto adapter pkt@(LWWRefProto1 req) = do
   debug $ yellow "lwwRefProto"
 
   case req of
@@ -79,9 +86,11 @@ lwwRefProto pkt@(LWWRefProto1 req) = do
         when new do
           lift $ gossip pkt
 
+        lift $ lwwFetchBlock adapter (fromHashRef (lwwValue lww))
+
         getRef sto key >>= \case
           Nothing -> do
-            h <- putBlock sto bs >>= toMPlus
+            h <- enqueueBlock sto bs >>= toMPlus
             updateRef sto key h
 
           Just rv -> do
@@ -98,6 +107,6 @@ lwwRefProto pkt@(LWWRefProto1 req) = do
 
     where
       forcedUpdateLwwRef sto key bs = do
-        h' <- putBlock sto bs
+        h' <- enqueueBlock sto bs
         forM_ h' $ updateRef sto key
 

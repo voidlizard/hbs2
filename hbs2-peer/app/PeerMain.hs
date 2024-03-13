@@ -1004,6 +1004,10 @@ runPeer opts = Exception.handle (\e -> myException e
                                             err $ red "Exception" <+> "in thread" <+> pretty t <+> viaShow e
                                             liftIO $ throwTo myself GoAgainException
 
+
+              let lwwRefProtoA = lwwRefProto (LWWRefProtoAdapter { lwwFetchBlock = download })
+                   where download h = withPeerM env $ withDownload denv (addDownload Nothing h)
+
               flip runContT pure do
 
                 peerThread "local multicast" $ forever $ do
@@ -1054,7 +1058,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     -- TODO: change-all-to-authorized
-                    , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProto)
+                    , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProtoA)
                     ]
 
 

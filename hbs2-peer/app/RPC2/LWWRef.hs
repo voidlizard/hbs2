@@ -63,12 +63,14 @@ instance LWWRefContext m => HandleMethod m RpcLWWRefUpdate where
 
     let penv = rpcPeerEnv co
 
+    let nada = LWWRefProtoAdapter dontHandle
+
     void $ runMaybeT do
       (puk, _) <- unboxSignedBox0 box & toMPlus
 
       liftIO $ withPeerM penv do
         me <- ownPeer @L4Proto
         runResponseM me $ do
-          lwwRefProto (LWWRefProto1 (LWWProtoSet @L4Proto (LWWRefKey puk) box))
+          lwwRefProto nada (LWWRefProto1 (LWWProtoSet @L4Proto (LWWRefKey puk) box))
 
 
