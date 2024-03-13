@@ -486,12 +486,13 @@ simpleBlockAnnounce size h = do
 
 
 class IsPolledKey e proto | proto -> e where
-  getPolledKey :: proto -> PubKey 'Sign (Encryption e)
+  getPolledKey :: proto -> (String, PubKey 'Sign (Encryption e))
 
 instance IsPolledKey e (LWWRefProto e) where
   getPolledKey = \case
-    LWWRefProto1 (LWWProtoGet (LWWRefKey k)) -> k
-    LWWRefProto1 (LWWProtoSet (LWWRefKey k) _) -> k
+    LWWRefProto1 (LWWProtoGet (LWWRefKey k)) -> (tp,k)
+    LWWRefProto1 (LWWProtoSet (LWWRefKey k) _) -> (tp,k)
+    where tp = "lwwref"
 
 subscribed :: forall e proto m . ( MonadIO  m
                                  , IsPolledKey e proto
@@ -505,8 +506,8 @@ subscribed :: forall e proto m . ( MonadIO  m
            -> m ()
 
 subscribed brains f req = do
-  let ref = getPolledKey req
-  polled <- isPolledRef @e brains ref
+  let (tp,ref) = getPolledKey req
+  polled <- isPolledRef @e brains tp ref
   when polled $ f req
 
 authorized :: forall e proto m . ( MonadIO m

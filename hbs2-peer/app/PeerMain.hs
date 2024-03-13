@@ -48,6 +48,7 @@ import Bootstrap
 import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
+import LWWRef (lwwRefWorker)
 import HttpWorker
 import DispatchProxy
 import PeerMeta
@@ -819,7 +820,7 @@ runPeer opts = Exception.handle (\e -> myException e
   let refChanAdapter =
         RefChanAdapter
         { refChanOnHead = refChanOnHeadFn rce
-        , refChanSubscribed = isPolledRef @e brains
+        , refChanSubscribed = isPolledRef @e brains "refchan"
         , refChanWriteTran = refChanWriteTranFn rce
         , refChanValidatePropose = refChanValidateTranFn @e rce
 
@@ -1035,6 +1036,8 @@ runPeer opts = Exception.handle (\e -> myException e
                 peerThread "refChanWorker" (refChanWorker @e rce (SomeBrains brains))
 
                 peerThread "refChanNotifyLogWorker" (refChanNotifyLogWorker @e conf (SomeBrains brains))
+
+                peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
 
                 liftIO $ withPeerM penv do
                   runProto @e
