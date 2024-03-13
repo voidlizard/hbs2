@@ -9,6 +9,9 @@ import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.Peer.Proto
+import HBS2.Peer.Proto.LWWRef
+import HBS2.Net.Auth.Schema
+import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
 
@@ -24,8 +27,6 @@ import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
 
-import Network.Wai (responseStream)
-import Network.Wai.Internal (Response(..))
 import Data.ByteString.Builder (byteString, Builder)
 
 import Data.Either
@@ -48,6 +49,9 @@ extractMetadataHash what blob =
      MerkleAnn (MTreeAnn {_mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption}) -> Just h
      _ -> Nothing
 
+orElse :: m r -> Maybe a -> ContT r m a
+orElse a mb = ContT $ maybe1 mb a
+
 httpWorker :: forall e s m . ( MyPeer e
                              , MonadIO m
                              , HasStorage m
@@ -55,6 +59,7 @@ httpWorker :: forall e s m . ( MyPeer e
                              , s ~ Encryption e
                              , m ~ PeerM e IO
                              , e ~ L4Proto
+                             -- , ForLWWRefProto e
                              ) => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
 
 httpWorker (PeerConfig syn) pmeta e = do
@@ -76,6 +81,24 @@ httpWorker (PeerConfig syn) pmeta e = do
           Just n -> do
             json n
 
+      get "/ref/:key" do
+
+        void $ flip runContT pure do
+          what <- lift (param @String "key" <&> fromStringMay @(LWWRefKey HBS2Basic))
+                    >>= orElse (status status404)
+
+          rv <- getRef sto what
+                  >>= orElse (status status404)
+                  >>= getBlock sto
+                  >>= orElse (status status404)
+                  <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef e) e)
+                  >>= orElse (status status404)
+                  <&> unboxSignedBox0 @(LWWRef e)
+                  >>= orElse (status status404)
+                  <&> lwwValue . snd
+
+          lift $ redirect [qc|/tree/{pretty rv}|]
+
       get "/tree/:hash" do
         what <- param @String "hash" <&> fromString
 
@@ -83,17 +106,14 @@ httpWorker (PeerConfig syn) pmeta e = do
 
           callCC $ \exit -> do
 
-            mblob <- liftIO $ getBlock sto what
+            blob <- liftIO (getBlock sto what)
+                      >>= orElse (status status404)
 
-            blob <- ContT $ maybe1 mblob (status status404)
+            mh <- orElse (status status404) (extractMetadataHash what blob)
 
-            mh <- ContT $ maybe1 (extractMetadataHash what blob) (status status404)
-
-            metabs <- lift (getBlock sto mh)
-
-            meta <- ContT (maybe1 metabs (status status404))
-                     <&> LBS8.unpack
-                     <&> fromRight mempty . parseTop
+            meta <- lift (getBlock sto mh) >>= orElse (status status404)
+                       <&> LBS8.unpack
+                       <&> fromRight mempty . parseTop
 
             let tp = headDef "application/octet-stream"
                      [ show (pretty w)
@@ -105,7 +125,7 @@ httpWorker (PeerConfig syn) pmeta e = do
                      | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
                      ]
 
-            liftIO $ print $ pretty meta
+            -- liftIO $ print $ pretty meta
 
             case fn of
               Just x | takeExtension x == ".html" -> pure  ()
