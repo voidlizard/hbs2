@@ -69,6 +69,7 @@ common common-deps
         , warp
         , http-conduit
         , http-types
+        , wai
         , wai-extra
         , unliftio
         , unliftio-core

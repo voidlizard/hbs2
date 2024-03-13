@@ -2,28 +2,51 @@
 module HttpWorker where
 
 import HBS2.Prelude
+import HBS2.Hash
 import HBS2.Actors.Peer
 import HBS2.Storage
+import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
-import HBS2.Merkle (AnnMetaData)
+import HBS2.Merkle
 import HBS2.Peer.Proto
 import HBS2.Events
+import HBS2.Storage.Operations.ByteString
 
 import PeerTypes
 import PeerConfig
 import RefLog ( doRefLogBroadCast )
+
+import Data.Config.Suckless
 
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
+
+import Network.Wai (responseStream)
+import Network.Wai.Internal (Response(..))
+import Data.ByteString.Builder (byteString, Builder)
+
+import Data.Either
 import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Control.Monad.Reader
 import Lens.Micro.Platform (view)
+import System.FilePath
+import Control.Monad.Except
+import Control.Monad.Trans.Cont
+
+{- HLINT ignore "Functor law" -}
 
 -- TODO: introduce-http-of-off-feature
+
+extractMetadataHash :: Hash HbSync -> LBS.ByteString -> Maybe (Hash HbSync)
+extractMetadataHash what blob =
+  case tryDetect what blob of
+     MerkleAnn (MTreeAnn {_mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption}) -> Just h
+     _ -> Nothing
 
 httpWorker :: forall e s m . ( MyPeer e
                              , MonadIO m
@@ -52,6 +75,56 @@ httpWorker (PeerConfig syn) pmeta e = do
           Nothing -> status status404
           Just n -> do
             json n
+
+      get "/tree/:hash" do
+        what <- param @String "hash" <&> fromString
+
+        void $ flip runContT pure do
+
+          callCC $ \exit -> do
+
+            mblob <- liftIO $ getBlock sto what
+
+            blob <- ContT $ maybe1 mblob (status status404)
+
+            mh <- ContT $ maybe1 (extractMetadataHash what blob) (status status404)
+
+            metabs <- lift (getBlock sto mh)
+
+            meta <- ContT (maybe1 metabs (status status404))
+                     <&> LBS8.unpack
+                     <&> fromRight mempty . parseTop
+
+            let tp = headDef "application/octet-stream"
+                     [ show (pretty w)
+                     | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
+                     ]
+
+            let fn = headMay
+                     [ show (pretty w)
+                     | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
+                     ]
+
+            liftIO $ print $ pretty meta
+
+            case fn of
+              Just x | takeExtension x == ".html" -> pure  ()
+                     | otherwise -> lift $ do
+                         addHeader "content-disposition" [qc|attachment; filename="{x}"|]
+
+              _ -> pure ()
+
+            lift $ addHeader "content-type" (fromString tp)
+
+            elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
+
+            case elbs of
+              Left{} -> lift $ status status404
+              Right lbs -> lift do
+                stream $ \write flush -> do
+                  for_ (LBS.toChunks lbs) $ \chunk -> do
+                    write $ byteString chunk
+                  flush
 
       get "/cat/:hash" do
         what <- param @String "hash" <&> fromString

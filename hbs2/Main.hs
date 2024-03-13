@@ -563,8 +563,8 @@ main = join . customExecParser (prefs showHelpOnError) $
                         magicLoadDefault magic
                         mime <- magicFile magic fn
 
-                        pure [ "file-name:" <+> pretty (takeFileName fn)
-                             , "mime-type:" <+> pretty mime
+                        pure [ "file-name:" <+> dquotes (pretty $ takeFileName fn)
+                             , "mime-type:" <+> dquotes (pretty mime)
                              ]
 
               let s = LBS8.pack $ show $ vcat meta
