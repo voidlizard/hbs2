@@ -79,6 +79,7 @@ executable hbs2
                     , filepath
                     , hashable
                     , interpolatedstring-perl6
+                    , magic
                     , memory
                     , microlens-platform
                     , mtl
