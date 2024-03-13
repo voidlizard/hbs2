@@ -248,7 +248,7 @@ instance ( Hashable (Peer e)
           query_ conn [qc|select ref, type, interval from {poll_table}|]
 
         Just tp -> postprocess <$>
-          query conn [qc|select ref, type, interval from statedb.poll where type = ?|] (Only tp)
+          query conn [qc|select ref, type, interval from {poll_table} where type = ?|] (Only tp)
     where
       postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
 
