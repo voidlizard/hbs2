@@ -1,5 +1,6 @@
 module HBS2.Git.Client.Export (export) where
 
+
 import HBS2.Git.Client.Prelude hiding (info)
 import HBS2.Git.Client.App.Types
 import HBS2.Git.Client.Config
@@ -14,6 +15,9 @@ import HBS2.Git.Data.GK
 
 import HBS2.Git.Local.CLI
 
+import HBS2.KeyMan.Keys.Direct
+
+import HBS2.OrDie
 import HBS2.Storage.Operations.ByteString
 import HBS2.System.Dir
 
@@ -148,17 +152,21 @@ export :: (GitPerks m, MonadReader GitEnv m, GroupKeyOperations m)
        => LWWRefKey HBS2Basic
        -> [(GitRef,Maybe GitHash)]
        -> m ()
-export lww refs  = do
-
-  puk <- error "FIXME: puk"
-
-  subscribeRefLog puk
+export key refs  = do
 
   git <- asks _gitPath
   sto <- asks _storage
   new <- asks _gitExportType <&> (== ExportNew)
   reflog <- asks _refLogAPI
   ip <- asks _progress
+
+  LWWBlockData{..} <- waitOrInitLWWRef
+
+  debug $ red $ pretty $ AsBase58 lwwRefLogPubKey
+
+  puk <- error $ show $ "FIXME: puk" <+> pretty (AsBase58 lwwRefLogPubKey)
+
+  subscribeRefLog puk
 
   myrefs <- refsForExport refs
 
@@ -250,6 +258,30 @@ export lww refs  = do
         withState (insertBundleKey puk myrefsKey bh)
 
   where
+
+    findSK pk = liftIO $ runKeymanClient $ runMaybeT do
+        creds  <- lift (loadCredentials pk) >>= toMPlus
+        pure (view peerSignSk creds)
+
+    waitOrInitLWWRef  = do
+      sto <- asks _storage
+      new <- asks _gitExportType <&> (== ExportNew)
+
+      flip fix 3 $ \next n -> do
+               blk <- readLWWBlock sto key
+
+               case blk of
+                Just x -> pure x
+
+                Nothing | new && n > 0 -> do
+                  _ <- runExceptT (initLWWRef sto Nothing findSK key)
+                        >>= either ( throwIO . userError . show ) pure
+
+                  next (pred n)
+
+                        | otherwise -> do
+                  -- FIXME: detailed-error-description
+                  orThrowUser "lwwref not available" Nothing
 
 
     notInTx Nothing _ = pure True

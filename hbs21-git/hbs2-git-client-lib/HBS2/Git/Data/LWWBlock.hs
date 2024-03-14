@@ -71,6 +71,7 @@ readLWWBlock :: forall e s m . ( MonadIO m
                                , s ~ Encryption e
                                , ForLWWRefProto e
                                , IsRefPubKey s
+                               , e ~ L4Proto
                                )
              => AnyStorage
              -> LWWRefKey s
@@ -88,13 +89,14 @@ readLWWBlock sto k = runMaybeT do
     >>= toMPlus
     <&> lwwBlockData
 
-initLWWRef :: forall s e m . ( MonadIO m
+initLWWRef :: forall e s m . ( MonadIO m
                              , MonadError LWWBlockOpError m
                              , IsRefPubKey s
                              , ForSignedBox e
                              , HasDerivedKey s 'Sign Word64 m
                              , s ~ Encryption e
                              , Signatures s
+                             , e ~ L4Proto
                              )
            => AnyStorage
            -> Maybe Word64
