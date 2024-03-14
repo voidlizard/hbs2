@@ -62,6 +62,10 @@ drawProgress (ProgressQ q) = do
               put ""
               next qq
 
+            ImportWaitLWW n lww -> do
+              limit 0.25 $ put ("wait lwwref" <+> pretty lww <+> pretty n)
+              next quiet
+
             ImportRefLogStart puk -> do
               put ("wait reflog" <+> pretty (AsBase58 puk))
               next quiet

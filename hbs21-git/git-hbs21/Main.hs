@@ -11,6 +11,7 @@ import HBS2.Git.Data.RefLog
 import HBS2.Git.Local.CLI qualified as Git
 import HBS2.Git.Data.Tx qualified as TX
 import HBS2.Git.Data.Tx (RepoHead(..))
+import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.GK
 
 import HBS2.Storage.Operations.ByteString
@@ -46,6 +47,9 @@ pRefLogId :: ReadM RefLogId
 pRefLogId = maybeReader (fromStringMay @RefLogId)
 
 
+pLwwKey :: ReadM (LWWRefKey HBS2Basic)
+pLwwKey = maybeReader fromStringMay
+
 pHashRef :: ReadM HashRef
 pHashRef = maybeReader (fromStringMay @HashRef)
 
@@ -57,7 +61,7 @@ pInit = do
 pExport :: GitPerks m => Parser (GitCLI m ())
 pExport = do
 
-  puk <- argument pRefLogId (metavar "REFLOG-KEY")
+  puk <- argument pLwwKey (metavar "REFLOG-KEY")
 
   et <- flag ExportInc ExportNew
            (  long "new" <> help "new is usable to export to a new empty reflog"
@@ -86,7 +90,7 @@ pExport = do
 
 pImport :: GitPerks m => Parser (GitCLI m ())
 pImport = do
-  puk <- argument pRefLogId (metavar "REFLOG-KEY")
+  puk <- argument pLwwKey (metavar "LWWREF")
 
   pure do
     git <- Git.findGitDir >>= orThrowUser "not a git dir"

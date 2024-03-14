@@ -11,6 +11,7 @@ import HBS2.Git.Client.Progress
 
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.Tx
+import HBS2.Git.Data.LWWBlock
 
 import Data.ByteString.Lazy qualified as LBS
 
@@ -25,7 +26,6 @@ import System.Exit
 
 data ImportRefLogNotFound = ImportRefLogNotFound
                             deriving stock (Typeable,Show)
-
 
 instance Exception ImportRefLogNotFound
 
@@ -53,47 +53,64 @@ instance Show ImportTxError where
 instance Exception ImportTxError
 
 data IState =
-    IWaitRefLog Int
-  | IScanRefLog HashRef
+    IWaitLWWBlock Int
+  | IWaitRefLog Int RefLogId
+  | IScanRefLog RefLogId HashRef
   | IApplyTx HashRef
   | IExit
 
 importRepoWait :: (GitPerks m, MonadReader GitEnv m)
-               => RefLogId
+               => LWWRefKey HBS2Basic
                -> m ()
 
-importRepoWait  puk = do
+importRepoWait lwwKey = do
 
   env <- ask
 
-  subscribeRefLog puk
-
-  ip <- asks _progress
+  ip  <- asks _progress
+  sto <- asks _storage
 
   meet <- newTVarIO (mempty :: HashMap HashRef Int)
 
-  flip fix (IWaitRefLog 20) $ \next -> \case
-    IWaitRefLog w | w <= 0 -> do
+  flip fix (IWaitLWWBlock 20) $ \next -> \case
+
+    IWaitLWWBlock w | w <= 0 -> do
       throwIO ImportRefLogNotFound
 
-    IWaitRefLog w  -> do
+    IWaitLWWBlock w -> do
+      onProgress ip (ImportWaitLWW w lwwKey)
+      lww <- readLWWBlock @L4Proto sto lwwKey
+
+      case lww of
+        Nothing -> do
+          pause @'Seconds 2
+          next (IWaitLWWBlock (pred w))
+
+        Just blk -> do
+          error "FOUND SHIT!"
+          pure ()
+
+    IWaitRefLog w puk | w <= 0 -> do
+      throwIO ImportRefLogNotFound
+
+    IWaitRefLog w puk -> do
       onProgress ip (ImportRefLogStart puk)
       try @_ @SomeException (getRefLogMerkle puk) >>= \case
         Left _ -> do
           onProgress ip (ImportRefLogDone puk Nothing)
           pause @'Seconds 2
-          next (IWaitRefLog (pred w))
+          next (IWaitRefLog (pred w) puk)
 
         Right Nothing -> do
           onProgress ip (ImportRefLogDone puk Nothing)
           pause @'Seconds 2
-          next (IWaitRefLog (pred w))
+          next (IWaitRefLog (pred w) puk)
 
         Right (Just h) -> do
           onProgress ip (ImportRefLogDone puk (Just h))
-          next (IScanRefLog h)
+          next (IScanRefLog puk h)
 
-    IScanRefLog h -> do
+    IScanRefLog puk h -> do
       scanRefLog puk h
       withState (selectMaxSeqTxNotDone puk) >>= \case
         Just tx -> next (IApplyTx tx)
@@ -108,7 +125,7 @@ importRepoWait  puk = do
                       onProgress ip (ImportWaitTx h)
                       pause @'Seconds 0.25
 
-            next (IScanRefLog h)
+            next (IScanRefLog puk h)
 
     IApplyTx h -> do
       onProgress ip (ImportApplyTx h)
@@ -152,8 +169,7 @@ importRepoWait  puk = do
         pure IExit
       else do
         pause @'Seconds 2
-        pure (IWaitRefLog 5)
-
+        pure (IWaitLWWBlock 5)
 
 scanRefLog :: (GitPerks m, MonadReader GitEnv m)
            => RefLogId

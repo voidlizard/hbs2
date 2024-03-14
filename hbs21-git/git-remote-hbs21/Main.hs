@@ -12,6 +12,7 @@ import HBS2.Git.Client.Config
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.Tx qualified as TX
 import HBS2.Git.Data.Tx (RepoHead(..))
+import HBS2.Git.Data.LWWBlock
 
 import HBS2.System.Dir
 
@@ -47,7 +48,7 @@ sendLine = liftIO . IO.putStrLn
 die :: (MonadIO m, Pretty a) => a -> m b
 die s = liftIO $ Exit.die (show $ pretty s)
 
-parseURL :: String -> Maybe RefLogId
+parseURL :: String -> Maybe (LWWRefKey HBS2Basic)
 parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
   where
     p = do
@@ -55,7 +56,7 @@ parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
 
       Atto.takeWhile1 (`elem` getAlphabet)
        <&> BS8.unpack
-       <&> fromStringMay @RefLogId
+       <&> fromStringMay @(LWWRefKey HBS2Basic)
        >>= maybe (fail "invalid reflog key") pure
 
 parsePush :: String -> Maybe (Maybe GitRef, GitRef)
@@ -111,7 +112,7 @@ main = do
                       pause @'Seconds 0.25
                       liftIO $ hFlush stderr
                       liftIO $ hPutDoc stderr $ ""
-                                  <> ul (yellow "Reflog" <+> pretty url <+>  yellow "is not available yet.") <> line
+                                  <> ul (yellow "Reference" <+> pretty url <+>  yellow "is not available yet.") <> line
                                   <> "If you sure it's a new one -- make sure you've added the key to hbs2-keyman and then run"
                                   <> line <> line
                                   <> "hbs2-keyman update" <> line <> line

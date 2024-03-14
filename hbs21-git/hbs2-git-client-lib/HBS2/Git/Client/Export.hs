@@ -9,6 +9,7 @@ import HBS2.Git.Client.Progress
 
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.Tx
+import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.GK
 
 import HBS2.Git.Local.CLI
@@ -38,6 +39,7 @@ instance Exception ExportError
 instance HasErrorStatus ExportError where
   getStatus = \case
     ExportUnsupportedOperation -> Failed
+    ExportBundleCreateError -> Failed
 
 instance ToFilePath (GitRef, GitHash) where
   toFilePath (g, r) = show (pretty g)
@@ -143,10 +145,12 @@ storeNewGK0 = do
     writeAsMerkle sto (serialise gk) <&> HashRef <&> (,epoch)
 
 export :: (GitPerks m, MonadReader GitEnv m, GroupKeyOperations m)
-       => RefLogId
+       => LWWRefKey HBS2Basic
        -> [(GitRef,Maybe GitHash)]
        -> m ()
-export puk refs  = do
+export lww refs  = do
+
+  puk <- error "FIXME: puk"
 
   subscribeRefLog puk
 

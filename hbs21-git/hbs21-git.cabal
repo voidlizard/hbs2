@@ -103,6 +103,7 @@ library hbs2-git-client-lib
       HBS2.Git.Data.Tx
       HBS2.Git.Data.GK
       HBS2.Git.Data.RefLog
+      HBS2.Git.Data.LWWBlock
 
       HBS2.Git.Client.Prelude
       HBS2.Git.Client.App.Types
