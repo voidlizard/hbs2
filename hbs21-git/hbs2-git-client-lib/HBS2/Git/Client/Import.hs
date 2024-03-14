@@ -72,6 +72,8 @@ importRepoWait lwwKey = do
 
   meet <- newTVarIO (mempty :: HashMap HashRef Int)
 
+  subscribeLWWRef lwwKey
+
   flip fix (IWaitLWWBlock 20) $ \next -> \case
 
     IWaitLWWBlock w | w <= 0 -> do
@@ -86,9 +88,8 @@ importRepoWait lwwKey = do
           pause @'Seconds 2
           next (IWaitLWWBlock (pred w))
 
-        Just blk -> do
-          error "FOUND SHIT!"
-          pure ()
+        Just (LWWBlockData{..}) -> do
+          next (IWaitRefLog 20 lwwRefLogPubKey)
 
     IWaitRefLog w puk | w <= 0 -> do
       throwIO ImportRefLogNotFound

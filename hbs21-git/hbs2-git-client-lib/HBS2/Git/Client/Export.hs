@@ -160,13 +160,17 @@ export key refs  = do
   reflog <- asks _refLogAPI
   ip <- asks _progress
 
+  subscribeLWWRef key
+
   lww@LWWBlockData{..} <- waitOrInitLWWRef
+
+  let puk0 = fromLwwRefKey key
 
   debug $ red $ pretty $ AsBase58 lwwRefLogPubKey
 
   (sk0,pk0) <- liftIO $ runKeymanClient do
-                creds <- loadCredentials lwwRefLogPubKey
-                             >>= orThrowUser "can't load credentials"
+                creds <- loadCredentials puk0
+                             >>= orThrowUser ("can't load credentials" <+> pretty (AsBase58 puk0))
                 pure ( view peerSignSk  creds, view peerSignPk creds )
 
   (puk,sk) <- derivedKey @HBS2Basic @'Sign lwwRefSeed sk0

@@ -3,6 +3,7 @@ module HBS2.Git.Client.RefLog where
 import HBS2.Git.Client.Prelude
 import HBS2.Git.Client.App.Types
 import HBS2.Git.Data.RefLog
+import HBS2.Git.Data.LWWBlock
 
 data RefLogRequestTimeout = RefLogRequestTimeout
                             deriving (Show,Typeable)
@@ -19,6 +20,11 @@ subscribeRefLog puk = do
   api <- asks _peerAPI
   void $ callService @RpcPollAdd api (puk, "reflog", 13)
 
+
+subscribeLWWRef :: (GitPerks m, MonadReader GitEnv m) => LWWRefKey HBS2Basic -> m ()
+subscribeLWWRef puk = do
+  api <- asks _peerAPI
+  void $ callService @RpcPollAdd api (fromLwwRefKey puk, "lwwref", 17)
 
 getRefLogMerkle :: (GitPerks m, MonadReader GitEnv m) => RefLogId -> m (Maybe HashRef)
 getRefLogMerkle puk = do
