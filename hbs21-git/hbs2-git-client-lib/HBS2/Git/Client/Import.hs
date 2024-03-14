@@ -89,7 +89,7 @@ importRepoWait lwwKey = do
 
       case lww of
         Nothing -> do
-          pause @'Seconds 5
+          pause @'Seconds 2
           fetchLWWRef lwwKey
           next (IWaitLWWBlock (pred w))
 
