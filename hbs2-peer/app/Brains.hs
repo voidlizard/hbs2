@@ -225,7 +225,7 @@ instance ( Hashable (Peer e)
 
     where
       sql = [qc|
-      insert into statedb.poll (ref,type,interval)
+      insert into {poll_table} (ref,type,interval)
       values (?,?,?)
       on conflict do update set interval = excluded.interval
       |]
@@ -236,7 +236,7 @@ instance ( Hashable (Peer e)
       liftIO $ execute conn sql (Only (show $ pretty (AsBase58 r)))
     where
       sql = [qc|
-      delete from statedb.poll
+      delete from {poll_table}
       where ref = ?
       |]
 
@@ -245,21 +245,21 @@ instance ( Hashable (Peer e)
       let conn = view brainsDb brains
       case mtp of
         Nothing -> postprocess <$>
-          query_ conn [qc|select ref, type, interval from statedb.poll|]
+          query_ conn [qc|select ref, type, interval from {poll_table}|]
 
         Just tp -> postprocess <$>
-          query conn [qc|select ref, type, interval from statedb.poll where type = ?|] (Only tp)
+          query conn [qc|select ref, type, interval from {poll_table} where type = ?|] (Only tp)
     where
       postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
 
-  isPolledRef brains ref = do
+  isPolledRef brains tp ref = do
     liftIO do
       let conn = view brainsDb brains
       query @_ @(Only Int) conn [qc|
-        select 1 from statedb.poll
-        where ref = ?
+        select 1 from {poll_table}
+        where ref = ? and type = ?
         limit 1
-      |] ( Only ( show $ pretty (AsBase58 ref) ) )
+      |] ( show $ pretty (AsBase58 ref), tp )
         <&> isJust . listToMaybe
 
   setSeen brains w ts = do
@@ -718,6 +718,8 @@ insertPexInfo br peers = liftIO do
     |] (Only (show $ pretty p))
 
 
+{- HLINT ignore "Functor law" -}
+
 selectPexInfo :: forall e . (e ~ L4Proto)
               => BasicBrains e
               -> IO [PeerAddr e]
@@ -729,6 +731,18 @@ selectPexInfo br = liftIO do
     limit 100
   |] <&> fmap (fromStringMay . fromOnly)
      <&> catMaybes
+
+tableExists :: Connection -> Maybe String -> String -> IO Bool
+tableExists conn prefix' tableName = do
+  let sql = [qc|
+     SELECT name FROM {prefix}.sqlite_master WHERE type='table' AND name=?
+  |]
+  r <- query conn sql (Only tableName) :: IO [Only String]
+  pure $ not $ null r
+
+  where
+    prefix = fromMaybe "main" prefix'
+
 
 -- FIXME: eventually-close-db
 newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
@@ -836,14 +850,26 @@ newBasicBrains cfg = liftIO do
     )
   |]
 
-  execute_ conn [qc|
-    create table if not exists statedb.poll
-    ( ref      text not null
-    , type     text not null
-    , interval int not null
-    , primary key (ref)
-    )
-  |]
+  poll_1 <- tableExists conn (Just "statedb") "poll_1"
+  poll_0 <- tableExists conn (Just "statedb") "poll"
+
+  unless poll_1 do
+    debug $ red "BRAINS: CREATE poll_1"
+    execute_ conn [qc|
+      create table if not exists statedb.poll_1
+      ( ref      text not null
+      , type     text not null
+      , interval int not null
+      , primary key (ref,type)
+      )
+    |]
+
+    when poll_0 do
+      debug $ red "BRAINS: FILL poll_1"
+      execute_ conn [qc|
+        insert into statedb.poll_1 (ref,type,interval)
+        select ref,type,interval from statedb.poll;
+      |]
 
   execute_ conn [qc|
     create table if not exists peer_asymmkey
@@ -878,6 +904,10 @@ data PeerDownloadsDelOnStart
 
 instance Monad m => HasCfgKey PeerDownloadsDelOnStart b m where
   key = "downloads-del-on-start"
+
+{- HLINT ignore "Use camelCase" -}
+poll_table :: String
+poll_table = "statedb.poll_1"
 
 runBasicBrains :: forall e m . ( e ~ L4Proto
                                , MonadUnliftIO m
@@ -945,7 +975,7 @@ runBasicBrains cfg brains = do
       updateOP brains $ do
         let conn = view brainsDb brains
         liftIO $ execute conn [qc|
-          insert into statedb.poll (ref,type,interval)
+          insert into {poll_table} (ref,type,interval)
           values (?,?,?)
           on conflict do update set interval = excluded.interval
           |] (show $ pretty (AsBase58 x), show $ pretty t, mi)

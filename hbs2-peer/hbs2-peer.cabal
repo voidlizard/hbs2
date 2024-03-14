@@ -69,6 +69,7 @@ common common-deps
         , warp
         , http-conduit
         , http-types
+        , wai
         , wai-extra
         , unliftio
         , unliftio-core
@@ -157,11 +158,14 @@ library
       HBS2.Peer.Proto.RefChan.RefChanNotify
       HBS2.Peer.Proto.RefChan.RefChanUpdate
       HBS2.Peer.Proto.AnyRef
+      HBS2.Peer.Proto.LWWRef
+      HBS2.Peer.Proto.LWWRef.Internal
 
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
       HBS2.Peer.RPC.API.RefChan
+      HBS2.Peer.RPC.API.LWWRef
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Client.StorageClient
@@ -255,18 +259,21 @@ executable hbs2-peer
                     , RPC2.Downloads
                     , RPC2.RefLog
                     , RPC2.RefChan
+                    , RPC2.LWWRef
                     , PeerTypes
                     , PeerLogger
                     , PeerConfig
                     , RefLog
                     , RefChan
                     , RefChanNotifyLog
+                    , LWWRef
                     , CheckMetrics
                     , HttpWorker
                     , Brains
                     , DispatchProxy
                     , CLI.Common
                     , CLI.RefChan
+                    , CLI.LWWRef
 
                     , Paths_hbs2_peer
 

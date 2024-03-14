@@ -18,8 +18,8 @@ class HasBrains e a where
   listPolledRefs :: MonadIO m => a -> Maybe String -> m [(PubKey 'Sign (Encryption e), String, Int)]
   listPolledRefs _ _  = pure mempty
 
-  isPolledRef :: MonadIO m => a -> PubKey 'Sign (Encryption e) -> m Bool
-  isPolledRef _ _ = pure False
+  isPolledRef :: MonadIO m => a -> String -> PubKey 'Sign (Encryption e) -> m Bool
+  isPolledRef _ _ _ = pure False
 
   delPolledRef :: MonadIO m => a -> PubKey 'Sign (Encryption e) -> m ()
   delPolledRef _ _ = pure ()

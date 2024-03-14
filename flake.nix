@@ -103,6 +103,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
             hoogle
             htags
             text-icu
+            magic
             pkgs.icu72
             pkgs.openssl
             weeder
