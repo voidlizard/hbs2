@@ -85,25 +85,23 @@ makeRepoHeadSimple name brief manifest gk refs = do
 writeRepoHead :: MonadUnliftIO  m => AnyStorage -> RepoHead -> m HashRef
 writeRepoHead sto rh = writeAsMerkle sto (serialise rh) <&> HashRef
 
-makeTx :: (MonadUnliftIO m, GroupKeyOperations m)
+makeTx :: forall s m . (MonadUnliftIO m, GroupKeyOperations m, s ~ HBS2Basic)
        => AnyStorage
        -> Bool   -- ^ rewrite bundle merkle tree with new gk0
        -> Rank   -- ^ tx rank
        -> RefLogId
+       -> ( PubKey 'Sign s -> m (Maybe (PrivKey 'Sign s) ) )
        -> RepoHead
        -> [HashRef]
        -> [LBS]
        -> m RepoTx
 
-makeTx sto rewrite r puk rh prev lbss = do
+makeTx sto rewrite r puk findSk rh prev lbss = do
 
   let rfk = RefLogKey @HBS2Basic puk
 
-  creds <- liftIO ( runKeymanClient $ loadCredentials puk )
+  privk <- findSk puk
              >>= orThrow TxKeyringNotFound
-
-  let pubk = view peerSignPk creds
-  let privk = view peerSignSk creds
 
   -- FIXME: delete-on-fail
   headRef <- writeRepoHead sto rh
@@ -168,7 +166,7 @@ makeTx sto rewrite r puk rh prev lbss = do
             & serialise
             & LBS.toStrict
 
-  makeRefLogUpdate @L4Proto @HBS2Basic pubk privk tx
+  makeRefLogUpdate @L4Proto @HBS2Basic puk privk tx
 
 
 unpackTx :: MonadIO m

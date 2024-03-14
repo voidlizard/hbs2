@@ -160,11 +160,16 @@ export key refs  = do
   reflog <- asks _refLogAPI
   ip <- asks _progress
 
-  LWWBlockData{..} <- waitOrInitLWWRef
+  lww@LWWBlockData{..} <- waitOrInitLWWRef
 
   debug $ red $ pretty $ AsBase58 lwwRefLogPubKey
 
-  puk <- error $ show $ "FIXME: puk" <+> pretty (AsBase58 lwwRefLogPubKey)
+  (sk0,pk0) <- liftIO $ runKeymanClient do
+                creds <- loadCredentials lwwRefLogPubKey
+                             >>= orThrowUser "can't load credentials"
+                pure ( view peerSignSk  creds, view peerSignPk creds )
+
+  (puk,sk) <- derivedKey @HBS2Basic @'Sign lwwRefSeed sk0
 
   subscribeRefLog puk
 
@@ -246,7 +251,7 @@ export key refs  = do
 
       debug $ red "MAKE TX" <+> pretty rw <+> pretty gk0old <+> "->" <+> pretty gk0new
 
-      tx <- lift $ makeTx sto rw rank puk repohead bss out
+      tx <- lift $ makeTx sto rw rank puk (const $ pure (Just sk)) repohead bss out
 
       r <- lift $ race (pause @'Seconds 1) (callService @RpcRefLogPost reflog tx)
              >>= orThrowUser "hbs2-peer rpc timeout"
