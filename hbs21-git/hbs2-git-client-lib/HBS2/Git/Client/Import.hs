@@ -95,6 +95,9 @@ importRepoWait lwwKey = do
 
         Just (LWWBlockData{..}) -> do
           void $ try @_ @SomeException (getRefLogMerkle lwwRefLogPubKey)
+          subscribeRefLog lwwRefLogPubKey
+          pause @'Seconds 0.25
+          getRefLogMerkle lwwRefLogPubKey
           next (IWaitRefLog 20 lwwRefLogPubKey)
 
     IWaitRefLog w puk | w <= 0 -> do
