@@ -327,7 +327,38 @@ runStore opts ss = runResourceT do
         Nothing -> die "unknown or invalid group key"
 
         Just (EncSymm gk) -> do
-          die "symmetric group keys are deprecated"
+          pk  <- unOptEncPk <$> pure (uniLastMay @OptEncPubKey opts) `orDie` "public key not specified"
+          krf <- pure (uniLastMay @OptKeyringFile opts) `orDie` "keyring file not set"
+
+          s <- liftIO $ BS.readFile (unOptKeyringFile krf)
+          cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
+
+          sk <- pure (headMay [ (view krPk k, view krSk k)
+                              |  k <- view peerKeyring cred
+                              ,  view krPk k == pk
+                              ]) `orDie` "secret key not found"
+
+          gks <- pure (Symm.lookupGroupKey (snd sk) pk gk) `orDie` ("can't find secret key for " <> show (pretty (AsBase58 (fst sk))))
+
+          void $ liftIO $ IO.withFile inputFile IO.ReadMode $ \fh -> do
+            let reader =  readChunked fh (fromIntegral defBlockSize)
+            qqq <- S.toList_ $ reader
+                             & S.map (BA.sipHash (SipKey 2716310006254639645 507093936407764973) . LBS.toStrict)
+                             & S.map \(SipHash w) -> w
+
+            let (HbSyncHash nonce) = hashObject @HbSync (serialise qqq)
+
+            IO.hSeek fh IO.AbsoluteSeek 0
+
+            let segments = readChunked fh (fromIntegral defBlockSize)
+
+            let source = ToEncryptSymmBS gks (Right gk) nonce segments  NoMetaData Nothing
+
+            r <- runExceptT $ writeAsMerkle ss source
+
+            case r of
+              Left e  -> die (show e)
+              Right h -> hPrint stdout (pretty h)
 
         Just (EncAsymm gk) -> liftIO $ IO.withFile inputFile IO.ReadMode $ \ha -> do
 
