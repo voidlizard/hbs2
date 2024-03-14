@@ -134,9 +134,10 @@ runGitCLI o m = do
 
     void $ ContT $ withAsync $ runMessagingUnix client
 
-    peerAPI   <- makeServiceCaller @PeerAPI (fromString soname)
-    refLogAPI <- makeServiceCaller @RefLogAPI (fromString soname)
+    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+    refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
     storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+    lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
 
     let endpoints = [ Endpoint @UNIX  peerAPI
                     , Endpoint @UNIX  refLogAPI
@@ -158,7 +159,7 @@ runGitCLI o m = do
 
     progress <- ContT $ withAsync (drawProgress q)
 
-    env <- lift $ newGitEnv ip o git cpath conf peerAPI refLogAPI storageAPI
+    env <- lift $ newGitEnv ip o git cpath conf peerAPI refLogAPI lwwAPI storageAPI
     lift $ runReaderT setupLogging env
     lift $ withGitEnv env (evolveDB >> m)
       `finally` do

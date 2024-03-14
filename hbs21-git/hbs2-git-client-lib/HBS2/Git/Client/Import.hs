@@ -74,6 +74,10 @@ importRepoWait lwwKey = do
 
   subscribeLWWRef lwwKey
 
+  -- void $ try @_ @SomeException (getRefLogMerkl puk)
+
+  fetchLWWRef lwwKey
+
   flip fix (IWaitLWWBlock 20) $ \next -> \case
 
     IWaitLWWBlock w | w <= 0 -> do
@@ -85,10 +89,12 @@ importRepoWait lwwKey = do
 
       case lww of
         Nothing -> do
-          pause @'Seconds 2
+          pause @'Seconds 5
+          fetchLWWRef lwwKey
           next (IWaitLWWBlock (pred w))
 
         Just (LWWBlockData{..}) -> do
+          void $ try @_ @SomeException (getRefLogMerkle lwwRefLogPubKey)
           next (IWaitRefLog 20 lwwRefLogPubKey)
 
     IWaitRefLog w puk | w <= 0 -> do

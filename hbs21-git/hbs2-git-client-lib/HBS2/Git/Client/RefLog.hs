@@ -26,6 +26,12 @@ subscribeLWWRef puk = do
   api <- asks _peerAPI
   void $ callService @RpcPollAdd api (fromLwwRefKey puk, "lwwref", 17)
 
+fetchLWWRef :: (GitPerks m, MonadReader GitEnv m) => LWWRefKey HBS2Basic -> m ()
+fetchLWWRef key = do
+  api <- asks _lwwRefAPI
+  void $ race (pause @'Seconds 1) (callService @RpcLWWRefFetch api key)
+
+
 getRefLogMerkle :: (GitPerks m, MonadReader GitEnv m) => RefLogId -> m (Maybe HashRef)
 getRefLogMerkle puk = do
 

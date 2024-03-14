@@ -16,6 +16,7 @@ module HBS2.Git.Client.Prelude
   , module HBS2.Net.Proto.Service
   , module HBS2.Peer.RPC.API.Peer
   , module HBS2.Peer.RPC.API.RefLog
+  , module HBS2.Peer.RPC.API.LWWRef
   , module HBS2.Peer.RPC.API.Storage
   , module HBS2.Peer.RPC.Client.StorageClient
 
@@ -53,6 +54,7 @@ import HBS2.Net.Proto.Service
 
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 

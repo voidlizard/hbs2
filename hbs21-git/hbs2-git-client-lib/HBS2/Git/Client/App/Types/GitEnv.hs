@@ -35,6 +35,7 @@ data GitEnv =
   , _config          :: Config
   , _peerAPI         :: ServiceCaller PeerAPI UNIX
   , _refLogAPI       :: ServiceCaller RefLogAPI UNIX
+  , _lwwRefAPI       :: ServiceCaller LWWRefAPI UNIX
   , _storage         :: AnyStorage -- ServiceCaller StorageAPI UNIX
   , _db              :: DBPipeEnv
   , _progress        :: AnyProgress
