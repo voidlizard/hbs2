@@ -84,9 +84,9 @@ importRepoWait lwwKey = do
       throwIO ImportRefLogNotFound
 
     IWaitLWWBlock w -> do
-      onProgress ip (ImportWaitLWW w lwwKey)
-      debug $ yellow ("fetchLWWRef" <+> pretty lwwKey)
       fetchLWWRef lwwKey
+      onProgress ip (ImportWaitLWW w lwwKey)
+      notice $ yellow ("fetchLWWRef" <+> pretty lwwKey)
       lww <- readLWWBlock sto lwwKey
 
       case lww of

@@ -295,11 +295,11 @@
         "suckless-conf": "suckless-conf_2"
       },
       "locked": {
-        "lastModified": 1710431896,
-        "narHash": "sha256-yQ52vtX92Ys4xqsPDCIqOrR5HBVE+rJ+VagaHc9017c=",
+        "lastModified": 1710493310,
+        "narHash": "sha256-LeTP5qZvjl4ZY23ktv6mYNuTRKsJenuEajw3Cz8vP70=",
         "ref": "lwwrepo",
-        "rev": "3cd16684515a93bbf985891ed8e9913382484fbf",
-        "revCount": 981,
+        "rev": "9497207115ed51663415c9e066a86bcb615a3cf8",
+        "revCount": 982,
         "type": "git",
         "url": "http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
       },
