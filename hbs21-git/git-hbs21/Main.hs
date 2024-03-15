@@ -99,6 +99,7 @@ pImport = do
 pTools :: GitPerks m => Parser (GitCLI m ())
 pTools = hsubparser (  command "dump-pack" (info pDumpPack (progDesc "dump hbs2 git pack"))
                     <> command "show-ref" (info pShowRef (progDesc "show current references"))
+                    <> command "show-remotes" (info pShowLww (progDesc "show current remotes (hbs2 references)"))
                     )
 
 
@@ -134,6 +135,13 @@ pDumpPack = do
     dumpPack = flag DumpPack DumpPack
                       ( long "pack" )
 
+
+pShowLww :: GitPerks m => Parser (GitCLI m ())
+pShowLww = pure do
+  items <- withState selectAllLww
+  liftIO $ print $ vcat (fmap fmt items)
+  where
+    fmt (l,n,k) = fill 4 (pretty n) <+> fill 32 (pretty l) <+> fill 32 (pretty (AsBase58 k))
 
 pShowRef :: GitPerks m => Parser (GitCLI m ())
 pShowRef = do

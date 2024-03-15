@@ -170,7 +170,7 @@ createLwwTable = do
   ddl [qc|
 create table if not exists lww
   ( hash      text not null
-  , seq       text not null
+  , seq       int not null
   , reflog    text not null
   , primary key (hash,seq,reflog)
   )
