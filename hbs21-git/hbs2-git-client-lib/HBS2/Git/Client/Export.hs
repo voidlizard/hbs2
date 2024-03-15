@@ -162,7 +162,7 @@ export key refs  = do
 
   subscribeLWWRef key
 
-  lww@LWWBlockData{..} <- waitOrInitLWWRef
+  (lww, LWWBlockData{..}) <- waitOrInitLWWRef
 
   let puk0 = fromLwwRefKey key
 

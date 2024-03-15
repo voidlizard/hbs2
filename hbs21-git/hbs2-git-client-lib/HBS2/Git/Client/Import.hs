@@ -91,7 +91,11 @@ importRepoWait lwwKey = do
           fetchLWWRef lwwKey
           next (IWaitLWWBlock (pred w))
 
-        Just (LWWBlockData{..}) -> do
+        Just (LWWRef{..}, LWWBlockData{..}) -> do
+
+          withState do
+            insertLww lwwKey lwwSeq lwwRefLogPubKey
+
           void $ try @_ @SomeException (getRefLogMerkle lwwRefLogPubKey)
           subscribeRefLog lwwRefLogPubKey
           pause @'Seconds 0.25

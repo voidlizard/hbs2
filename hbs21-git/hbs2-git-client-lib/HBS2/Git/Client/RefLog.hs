@@ -1,9 +1,13 @@
-module HBS2.Git.Client.RefLog where
+module HBS2.Git.Client.RefLog
+  ( module HBS2.Git.Client.RefLog
+  , module HBS2.Peer.Proto.RefLog
+  ) where
 
 import HBS2.Git.Client.Prelude
 import HBS2.Git.Client.App.Types
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
+import HBS2.Peer.Proto.RefLog
 
 data RefLogRequestTimeout = RefLogRequestTimeout
                             deriving (Show,Typeable)

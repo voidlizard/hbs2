@@ -10,14 +10,16 @@ import HBS2.Git.Client.Prelude
 import HBS2.Git.Client.App.Types
 import HBS2.Git.Client.Config
 
+import HBS2.Peer.Proto.RefLog
+
 import HBS2.Git.Data.RefLog
+import HBS2.Git.Data.LWWBlock
 
 import DBPipe.SQLite
 import Data.Maybe
 import Data.List qualified as List
-
 import Text.InterpolatedString.Perl6 (qc)
-
+import Data.Word
 
 newtype Base58Field a = Base58Field { fromBase58Field :: a }
                         deriving stock (Eq,Ord,Generic)
@@ -27,6 +29,9 @@ instance Pretty (AsBase58 a) => ToField (Base58Field a) where
 
 instance IsString a => FromField (Base58Field a) where
   fromField = fmap (Base58Field . fromString) . fromField @String
+
+instance FromField (RefLogKey HBS2Basic) where
+  fromField = fmap fromString . fromField @String
 
 instance ToField HashRef where
   toField h = toField @String (show $ pretty h)
@@ -46,6 +51,8 @@ instance FromField GitRef where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
+instance FromField (LWWRefKey HBS2Basic) where
+  fromField = fmap fromString . fromField @String
 
 createStateDir :: (GitPerks m, MonadReader GitEnv m)  => m ()
 createStateDir = do
@@ -74,6 +81,7 @@ evolveDB = withState do
   createBundleKeyTable
   createBundleObjectTable
   createNewGK0Table
+  createLwwTable
   commitAll
 
 createTxTable :: MonadIO m => DBPipeM m ()
@@ -155,6 +163,19 @@ create table if not exists newgk0
   , primary key (reflog,tx)
   )
   |]
+
+
+createLwwTable :: MonadIO m => DBPipeM m ()
+createLwwTable = do
+  ddl [qc|
+create table if not exists lww
+  ( hash      text not null
+  , seq       text not null
+  , reflog    text not null
+  , primary key (hash,seq,reflog)
+  )
+  |]
+
 
 existsTx :: MonadIO m => HashRef -> DBPipeM m Bool
 existsTx txHash = do
@@ -345,4 +366,17 @@ order by ts desc
 limit 1
   |] (Only (Base58Field reflog)) <&> listToMaybe
 
+
+insertLww :: MonadIO m => LWWRefKey HBS2Basic -> Word64 -> RefLogId -> DBPipeM m ()
+insertLww lww snum reflog = do
+  insert [qc|
+INSERT INTO lww (hash, seq, reflog) VALUES (?, ?, ?)
+ON CONFLICT (hash,seq,reflog) DO NOTHING
+  |] (Base58Field lww, snum, Base58Field reflog)
+
+selectAllLww :: MonadIO m => DBPipeM m [(LWWRefKey HBS2Basic, Word64, RefLogId)]
+selectAllLww = do
+  select_  [qc|
+SELECT hash, seq, reflog FROM lww
+  |] <&> fmap (over _3 (fromRefLogKey @HBS2Basic))
 

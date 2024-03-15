@@ -65,6 +65,7 @@ data LWWBlockOpError =
 
 instance Exception LWWBlockOpError
 
+{- HLINT ignore "Functor law" -}
 
 readLWWBlock :: forall e s m . ( MonadIO m
                                , Signatures s
@@ -75,11 +76,11 @@ readLWWBlock :: forall e s m . ( MonadIO m
                                )
              => AnyStorage
              -> LWWRefKey s
-             -> m (Maybe (LWWBlockData e))
+             -> m (Maybe (LWWRef e, LWWBlockData e))
 
 readLWWBlock sto k = runMaybeT do
 
-  LWWRef{..} <- runExceptT (readLWWRef @e sto k)
+  w@LWWRef{..} <- runExceptT (readLWWRef @e sto k)
                   >>= toMPlus
                   >>= toMPlus
 
@@ -88,6 +89,7 @@ readLWWBlock sto k = runMaybeT do
     <&> deserialiseOrFail @(LWWBlock e)
     >>= toMPlus
     <&> lwwBlockData
+    <&> (w,)
 
 initLWWRef :: forall e s m . ( MonadIO m
                              , MonadError LWWBlockOpError m
