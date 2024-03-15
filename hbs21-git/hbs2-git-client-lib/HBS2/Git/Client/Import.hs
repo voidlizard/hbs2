@@ -85,7 +85,9 @@ importRepoWait lwwKey = do
 
     IWaitLWWBlock w -> do
       onProgress ip (ImportWaitLWW w lwwKey)
-      lww <- readLWWBlock @L4Proto sto lwwKey
+      debug $ yellow ("fetchLWWRef" <+> pretty lwwKey)
+      fetchLWWRef lwwKey
+      lww <- readLWWBlock sto lwwKey
 
       case lww of
         Nothing -> do

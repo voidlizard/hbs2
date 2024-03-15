@@ -12,6 +12,7 @@ import HBS2.Peer.Proto.LWWRef
 import HBS2.Peer.Proto.LWWRef.Internal
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
+import HBS2.Misc.PrettyStuff
 
 import PeerTypes
 
@@ -49,7 +50,7 @@ instance LWWRefContext m => HandleMethod m RpcLWWRefFetch where
 
   handleMethod key = do
     co <- getRpcContext @LWWRefAPI
-    debug $ "rpc.LWWRefFetch" <+> pretty key
+    debug $ green "rpc.LWWRefFetch" <+> pretty key
 
     let penv = rpcPeerEnv co
     liftIO $ withPeerM penv $ do
