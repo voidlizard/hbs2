@@ -74,8 +74,6 @@ importRepoWait lwwKey = do
 
   subscribeLWWRef lwwKey
 
-  -- void $ try @_ @SomeException (getRefLogMerkl puk)
-
   fetchLWWRef lwwKey
 
   flip fix (IWaitLWWBlock 20) $ \next -> \case
@@ -84,9 +82,7 @@ importRepoWait lwwKey = do
       throwIO ImportRefLogNotFound
 
     IWaitLWWBlock w -> do
-      fetchLWWRef lwwKey
       onProgress ip (ImportWaitLWW w lwwKey)
-      notice $ yellow ("fetchLWWRef" <+> pretty lwwKey)
       lww <- readLWWBlock sto lwwKey
 
       case lww of

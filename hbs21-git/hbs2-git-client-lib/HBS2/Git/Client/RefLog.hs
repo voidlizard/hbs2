@@ -29,10 +29,7 @@ subscribeLWWRef puk = do
 fetchLWWRef :: (GitPerks m, MonadReader GitEnv m) => LWWRefKey HBS2Basic -> m ()
 fetchLWWRef key = do
   api <- asks _lwwRefAPI
-  notice $ green "fetchLWWRef" <+> pretty key
-  r <- race (pause @'Seconds 2) (callService @RpcLWWRefFetch api key)
-  warn $ "result:" <+> viaShow r
-
+  void $ race (pause @'Seconds 1) (callService @RpcLWWRefFetch api key)
 
 getRefLogMerkle :: (GitPerks m, MonadReader GitEnv m) => RefLogId -> m (Maybe HashRef)
 getRefLogMerkle puk = do

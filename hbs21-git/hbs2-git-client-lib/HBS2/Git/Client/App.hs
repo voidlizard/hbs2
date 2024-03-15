@@ -141,6 +141,7 @@ runGitCLI o m = do
 
     let endpoints = [ Endpoint @UNIX  peerAPI
                     , Endpoint @UNIX  refLogAPI
+                    , Endpoint @UNIX  lwwAPI
                     , Endpoint @UNIX  storageAPI
                     ]
 
