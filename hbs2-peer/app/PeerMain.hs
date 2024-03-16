@@ -1163,7 +1163,7 @@ runPeer opts = Exception.handle (\e -> myException e
     envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
     w1 <- asyncLinked $ runNotifyWorkerServer env
     w2 <- asyncLinked $ runNotifyWorkerServer envrl
-    runProto @UNIX
+    wws <- replicateM 1 $ async $ runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)
       , makeResponse (makeServer @RefChanAPI)
@@ -1172,7 +1172,7 @@ runPeer opts = Exception.handle (\e -> myException e
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
-    mapM_ wait [w1,w2]
+    mapM_ wait (w1 : w2 : wws )
 
   void $ waitAnyCancel $ w <> [ loop
                               , m1

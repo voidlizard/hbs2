@@ -45,12 +45,37 @@ newtype GitCLI m a = GitCLI { fromGitCLI :: ReaderT GitEnv m a }
                                       , Monad
                                       , MonadIO
                                       , MonadUnliftIO
+                                      , MonadTrans
                                       , MonadReader GitEnv
                                       , MonadThrow
                                       )
 
-type GitPerks m = ( MonadUnliftIO m, MonadThrow m )
+-- type GitPerks m = ( MonadUnliftIO m, MonadThrow m )
+type GitPerks m = ( MonadUnliftIO m )
 
+instance Monad m => HasProgressIndicator (GitCLI m) where
+  getProgressIndicator = asks _progress
+
+instance Monad m => HasStorage (GitCLI m) where
+  getStorage = asks _storage
+
+instance Monad m => HasAPI PeerAPI UNIX (GitCLI m) where
+  getAPI = asks _peerAPI
+
+instance Monad m => HasAPI LWWRefAPI UNIX (GitCLI m) where
+  getAPI = asks _lwwRefAPI
+
+instance Monad m => HasAPI RefLogAPI UNIX (GitCLI m) where
+  getAPI = asks _refLogAPI
+
+instance MonadReader GitEnv m => HasAPI RefLogAPI UNIX (ExceptT e m) where
+  getAPI = asks _refLogAPI
+
+instance MonadReader GitEnv m => HasAPI LWWRefAPI UNIX (ExceptT e m) where
+  getAPI = asks _lwwRefAPI
+
+instance MonadReader GitEnv m => HasAPI PeerAPI UNIX (ExceptT e m) where
+  getAPI = asks _peerAPI
 
 newGitEnv :: GitPerks m
           => AnyProgress

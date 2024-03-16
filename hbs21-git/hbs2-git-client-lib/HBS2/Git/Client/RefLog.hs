@@ -19,22 +19,25 @@ instance Exception RefLogRequestTimeout
 
 instance Exception RefLogRequestError
 
-subscribeRefLog :: (GitPerks m, HasAPI PeerAPI UNIX m) => RefLogId -> m ()
+doSomeRandomShit :: HasAPI PeerAPI UNIX m => m ()
+doSomeRandomShit = error "FUCK"
+
+subscribeRefLog :: forall m .(GitPerks m, HasAPI PeerAPI UNIX m) => RefLogId -> m ()
 subscribeRefLog puk = do
   api <- getAPI @PeerAPI @UNIX
   void $ callService @RpcPollAdd api (puk, "reflog", 13)
 
-subscribeLWWRef :: (GitPerks m, HasAPI PeerAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
+subscribeLWWRef :: forall m . (GitPerks m, HasAPI PeerAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
 subscribeLWWRef puk = do
   api <- getAPI @PeerAPI @UNIX
   void $ callService @RpcPollAdd api (fromLwwRefKey puk, "lwwref", 17)
 
-fetchLWWRef :: (GitPerks m, HasAPI LWWRefAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
+fetchLWWRef :: forall m . (GitPerks m, HasAPI LWWRefAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
 fetchLWWRef key = do
   api <- getAPI @LWWRefAPI @UNIX
   void $ race (pause @'Seconds 1) (callService @RpcLWWRefFetch api key)
 
-getRefLogMerkle :: (GitPerks m, HasAPI RefLogAPI UNIX m) => RefLogId -> m (Maybe HashRef)
+getRefLogMerkle :: forall m . (GitPerks m, HasAPI RefLogAPI UNIX m) => RefLogId -> m (Maybe HashRef)
 getRefLogMerkle puk = do
 
   api <- getAPI @RefLogAPI @UNIX

@@ -1,10 +1,7 @@
 module HBS2.Git.Client.Import where
 
-
-
 import HBS2.Git.Client.Prelude hiding (info)
 import HBS2.Git.Client.App.Types
-import HBS2.Git.Client.Config
 import HBS2.Git.Client.State
 import HBS2.Git.Client.RefLog
 import HBS2.Git.Client.Progress
@@ -21,8 +18,6 @@ import Text.InterpolatedString.Perl6 (qc)
 import Streaming.Prelude qualified as S
 import System.IO (hPrint)
 import Data.Maybe
-import System.Environment
-import System.Exit
 
 data ImportRefLogNotFound = ImportRefLogNotFound
                             deriving stock (Typeable,Show)
@@ -62,25 +57,26 @@ data IState =
 
 -- class
 
-merelySubscribeRepo :: ( GitPerks m
-                       , HasStorage m
-                       , HasProgressIndicator m
-                       , HasAPI PeerAPI UNIX m
-                       , HasAPI LWWRefAPI UNIX m
-                       , HasAPI RefLogAPI UNIX m
-                       )
+merelySubscribeRepo :: forall e s m . ( GitPerks m
+                                      , HasStorage m
+                                      , HasProgressIndicator m
+                                      , HasAPI PeerAPI UNIX m
+                                      , HasAPI LWWRefAPI UNIX m
+                                      , HasAPI RefLogAPI UNIX m
+                                      , e ~ L4Proto
+                                      , s ~ Encryption e
+                                      )
                     => LWWRefKey HBS2Basic
-                    -> m (Maybe HashRef)
+                    -> m (Maybe (PubKey 'Sign s))
 merelySubscribeRepo lwwKey = do
 
   ip  <- getProgressIndicator
   sto <- getStorage
 
   subscribeLWWRef lwwKey
-
   fetchLWWRef lwwKey
 
-  flip fix (IWaitLWWBlock 10) $ \next -> \case
+  r <- flip fix (IWaitLWWBlock 10) $ \next -> \case
 
     IWaitLWWBlock w | w <= 0 -> do
       throwIO ImportRefLogNotFound
@@ -99,30 +95,12 @@ merelySubscribeRepo lwwKey = do
           void $ try @_ @SomeException (getRefLogMerkle lwwRefLogPubKey)
           subscribeRefLog lwwRefLogPubKey
           pause @'Seconds 0.25
-          getRefLogMerkle lwwRefLogPubKey
-          next (IWaitRefLog 10 lwwRefLogPubKey)
-
-    IWaitRefLog w _ | w <= 0 -> do
-      throwIO ImportRefLogNotFound
-
-    IWaitRefLog w puk -> do
-      onProgress ip (ImportRefLogStart puk)
-      try @_ @SomeException (getRefLogMerkle puk) >>= \case
-        Left _ -> do
-          onProgress ip (ImportRefLogDone puk Nothing)
-          pause @'Seconds 2
-          next (IWaitRefLog (pred w) puk)
-
-        Right Nothing -> do
-          onProgress ip (ImportRefLogDone puk Nothing)
-          pause @'Seconds 2
-          next (IWaitRefLog (pred w) puk)
-
-        Right (Just h) -> do
-          pure (Just h)
+          pure $ Just lwwRefLogPubKey
 
     _ -> pure Nothing
 
+  onProgress ip ImportAllDone
+  pure r
 
 importRepoWait :: ( GitPerks m
                   , MonadReader GitEnv m

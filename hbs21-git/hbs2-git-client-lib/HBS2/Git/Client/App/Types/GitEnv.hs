@@ -49,19 +49,5 @@ data GitEnv =
   , _keyringCache    :: TVar (HashMap HashRef [KeyringEntry HBS2Basic])
   }
 
-instance (Monad m, MonadReader GitEnv m) => HasProgressIndicator m where
-  getProgressIndicator = asks _progress
-
-instance MonadReader GitEnv m => HasStorage m where
-  getStorage = asks _storage
-
-instance MonadReader GitEnv m => HasAPI PeerAPI UNIX m where
-  getAPI = asks _peerAPI
-
-instance MonadReader GitEnv m => HasAPI LWWRefAPI UNIX m where
-  getAPI = asks _lwwRefAPI
-
-instance MonadReader GitEnv m => HasAPI RefLogAPI UNIX m where
-  getAPI = asks _refLogAPI
 
 makeLenses 'GitEnv
