@@ -96,13 +96,18 @@ lwwRefProto adapter pkt@(LWWRefProto1 req) = do
           Just rv -> do
             blk' <- getBlock sto rv
             maybe1 blk' (forcedUpdateLwwRef sto key bs) $ \blk -> do
-              let seq0 = deserialiseOrFail @(SignedBox (LWWRef e) e) blk
+
+              let lww0 = deserialiseOrFail @(SignedBox (LWWRef e) e) blk
                              & either (const Nothing) Just
                              >>= unboxSignedBox0
                              <&> snd
-                             <&> lwwSeq
 
-              when (Just (lwwSeq lww) > seq0) do
+              let seq0  = lwwSeq <$> lww0
+              let lwwv0 = lwwValue <$> lww0
+
+              when (    Just (lwwSeq lww) > seq0
+                    || (Just (lwwSeq lww) == seq0 && Just (lwwValue lww) > lwwv0)
+                   ) do
                 forcedUpdateLwwRef sto key (serialise box)
 
     where
