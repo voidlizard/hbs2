@@ -29,6 +29,7 @@ import Web.Scotty
 
 import Data.ByteString.Builder (byteString, Builder)
 
+import Control.Concurrent
 import Data.Either
 import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
@@ -38,6 +39,8 @@ import Lens.Micro.Platform (view)
 import System.FilePath
 import Control.Monad.Except
 import Control.Monad.Trans.Cont
+
+import UnliftIO (async)
 
 {- HLINT ignore "Functor law" -}
 
@@ -73,7 +76,11 @@ httpWorker (PeerConfig syn) pmeta e = do
     scotty port $ do
       middleware logStdout
 
+      defaultHandler $ const do
+        status status500
+
       get "/size/:hash" do
+
         what <- param @String "hash" <&> fromString
         size <- liftIO $ hasBlock sto what
         case size of

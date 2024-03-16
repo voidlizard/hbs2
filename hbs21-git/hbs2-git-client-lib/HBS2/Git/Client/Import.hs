@@ -59,6 +59,63 @@ data IState =
   | IApplyTx HashRef
   | IExit
 
+
+merelySubscribeRepo :: (GitPerks m, MonadReader GitEnv m)
+                    => LWWRefKey HBS2Basic
+                    -> m (Maybe HashRef)
+merelySubscribeRepo lwwKey = do
+
+  ip  <- asks _progress
+  sto <- asks _storage
+
+  subscribeLWWRef lwwKey
+
+  fetchLWWRef lwwKey
+
+  flip fix (IWaitLWWBlock 10) $ \next -> \case
+
+    IWaitLWWBlock w | w <= 0 -> do
+      throwIO ImportRefLogNotFound
+
+    IWaitLWWBlock w -> do
+      onProgress ip (ImportWaitLWW w lwwKey)
+      lww <- readLWWBlock sto lwwKey
+
+      case lww of
+        Nothing -> do
+          pause @'Seconds 2
+          fetchLWWRef lwwKey
+          next (IWaitLWWBlock (pred w))
+
+        Just (_, LWWBlockData{..}) -> do
+          void $ try @_ @SomeException (getRefLogMerkle lwwRefLogPubKey)
+          subscribeRefLog lwwRefLogPubKey
+          pause @'Seconds 0.25
+          getRefLogMerkle lwwRefLogPubKey
+          next (IWaitRefLog 10 lwwRefLogPubKey)
+
+    IWaitRefLog w _ | w <= 0 -> do
+      throwIO ImportRefLogNotFound
+
+    IWaitRefLog w puk -> do
+      onProgress ip (ImportRefLogStart puk)
+      try @_ @SomeException (getRefLogMerkle puk) >>= \case
+        Left _ -> do
+          onProgress ip (ImportRefLogDone puk Nothing)
+          pause @'Seconds 2
+          next (IWaitRefLog (pred w) puk)
+
+        Right Nothing -> do
+          onProgress ip (ImportRefLogDone puk Nothing)
+          pause @'Seconds 2
+          next (IWaitRefLog (pred w) puk)
+
+        Right (Just h) -> do
+          pure (Just h)
+
+    _ -> pure Nothing
+
+
 importRepoWait :: (GitPerks m, MonadReader GitEnv m)
                => LWWRefKey HBS2Basic
                -> m ()

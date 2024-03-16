@@ -38,6 +38,7 @@ commands :: GitPerks m => Parser (GitCLI m ())
 commands =
   hsubparser ( command "export"  (info pExport  (progDesc "export repo to hbs2-git"))
              <> command "import" (info pImport  (progDesc "import repo from reflog"))
+             <> command "subscribe" (info pSubscribe (progDesc "subscribe to repo"))
              <> command "key"    (info pKey     (progDesc "key management"))
              <> command "tools"  (info pTools   (progDesc "misc tools"))
              )
@@ -95,6 +96,14 @@ pImport = do
   pure do
     git <- Git.findGitDir >>= orThrowUser "not a git dir"
     importRepoWait puk
+
+pSubscribe :: GitPerks m => Parser (GitCLI m ())
+pSubscribe = do
+  lww <- argument pLwwKey (metavar "LWWREF")
+  pure do
+    merelySubscribeRepo lww >>= liftIO . \case
+      Just x -> print $ "subscribed" <+> pretty x
+      Nothing -> exitFailure
 
 pTools :: GitPerks m => Parser (GitCLI m ())
 pTools = hsubparser (  command "dump-pack" (info pDumpPack (progDesc "dump hbs2 git pack"))
