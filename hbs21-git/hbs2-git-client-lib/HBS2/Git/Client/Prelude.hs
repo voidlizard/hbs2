@@ -14,6 +14,7 @@ module HBS2.Git.Client.Prelude
 
   -- peer
   , module HBS2.Net.Proto.Service
+  , module HBS2.Peer.Proto.LWWRef
   , module HBS2.Peer.RPC.API.Peer
   , module HBS2.Peer.RPC.API.RefLog
   , module HBS2.Peer.RPC.API.LWWRef
@@ -52,6 +53,7 @@ import HBS2.System.Logger.Simple.ANSI
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto.Service
 
+import HBS2.Peer.Proto.LWWRef
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.LWWRef

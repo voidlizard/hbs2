@@ -124,6 +124,20 @@ library hbs2-git-client-lib
     hs-source-dirs:   hbs2-git-client-lib
 
 
+executable hbs2-git-subscribe
+    import:           shared-properties
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base, hbs2-git-client-lib
+        , binary
+        , vector
+        , optparse-applicative
+
+    hs-source-dirs:   git-hbs2-subscribe
+    default-language: GHC2021
+
 executable git-hbs21
     import:           shared-properties
     main-is:          Main.hs

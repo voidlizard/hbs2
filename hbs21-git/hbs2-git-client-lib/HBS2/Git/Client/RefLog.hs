@@ -19,26 +19,25 @@ instance Exception RefLogRequestTimeout
 
 instance Exception RefLogRequestError
 
-subscribeRefLog :: (GitPerks m, MonadReader GitEnv m) => RefLogId -> m ()
+subscribeRefLog :: (GitPerks m, HasAPI PeerAPI UNIX m) => RefLogId -> m ()
 subscribeRefLog puk = do
-  api <- asks _peerAPI
+  api <- getAPI @PeerAPI @UNIX
   void $ callService @RpcPollAdd api (puk, "reflog", 13)
 
-
-subscribeLWWRef :: (GitPerks m, MonadReader GitEnv m) => LWWRefKey HBS2Basic -> m ()
+subscribeLWWRef :: (GitPerks m, HasAPI PeerAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
 subscribeLWWRef puk = do
-  api <- asks _peerAPI
+  api <- getAPI @PeerAPI @UNIX
   void $ callService @RpcPollAdd api (fromLwwRefKey puk, "lwwref", 17)
 
-fetchLWWRef :: (GitPerks m, MonadReader GitEnv m) => LWWRefKey HBS2Basic -> m ()
+fetchLWWRef :: (GitPerks m, HasAPI LWWRefAPI UNIX m) => LWWRefKey HBS2Basic -> m ()
 fetchLWWRef key = do
-  api <- asks _lwwRefAPI
+  api <- getAPI @LWWRefAPI @UNIX
   void $ race (pause @'Seconds 1) (callService @RpcLWWRefFetch api key)
 
-getRefLogMerkle :: (GitPerks m, MonadReader GitEnv m) => RefLogId -> m (Maybe HashRef)
+getRefLogMerkle :: (GitPerks m, HasAPI RefLogAPI UNIX m) => RefLogId -> m (Maybe HashRef)
 getRefLogMerkle puk = do
 
-  api <- asks _refLogAPI
+  api <- getAPI @RefLogAPI @UNIX
 
   void $ race (pause @'Seconds 1) (callService @RpcRefLogFetch api puk)
           >>= orThrow RefLogRequestTimeout

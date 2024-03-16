@@ -148,7 +148,11 @@ storeNewGK0 = do
     epoch <- getEpoch
     writeAsMerkle sto (serialise gk) <&> HashRef <&> (,epoch)
 
-export :: (GitPerks m, MonadReader GitEnv m, GroupKeyOperations m)
+export :: ( GitPerks m
+          , MonadReader GitEnv m
+          , GroupKeyOperations m
+          , HasAPI PeerAPI UNIX m
+          )
        => LWWRefKey HBS2Basic
        -> [(GitRef,Maybe GitHash)]
        -> m ()

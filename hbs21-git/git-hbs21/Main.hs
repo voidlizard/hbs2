@@ -38,7 +38,6 @@ commands :: GitPerks m => Parser (GitCLI m ())
 commands =
   hsubparser ( command "export"  (info pExport  (progDesc "export repo to hbs2-git"))
              <> command "import" (info pImport  (progDesc "import repo from reflog"))
-             <> command "subscribe" (info pSubscribe (progDesc "subscribe to repo"))
              <> command "key"    (info pKey     (progDesc "key management"))
              <> command "tools"  (info pTools   (progDesc "misc tools"))
              )

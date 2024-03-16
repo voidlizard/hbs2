@@ -60,13 +60,21 @@ data IState =
   | IExit
 
 
-merelySubscribeRepo :: (GitPerks m, MonadReader GitEnv m)
+-- class
+
+merelySubscribeRepo :: ( GitPerks m
+                       , HasStorage m
+                       , HasProgressIndicator m
+                       , HasAPI PeerAPI UNIX m
+                       , HasAPI LWWRefAPI UNIX m
+                       , HasAPI RefLogAPI UNIX m
+                       )
                     => LWWRefKey HBS2Basic
                     -> m (Maybe HashRef)
 merelySubscribeRepo lwwKey = do
 
-  ip  <- asks _progress
-  sto <- asks _storage
+  ip  <- getProgressIndicator
+  sto <- getStorage
 
   subscribeLWWRef lwwKey
 
@@ -116,7 +124,12 @@ merelySubscribeRepo lwwKey = do
     _ -> pure Nothing
 
 
-importRepoWait :: (GitPerks m, MonadReader GitEnv m)
+importRepoWait :: ( GitPerks m
+                  , MonadReader GitEnv m
+                  , HasAPI PeerAPI UNIX m
+                  , HasAPI LWWRefAPI UNIX m
+                  , HasAPI RefLogAPI UNIX m
+                  )
                => LWWRefKey HBS2Basic
                -> m ()
 
