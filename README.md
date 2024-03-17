@@ -30,26 +30,32 @@
 # ABOUT
 
 
-
 P2P CAS / Data Replication Solution
 
 This solution facilitates decentralized P2P git repository
 synchronization with automatic peer discovery, requiring
 no server or service.
 
-## Status update 2024-08-01
+## Status update 2024-03-17
 
-We have been using hbs2 and hbs2-git for approximately 10 months.
-While functional, the experience for newcomers is not entirely smooth.
-This may be attributed to certain design choices made in favor of
-performance over user experience and consistency.
+We have been using hbs2 and hbs2-git for approximately 13 months.
 
-Currently, we are in the process of redesigning hbs2-git to
-fix those issues and enhance its performance, leveraging new
-mechanisms such as refchans and hbs2-share. This may also lead
-to a new repository structure.
+New version hbs2-git-0.24.1 is in TEST status. A lot of changes.
+Big repository support, new repository structure, new tools,
+simplier workflow. Release is scheduled to 2024-W12 (week 12).
 
-The redesign is expected to take a few weeks, approximately 2 to 3.
+Web publishing tools are almost ready and being tested as well.
+
+As soon as they will be ready,  web site hbs2.net is about to appear.
+
+Right now TEST branch is lwwrepo. Tag: 0.24.1-rc1
+
+Repository is available on:
+
+ - HBS2    hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ - HTTPS   https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ - GitHub  https://github.com/voidlizard/hbs2.git
+
 
 ## What is it
 
@@ -585,20 +591,10 @@ decentralized solution normally for this I\'d never start this project.
 
 ## Okay, if centralized services are bad, why are you here?
 
-I\'m here yet. hbs2-git works only a few days, but it works now. So
-since 2023-03-23 this service is not an only one.
+Is's a mirror for the really distributed repository:
 
-And since 2023-03-24 I consider the
+hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
-hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
-
-**UPDATE:** now it's hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
-for a long time. The original reference is broken
-during the repo format experiments.
-
-
-
-as the main project repository.
 
 ## What platforms are supported yet?
 
