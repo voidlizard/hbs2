@@ -81,7 +81,7 @@ doOnRefLogRequest brains sto (_,pk) = runMaybeT do
   isPolledRef @e brains "reflog" pk >>= guard
   ref <- liftIO $ getRef sto (RefLogKey @s pk)
   when (isNothing ref) do
-    warn $ "missed reflog value" <+> pretty ref
+    warn $ "missed reflog value" <+> pretty (RefLogKey @s pk)
   toMPlus ref
 
 data RefLogWorkerAdapter e =

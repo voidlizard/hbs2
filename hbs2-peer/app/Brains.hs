@@ -273,7 +273,9 @@ instance ( Hashable (Peer e)
               |] ( show $ pretty (AsBase58 ref), tp )
                 <&> isJust . listToMaybe
 
-      liftIO $ atomically $ modifyTVar (_brainsPolled brains) (HashSet.insert (ref,tp))
+      when r do
+        liftIO $ atomically $ modifyTVar (_brainsPolled brains) (HashSet.insert (ref,tp))
+
       pure r
 
   setSeen brains w ts = do

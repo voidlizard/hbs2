@@ -1,6 +1,7 @@
 \documentclass[11pt,a4paper]{article}
 
 \usepackage{polyglossia}
+\usepackage{fontawesome5}
 \usepackage{xltxtra}
 \usepackage[margin=2cm,a4paper]{geometry}% http://ctan.org/pkg/geometry
 \usepackage{pdfpages}
@@ -29,7 +30,6 @@
 \usepackage{marvosym}
 \usepackage{pifont}
 \usepackage{fontspec}
-\usepackage{fontawesome5}
 \usepackage{listings}
 \usepackage{verbatim}
 \usepackage{xcolor}
@@ -260,6 +260,15 @@ broadcast сообщений, DNS бутстрапа и списка извес�
        , minimum height=3.6cm
        , anchor=north west] (tools) {};
 
+  \node [ box
+        , below left = 1cm of tools.south west
+        , text width=6em
+        , align=center
+        , minimum height=2em ] (cfg)
+    { \large\faFile[regular] {\scriptsize .hbs2-git/config} };
+
+  \draw [-] (tools) -- (cfg);
+
   \node[box, minimum height=1cm, below=2cm of git-hbs2.south, anchor=north] (git) {git};
 
   \node[db,below=1.6cm of git.north,anchor=north] (repo) {git repo};
@@ -352,6 +361,15 @@ export для первоначальной  инициализации \textit{�
 
 Хранилище объектов HBS2 (меркл-деревья, блоки, ссылки, ...)
 
+\subsection*{State}
+
+State --- это состояние репозитория. Технически, это БД sqlite,
+которая находится в \texttt{.hbs2-git/state.db} и содержит данные,
+необходимые для ускорения работы: индексы и кэши.
+
+\texttt{state.db} может быть удалён,  при последующих запусках
+hbs2-git произойдет переиндексация и он будет создан вновь,
+а операция займет больше времени, чем обычно.
 
 
 \section{Установка}
@@ -722,8 +740,8 @@ hbs2 sigil check my.sigil
 
 \end{verbatim}
 
-Это похоже на сертификат, но специально названо иначе, что бы не путать
-с какими-либо распространенными моделями сертификатов.
+Это похоже на сертификат и, в некотором роде, им является но специально названо иначе, что бы не
+путать с сертификатами X.509 или какими-то еще.
 
 Создать <<cигил>> можно при помощи команды
 
