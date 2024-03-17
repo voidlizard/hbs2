@@ -47,7 +47,7 @@ Web publishing tools are almost ready and being tested as well.
 
 As soon as they will be ready,  web site hbs2.net is about to appear.
 
-Right now TEST branch is lwwrepo.
+Right now TEST branch is lwwrepo. Tag: 0.24.1-rc1
 
 Repository is available on:
 
