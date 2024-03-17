@@ -573,6 +573,65 @@ From hbs21://8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
 
 \end{verbatim}
 
+\paragraph{Инициализация нового зашифрованного (приватного) репозитория}
+
+\begin{enumerate}
+  \item Создание ключа шифрования
+  \item Создание группового ключа
+  \item Инициализация репозитория
+\end{enumerate}
+
+\begin{verbatim}
+# ключ для нового репозитория
+
+hbs2 keyring-new > newrepo222.key
+
+# ключи шифрования
+hbs2 keyring-new -n2 > mykeys.key
+
+# проиндексировать ключи
+hbs2-keyman update
+
+# посмотреть, что проиндексировались
+hbs2-keyman list
+
+[user@host:~]$ hbs2-keyman list
+HfLafVAmqaZkYFQVtbhRwDEyJtpQduEd1cjDK4bq6N4T       sign       /home/hbs2/mykeys.key
+BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm       encrypt    /home/hbs2/mykeys.key
+48NGvahqkrQed4dGKNjbzMnv7rBbf5JTdc4DurhPzvmD       encrypt    /home/hbs2/mykeys.key
+8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js       sign       /home/hbs2/newrepo111.key
+C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy       sign       /home/hbs2/newrepo222.key
+
+# создать репо
+mkdir encrypted
+
+cd encrypted
+git init
+echo ENCRYPTED > README
+git add README
+git commit -a -m 'init encrypted'
+
+# создать групповой ключ
+[user@hbs2-test:~/encrypted]$ hbs2 groupkey from-keys > gk0.key
+67CRxnoQWasQsY9iidjJDYXSTKEZkpSVgDQYweWuhfd3
+BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm
+^D
+
+# инициализировать репозиторий
+git hbs2 export --new --encrypted ./gk0.key  C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+
+# добавить remote
+git remote add origin hbs2://C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+
+git fetch origin
+
+[user@host:~/encrypted]$ git fetch origin
+From hbs21://C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+ * [new branch]      master     -> origin/master
+
+\end{verbatim}
+
+
 \subsubsection{Клонировать (чужой) репозиторий}
 
 \begin{verbatim}
@@ -583,6 +642,101 @@ Cloning into '8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js'...
 
 Если клонируется зашифрованный репозиторий, то ключ, которым планируется
 расшифровка должен быть добавлен в hbs2-keyman ( hbs2-keyman update \&\& hbs2-keyman list )
+
+\subsubsection{Обновить групповой ключ / метаданные}
+
+\begin{verbatim}
+git hbs2 export --encrypted ./gk-new.key  C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+\end{verbatim}
+
+Для обновления манифеста --- редактировать файл \texttt{.hbs2-git/manifest} и сделать
+git commit/push либо же вызвать \texttt{git hbs2 export <LWWREF>}
+
+\subsubsection{Смотреть групповой ключ}
+
+\texttt{git hbs2 key}
+
+\begin{verbatim}
+[user@host:~/encrypted]$ git hbs2 key
+E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+
+[user@host:~/encrypted]$ git hbs2 key --full
+;; group key E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+
+member "BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm"
+member "67CRxnoQWasQsY9iidjJDYXSTKEZkpSVgDQYweWuhfd3"
+
+\end{verbatim}
+
+Если ключ есть, но команда \texttt{git hbs2 key --full} его не выводит --
+попробовать сделать
+
+\texttt{hbs2-peer fetch <HASH>}
+
+и через какое-то время повторить.
+
+\begin{verbatim}
+[user@host:~/encrypted]$ hbs2-peer fetch E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+\end{verbatim}
+
+\subsubsection{Редактировать групповой ключ}
+
+\paragraph{Способ 1 / DSL ключа}
+
+\begin{itemize}
+  \item[-] Получить групповой ключ в виде DSL (см. вывод \texttt{git hbs2 key --full})
+  \item[-] Добавить или удалить \texttt{member} из файла
+  \item[-] Выполнить \texttt{hbs2 groupkey gen <GK-FILE|stdin>}
+\end{itemize}
+
+\paragraph{Способ 2 / Список публичных ключей}
+
+\begin{verbatim}
+cat keys | hbs2 groupkey from-keys
+\end{verbatim}
+
+В stdin перечислить в виде строк (без кавычек) публичные ключи участников
+
+\pagebreak
+
+\paragraph{Способ 3 / из <<сигилов>>}
+
+Файл с персональной информацией некоего агента назвается <<сигил>> (<<sigil>>).
+Он содержит публичный ключ шифрования, публичный ключ подписи и все это подписано
+приватным ключом подписи контрагента. <<Сигил>> является публичной информацией,
+своего рода визиткой, например:
+
+\begin{verbatim}
+cat  my.sigil
+# sigil file. public data
+YDaV7iHp8H9mpsCPpKY9mEWxy9PT4FmKQBMunrLJdeu7ECzVeoPwLFJ1tA4r
+S4rthPhmYjdxznYucdopok8Q2FqPgC2Co9Pz3UoJUQVXNXNHF7cQo7EbC3sp
+g4SYE8CwbXBdT5ZWNtKJEFJtSKQwQsQzPYhwCsab6fMsejXCj1XRBMSBhKpw
+yMUGzBpvxGWX2xp5tK9rCVbnkxwuV5X3MzNabhrQ4rZrTQ5kXn6Jk7wGy4Zk
+JLuEBTmy4JfCRn
+
+hbs2 sigil check my.sigil
+(sigil
+  (sign-pubkey "ExTZuEy2qVBRshWdSwfxeKcMmQLbK2f5NxRwhvXda9qd")
+  (encrypt-pubkey "5UXrEhYECJ2kEQZZPEf4TisfWsLNdh2nGYQQz8X9ioMv"))
+
+\end{verbatim}
+
+Это похоже на сертификат, но специально названо иначе, что бы не путать
+с какими-либо распространенными моделями сертификатов.
+
+Создать <<cигил>> можно при помощи команды
+
+\texttt{hbs2 sigil create}
+
+указав файл с ключами, публичный ключ и метаинформацию.
+
+Участники могут создать свои <<сигилы>> и прислать их майнтенеру репозитория,
+и тот может добавить их в групповой ключ при помощи команды
+
+\texttt{hbs2 groupkey from-sigils <SIGIL-FILE-LIST>}
+
+перечислив в командной строке список <<сигилов>>.
 
 \subsubsection{Подписка на репозиторий}
 
