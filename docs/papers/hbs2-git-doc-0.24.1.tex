@@ -859,7 +859,22 @@ rpc unix "/tmp/hbs2-rpc.socket"
 
 После этого репозиторий станет доступен по протоколу \texttt{http://} или \texttt{git+http://}
 
-и можно будет на него ссылаться, например, так:
+и можно будет на него ссылаться, например, следующим образом:
+
+\begin{verbatim}
+{
+  inputs = {
+
+  hbs2 = {
+    url =
+      "git+http://localhost/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=lwwref";
+  };
+...
+  }
+}
+\end{verbatim}
+
+также будет работать \texttt{git clone http://localhost/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP}
 
 \subsubsection{Подписка на репозиторий}
 
