@@ -81,8 +81,6 @@ pExport = do
     env <- ask
 
     withGitEnv ( env & set gitApplyHeads False & set gitExportType et & set gitExportEnc enc) do
-
-      notice $ red (viaShow et)
       unless (et == ExportNew) do
         importRepoWait puk
 
