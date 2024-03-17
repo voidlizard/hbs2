@@ -26,35 +26,39 @@
 -   [Donate](#donate)
 -   [Other](#other)
 
-
 # ABOUT
-
-
 
 P2P CAS / Data Replication Solution
 
 This solution facilitates decentralized P2P git repository
-synchronization with automatic peer discovery, requiring
-no server or service.
+synchronization with automatic peer discovery, requiring no server or
+service.
 
-## Status update 2024-08-01
+## Status update 2024-03-17
 
-We have been using hbs2 and hbs2-git for approximately 10 months.
-While functional, the experience for newcomers is not entirely smooth.
-This may be attributed to certain design choices made in favor of
-performance over user experience and consistency.
+We have been using hbs2 and hbs2-git for approximately 13 months.
 
-Currently, we are in the process of redesigning hbs2-git to
-fix those issues and enhance its performance, leveraging new
-mechanisms such as refchans and hbs2-share. This may also lead
-to a new repository structure.
+New version hbs2-git-0.24.1 is in TEST status. A lot of changes. Big
+repository support, new repository structure, new tools, simplier
+workflow. Release is scheduled to 2024-W12 (week 12).
 
-The redesign is expected to take a few weeks, approximately 2 to 3.
+Web publishing tools are almost ready and being tested as well.
+
+As soon as they will be ready, web site hbs2.net is about to appear.
+
+Right now TEST branch is lwwrepo. Tag: 0.24.1-rc1
+
+Repository is available on:
+
+-   HBS2 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+-   HTTPS
+    https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+-   GitHub https://github.com/voidlizard/hbs2.git
 
 ## What is it
 
 It is an experimental distributed P2P content addressable storage with
-content distribution protocols.
+content distribution protocols and tools.
 
 It may be used for storing and distributed syncronization of data.
 
@@ -111,29 +115,16 @@ stability issues. We\'re working hard to fix them.
 
 ## Current status
 
-MVP. Means that it is not fully working, but it's
-useful. It is useful right now for data sharing,
-including git repositories.
+Version 0.24.1-rc.
 
-Encryption status: wip, works.
+Means it's mostly working. We're using it about a year.
 
-Encryption for arbitrary merkle trees/blocks:
-implemented, works, being tested.
+Encryption status: works.
+
+Encryption for arbitrary merkle trees/blocks: implemented, works, being
+tested.
 
 Encryption for protocols: implemented, turned on:
-
-```
-[user@host:~]$ hbs2-peer bypass show
-bypassed:       57
-encrypted:      3902
-decrypted:      3642
-decryptFails:   0
-sent:           3959
-received:       4207
-flowNum:        22
-peers:          28
-authFail:       0
-```
 
 So right now it is useful for distributing any data.
 
@@ -143,25 +134,25 @@ We're using it for our non-public projects.
 
 ## How to install
 
-Assuming you know what the Nix and Nix flakes are
-( See [nixos.org](https://nixos.org) if you don't )
+Assuming you know what the Nix and Nix flakes are ( See
+[nixos.org](https://nixos.org) if you don't )
 
 and nix flake support is turned on on your system:
 
-```
-nix profile install github:voidlizard/hbs2/master
-```
+    nix profile install github:voidlizard/hbs2/master
 
-It will take time. Patience, we're working on rolling
-out cachix, that will allow binary caches for the
-project.
+It will take time. Patience, we're working on rolling out cachix, that
+will allow binary caches for the project.
+
+Alternative option:
+
+    nix profile install git+http://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP \
+    --substituters http://nix.hbs2.net:6000 \
+    --trusted-public-keys git.hbs2.net-1:HYIYU3xWetj0NasmHrxsWQTVzQUjawOE8ejZAW2xUS4=
 
 ## How to generate peer's key?
 
-```
-hbs2 keyring-new > new-peer-key.key
-```
-
+    hbs2 keyring-new > new-peer-key.key
 
 ## How to run hbs2-peer
 
@@ -173,340 +164,124 @@ By default it is \$HOME/.config/hbs-peer
 
 ## How to configure hbs2-peer
 
-There are quite a lot of options even for today and we
-denitely need staring work on a manual. But here is a
-minimal working example:
+There are quite a lot of options even for today and we denitely need
+staring work on a manual. But here is a minimal working example:
 
 Typically hbs2-peer config is located at
 
-$HOME/.config/hbs2-peer/config
-
-```
-
-; ip/port to for UDP
-listen "0.0.0.0:7351"
-
-; tcp
-listen-tcp "0.0.0.0:10351"
-
-; port for HTTP service.
-; it's on you to pass it outside or not.
-; optional
-
-http-port 5001
-
-; path to the peer's key
-; used to identify peers
-
-key    "./key"
-
-; path to storage. optional
-; storage  "/root/.local/share/hbs2"
-
-; may be omitted, default location
-; will be used then
-
-accept-block-announce *
-
-; accept blocks from anyone
-; by default is disabled
-
-; you may allow only a few peers
-; to send announces like
-
-; accept-block-announce "peer-public-key"
-; peer-public-key may be obtained from keyring file:
-; hbs2 keyring-list ./key
-; [user@host:~/hbs2]# hbs2 keyring-list /etc/hbs2-peer/key
-;
-; sign-key:  4543L9D1rr8M8Zzgxc76fRGjUyWF8rdsmiUMfCwF1RnA
-;
-; it's a public information.
-; but keep peer key file in private place!
+\$HOME/.config/hbs2-peer/config
 
 
-; download-log "/tmp/download-log"
-; where to place a "dowload-log"
-; may be omitted, default location will be used then
+    ; ip/port to for UDP
+    listen "0.0.0.0:7351"
 
-; address for dns bootstrapping
-bootstrap-dns "bootstrap.hbs2.net"
+    ; tcp
+    listen-tcp "0.0.0.0:10351"
 
-; just and example. it's my test container
-; known-peer "10.250.0.1:7354"
-; known-peer "10.250.0.1:7351"
-; you may add own peers like this
-; or use your own domains for dns bootstrapping
+    ; port for HTTP service.
+    ; it's on you to pass it outside or not.
+    ; optional
 
-; poll certain reference
-poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
+    http-port 5001
 
-; means poll reflog "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX"
-; once per minute
+    ; path to the peer's key
+    ; used to identify peers
+
+    key    "./key"
+
+    ; path to storage. optional
+    ; storage  "/root/.local/share/hbs2"
+
+    ; may be omitted, default location
+    ; will be used then
+
+    accept-block-announce *
+
+    ; accept blocks from everyone
+    ; by default is disabled
+
+    ; you may allow only a few peers
+    ; to send announces like
+
+    ; accept-block-announce "peer-public-key"
+    ; peer-public-key may be obtained from keyring file:
+    ; hbs2 keyring-list ./key
+    ; [user@host:~/hbs2]# hbs2 keyring-list /etc/hbs2-peer/key
+    ;
+    ; sign-key:  4543L9D1rr8M8Zzgxc76fRGjUyWF8rdsmiUMfCwF1RnA
+    ;
+    ; it's a public information.
+    ; but keep peer key file in private place!
 
 
-```
+    ; address for dns bootstrapping
+    bootstrap-dns "bootstrap.hbs2.net"
+
+    ; just and example. it's my test container
+    ; known-peer "10.250.0.1:7354"
+    ; known-peer "10.250.0.1:7351"
+    ; you may add own peers like this
+    ; or use your own domains for dns bootstrapping
+
+    ; poll certain reference
+    poll reflog 1 "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
 
 ## How to create a new own repo
 
-1. Create a new keyring
+1.  Create a new keyring
 
+```{=html}
+<!-- -->
 ```
-hbs2 keyring-new > new.key
+    hbs2 keyring-new > new.key
+
+2.  Watch it's public key
+
+```{=html}
+<!-- -->
 ```
-
-2. Watch it's public key
-
-```
-hbs2 keyring-list new.key
-```
-Example:
-
-```
-[user@host:~/dir]$ hbs2 keyring-list ./new.key
-sign-key:  eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
-```
-
-
-3. Export repo to the new reflog
-
-```
-git hbs2 export ./new.key
-```
-
-4.  Add key to a repo's config
-
-And a branch to track
-
-
-```
-cat ~/.config/hbs2-git/dir/config
-
-branch "master"
-
-keeyring "/path/to/new.key"
-
-```
-
-5. Add git remote and push
-
-```
-git remote add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
-git push mynerepo
-```
-
-6. Wait some time
-
-7. Work with git as usual
-
-
-
-## How to make a pull request
-
-Since the goal of this project is to move away from centralized
-services, pull requests should be done by decentralized fashion.
-
-It may seem like there are too many steps here below, but it\'s a full
-setup for creating a new distributed repo, subscribing to changes and
-distributing your own changes. So its a complete setup from the scratch
-to use distributed repos with hbs2. You don\'t need them all if you have
-already set it up once.
-
-In short:
-
-1.  Setup the hbs2
-2.  Make it listen the reflog for the repo
-3.  Clone the repo from hbs2
-4.  Create a new keypair
-5.  Create a new reflog with the keypair
-6.  Export the repo to a new reflog
-7.  Add the repo as a new git remote
-8.  Work with git as usuall, push to the new created repo
-
-Each update is signed with the private key from the keypair, so only
-the person who has the private key may update the reflog. In fact,
-public key IS the reflog, and the private key is a proof of ownership.
-
-Full procedure:
-
-1.  Download, install and run hbs2 project. On this stage of the project
-    it is supposed that you are able to install the project using the
-    flake.nix.
-
-    Right now, it will take a time, so be ready to it.
-
-2.  Optional\*. Make hbs2-peer poll this topic:
-
-```
-echo poll reflog 1 "2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX" >> <your-hbs2-peer-config>
-```
-
-`<your-hbs2-peer-config>` is typically
-\~/.config/hbs2-peer/config but it may vary up to setup
-
-3.  Fetch the *reflog* (topic) for the repo:
-
-```
-hbs2-peer reflog fetch 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
-```
-
-If you have the set up as in step 2, it will be done periodically and
-upon hbs2-peer start, so you don\'t have to bother. Also, hbs2-peer
-after step 2 will listen the reflog, so new pushes will be delivered
-automatically.
-
-4.  Check the reflog is here:
-
-```
-hbs2-peer reflog get 2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
-```
-
-Note, that it may take time to all objects to deliver.
-
-5.  Clone the project
-
-```
-git clone hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX hbs2
-```
-
-6.  Create your own topic
-
-```
-hbs2 keyring-new > my-keyring.key
-hbs2 keyring-list my-keyring.key
-
-[user@host:~]$ hbs2 keyring-list my-keyring.key
-sign-key:  6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-this is your new repo's relog (topic)
-Of course, sign-key will be different.
-```
-
-Keep the keyring file private. It contains the key pair (private+public
-keys) that wilyl allow you to write to the reflog. If you lose it, you
-will lose the write access to your repo. It\'s not a big deal, creating
-keypairs is cheap. But you will need to tell anyone update theirs
-references to a new repo.
-
-7.  Export the repo to the new reflog (topic).
-
-```
-git hbs2 export <sign-key> -k <keyring-file>
-```
-
-In this example, sign-key will be
-6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d `<keyring-file>`
-will be my-keyring.key
-
-This step will export all objects to the new created topic.
-
-It will take time. hbs2-git will copy all objects from the repository to
-a new reflog. Although it wan\'t create objects that are already in the
-hbs2, it takes time to calculate hashes and check it out. So be prepared
-to wait quite a while, but only for the first time.
-
-8.  Locate the configuration file and add the keyring
+    hbs2 keyring-list new.key
 
 Example:
 
+    [user@host:~/dir]$ hbs2 keyring-list ./new.key
+    sign-key:  eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
+
+3.  Export repo to the new reflog
+
+```{=html}
+<!-- -->
 ```
-[user@host:~]$ cat ~/.config/hbs2-git/w/hbs2/config
+    git hbs2 export --public --new eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
 
-branch "master"
+4.  Add git remote and push
 
-keyring "/home/user/secrets-dir/my-keyring.key"
+```{=html}
+<!-- -->
 ```
+    git remote add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
+    git push mynerepo
 
-Note, that keyring file must be absolute. And the location supposed to
-be safe.
+5.  Wait some time
 
-In my case, it\'s a mounted encrypted directory, but it\'s up to you.
-
-9.  Add the new repo to a git
-
-```
-git remote add mytopic hbs2://<sign-key>
-```
-
-Example:
-
-```
-git remote add mytopic hbs2://6CMRnptW8DjiW4S1kv3U6wEAUGwhZmG7522fsqi3SH2d
-
-git fetch origin
-git fetch mytopic
-```
-
-You may want to set your own topic as the \"origin,\" and another topic
-as something else. It\'s completely up to you. It works just like
-setting up Git remotes in the usual way.
-
-10. Make your changes
-
-11. Commit
-
-12. Describe your changes somewhere, using PR: prefix
-
-See .fixme/config file to get an idea what files are scanned for
-issues/pull requests/etc.
-
-PR is a just a fixme entry (look for fixme description) which describes
-the pull requests. It just a text with textual references to a branch,
-commit and other information required for merging the changes.
-
-Example:
-
-```
-docs/\.../some-pr-file
-
-PR: my-very-first-pr
-  Just to test the concept. It may be merged from the
-  branch
-
-  branch: pr-XXX-my-very-first
-  commit: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-```
-
-13. Commit
-
-14. Push
-
-```
-git push mytopic
-```
-
-Now, if the author of the original topic (reflog, repo) is aware abour
-your topic and subscribed to if (added it as a remote to his/her git
-repo) they will be able to receive and merge your pull requests.
-
-15. Check the reflog (just for in case)
-
-
-```
-hbs2-peer reflog get <sign-key>
-```
+6.  Work with git as usual
 
 ## How to launch a peer
 
 Example:
 
-```
-hbs2-peer run -p .peers/1  -k .peers/1/key -l addr:port -r rpcaddr:rpcport
-```
+    hbs2-peer run
 
 ## How to save an encrypted file (TBD)
 
-```
-keyring-new > kr
-keyring-list kr
-; create a file with a list of public keys
-; copy the lines from the output of the keyring-list command
-groupkey-new path/to/file/with/list/of/pubkeys > groupkey
-store --groupkey groupkey file/to/store
-; get the hash
-cat --keyring kr <hash>
-```
+    keyring-new > kr
+    keyring-list kr
+    ; create a file with a list of public keys
+    ; copy the lines from the output of the keyring-list command
+    groupkey-new path/to/file/with/list/of/pubkeys > groupkey
+    store --groupkey groupkey file/to/store
+    ; get the hash
+    cat --keyring kr <hash>
 
 # FAQ
 
@@ -531,12 +306,10 @@ repositoties because they contain some words in README file.
 
 And banned accounts for visiting the service from wrong IP address.
 
-And data loss in a cloud storage services because they
-located all replicas in a single data centre which was
-destroyed by the fire or a canalization breakthrough.
-They even don't tell you how many replicas do they have
-for your data. Why? Because fuck you, that's why.
-
+And data loss in a cloud storage services because they located all
+replicas in a single data centre which was destroyed by the fire or a
+canalization breakthrough. They even don't tell you how many replicas do
+they have for your data. Why? Because fuck you, that's why.
 
 Setting own hosts/services for dvcs data hosting.
 
@@ -585,77 +358,60 @@ decentralized solution normally for this I\'d never start this project.
 
 ## Okay, if centralized services are bad, why are you here?
 
-I\'m here yet. hbs2-git works only a few days, but it works now. So
-since 2023-03-23 this service is not an only one.
+Is's a mirror for the really distributed repository:
 
-And since 2023-03-24 I consider the
-
-hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
-
-**UPDATE:** now it's hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
-for a long time. The original reference is broken
-during the repo format experiments.
-
-
-
-as the main project repository.
+hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
 ## What platforms are supported yet?
 
 So far we were able to run the hbs2-peer on:
 
- - NixOS ( x86_64-linux )
- - Windows WSL+Ubuntu
- - Debian/rasberri-pi (aarch64-linux)
+-   NixOS ( x86_64-linux )
+-   Windows WSL+Ubuntu
+-   Debian/rasberri-pi (aarch64-linux)
 
-Probably it will work on MacOS - but we need
-someone to check.
+Probably it will work on MacOS - but we need someone to check.
 
 ## What is a "reflog"
 
-Reflog is an implementation of a permanent mutable
-reference. It has a permanent ID that corresponds to a
-public signing cryptographic key, and the value, that
-is  calculated from the "state", where the state  is
-a set of all "reference update" transactions.
+Reflog is an implementation of a permanent mutable reference. It has a
+permanent ID that corresponds to a public signing cryptographic key, and
+the value, that is calculated from the "state", where the state is a set
+of all "reference update" transactions.
 
-Each transaction is cryptographically signed by the sender,
-for current reflog implementation sender must be an owner of
-the private key of the public key.
+Each transaction is cryptographically signed by the sender, for current
+reflog implementation sender must be an owner of the private key of the
+public key.
 
-For this type of references, only transactions that are
-properly signed by the mentioned private key are accepted at
-the moment.
+For this type of references, only transactions that are properly signed
+by the mentioned private key are accepted at the moment.
 
-Therefore, reflog is a log of signed transactions. Content
-of thouse transaction is up to an application.
+Therefore, reflog is a log of signed transactions. Content of thouse
+transaction is up to an application.
 
-For the hbs2-git it is an reference to a merkle tree, that
-contains the state of repository ( branches + all objects
-accessible from thouse branches ).
+For the hbs2-git it is an reference to a merkle tree, that contains the
+state of repository ( branches + all objects accessible from thouse
+branches ).
 
-So, reflog is a sort of reference which state is defined by
-the set of signed binary transactions. The payload of the
-transactions mauy be arbitrary and application-dependent,
-but they must be properly signed by the owner of the private
-key.
+So, reflog is a sort of reference which state is defined by the set of
+signed binary transactions. The payload of the transactions mauy be
+arbitrary and application-dependent, but they must be properly signed by
+the owner of the private key.
 
-As there is only one valid writer for this type of
-reference, all transactions are assigned a Sequential Number
-that establishes their order. Applications may use this
-order to determine the sequence of transactions.
+As there is only one valid writer for this type of reference, all
+transactions are assigned a Sequential Number that establishes their
+order. Applications may use this order to determine the sequence of
+transactions.
 
 Should be all reflogs on all hosts have the same value?
 
-Well. It would be nice, but not nesessary. But eventually
-yes, they will. If there is really only one writer and it is
-not writing all the time.
-
+Well. It would be nice, but not nesessary. But eventually yes, they
+will. If there is really only one writer and it is not writing all the
+time.
 
 ## What is the fixme?
 
 [fixme](https://github.com/voidlizard/fixme)
-
 
 # Contact
 
@@ -665,49 +421,9 @@ telegram: @voidlizard
 
 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
-Note! This is not a bitcoin address. If you want a bitcoin
-address to donate, use the other one (TBD).
+Note! This is not a bitcoin address. If you want a bitcoin address to
+donate, use the other one (TBD).
 
 # Support
 
-Contribute! Code or ideas or share the experience or
-any suggestions.
-
-
-# Donate
-
-TBD.
-
-# Other
-
-Just a random string to measure github push time vs hbs2.
-
-```
-[dmz@minipig:~/w/hbs2]$ time git push github
-Enumerating objects: 5, done.
-Counting objects: 100% (5/5), done.
-Delta compression using up to 16 threads
-Compressing objects: 100% (3/3), done.
-Writing objects: 100% (3/3), 360 bytes | 360.00 KiB/s, done.
-Total 3 (delta 2), reused 0 (delta 0), pack-reused 0
-remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
-To github.com:voidlizard/hbs2.git
-   4b6af37..89de740  master -> master
-
-real	0m1,753s
-user	0m0,012s
-sys	0m0,011s
-
-[dmz@minipig:~/w/hbs2]$ time git push hbs2
-importing objects [=========================] 100%
-calculate dependencies
-storing dependencies [======================] 100%
-store objects [=============================] 100%
-To hbs2://2YNGdnDBnciF1Kgmx1EZTjKUp1h5pvYAjrHoApbArpeX
-   2f8e928..89de740  master -> master
-
-real	0m1,354s
-user	0m0,663s
-sys	0m0,198s
-```
-
+Contribute! Code or ideas or share the experience or any suggestions.
