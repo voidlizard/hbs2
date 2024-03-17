@@ -51,12 +51,24 @@ pLwwRefUpdate :: Parser (IO ())
 pLwwRefUpdate = do
   rpc <- pRpcCommon
   puk <- argument pPubKey (metavar "LWWREF")
-  seq <- option @Word64 auto (short 's' <> long "seq" <> help "seqno" <>metavar "SEQ")
+  seq' <- optional $ option @Word64 auto (short 's' <> long "seq" <> help "seqno" <>metavar "SEQ")
   val <- option (maybeReader fromStringMay) (short 'v' <> long "value" <> help "value" <> metavar "VALUE")
   pure $ withMyRPC @LWWRefAPI rpc $ \caller -> do
+
+
     (sk,pk) <- liftIO $ runKeymanClient do
                  creds  <- loadCredentials puk >>= orThrowUser "can't load credentials"
                  pure ( view peerSignSk  creds, view peerSignPk creds )
+
+    seq <- case seq' of
+             Just v -> pure v
+             Nothing -> do
+               let ref = LWWRefKey puk
+               callService @RpcLWWRefGet caller ref >>= \case
+                 Left e  -> err (viaShow e) >> exitFailure
+                 Right Nothing -> err ("not found value for" <+> pretty ref) >> exitFailure
+                 Right (Just r) -> pure $ succ (lwwSeq r)
+
     let box =  makeSignedBox @L4Proto pk sk (LWWRef @L4Proto seq val Nothing)
     callService @RpcLWWRefUpdate caller box >>= \case
       Left e  -> err (viaShow e) >> exitFailure
