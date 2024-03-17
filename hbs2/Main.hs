@@ -579,6 +579,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       o <- common
       how <- MetaDataAuto <$> strOption ( long "auto" <> metavar "FILENAME" <> help "automatic metadata from file name")
       dry <- flag False True (long "dry" <> short 'n' <> help "don't write to storage")
+      hOnly <- flag False True (long "hash" <> short 'H' <> help "merely print hash")
 
       pure $ flip runContT pure do
 
@@ -600,7 +601,9 @@ main = join . customExecParser (prefs showHelpOnError) $
 
               let s = LBS8.pack $ show $ vcat meta
 
-              liftIO $ LBS8.putStr s
+              unless hOnly do
+                liftIO $ LBS8.putStrLn s
+                liftIO $ LBS8.putStrLn ""
 
               guard (not dry)
 
@@ -621,8 +624,6 @@ main = join . customExecParser (prefs showHelpOnError) $
               hnew <- putBlock sto (serialise mtann)
                         `orDie` "can't write merkle tree"
 
-              liftIO $ putStrLn ""
-              liftIO $ putStrLn ""
               liftIO $ print $ pretty hnew
 
     pGroupKey = pGroupKeySymm
