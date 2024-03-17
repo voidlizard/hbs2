@@ -28,6 +28,7 @@
 
 # ABOUT
 
+
 P2P CAS / Data Replication Solution
 
 This solution facilitates decentralized P2P git repository
@@ -38,22 +39,22 @@ service.
 
 We have been using hbs2 and hbs2-git for approximately 13 months.
 
-New version hbs2-git-0.24.1 is in TEST status. A lot of changes. Big
-repository support, new repository structure, new tools, simplier
-workflow. Release is scheduled to 2024-W12 (week 12).
+New version hbs2-git-0.24.1 is in TEST status. A lot of changes.
+Big repository support, new repository structure, new tools,
+simplier workflow. Release is scheduled to 2024-W12 (week 12).
 
 Web publishing tools are almost ready and being tested as well.
 
-As soon as they will be ready, web site hbs2.net is about to appear.
+As soon as they will be ready,  web site hbs2.net is about to appear.
 
-Right now TEST branch is lwwrepo. Tag: 0.24.1-rc1
+Right now TEST branch is lwwrepo.
 
 Repository is available on:
 
--   HBS2 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
--   HTTPS
-    https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
--   GitHub https://github.com/voidlizard/hbs2.git
+ - HBS2    hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ - HTTPS   https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ - GitHub  https://github.com/voidlizard/hbs2.git
+
 
 ## What is it
 
@@ -361,6 +362,7 @@ decentralized solution normally for this I\'d never start this project.
 Is's a mirror for the really distributed repository:
 
 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+
 
 ## What platforms are supported yet?
 
