@@ -1,0 +1,130 @@
+cabal-version:      3.0
+name:               hbs2-fixer
+version:            0.24.1.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           Development
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -Wno-type-defaults
+        -fprint-potential-instances
+        -- -fno-warn-unused-matches
+        -- -fno-warn-unused-do-bind
+        -- -Werror=missing-methods
+        -- -Werror=incomplete-patterns
+        -- -fno-warn-unused-binds
+
+
+  default-language:    Haskell2010
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , RecordWildCards
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeOperators
+                     , TypeFamilies
+                     , TemplateHaskell
+
+
+  build-depends: hbs2-core, hbs2-peer
+               , attoparsec
+               , aeson
+               , async
+               , base16-bytestring
+               , bytestring
+               , cache
+               , containers
+               , streaming
+               , streaming-bytestring
+               , streaming-commons
+               , streaming-utils
+               , cryptonite
+               , directory
+               , exceptions
+               , filelock
+               , filepath
+               , filepattern
+               , generic-lens
+               , hashable
+               , http-conduit
+               , interpolatedstring-perl6
+               , memory
+               , microlens-platform
+               , mtl
+               , prettyprinter
+               , prettyprinter-ansi-terminal
+               , random
+               , resourcet
+               , safe
+               , saltine
+               , serialise
+               , split
+               , sqlite-simple
+               , stm
+               , suckless-conf
+               , temporary
+               , text
+               , time
+               , timeit
+               , transformers
+               , typed-process
+               , uniplate
+               , unliftio
+               , unliftio-core
+               , unordered-containers
+               , wai-app-file-cgi
+               , wai-extra
+
+executable hbs2-fixer
+    import:           shared-properties
+    main-is:          Main.hs
+
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+    other-modules:
+
+    -- other-extensions:
+    build-depends:
+        base, hbs2-core, hbs2-peer
+      , optparse-applicative
+      , unliftio
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+
+
+

@@ -38,6 +38,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-keyman"
      "hbs2-share"
      "hbs21-git"
+     "hbs2-fixer"
     ];
   in
  haskell-flake-utils.lib.simpleCabalProject2flake {
@@ -53,16 +54,17 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    inherit packageNames;
 
    packageDirs = {
-     "hbs2" = "./hbs2";
-     "hbs2-tests" = "./hbs2-tests";
-     "hbs2-core" = "./hbs2-core";
+     "hbs2"        = "./hbs2";
+     "hbs2-tests"  = "./hbs2-tests";
+     "hbs2-core"   = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
-     "hbs2-peer" = "./hbs2-peer";
+     "hbs2-peer"   = "./hbs2-peer";
      "hbs2-keyman" = "./hbs2-keyman";
      "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
      "hbs21-git"   = "./hbs21-git";
      "hbs2-git-reposync"   = "./hbs2-git-reposync";
+     "hbs2-fixer"  = "./hbs2-fixer";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
@@ -120,8 +122,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
         '';
 
       };
-
  };
-
 
 }
