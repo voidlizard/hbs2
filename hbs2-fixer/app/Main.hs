@@ -196,7 +196,7 @@ mainLoop = forever $ do
                 next ConfWatch
 
               ConfWatch{} -> do
-                pause @'Seconds 10
+                pause @'Seconds 30
                 next  ConfRead
 
     -- poll reflogs
@@ -204,14 +204,23 @@ mainLoop = forever $ do
 
       api <- asks _refLogAPI
 
-      rlo <- pure $ asks _onRefLog
-               >>= readTVarIO
-               <&> HM.toList
-               <&> \x -> [ (a,b) | (a, (b,_)) <- x ]
+      olds <- asks _refLogLast
+
+      rlo <- pure $ asks _onRefLog >>= keysToListen
 
       polling (Polling 1 1) rlo  $ \ref -> do
         debug $ red "POLL REFLOG" <+> pretty ref
         liftIO $ oneSec $ void $ callService @RpcRefLogFetch api (fromRefLogKey ref)
+
+        liftIO (oneSec $ callService @RpcRefLogGet api (fromRefLogKey ref)) >>= \case
+          Right (Right (Just v)) -> do
+            old <- readTVarIO olds <&> HM.lookup ref
+            unless (old == Just v) do
+              debug $ green "CHANGED" <+> pretty ref <+> pretty v
+              atomically $ modifyTVar olds (HM.insert ref v)
+
+          _ -> pure ()
+
         pure ()
 
       pure ()
@@ -222,10 +231,7 @@ mainLoop = forever $ do
       api  <- asks _lwwAPI
       olds <- asks _lwwLast
 
-      lww <- pure $ asks _onLww
-               >>= readTVarIO
-               <&> HM.toList
-               <&> \x -> [ (a,b) | (a, (b,_)) <- x ]
+      lww <- pure $ asks _onLww >>= keysToListen
 
       polling (Polling 1 1) lww  $ \ref -> do
         debug $ red "POLL LWWREF" <+> pretty ref
@@ -242,6 +248,12 @@ mainLoop = forever $ do
 
 
     forever $ pause @'Seconds 60
+
+  where
+    keysToListen what =
+      readTVarIO what
+        <&> HM.toList
+        <&> \x -> [ (a,b) | (a, (b,_)) <- x ]
 
 oneSec :: MonadUnliftIO m => m b -> m (Either () b)
 oneSec = race (pause @'Seconds 1)
@@ -273,13 +285,13 @@ updateFromConfig conf = do
         case rt of
           "lwwref" -> do
               let k' = fromStringMay @RLWW (Text.unpack r)
-              debug $ red $ "SET LWWREF WATCHER" <+> pretty sec <+> pretty k' <+> pretty what
+              trace $ red "SET LWWREF WATCHER" <+> pretty sec <+> pretty k' <+> pretty what
               for_ k' $ \k -> do
                 liftIO $ void $ oneSec $ callService @RpcPollAdd peerAPI (fromLwwRefKey k, "lwwref", 60 * fromIntegral sec)
                 S.yield $ modifyTVar lww (HM.insert k (fromIntegral sec, mempty))
           "reflog" -> do
               let k' = fromStringMay @RRefLog (Text.unpack r)
-              debug $ red $ "SET LWWREF WATCHER" <+> pretty sec <+> pretty k' <+> pretty what
+              trace $ red "SET LWWREF WATCHER" <+> pretty sec <+> pretty k' <+> pretty what
               for_ k' $ \k -> do
                 liftIO $ void $ oneSec $ callService @RpcPollAdd peerAPI (fromRefLogKey k, "reflog", 60 * fromIntegral sec)
                 S.yield $ modifyTVar rlo (HM.insert k (fromIntegral sec, mempty))
