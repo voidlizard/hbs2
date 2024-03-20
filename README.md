@@ -1,64 +1,115 @@
--   [ABOUT](#about){#toc-about}
-    -   [Status update
-        2024-03-20](#status-update-2024-03-20){#toc-status-update-2024-03-20}
-    -   [Status update
-        2024-03-17](#status-update-2024-03-17){#toc-status-update-2024-03-17}
-    -   [What is it](#what-is-it){#toc-what-is-it}
-    -   [Current status](#current-status){#toc-current-status}
--   [HOWTO](#howto){#toc-howto}
-    -   [How to install](#how-to-install){#toc-how-to-install}
-    -   [How to generate peer's
-        key?](#how-to-generate-peers-key){#toc-how-to-generate-peers-key}
-    -   [How to run
-        hbs2-peer](#how-to-run-hbs2-peer){#toc-how-to-run-hbs2-peer}
-    -   [How to configure
-        hbs2-peer](#how-to-configure-hbs2-peer){#toc-how-to-configure-hbs2-peer}
-    -   [How to create a new own
-        repo](#how-to-create-a-new-own-repo){#toc-how-to-create-a-new-own-repo}
-    -   [How to launch a
-        peer](#how-to-launch-a-peer){#toc-how-to-launch-a-peer}
-    -   [How to save an encrypted file
-        (TBD)](#how-to-save-an-encrypted-file-tbd){#toc-how-to-save-an-encrypted-file-tbd}
--   [FAQ](#faq){#toc-faq}
-    -   [Why DVCS are not actually
-        distributed](#why-dvcs-are-not-actually-distributed){#toc-why-dvcs-are-not-actually-distributed}
-    -   [Okay, if centralized services are bad, why are you
-        here?](#okay-if-centralized-services-are-bad-why-are-you-here){#toc-okay-if-centralized-services-are-bad-why-are-you-here}
-    -   [What platforms are supported
-        yet?](#what-platforms-are-supported-yet){#toc-what-platforms-are-supported-yet}
-    -   [What is a "reflog"](#what-is-a-reflog){#toc-what-is-a-reflog}
-    -   [What is the fixme?](#what-is-the-fixme){#toc-what-is-the-fixme}
--   [Contact](#contact){#toc-contact}
--   [Download](#download){#toc-download}
--   [Support](#support){#toc-support}
+- [ABOUT](#about)
+  - [Status update 2024-03-20](#status-update-2024-03-20)
+  - [Status update 2024-03-17](#status-update-2024-03-17)
+  - [What is it](#what-is-it)
+  - [Current status](#current-status)
+- [HOWTO](#howto)
+  - [How to install](#how-to-install)
+  - [How to generate peer’s key?](#how-to-generate-peers-key)
+  - [How to run hbs2-peer](#how-to-run-hbs2-peer)
+  - [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
+  - [How to create a new own repo](#how-to-create-a-new-own-repo)
+  - [How to launch a peer](#how-to-launch-a-peer)
+  - [How to save an encrypted file
+    (TBD)](#how-to-save-an-encrypted-file-tbd)
+- [FAQ](#faq)
+  - [Why DVCS are not actually
+    distributed](#why-dvcs-are-not-actually-distributed)
+  - [Okay, if centralized services are bad, why are you
+    here?](#okay-if-centralized-services-are-bad-why-are-you-here)
+  - [What platforms are supported
+    yet?](#what-platforms-are-supported-yet)
+  - [What is a “reflog”](#what-is-a-reflog)
+  - [What is the fixme?](#what-is-the-fixme)
+- [Contact](#contact)
+- [Download](#download)
+- [Support](#support)
 
--   [ABOUT](#about)
-    -   [What is it](#what-is-it)
-    -   [Current status](#current-status)
--   [HOWTO](#howto)
-    -   [How to install](#how-to-install)
-    -   [How to generate peer\'s key?](#how-to-generate-peers-key)
-    -   [How to run hbs2-peer](#how-to-run-hbs2-peer)
-    -   [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
-    -   [How to create a new own repo](#how-to-create-a-new-own-repo)
-    -   [How to make a pull request](#how-to-make-a-pull-request)
-    -   [How to launch a peer](#how-to-launch-a-peer)
-    -   [How to save an encrypted file
-        (TBD)](#how-to-save-an-encrypted-file-tbd)
--   [FAQ](#faq)
-    -   [Why DVCS are not actually
-        distributed](#why-dvcs-are-not-actually-distributed)
-    -   [Okay, if centralized services are bad, why are you
-        here?](#okay-if-centralized-services-are-bad-why-are-you-here)
-    -   [What platforms are supported
-        yet?](#what-platforms-are-supported-yet)
-    -   [What is a \"reflog\"](#what-is-a-reflog)
-    -   [What is the fixme?](#what-is-the-fixme)
--   [Contact](#contact)
--   [Download](#download)
--   [Support](#support)
--   [Donate](#donate)
--   [Other](#other)
+- <a href="#about" id="toc-about">ABOUT</a>
+
+  - <a href="#status-update-2024-03-20"
+    id="toc-status-update-2024-03-20">Status update 2024-03-20</a>
+  - <a href="#status-update-2024-03-17"
+    id="toc-status-update-2024-03-17">Status update 2024-03-17</a>
+  - <a href="#what-is-it" id="toc-what-is-it">What is it</a>
+  - <a href="#current-status" id="toc-current-status">Current status</a>
+
+- <a href="#howto" id="toc-howto">HOWTO</a>
+
+  - <a href="#how-to-install" id="toc-how-to-install">How to install</a>
+  - <a href="#how-to-generate-peers-key"
+    id="toc-how-to-generate-peers-key">How to generate peer’s key?</a>
+  - <a href="#how-to-run-hbs2-peer" id="toc-how-to-run-hbs2-peer">How to run
+    hbs2-peer</a>
+  - <a href="#how-to-configure-hbs2-peer"
+    id="toc-how-to-configure-hbs2-peer">How to configure hbs2-peer</a>
+  - <a href="#how-to-create-a-new-own-repo"
+    id="toc-how-to-create-a-new-own-repo">How to create a new own repo</a>
+  - <a href="#how-to-launch-a-peer" id="toc-how-to-launch-a-peer">How to
+    launch a peer</a>
+  - <a href="#how-to-save-an-encrypted-file-tbd"
+    id="toc-how-to-save-an-encrypted-file-tbd">How to save an encrypted file
+    (TBD)</a>
+
+- <a href="#faq" id="toc-faq">FAQ</a>
+
+  - <a href="#why-dvcs-are-not-actually-distributed"
+    id="toc-why-dvcs-are-not-actually-distributed">Why DVCS are not actually
+    distributed</a>
+  - <a href="#okay-if-centralized-services-are-bad-why-are-you-here"
+    id="toc-okay-if-centralized-services-are-bad-why-are-you-here">Okay, if
+    centralized services are bad, why are you here?</a>
+  - <a href="#what-platforms-are-supported-yet"
+    id="toc-what-platforms-are-supported-yet">What platforms are supported
+    yet?</a>
+  - <a href="#what-is-a-reflog" id="toc-what-is-a-reflog">What is a
+    “reflog”</a>
+  - <a href="#what-is-the-fixme" id="toc-what-is-the-fixme">What is the
+    fixme?</a>
+
+- <a href="#contact" id="toc-contact">Contact</a>
+
+- <a href="#download" id="toc-download">Download</a>
+
+- <a href="#support" id="toc-support">Support</a>
+
+- [ABOUT](#about)
+
+  - [What is it](#what-is-it)
+  - [Current status](#current-status)
+
+- [HOWTO](#howto)
+
+  - [How to install](#how-to-install)
+  - [How to generate peer's key?](#how-to-generate-peers-key)
+  - [How to run hbs2-peer](#how-to-run-hbs2-peer)
+  - [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
+  - [How to create a new own repo](#how-to-create-a-new-own-repo)
+  - [How to make a pull request](#how-to-make-a-pull-request)
+  - [How to launch a peer](#how-to-launch-a-peer)
+  - [How to save an encrypted file
+    (TBD)](#how-to-save-an-encrypted-file-tbd)
+
+- [FAQ](#faq)
+
+  - [Why DVCS are not actually
+    distributed](#why-dvcs-are-not-actually-distributed)
+  - [Okay, if centralized services are bad, why are you
+    here?](#okay-if-centralized-services-are-bad-why-are-you-here)
+  - [What platforms are supported
+    yet?](#what-platforms-are-supported-yet)
+  - [What is a "reflog"](#what-is-a-reflog)
+  - [What is the fixme?](#what-is-the-fixme)
+
+- [Contact](#contact)
+
+- [Download](#download)
+
+- [Support](#support)
+
+- [Donate](#donate)
+
+- [Other](#other)
 
 # ABOUT
 
@@ -93,10 +144,10 @@ Right now TEST branch is lwwrepo. Tag: 0.24.1-rc1
 
 Repository is available on:
 
--   HBS2 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
--   HTTPS
-    https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
--   GitHub https://github.com/voidlizard/hbs2.git
+- HBS2 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+- HTTPS
+  https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+- GitHub https://github.com/voidlizard/hbs2.git
 
 ## What is it
 
@@ -107,60 +158,60 @@ It may be used for storing and distributed syncronization of data.
 
 HBS2 is aimed to take care of:
 
--   NAT traversing
--   Peer discovery
--   Notification
--   Distribution
--   Encryption
--   Validation (hashes checking, signatures checking)
--   Storing and obtaining data
+- NAT traversing
+- Peer discovery
+- Notification
+- Distribution
+- Encryption
+- Validation (hashes checking, signatures checking)
+- Storing and obtaining data
 
 In short, you store data in this storage, and all subscribers are
 notified of it and receive a copy of the data.
 
 It is a middleware for implementing distributed applications that shares
 data. Like a distributed git, for example. (What? git is already
-distributed and\... No, it is not. Not really).
+distributed and... No, it is not. Not really).
 
 The idea of extracting the minimal sufficent set of primitives for
 distributed applications and APIs and let the side applications do the
 rest.
 
-This is not a \"blockchain\", but heavily uses the approaches that
-\"blockchains\" brought to the world.
+This is not a "blockchain", but heavily uses the approaches that
+"blockchains" brought to the world.
 
 Using this solution you may treat application data as local. HBS2 will
-syncronize all the data along the crowd of peers. The apps don\'t need
-to bother where the other peers are located, where the hosts, ssh keys
-on thouse hosts, auth tokens on thouse hosts, etc. They only need to
-know the references and (optionally) have signing/encryption keys that
-are stored locally or distributed (public parts, of course)
-automatically like any other data.
+syncronize all the data along the crowd of peers. The apps don't need to
+bother where the other peers are located, where the hosts, ssh keys on
+thouse hosts, auth tokens on thouse hosts, etc. They only need to know
+the references and (optionally) have signing/encryption keys that are
+stored locally or distributed (public parts, of course) automatically
+like any other data.
 
 What types of applications may be implemented on top of this?
 
 For an instance:
 
--   Distributed file sharing (wip)
--   Distributed git (seems working)
--   Distributed communications, like a chat or a \"channel\"
--   Distibuted ledgers with different types of consensus protocols
-    (we\'re trying not to use \"b\" words)
--   Actually, any sort of applications that require data and network
+- Distributed file sharing (wip)
+- Distributed git (seems working)
+- Distributed communications, like a chat or a "channel"
+- Distibuted ledgers with different types of consensus protocols (we're
+  trying not to use "b" words)
+- Actually, any sort of applications that require data and network
 
 The whitepaper is in shortlist, watch the updates.
 
-Why it is *experimental* ? Well, it\'s on a quite early stage and some
+Why it is *experimental* ? Well, it's on a quite early stage and some
 root data structures, protocols or API may change.
 
 It also have some known issues with performance and might have some
-stability issues. We\'re working hard to fix them.
+stability issues. We're working hard to fix them.
 
 ## Current status
 
 Version 0.24.1-rc.
 
-Means it's mostly working. We're using it about a year.
+Means it’s mostly working. We’re using it about a year.
 
 Encryption status: works.
 
@@ -171,20 +222,20 @@ Encryption for protocols: implemented, turned on:
 
 So right now it is useful for distributing any data.
 
-We're using it for our non-public projects.
+We’re using it for our non-public projects.
 
 # HOWTO
 
 ## How to install
 
 Assuming you know what the Nix and Nix flakes are ( See
-[nixos.org](https://nixos.org) if you don't )
+[nixos.org](https://nixos.org) if you don’t )
 
 and nix flake support is turned on on your system:
 
     nix profile install github:voidlizard/hbs2/master
 
-It will take time. Patience, we're working on rolling out cachix, that
+It will take time. Patience, we’re working on rolling out cachix, that
 will allow binary caches for the project.
 
 Alternative option:
@@ -193,7 +244,7 @@ Alternative option:
     --substituters http://nix.hbs2.net:6000 \
     --trusted-public-keys git.hbs2.net-1:HYIYU3xWetj0NasmHrxsWQTVzQUjawOE8ejZAW2xUS4=
 
-## How to generate peer's key?
+## How to generate peer’s key?
 
     hbs2 keyring-new > new-peer-key.key
 
@@ -272,16 +323,14 @@ Typically hbs2-peer config is located at
 
 1.  Create a new keyring
 
-```{=html}
 <!-- -->
-```
+
     hbs2 keyring-new > new.key
 
-2.  Watch it's public key
+2.  Watch it’s public key
 
-```{=html}
 <!-- -->
-```
+
     hbs2 keyring-list new.key
 
 Example:
@@ -291,16 +340,14 @@ Example:
 
 3.  Export repo to the new reflog
 
-```{=html}
 <!-- -->
-```
+
     git hbs2 export --public --new eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
 
 4.  Add git remote and push
 
-```{=html}
 <!-- -->
-```
+
     git remote add mynerepo hbs2://eq5ZFnB9HQTMTeYasYC3pSZLedcP7Zp2eDkJNdehVVk
     git push mynerepo
 
@@ -329,19 +376,19 @@ Example:
 
 ## Why DVCS are not actually distributed
 
-Reason 1. Because they don't have any content distribution mechanism.
+Reason 1. Because they don’t have any content distribution mechanism.
 
 Common practice right now is using centralized services, which are:
 
--   Censored
--   Faulty
--   Not transparent and irresponsible (For customers. They are
-    responsible as hell for any sort of goverment-alike structures
-    before they even asked for something).
--   Tracking users
--   May use their code regardless of license agreement
--   Giving up the network neutrality in a sake of \<skipped\*\> anyone
-    but customers who pay
+- Censored
+- Faulty
+- Not transparent and irresponsible (For customers. They are responsible
+  as hell for any sort of goverment-alike structures before they even
+  asked for something).
+- Tracking users
+- May use their code regardless of license agreement
+- Giving up the network neutrality in a sake of \<skipped\*\> anyone but
+  customers who pay
 
 There are registered examples, how one most popular git service droppped
 repositoties because they contain some words in README file.
@@ -350,30 +397,30 @@ And banned accounts for visiting the service from wrong IP address.
 
 And data loss in a cloud storage services because they located all
 replicas in a single data centre which was destroyed by the fire or a
-canalization breakthrough. They even don't tell you how many replicas do
-they have for your data. Why? Because fuck you, that's why.
+canalization breakthrough. They even don’t tell you how many replicas do
+they have for your data. Why? Because fuck you, that’s why.
 
 Setting own hosts/services for dvcs data hosting.
 
-Yeah, it\'s the way. But they are
+Yeah, it's the way. But they are
 
--   Obviously centralized
+- Obviously centralized
 
 and also:
 
--   Domain name system is compromised
--   Certificate system is compromised by so many ways.
+- Domain name system is compromised
+- Certificate system is compromised by so many ways.
 
 Why? Because they are ruled by commercial companies working in certaing
 jurisdictions.
 
 What else. Sending patches by email.
 
--   Looks more like anecdote today (but still used by someone)
--   Email right now is a centralized service with all the consequences
-    (see above)
+- Looks more like anecdote today (but still used by someone)
+- Email right now is a centralized service with all the consequences
+  (see above)
 
-Okay, ley\'s bring the overlay network (VPN), place all our hosts and
+Okay, ley's bring the overlay network (VPN), place all our hosts and
 resources there and will use own DNS.
 
 Yeap, it will work. But it will cost you. It is acceptable for an
@@ -391,16 +438,16 @@ like this easily.
 
 Also they require trackers, that are centralized web resources.
 
-Things like Syncthing don\'t scales, in fact event if you will use git
+Things like Syncthing don't scales, in fact event if you will use git
 repo in syncthing dir, you will face file modification conflicts even if
 you use them alone.
 
-So that\'s why HBS2 came to light. Trust me, if I could use some
-decentralized solution normally for this I\'d never start this project.
+So that's why HBS2 came to light. Trust me, if I could use some
+decentralized solution normally for this I'd never start this project.
 
 ## Okay, if centralized services are bad, why are you here?
 
-Is's a mirror for the really distributed repository:
+Is’s a mirror for the really distributed repository:
 
 hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
@@ -408,18 +455,18 @@ hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
 
 So far we were able to run the hbs2-peer on:
 
--   NixOS ( x86_64-linux )
--   Windows WSL+Ubuntu
--   Debian/rasberri-pi (aarch64-linux)
+- NixOS ( x86_64-linux )
+- Windows WSL+Ubuntu
+- Debian/rasberri-pi (aarch64-linux)
 
 Probably it will work on MacOS - but we need someone to check.
 
-## What is a "reflog"
+## What is a “reflog”
 
 Reflog is an implementation of a permanent mutable reference. It has a
 permanent ID that corresponds to a public signing cryptographic key, and
-the value, that is calculated from the "state", where the state is a set
-of all "reference update" transactions.
+the value, that is calculated from the “state”, where the state is a set
+of all “reference update” transactions.
 
 Each transaction is cryptographically signed by the sender, for current
 reflog implementation sender must be an owner of the private key of the
