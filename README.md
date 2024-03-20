@@ -25,92 +25,6 @@
 - [Download](#download)
 - [Support](#support)
 
-- <a href="#about" id="toc-about">ABOUT</a>
-
-  - <a href="#status-update-2024-03-20"
-    id="toc-status-update-2024-03-20">Status update 2024-03-20</a>
-  - <a href="#status-update-2024-03-17"
-    id="toc-status-update-2024-03-17">Status update 2024-03-17</a>
-  - <a href="#what-is-it" id="toc-what-is-it">What is it</a>
-  - <a href="#current-status" id="toc-current-status">Current status</a>
-
-- <a href="#howto" id="toc-howto">HOWTO</a>
-
-  - <a href="#how-to-install" id="toc-how-to-install">How to install</a>
-  - <a href="#how-to-generate-peers-key"
-    id="toc-how-to-generate-peers-key">How to generate peer’s key?</a>
-  - <a href="#how-to-run-hbs2-peer" id="toc-how-to-run-hbs2-peer">How to run
-    hbs2-peer</a>
-  - <a href="#how-to-configure-hbs2-peer"
-    id="toc-how-to-configure-hbs2-peer">How to configure hbs2-peer</a>
-  - <a href="#how-to-create-a-new-own-repo"
-    id="toc-how-to-create-a-new-own-repo">How to create a new own repo</a>
-  - <a href="#how-to-launch-a-peer" id="toc-how-to-launch-a-peer">How to
-    launch a peer</a>
-  - <a href="#how-to-save-an-encrypted-file-tbd"
-    id="toc-how-to-save-an-encrypted-file-tbd">How to save an encrypted file
-    (TBD)</a>
-
-- <a href="#faq" id="toc-faq">FAQ</a>
-
-  - <a href="#why-dvcs-are-not-actually-distributed"
-    id="toc-why-dvcs-are-not-actually-distributed">Why DVCS are not actually
-    distributed</a>
-  - <a href="#okay-if-centralized-services-are-bad-why-are-you-here"
-    id="toc-okay-if-centralized-services-are-bad-why-are-you-here">Okay, if
-    centralized services are bad, why are you here?</a>
-  - <a href="#what-platforms-are-supported-yet"
-    id="toc-what-platforms-are-supported-yet">What platforms are supported
-    yet?</a>
-  - <a href="#what-is-a-reflog" id="toc-what-is-a-reflog">What is a
-    “reflog”</a>
-  - <a href="#what-is-the-fixme" id="toc-what-is-the-fixme">What is the
-    fixme?</a>
-
-- <a href="#contact" id="toc-contact">Contact</a>
-
-- <a href="#download" id="toc-download">Download</a>
-
-- <a href="#support" id="toc-support">Support</a>
-
-- [ABOUT](#about)
-
-  - [What is it](#what-is-it)
-  - [Current status](#current-status)
-
-- [HOWTO](#howto)
-
-  - [How to install](#how-to-install)
-  - [How to generate peer's key?](#how-to-generate-peers-key)
-  - [How to run hbs2-peer](#how-to-run-hbs2-peer)
-  - [How to configure hbs2-peer](#how-to-configure-hbs2-peer)
-  - [How to create a new own repo](#how-to-create-a-new-own-repo)
-  - [How to make a pull request](#how-to-make-a-pull-request)
-  - [How to launch a peer](#how-to-launch-a-peer)
-  - [How to save an encrypted file
-    (TBD)](#how-to-save-an-encrypted-file-tbd)
-
-- [FAQ](#faq)
-
-  - [Why DVCS are not actually
-    distributed](#why-dvcs-are-not-actually-distributed)
-  - [Okay, if centralized services are bad, why are you
-    here?](#okay-if-centralized-services-are-bad-why-are-you-here)
-  - [What platforms are supported
-    yet?](#what-platforms-are-supported-yet)
-  - [What is a "reflog"](#what-is-a-reflog)
-  - [What is the fixme?](#what-is-the-fixme)
-
-- [Contact](#contact)
-
-- [Download](#download)
-
-- [Support](#support)
-
-- [Donate](#donate)
-
-- [Other](#other)
-
 # ABOUT
 
 P2P CAS / Data Replication Solution
@@ -171,17 +85,17 @@ notified of it and receive a copy of the data.
 
 It is a middleware for implementing distributed applications that shares
 data. Like a distributed git, for example. (What? git is already
-distributed and... No, it is not. Not really).
+distributed and… No, it is not. Not really).
 
 The idea of extracting the minimal sufficent set of primitives for
 distributed applications and APIs and let the side applications do the
 rest.
 
-This is not a "blockchain", but heavily uses the approaches that
-"blockchains" brought to the world.
+This is not a “blockchain”, but heavily uses the approaches that
+“blockchains” brought to the world.
 
 Using this solution you may treat application data as local. HBS2 will
-syncronize all the data along the crowd of peers. The apps don't need to
+syncronize all the data along the crowd of peers. The apps don’t need to
 bother where the other peers are located, where the hosts, ssh keys on
 thouse hosts, auth tokens on thouse hosts, etc. They only need to know
 the references and (optionally) have signing/encryption keys that are
@@ -194,18 +108,18 @@ For an instance:
 
 - Distributed file sharing (wip)
 - Distributed git (seems working)
-- Distributed communications, like a chat or a "channel"
-- Distibuted ledgers with different types of consensus protocols (we're
-  trying not to use "b" words)
+- Distributed communications, like a chat or a “channel”
+- Distibuted ledgers with different types of consensus protocols (we’re
+  trying not to use “b” words)
 - Actually, any sort of applications that require data and network
 
 The whitepaper is in shortlist, watch the updates.
 
-Why it is *experimental* ? Well, it's on a quite early stage and some
+Why it is *experimental* ? Well, it’s on a quite early stage and some
 root data structures, protocols or API may change.
 
 It also have some known issues with performance and might have some
-stability issues. We're working hard to fix them.
+stability issues. We’re working hard to fix them.
 
 ## Current status
 
@@ -402,7 +316,7 @@ they have for your data. Why? Because fuck you, that’s why.
 
 Setting own hosts/services for dvcs data hosting.
 
-Yeah, it's the way. But they are
+Yeah, it’s the way. But they are
 
 - Obviously centralized
 
@@ -420,7 +334,7 @@ What else. Sending patches by email.
 - Email right now is a centralized service with all the consequences
   (see above)
 
-Okay, ley's bring the overlay network (VPN), place all our hosts and
+Okay, ley’s bring the overlay network (VPN), place all our hosts and
 resources there and will use own DNS.
 
 Yeap, it will work. But it will cost you. It is acceptable for an
@@ -438,12 +352,12 @@ like this easily.
 
 Also they require trackers, that are centralized web resources.
 
-Things like Syncthing don't scales, in fact event if you will use git
+Things like Syncthing don’t scales, in fact event if you will use git
 repo in syncthing dir, you will face file modification conflicts even if
 you use them alone.
 
-So that's why HBS2 came to light. Trust me, if I could use some
-decentralized solution normally for this I'd never start this project.
+So that’s why HBS2 came to light. Trust me, if I could use some
+decentralized solution normally for this I’d never start this project.
 
 ## Okay, if centralized services are bad, why are you here?
 
