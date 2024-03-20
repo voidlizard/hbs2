@@ -1,6 +1,9 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Net.Auth.Schema where
+module HBS2.Net.Auth.Schema
+  ( module HBS2.Net.Auth.Schema
+  , module HBS2.Net.Proto.Types
+  ) where
 
 import HBS2.Prelude
 import HBS2.OrDie

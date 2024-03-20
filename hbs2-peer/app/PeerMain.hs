@@ -16,6 +16,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.Schema()
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging.UDP
 import HBS2.Net.Messaging.TCP
@@ -47,11 +48,13 @@ import Bootstrap
 import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
+import LWWRef (lwwRefWorker)
 import HttpWorker
 import DispatchProxy
 import PeerMeta
 import CLI.Common
 import CLI.RefChan
+import CLI.LWWRef
 import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
@@ -65,8 +68,11 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.Notify
 import HBS2.Peer.RPC.Client.StorageClient
+
+import HBS2.Peer.Proto.LWWRef.Internal
 
 import RPC2(RPC2Context(..))
 
@@ -120,7 +126,7 @@ instance Exception GoAgainException
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
-defStorageThreads = 2
+defStorageThreads = 4
 
 defLocalMulticast :: String
 defLocalMulticast = "239.192.152.145:10153"
@@ -233,6 +239,7 @@ runCLI = do
                 <> command "fetch"     (info pFetch (progDesc "fetch block"))
                 <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
+                <> command "lwwref"    (info pLwwRef (progDesc "lwwref commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                 <> command "download"  (info pDownload  (progDesc "download management"))
@@ -450,7 +457,6 @@ runCLI = do
                        <> command "del" (info  pPollDel (progDesc "del poller" ))
                        )
 
-
     pPollAdd = do
       rpc <- pRpcCommon
       r <- argument refP (metavar "REF")
@@ -614,6 +620,8 @@ respawn opts =
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
+                        -- , ForLWWRefProto e
+                        -- , Serialise (PubKey 'Sign (Encryption e))
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
@@ -812,7 +820,7 @@ runPeer opts = Exception.handle (\e -> myException e
   let refChanAdapter =
         RefChanAdapter
         { refChanOnHead = refChanOnHeadFn rce
-        , refChanSubscribed = isPolledRef @e brains
+        , refChanSubscribed = isPolledRef @e brains "refchan"
         , refChanWriteTran = refChanWriteTranFn rce
         , refChanValidatePropose = refChanValidateTranFn @e rce
 
@@ -996,6 +1004,10 @@ runPeer opts = Exception.handle (\e -> myException e
                                             err $ red "Exception" <+> "in thread" <+> pretty t <+> viaShow e
                                             liftIO $ throwTo myself GoAgainException
 
+
+              let lwwRefProtoA = lwwRefProto (LWWRefProtoAdapter { lwwFetchBlock = download })
+                   where download h = withPeerM env $ withDownload denv (addDownload Nothing h)
+
               flip runContT pure do
 
                 peerThread "local multicast" $ forever $ do
@@ -1029,6 +1041,8 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "refChanNotifyLogWorker" (refChanNotifyLogWorker @e conf (SomeBrains brains))
 
+                peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
+
                 liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
@@ -1043,6 +1057,8 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanUpdateProto False pc refChanAdapter)
                     , makeResponse (refChanRequestProto False refChanAdapter)
                     , makeResponse (refChanNotifyProto False refChanAdapter)
+                    -- TODO: change-all-to-authorized
+                    , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProtoA)
                     ]
 
 
@@ -1147,15 +1163,16 @@ runPeer opts = Exception.handle (\e -> myException e
     envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
     w1 <- asyncLinked $ runNotifyWorkerServer env
     w2 <- asyncLinked $ runNotifyWorkerServer envrl
-    runProto @UNIX
+    wws <- replicateM 1 $ async $ runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
+      , makeResponse (makeServer @LWWRefAPI)
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
-    mapM_ wait [w1,w2]
+    mapM_ wait (w1 : w2 : wws )
 
   void $ waitAnyCancel $ w <> [ loop
                               , m1

@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hbs2-peer
-version:            0.1.0.0
+version:            0.24.1.0
 -- synopsis:
 -- description:
 license:            BSD-3-Clause
@@ -69,6 +69,7 @@ common common-deps
         , warp
         , http-conduit
         , http-types
+        , wai
         , wai-extra
         , unliftio
         , unliftio-core
@@ -157,11 +158,14 @@ library
       HBS2.Peer.Proto.RefChan.RefChanNotify
       HBS2.Peer.Proto.RefChan.RefChanUpdate
       HBS2.Peer.Proto.AnyRef
+      HBS2.Peer.Proto.LWWRef
+      HBS2.Peer.Proto.LWWRef.Internal
 
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog
       HBS2.Peer.RPC.API.RefChan
+      HBS2.Peer.RPC.API.LWWRef
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Client.StorageClient
@@ -171,6 +175,54 @@ library
 
     other-modules:
       -- HBS2.System.Logger.Simple
+
+
+test-suite test
+    import:           shared-properties
+    default-language: Haskell2010
+
+    other-modules:
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestSuite.hs
+    build-depends:
+          base, hbs2-peer, hbs2-core
+        , async
+        , bytestring
+        , cache
+        , containers
+        , directory
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , quickcheck-instances
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-quickcheck
+        , tasty-hunit
+        , tasty-quickcheck
+        , transformers
+        , uniplate
+        , vector
+        , saltine
+        , simple-logger
+        , string-conversions
+        , filepath
+        , temporary
+        , unliftio
+        , resourcet
+
+
+
 
 executable hbs2-peer
     import:           shared-properties
@@ -207,18 +259,21 @@ executable hbs2-peer
                     , RPC2.Downloads
                     , RPC2.RefLog
                     , RPC2.RefChan
+                    , RPC2.LWWRef
                     , PeerTypes
                     , PeerLogger
                     , PeerConfig
                     , RefLog
                     , RefChan
                     , RefChanNotifyLog
+                    , LWWRef
                     , CheckMetrics
                     , HttpWorker
                     , Brains
                     , DispatchProxy
                     , CLI.Common
                     , CLI.RefChan
+                    , CLI.LWWRef
 
                     , Paths_hbs2_peer
 

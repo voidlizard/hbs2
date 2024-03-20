@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hbs2
-version:            0.1.0.0
+version:            0.24.1.0
 -- synopsis:
 -- description:
 license:            BSD-3-Clause
@@ -79,6 +79,7 @@ executable hbs2
                     , filepath
                     , hashable
                     , interpolatedstring-perl6
+                    , magic
                     , memory
                     , microlens-platform
                     , mtl

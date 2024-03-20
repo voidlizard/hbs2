@@ -1,3 +1,37 @@
+-   [ABOUT](#about){#toc-about}
+    -   [Status update
+        2024-03-20](#status-update-2024-03-20){#toc-status-update-2024-03-20}
+    -   [Status update
+        2024-03-17](#status-update-2024-03-17){#toc-status-update-2024-03-17}
+    -   [What is it](#what-is-it){#toc-what-is-it}
+    -   [Current status](#current-status){#toc-current-status}
+-   [HOWTO](#howto){#toc-howto}
+    -   [How to install](#how-to-install){#toc-how-to-install}
+    -   [How to generate peer's
+        key?](#how-to-generate-peers-key){#toc-how-to-generate-peers-key}
+    -   [How to run
+        hbs2-peer](#how-to-run-hbs2-peer){#toc-how-to-run-hbs2-peer}
+    -   [How to configure
+        hbs2-peer](#how-to-configure-hbs2-peer){#toc-how-to-configure-hbs2-peer}
+    -   [How to create a new own
+        repo](#how-to-create-a-new-own-repo){#toc-how-to-create-a-new-own-repo}
+    -   [How to launch a
+        peer](#how-to-launch-a-peer){#toc-how-to-launch-a-peer}
+    -   [How to save an encrypted file
+        (TBD)](#how-to-save-an-encrypted-file-tbd){#toc-how-to-save-an-encrypted-file-tbd}
+-   [FAQ](#faq){#toc-faq}
+    -   [Why DVCS are not actually
+        distributed](#why-dvcs-are-not-actually-distributed){#toc-why-dvcs-are-not-actually-distributed}
+    -   [Okay, if centralized services are bad, why are you
+        here?](#okay-if-centralized-services-are-bad-why-are-you-here){#toc-okay-if-centralized-services-are-bad-why-are-you-here}
+    -   [What platforms are supported
+        yet?](#what-platforms-are-supported-yet){#toc-what-platforms-are-supported-yet}
+    -   [What is a "reflog"](#what-is-a-reflog){#toc-what-is-a-reflog}
+    -   [What is the fixme?](#what-is-the-fixme){#toc-what-is-the-fixme}
+-   [Contact](#contact){#toc-contact}
+-   [Download](#download){#toc-download}
+-   [Support](#support){#toc-support}
+
 -   [ABOUT](#about)
     -   [What is it](#what-is-it)
     -   [Current status](#current-status)
@@ -33,6 +67,15 @@ P2P CAS / Data Replication Solution
 This solution facilitates decentralized P2P git repository
 synchronization with automatic peer discovery, requiring no server or
 service.
+
+## Status update 2024-03-20
+
+hbs2-git 0.24.1 is in master. Status =\> beta. Old hbs2-git is
+discontinued. Use the new one.
+
+Data structures are incompatible between the old and the new versions,
+however, migrations is safe and all references remains the same (merely
+the type of the references are changed).
 
 ## Status update 2024-03-17
 
@@ -170,7 +213,6 @@ staring work on a manual. But here is a minimal working example:
 Typically hbs2-peer config is located at
 
 \$HOME/.config/hbs2-peer/config
-
 
     ; ip/port to for UDP
     listen "0.0.0.0:7351"

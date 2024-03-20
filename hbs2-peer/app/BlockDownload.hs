@@ -279,13 +279,6 @@ updatePeerInfo onError _ pinfo = do
       trimDown n s | IntSet.size s >= n = IntSet.deleteMax s
                    | otherwise       = s
 
-data ByFirst a b = ByFirst a b
-
-instance Eq a => Eq (ByFirst a b) where
-  (==) (ByFirst a _) (ByFirst b _) = a == b
-
-instance Hashable a => Hashable (ByFirst a b) where
-  hashWithSalt s (ByFirst a _) = hashWithSalt s a
 
 
 downloadOnBlockSize :: (MonadIO m, IsPeerAddr e m, MyPeer e)

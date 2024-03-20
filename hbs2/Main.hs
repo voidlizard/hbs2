@@ -22,11 +22,12 @@ import HBS2.Storage.Simple.Extra
 import HBS2.Data.Bundle
 import HBS2.OrDie
 import HBS2.Version
+import HBS2.Misc.PrettyStuff
 import Paths_hbs2 qualified as Pkg
 
 import HBS2.KeyMan.Keys.Direct
 
-import HBS2.System.Logger.Simple hiding (info)
+import HBS2.System.Logger.Simple.ANSI hiding (info)
 
 import Data.Config.Suckless
 
@@ -36,11 +37,13 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Cont
 import Crypto.Saltine.Core.Box qualified as Encrypt
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString qualified as BS
 import Data.ByteArray.Hash (SipHash(..), SipKey(..))
 import Data.ByteArray.Hash qualified as BA
@@ -54,9 +57,15 @@ import Options.Applicative
 import Streaming.Prelude qualified as S
 import Streaming.ByteString qualified as SB
 import System.Directory
+import System.FilePath
 import System.Exit qualified as Exit
 import System.IO qualified as IO
 import System.IO.Temp (emptySystemTempFile)
+
+import Magic.Data
+import Magic.Init       (magicLoadDefault,magicOpen)
+import Magic.Operations (magicFile)
+
 import UnliftIO
 
 tracePrefix :: SetLoggerEntry
@@ -74,6 +83,9 @@ warnPrefix   = logPrefix "[warn] " . toStderr
 noticePrefix :: SetLoggerEntry
 noticePrefix = logPrefix "[notice] " . toStderr
 
+
+data MetadataMethod = MetaDataAuto FilePath
+                      deriving stock (Eq,Generic,Show)
 
 newtype CommonOpts =
   CommonOpts
@@ -220,6 +232,11 @@ runCat opts ss = do
           walkMerkleTree (_mtaTree ann) (getBlock ss) $ \case
             Left hx  -> err $ "missed block" <+> pretty hx
             Right hr -> print $ vcat (fmap pretty hr)
+
+        MerkleAnn (MTreeAnn {_mtaCrypt = NullEncryption }) -> do
+          bs <- runExceptT (readFromMerkle (AnyStorage ss) (SimpleKey mhash))
+                   >>= orThrowUser "can't read/decode tree"
+          LBS.putStr bs
 
         MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
           keyring <- case uniLastMay @OptKeyringFile opts of
@@ -487,6 +504,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     parser ::  Parser (IO ())
     parser = hsubparser (  command "store"           (info pStore (progDesc "store block"))
                         <> command "cat"             (info pCat (progDesc "cat block"))
+                        <> command "metadata"        (info pMetadata (progDesc "tree metadata manipulation"))
                         <> command "hash"            (info pHash (progDesc "calculates hash"))
                         <> command "fsck"            (info pFsck (progDesc "check storage constistency"))
                         <> command "deps"            (info pDeps (progDesc "print dependencies"))
@@ -534,6 +552,79 @@ main = join . customExecParser (prefs showHelpOnError) $
       raw <- optional $ flag' True ( short 'r' <> long "raw" <> help "dump raw block" )
       pure $ withStore o $ runCat
           $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile) raw
+
+    pMetadata = hsubparser ( command "dump" (info pMetadataDump (progDesc "dump metadata"))
+                           <> command "create" (info pMetadataCreate (progDesc "create tree with metadata"))
+                           )
+
+    pMetadataDump = do
+      o <- common
+      h <- argument (maybeReader (fromStringMay @HashRef)) (metavar "HASH") <&> fromHashRef
+      pure $ flip runContT pure do
+        sto <- ContT (withStore o)
+
+        void $ runMaybeT do
+          bs <- getBlock sto h >>= toMPlus
+          case tryDetect h bs of
+            MerkleAnn (MTreeAnn { _mtaMeta = AnnHashRef mh } ) -> do
+
+              bs <- getBlock sto mh
+                       `orDie` "cant' read metadata"
+
+              liftIO $ LBS.putStr bs
+
+            _ -> exitFailure
+
+    pMetadataCreate = do
+      o <- common
+      how <- MetaDataAuto <$> strOption ( long "auto" <> metavar "FILENAME" <> help "automatic metadata from file name")
+      dry <- flag False True (long "dry" <> short 'n' <> help "don't write to storage")
+      hOnly <- flag False True (long "hash" <> short 'H' <> help "merely print hash")
+
+      pure $ flip runContT pure do
+
+        sto <- ContT $ withStore o
+
+        void $ runMaybeT do
+
+          case how of
+            MetaDataAuto fn -> do
+
+              meta <- liftIO do
+                        magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
+                        magicLoadDefault magic
+                        mime <- magicFile magic fn
+
+                        pure [ "file-name:" <+> dquotes (pretty $ takeFileName fn)
+                             , "mime-type:" <+> dquotes (pretty mime)
+                             ]
+
+              let s = LBS8.pack $ show $ vcat meta
+
+              unless hOnly do
+                liftIO $ LBS8.putStrLn s
+                liftIO $ LBS8.putStrLn ""
+
+              guard (not dry)
+
+              mth <- putBlock sto s >>= toMPlus
+
+              bs <- liftIO $ LBS.readFile fn
+
+              root <- writeAsMerkle sto bs
+
+              mt <- getBlock sto root `orDie` "can't read merkle tree just written"
+                      <&> deserialiseOrFail @(MTree [HashRef])
+                      >>= orThrowUser "corrupted merkle tree -- should never happen"
+
+              delBlock sto root
+
+              let mtann = MTreeAnn (AnnHashRef mth) NullEncryption mt
+
+              hnew <- putBlock sto (serialise mtann)
+                        `orDie` "can't write merkle tree"
+
+              liftIO $ print $ pretty hnew
 
     pGroupKey = pGroupKeySymm
 

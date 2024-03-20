@@ -23,6 +23,7 @@ module HBS2.Prelude
   , Text.Text
   , (&), (<&>), for_, for
   , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
+  , ByFirst(..)
   ) where
 
 import HBS2.Clock
@@ -151,6 +152,15 @@ asyncLinked m = do
   l <- async m
   link l
   pure l
+
+
+data ByFirst a b = ByFirst a b
+
+instance Eq a => Eq (ByFirst a b) where
+  (==) (ByFirst a _) (ByFirst b _) = a == b
+
+instance Hashable a => Hashable (ByFirst a b) where
+  hashWithSalt s (ByFirst a _) = hashWithSalt s a
 
 
 -- asyncLinked :: forall m . MonadUnliftIO m =>

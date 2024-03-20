@@ -24,6 +24,8 @@ import Data.ByteString (ByteString)
 import Type.Reflection (someTypeRep)
 import Lens.Micro.Platform
 
+
+
 newtype RefLogKey s = RefLogKey { fromRefLogKey :: PubKey 'Sign s }
                       deriving stock Generic
 

@@ -295,17 +295,16 @@
         "suckless-conf": "suckless-conf_2"
       },
       "locked": {
-        "lastModified": 1709273510,
-        "narHash": "sha256-wyerw00pnZq64wQGg+azHnLWzDz4C7PvBqCK3U5ejRI=",
-        "ref": "totally-new-download",
-        "rev": "a6e955aa611c3f9485976ce7eba33570a43f2eb7",
-        "revCount": 1036,
+        "lastModified": 1710646368,
+        "narHash": "sha256-0ayUFjOSX4UqSRBbLJeqPMBAn+qSAlFRoICVABliF80=",
+        "ref": "lwwrepo",
+        "rev": "16b5b6220a4be96e30c65f34d631445c28676feb",
+        "revCount": 1002,
         "type": "git",
         "url": "http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
       },
       "original": {
-        "ref": "totally-new-download",
-        "rev": "a6e955aa611c3f9485976ce7eba33570a43f2eb7",
+        "ref": "lwwrepo",
         "type": "git",
         "url": "http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
       }

@@ -38,6 +38,8 @@ import Data.Cache qualified as Cache
 import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
@@ -82,6 +84,7 @@ data BasicBrains e =
   , _brainsCommit       :: TQueue CommitCmd
   , _brainsDelDownload  :: TQueue (Hash HbSync)
   , _brainsSizeCache    :: Cache (Peer e, Hash HbSync) Integer
+  , _brainsPolled       :: TVar (HashSet (PubKey 'Sign (Encryption e), String))
   }
 
 makeLenses 'BasicBrains
@@ -96,6 +99,7 @@ cleanupPostponed b h =  do
 instance ( Hashable (Peer e)
          , Pretty (Peer e), Pretty (PeerAddr e)
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+         , Hashable (PubKey 'Sign (Encryption e))
          , e ~ L4Proto
          , ForRefChans e
          ) => HasBrains e (BasicBrains e) where
@@ -103,14 +107,14 @@ instance ( Hashable (Peer e)
   onClientTCPConnected br pa@(L4Address proto _) ssid = do
     debug $ "BRAINS: onClientTCPConnected" <+> pretty proto <+> pretty pa <+> pretty ssid
     updateOP br $ insertClientTCP br pa ssid
-    commitNow br True
+    commitNow br False
 
   getClientTCP br = liftIO (selectClientTCP br)
 
   setActiveTCPSessions br ssids = do
     trace $ "BRAINS: setActiveTCPSessions" <+> pretty ssids
     updateOP br $ updateTCPSessions br ssids
-    commitNow br True
+    commitNow br False
 
   listTCPPexCandidates = liftIO . selectTCPPexCandidates
 
@@ -134,7 +138,7 @@ instance ( Hashable (Peer e)
         forM_ ps $ \pip -> do
           pa <- toPeerAddr pip
           insertKnownPeer br pa
-    commitNow br True
+    commitNow br False
 
   onBlockSize b p h size = do
     liftIO $ Cache.insert (_brainsSizeCache b) (p,h) size
@@ -217,15 +221,15 @@ instance ( Hashable (Peer e)
 
   addPolledRef brains r s i = do
 
+    liftIO $ atomically $ modifyTVar (_brainsPolled brains) (HashSet.insert (r,s))
+
     updateOP brains $ do
       let conn = view brainsDb brains
       liftIO $ execute conn sql (show $ pretty (AsBase58 r), s, i)
 
-    commitNow brains True
-
     where
       sql = [qc|
-      insert into statedb.poll (ref,type,interval)
+      insert into {poll_table} (ref,type,interval)
       values (?,?,?)
       on conflict do update set interval = excluded.interval
       |]
@@ -236,7 +240,7 @@ instance ( Hashable (Peer e)
       liftIO $ execute conn sql (Only (show $ pretty (AsBase58 r)))
     where
       sql = [qc|
-      delete from statedb.poll
+      delete from {poll_table}
       where ref = ?
       |]
 
@@ -245,22 +249,34 @@ instance ( Hashable (Peer e)
       let conn = view brainsDb brains
       case mtp of
         Nothing -> postprocess <$>
-          query_ conn [qc|select ref, type, interval from statedb.poll|]
+          query_ conn [qc|select ref, type, interval from {poll_table}|]
 
         Just tp -> postprocess <$>
-          query conn [qc|select ref, type, interval from statedb.poll where type = ?|] (Only tp)
+          query conn [qc|select ref, type, interval from {poll_table} where type = ?|] (Only tp)
     where
       postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
 
-  isPolledRef brains ref = do
-    liftIO do
-      let conn = view brainsDb brains
-      query @_ @(Only Int) conn [qc|
-        select 1 from statedb.poll
-        where ref = ?
-        limit 1
-      |] ( Only ( show $ pretty (AsBase58 ref) ) )
-        <&> isJust . listToMaybe
+  isPolledRef brains tp ref = do
+
+    cached <- liftIO $ readTVarIO (_brainsPolled brains) <&> HashSet.member (ref,tp)
+
+    if cached then
+      pure True
+    else do
+
+      r <- liftIO do
+              let conn = view brainsDb brains
+              query @_ @(Only Int) conn [qc|
+                select 1 from {poll_table}
+                where ref = ? and type = ?
+                limit 1
+              |] ( show $ pretty (AsBase58 ref), tp )
+                <&> isJust . listToMaybe
+
+      when r do
+        liftIO $ atomically $ modifyTVar (_brainsPolled brains) (HashSet.insert (ref,tp))
+
+      pure r
 
   setSeen brains w ts = do
     utc <- liftIO getCurrentTime <&> addUTCTime ts
@@ -718,6 +734,8 @@ insertPexInfo br peers = liftIO do
     |] (Only (show $ pretty p))
 
 
+{- HLINT ignore "Functor law" -}
+
 selectPexInfo :: forall e . (e ~ L4Proto)
               => BasicBrains e
               -> IO [PeerAddr e]
@@ -730,8 +748,23 @@ selectPexInfo br = liftIO do
   |] <&> fmap (fromStringMay . fromOnly)
      <&> catMaybes
 
+tableExists :: Connection -> Maybe String -> String -> IO Bool
+tableExists conn prefix' tableName = do
+  let sql = [qc|
+     SELECT name FROM {prefix}.sqlite_master WHERE type='table' AND name=?
+  |]
+  r <- query conn sql (Only tableName) :: IO [Only String]
+  pure $ not $ null r
+
+  where
+    prefix = fromMaybe "main" prefix'
+
+
 -- FIXME: eventually-close-db
-newBasicBrains :: forall e m . (Hashable (Peer e), MonadIO m)
+newBasicBrains :: forall e m . ( Hashable (Peer e)
+                               , Hashable (PubKey 'Sign (Encryption e))
+                               , MonadIO m
+                               )
                => PeerConfig
                -> m (BasicBrains e)
 
@@ -836,14 +869,26 @@ newBasicBrains cfg = liftIO do
     )
   |]
 
-  execute_ conn [qc|
-    create table if not exists statedb.poll
-    ( ref      text not null
-    , type     text not null
-    , interval int not null
-    , primary key (ref)
-    )
-  |]
+  poll_1 <- tableExists conn (Just "statedb") "poll_1"
+  poll_0 <- tableExists conn (Just "statedb") "poll"
+
+  unless poll_1 do
+    debug $ red "BRAINS: CREATE poll_1"
+    execute_ conn [qc|
+      create table if not exists statedb.poll_1
+      ( ref      text not null
+      , type     text not null
+      , interval int not null
+      , primary key (ref,type)
+      )
+    |]
+
+    when poll_0 do
+      debug $ red "BRAINS: FILL poll_1"
+      execute_ conn [qc|
+        insert into statedb.poll_1 (ref,type,interval)
+        select ref,type,interval from statedb.poll;
+      |]
 
   execute_ conn [qc|
     create table if not exists peer_asymmkey
@@ -872,12 +917,16 @@ newBasicBrains cfg = liftIO do
               <*> newTQueueIO
               <*> newTQueueIO
               <*> Cache.newCache (Just (toTimeSpec (1200:: Timeout 'Seconds)))
-
+              <*> newTVarIO mempty
 
 data PeerDownloadsDelOnStart
 
 instance Monad m => HasCfgKey PeerDownloadsDelOnStart b m where
   key = "downloads-del-on-start"
+
+{- HLINT ignore "Use camelCase" -}
+poll_table :: String
+poll_table = "statedb.poll_1"
 
 runBasicBrains :: forall e m . ( e ~ L4Proto
                                , MonadUnliftIO m
@@ -931,7 +980,7 @@ runBasicBrains cfg brains = do
   when (delDowns == FeatureOn ) do
     debug $ yellow "CLEAN ALL DOWNLOADS"
     updateOP brains (delAllDownloads brains)
-    commitNow brains True
+    commitNow brains False
 
   let polls = catMaybes (
        [ (tp,n,) <$> fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack ref)
@@ -945,7 +994,7 @@ runBasicBrains cfg brains = do
       updateOP brains $ do
         let conn = view brainsDb brains
         liftIO $ execute conn [qc|
-          insert into statedb.poll (ref,type,interval)
+          insert into {poll_table} (ref,type,interval)
           values (?,?,?)
           on conflict do update set interval = excluded.interval
           |] (show $ pretty (AsBase58 x), show $ pretty t, mi)

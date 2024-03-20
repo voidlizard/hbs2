@@ -1,0 +1,1382 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{polyglossia}
+\usepackage{fontawesome5}
+\usepackage{xltxtra}
+\usepackage[margin=2cm,a4paper]{geometry}% http://ctan.org/pkg/geometry
+\usepackage{pdfpages}
+\usepackage{graphicx}
+\usepackage[ddmmyyyy]{datetime}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage[nomessages]{fp}
+\usepackage{caption}
+\usepackage{url}
+\usepackage{indentfirst}
+\usepackage[parfill]{parskip}
+\usepackage[ colorlinks=true
+           , linkcolor=black
+		   , anchorcolor=black
+		   , citecolor=black
+		   , filecolor=black
+		   , menucolor=black
+		   , runcolor=black
+		   , urlcolor=blue]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows,arrows.meta,snakes,shapes,backgrounds,positioning,calc}
+\usepackage{marvosym}
+\usepackage{pifont}
+\usepackage{fontspec}
+\usepackage{listings}
+\usepackage{verbatim}
+\usepackage{xcolor}
+\usepackage{float} % Needed for the floating environment
+\usepackage{fancyvrb}
+\usepackage[most]{tcolorbox}
+\usepackage{authblk}
+\usepackage{url}
+
+\setmainlanguage{russian}
+\defaultfontfeatures{Ligatures=TeX,Mapping=tex-text}
+\setmainfont{Liberation Serif}
+\newfontfamily\cyrillicfont{Liberation Serif}[Script=Cyrillic]
+\newfontfamily{\cyrillicfonttt}{Liberation Mono}[Scale=0.8]
+
+\setlist{noitemsep}
+\setlength{\intextsep}{2cm}
+
+\renewcommand\Authands{ и }
+\renewcommand\Affilfont{\itshape\small} % Мелкий и курсивный шрифт для аффилиаций
+
+\newtcolorbox{myverbatim}{colback=lightgray, colframe=lightgray, boxrule=0pt, arc=0pt,
+                          top=0pt, bottom=0pt, left=0pt, right=0pt,
+                          boxsep=5pt, leftupper=5pt, rightupper=5pt}
+
+
+\newcommand{\term}[2]{\textit{#2}}
+\renewcommand{\dateseparator}{.}
+\renewcommand*\contentsname{Содержание}
+
+\lstset{
+  language=Haskell,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{green},
+  stringstyle=\color{red},
+  % numberstyle=\tiny\color{gray},
+  % numbers=left,
+  % stepnumber=1,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+}
+
+\newfloat{Code}{t}{myc}
+
+\graphicspath{ {img/}}
+
+\title{hbs2-git 0.24.1}
+
+\author{%
+    email: dzuikov@gmail.com | telegram: @voidlizard
+}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Идея}
+
+hbs2-git это адаптер, позволяющий git работать с HBS2 в качестве бекенда для сохранения и получения
+объектов. HBS2 это распределённый P2P CAS, позволяющий обмениваться данными, синхронизировать их,
+подписываться на специфические источники при помощи механизма \term{references}{ссылок}.
+
+Таким образом, hbs2-git позволяет производить децентрализованную синхронизацию репозиториев без
+участия какого-то выделенного сервера/сервиса, используя вместо него множество пиров, которые
+находят соседей при помощи механизма \term{pex}{PEX} (Peer Exchange) --- то есть при помощи
+broadcast сообщений, DNS бутстрапа и списка известных пиров, то есть примерно  теми же способами,
+что используются в прочих децентрализованных сетях.
+
+Авторизация и аутентификация осуществляются при помощи криптографических механизмов: криптоподписи
+и шифрования.
+
+Механизмы эти работают на уровне ссылок, блоков, протоколов и можно еще дополнительно шифровать
+собственный контент, если будет такое желание и необходимость.
+
+\begin{description}
+  \item[Ссылка] --- это некий уникальный идентификатор, указывающий на блок в \textit{хранилище} по
+    его хэшу; Ссылки бывают локальные и те, которые распространяются по некоему протоколу. Примеры
+    распространяемых ссылок и их протоколов: RefLog, LWWRef, RefChan.
+
+  \item[Блок]   --- это данные в хранилище, имеющие хэш, которым этот блок и адресуется. Блок может
+    содержать произвольные данные. Это могут быть сериализованные структуры данных, разбираемые
+    hbs2, но не обязательно.
+\end{description}
+
+
+Вместо того, что бы делать $git~push$ в remote на каком-то сервере с доменным именем, доступом и
+прочее, $git~push$ происходит в \term{references}{ссылку}, которая поддерживается всеми пирами,
+которые согласны поддерживать эту ссылку.
+
+Узел hbs2-peer может отправлять и получать транзакции обновления ссылок, а также получать журнал
+транзакций как дерево Меркла.
+
+Как было сказано выше, hbs2-git использует механизм \term{references}{ссылок} для своей работы.
+
+Ссылка --- это идентификатор, часто связанный с публичным ключом шифрования, который может быть
+любым хешируемым объектом. Она должна однозначно ассоциироваться с обновляющим её пользователем и
+быть уникальной.
+
+Одним из способов добиться уникальности является использование пары публичный
+ключ/приватный ключ и публичного ключа в качестве идентификатора.
+
+Владелец приватного ключа заинтересован в том, что бы его приватный ключ был уникален и известен
+только ему и он изо всех сил старается эту уникальность поддерживать, в частности, использует
+качественный генератор случайных чисел и никому свой приватный ключ не сообщает.
+
+Мы предполагаем, что подобрать секретный ключ по известному публичному ключу --- очень
+сложная задача.
+
+Ссылки могут быть разных типов.  Конкретно, hbs2-git использует ссылки двух видов:
+
+\begin{description}
+  \item[LWWRef] В терминах CRDT это Last~Write~Wins~Register, где некое значение
+    ассоциировано с монотонно возрастающим счётчиком, и все участники (пиры) принимают
+    то значение, у которого этот счётчик больше. См: lwwref, lww-cсылка.
+
+  \item[RefLog] В терминах CRDT это G-Set или же Grow~Only~Set транзакций, где множество
+    транзакций представлено деревом Меркла. Транзакции (в рамках RefLog) упорядочены строго
+    по их хэшам. Содержимое транзакций может быть произвольно и определяется клиентским приложением.
+    Наличие порядка, таким образом, приводит к тому, что всё множество может быть адресовано
+    неким хэшем (дерева Меркла) и хэш этот одинаков для одинакового набора транзакций. Также:
+    рефлог.
+\end{description}
+
+Поскольку CRDT в общем случае не обладают стойкостью к византийским ошибкам и атакам, мы
+используем криптографические подписи и хэши, что бы минимизировать возможности для таких
+атак  или же ввести некоторые допущения.
+
+Например, допущениями для рефлогов и lww-ссылок является то, что они кому-то принадлежат,
+и только этот кто-то может их изменять.
+
+Для lww-ссылки только владелец приватного ключа может изменять эту ссылку, а для рефлога --
+добавлять транзакции в рефлог может только владелец приватного ключа, идентифицирующего
+рефлог.
+
+Технически это означает, что для lww-ссылок -- пирами будут приниматься только такие ссылки,
+которые содержат подписанный владельцем приватного ключа блок и подпись валидна.
+
+Для рефлога -- в рефлог будут включаться только такие транзакции, которые подписаны владельцем
+приватного ключа рефлога, и подпись верна.
+
+Механизм мержа рефлога подразумевает объединение всех верных транзакций, таким образом, мы ожидаем,
+что рефлог рано или поздно сойдется у всех пиров, участвующих в обмене.
+
+Механизм обновления lww-ссылки подразумевает, что каждый пир возьмёт то значение, у которого
+больше счётчик и подпись для которого валидна.
+
+Таким образом, если владелец lww-ссылки на разных пирах опубликует значение ссылки с одинаковым
+счётчиком, но разным содержимым --- мы получим разные значения на разных пирах. Для того, что бы
+значения всё же сходились -- в случае, если счётчик одинаков --- выбирается то значение, хэш
+которого больше. Никакого другого смысла, кроме обеспечения лучшей сходимости, это не несёт.
+
+Предполагается, что поскольку значение ссылки контролируется владельцем, владелец заинтересован
+в том, что бы обеспечить однозначность значения этой ссылки. Если он по ошибке (например, с разных
+хостов) опубликовал <<одновременно>> транзакции с одинаковым счётчиком, но разными значениями, то:
+
+\begin{enumerate}
+  \item В итоге всеми будет принято то значение, у которого хэш лексикографически больше;
+  \item У владельца есть шанс устранить беспорядок, опубликовав <<правильное>> значение.
+\end{enumerate}
+
+Мы видим, что такая ссылка так себе подходит для обеспечения конкурентных обновлений чего-либо,
+поэтому подразумеваем, что она будет использоваться для хранения некоей настроечной информации и
+меняться относительно редко и осознанно, непосредственно владельцем. Кроме того, факт конкурентного
+публикования ссылки с разных пиров означает, что владелец экспонировал свой приватный ключ много
+раз, а не в одном месте в один момент времени. Значит, он небрежен и к нему есть вопросы --
+например, можно не доверять такому владельцу (не принимать ссылок от него).
+
+\section{Компоненты}
+
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                    db/.style={ cylinder
+                              , draw
+                              , fill=gray!10
+                              , minimum height=1cm
+                              , minimum width=1.5cm
+                              , shape border rotate=90
+                              , aspect=0.5
+                              }
+                   ]
+
+  \node[box,minimum height=2cm] (peer) {hbs2-peer};
+
+  \node[ box
+       , minimum height=1cm
+       , text width=6em
+       , left=5cm of peer.north west
+       , anchor = north east
+       ] (git-remote-hbs2) {git-remote-hbs2};
+
+  \node[ box
+       , minimum height=1cm
+       , text width=6em
+       , below=1cm of git-remote-hbs2.south east, anchor = north east
+       ] (git-hbs2) {git-hbs2};
+
+  \node[ rectangle
+       , draw
+       , dashed
+       , above = 2mm of git-remote-hbs2.north west
+       , xshift = -2mm
+       , text width=2.8cm
+       , minimum height=3.6cm
+       , anchor=north west] (tools) {};
+
+  \node [ box
+        , below left = 1cm of tools.south west
+        , text width=6em
+        , align=center
+        , minimum height=2em ] (cfg)
+    { \large\faFile[regular] {\scriptsize .hbs2-git/config} };
+
+  \draw [-] (tools) -- (cfg);
+
+  \node[box, minimum height=1cm, below=2cm of git-hbs2.south, anchor=north] (git) {git};
+
+  \node[db,below=1.6cm of git.north,anchor=north] (repo) {git repo};
+
+  \draw[->] (git.south) -- ($(repo.north) - (0,+2mm)$) ;
+
+  \draw[->] (git.north) -- ($(tools.south west)!(git.north)!(tools.south east)$)
+    node[midway,right] {CLI/PIPE};
+
+  \node[ db
+       , left=1cm of git-remote-hbs2.north west, anchor=north east
+       , yshift=-1cm
+       ] (state) {State};
+
+  \draw[->] (git-remote-hbs2.west) -| ($(state.north) - (0,+2mm)$) ;
+  \draw[->] (git-hbs2.west) -| (state.south);
+
+  \node[handle,left=1cm of peer.west] (rpc) {};
+
+  \draw[-] (peer.west) -- (rpc.east) node [midway,above] {RPC};
+
+  \draw[->] ($(tools.north east)!(rpc)!(tools.south east)$) -- (rpc);
+
+
+  \node[ db
+       , below=1cm of peer.south
+       ] (store) {Store};
+
+  \draw[->] (peer.south) -- ($(store.north) - (0,+2mm)$) ;
+
+  \node[ box
+       , minimum height=1cm
+       , below=1cm of store.south, anchor=north
+       ] (hbs2) {hbs2};
+
+  \draw[->] (hbs2) -- (store);
+
+  \node[ box
+       , left=1cm of hbs2.west, anchor=east
+       , text width=2cm
+       , minimum height=1cm
+       ] (hbs2-keyman) {hbs2-keyman};
+
+
+  \draw[-,thick] (tools.320) -| (hbs2-keyman.140) node[near end,right] {library};
+
+  \node[ db
+       , below=1cm of hbs2-keyman.south
+       ] (keyman-state) {State};
+
+  \draw[->] (hbs2-keyman) -- ($(keyman-state.north) - (0,+2mm)$);
+
+\end{tikzpicture}
+\end{figure}
+
+\subsection*{git-remote-hbs2}
+
+Исполняемый файл, git-remote-helper, хэлпер git для протокола hbs2://
+
+\subsection*{git-hbs2}
+
+Исполняемый файл, различные функции для работы с hbs2-git, например,
+export для первоначальной  инициализации \textit{ссылки} и т.п.
+
+\subsection*{git}
+
+Процесс git
+
+\subsection*{hbs2-keyman}
+
+Индексатор ключей
+
+\subsection*{hbs2}
+
+Утилита для управления storage, ключами и прочим.
+
+\subsection*{hbs2-git-subscribe}
+
+Подписаться на обновления ссылки lwwref и reflog для репозитория
+без импорта самого репозитория.
+
+Может быть полезно на промежуточных хостах, что бы распространять
+данные. но не клонировать сам репозиторий.
+
+\subsection*{hbs2-peer}
+
+Процесс hbs2-peer
+
+\subsection*{Store}
+
+Хранилище объектов HBS2 (меркл-деревья, блоки, ссылки, ...)
+
+\subsection*{State}
+
+State --- это состояние репозитория. Технически, это БД sqlite,
+которая находится в \texttt{.hbs2-git/state.db} и содержит данные,
+необходимые для ускорения работы: индексы и кэши.
+
+\texttt{state.db} может быть удалён,  при последующих запусках
+hbs2-git произойдет переиндексация и он будет создан вновь,
+а операция займет больше времени, чем обычно.
+
+
+\section{Установка}
+
+В настоящий момент hbs2-git доступен в виде исходных кодов или кэшированных
+артефактов и пакета для пакетного менеджера nix.
+
+Исходные коды доступны по следующим адресам:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+HBS2    & \texttt{hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP} \\ \hline
+HTTPS   & \texttt{https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP} \\ \hline
+GitHub  & \texttt{https://github.com/voidlizard/hbs2.git} \\ \hline
+\end{tabular}
+\end{table}
+
+\pagebreak
+
+В случае использования nix необходимо включить поддержку nix flakes и nix profile
+
+\subsection{Установка при помощи nix profile}
+
+\begin{verbatim}
+
+nix profile install git+http://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP \
+      --substituters http://nix.hbs2.net:6000 \
+      --trusted-public-keys git.hbs2.net-1:HYIYU3xWetj0NasmHrxsWQTVzQUjawOE8ejZAW2xUS4= \
+\end{verbatim}
+
+\subsection{Сборка при помощи cabal}
+
+Проект представляет собой типичный проект для языка haskell и собирается системой сборки cabal.
+
+В случае такой сборки зависимости придется установить самостоятельно, либо же использовать
+прилагаемые файлы ( flake.nix ) для установки окружения и установки зависимостей.
+
+Желательно использовать direnv
+
+\begin{verbatim}
+nix develop       # при наличии
+cabal build all
+make symlinks     # при желании, создаёт симлинки в каталоге ./bin
+\end{verbatim}
+
+\subsection{Сборка при помощи nix}
+
+\begin{verbatim}
+nix build
+\end{verbatim}
+
+\section{Использование}
+
+\begin{enumerate}
+  \item Настройка hbs2-peer
+  \item Запуск hbs2-peer
+  \item Работа с hbs2-git
+\end{enumerate}
+
+\subsection{hbs2-peer}
+
+hbs2-git является клиентским приложением для hbs2-peer.
+Соответственно, для функционирования необходимо запустить hbs2-peer командой
+
+\begin{verbatim}
+hbs2-peer run
+\end{verbatim}
+
+Конфигурационный файл по-умолчанию находится в \$XDGDIR/hbs2-peer/
+
+\begin{verbatim}
+$(HOME)/.config/hbs2-peer/config
+\end{verbatim}
+
+Конфиг по умолчанию будет создан самим hbs2-peer при первом запуске,
+если разрешена запись в упомянутую локацию.
+
+Минимальный конфиг:
+
+\begin{verbatim}
+$ cat ~/.config/hbs2-peer/config
+;; hbs2-peer config file
+
+;; порт для UDP
+listen "0.0.0.0:7351"
+
+;; порт для TCP
+listen-tcp "0.0.0.0:10351"
+
+; default storage is $HOME/.local/share/hbs2
+; storage "./storage"
+
+; edit path to a keyring file
+; key    "./key"
+
+; это секретный ключ, и путь относительно конфига
+key "./default.key"
+
+; очищать очередь блоков на скачивание при рестарте
+; рекомендуется: on
+; downloads-del-on-start on
+
+; принимать анонсы блоков
+;
+; * -- от всех
+; от конкретного пира:
+; accept-block-announce "PEER-KEY"
+;
+; рекомедуется включать для конкретных известных пиров
+; accept-block-announce *
+
+; поллить ссылки
+; poll reflog 5 "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
+; poll lwwref 5 "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
+; poll refchan 10 ...
+
+
+; запретить общаться с указанным пиром
+; blacklist "5tZfGUoQ79EzFUvyyY5Wh1LzN2oaqhrn9kPnfk6ByHpf"
+
+; порт для http
+; рекомендовано: включить
+http-port 5000
+
+; логгирование
+; trace off
+; trace on
+
+; trace1 off
+; trace1 on
+
+; debug on
+; debug off
+
+; сокет для RPC
+; рекомендуется: не трогать
+; rpc unix "/tmp/hbs2-rpc.socket"
+
+\end{verbatim}
+
+\subsection{hbs2-git}
+
+\subsubsection{Введение}
+
+Репозитории git сделаны в предположении, что у каждого репозитория
+есть только один владелец, который может туда писать.
+
+Таким образом, у каждого участника проекта --- собственный форк
+репозитория, куда он пишет.
+
+Каждый участник уведомляет других участников о наличии форка,
+они добавляют (или нет) его репозиторий (ссылку) к себе в проект
+в качестве \textit{git remote}.
+
+\paragraph{PR}
+
+В git есть собственный механизм pull requests --- \texttt{git-request-pull}.
+
+Он может быть использован, если remote участника, который его предлагает,
+уже добавлен в репозиторий.
+
+hbs2-git не предлагает никаких собственных механизмов для PR, однако
+существует средство fixme
+
+\texttt{hbs2://Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr}
+
+которое реализует механизм тикетов и PR с хранением информации непосредственно
+в коде проекта, вернее, в объектах git.
+
+Может быть использован и любой другой распределенный трекер.
+
+\subsubsection{Инициализация репозитория}
+
+\paragraph{Создание ключа подписи}
+
+\begin{verbatim}
+
+# сделать конфиг для hbs2-keyman
+$ mkdir -p  ~/.config/hbs2-keyman
+
+# сказать hbs2-keyman, где искать ключи
+$ cat > ~/.config/hbs2-keyman/config
+key-files "/home/hbs2/*.key"
+^D
+
+# сделать новый ключ
+$ hbs2 keyring-new > newrepo111.key
+
+# обновить индекс
+$ hbs2-keyman update
+
+# проверить, что ключ есть
+$ hbs2-keyman list
+8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js       sign       /home/hbs2/newrepo111.key
+
+\end{verbatim}
+
+Созданный \texttt{newrepo111.key} является \textbf{секретом}, необходимо обеспечить его надежное
+хранение без попадания в третьи руки.
+
+\paragraph{Инициализация нового репозитория}
+
+\begin{verbatim}
+
+$ mkdir newrepo111
+$ cd newrepo111/
+$ git init
+$ echo HI >  README
+$ git add README
+$ git commit -a m 'init'
+
+# инициализировать новый репозиторий
+$ git hbs2 export --new --public 8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+
+# добавить его как git remote
+$ git remote add origin hbs21://8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+$ git fetch origin
+
+$ git fetch origin
+From hbs21://8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+ * [new branch]      master     -> origin/master
+
+# дальше работать с remote, как обычно
+
+\end{verbatim}
+
+\paragraph{Инициализация нового зашифрованного (приватного) репозитория}
+
+\begin{enumerate}
+  \item Создание ключа шифрования
+  \item Создание группового ключа
+  \item Инициализация репозитория
+\end{enumerate}
+
+\begin{verbatim}
+# ключ для нового репозитория
+
+$ hbs2 keyring-new > newrepo222.key
+
+# ключи шифрования
+$ hbs2 keyring-new -n2 > mykeys.key
+
+# проиндексировать ключи
+$ hbs2-keyman update
+
+# посмотреть, что проиндексировались
+$ hbs2-keyman list
+
+$ hbs2-keyman list
+HfLafVAmqaZkYFQVtbhRwDEyJtpQduEd1cjDK4bq6N4T       sign       /home/hbs2/mykeys.key
+BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm       encrypt    /home/hbs2/mykeys.key
+48NGvahqkrQed4dGKNjbzMnv7rBbf5JTdc4DurhPzvmD       encrypt    /home/hbs2/mykeys.key
+8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js       sign       /home/hbs2/newrepo111.key
+C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy       sign       /home/hbs2/newrepo222.key
+
+# создать репо
+$ mkdir encrypted
+
+$ cd encrypted
+$ git init
+$ echo ENCRYPTED > README
+$ git add README
+$ git commit -a -m 'init encrypted'
+
+# создать групповой ключ
+$ hbs2 groupkey from-keys > gk0.key
+67CRxnoQWasQsY9iidjJDYXSTKEZkpSVgDQYweWuhfd3
+BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm
+^D
+
+# инициализировать репозиторий
+$ git hbs2 export --new --encrypted ./gk0.key  C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+
+# добавить remote
+$ git remote add origin hbs2://C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+
+$ git fetch origin
+
+$ git fetch origin
+From hbs21://C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+ * [new branch]      master     -> origin/master
+
+\end{verbatim}
+
+
+\subsubsection{Клонировать (чужой) репозиторий}
+
+\begin{verbatim}
+git clone hbs2://8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+Cloning into '8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js'...
+
+\end{verbatim}
+
+Если клонируется зашифрованный репозиторий, то ключ, которым планируется
+расшифровка должен быть добавлен в hbs2-keyman ( hbs2-keyman update \&\& hbs2-keyman list )
+
+\subsubsection{Обновить групповой ключ / метаданные}
+
+\begin{verbatim}
+git hbs2 export --encrypted ./gk-new.key  C6tTuapmG7sE8QktQo4q4tBr8kNWKvBruNb36HYThpuy
+\end{verbatim}
+
+Для обновления манифеста --- редактировать файл \texttt{.hbs2-git/manifest} и сделать
+git commit/push либо же вызвать \texttt{git hbs2 export <LWWREF>}
+
+\subsubsection{Смотреть групповой ключ}
+
+\texttt{git hbs2 key}
+
+\begin{verbatim}
+[user@host:~/encrypted]$ git hbs2 key
+E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+
+[user@host:~/encrypted]$ git hbs2 key --full
+;; group key E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+
+member "BEoa1tY5tFYYbCtNVhSebz6fZQMSbuSADgkFDHP52wCm"
+member "67CRxnoQWasQsY9iidjJDYXSTKEZkpSVgDQYweWuhfd3"
+
+\end{verbatim}
+
+Если ключ есть, но команда \texttt{git hbs2 key --full} его не выводит --
+попробовать сделать
+
+\texttt{hbs2-peer fetch <HASH>}
+
+и через какое-то время повторить.
+
+\begin{verbatim}
+[user@host:~/encrypted]$ hbs2-peer fetch E3Uq1u9xD6RYF5mzK373rGMCRyJoFCzRZh7oWhmqc9aD
+\end{verbatim}
+
+\subsubsection{Редактировать групповой ключ}
+
+\paragraph{Способ 1 / DSL ключа}
+
+\begin{itemize}
+  \item[-] Получить групповой ключ в виде DSL (см. вывод \texttt{git hbs2 key --full})
+  \item[-] Добавить или удалить \texttt{member} из файла
+  \item[-] Выполнить \texttt{hbs2 groupkey gen <GK-FILE|stdin>}
+\end{itemize}
+
+\paragraph{Способ 2 / Список публичных ключей}
+
+\begin{verbatim}
+cat keys | hbs2 groupkey from-keys
+\end{verbatim}
+
+В stdin перечислить в виде строк (без кавычек) публичные ключи участников
+
+\paragraph{Способ 3 / из <<сигилов>>}
+
+Файл с персональной информацией некоего агента назвается <<сигил>> (<<sigil>>).
+Он содержит публичный ключ шифрования, публичный ключ подписи и все это подписано
+приватным ключом подписи контрагента. <<Сигил>> является публичной информацией,
+своего рода визиткой, например:
+
+\begin{verbatim}
+cat  my.sigil
+# sigil file. public data
+YDaV7iHp8H9mpsCPpKY9mEWxy9PT4FmKQBMunrLJdeu7ECzVeoPwLFJ1tA4r
+S4rthPhmYjdxznYucdopok8Q2FqPgC2Co9Pz3UoJUQVXNXNHF7cQo7EbC3sp
+g4SYE8CwbXBdT5ZWNtKJEFJtSKQwQsQzPYhwCsab6fMsejXCj1XRBMSBhKpw
+yMUGzBpvxGWX2xp5tK9rCVbnkxwuV5X3MzNabhrQ4rZrTQ5kXn6Jk7wGy4Zk
+JLuEBTmy4JfCRn
+
+hbs2 sigil check my.sigil
+(sigil
+  (sign-pubkey "ExTZuEy2qVBRshWdSwfxeKcMmQLbK2f5NxRwhvXda9qd")
+  (encrypt-pubkey "5UXrEhYECJ2kEQZZPEf4TisfWsLNdh2nGYQQz8X9ioMv"))
+
+\end{verbatim}
+
+Это похоже на сертификат и, в некотором роде, им является но специально названо иначе, что бы не
+путать с сертификатами X.509 или какими-то еще.
+
+Создать <<cигил>> можно при помощи команды
+
+\texttt{hbs2 sigil create}
+
+указав файл с ключами, публичный ключ и метаинформацию.
+
+Участники могут создать свои <<сигилы>> и прислать их майнтенеру репозитория,
+и тот может добавить их в групповой ключ при помощи команды
+
+\texttt{hbs2 groupkey from-sigils <SIGIL-FILE-LIST>}
+
+перечислив в командной строке список <<сигилов>>.
+
+\subsubsection{Конфиг и состояние}
+
+Конфиг и состояние hbs2-git находятся в каталоге .hbs2-git репозитория.
+
+Конфиг по умолчанию создаётся автоматически. Текущие настройки:
+
+\begin{verbatim}
+export include "ref-mask"   # включать специфические ссылки
+export exclude "refs-mask"  # исключать специфические ссылки
+export tags                 # экспортировать теги по умолчанию
+\end{verbatim}
+
+\paragraph{Манифест}
+
+Описание проекта (манифест) в виде небольшого (до 256Kb)
+текстового можно положить в файл \texttt{.hbs2-git/manifest}
+
+Данный манифест будет учитываться при дальнейшем поиске и отображении проектов.
+
+\paragraph{Пример конфига}
+
+\begin{verbatim}
+export include "refs/heads/master"
+export include "refs/heads/main"
+export exclude "refs/heads/*"
+export tags
+\end{verbatim}
+
+Означает, что каждая операция \texttt{git push} которая на деле является операцией EXPORT --
+экспортирует все объекты, перечисленные в конфигурации: бранч master, бранч main, бранч, на который
+указывает \texttt{HEAD} и бранчи, для которых выполняется \texttt{git push}.
+
+Если указать, например,
+
+\begin{verbatim}
+export exclude "refs/heads/*"
+\end{verbatim}
+
+то поведение будет соответствовать поведению обычного \texttt{git push}, то есть будет
+экспортировано только то, для чего выполняется \texttt{git push} и текущий бранч \texttt{HEAD}, так
+как иначе \texttt{git clone} будет работать с проблемами.
+
+Такое поведение по умолчанию (экспортировать несколько бранчей и теги) бывает удобно, когда мы хотим
+зеркалировать и сохранять репозиторий полностью или по большей его части.
+
+\subsubsection{Интеграция с системами сборки}
+
+Для некоторых система сборки и вообще любого ПО, которое по какой-то причине не может использовать
+механизмы \texttt{git-remote-helper} и протокол \texttt{hbs2://}, можно использовать
+средство \texttt{hbs2-fixer} или же любой процесс, который в состоянии вызвать для репозитория
+\texttt{git-hbs2 import <LWWREF>} или же обычный \texttt{git fetch}. Например, это может быть крон.
+
+
+\paragraph{Синхронизация с hbs2-fixer}
+
+\texttt{hbs2-fixer} принимает в качестве параметра \texttt{-c} имя файла конфигурации.
+Формат конфигурации -- Schema-подобный DSL, который позволяет настраивать обработчики
+событий и действия по ним.  Примеры файлов конфигурации находятся в \texttt{hbs2-fixer/examples}.
+
+Рассмотрим простой пример:
+
+\begin{verbatim}
+$ cat simple.scm
+
+;; hbs2-fixer config example
+
+;; код на верхнем уровне будет выполняться
+;; каждый раз при загрузке конфига
+;; а конфиг перезапускается, если он изменился
+
+;; читаем переменную окружения HOME
+(local home (getenv "HOME"))
+
+;; устанавливаем корневой каталог для репозиториев
+(local root (string-append home "/.local/share/hbs2-git-repos/0.24.1"))
+
+;; устанавливаем ссылку на репозиторий, для сокращения кода
+(local hbs2-repo  "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP" )
+(local hbs2-repo-path (string-append root "/" hbs2-repo))
+
+;; устанавливаем период перечитывания конфига
+(watch-config 30)
+
+;; выключаем отладочную печать
+(debug off)
+
+;; эта секция выполняется только один раз, при старте
+(on-start
+  ;; создаём каталог для нашего репозитория
+  (mkdir hbs2-repo-path)
+
+  ;; инициализируем git
+  (run (string-append "git init --bare " hbs2-repo-path))
+  (display update-hbs2-repo)
+
+  ;; делаем первичный импорт из ссылки
+  (run (list opts (cwd hbs2-repo-path))
+       (string-append "git hbs2 import" " " hbs2-repo))
+  ;; собираем мусор
+  ;; конструкция (list opts (cwd hbs2-repo-path))
+  ;; означает список опций для запуска,
+  ;; пока поддерживается только опция cwd, которая устанавливает
+  ;; рабочий каталог для запуска внешнего процесса
+  (run (list opts (cwd hbs2-repo-path))
+       (string-append "git gc" ) )
+)
+;; эта секция перечитывает переменную lwwref раз в 60 секунд
+;; для lwwref hbs2-peer пока не генерирует событий
+(watch 60 (lwwref "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP")
+  ;; как только значение переменной изменилось
+  ;; запускаем конфиг с кодом ниже (и только с ним)
+  (run-config
+    ;; устанавливаем watch для рефлога, который мы получили
+    ;; из ссылки lwwref
+    (watch 300 (lwwref:get-hbs2-git-reflog)
+       (display "GIT REFLOG CHANGED BY WATCH")
+
+       ;; запускаем git-hbs2-import что бы скачать
+       ;; изменения в репозиторий
+       (run (list opts (cwd hbs2-repo-path))
+            (string-append "git hbs2 import" " " hbs2-repo ))
+
+       (display (string-append "Updated " hbs2-repo " OK"))
+
+    )
+
+    ;; устанавливаем обработчик событий --- т.к.
+    ;; hbs2-peer генерирует события изменения рефлога
+    (listen (lwwref:get-hbs2-git-reflog)
+
+       (display "GIT REFLOG CHANGED BY LISTENER")
+
+       (run (list opts (cwd hbs2-repo-path))
+            (string-append "git hbs2 import" " " hbs2-repo ))
+
+       (display (string-append "Updated " hbs2-repo " OK"))
+    ))
+  (display (string-append "Updated " hbs2-repo))
+)
+
+\end{verbatim}
+
+Теперь имя данный конфигурационный файл, запустим его:
+
+\begin{verbatim}
+hbs2-fixer -c ./simple.scm
+\end{verbatim}
+
+Теперь hbs2-fixer будет выполнять обработчики в соответствии с настройкой и будет обновлять
+созданный bare репозиторий git по таймеру или по поступлению событий об обновлении рефлога.
+
+В каталоге
+
+\texttt{\$HOME/.local/share/hbs2-git-repos/0.24.1/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP}
+
+образуется \texttt{bare git} репозиторий, синхронизированный с нашим рефлогом и
+к которому можно дать доступ по обычным для git протоколам, например
+
+\texttt{file://} или \texttt{http://} или \texttt{git+http} и так далее.
+
+Что бы данный репозиторий стал доступен по \texttt{http://}, можно использовать
+любое средство для публикации репозиториев git, например, gitolite или просто вебсервер.
+
+После этого можно будет ссылаться на репозиторий обычным образом, например,
+фрагмент \texttt{nix flake}, который использует такой репозиторий:
+
+\begin{verbatim}
+{
+  inputs = {
+
+  hbs2 = {
+    url =
+      "git+http://localhost/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=lwwref";
+  };
+...
+  }
+}
+\end{verbatim}
+
+также будет работать \texttt{git clone http://localhost/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP}
+
+\subsubsection{Подписка на репозиторий}
+
+Подписаться на репозиторий, но не клонировать его:
+
+\begin{verbatim}
+hbs2-git-subscribe <LWWREF>
+\end{verbatim}
+
+например:
+
+\begin{verbatim}
+hbs2-git-subscribe 8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+
+[user@host:~/tmp]$ hbs2-peer poll list | rg  8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js 17  lwwref
+\end{verbatim}
+
+В подписках должна быть и ссылка lwwref и соответствующий ей рефлог
+
+\subsubsection{Разное}
+
+\paragraph{Посмотреть ссылки}
+
+\begin{verbatim}
+[user@host:~/newrepo111]$ git hbs2 tools show-remotes
+1    8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js 57HBZKQeFgsecCvFYgoZXTDpUdpxqZnfTaWMAL6k5MuH
+\end{verbatim}
+
+Версия, ссылка (lwwref), рефлог
+
+\paragraph{Посмотреть ссылку}
+
+\begin{verbatim}
+[user@host:~/newrepo111]$ hbs2-peer lwwref get 8vFu9S79ysdWag4wek53YWXbC5nCRLF7arGp6181G4js
+(lwwref
+  (seq 1)
+  (value "BqvS2V3AfakKYwAgTG6fMGW53C6L19YhWaXDY2gdqMkK")
+  )
+\end{verbatim}
+
+Десериализованный блок значения ссылки: версия, ссылка на блок данных
+
+Получить значение рефлога
+\begin{verbatim}
+[user@host:~/newrepo111]$ hbs2-peer reflog get 57HBZKQeFgsecCvFYgoZXTDpUdpxqZnfTaWMAL6k5MuH
+5wwctwSJkNN3tY4jjr2G2nzutsfzNpwpbDDgG2EJcHxL
+\end{verbatim}
+
+\paragraph{Посмотреть транзакции}
+
+На входе -- хэш дерева Меркла (текущее значение рефлога). См. предыдущий шаг
+
+\begin{verbatim}
+[user@host:~/newrepo111]$ hbs2 cat -H 5wwctwSJkNN3tY4jjr2G2nzutsfzNpwpbDDgG2EJcHxL
+2vFtNUg2qNuSsaZLybL9Zbp2M79G141zJHSudEeEprfA
+\end{verbatim}
+
+Ни для чего не нужен в контексте hbs2-git, только для общего развития.
+
+\paragraph{Посмотреть git heads из текущего RepoHead}
+
+\begin{verbatim}
+[user@host:~/newrepo111]$ git hbs2 tools show-ref
+bdfb845c343eb1da14fe1969219c303c1397980e HEAD
+bdfb845c343eb1da14fe1969219c303c1397980e refs/heads/master
+\end{verbatim}
+
+\section{Структуры данных}
+
+\subsection{Состояние (State)}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                   ]
+
+  \node[box] (lwwref)    {lwwref};
+  \node[box,right=4cm of lwwref] (reflog) {reflog};
+
+  \draw[->] (lwwref.east) -- (reflog.west)
+    node[above,midway] {HKDF(SK(lwwref, seed))}
+    node [below,midway] {PubKey};
+
+  \node[ rectangle split
+       , rectangle split parts=3
+       , draw
+       , font=\scriptsize
+       , text width=3cm
+       , below = 0.5cm of lwwref
+       ] (merkle) at ($(lwwref)!.5!(reflog)-(0,2)$)
+  {
+    $T_1 : SequentialRef$
+    \nodepart{two}
+    ...
+    \nodepart{three}
+    $T_n : SequentialRef$
+  };
+
+
+  \draw[->] (reflog.south) |- (merkle.east) node [near start, right] {merkle~tree};
+
+  \node[ box
+       , below=1cm of merkle, xshift=-1cm, anchor = north east
+       , text width=3cm
+       , align=left
+       , rectangle split
+       , rectangle split parts=2] (rhead)
+    {\hspace*{.5cm}{RepoHead}\\
+     \nodepart{two}
+      GK0\\
+      time\\
+      git refs\\
+      manifest\\
+    };
+
+  \draw[->] (merkle.south) -- (rhead.north);
+
+
+  \node[ box
+       , below=1cm of merkle, xshift=1cm, anchor = north west
+       , text width=3cm
+       , align=left
+       , rectangle split
+       , rectangle split parts=2] (log)
+    {\hspace*{.5cm}{log~tree}\\
+     \nodepart{two}
+    };
+
+  \draw[->] (merkle.south) -- (log.north);
+
+
+  \node[ box
+       , below=1cm of log
+       , text width=3cm
+       , rectangle split
+       , rectangle split parts=3] (logdata)
+    {
+      $GitObjectPack_1$
+     \nodepart{two}
+     ...
+     \nodepart{three}
+      $GitObjectPack_n$
+    };
+
+
+  \draw[->] (log.south) -- (logdata.north) node [midway,right] {merkle~tree};
+
+
+\end{tikzpicture}
+\end{figure}
+
+\textit{Стeйт} состоит из \textit{ссылки} $L_1 : lwwref$ от ключа автора $PK_1(SK_1)$. Ссылка ссылается на
+
+\textit{рефлог} по публичному ключу $PK_2 = PK(SK_2), SK_2 = HKDF(SK_1,seed)$, выводимому из приватного ключа автора
+ ( $PK_1 = PK(SK_1)$ ).
+
+ $seed$ содержится в блоке значения ссылки $L_1$.
+
+ $PK_2$ аналогично, содержится в блоке значения ссылки $L_1$.
+
+ Таким образом, все имеют доступ к публичному ключу рефлога $PK_2$ и могут проверять подпись автора
+ для даннго рефлога, и только автор имеет доступ к  приватному ключу $SK_2$ и имеет возможность
+ подписывать свои транзакции, публикуемые в \textit{рефлоге} для $PK_2$.
+
+ Ранее использовалась прямая ссылка на рефлог для репозитория, что не давало возможность
+ поменять структуру данных репозитория, например, с изменением версии hbs2-git без изменения
+ самой ссылки.
+
+ Введение еще одного уровня косвенности через lww-ref позволяет не менять исходную (публикуемую)
+ ссылку, при этом версионировать сам рефлог. Может быть полезным, например, что бы начать с чистого
+ листа, уменьшив количество исторических данных (транзакций, объектов и т.п.).
+
+ Пример: старое значение ссылки на репозиторий hbs2-git выглядело так:
+
+ \begin{verbatim}
+BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ \end{verbatim}
+
+ Это буквально base-58 от бинарного представления некоторого публичного ключа, ассоциированного с
+ рефлогом, владельцем которого является автор hbs2.
+
+ Новое значение ссылки на репозиторий hbs2-git выглядит так:
+
+ \begin{verbatim}
+ BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+ \end{verbatim}
+
+ Однако, теперь это не ссылка типа reflog, а ссылка типа lwwref. Это другой тип данных,
+ и значение типа \texttt{lwwref(BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP}
+ имеет другой хэш.
+
+ Таким образом, старая версия hbs2-git продолжит работать с рефлогом
+
+ \texttt{BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP},
+
+ новая же версия использует lwwref. Ассоциированный с данным lwwref можно посмотреть, например, так:
+
+ \begin{verbatim}
+$ git hbs2 tools show-remotes
+4    BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP BKtvRLispCM9UuQqHaNxu4SEUzpQNQ3PeRNknecKGPZ6
+ \end{verbatim}
+
+Данная команда покажет, какие lwwref используются в качестве git remote в данном репозитории,
+и какие у них версии lwwref и какие значения.
+
+Каждая транзакция $T_n$ содержит полный самодостаточный снимок репозитория, т.е технически
+возможно развернуть репозиторий, имея только транзакцию.
+
+Каждая транзакция $T_n$ имеет ссылку на дерево Меркла \textit{паков} объектов git
+$GitObjectPack_n$, полученных при помощи команды \texttt{git pack-objects} и индекс,
+показывающий, какие объекты входят в каждый \textit{пак}. \textit{Паки объектов} упорядочены,
+каждый следующий \textit{пак} в дереве содержит новые по отношению к предыдущим \textit{пакам}
+объекты.
+
+Такая структура (а не, например, дерево отдельных объектов) выбрана потому, что:
+
+\begin{enumerate}
+  \item git порождает огромное количество слабо различающихся маленьких объектов, следовательно,
+    огромную избыточность данных. Лучше всего свои объекты упаковывает сам git, используя, в
+    частности, бинарные дельты.
+  \item каждый отдельный объект (\textit{блок}) подразумевает, в общем случае, несколько
+    сетевых запросов для получения: запрос размера, запрос чанков, ответ. Таким образом,
+    повышение количества объектов ведёт к ухудшению скорости синхронизации.
+  \item Выше скорость импорта объектов в репозиторий, так как он выполняется стандартной
+    командой \texttt{git unpack-objects}
+\end{enumerate}
+
+\subsubsection*{RepoHead}
+
+Заголовок транзакции, содержит необходимые метаданные, в частности, ссылки git, соответствующие
+объектам, упакованным в паки.
+
+Заметим, что несмотря на то, что у нас каждой операции \textit{PUSH} соответствует транзакция,
+которая содержит снимок всего репозитория --- реально передаваться будут только новые блоки
+для всех деревьев Меркла. И выкачиваться пирами будут только отсутствующие у них блоки, таким
+образом, количество копируемых данных на каждый \textit{PUSH} невелико и соответствует реально
+изменившимся данным.
+
+
+\subsubsection*{Контроль доступа и шифрование}
+
+\texttt{hbs2-git} поддерживает открытые и закрытые репозитории. Закрытые репозитории
+реализованы при помощи зашифрованных групповым ключом $GK_0$ деревьев Меркла.
+
+Групповой ключ $GK_0$ представляет собой некоторый секрет для симметричного алгоритма шифрования,
+зашифрованный публичными ключами участников.
+
+Групповой ключ можно менять в процессе работы, например, при добавлении/удалении новых участников.
+
+При изменении группового ключа для всех <<старых>> деревьев будет произведено обновление метаданных
+и перешифрование секрета для нового ключа.
+
+Для <<новых>> деревьев будет сгенерирован новый секрет.
+
+Нет смысла обновлять <<старые>> секреты, так как уже записанная в HBS2 информация никуда оттуда уже
+не денется, будут ли обновлены перегенерированы старые секреты или нет --- данные, зашифрованные
+<<старыми>> секретами все равно останутся в системе.
+
+Заметим, что удаление участника из группового ключа лишит его доступа к последующим изменениям, но
+не тем, которые у него уже есть.
+
+Метаданные в RepoHead не шифруются, таким образом, публично доступны \textit{манифест} проекта,
+название бранчей, тегов и хэши коммитов, на котоыре указывают ссылки. В целом, публичность этих
+данных не является острой необходимостью, и их можно в дальнейшем шифровать. Пока выглядит так, что
+это не та информация, которую есть большой смысл скрывать.
+
+Система команд спроектирована таким образом, что бы затруднить, или, по крайней мере, не упрощать
+раскрытие данных, если репозиторий зашифрован. Таким образом мы пытаемся защититься от случайных
+непреднамеренных утечек.
+
+
+\subsubsection*{Индексация ключей}
+
+Безопасное хранение ключей в настоящий момент возложено на пользователя.
+
+Система в настоящий момент предолагает, что в процессе работы ключи
+доступы на файловой системе, что может быть реализовано при помощи
+различного рода монтируемых на время сеанса зашифрованных файловых
+систем, например gocryptfs или любая предпочитаемая.
+
+hbs2-keyman индексирует ключи в соответствии с настройками, таким образом,
+ему известно, в каком файле находится та или иная ключевая пара.
+
+Данная информация используется при криптографических операциях, т.е
+hbs2-keyman сообщает компонентам, где искать необходимые ключи.
+
+hbs2-keyman не сохраняет ключи, только индексирует.
+
+hbs2-keyman не отображает секретные ключи, только соответствующие им публичные.
+
+В настоящий момент не все средства используют hbs2-keyman, но в итоге все
+будут переведены на него.
+
+
+
+\section{Операции}
+
+Основными операциями \texttt{hbs2-git} являются Import и Export.
+
+\subsection{Import}
+
+Настраивает ссылки и импортирует объекты из ссылок hbs2
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ node distance=2cm, auto, thick
+                   , every label/.style={font=\scriptsize}
+                   , every node/.style={font=\scriptsize}
+                   ]
+  % Define blocks style
+  \tikzstyle{block} = [rectangle
+                      , draw
+                      , fill=white
+                      , text width=5em
+                      , text centered
+                      , rounded corners
+                      , minimum height=2em
+                      ]
+  \tikzstyle{decision} = [ diamond
+                         , draw
+                         , fill=white
+                         , text width=5em
+                         , text centered
+                         , node distance=2cm
+                         , inner sep=0pt
+                         ]
+
+  \tikzstyle{line} = [draw, -Latex]
+
+  \node [block,text width=10em] (init) {Start importRepoWait};
+  \node [block, below of=init] (subscribe) {Subscribe to LWWRef};
+  \node [block, below of=subscribe] (fetch) {Fetch LWWRef};
+  \node [decision, below of=fetch, yshift=-1cm] (checklww) {LWW exists?};
+  \node [block, left of=checklww, node distance=5cm] (throwerror) {ThrowError};
+  \node [block, right of=checklww, node distance=5cm] (readblock) {Read LWW Block};
+  \node [block, below of=readblock] (readreflog) {Read RefLog};
+  \node [decision, below of=readreflog] (checkreflog) {RefLog OK?};
+  \node [block, right of=checkreflog, node distance=5cm] (processreflog) {Process RefLog};
+  \node [block, left of=checkreflog, node distance=5cm] (retryreflog) {Retry fetch RefLog};
+  \node [block, below of=checkreflog, node distance=4cm] (continuenext) {Continue Next Steps...};
+
+  \path [line] (init) -- (subscribe);
+  \path [line] (subscribe) -- (fetch);
+  \path [line] (fetch) -- (checklww);
+  \path [line] (checklww) -- node [near start] {no} (throwerror);
+  \path [line] (checklww) -- node [near start] {yes} (readblock);
+  \path [line] (readblock) -- (readreflog);
+  \path [line] (readreflog) -- (checkreflog);
+  \path [line] (checkreflog) -- node [near start] {yes} (processreflog);
+  \path [line] (checkreflog) -- node [near start] {no} (retryreflog);
+  \path [line] (processreflog) |- (continuenext);
+  \path [line] (retryreflog) |- (continuenext);
+  \path [line] (throwerror) |- (continuenext);
+
+
+\end{tikzpicture}
+
+
+\caption{Import}
+\end{figure}
+
+\pagebreak
+
+\subsection{Export}
+
+Экспортирует данные в хранилище, обновляет ссылки,
+рассылает уведомления.
+
+\begin{figure}[h!]
+\centering
+
+\begin{tikzpicture}[ node distance=1.5cm and 1.5cm, auto, thick
+                   , every node/.append style={font=\scriptsize}
+                   , decision/.style={diamond, draw, fill=white, text width=4em, text badly centered, node distance=2cm, inner sep=0pt}
+                   , block/.style={rectangle, draw, fill=white, text width=5em, text centered, rounded corners, minimum height=4em}
+                   , line/.style={draw, -Latex}
+                   , check/.style={rectangle, draw, fill=white, text width=5em, text centered, minimum height=4em}
+                   ]
+
+  % Place nodes
+  \node [block] (init) {Start export};
+  \node [block, right=of init] (subscribe) {Subscribe to LWWRef};
+  \node [decision, right=of subscribe] (newCheck) {New Key?};
+  \node [block, right=of newCheck] (waitOrInit) {Wait or Init LWWRef};
+  \node [block, below=of waitOrInit] (makeRepoHead) {Make RepoHead};
+  \node [block, below=of makeRepoHead] (createTx) {Create Transaction};
+  \node [block, left=of createTx] (postTx) {Post Transaction};
+  \node [block, left=of postTx] (exit) {Exit};
+
+  % Draw edges
+  \path [line] (init) -- (subscribe);
+  \path [line] (subscribe) -- (newCheck);
+  \path [line] (newCheck) -- node {no} (waitOrInit);
+  \path [line] (newCheck) |- node [near start] {yes} (makeRepoHead);
+  \path [line] (waitOrInit) -- (makeRepoHead);
+  \path [line] (makeRepoHead) -- (createTx);
+  \path [line] (createTx) -- (postTx);
+  \path [line] (postTx) -- (exit);
+
+\end{tikzpicture}
+
+\caption{Export}
+\end{figure}
+
+\pagebreak
+
+\section{Поддержка возможностей git}
+
+пока не поддерживаются подписанные теги. По крайней мере не тестировались.
+
+\section{Разное}
+
+В документации или где-то еще могут спорадически появляться префиксы hbs21 (hbs21://).
+
+Этот префикс был присвоен новому протоколу hbs2, что бы он не интерферировал
+со старым и можно было бы одновременно пользоваться двумя версиями hbs2-git.
+
+После релиза новой версии и прекращении поддержки старой -- данный префикс
+не используется, однако должен пониматься hbs2-git (вместо hbs2://)
+
+\section{Ссылки}
+
+\begin{description}
+  \item[Блог:] @voidlizard.online
+  \item[Канал:]  @hbs2dev \url{https://t.me/hbs2dev}
+  \item[Группа:] @hbs2support \url{https://t.me/hbs2_support}
+\end{description}
+
+\end{document}
+
+

@@ -1,10 +1,12 @@
 {-# Language TemplateHaskell #-}
 module CLI.Common where
 
+import HBS2.Prelude
 import HBS2.Clock
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Proto
 import HBS2.Net.Proto.Service
+import HBS2.Net.Auth.Schema
 
 import PeerConfig
 
@@ -58,3 +60,6 @@ pRpcCommon :: Parser RPCOpt
 pRpcCommon = do
   RPCOpt <$> optional confOpt
          <*> optional rpcOpt
+
+pPubKey :: ReadM (PubKey 'Sign HBS2Basic)
+pPubKey = maybeReader fromStringMay

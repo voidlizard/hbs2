@@ -3,6 +3,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language MultiWayIf #-}
+{-# Language FunctionalDependencies #-}
 module PeerTypes
   ( module PeerTypes
   , module PeerLogger
@@ -13,6 +14,8 @@ module PeerTypes
 import HBS2.Polling
 import HBS2.Actors.Peer
 import HBS2.Clock
+import HBS2.Net.Auth.Schema
+import HBS2.Net.Auth.Credentials
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Peer
 import HBS2.Data.Types.Refs
@@ -24,6 +27,7 @@ import HBS2.Net.IP.Addr
 import HBS2.Net.Proto
 import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.BlockInfo
+import HBS2.Peer.Proto.LWWRef
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
@@ -480,5 +484,41 @@ simpleBlockAnnounce size h = do
     let annInfo = BlockAnnounceInfo 0 NoBlockInfoMeta size h
     pure $ BlockAnnounce @e no annInfo
 
+
+class IsPolledKey e proto | proto -> e where
+  getPolledKey :: proto -> (String, PubKey 'Sign (Encryption e))
+
+instance IsPolledKey e (LWWRefProto e) where
+  getPolledKey = \case
+    LWWRefProto1 (LWWProtoGet (LWWRefKey k)) -> (tp,k)
+    LWWRefProto1 (LWWProtoSet (LWWRefKey k) _) -> (tp,k)
+    where tp = "lwwref"
+
+subscribed :: forall e proto m . ( MonadIO  m
+                                 , IsPolledKey e proto
+                                 , Request e proto m
+                                 , Response e proto m
+                                 )
+
+           => SomeBrains e
+           -> (proto -> m ())
+           -> proto
+           -> m ()
+
+subscribed brains f req = do
+  let (tp,ref) = getPolledKey req
+  polled <- isPolledRef @e brains tp ref
+  when polled $ f req
+
+authorized :: forall e proto m . ( MonadIO m
+                                 , Request e proto m
+                                 , Response e proto m
+                                 , Sessions e (KnownPeer e) m
+                                 )
+           => (proto -> m ()) -> proto -> m ()
+authorized f req = do
+  p <- thatPeer @proto
+  auth <- find (KnownPeerKey p) id <&> isJust
+  when auth (f req)
 
 

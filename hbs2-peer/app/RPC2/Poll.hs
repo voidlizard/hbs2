@@ -24,7 +24,9 @@ instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcP
   handleMethod (r,t,i) = do
     brains <- getRpcContext @PeerAPI <&> rpcBrains
     debug $ "rpc.pollAdd"
-    addPolledRef @L4Proto brains r t i
+    polled <- isPolledRef @L4Proto brains t r
+    unless polled do
+      addPolledRef @L4Proto brains r t i
 
 instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcPollDel where
 

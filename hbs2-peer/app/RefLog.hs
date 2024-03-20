@@ -65,7 +65,7 @@ mkRefLogRequestAdapter :: forall e s m . ( MonadIO m
           => SomeBrains e -> m (RefLogRequestI e (ResponseM e m ))
 mkRefLogRequestAdapter brains = do
   sto <- getStorage
-  pure $ RefLogRequestI (doOnRefLogRequest brains sto) dontHandle (isPolledRef @e brains)
+  pure $ RefLogRequestI (doOnRefLogRequest brains sto) dontHandle (isPolledRef @e brains "reflog")
 
 doOnRefLogRequest :: forall e s m . ( MonadIO m
                                     , MyPeer e
@@ -78,10 +78,10 @@ doOnRefLogRequest :: forall e s m . ( MonadIO m
                    -> m (Maybe (Hash HbSync))
 
 doOnRefLogRequest brains sto (_,pk) = runMaybeT do
-  isPolledRef @e brains pk >>= guard
+  isPolledRef @e brains "reflog" pk >>= guard
   ref <- liftIO $ getRef sto (RefLogKey @s pk)
   when (isNothing ref) do
-    warn $ "missed reflog value" <+> pretty ref
+    warn $ "missed reflog value" <+> pretty (RefLogKey @s pk)
   toMPlus ref
 
 data RefLogWorkerAdapter e =
@@ -150,7 +150,7 @@ reflogWorker conf brains adapter = do
   subscribe @e RefLogUpdateEvKey $ \(RefLogUpdateEvData (reflog,v, mpip)) -> do
     trace $ "reflog worker.got refupdate" <+> pretty (AsBase58 reflog)
 
-    polled <- isPolledRef @e brains reflog
+    polled <- isPolledRef @e brains "reflog" reflog
     buddy <- maybe1 mpip (pure False) $ \pip -> do
                 pa <- toPeerAddr @e pip
                 acceptAnnouncesFromPeer @e conf pa
