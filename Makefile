@@ -51,3 +51,9 @@ test-core:
 test-raft:
 > nix develop -c ghcid -c 'cabal repl' raft-algo -T RaftAlgo.Proto.devTest
 
+README.md:
+	pandoc README.md -t gfm -s -o README1.md --table-of-contents
+	@mv README1.md README.md
+	@echo Remove old TOC before publishing!
+
+
