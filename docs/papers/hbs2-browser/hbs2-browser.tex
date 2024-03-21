@@ -1,0 +1,96 @@
+\documentclass[11pt,a4paper,oneside]{book}
+
+\usepackage{polyglossia}
+\usepackage{fontawesome5}
+\usepackage{xltxtra}
+\usepackage[margin=2cm,a4paper]{geometry}% http://ctan.org/pkg/geometry
+\usepackage{pdfpages}
+\usepackage{graphicx}
+\usepackage[ddmmyyyy]{datetime}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage[nomessages]{fp}
+\usepackage{caption}
+\usepackage{url}
+\usepackage{indentfirst}
+\usepackage[parfill]{parskip}
+\usepackage[ colorlinks=true
+           , linkcolor=black
+		   , anchorcolor=black
+		   , citecolor=black
+		   , filecolor=black
+		   , menucolor=black
+		   , runcolor=black
+		   , urlcolor=blue]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows,arrows.meta,snakes,shapes,backgrounds,positioning,calc}
+\usepackage{marvosym}
+\usepackage{pifont}
+\usepackage{fontspec}
+\usepackage{listings}
+\usepackage{verbatim}
+\usepackage{xcolor}
+\usepackage{float} % Needed for the floating environment
+\usepackage{fancyvrb}
+\usepackage[most]{tcolorbox}
+\usepackage{authblk}
+\usepackage{url}
+\usepackage{glossaries}
+
+\setmainlanguage{russian}
+\defaultfontfeatures{Ligatures=TeX,Mapping=tex-text}
+\setmainfont{Liberation Serif}
+\newfontfamily\cyrillicfont{Liberation Serif}[Script=Cyrillic]
+\newfontfamily{\cyrillicfonttt}{Liberation Mono}[Scale=0.8]
+
+\setlist{noitemsep}
+\setlength{\intextsep}{2cm}
+
+\renewcommand\Authands{ и }
+\renewcommand\Affilfont{\itshape\small} % Мелкий и курсивный шрифт для аффилиаций
+
+\newtcolorbox{myverbatim}{colback=lightgray, colframe=lightgray, boxrule=0pt, arc=0pt,
+                          top=0pt, bottom=0pt, left=0pt, right=0pt,
+                          boxsep=5pt, leftupper=5pt, rightupper=5pt}
+
+
+\newcommand{\term}[2]{\textit{#2}}
+\renewcommand{\dateseparator}{.}
+\renewcommand*\contentsname{Содержание}
+
+\lstset{
+  language=Haskell,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{green},
+  stringstyle=\color{red},
+  % numberstyle=\tiny\color{gray},
+  % numbers=left,
+  % stepnumber=1,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+}
+
+\newfloat{Code}{t}{myc}
+
+\graphicspath{ {img/}}
+
+\title{hbs2-browser: Спецификация}
+
+\author{%
+    email: dzuikov@gmail.com | telegram: @voidlizard
+}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\include{intro}
+
+\end{document}
+
