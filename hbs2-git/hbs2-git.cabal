@@ -168,3 +168,19 @@ executable git-remote-hbs2
     default-language: GHC2021
 
 
+executable hbs2-git-oracle
+    import:           shared-properties
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base, hbs2-git
+        , binary
+        , vector
+        , optparse-applicative
+
+    hs-source-dirs:   hbs2-git-oracle/app
+    default-language: GHC2021
+
+
+
