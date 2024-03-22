@@ -1,6 +1,6 @@
 REV:=$(shell git rev-parse --short HEAD)
 
-CHAPTERS:=intro.tex
+CHAPTERS:=intro.tex usecases.tex design.tex
 
 define make_target
 $(basename $(1))-$(REV)$(suffix $(1))
