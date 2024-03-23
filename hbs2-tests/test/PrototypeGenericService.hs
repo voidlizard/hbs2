@@ -60,9 +60,9 @@ type instance Output Method2 = ()
 instance MonadIO m => HandleMethod m Method2 where
   handleMethod _ = pure ()
 
-instance (HasProtocol UNIX (ServiceProto api UNIX), MonadUnliftIO m)
-  => HasDeferred UNIX (ServiceProto api UNIX) m where
-  deferred _ m = void (async m)
+-- instance (HasProtocol UNIX (ServiceProto api UNIX), MonadUnliftIO m)
+--   => HasDeferred UNIX (ServiceProto api UNIX) m where
+--   deferred m = void (async m)
 
 main :: IO ()
 main = do
