@@ -23,9 +23,8 @@ main = do
                 <*> argument pLww (metavar "LWWREF")
   join $ execParser (info (parser <**> helper)
               ( fullDesc
-             <> progDesc "Parse command line arguments"
-             <> header "Command line arguments parsing example"))
-
+             <> progDesc "subscribe to hbs2-git repo reference"
+             <> header "hbs2-git-subscribe"))
 
   where
     pLww :: ReadM (LWWRefKey HBS2Basic)
