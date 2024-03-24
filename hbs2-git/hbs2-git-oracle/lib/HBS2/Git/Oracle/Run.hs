@@ -103,13 +103,16 @@ runOracle = do
         let manifest = _repoManifest
 
         debug $ "found head"
-          <+> pretty gitLwwRef
+          <+> pretty enc
           <+> pretty n
+          <+> pretty gitLwwRef
           <+> pretty gitRefLog
+          <+> pretty tx
+          <> line
           <+> pretty name
           <+> pretty brief
           <+> pretty manifest
-          <+> pretty enc
-          <+> pretty tx
+          <> line
+          <> line
 
 
