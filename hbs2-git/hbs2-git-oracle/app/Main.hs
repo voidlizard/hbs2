@@ -1,8 +1,10 @@
 module Main where
 
 import HBS2.Git.Oracle.Prelude
+import HBS2.Git.Oracle.App
+import HBS2.Git.Oracle.Run
 
-import Options.Applicative
+import Options.Applicative as O
 
 main :: IO ()
 main = do
@@ -12,19 +14,26 @@ main = do
                         <> help "serve"
                      )
 
-  join $ execParser (info (parser <**> helper)
+  join $ execParser (O.info (parser <**> helper)
               ( fullDesc
              <> progDesc "hbs2-git oracle / distributed index builder"
              <> header "hbs2-git-oracle"))
 
 runApp :: MonadUnliftIO m => Bool -> m ()
 runApp _ = do
-  pure ()
 
+  setLogging @DEBUG  (toStderr . logPrefix "[debug] ")
+  setLogging @WARN   (toStderr . logPrefix "[warn]  ")
+  setLogging @ERROR  (toStderr . logPrefix "[error] ")
+  setLogging @NOTICE (toStderr . logPrefix "[debug] ")
 
-  -- where
-  --   pLww :: ReadM (LWWRefKey HBS2Basic)
-  --   pLww = maybeReader fromStringMay
+  runWithOracleEnv runOracle
+
+  `finally` do
+      setLoggingOff @DEBUG
+      setLoggingOff @WARN
+      setLoggingOff @ERROR
+      setLoggingOff @NOTICE
 
 
 

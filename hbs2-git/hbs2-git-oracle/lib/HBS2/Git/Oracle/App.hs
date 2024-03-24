@@ -1,8 +1,18 @@
-module HBS2.Git.Oracle.App where
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PolyKinds #-}
+module HBS2.Git.Oracle.App
+  ( OracleEnv(..)
+  , Oracle(..)
+  , runWithOracleEnv
+  ) where
 
 import HBS2.Git.Oracle.Prelude
 
 import HBS2.Peer.CLI.Detect
+
+import GHC.TypeLits
+import Codec.Serialise
 
 data OracleEnv =
   OracleEnv
@@ -23,40 +33,35 @@ newtype Oracle m a =
                    , MonadUnliftIO
                    )
 
-newOracleEnv :: MonadUnliftIO m => m OracleEnv
-newOracleEnv = do
+runWithOracleEnv ::  MonadUnliftIO m => Oracle m () -> m ()
+runWithOracleEnv m = do
 
   soname <- detectRPC
                `orDie` "can't locate rpc"
 
-  flip runContT pure do
+  client <- race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+              >>= orThrowUser ("can't connect to" <+> pretty soname)
 
-    client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
-                >>= orThrowUser ("can't connect to" <+> pretty soname)
+  peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+  reflogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+  lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
+  storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+
+  env <- pure $ OracleEnv  peerAPI
+                           reflogAPI
+                           lwwAPI
+
+  let endpoints = [ Endpoint @UNIX  peerAPI
+                  , Endpoint @UNIX  reflogAPI
+                  , Endpoint @UNIX  lwwAPI
+                  , Endpoint @UNIX  storageAPI
+                  ]
+
+  flip runContT pure do
 
     void $ ContT $ withAsync $ runMessagingUnix client
 
-    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
-    reflogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
-    storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
-    lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
-
-    let sto = AnyStorage (StorageClient storageAPI)
-
-    let endpoints = [ Endpoint @UNIX  peerAPI
-                    , Endpoint @UNIX  reflogAPI
-                    , Endpoint @UNIX  lwwAPI
-                    , Endpoint @UNIX  storageAPI
-                    ]
-
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    pure $ OracleEnv  peerAPI
-                      reflogAPI
-                      lwwAPI
-
-withOracleEnv ::  MonadIO m => OracleEnv -> Oracle m a -> m a
-withOracleEnv env m = runReaderT (fromOracle m) env
-
-
+    lift $ runReaderT (fromOracle m) env
 

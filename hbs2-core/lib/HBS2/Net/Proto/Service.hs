@@ -261,6 +261,26 @@ callService caller input = do
       _ -> pure (Left ErrorInvalidResponse)
 
 
+callRpcWaitMay :: forall method (api :: [Type]) m e proto t . ( MonadUnliftIO m
+                                                              , KnownNat (FromJust (FindMethodIndex 0 method api))
+                                                              , HasProtocol e (ServiceProto api e)
+                                                              , Serialise (Input method)
+                                                              , Serialise (Output method)
+                                                              , IsTimeout t
+                                                              , proto ~ ServiceProto api e
+                                                              )
+           => Timeout t
+           -> ServiceCaller api e
+           -> Input method
+           -> m (Maybe (Output method))
+
+callRpcWaitMay t caller args = do
+  race (pause t) (callService @method @api @e @m caller args)
+    >>= \case
+      Right (Right x) -> pure (Just x)
+      _               -> pure Nothing
+
+
 makeClient :: forall api e m  . ( MonadIO m
                                 , HasProtocol e (ServiceProto api e)
                                 , Pretty (Peer e)
