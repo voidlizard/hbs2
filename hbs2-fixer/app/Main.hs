@@ -188,6 +188,7 @@ withApp cfgPath action = do
 
     sink <- newNotifySink
 
+    -- FIXME: ASAP-subscribe-again-if-peer-is-gone
     void $ ContT $ withAsync $ flip runReaderT clientN $ do
               debug $ red "notify restarted!"
               runNotifyWorkerClient sink
