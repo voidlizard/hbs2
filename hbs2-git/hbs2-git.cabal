@@ -59,7 +59,6 @@ common shared-properties
       , hbs2-keyman
       , db-pipe
       , suckless-conf
-
       , attoparsec
       , atomic-write
       , bytestring
@@ -176,7 +175,7 @@ library hbs2-git-oracle-oracle-lib
       HBS2.Git.Oracle.App
       HBS2.Git.Oracle.Run
 
-    build-depends:    base
+    build-depends:    base, hbs2-git
                     , base16-bytestring
                     , binary
                     , unix

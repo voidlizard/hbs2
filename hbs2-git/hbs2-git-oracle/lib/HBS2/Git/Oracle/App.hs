@@ -19,6 +19,7 @@ data OracleEnv =
   { _peerAPI   :: ServiceCaller PeerAPI UNIX
   , _reflogAPI :: ServiceCaller RefLogAPI UNIX
   , _lwwAPI    :: ServiceCaller LWWRefAPI UNIX
+  , _storage   :: AnyStorage
   }
   deriving stock (Generic)
 
@@ -46,10 +47,12 @@ runWithOracleEnv m = do
   reflogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
   lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
   storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+  let sto = AnyStorage (StorageClient storageAPI)
 
   env <- pure $ OracleEnv  peerAPI
                            reflogAPI
                            lwwAPI
+                           sto
 
   let endpoints = [ Endpoint @UNIX  peerAPI
                   , Endpoint @UNIX  reflogAPI

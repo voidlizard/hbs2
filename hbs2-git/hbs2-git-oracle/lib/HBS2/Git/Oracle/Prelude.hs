@@ -2,6 +2,7 @@ module HBS2.Git.Oracle.Prelude
   ( module HBS2.Prelude.Plated
   , module HBS2.Base58
   , module HBS2.OrDie
+  , module HBS2.Data.Types.Refs
   , module HBS2.Net.Auth.Schema
   , module HBS2.Storage
 
@@ -26,6 +27,7 @@ module HBS2.Git.Oracle.Prelude
 import HBS2.Prelude.Plated
 import HBS2.Base58
 import HBS2.OrDie
+import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.Schema
 import HBS2.Net.Proto.Service
 import HBS2.Storage

@@ -18,6 +18,12 @@ instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcP
     debug $ "rpc.pollList"
     listPolledRefs @L4Proto brains Nothing
 
+instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcPollList2 where
+
+  handleMethod filt = do
+    brains <- getRpcContext @PeerAPI <&> rpcBrains
+    debug $ "rpc.pollList2" <+> pretty filt
+    listPolledRefsFiltered @L4Proto brains filt
 
 instance (MonadIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcPollAdd where
 

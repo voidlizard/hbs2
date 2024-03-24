@@ -18,6 +18,13 @@ class HasBrains e a where
   listPolledRefs :: MonadIO m => a -> Maybe String -> m [(PubKey 'Sign (Encryption e), String, Int)]
   listPolledRefs _ _  = pure mempty
 
+  listPolledRefsFiltered :: MonadIO m
+                         => a
+                         -> (Maybe String, Maybe (Int, Int))
+                         -> m [(PubKey 'Sign (Encryption e), String, Int)]
+
+  listPolledRefsFiltered _ _  = pure mempty
+
   isPolledRef :: MonadIO m => a -> String -> PubKey 'Sign (Encryption e) -> m Bool
   isPolledRef _ _ _ = pure False
 
@@ -159,6 +166,7 @@ data SomeBrains e = forall a . HasBrains e a => SomeBrains a
 
 instance HasBrains e (SomeBrains e) where
   listPolledRefs (SomeBrains a) = listPolledRefs @e a
+  listPolledRefsFiltered (SomeBrains a) = listPolledRefsFiltered @e a
   isPolledRef (SomeBrains a) = isPolledRef @e a
   delPolledRef (SomeBrains a) = delPolledRef @e a
   addPolledRef (SomeBrains a) = addPolledRef @e a
