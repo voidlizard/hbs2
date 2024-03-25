@@ -8,4 +8,6 @@ import Data.ByteString
 cssDir :: [(FilePath, ByteString)]
 cssDir = $(embedDir "assets")
 
+templates :: [(FilePath, ByteString)]
+templates = $(embedDir "templates")
 

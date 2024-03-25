@@ -1,0 +1,89 @@
+header {
+    background-color: #f8f9fa;
+    padding: 10px 0;
+    text-align: left;
+    border-bottom: 1px solid #eaeaea;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    color: #333;
+    font-size: 20px;
+    font-weight: 400;
+    padding: 10px 20px;
+    /* font-weight: 300; */
+    margin: 0;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+body {
+    font-size: 0.725rem; /* Уменьшаем размер шрифта, если он кажется слишком большим */
+}
+
+button.primary, button.secondary, button.success {
+    padding: 0.5rem 1rem; /* Уменьшаем отступы */
+    font-size: 0.75rem; /* Уменьшаем размер шрифта в кнопке */
+    line-height: 1.2; /* Опционально можно установить высоту строки */
+}
+
+.flex-container {
+    display: flex;
+    flex-wrap: wrap; /* Элементы будут переноситься на следующую строку при нехватке места */
+    gap: 1rem; /* Отступ между элементами */
+}
+
+.flex-item {
+    padding: 1rem; /* добавляем отступ внутри боксов */
+    border: 1px solid #cccccc; /* добавляем тонкую серую границу */
+    margin: 10px; /* добавляем внешний отступ вокруг боксов */
+    border-radius: 8px; /* если хотите скругленные углы */
+    background: #ffffff; /* установка белого фона для боксов, если нужно */
+
+    flex: 1; /* Каждый элемент будет занимать равное пространство, но не меньше минимальной ширины */
+    min-width: 12em; /* Минимальная ширина для каждого бокса */
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Добавляем немного тени для лучшей визуализации */
+}
+
+@media (max-width: 1024px) {
+    .flex-container {
+        flex-direction: column;
+    }
+    .flex-item {
+        /* Блоки будут занимать всю ширину контейнера на меньших экранах */
+        min-width: 100%;
+    }
+}
+
+.flex-item:nth-child(1) {
+    flex: 1.5; /* Третий элемент будет расти вдвое быстрее остальных */
+}
+
+th {
+  font-weight: bolder;
+}
+
+td.colr {
+  text-align: right;
+}
+
+.ref {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.8rem;
+}
+
+.lab {
+  padding-left: 0.8em;
+}
+
+td.ref {
+  width: 35em;
+}
+
+td.reftype {
+  width: 10em;
+}
+
+td.reftime {
+  width: 4em;
+}
+

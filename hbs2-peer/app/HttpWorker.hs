@@ -1,7 +1,8 @@
 {-# Language TypeOperators #-}
 module HttpWorker where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
+import HBS2.OrDie
 import HBS2.Hash
 import HBS2.Actors.Peer
 import HBS2.Storage
@@ -15,7 +16,7 @@ import HBS2.Net.Auth.Schema
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
-
+import HBS2.Misc.PrettyStuff
 
 
 import PeerTypes
@@ -31,10 +32,16 @@ import Network.Wai.Middleware.StaticEmbedded
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
 
+import Data.Text.Lazy.IO qualified as TIO
+import Data.Text.Lazy.Encoding qualified as Enc
+import Text.Microstache.Compile
+import Text.Microstache.Render
+
 import Data.ByteString.Builder (byteString, Builder)
 
 import Control.Concurrent
 import Data.Either
+import Data.HashMap.Strict qualified as HM
 import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -75,6 +82,18 @@ httpWorker (PeerConfig syn) pmeta e = do
   let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
   let bro   = runReader (cfgValue @PeerBrowser) syn == FeatureOn
   penv <- ask
+
+  let tpl = templates
+
+
+  tpls <- for tpl $ \(n,bs) -> do
+    let txt = Enc.decodeUtf8 (LBS.fromStrict bs)
+    tpl <- compileMustacheText (fromString n) txt
+             & orThrowUser [qc|Can't compile template {n}|]
+    debug $ green "TEMPLATE" <+> pretty n
+    pure (n, tpl)
+
+  let templates = HM.fromList tpls
 
   maybe1 port' none $ \port -> liftIO do
 
@@ -199,12 +218,15 @@ httpWorker (PeerConfig syn) pmeta e = do
       get "/metadata" do
           raw $ serialise $ pmeta
 
-      when bro do
-        middleware (static cssDir)
+      middleware (static cssDir)
 
-        get "/browser" do
-          text "BRO"
-          status status200
+      when bro do
+
+        get "/browser" $ flip runContT pure do
+          template <- orElse (status status500) (HM.lookup "browser.html" templates)
+          lift do
+            html $ renderMustache template "JOPAKITA"
+            status status200
 
       put "/" do
         -- FIXME: optional-header-based-authorization
