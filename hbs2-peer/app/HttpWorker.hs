@@ -10,10 +10,13 @@ import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.LWWRef
+import HBS2.Peer.Browser.Assets
 import HBS2.Net.Auth.Schema
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
+
+
 
 import PeerTypes
 import PeerConfig
@@ -24,6 +27,7 @@ import Data.Config.Suckless
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
+import Network.Wai.Middleware.StaticEmbedded
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty
 
@@ -69,6 +73,7 @@ httpWorker (PeerConfig syn) pmeta e = do
 
   sto <- getStorage
   let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
+  let bro   = runReader (cfgValue @PeerBrowser) syn == FeatureOn
   penv <- ask
 
   maybe1 port' none $ \port -> liftIO do
@@ -193,6 +198,13 @@ httpWorker (PeerConfig syn) pmeta e = do
 
       get "/metadata" do
           raw $ serialise $ pmeta
+
+      when bro do
+        middleware (static cssDir)
+
+        get "/browser" do
+          text "BRO"
+          status status200
 
       put "/" do
         -- FIXME: optional-header-based-authorization

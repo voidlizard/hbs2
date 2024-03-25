@@ -38,6 +38,7 @@ data PeerHttpPortKey
 data PeerTcpProbeWaitKey
 data PeerUseHttpDownload
 data PeerBrainsDBPath
+data PeerBrowser
 
 instance Monad m => HasConf (ReaderT PeerConfig m) where
   getConf = asks (\(PeerConfig syn) -> syn)
@@ -65,6 +66,8 @@ data PeerKnownPeersFile
 instance Monad m => HasCfgKey PeerKnownPeersFile (Set String) m where
   key = "known-peers-file"
 
+instance Monad m => HasCfgKey PeerBrowser a m where
+  key = "browser"
 
 instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b m) => HasCfgValue a FeatureSwitch m where
   cfgValue = lastDef FeatureOff . val <$> getConf

@@ -24,7 +24,10 @@ library
 
     -- other-modules:
     -- other-extensions:
-    build-depends:    base, file-embed
+    build-depends:
+        base
+      , bytestring
+      , file-embed
 
     hs-source-dirs:   lib
     default-language: GHC2021

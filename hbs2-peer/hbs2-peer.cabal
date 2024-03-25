@@ -71,6 +71,7 @@ common common-deps
         , http-types
         , wai
         , wai-extra
+        , wai-middleware-static-embedded
         , unliftio
         , unliftio-core
         , unix
