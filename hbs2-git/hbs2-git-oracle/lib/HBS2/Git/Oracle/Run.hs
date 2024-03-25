@@ -35,10 +35,10 @@ data GitRepoRefFact =
 
 data GitRepoHeadFact =
   GitRepoHeadFact1
-  { gitRepoName      :: Text
+  { gitRepoHeadRef   :: HashRef
+  , gitRepoName      :: Text
   , gitRepoBrief     :: Text
   , gitRepoEncrypted :: Bool
-  , gitRepoHeadRef   :: HashRef
   }
   deriving stock (Generic)
 
@@ -48,13 +48,22 @@ data GitRepoFacts =
     | GitRepoHeadFact HashRef GitRepoHeadFact
     deriving stock (Generic)
 
+
 instance Serialise GitRepoRefFact
 instance Serialise GitRepoHeadFact
 instance Serialise GitRepoFacts
 
+instance Pretty GitRepoFacts  where
+  pretty (GitRepoRefFact x)    = pretty x
+  pretty (GitRepoHeadFact _ x) = pretty x
+
 instance Pretty GitRepoRefFact where
   pretty (GitRepoFact1{..}) =
     parens ( "gitrepofact1" <+>  hsep [pretty gitLwwRef, pretty gitLwwSeq, pretty gitRefLog])
+
+instance Pretty GitRepoHeadFact where
+  pretty (GitRepoHeadFact1{..}) =
+    parens ( "gitrepoheadfact1" <+>  hsep [pretty gitRepoHeadRef])
 
 
 runOracle :: forall m  . MonadUnliftIO m => Oracle m ()
@@ -80,37 +89,34 @@ runOracle = do
                            (lwwSeq lw)
                            (RefLogKey rk)
 
-  for_ repos $ \what@GitRepoFact1{..} -> do
+  facts <- S.toList_ do
 
-    mhead <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflog (coerce gitRefLog)
-              <&> join
+    for_ repos $ \what@GitRepoFact1{..} -> do
 
-    forM_ mhead $ \mh -> do
+      mhead <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflog (coerce gitRefLog)
+                <&> join
 
-      txs <- S.toList_ $ do
-                walkMerkle @[HashRef] (fromHashRef mh) (getBlock sto) $ \case
-                  Left{}   -> do
-                    pure ()
+      for_ mhead $ \mh -> do
 
-                  Right hxs -> do
-                    for_ hxs $ \htx -> void $ runMaybeT do
-                      getBlock sto (fromHashRef htx) >>= toMPlus
-                         <&> deserialiseOrFail @(RefLogUpdate L4Proto)
-                         >>= toMPlus
-                         >>= unpackTx
-                         >>= \(n,h,_) -> lift (S.yield (n,htx))
+        txs <- S.toList_ $ do
+                  walkMerkle @[HashRef] (fromHashRef mh) (getBlock sto) $ \case
+                    Left{}   -> do
+                      pure ()
 
-      let tx' = maximumByMay (comparing fst) txs
+                    Right hxs -> do
+                      for_ hxs $ \htx -> void $ runMaybeT do
+                        getBlock sto (fromHashRef htx) >>= toMPlus
+                           <&> deserialiseOrFail @(RefLogUpdate L4Proto)
+                           >>= toMPlus
+                           >>= unpackTx
+                           >>= \(n,h,_) -> lift (S.yield (n,htx))
 
-      headFact <- forM tx' $ \(n,tx) -> void $ runMaybeT do
+        let tx' = maximumByMay (comparing fst) txs
 
-        (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
-                                       >>= toMPlus
+        for_ tx' $ \(n,tx) -> void $ runMaybeT do
 
-        let enc = isJust _repoHeadGK0
-        let name  = Text.take 256 $  _repoHeadName
-        let brief = Text.take 1024 $ _repoHeadBrief
-        let manifest = _repoManifest
+          (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
+                                         >>= toMPlus
 
         debug $ "found head"
           <+> pretty enc
@@ -125,22 +131,18 @@ runOracle = do
           <> line
           <> line
 
-        let f1 = GitRepoRefFact what
-        let f2 = GitRepoHeadFact
-                    repoFactHash
-                    (GitRepoHeadFact1 name brief enc undefined
-                    )
+          let repoFactHash = hashObject @HbSync (serialise what) & HashRef
 
-        pure undefined
+          let f1 = GitRepoRefFact what
+          let f2 = GitRepoHeadFact
+                      repoFactHash
+                      (GitRepoHeadFact1 rhh name brief enc)
 
-      pure ()
-        -- debug $ "found head"
-        --   <+> pretty gitLwwRef
-        --   <+> pretty n
-        --   <+> pretty enc
-        --   <+> pretty gitRefLog
-        --   <+> pretty name
-        --   <+> pretty brief
-        --   <+> pretty manifest
-        --   <+> pretty tx
+          lift $ S.yield f1
+          lift $ S.yield f2
+
+  for_ facts $ \f -> do
+    debug $ pretty f
+    pure ()
+
 
