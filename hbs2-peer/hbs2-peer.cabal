@@ -278,7 +278,7 @@ executable hbs2-peer
                     , Paths_hbs2_peer
 
     -- other-extensions:
-    build-depends:    base, hbs2-peer, hbs2-keyman, vty
+    build-depends:    base, hbs2-peer, hbs2-keyman, hbs2-browser, vty
 
     hs-source-dirs:   app
 

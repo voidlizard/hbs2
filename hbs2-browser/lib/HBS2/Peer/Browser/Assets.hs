@@ -1,0 +1,1 @@
+module HBS2.Peer.Browser.Assets where

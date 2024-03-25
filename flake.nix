@@ -40,6 +40,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-keyman"
      "hbs2-share"
      "hbs2-fixer"
+     "hbs2-browser"
     ];
   in
  haskell-flake-utils.lib.simpleCabalProject2flake {
@@ -64,6 +65,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
+     "hbs2-browser"  = "./hbs2-browser";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {

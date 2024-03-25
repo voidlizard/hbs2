@@ -1,0 +1,6 @@
+;; hbs2-git config file
+; those branches will be replicated by default
+export include "refs/heads/master"
+export include "refs/heads/main"
+export exclude "refs/heads/*"
+export tags
