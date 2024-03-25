@@ -191,7 +191,7 @@ export key refs  = do
 
       tx0 <- getLastAppliedTx
 
-      rh0 <- runMaybeT ( toMPlus tx0 >>= readRepoHeadFromTx sto >>= toMPlus )
+      rh0 <- runMaybeT ( toMPlus tx0 >>= readRepoHeadFromTx sto >>= toMPlus <&> snd)
 
       (name,brief,mf) <- lift getManifest
 

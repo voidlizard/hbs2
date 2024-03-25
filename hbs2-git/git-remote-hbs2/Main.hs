@@ -177,7 +177,10 @@ main = do
                     r'  <- runMaybeT $ withState do
                             tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
-                            rh <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
+                            rh <- TX.readRepoHeadFromTx sto tx
+                                      >>= lift . toMPlus
+                                      <&> snd
+
                             pure (_repoHeadRefs rh)
 
                     let r = fromMaybe mempty r'

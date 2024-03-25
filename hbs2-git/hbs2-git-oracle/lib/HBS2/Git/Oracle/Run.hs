@@ -3,6 +3,7 @@ module HBS2.Git.Oracle.Run where
 import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.App
 
+import HBS2.Hash
 import HBS2.Merkle
 
 import HBS2.Git.Data.LWWBlock
@@ -17,13 +18,14 @@ import Codec.Serialise
 import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Ord
+import Data.Text qualified as Text
 import Control.Monad.Trans.Except
 import Data.List
 import Safe
 
 {- HLINT ignore "Functor law" -}
 
-data GitRepoFact =
+data GitRepoRefFact =
   GitRepoFact1
   { gitLwwRef :: LWWRefKey HBS2Basic
   , gitLwwSeq :: Word64
@@ -32,22 +34,28 @@ data GitRepoFact =
   deriving stock (Generic)
 
 data GitRepoHeadFact =
-  GitRepoHeadFact
-  {
+  GitRepoHeadFact1
+  { gitRepoName      :: Text
+  , gitRepoBrief     :: Text
+  , gitRepoEncrypted :: Bool
+  , gitRepoHeadRef   :: HashRef
   }
   deriving stock (Generic)
 
 
-instance Serialise GitRepoFact
+data GitRepoFacts =
+      GitRepoRefFact  GitRepoRefFact
+    | GitRepoHeadFact HashRef GitRepoHeadFact
+    deriving stock (Generic)
 
-instance Pretty GitRepoFact where
+instance Serialise GitRepoRefFact
+instance Serialise GitRepoHeadFact
+instance Serialise GitRepoFacts
+
+instance Pretty GitRepoRefFact where
   pretty (GitRepoFact1{..}) =
     parens ( "gitrepofact1" <+>  hsep [pretty gitLwwRef, pretty gitLwwSeq, pretty gitRefLog])
 
-
-makeGitRepoFactBlock :: MonadUnliftIO m => [GitRepoFact] -> Oracle m HashRef
-makeGitRepoFactBlock facts = do
-  undefined
 
 runOracle :: forall m  . MonadUnliftIO m => Oracle m ()
 runOracle = do
@@ -94,12 +102,14 @@ runOracle = do
 
       let tx' = maximumByMay (comparing fst) txs
 
-      forM_ tx' $ \(n,tx) -> void $ runMaybeT do
-        RepoHeadSimple{..} <- readRepoHeadFromTx sto tx >>= toMPlus
+      headFact <- forM tx' $ \(n,tx) -> void $ runMaybeT do
 
-        let enc = if isJust _repoHeadGK0 then "E" else "P"
-        let name  = _repoHeadName
-        let brief = _repoHeadBrief
+        (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
+                                       >>= toMPlus
+
+        let enc = isJust _repoHeadGK0
+        let name  = Text.take 256 $  _repoHeadName
+        let brief = Text.take 1024 $ _repoHeadBrief
         let manifest = _repoManifest
 
         debug $ "found head"
@@ -115,4 +125,22 @@ runOracle = do
           <> line
           <> line
 
+        let f1 = GitRepoRefFact what
+        let f2 = GitRepoHeadFact
+                    repoFactHash
+                    (GitRepoHeadFact1 name brief enc undefined
+                    )
+
+        pure undefined
+
+      pure ()
+        -- debug $ "found head"
+        --   <+> pretty gitLwwRef
+        --   <+> pretty n
+        --   <+> pretty enc
+        --   <+> pretty gitRefLog
+        --   <+> pretty name
+        --   <+> pretty brief
+        --   <+> pretty manifest
+        --   <+> pretty tx
 

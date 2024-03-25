@@ -150,7 +150,7 @@ pShowRef = do
       tx  <- withState do
                selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
-      rh <- TX.readRepoHeadFromTx sto tx >>= toMPlus
+      rh <- TX.readRepoHeadFromTx sto tx >>= toMPlus <&> snd
 
       liftIO $ print $ vcat (fmap formatRef (_repoHeadRefs rh))
 
@@ -172,7 +172,8 @@ pKeyShow = do
                selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
       rh <- TX.readRepoHeadFromTx sto tx
-               >>= toMPlus
+                >>= toMPlus
+                <&> snd
 
       gkh <- toMPlus (_repoHeadGK0 rh)
 
