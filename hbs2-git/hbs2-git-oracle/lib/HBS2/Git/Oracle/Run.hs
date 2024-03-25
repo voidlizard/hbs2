@@ -124,18 +124,10 @@ runOracle = do
           (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
                                          >>= toMPlus
 
-        debug $ "found head"
-          <+> pretty enc
-          <+> pretty n
-          <+> pretty gitLwwRef
-          <+> pretty gitRefLog
-          <+> pretty tx
-          <> line
-          <+> pretty name
-          <+> pretty brief
-          <+> pretty manifest
-          <> line
-          <> line
+          let enc = isJust _repoHeadGK0
+          let name  = Text.take 256 $  _repoHeadName
+          let brief = Text.take 1024 $ _repoHeadBrief
+          let manifest = _repoManifest
 
           let repoFactHash = hashObject @HbSync (serialise what) & HashRef
 
