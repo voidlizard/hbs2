@@ -189,7 +189,7 @@ executable hbs2-git-oracle
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, hbs2-git, hbs2-git-oracle-oracle-lib
+        base, hbs2-git, hbs2-git-oracle-oracle-lib, hbs2-keyman
         , binary
         , vector
         , optparse-applicative

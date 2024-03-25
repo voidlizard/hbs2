@@ -5,9 +5,13 @@ import HBS2.Git.Oracle.App
 
 import HBS2.Hash
 import HBS2.Merkle
+import HBS2.Data.Types.SignedBox
+
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx
+
 
 import Data.Maybe
 import Lens.Micro.Platform
@@ -21,6 +25,7 @@ import Data.Ord
 import Data.Text qualified as Text
 import Control.Monad.Trans.Except
 import Data.List
+import Data.ByteString.Lazy qualified as LBS
 import Safe
 
 {- HLINT ignore "Functor law" -}
@@ -66,7 +71,8 @@ instance Pretty GitRepoHeadFact where
     parens ( "gitrepoheadfact1" <+>  hsep [pretty gitRepoHeadRef])
 
 
-runOracle :: forall m  . MonadUnliftIO m => Oracle m ()
+runOracle :: forall m  . MonadUnliftIO m
+          => Oracle m ()
 runOracle = do
   debug "hbs2-git-oracle"
 
@@ -141,8 +147,18 @@ runOracle = do
           lift $ S.yield f1
           lift $ S.yield f2
 
-  for_ facts $ \f -> do
-    debug $ pretty f
-    pure ()
+  rchanAPI <- asks _refchanAPI
+  chan  <- asks _refchanId
+  auPk  <- asks _refchanAuthor
 
+  auCreds <- runKeymanClient do
+              loadCredentials auPk >>= orThrowUser "can't load credentials"
+
+  let ppk = view peerSignPk auCreds
+  let psk = view peerSignSk auCreds
+
+  for_ facts $ \f -> do
+    let box = makeSignedBox @L4Proto ppk psk (LBS.toStrict $ serialise f)
+    void $ callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
+    debug $ "posted tx" <+> pretty (hashObject @HbSync (serialise f))
 

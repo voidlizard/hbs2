@@ -16,10 +16,13 @@ import Codec.Serialise
 
 data OracleEnv =
   OracleEnv
-  { _peerAPI   :: ServiceCaller PeerAPI UNIX
-  , _reflogAPI :: ServiceCaller RefLogAPI UNIX
-  , _lwwAPI    :: ServiceCaller LWWRefAPI UNIX
-  , _storage   :: AnyStorage
+  { _refchanId     :: RefChanId L4Proto
+  , _refchanAuthor :: RefChanAuthor L4Proto
+  , _peerAPI       :: ServiceCaller PeerAPI UNIX
+  , _reflogAPI     :: ServiceCaller RefLogAPI UNIX
+  , _refchanAPI    :: ServiceCaller RefChanAPI UNIX
+  , _lwwAPI        :: ServiceCaller LWWRefAPI UNIX
+  , _storage       :: AnyStorage
   }
   deriving stock (Generic)
 
@@ -34,8 +37,12 @@ newtype Oracle m a =
                    , MonadUnliftIO
                    )
 
-runWithOracleEnv ::  MonadUnliftIO m => Oracle m () -> m ()
-runWithOracleEnv m = do
+runWithOracleEnv ::  MonadUnliftIO m
+                 => RefChanId L4Proto
+                 -> RefChanAuthor L4Proto
+                 -> Oracle m ()
+                 -> m ()
+runWithOracleEnv rchan author m = do
 
   soname <- detectRPC
                `orDie` "can't locate rpc"
@@ -45,17 +52,22 @@ runWithOracleEnv m = do
 
   peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
   reflogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+  refchanAPI <- makeServiceCaller @RefChanAPI (fromString soname)
   lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
   storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
   let sto = AnyStorage (StorageClient storageAPI)
 
-  env <- pure $ OracleEnv  peerAPI
-                           reflogAPI
-                           lwwAPI
-                           sto
+  env <- pure $ OracleEnv rchan
+                          author
+                          peerAPI
+                          reflogAPI
+                          refchanAPI
+                          lwwAPI
+                          sto
 
   let endpoints = [ Endpoint @UNIX  peerAPI
                   , Endpoint @UNIX  reflogAPI
+                  , Endpoint @UNIX  refchanAPI
                   , Endpoint @UNIX  lwwAPI
                   , Endpoint @UNIX  storageAPI
                   ]
