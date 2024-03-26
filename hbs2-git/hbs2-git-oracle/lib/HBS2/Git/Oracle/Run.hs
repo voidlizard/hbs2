@@ -195,11 +195,6 @@ runDump pks = do
     let sout = getStdout p
     client <- newMessagingPipe (sout,ssin) -- ,sout)
 
-    -- forever do
-    --   liftIO $ LBS.hPutStr ssin "\x10 AAAAAAAAAAAAAAAAAAAAAAA\r\n"
-    --   hFlush ssin
-    --   pause @'Seconds 1
-
     void $ ContT $ withAsync $ runMessagingPipe client
 
     caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
