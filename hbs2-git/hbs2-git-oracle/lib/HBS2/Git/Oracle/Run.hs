@@ -13,6 +13,11 @@ import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Data.Types.SignedBox
 
+import HBS2.Net.Messaging
+import HBS2.Net.Messaging.Pipe
+import HBS2.Net.Proto.Service
+import HBS2.Actors.Peer
+
 import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Git.Data.LWWBlock
@@ -192,8 +197,6 @@ runDump pks = do
     -- p <- ContT $ withProcessWait cmd
     p <- lift $ startProcess cmd -- ContT $ withProcessWait cmd
 
-    pause @'Seconds 1
-
     let ssin = getStdin p
     let sout = getStdout p
     client <- newMessagingPipe (sout,ssin) -- ,sout)
@@ -205,22 +208,18 @@ runDump pks = do
 
     void $ ContT $ withAsync $ runMessagingPipe client
 
-    debug "YAY!"
-
     caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
 
-    -- pause @'Seconds 2
+    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
-    forever do
+    wtf <- callService @RpcChannelQuery caller ()
+            >>= orThrowUser "can't query rpc"
 
-      wtf <- callService @RpcChannelQuery caller ()
-              >>= orThrowUser "can't query rpc"
+    r <- ContT $ maybe1 wtf (pure ())
 
-      r <- ContT $ maybe1 wtf (pure ())
+    let val = Aeson.decode @Value r
 
-      let val = Aeson.decode @Value r
-
-      liftIO $ LBS.putStr (A.encodePretty val)
+    liftIO $ LBS.putStr (A.encodePretty val)
 
 data RpcChannelQuery
 
@@ -244,12 +243,10 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
     runMaybeT do
 
-      debug "WTF!!"
-
       rv <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) rchanAPI chan)
               >>= toMPlus >>= toMPlus
 
-      liftIO $ print $ pretty rv
+      debug $ "AAAAAA" <+> pretty rv
 
       facts <- S.toList_ do
         walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
@@ -320,7 +317,7 @@ runPipe = do
   chan <- asks _refchanId
   debug "run pipe"
 
-  liftIO $ hSetBuffering stdin NoBuffering
+  -- liftIO $ hSetBuffering stdin NoBuffering
 
   -- liftIO $ LBS.getContents >>= LBS.hPutStr stderr
   -- forever (pause @'Seconds 10)

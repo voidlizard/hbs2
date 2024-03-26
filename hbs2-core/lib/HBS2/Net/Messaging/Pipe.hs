@@ -75,7 +75,8 @@ instance Messaging MessagingPipe PIPE ByteString where
 
   receive bus _ = do
     msg <- liftIO $ atomically $ peekTQueue q >> STM.flushTQueue q
-    for msg $ \m -> pure (From (PeerPIPE (PipeAddr who)), m)
+    for msg $ \m -> do
+      pure (From (PeerPIPE (PipeAddr who)), m)
 
     where
       q = inQ bus
@@ -85,7 +86,6 @@ runMessagingPipe :: MonadIO m => MessagingPipe -> m ()
 runMessagingPipe bus = liftIO do
   fix \next -> do
     frame <- LBS.hGet who 4 <&> word32 . LBS.toStrict
-    debug $ "JOPAKITA!!" <+> pretty frame
     piece <- LBS.hGet who (fromIntegral frame)
     atomically (writeTQueue (inQ bus) piece)
     next
