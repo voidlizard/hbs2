@@ -22,6 +22,7 @@ import HBS2.Misc.PrettyStuff
 import PeerTypes
 import PeerConfig
 import RefLog ( doRefLogBroadCast )
+import Browser
 
 import Data.Config.Suckless
 
@@ -29,7 +30,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Network.Wai.Middleware.StaticEmbedded
-import Text.InterpolatedString.Perl6 (qc)
+import Text.InterpolatedString.Perl6 (qc,qq,q)
 import Web.Scotty
 
 import Data.Text.Lazy.IO qualified as TIO
@@ -50,6 +51,9 @@ import Lens.Micro.Platform (view)
 import System.FilePath
 import Control.Monad.Except
 import Control.Monad.Trans.Cont
+
+-- import Lucid (renderTextT)
+-- import Lucid.Html5 hiding (for_)
 
 import UnliftIO (async)
 
@@ -222,11 +226,8 @@ httpWorker (PeerConfig syn) pmeta e = do
 
       when bro do
 
-        get "/browser" $ flip runContT pure do
-          template <- orElse (status status500) (HM.lookup "browser.html" templates)
-          lift do
-            html $ renderMustache template "JOPAKITA"
-            status status200
+        get "/browser" do
+          renderTextT browserRootPage >>= html
 
       put "/" do
         -- FIXME: optional-header-based-authorization
