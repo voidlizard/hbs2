@@ -34,6 +34,7 @@ getConfigDir = do
   else do
     pure $ git </> ".hbs2-git"
 
+-- FIXME: wrong-default-name
 getManifest :: GitPerks m => m (Text, Text, Maybe Text)
 getManifest = do
   dir <- getConfigDir
