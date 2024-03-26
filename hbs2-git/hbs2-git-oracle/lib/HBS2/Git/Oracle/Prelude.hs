@@ -7,12 +7,16 @@ module HBS2.Git.Oracle.Prelude
   , module HBS2.Net.Auth.Credentials
   , module HBS2.Storage
 
+  , module HBS2.Misc.PrettyStuff
   , module HBS2.System.Logger.Simple.ANSI
+
+  , module HBS2.Net.Messaging
+  , module HBS2.Net.Proto.Service
+  , module HBS2.Net.Messaging.Pipe
 
   , module HBS2.Peer.Proto.RefLog
   , module HBS2.Peer.Proto.LWWRef
   , module HBS2.Peer.Proto.RefChan
-  , module HBS2.Net.Proto.Service
   , module HBS2.Peer.RPC.API.Peer
   , module HBS2.Peer.RPC.API.RefLog
   , module HBS2.Peer.RPC.API.RefChan
@@ -35,8 +39,12 @@ import HBS2.Net.Auth.Schema
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Service
 import HBS2.Peer.Proto.RefChan
+import HBS2.Net.Messaging
+import HBS2.Net.Messaging.Pipe
+import HBS2.Actors.Peer
 import HBS2.Storage
 
+import HBS2.Misc.PrettyStuff
 import HBS2.System.Logger.Simple.ANSI
 
 import HBS2.Peer.Proto.LWWRef

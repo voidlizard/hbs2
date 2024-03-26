@@ -7,15 +7,17 @@ import HBS2.Git.Oracle.Run
 import Options.Applicative as O
 
 
-type PKS = PubKey 'Sign HBS2Basic
 
 data RunMode =
     RunIndex PKS
-  | RunDump
+  | RunDump PKS
+  | RunPipe
 
 main :: IO ()
 main = do
-  let parser = hsubparser ( pRunIndexCmd <> pRunDumpCmd )
+  let parser = hsubparser $ pRunIndexCmd <>
+                            pRunDumpCmd <>
+                            pRunPipeCmd
 
   join $ execParser (O.info (parser <**> helper)
               ( fullDesc
@@ -35,8 +37,12 @@ main = do
     pRunDumpCmd = command "dump" ( O.info pRunDump (progDesc "run index")  )
     pRunDump = do
       chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan to post" )
-      pure $ runApp chan RunDump
+      pure $ runApp chan (RunDump chan)
 
+    pRunPipeCmd = command "pipe" ( O.info pRunPipe (progDesc "run pipe mode")  )
+    pRunPipe = do
+      chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan for queries" )
+      pure $ runApp chan RunPipe
 
 
 runApp :: MonadUnliftIO m
@@ -50,15 +56,16 @@ runApp chan mode = do
   setLogging @ERROR  (toStderr . logPrefix "[error] ")
   setLogging @NOTICE (toStderr . logPrefix "[debug] ")
 
-  runWithOracleEnv chan $ case mode of
-    RunIndex a  -> runOracleIndex a
-    RunDump{}   -> runDump
+
+  case mode of
+    RunIndex a  -> runWithOracleEnv chan $ runOracleIndex a
+    RunPipe{}   -> runWithOracleEnv chan $ runPipe
+    RunDump pks -> runDump pks
 
   `finally` do
       setLoggingOff @DEBUG
       setLoggingOff @WARN
       setLoggingOff @ERROR
       setLoggingOff @NOTICE
-
 
 

@@ -9,6 +9,8 @@ import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging
 
+import HBS2.System.Logger.Simple.ANSI
+
 import Control.Concurrent.STM qualified as STM
 import Control.Monad.Reader
 import Data.ByteString.Builder qualified as B
@@ -83,6 +85,7 @@ runMessagingPipe :: MonadIO m => MessagingPipe -> m ()
 runMessagingPipe bus = liftIO do
   fix \next -> do
     frame <- LBS.hGet who 4 <&> word32 . LBS.toStrict
+    debug $ "JOPAKITA!!" <+> pretty frame
     piece <- LBS.hGet who (fromIntegral frame)
     atomically (writeTQueue (inQ bus) piece)
     next
