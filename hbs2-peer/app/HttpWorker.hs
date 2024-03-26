@@ -87,18 +87,6 @@ httpWorker (PeerConfig syn) pmeta e = do
   let bro   = runReader (cfgValue @PeerBrowser) syn == FeatureOn
   penv <- ask
 
-  let tpl = templates
-
-
-  tpls <- for tpl $ \(n,bs) -> do
-    let txt = Enc.decodeUtf8 (LBS.fromStrict bs)
-    tpl <- compileMustacheText (fromString n) txt
-             & orThrowUser [qc|Can't compile template {n}|]
-    debug $ green "TEMPLATE" <+> pretty n
-    pure (n, tpl)
-
-  let templates = HM.fromList tpls
-
   maybe1 port' none $ \port -> liftIO do
 
     scotty port $ do
@@ -227,7 +215,7 @@ httpWorker (PeerConfig syn) pmeta e = do
       when bro do
 
         get "/browser" do
-          renderTextT browserRootPage >>= html
+          renderTextT (browserRootPage syn) >>= html
 
       put "/" do
         -- FIXME: optional-header-based-authorization
