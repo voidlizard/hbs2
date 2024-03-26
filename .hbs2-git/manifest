@@ -1,6 +1,6 @@
-title: "hbs2"
+name:   "hbs2"
 author: "Dmitry Zuikov"
 public: yes
-brief: "HBS2: P2P CAS and protocol framework #haskell #p2p #distributed"
+brief:  "HBS2: P2P CAS and protocol framework #haskell #p2p #distributed"
 
 Project description TBD
