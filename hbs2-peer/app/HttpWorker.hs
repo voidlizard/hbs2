@@ -217,6 +217,15 @@ httpWorker (PeerConfig syn) pmeta e = do
         get "/browser" do
           renderTextT (browserRootPage syn) >>= html
 
+        get "/browser/channel/:refchan" $ void $ flip runContT pure do
+
+          chan <- lift (param @String "refchan")
+                   <&> fromStringMay
+                   >>= orElse (status status404)
+
+          lift $ renderTextT (channelPage chan) >>= html
+
+
       put "/" do
         -- FIXME: optional-header-based-authorization
         --   signed nonce + peer key?

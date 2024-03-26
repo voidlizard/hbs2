@@ -1,6 +1,7 @@
 module Browser.Root
   ( module Lucid
   , browserRootPage
+  , channelPage
   ) where
 
 import HBS2.Prelude.Plated
@@ -114,5 +115,11 @@ browserRootPage syn = rootPage do
 
           for_ [ s | LitStrVal s <- desc ] $ \s -> do
             p_ (toHtml s)
+
+
+
+channelPage :: Monad m => RefChanId L4Proto -> HtmlT m ()
+channelPage chan = rootPage $ pure ()
+
 
 
