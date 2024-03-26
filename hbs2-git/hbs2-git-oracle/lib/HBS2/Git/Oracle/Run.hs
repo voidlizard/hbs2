@@ -14,8 +14,10 @@ import HBS2.Git.Data.Tx
 
 
 import Data.Maybe
-import Lens.Micro.Platform
+import Lens.Micro.Platform hiding ( (.=) )
 
+import Data.Aeson
+import Data.Aeson.Encode.Pretty qualified as A
 import Data.Word
 import Streaming.Prelude qualified as S
 import Codec.Serialise
@@ -202,22 +204,15 @@ runDump = do
     let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
               & HM.fromList
 
-    for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
+    items <- S.toList_ $ for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
       let d = HM.lookup k rhf
       let nm    = maybe "" gitRepoName d
       let brief = maybe "" gitRepoBrief d
-      liftIO $ print $ "repo"
-                  <+> pretty gitLwwRef
-                  <+> pretty nm
-                  <+> pretty brief
-      pure ()
 
-    -- let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
+      S.yield $ object [ "item_id"    .= show (pretty gitLwwRef)
+                       , "item_title" .= show (pretty nm)
+                       , "item_brief" .= show (pretty brief)
+                       ]
 
-    -- lift do
-    --   for_ rf $ \f -> do
-    --     liftIO $ print $ pretty (hashObject @HbSync (serialise f), f)
-
-    --   for_ rhf $ \(h,f) -> do
-    --     liftIO $ print $ pretty (h, f)
+    liftIO $ LBS.putStr $ A.encodePretty $ object [ "items" .= items ]
 

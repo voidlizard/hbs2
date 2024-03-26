@@ -60,6 +60,8 @@ common shared-properties
       , db-pipe
       , suckless-conf
       , attoparsec
+      , aeson
+      , aeson-pretty
       , atomic-write
       , bytestring
       , binary
