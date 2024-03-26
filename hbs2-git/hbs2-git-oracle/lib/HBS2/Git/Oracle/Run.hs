@@ -23,6 +23,7 @@ import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Ord
 import Data.Text qualified as Text
+import Data.HashMap.Strict qualified as HM
 import Control.Monad.Trans.Except
 import Data.List
 import Data.ByteString.Lazy qualified as LBS
@@ -30,13 +31,16 @@ import Safe
 
 {- HLINT ignore "Functor law" -}
 
+deriving instance Data (RefLogKey HBS2Basic)
+deriving instance Data (LWWRefKey HBS2Basic)
+
 data GitRepoRefFact =
   GitRepoFact1
   { gitLwwRef :: LWWRefKey HBS2Basic
   , gitLwwSeq :: Word64
   , gitRefLog :: RefLogKey HBS2Basic
   }
-  deriving stock (Generic)
+  deriving stock (Generic,Data)
 
 data GitRepoHeadFact =
   GitRepoHeadFact1
@@ -45,13 +49,13 @@ data GitRepoHeadFact =
   , gitRepoBrief     :: Text
   , gitRepoEncrypted :: Bool
   }
-  deriving stock (Generic)
+  deriving stock (Generic,Data)
 
 
 data GitRepoFacts =
       GitRepoRefFact  GitRepoRefFact
     | GitRepoHeadFact HashRef GitRepoHeadFact
-    deriving stock (Generic)
+    deriving stock (Generic,Data)
 
 
 instance Serialise GitRepoRefFact
@@ -60,7 +64,7 @@ instance Serialise GitRepoFacts
 
 instance Pretty GitRepoFacts  where
   pretty (GitRepoRefFact x)    = pretty x
-  pretty (GitRepoHeadFact _ x) = pretty x
+  pretty (GitRepoHeadFact ha x) = pretty ("gitrpoheadfact",ha,x)
 
 instance Pretty GitRepoRefFact where
   pretty (GitRepoFact1{..}) =
@@ -71,9 +75,10 @@ instance Pretty GitRepoHeadFact where
     parens ( "gitrepoheadfact1" <+>  hsep [pretty gitRepoHeadRef])
 
 
-runOracle :: forall m  . MonadUnliftIO m
-          => Oracle m ()
-runOracle = do
+runOracleIndex :: forall m  . MonadUnliftIO m
+               => PubKey 'Sign HBS2Basic
+               -> Oracle m ()
+runOracleIndex auPk = do
   debug "hbs2-git-oracle"
 
   debug "list all git references from peer"
@@ -141,7 +146,6 @@ runOracle = do
 
   rchanAPI <- asks _refchanAPI
   chan  <- asks _refchanId
-  auPk  <- asks _refchanAuthor
 
   auCreds <- runKeymanClient do
               loadCredentials auPk >>= orThrowUser "can't load credentials"
@@ -153,4 +157,67 @@ runOracle = do
     let box = makeSignedBox @L4Proto ppk psk (LBS.toStrict $ serialise f)
     void $ callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
     debug $ "posted tx" <+> pretty (hashObject @HbSync (serialise f))
+
+
+runDump :: forall m  . MonadUnliftIO m
+        => Oracle m ()
+runDump = do
+  chan <- asks _refchanId
+  rchanAPI <- asks _refchanAPI
+  sto      <- asks _storage
+
+  void $ runMaybeT do
+
+    rv <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) rchanAPI chan)
+            >>= toMPlus >>= toMPlus
+
+    liftIO $ print $ pretty rv
+
+    facts <- S.toList_ do
+      walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
+        Left{} -> pure ()
+        Right txs -> do
+          for_ txs $ \htx -> void $ runMaybeT do
+            getBlock sto (fromHashRef htx)
+             >>= toMPlus
+             <&> deserialiseOrFail @(RefChanUpdate L4Proto)
+             >>= toMPlus
+             >>= \case
+                   Propose _ box -> pure box
+                   _             -> mzero
+             <&> unboxSignedBox0
+             >>= toMPlus
+             <&> snd
+             >>= \(ProposeTran _ box) -> toMPlus (unboxSignedBox0 box)
+             <&> snd
+             <&> deserialiseOrFail @GitRepoFacts . LBS.fromStrict
+             >>= toMPlus
+             >>= lift . S.yield
+
+    let rf  = [ (HashRef (hashObject $ serialise f), f)
+              | f@GitRepoFact1{} <-  universeBi facts
+              ] & HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2)
+
+
+    let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
+              & HM.fromList
+
+    for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
+      let d = HM.lookup k rhf
+      let nm    = maybe "" gitRepoName d
+      let brief = maybe "" gitRepoBrief d
+      liftIO $ print $ "repo"
+                  <+> pretty gitLwwRef
+                  <+> pretty nm
+                  <+> pretty brief
+      pure ()
+
+    -- let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
+
+    -- lift do
+    --   for_ rf $ \f -> do
+    --     liftIO $ print $ pretty (hashObject @HbSync (serialise f), f)
+
+    --   for_ rhf $ \(h,f) -> do
+    --     liftIO $ print $ pretty (h, f)
 

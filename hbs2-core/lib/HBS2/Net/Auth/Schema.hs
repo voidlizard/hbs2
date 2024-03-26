@@ -5,7 +5,7 @@ module HBS2.Net.Auth.Schema
   , module HBS2.Net.Proto.Types
   ) where
 
-import HBS2.Prelude
+import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.Net.Proto.Types
 import HBS2.Hash
@@ -22,7 +22,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString (ByteString)
 import Data.ByteArray ( convert)
 
-data HBS2Basic
+data HBS2Basic = HBS2Basic
+                 deriving stock Data
 
 type instance Encryption L4Proto = HBS2Basic
 

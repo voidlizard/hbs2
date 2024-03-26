@@ -117,7 +117,6 @@ browserRootPage syn = rootPage do
             p_ (toHtml s)
 
 
-
 channelPage :: Monad m => RefChanId L4Proto -> HtmlT m ()
 channelPage chan = rootPage $ pure ()
 

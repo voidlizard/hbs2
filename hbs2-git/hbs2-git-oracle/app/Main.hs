@@ -6,15 +6,16 @@ import HBS2.Git.Oracle.Run
 
 import Options.Applicative as O
 
+
+type PKS = PubKey 'Sign HBS2Basic
+
+data RunMode =
+    RunIndex PKS
+  | RunDump
+
 main :: IO ()
 main = do
-  let parser = runApp
-                <$>  flag False True (    long "serve"
-                        <> short 's'
-                        <> help "serve"
-                     )
-                <*> option pkey ( long "refchan" <> short 'r' <> help "refchan to post" )
-                <*> option pkey ( long "author"  <> short 'a' <> help "author" )
+  let parser = hsubparser ( pRunIndexCmd <> pRunDumpCmd )
 
   join $ execParser (O.info (parser <**> helper)
               ( fullDesc
@@ -22,21 +23,36 @@ main = do
              <> header "hbs2-git-oracle"))
 
   where
-    pkey = maybeReader fromStringMay
+    pkey = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+
+    pRunIndexCmd = command "index" ( O.info pRunIndex (progDesc "run index")  )
+
+    pRunIndex = do
+      chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan to post" )
+      author <- option pkey ( long "author"  <> short 'a' <> help "author" )
+      pure $ runApp chan (RunIndex author)
+
+    pRunDumpCmd = command "dump" ( O.info pRunDump (progDesc "run index")  )
+    pRunDump = do
+      chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan to post" )
+      pure $ runApp chan RunDump
+
+
 
 runApp :: MonadUnliftIO m
-       => Bool
-       -> RefChanId L4Proto
-       -> RefChanAuthor L4Proto
+       => RefChanId L4Proto
+       -> RunMode
        -> m ()
-runApp _ rchan author = do
+runApp chan mode = do
 
   setLogging @DEBUG  (toStderr . logPrefix "[debug] ")
   setLogging @WARN   (toStderr . logPrefix "[warn]  ")
   setLogging @ERROR  (toStderr . logPrefix "[error] ")
   setLogging @NOTICE (toStderr . logPrefix "[debug] ")
 
-  runWithOracleEnv rchan author runOracle
+  runWithOracleEnv chan $ case mode of
+    RunIndex a  -> runOracleIndex a
+    RunDump{}   -> runDump
 
   `finally` do
       setLoggingOff @DEBUG

@@ -17,7 +17,7 @@ import Codec.Serialise
 data OracleEnv =
   OracleEnv
   { _refchanId     :: RefChanId L4Proto
-  , _refchanAuthor :: RefChanAuthor L4Proto
+  -- , _refchanAuthor :: RefChanAuthor L4Proto
   , _peerAPI       :: ServiceCaller PeerAPI UNIX
   , _reflogAPI     :: ServiceCaller RefLogAPI UNIX
   , _refchanAPI    :: ServiceCaller RefChanAPI UNIX
@@ -39,10 +39,10 @@ newtype Oracle m a =
 
 runWithOracleEnv ::  MonadUnliftIO m
                  => RefChanId L4Proto
-                 -> RefChanAuthor L4Proto
+                 -- -> RefChanAuthor L4Proto
                  -> Oracle m ()
                  -> m ()
-runWithOracleEnv rchan author m = do
+runWithOracleEnv rchan m = do
 
   soname <- detectRPC
                `orDie` "can't locate rpc"
@@ -58,7 +58,7 @@ runWithOracleEnv rchan author m = do
   let sto = AnyStorage (StorageClient storageAPI)
 
   env <- pure $ OracleEnv rchan
-                          author
+                          -- author
                           peerAPI
                           reflogAPI
                           refchanAPI
