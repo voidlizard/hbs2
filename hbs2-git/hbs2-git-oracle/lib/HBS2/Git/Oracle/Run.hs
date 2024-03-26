@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE NumericUnderscores #-}
 module HBS2.Git.Oracle.Run where
 
 import HBS2.Git.Oracle.Prelude
@@ -12,11 +11,6 @@ import HBS2.Actors.Peer
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Data.Types.SignedBox
-
-import HBS2.Net.Messaging
-import HBS2.Net.Messaging.Pipe
-import HBS2.Net.Proto.Service
-import HBS2.Actors.Peer
 
 import HBS2.KeyMan.Keys.Direct
 
@@ -186,7 +180,7 @@ runDump pks = do
 
   debug $ "fucking dump!" <+> pretty self
 
-  let cmd = proc "hbs2-git-oracle" ["pipe", "-r", show (pretty (AsBase58 pks))]
+  let cmd = proc self ["pipe", "-r", show (pretty (AsBase58 pks))]
               & setStdin createPipe
               & setStdout createPipe
 
@@ -297,7 +291,7 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 instance HasProtocol PIPE (ServiceProto BrowserPluginAPI PIPE) where
   type instance ProtocolId (ServiceProto BrowserPluginAPI PIPE) = 0xDEADF00D123
   type instance Encoded PIPE = ByteString
-  decode = either (error.show) Just . deserialiseOrFail
+  decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
 -- Some "deferred" implementation for our monad
