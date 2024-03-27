@@ -1,6 +1,7 @@
 module Main where
 
 import HBS2.Git.Oracle.Prelude
+import HBS2.Git.Oracle.Facts
 import HBS2.Git.Oracle.App
 import HBS2.Git.Oracle.Run
 

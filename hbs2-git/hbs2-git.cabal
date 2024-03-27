@@ -176,6 +176,8 @@ library hbs2-git-oracle-oracle-lib
       HBS2.Git.Oracle.Prelude
       HBS2.Git.Oracle.App
       HBS2.Git.Oracle.Run
+      HBS2.Git.Oracle.State
+      HBS2.Git.Oracle.Facts
 
     build-depends:    base, hbs2-git
                     , base16-bytestring

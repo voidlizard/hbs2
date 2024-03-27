@@ -5,14 +5,22 @@ module HBS2.Git.Oracle.App
   ( OracleEnv(..)
   , Oracle(..)
   , runWithOracleEnv
+  , withState
   ) where
 
 import HBS2.Git.Oracle.Prelude
+import HBS2.Git.Oracle.State
 
 import HBS2.Peer.CLI.Detect
 
-import GHC.TypeLits
-import Codec.Serialise
+import HBS2.System.Dir
+
+import DBPipe.SQLite
+
+import System.Directory
+
+myself :: FilePath
+myself = "hbs2-git-oracle"
 
 data OracleEnv =
   OracleEnv
@@ -23,6 +31,7 @@ data OracleEnv =
   , _refchanAPI    :: ServiceCaller RefChanAPI UNIX
   , _lwwAPI        :: ServiceCaller LWWRefAPI UNIX
   , _storage       :: AnyStorage
+  , _db            :: DBPipeEnv
   }
   deriving stock (Generic)
 
@@ -57,13 +66,25 @@ runWithOracleEnv rchan m = do
   storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
   let sto = AnyStorage (StorageClient storageAPI)
 
+  let dbname = show (pretty (AsBase58 rchan))
+
+  dbpath <- liftIO (getXdgDirectory XdgData  myself)
+
+  let dbfile = dbpath </> dbname <> ".db"
+
+  mkdir dbpath
+
+  debug $ red "DBPATH" <+> pretty dbfile
+
+  db <- newDBPipeEnv dbPipeOptsDef dbfile
+
   env <- pure $ OracleEnv rchan
-                          -- author
                           peerAPI
                           reflogAPI
                           refchanAPI
                           lwwAPI
                           sto
+                          db
 
   let endpoints = [ Endpoint @UNIX  peerAPI
                   , Endpoint @UNIX  reflogAPI
@@ -78,5 +99,19 @@ runWithOracleEnv rchan m = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    lift $ runReaderT (fromOracle m) env
+    lift $ runReaderT (fromOracle (withState evolveDB >> m)) env
+
+class Monad m => HasDB m where
+  getDB :: m DBPipeEnv
+
+instance Monad m => HasDB (Oracle m) where
+  getDB = asks _db
+
+
+withState :: forall m a . (MonadUnliftIO m, HasDB m)
+          => DBPipeM m a
+          -> m a
+withState dbAction = do
+  db <- getDB
+  withDB db dbAction
 

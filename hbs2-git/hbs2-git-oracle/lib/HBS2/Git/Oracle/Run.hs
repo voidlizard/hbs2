@@ -5,6 +5,8 @@ module HBS2.Git.Oracle.Run where
 
 import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.App
+import HBS2.Git.Oracle.Facts
+import HBS2.Git.Oracle.State
 
 import HBS2.Actors.Peer
 
@@ -25,7 +27,6 @@ import Lens.Micro.Platform hiding ( (.=) )
 
 import Data.Aeson as Aeson
 import Data.Aeson.Encode.Pretty qualified as A
-import Data.Word
 import Streaming.Prelude qualified as S
 import Codec.Serialise
 import Control.Monad.Trans.Maybe
@@ -37,55 +38,8 @@ import Data.ByteString.Lazy qualified as LBS
 import System.Process.Typed
 
 import System.Environment (getProgName, getArgs)
-import System.Exit
-
-type PKS = PubKey 'Sign HBS2Basic
 
 {- HLINT ignore "Functor law" -}
-
-deriving instance Data (RefLogKey HBS2Basic)
-deriving instance Data (LWWRefKey HBS2Basic)
-
-data GitRepoRefFact =
-  GitRepoFact1
-  { gitLwwRef :: LWWRefKey HBS2Basic
-  , gitLwwSeq :: Word64
-  , gitRefLog :: RefLogKey HBS2Basic
-  }
-  deriving stock (Generic,Data)
-
-data GitRepoHeadFact =
-  GitRepoHeadFact1
-  { gitRepoHeadRef   :: HashRef
-  , gitRepoName      :: Text
-  , gitRepoBrief     :: Text
-  , gitRepoEncrypted :: Bool
-  }
-  deriving stock (Generic,Data)
-
-
-data GitRepoFacts =
-      GitRepoRefFact  GitRepoRefFact
-    | GitRepoHeadFact HashRef GitRepoHeadFact
-    deriving stock (Generic,Data)
-
-
-instance Serialise GitRepoRefFact
-instance Serialise GitRepoHeadFact
-instance Serialise GitRepoFacts
-
-instance Pretty GitRepoFacts  where
-  pretty (GitRepoRefFact x)    = pretty x
-  pretty (GitRepoHeadFact ha x) = pretty ("gitrpoheadfact",ha,x)
-
-instance Pretty GitRepoRefFact where
-  pretty (GitRepoFact1{..}) =
-    parens ( "gitrepofact1" <+>  hsep [pretty gitLwwRef, pretty gitLwwSeq, pretty gitRefLog])
-
-instance Pretty GitRepoHeadFact where
-  pretty (GitRepoHeadFact1{..}) =
-    parens ( "gitrepoheadfact1" <+>  hsep [pretty gitRepoHeadRef])
-
 
 runOracleIndex :: forall m  . MonadUnliftIO m
                => PubKey 'Sign HBS2Basic
@@ -112,6 +66,8 @@ runOracleIndex auPk = do
                            (lwwSeq lw)
                            (RefLogKey rk)
 
+  db <- asks _db
+
   facts <- S.toList_ do
 
     for_ repos $ \what@GitRepoFact1{..} -> do
@@ -128,6 +84,8 @@ runOracleIndex auPk = do
 
                     Right hxs -> do
                       for_ hxs $ \htx -> void $ runMaybeT do
+                        done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+                        guard (not done)
                         getBlock sto (fromHashRef htx) >>= toMPlus
                            <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                            >>= toMPlus
@@ -137,6 +95,10 @@ runOracleIndex auPk = do
         let tx' = maximumByMay (comparing fst) txs
 
         for_ tx' $ \(n,tx) -> void $ runMaybeT do
+          liftIO $ withDB db do
+            transactional do
+              for_ [ t | (i,t) <- txs, i < n ] $ \tran -> do
+                insertTxProcessed (HashVal tran)
 
           (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
                                          >>= toMPlus
@@ -152,9 +114,15 @@ runOracleIndex auPk = do
           let f2 = GitRepoHeadFact
                       repoFactHash
                       (GitRepoHeadFact1 rhh name brief enc)
+          let f3 = GitRepoHeadVersionFact repoFactHash (GitRepoHeadVersionFact1 _repoHeadTime)
+          let f4 = GitRepoTxFact gitLwwRef tx
 
           lift $ S.yield f1
           lift $ S.yield f2
+          lift $ S.yield f3
+          lift $ S.yield f4
+
+          liftIO $ withDB db (insertTxProcessed (HashVal tx))
 
   rchanAPI <- asks _refchanAPI
   chan  <- asks _refchanId
@@ -170,6 +138,10 @@ runOracleIndex auPk = do
     void $ callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
     debug $ "posted tx" <+> pretty (hashObject @HbSync (serialise f))
 
+  -- FIXME: ASAP-wait-refchan-actually-updated
+  pause @'Seconds 0.25
+
+  updateState
 
 runDump :: forall m  . MonadUnliftIO m
         => PKS
@@ -178,13 +150,9 @@ runDump :: forall m  . MonadUnliftIO m
 runDump pks = do
   self <- liftIO getProgName
 
-  debug $ "fucking dump!" <+> pretty self
-
   let cmd = proc self ["pipe", "-r", show (pretty (AsBase58 pks))]
               & setStdin createPipe
               & setStdout createPipe
-
-  -- let w
 
   flip runContT pure do
 
@@ -235,8 +203,6 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
       rv <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) rchanAPI chan)
               >>= toMPlus >>= toMPlus
 
-      debug $ "AAAAAA" <+> pretty rv
-
       facts <- S.toList_ do
         walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
           Left{} -> pure ()
@@ -271,13 +237,14 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
         let nm    = maybe "" gitRepoName d
         let brief = maybe "" gitRepoBrief d
 
-        S.yield $ object [ "item_id"    .= show (pretty gitLwwRef)
-                         , "item_title" .= show (pretty nm)
-                         , "item_brief" .= show (pretty brief)
-                         ]
+        S.yield $ Aeson.toJSON [ show (pretty gitLwwRef)
+                               , show (pretty nm)
+                               , show (pretty brief)
+                               ]
 
-      let root = object [ "items" .= items
+      let root = object [ "rows"  .= items
                         , "state" .= show (pretty rv)
+                        , "desc"  .= [ "entity", "name", "brief" ]
                         ]
 
       pure $ A.encodePretty root
@@ -306,11 +273,6 @@ runPipe = do
   chan <- asks _refchanId
   debug "run pipe"
 
-  -- liftIO $ hSetBuffering stdin NoBuffering
-
-  -- liftIO $ LBS.getContents >>= LBS.hPutStr stderr
-  -- forever (pause @'Seconds 10)
-
   flip runContT pure do
 
     server  <- newMessagingPipe (stdin,stdout)
@@ -323,4 +285,74 @@ runPipe = do
         runProto @PIPE
           [ makeResponse (makeServer @BrowserPluginAPI)
           ]
+
+
+updateState :: MonadUnliftIO m => Oracle m ()
+updateState = do
+  debug $ yellow "update state"
+
+  chan  <- asks _refchanId
+  rchanAPI <- asks _refchanAPI
+  sto  <- asks  _storage
+
+  void $ runMaybeT do
+
+    rv <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) rchanAPI chan)
+            >>= toMPlus >>= toMPlus
+
+    facts <- S.toList_ do
+      walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
+        Left{} -> pure ()
+        Right txs -> do
+          -- FIXME: skip-already-processed-blocks
+          for_ txs $ \htx -> void $ runMaybeT do
+            getBlock sto (fromHashRef htx)
+             >>= toMPlus
+             <&> deserialiseOrFail @(RefChanUpdate L4Proto)
+             >>= toMPlus
+             >>= \case
+                   Propose _ box -> pure box
+                   _             -> mzero
+             <&> unboxSignedBox0
+             >>= toMPlus
+             <&> snd
+             >>= \(ProposeTran _ box) -> toMPlus (unboxSignedBox0 box)
+             <&> snd
+             <&> deserialiseOrFail @GitRepoFacts . LBS.fromStrict
+             >>= toMPlus
+             >>= lift . S.yield
+
+    let rf  = [ (HashRef (hashObject $ serialise f), f)
+              | f@GitRepoFact1{} <-  universeBi facts
+              ] & HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2)
+
+
+    let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
+              & HM.fromList
+
+    let rhtf  = [ (h,f) | (GitRepoHeadVersionFact h f) <- universeBi facts ]
+
+    let done =  [ (r,t) | GitRepoTxFact r t <- universeBi facts ]
+
+    lift $ withState do
+
+      transactional do
+
+        for_ done $ \(r,t) -> do
+          debug $ red "DONE" <+> pretty (r,t)
+
+        for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
+
+          insertGitRepo (GitRepoKey gitLwwRef)
+
+          void $ runMaybeT do
+            d <- HM.lookup k rhf & toMPlus
+            lift do
+              insertGitRepoName (GitRepoKey gitLwwRef, HashVal k) (gitRepoName d)
+              insertGitRepoBrief(GitRepoKey gitLwwRef, HashVal k) (gitRepoBrief d)
+
+            pure ()
+
+        for_ rhtf  $ \(k, GitRepoHeadVersionFact1 v) -> do
+          insertGitRepoHeadVersion (HashVal k) v
 
