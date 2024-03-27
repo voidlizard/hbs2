@@ -84,9 +84,9 @@ runOracleIndex auPk = do
 
                     Right hxs -> do
                       for_ hxs $ \htx -> void $ runMaybeT do
-                        done  <- liftIO $ withDB db (isTxProcessed (HashVal htx))
-                        done1 <- liftIO $ withDB db (isTxProcessed (processedRepoTx (gitLwwRef,htx)))
-                        guard (not done && not done1)
+                        -- done  <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+                        -- done1 <- liftIO $ withDB db (isTxProcessed (processedRepoTx (gitLwwRef,htx)))
+                        -- guard (not done && not done1)
                         getBlock sto (fromHashRef htx) >>= toMPlus
                            <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                            >>= toMPlus
