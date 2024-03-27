@@ -287,8 +287,8 @@ updateState = do
         Right txs -> do
           -- FIXME: skip-already-processed-blocks
           for_ txs $ \htx -> void $ runMaybeT do
-            done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
-            guard (not done)
+            -- done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+            -- guard (not done)
             getBlock sto (fromHashRef htx)
              >>= toMPlus
              <&> deserialiseOrFail @(RefChanUpdate L4Proto)
