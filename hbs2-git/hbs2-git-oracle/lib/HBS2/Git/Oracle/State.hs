@@ -2,9 +2,8 @@ module HBS2.Git.Oracle.State where
 
 import HBS2.Git.Oracle.Prelude
 import HBS2.Hash
-import DBPipe.SQLite
 
-import Data.Coerce
+import Data.Aeson
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Word
 
@@ -75,11 +74,17 @@ newtype GitRepoKey = GitRepoKey (LWWRefKey HBS2Basic)
 newtype HashVal    = HashVal HashRef
                      deriving stock Generic
 
+instance ToJSON HashVal where
+  toJSON (HashVal x) = toJSON (show $ pretty x)
+
 instance ToField GitRepoKey where
   toField (GitRepoKey r) = toField $ show $ pretty $ AsBase58 r
 
 instance ToField HashVal where
   toField (HashVal r) = toField $ show $ pretty $ AsBase58 r
+
+instance FromField HashVal where
+  fromField = fmap (HashVal . fromString @HashRef) . fromField @String
 
 insertGitRepo :: MonadUnliftIO m => GitRepoKey -> DBPipeM m ()
 insertGitRepo repo = do

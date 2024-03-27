@@ -5,6 +5,7 @@ module HBS2.Git.Oracle.App
   ( OracleEnv(..)
   , Oracle(..)
   , runWithOracleEnv
+  , withOracleEnv
   , withState
   ) where
 
@@ -99,7 +100,11 @@ runWithOracleEnv rchan m = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    lift $ runReaderT (fromOracle (withState evolveDB >> m)) env
+    lift $ withOracleEnv env m
+
+withOracleEnv :: MonadUnliftIO m => OracleEnv -> Oracle m a -> m a
+withOracleEnv env action = do
+ runReaderT (fromOracle (withState evolveDB >> action)) env
 
 class Monad m => HasDB m where
   getDB :: m DBPipeEnv

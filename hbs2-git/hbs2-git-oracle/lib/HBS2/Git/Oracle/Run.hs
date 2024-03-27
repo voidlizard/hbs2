@@ -36,7 +36,7 @@ import Data.Text qualified as Text
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy qualified as LBS
 import System.Process.Typed
-
+import Text.InterpolatedString.Perl6 (qc)
 import System.Environment (getProgName, getArgs)
 
 {- HLINT ignore "Functor law" -}
@@ -195,60 +195,34 @@ class HasOracleEnv m where
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
   handleMethod _ = do
     env <- getOracleEnv
-    let chan  = _refchanId env
-    let rchanAPI = _refchanAPI env
-    let sto = _storage env
-
-    runMaybeT do
-
-      rv <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) rchanAPI chan)
-              >>= toMPlus >>= toMPlus
-
-      facts <- S.toList_ do
-        walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
-          Left{} -> pure ()
-          Right txs -> do
-            for_ txs $ \htx -> void $ runMaybeT do
-              getBlock sto (fromHashRef htx)
-               >>= toMPlus
-               <&> deserialiseOrFail @(RefChanUpdate L4Proto)
-               >>= toMPlus
-               >>= \case
-                     Propose _ box -> pure box
-                     _             -> mzero
-               <&> unboxSignedBox0
-               >>= toMPlus
-               <&> snd
-               >>= \(ProposeTran _ box) -> toMPlus (unboxSignedBox0 box)
-               <&> snd
-               <&> deserialiseOrFail @GitRepoFacts . LBS.fromStrict
-               >>= toMPlus
-               >>= lift . S.yield
-
-      let rf  = [ (HashRef (hashObject $ serialise f), f)
-                | f@GitRepoFact1{} <-  universeBi facts
-                ] & HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2)
+    -- let chan  = _refchanId env
+    -- let rchanAPI = _refchanAPI env
+    -- let sto = _storage env
 
 
-      let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
-                & HM.fromList
-
-      items <- S.toList_ $ for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
-        let d = HM.lookup k rhf
-        let nm    = maybe "" gitRepoName d
-        let brief = maybe "" gitRepoBrief d
-
-        S.yield $ Aeson.toJSON [ show (pretty gitLwwRef)
-                               , show (pretty nm)
-                               , show (pretty brief)
-                               ]
+    withOracleEnv env do
+      items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
+                SELECT
+                  g.ref,
+                  gn.name,
+                  gb.brief
+                FROM
+                  gitrepo AS g
+                INNER JOIN
+                  gitreponame AS gn ON g.ref = gn.ref
+                INNER JOIN
+                  gitrepoheadversion AS ghv ON gn.hash = ghv.hash
+                LEFT JOIN
+                  gitrepobrief AS gb ON g.ref = gb.ref AND ghv.hash = gb.hash
+                GROUP BY
+                  g.ref, gn.name
+                |]
 
       let root = object [ "rows"  .= items
-                        , "state" .= show (pretty rv)
                         , "desc"  .= [ "entity", "name", "brief" ]
                         ]
 
-      pure $ A.encodePretty root
+      pure $ Just $ A.encodePretty root
 
 -- Codec for protocol
 instance HasProtocol PIPE (ServiceProto BrowserPluginAPI PIPE) where
@@ -279,6 +253,11 @@ runPipe = do
     server  <- newMessagingPipe (stdin,stdout)
 
     void $ ContT $ withAsync $ runMessagingPipe server
+
+    void $ ContT $ withAsync $ forever do
+      debug $ yellow "updateState"
+      updateState
+      pause @'Seconds 60
 
     -- make server protocol responder
     -- void $ ContT $ withAsync $ flip
