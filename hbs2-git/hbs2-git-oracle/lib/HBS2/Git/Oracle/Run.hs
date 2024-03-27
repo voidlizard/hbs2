@@ -84,8 +84,9 @@ runOracleIndex auPk = do
 
                     Right hxs -> do
                       for_ hxs $ \htx -> void $ runMaybeT do
-                        done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
-                        guard (not done)
+                        done  <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+                        done1 <- liftIO $ withDB db (isTxProcessed (processedRepoTx (gitLwwRef,htx)))
+                        guard (not done && not done1)
                         getBlock sto (fromHashRef htx) >>= toMPlus
                            <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                            >>= toMPlus
@@ -139,7 +140,7 @@ runOracleIndex auPk = do
     debug $ "posted tx" <+> pretty (hashObject @HbSync (serialise f))
 
   -- FIXME: ASAP-wait-refchan-actually-updated
-  pause @'Seconds 0.25
+  -- pause @'Seconds 0.25
 
   updateState
 
@@ -294,6 +295,7 @@ updateState = do
   chan  <- asks _refchanId
   rchanAPI <- asks _refchanAPI
   sto  <- asks  _storage
+  db   <- asks _db
 
   void $ runMaybeT do
 
@@ -306,6 +308,8 @@ updateState = do
         Right txs -> do
           -- FIXME: skip-already-processed-blocks
           for_ txs $ \htx -> void $ runMaybeT do
+            done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+            guard (not done)
             getBlock sto (fromHashRef htx)
              >>= toMPlus
              <&> deserialiseOrFail @(RefChanUpdate L4Proto)
@@ -320,7 +324,7 @@ updateState = do
              <&> snd
              <&> deserialiseOrFail @GitRepoFacts . LBS.fromStrict
              >>= toMPlus
-             >>= lift . S.yield
+             >>= lift . S.yield . (htx,)
 
     let rf  = [ (HashRef (hashObject $ serialise f), f)
               | f@GitRepoFact1{} <-  universeBi facts
@@ -338,8 +342,11 @@ updateState = do
 
       transactional do
 
-        for_ done $ \(r,t) -> do
-          debug $ red "DONE" <+> pretty (r,t)
+        for_ done $ \w -> do
+          insertTxProcessed (processedRepoTx w)
+
+        for_  facts $ \(t,_) -> do
+          insertTxProcessed (HashVal t)
 
         for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
 

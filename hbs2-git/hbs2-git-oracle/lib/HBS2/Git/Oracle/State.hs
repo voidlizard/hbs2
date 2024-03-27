@@ -1,11 +1,15 @@
 module HBS2.Git.Oracle.State where
 
 import HBS2.Git.Oracle.Prelude
+import HBS2.Hash
 import DBPipe.SQLite
 
 import Data.Coerce
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Word
+
+processedRepoTx :: (LWWRefKey HBS2Basic, HashRef) -> HashVal
+processedRepoTx w = HashVal $ HashRef $ hashObject @HbSync (serialise w)
 
 evolveDB :: MonadUnliftIO m => DBPipeM m ()
 evolveDB = do
@@ -124,8 +128,10 @@ insertTxProcessed hash = do
 isTxProcessed :: MonadUnliftIO m => HashVal -> DBPipeM m Bool
 isTxProcessed hash = do
   results <- select [qc|
-    select 1 from txprocessed where hash = ?
+    select 1 from txprocessed where hash = ? limit 1
   |] (Only hash)
   pure $ not $ null (results :: [Only Int])
+
+
 
 

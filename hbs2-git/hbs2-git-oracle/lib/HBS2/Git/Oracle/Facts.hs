@@ -1,6 +1,7 @@
 module HBS2.Git.Oracle.Facts where
 
 import HBS2.Git.Oracle.Prelude
+import HBS2.Hash
 import Data.Word
 import Codec.Serialise
 
@@ -62,4 +63,5 @@ instance Pretty GitRepoHeadFact where
 
 instance Pretty GitRepoHeadVersionFact where
   pretty (GitRepoHeadVersionFact1 v) = pretty v
+
 
