@@ -1,11 +1,23 @@
+{-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
+{-# LANGUAGE DefaultSignatures #-}
 module HBS2.Git.Oracle.State where
 
 import HBS2.Git.Oracle.Prelude
 import HBS2.Hash
 
+import HBS2.Git.Oracle.Facts
+
+import DBPipe.SQLite hiding (insert,columnName)
+import DBPipe.SQLite qualified as SQL
+import DBPipe.SQLite.Generic
+
+import GHC.Generics
 import Data.Aeson
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Coerce
 import Data.Word
+import Data.Text qualified as Text
 
 processedRepoTx :: (LWWRefKey HBS2Basic, HashRef) -> HashVal
 processedRepoTx w = HashVal $ HashRef $ hashObject @HbSync (serialise w)
@@ -13,12 +25,7 @@ processedRepoTx w = HashVal $ HashRef $ hashObject @HbSync (serialise w)
 evolveDB :: MonadUnliftIO m => DBPipeM m ()
 evolveDB = do
   debug $ yellow "evolveDB"
-  gitRepoTable
   gitRepoFactTable
-  gitRepoNameTable
-  gitRepoBriefTable
-  gitRepoHeadTable
-  gitRepoHeadVersionTable
   txProcessedTable
 
 txProcessedTable :: MonadUnliftIO m => DBPipeM m ()
@@ -29,63 +36,20 @@ txProcessedTable = do
     )
   |]
 
-gitRepoTable :: MonadUnliftIO m => DBPipeM m ()
-gitRepoTable = do
-  ddl [qc|
-    create table if not exists gitrepo
-    ( ref text not null primary key
-    )
-  |]
 
 gitRepoFactTable :: MonadUnliftIO m => DBPipeM m ()
 gitRepoFactTable = do
   ddl [qc|
     create table if not exists gitrepofact
-    ( ref text not null
-    , hash text not null
-    , primary key (ref,hash)
-    )
-  |]
-
-gitRepoNameTable :: MonadUnliftIO m => DBPipeM m ()
-gitRepoNameTable = do
-  ddl [qc|
-    create table if not exists gitreponame
-    ( ref text not null
-    , hash text not null
-    , name text not null
-    , primary key (ref, hash)
-    )
-  |]
-
-gitRepoBriefTable :: MonadUnliftIO m => DBPipeM m ()
-gitRepoBriefTable = do
-  ddl [qc|
-    create table if not exists gitrepobrief
-    ( ref text not null
-    , hash text not null
-    , brief text not null
-    , primary key (ref, hash)
-    )
-  |]
-
-gitRepoHeadTable :: MonadUnliftIO m => DBPipeM m ()
-gitRepoHeadTable = do
-  ddl [qc|
-    create table if not exists gitrepohead
-    ( ref  text not null
-    , head text not null
-    , primary key (ref)
-    )
-  |]
-
-gitRepoHeadVersionTable :: MonadUnliftIO m => DBPipeM m ()
-gitRepoHeadVersionTable = do
-  ddl [qc|
-    create table if not exists gitrepoheadversion
-    ( hash text not null
-    , version integer not null
-    , primary key (hash)
+    ( lwwref        text not null
+    , lwwseq        integer not null
+    , reflog        text not null
+    , tx            text not null
+    , repohead      text not null
+    , name          text null
+    , brief         text null
+    , encrypted     text null
+    , primary key (lwwref,seq,reflog,tx,repohead)
     )
   |]
 
@@ -107,53 +71,17 @@ instance ToField HashVal where
 instance FromField HashVal where
   fromField = fmap (HashVal . fromString @HashRef) . fromField @String
 
-insertGitRepo :: MonadUnliftIO m => GitRepoKey -> DBPipeM m ()
-insertGitRepo repo = do
-  insert [qc|
-    insert into gitrepo(ref) values(?)
-    on conflict (ref) do nothing
-  |] (Only repo)
-
-
 insertGitRepoFact :: MonadUnliftIO m => GitRepoKey -> HashVal -> DBPipeM m ()
 insertGitRepoFact repo h = do
-  insert [qc|
+  SQL.insert [qc|
     insert into gitrepofact(ref,hash) values(?,?)
     on conflict (ref,hash) do nothing
   |] (repo,h)
 
-insertGitRepoName :: MonadUnliftIO m
-                  => (GitRepoKey, HashVal)
-                  -> Text
-                  -> DBPipeM m ()
-insertGitRepoName (r,h)  name = do
-  insert [qc|
-    insert into gitreponame (ref,hash,name) values(?,?,?)
-    on conflict (ref,hash) do update set name = excluded.name
-  |] (r,h,name)
-
-insertGitRepoBrief :: MonadUnliftIO m
-                   => (GitRepoKey, HashVal)
-                   -> Text
-                   -> DBPipeM m ()
-insertGitRepoBrief (r,h) b = do
-  insert [qc|
-    insert into gitrepobrief (ref,hash,brief) values(?,?,?)
-    on conflict (ref,hash) do update set brief = excluded.brief
-  |] (r,h,b)
-
-
-insertGitRepoHeadVersion :: MonadUnliftIO m => HashVal -> Word64 -> DBPipeM m ()
-insertGitRepoHeadVersion hashVal version = do
-  insert [qc|
-    insert into gitrepoheadversion (hash, version) values(?,?)
-    on conflict (hash) do update set version = excluded.version
-  |] (hashVal, version)
-
 
 insertTxProcessed :: MonadUnliftIO m => HashVal -> DBPipeM m ()
 insertTxProcessed hash = do
-  insert [qc|
+  SQL.insert [qc|
     insert into txprocessed (hash) values (?)
     on conflict do nothing
   |] (Only hash)
@@ -166,10 +94,36 @@ isTxProcessed hash = do
   |] (Only hash)
   pure $ not $ null (results :: [Only Int])
 
-insertGitRepoHead :: MonadUnliftIO m => GitRepoKey -> HashVal -> DBPipeM m ()
-insertGitRepoHead repo headRef = do
-  insert [qc|
-    insert into gitrepohead (ref, head) values (?, ?)
-    on conflict (ref) do nothing
-  |] (repo, headRef)
+
+
+instance HasTableName t => HasColumnName t GitLwwRef where
+  columnName = "lwwref"
+
+instance HasTableName t => HasColumnName t GitLwwSeq where
+  columnName = "lwwseq"
+
+instance HasTableName t => HasColumnName t GitRefLog where
+  columnName = "reflog"
+
+
+instance HasTableName GitRepoFacts where
+  tableName = "gitrepofact"
+
+
+insertRepoFacts :: (MonadUnliftIO m) => GitRepoFacts -> DBPipeM m ()
+insertRepoFacts GitRepoFacts{..} = do
+  let sql = insert @GitRepoFacts
+                   ( gitLwwRef
+                   , gitLwwSeq
+                   , gitRefLog
+                   )
+                   -- ( gitLwwRef
+                   -- , gitLwwSeq
+                   -- , gitTx
+                   -- , gitRepoHead
+                   -- , gitName
+                   -- , gitBrief
+                   -- , gitEncrypted )
+  pure ()
+
 

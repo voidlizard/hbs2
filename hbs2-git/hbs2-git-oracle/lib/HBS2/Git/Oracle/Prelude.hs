@@ -25,7 +25,7 @@ module HBS2.Git.Oracle.Prelude
   , module HBS2.Peer.RPC.Client.StorageClient
   , module HBS2.Peer.RPC.Client.Unix
 
-  , module DBPipe.SQLite
+  -- , module DBPipe.SQLite
 
   , module Data.Kind
   , module Control.Monad.Reader
@@ -59,7 +59,7 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Peer.RPC.Client.Unix
 
-import DBPipe.SQLite hiding (runPipe)
+-- import DBPipe.SQLite hiding (runPipe)
 
 import Data.Kind
 import Control.Monad.Reader

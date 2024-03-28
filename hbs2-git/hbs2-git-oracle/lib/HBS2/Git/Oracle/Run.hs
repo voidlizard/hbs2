@@ -19,6 +19,8 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx
 
+import DBPipe.SQLite
+
 import Data.ByteString.Lazy (ByteString)
 
 
@@ -61,18 +63,15 @@ runOracleIndex auPk = do
             (lw,blk) <- readLWWBlock sto r >>= toMPlus
             let rk = lwwRefLogPubKey blk
 
-            lift $ S.yield $
-              GitRepoFact1 r
-                           (lwwSeq lw)
-                           (RefLogKey rk)
+            lift $ S.yield (r,RefLogKey rk,blk)
 
   db <- asks _db
 
   facts <- S.toList_ do
 
-    for_ repos $ \what@GitRepoFact1{..} -> do
+    for_ repos $ \(lw,rk,LWWBlockData{..}) -> do
 
-      mhead <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflog (coerce gitRefLog)
+      mhead <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflog (coerce rk)
                 <&> join
 
       for_ mhead $ \mh -> do
@@ -104,26 +103,22 @@ runOracleIndex auPk = do
           (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
                                          >>= toMPlus
 
-          let enc = isJust _repoHeadGK0
           let name  = Text.take 256 $  _repoHeadName
           let brief = Text.take 1024 $ _repoHeadBrief
           let manifest = _repoManifest
 
-          let repoFactHash = hashObject @HbSync (serialise what) & HashRef
+          lift $ S.yield $ GitRepoFacts
+                             (GitLwwRef lw)
+                             (GitLwwSeq lwwRefSeed)
+                             (GitRefLog rk)
+                             (GitTx tx)
+                             (GitRepoHeadRef rhh)
+                             (GitName (Just name))
+                             (GitBrief (Just brief))
+                             (GitEncrypted _repoHeadGK0)
+                             mempty
 
-          let f1 = GitRepoRefFact what
-          let f2 = GitRepoHeadFact
-                      repoFactHash
-                      (GitRepoHeadFact1 rhh name brief enc)
-          let f3 = GitRepoHeadVersionFact rhh (GitRepoHeadVersionFact1 _repoHeadTime)
-          let f4 = GitRepoTxFact gitLwwRef tx
-
-          lift $ S.yield f1
-          lift $ S.yield f2
-          lift $ S.yield f3
-          lift $ S.yield f4
-
-          liftIO $ withDB db (insertTxProcessed (HashVal tx))
+          -- liftIO $ withDB db (insertTxProcessed (HashVal tx))
 
   rchanAPI <- asks _refchanAPI
   chan  <- asks _refchanId
@@ -157,8 +152,7 @@ runDump pks = do
 
   flip runContT pure do
 
-    -- p <- ContT $ withProcessWait cmd
-    p <- lift $ startProcess cmd -- ContT $ withProcessWait cmd
+    p <- ContT $ withProcessWait cmd
 
     let ssin = getStdin p
     let sout = getStdout p
@@ -287,8 +281,8 @@ updateState = do
         Right txs -> do
           -- FIXME: skip-already-processed-blocks
           for_ txs $ \htx -> void $ runMaybeT do
-            -- done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
-            -- guard (not done)
+            done <- liftIO $ withDB db (isTxProcessed (HashVal htx))
+            guard (not done)
             getBlock sto (fromHashRef htx)
              >>= toMPlus
              <&> deserialiseOrFail @(RefChanUpdate L4Proto)
@@ -302,32 +296,15 @@ updateState = do
              >>= \(ProposeTran _ box) -> toMPlus (unboxSignedBox0 box)
              <&> snd
              <&> deserialiseOrFail @GitRepoFacts . LBS.fromStrict
-             >>= toMPlus
              >>= lift . S.yield . (htx,)
 
-    let rf  = [ (HashRef (hashObject $ serialise f), f)
-              | f@GitRepoFact1{} <-  universeBi facts
-              ]
-    let rfm =  HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2) rf
-
-    let rhf  = [ (h, f)
-               | (GitRepoHeadFact h f) <-  universeBi facts
-               ]
-
-    let rhtf  = [ (h,f) | (GitRepoHeadVersionFact h f) <- universeBi facts ]
-
     lift $ withState $ transactional do
-      for_ rf $ \(h, GitRepoFact1{..}) -> do
-        insertGitRepo (GitRepoKey gitLwwRef)
-        insertGitRepoFact (GitRepoKey gitLwwRef) (HashVal h)
 
-      for_ rhf $ \(h, GitRepoHeadFact1{..}) -> void $ runMaybeT do
-        GitRepoFact1{..} <- HM.lookup h rfm & toMPlus
-        lift do
-          insertGitRepoName (GitRepoKey gitLwwRef , HashVal gitRepoHeadRef) gitRepoName
-          insertGitRepoBrief (GitRepoKey gitLwwRef , HashVal gitRepoHeadRef) gitRepoBrief
-          insertGitRepoHead  (GitRepoKey gitLwwRef) (HashVal gitRepoHeadRef)
+      for_ facts $ \case
+        (tx, Right f) -> do
+          debug $ "GOOD FACT" <+> pretty tx
 
-      for_ rhtf $ \(h, GitRepoHeadVersionFact1{..}) -> do
-        insertGitRepoHeadVersion (HashVal h) gitRepoHeadVersion
+        (tx, _) -> do
+          debug "BAD FACT"
+          insertTxProcessed (HashVal tx)
 
