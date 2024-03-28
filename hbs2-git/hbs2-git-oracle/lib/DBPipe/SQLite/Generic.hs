@@ -32,6 +32,9 @@ class HasColumnNames a where
   default columnNames :: (Generic a, GHasColumnNames (Rep a)) => a -> [SQLName]
   columnNames = gColumnNames . from
 
+class HasTableName t where
+  tableName :: SQLName
+
 class HasColumnName a where
   columnName :: SQLName
 
@@ -64,11 +67,11 @@ columnListPart w = SQLPart $ Text.intercalate "," [ coerce @_ @Text x | x <- col
 bindListPart :: forall a . HasColumnNames a => a -> SQLPart
 bindListPart w = SQLPart $ Text.intercalate "," [ "?" | _ <- columnNames w ]
 
-class HasColumnNames b => Insert b where
+class (HasTableName t, HasColumnNames b) => Insert t b where
   insert :: b -> SQLPart
 
-instance HasColumnNames b => Insert b where
-  insert values = [qc|insert into jopakita values({v}) ({n})|]
+instance (HasTableName t, HasColumnNames b) => Insert t b where
+  insert values = [qc|insert into {tableName @t} values({v}) ({n})|]
     where
       n = bindListPart values
       v = columnListPart values

@@ -97,4 +97,16 @@ instance ToField (RefLogKey HBS2Basic) where
 instance (FromField (RefLogKey HBS2Basic))  where
   fromField x = fromField @String x <&> fromString
 
+instance HasColumnName GitLwwRef where
+  columnName = "lwwref"
+
+instance HasColumnName GitLwwSeq where
+  columnName = "lwwseq"
+
+instance HasColumnName GitRefLog where
+  columnName = "reflog"
+
+instance HasTableName GitRepoFacts where
+  tableName = "gitrepofact"
+
 
