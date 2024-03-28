@@ -11,6 +11,7 @@ import Options.Applicative as O
 
 data RunMode =
     RunIndex PKS
+  | RunUpdate
   | RunDump PKS
   | RunPipe
 
@@ -18,7 +19,8 @@ main :: IO ()
 main = do
   let parser = hsubparser $ pRunIndexCmd <>
                             pRunDumpCmd <>
-                            pRunPipeCmd
+                            pRunPipeCmd <>
+                            pRunUpdateCmd
 
   join $ execParser (O.info (parser <**> helper)
               ( fullDesc
@@ -45,6 +47,10 @@ main = do
       chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan for queries" )
       pure $ runApp chan RunPipe
 
+    pRunUpdateCmd = command "update" ( O.info pRunUpdate (progDesc "update state")  )
+    pRunUpdate = do
+      chan   <- option pkey ( long "refchan" <> short 'r' <> help "refchan" )
+      pure $ runApp chan RunUpdate
 
 runApp :: MonadUnliftIO m
        => RefChanId L4Proto
@@ -62,6 +68,7 @@ runApp chan mode = do
     RunIndex a  -> runWithOracleEnv chan $ runOracleIndex a
     RunPipe{}   -> runWithOracleEnv chan $ runPipe
     RunDump pks -> runDump pks
+    RunUpdate   -> runWithOracleEnv chan $ updateState
 
   `finally` do
       setLoggingOff @DEBUG

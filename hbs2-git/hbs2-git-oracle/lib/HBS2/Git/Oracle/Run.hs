@@ -115,7 +115,7 @@ runOracleIndex auPk = do
           let f2 = GitRepoHeadFact
                       repoFactHash
                       (GitRepoHeadFact1 rhh name brief enc)
-          let f3 = GitRepoHeadVersionFact repoFactHash (GitRepoHeadVersionFact1 _repoHeadTime)
+          let f3 = GitRepoHeadVersionFact rhh (GitRepoHeadVersionFact1 _repoHeadTime)
           let f4 = GitRepoTxFact gitLwwRef tx
 
           lift $ S.yield f1
@@ -307,38 +307,27 @@ updateState = do
 
     let rf  = [ (HashRef (hashObject $ serialise f), f)
               | f@GitRepoFact1{} <-  universeBi facts
-              ] & HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2)
+              ]
+    let rfm =  HM.fromListWith (\v1 v2 -> if gitLwwSeq v1 > gitLwwSeq v2 then v1 else v2) rf
 
-
-    let rhf = [ (h,f) | (GitRepoHeadFact h f) <- universeBi facts ]
-              & HM.fromList
+    let rhf  = [ (h, f)
+               | (GitRepoHeadFact h f) <-  universeBi facts
+               ]
 
     let rhtf  = [ (h,f) | (GitRepoHeadVersionFact h f) <- universeBi facts ]
 
-    let done =  [ (r,t) | GitRepoTxFact r t <- universeBi facts ]
+    lift $ withState $ transactional do
+      for_ rf $ \(h, GitRepoFact1{..}) -> do
+        insertGitRepo (GitRepoKey gitLwwRef)
+        insertGitRepoFact (GitRepoKey gitLwwRef) (HashVal h)
 
-    lift $ withState do
+      for_ rhf $ \(h, GitRepoHeadFact1{..}) -> void $ runMaybeT do
+        GitRepoFact1{..} <- HM.lookup h rfm & toMPlus
+        lift do
+          insertGitRepoName (GitRepoKey gitLwwRef , HashVal gitRepoHeadRef) gitRepoName
+          insertGitRepoBrief (GitRepoKey gitLwwRef , HashVal gitRepoHeadRef) gitRepoBrief
+          insertGitRepoHead  (GitRepoKey gitLwwRef) (HashVal gitRepoHeadRef)
 
-      transactional do
-
-        for_ done $ \w -> do
-          insertTxProcessed (processedRepoTx w)
-
-        for_  facts $ \(t,_) -> do
-          insertTxProcessed (HashVal t)
-
-        for_ (HM.toList rf) $ \(k, GitRepoFact1{..}) -> do
-
-          insertGitRepo (GitRepoKey gitLwwRef)
-
-          void $ runMaybeT do
-            d <- HM.lookup k rhf & toMPlus
-            lift do
-              insertGitRepoName (GitRepoKey gitLwwRef, HashVal k) (gitRepoName d)
-              insertGitRepoBrief(GitRepoKey gitLwwRef, HashVal k) (gitRepoBrief d)
-
-            pure ()
-
-        for_ rhtf  $ \(k, GitRepoHeadVersionFact1 v) -> do
-          insertGitRepoHeadVersion (HashVal k) v
+      for_ rhtf $ \(h, GitRepoHeadVersionFact1{..}) -> do
+        insertGitRepoHeadVersion (HashVal h) gitRepoHeadVersion
 

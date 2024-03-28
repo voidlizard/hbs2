@@ -14,8 +14,10 @@ evolveDB :: MonadUnliftIO m => DBPipeM m ()
 evolveDB = do
   debug $ yellow "evolveDB"
   gitRepoTable
+  gitRepoFactTable
   gitRepoNameTable
   gitRepoBriefTable
+  gitRepoHeadTable
   gitRepoHeadVersionTable
   txProcessedTable
 
@@ -35,6 +37,15 @@ gitRepoTable = do
     )
   |]
 
+gitRepoFactTable :: MonadUnliftIO m => DBPipeM m ()
+gitRepoFactTable = do
+  ddl [qc|
+    create table if not exists gitrepofact
+    ( ref text not null
+    , hash text not null
+    , primary key (ref,hash)
+    )
+  |]
 
 gitRepoNameTable :: MonadUnliftIO m => DBPipeM m ()
 gitRepoNameTable = do
@@ -55,6 +66,16 @@ gitRepoBriefTable = do
     , hash text not null
     , brief text not null
     , primary key (ref, hash)
+    )
+  |]
+
+gitRepoHeadTable :: MonadUnliftIO m => DBPipeM m ()
+gitRepoHeadTable = do
+  ddl [qc|
+    create table if not exists gitrepohead
+    ( ref  text not null
+    , head text not null
+    , primary key (ref)
     )
   |]
 
@@ -92,6 +113,14 @@ insertGitRepo repo = do
     insert into gitrepo(ref) values(?)
     on conflict (ref) do nothing
   |] (Only repo)
+
+
+insertGitRepoFact :: MonadUnliftIO m => GitRepoKey -> HashVal -> DBPipeM m ()
+insertGitRepoFact repo h = do
+  insert [qc|
+    insert into gitrepofact(ref,hash) values(?,?)
+    on conflict (ref,hash) do nothing
+  |] (repo,h)
 
 insertGitRepoName :: MonadUnliftIO m
                   => (GitRepoKey, HashVal)
@@ -137,6 +166,10 @@ isTxProcessed hash = do
   |] (Only hash)
   pure $ not $ null (results :: [Only Int])
 
-
-
+insertGitRepoHead :: MonadUnliftIO m => GitRepoKey -> HashVal -> DBPipeM m ()
+insertGitRepoHead repo headRef = do
+  insert [qc|
+    insert into gitrepohead (ref, head) values (?, ?)
+    on conflict (ref) do nothing
+  |] (repo, headRef)
 
