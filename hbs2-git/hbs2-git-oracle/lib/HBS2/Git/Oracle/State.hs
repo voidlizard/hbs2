@@ -96,24 +96,23 @@ isTxProcessed hash = do
 
 
 
-instance HasTableName t => HasColumnName t GitLwwRef where
+instance HasColumnName GitLwwRef where
   columnName = "lwwref"
 
-instance HasTableName t => HasColumnName t GitLwwSeq where
+instance HasColumnName GitLwwSeq where
   columnName = "lwwseq"
 
-instance HasTableName t => HasColumnName t GitRefLog where
+instance HasColumnName GitRefLog where
   columnName = "reflog"
 
 
-instance HasTableName GitRepoFacts where
-  tableName = "gitrepofact"
+-- instance HasTableName GitRepoFacts where
+--   tableName = "gitrepofact"
 
 
 insertRepoFacts :: (MonadUnliftIO m) => GitRepoFacts -> DBPipeM m ()
 insertRepoFacts GitRepoFacts{..} = do
-  let sql = insert @GitRepoFacts
-                   ( gitLwwRef
+  let sql = insert ( gitLwwRef
                    , gitLwwSeq
                    , gitRefLog
                    )

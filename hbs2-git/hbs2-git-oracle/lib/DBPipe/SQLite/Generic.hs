@@ -1,5 +1,5 @@
-{-# Language AllowAmbiguousTypes #-}
-{-# Language UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 module DBPipe.SQLite.Generic where
 
@@ -10,7 +10,6 @@ import Data.String (IsString(..))
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 
--- FIXME: move-to-DBPipe
 newtype SQLName = SQLName Text
                   deriving stock (Eq,Ord,Show)
                   deriving newtype (IsString,Monoid,Semigroup)
@@ -25,56 +24,52 @@ class ToSQL a where
 instance ToSQL SQLName where
   toSQL (SQLName a) = SQLPart a
 
-
-class HasTableName a where
-  tableName :: SQLName
-
-class HasTableName t => GHasColumnNames t f where
+class GHasColumnNames f where
   gColumnNames :: f p -> [SQLName]
 
-class HasTableName t => HasColumnNames t a where
+class HasColumnNames a where
   columnNames :: a -> [SQLName]
-  default columnNames :: (Generic a, HasTableName t, GHasColumnNames t (Rep a)) => a -> [SQLName]
-  columnNames = gColumnNames @t . from
+  default columnNames :: (Generic a, GHasColumnNames (Rep a)) => a -> [SQLName]
+  columnNames = gColumnNames . from
 
-class HasTableName t => HasColumnName t a where
+class HasColumnName a where
   columnName :: SQLName
 
-instance HasTableName t => HasColumnNames t [SQLName] where
+instance HasColumnNames [SQLName] where
   columnNames = id
 
-instance HasTableName t => HasColumnNames t SQLName where
+instance HasColumnNames SQLName where
   columnNames n = [n]
 
-instance (HasTableName t, Generic a, GHasColumnNames t (Rep a)) => HasColumnNames t a
+instance (Generic a, GHasColumnNames (Rep a)) => HasColumnNames a
 
-instance HasTableName t => GHasColumnNames t U1 where
+instance GHasColumnNames U1 where
   gColumnNames U1 = []
 
-instance (GHasColumnNames t a, GHasColumnNames t b) => GHasColumnNames t (a :*: b) where
-  gColumnNames (a :*: b) = gColumnNames @t a <> gColumnNames @t b
+instance (GHasColumnNames a, GHasColumnNames b) => GHasColumnNames (a :*: b) where
+  gColumnNames (a :*: b) = gColumnNames a <> gColumnNames b
 
-instance (GHasColumnNames t a, GHasColumnNames t b) => GHasColumnNames t (a :+: b) where
-  gColumnNames _ = []  -- Не применяется для нашего случая, так как у нас нет вариантов.
+instance (GHasColumnNames a, GHasColumnNames b) => GHasColumnNames (a :+: b) where
+  gColumnNames _ = []  -- Не используется для нашего случая.
 
-instance (HasTableName t, HasColumnName t c) => GHasColumnNames t (K1 i c) where
-  gColumnNames (K1 c) = [columnName @t @c]
+instance HasColumnName c => GHasColumnNames (K1 i c) where
+  gColumnNames (K1 c) = [columnName @c]
 
-instance GHasColumnNames t a => GHasColumnNames t (M1 i t a) where
-  gColumnNames (M1 a) = gColumnNames @t a
+instance GHasColumnNames a => GHasColumnNames (M1 i t a) where
+  gColumnNames (M1 a) = gColumnNames a
 
-columnListPart :: forall t a . (HasTableName t, HasColumnNames t a) => a -> SQLPart
-columnListPart w = SQLPart $ Text.intercalate "," [ coerce @_ @Text x | x <- columnNames @t w ]
+columnListPart :: forall a . HasColumnNames a => a -> SQLPart
+columnListPart w = SQLPart $ Text.intercalate "," [ coerce @_ @Text x | x <- columnNames w ]
 
-bindListPart :: forall t a . (HasTableName t, HasColumnNames t a) => a -> SQLPart
-bindListPart w = SQLPart $ Text.intercalate "," [ "?" | _ <- columnNames @t w ]
+bindListPart :: forall a . HasColumnNames a => a -> SQLPart
+bindListPart w = SQLPart $ Text.intercalate "," [ "?" | _ <- columnNames w ]
 
-class (HasTableName t, HasColumnNames t b) => Insert t b where
+class HasColumnNames b => Insert b where
   insert :: b -> SQLPart
 
-instance (HasTableName t, HasColumnNames t b) => Insert t b where
-  insert values = [qc|insert into {tableName @t} values({n}) ({v})|]
+instance HasColumnNames b => Insert b where
+  insert values = [qc|insert into jopakita values({v}) ({n})|]
     where
-      n = bindListPart @t values
-      v = columnListPart @t values
+      n = bindListPart values
+      v = columnListPart values
 
