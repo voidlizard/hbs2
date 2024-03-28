@@ -46,6 +46,7 @@ gitRepoFactTable = do
     , reflog        text not null
     , tx            text not null
     , repohead      text not null
+    , repoheadseq   integer not null
     , name          text null
     , brief         text null
     , gk            text null
@@ -97,6 +98,7 @@ insertRepoFacts GitRepoFacts{..} = do
     , gitRefLog
     , gitTx
     , gitRepoHead
+    , gitRepoHeadSeq
     , gitName
     , gitBrief
     , gitEncrypted

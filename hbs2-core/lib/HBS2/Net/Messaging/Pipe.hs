@@ -20,6 +20,7 @@ import Data.Hashable
 import Network.ByteOrder hiding (ByteString)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.IO
+
 import UnliftIO
 
 -- define new transport protocol type
@@ -53,6 +54,7 @@ newMessagingPipe (pIn,pOut) = do
 instance Hashable PipeAddr where
   hashWithSalt salt (PipeAddr pip) = hashWithSalt salt ("pipe-addr", fd)
     where
+      -- FIXME: ASAP-unsafePerformIO-is-really-unsafe
       fd = unsafePerformIO (handleToFd pip <&> fromIntegral @_ @Word)
 
 instance HasPeer PIPE where
@@ -85,10 +87,14 @@ instance Messaging MessagingPipe PIPE ByteString where
 runMessagingPipe :: MonadIO m => MessagingPipe -> m ()
 runMessagingPipe bus = liftIO do
   fix \next -> do
-    frame <- LBS.hGet who 4 <&> word32 . LBS.toStrict
-    piece <- LBS.hGet who (fromIntegral frame)
-    atomically (writeTQueue (inQ bus) piece)
-    next
+    done <- hIsEOF who
+    unless done do
+      r <- try @_ @SomeException do
+        frame <- LBS.hGet who 4 <&> word32 . LBS.toStrict
+        piece <- LBS.hGet who (fromIntegral frame)
+        atomically (writeTQueue (inQ bus) piece)
+
+      either (const $ pure ()) (const next) r
 
   where
     who = pipeIn bus

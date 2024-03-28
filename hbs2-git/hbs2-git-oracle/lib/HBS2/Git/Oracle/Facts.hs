@@ -30,6 +30,11 @@ newtype GitLwwSeq  = GitLwwSeq Word64
                      deriving stock (Generic,Data)
                      deriving newtype (ToField)
 
+
+newtype GitRepoHeadSeq = GitRepoHeadSeq Word64
+                         deriving stock (Generic,Data)
+                         deriving newtype (ToField)
+
 newtype GitRefLog  = GitRefLog (RefLogKey HBS2Basic)
                      deriving stock (Generic,Data)
                      deriving newtype (ToField)
@@ -58,15 +63,16 @@ data Facts
 
 data GitRepoFacts =
   GitRepoFacts
-  { gitLwwRef    :: GitLwwRef
-  , gitLwwSeq    :: GitLwwSeq
-  , gitRefLog    :: GitRefLog
-  , gitTx        :: GitTx
-  , gitRepoHead  :: GitRepoHeadRef
-  , gitName      :: GitName
-  , gitBrief     :: GitBrief
-  , gitEncrypted :: GitEncrypted
-  , gitExtended  :: [GitRepoExtended]
+  { gitLwwRef       :: GitLwwRef
+  , gitLwwSeq       :: GitLwwSeq
+  , gitRefLog       :: GitRefLog
+  , gitTx           :: GitTx
+  , gitRepoHead     :: GitRepoHeadRef
+  , gitRepoHeadSeq  :: GitRepoHeadSeq
+  , gitName         :: GitName
+  , gitBrief        :: GitBrief
+  , gitEncrypted    :: GitEncrypted
+  , gitExtended     :: [GitRepoExtended]
   }
   deriving stock (Generic,Data)
 
@@ -80,6 +86,7 @@ instance Serialise GitName
 instance Serialise GitBrief
 instance Serialise GitRepoExtended
 instance Serialise GitEncrypted
+instance Serialise GitRepoHeadSeq
 
 instance ToField HashRef where
   toField = toField @String . show . pretty
@@ -129,5 +136,6 @@ instance HasColumnName GitBrief where
 instance HasColumnName GitEncrypted where
   columnName = "gk"
 
-
+instance HasColumnName GitRepoHeadSeq where
+  columnName = "repoheadseq"
 

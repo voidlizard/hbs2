@@ -41,6 +41,10 @@ import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import System.Environment (getProgName, getArgs)
 
+import System.Posix.Signals
+
+import System.Exit
+
 {- HLINT ignore "Functor law" -}
 
 runOracleIndex :: forall m  . MonadUnliftIO m
@@ -113,6 +117,7 @@ runOracleIndex auPk = do
                              (GitRefLog rk)
                              (GitTx tx)
                              (GitRepoHeadRef rhh)
+                             (GitRepoHeadSeq (fromIntegral n))
                              (GitName (Just name))
                              (GitBrief (Just brief))
                              (GitEncrypted _repoHeadGK0)
@@ -153,16 +158,17 @@ runDump pks = do
   flip runContT pure do
 
     p <- ContT $ withProcessWait cmd
+    -- p <- lift $ startProcess cmd
 
     let ssin = getStdin p
     let sout = getStdout p
     client <- newMessagingPipe (sout,ssin) -- ,sout)
 
-    void $ ContT $ withAsync $ runMessagingPipe client
+    mess <- ContT $ bracket (async $ runMessagingPipe client) cancel
 
     caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
 
-    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
+    broker <- ContT $ bracket (async $ liftIO $ runReaderT (runServiceClient caller) client) cancel
 
     wtf <- callService @RpcChannelQuery caller ()
             >>= orThrowUser "can't query rpc"
@@ -172,6 +178,19 @@ runDump pks = do
     let val = Aeson.decode @Value r
 
     liftIO $ LBS.putStr (A.encodePretty val)
+
+    hClose ssin
+    hClose sout
+
+    waitExitCode p
+
+    debug "CLIENT: WTF?"
+
+    -- stopProcess p
+    -- error "MOTHERFUCKER!"
+    -- void $ callService @RpcChannelQuery caller ()
+    --   >>= orThrowUser "can't query rpc"
+    -- liftIO $ exitSuccess
 
 data RpcChannelQuery
 
@@ -196,21 +215,18 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
     withOracleEnv env do
       items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
-                SELECT
-                  g.ref,
-                  gn.name,
-                  gb.brief
-                FROM
-                  gitrepo AS g
-                INNER JOIN
-                  gitreponame AS gn ON g.ref = gn.ref
-                INNER JOIN
-                  gitrepoheadversion AS ghv ON gn.hash = ghv.hash
-                LEFT JOIN
-                  gitrepobrief AS gb ON g.ref = gb.ref AND ghv.hash = gb.hash
-                GROUP BY
-                  g.ref, gn.name
-                |]
+                  select lwwref, name, brief
+                  from (
+                    select
+                        lwwref
+                      , name
+                      , brief
+                      , max(lwwseq)
+                      , max(repoheadseq)
+
+                    from gitrepofact
+                    group by lwwref,name,brief) as s0;
+               |]
 
       let root = object [ "rows"  .= items
                         , "desc"  .= [ "entity", "name", "brief" ]
@@ -242,11 +258,13 @@ runPipe = do
   chan <- asks _refchanId
   debug "run pipe"
 
+  liftIO $ void $ installHandler sigPIPE Ignore Nothing
+
   flip runContT pure do
 
     server  <- newMessagingPipe (stdin,stdout)
 
-    void $ ContT $ withAsync $ runMessagingPipe server
+    void $ ContT $ bracket (async $ runMessagingPipe server) cancel
 
     void $ ContT $ withAsync $ forever do
       debug $ yellow "updateState"
@@ -254,12 +272,19 @@ runPipe = do
       pause @'Seconds 60
 
     -- make server protocol responder
-    -- void $ ContT $ withAsync $ flip
-    lift $ flip runReaderT server do
+    serv <- ContT $ withAsync $ flip runReaderT server do
         runProto @PIPE
           [ makeResponse (makeServer @BrowserPluginAPI)
           ]
 
+    fix \next -> do
+      -- debug $ red "YAYAYAYA"
+      done1 <- hIsClosed stdin
+      done2 <- hIsClosed stdout
+      done3 <- hIsEOF stdin
+      let done = done1 || done2 || done3
+      debug $ red "DONE:" <+> pretty done
+      unless done (pause @'Seconds 0.01 >> next)
 
 updateState :: MonadUnliftIO m => Oracle m ()
 updateState = do
