@@ -10,6 +10,7 @@ import HBS2.Hash
 import DBPipe.SQLite
 import DBPipe.SQLite.Generic
 
+import GHC.Generics
 import Data.Word
 
 type PKS = PubKey 'Sign HBS2Basic
@@ -21,38 +22,39 @@ data GitRepoExtended =
   GitRepoExtended
   deriving stock (Generic,Data)
 
+newtype GitLwwRef  = GitLwwRef (LWWRefKey HBS2Basic)
+                     deriving stock (Generic,Data)
+                     deriving newtype (ToField)
 
-newtype GitLwwRef = GitLwwRef (LWWRefKey HBS2Basic)
+newtype GitLwwSeq  = GitLwwSeq Word64
+                     deriving stock (Generic,Data)
+                     deriving newtype (ToField)
+
+newtype GitRefLog  = GitRefLog (RefLogKey HBS2Basic)
+                     deriving stock (Generic,Data)
+                     deriving newtype (ToField)
+
+newtype GitTx  = GitTx HashRef
+                 deriving stock (Generic,Data)
+                 deriving newtype (ToField)
+
+newtype GitRepoHeadRef  = GitRepoHeadRef HashRef
+                          deriving stock (Generic,Data)
+                          deriving newtype (ToField)
+
+newtype GitName  = GitName  (Maybe Text)
+                   deriving stock (Generic,Data)
+                   deriving newtype (ToField)
+
+newtype GitBrief  = GitBrief (Maybe Text)
                     deriving stock (Generic,Data)
-                    deriving newtype (FromField, ToField)
-
-newtype GitLwwSeq = GitLwwSeq Word64
-                    deriving stock (Generic,Data)
-                    deriving newtype (FromField, ToField)
-
-
-newtype GitRefLog = GitRefLog (RefLogKey HBS2Basic)
-                    deriving stock (Generic,Data)
-                    deriving newtype (FromField, ToField)
-
-newtype GitTx = GitTx HashRef
-                deriving stock (Generic,Data)
-                deriving newtype (FromField, ToField)
-
-newtype GitRepoHeadRef = GitRepoHeadRef HashRef
-                         deriving stock (Generic,Data)
-                         deriving newtype (FromField, ToField)
-
-newtype GitName = GitName (Maybe Text)
-                  deriving stock (Generic,Data)
-                  deriving newtype (FromField, ToField)
-
-newtype GitBrief = GitBrief (Maybe Text)
-                  deriving stock (Generic,Data)
-                  deriving newtype (FromField, ToField)
+                    deriving newtype (ToField)
 
 newtype GitEncrypted = GitEncrypted (Maybe HashRef)
                        deriving stock (Generic,Data)
+                       deriving newtype (ToField)
+
+data Facts
 
 data GitRepoFacts =
   GitRepoFacts
@@ -97,6 +99,12 @@ instance ToField (RefLogKey HBS2Basic) where
 instance (FromField (RefLogKey HBS2Basic))  where
   fromField x = fromField @String x <&> fromString
 
+instance HasTableName GitRepoFacts where
+  tableName = "gitrepofact"
+
+instance HasPrimaryKey GitRepoFacts where
+  primaryKey = ["lwwref","lwwseq","reflog","tx","repohead"]
+
 instance HasColumnName GitLwwRef where
   columnName = "lwwref"
 
@@ -106,7 +114,20 @@ instance HasColumnName GitLwwSeq where
 instance HasColumnName GitRefLog where
   columnName = "reflog"
 
-instance HasTableName GitRepoFacts where
-  tableName = "gitrepofact"
+instance HasColumnName GitTx where
+  columnName = "tx"
+
+instance HasColumnName GitRepoHeadRef where
+  columnName = "repohead"
+
+instance HasColumnName GitName where
+  columnName = "name"
+
+instance HasColumnName GitBrief where
+  columnName = "brief"
+
+instance HasColumnName GitEncrypted where
+  columnName = "gk"
+
 
 

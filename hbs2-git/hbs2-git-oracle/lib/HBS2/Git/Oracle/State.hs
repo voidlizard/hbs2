@@ -48,8 +48,8 @@ gitRepoFactTable = do
     , repohead      text not null
     , name          text null
     , brief         text null
-    , encrypted     text null
-    , primary key (lwwref,seq,reflog,tx,repohead)
+    , gk            text null
+    , primary key (lwwref,lwwseq,reflog,tx,repohead)
     )
   |]
 
@@ -71,13 +71,6 @@ instance ToField HashVal where
 instance FromField HashVal where
   fromField = fmap (HashVal . fromString @HashRef) . fromField @String
 
-insertGitRepoFact :: MonadUnliftIO m => GitRepoKey -> HashVal -> DBPipeM m ()
-insertGitRepoFact repo h = do
-  SQL.insert [qc|
-    insert into gitrepofact(ref,hash) values(?,?)
-    on conflict (ref,hash) do nothing
-  |] (repo,h)
-
 
 insertTxProcessed :: MonadUnliftIO m => HashVal -> DBPipeM m ()
 insertTxProcessed hash = do
@@ -95,21 +88,18 @@ isTxProcessed hash = do
   pure $ not $ null (results :: [Only Int])
 
 
-
 insertRepoFacts :: (MonadUnliftIO m) => GitRepoFacts -> DBPipeM m ()
 insertRepoFacts GitRepoFacts{..} = do
-  let sql = insert @GitRepoFacts
-                   ( gitLwwRef
-                   , gitLwwSeq
-                   , gitRefLog
-                   )
-                   -- ( gitLwwRef
-                   -- , gitLwwSeq
-                   -- , gitTx
-                   -- , gitRepoHead
-                   -- , gitName
-                   -- , gitBrief
-                   -- , gitEncrypted )
-  pure ()
+ insert @GitRepoFacts $
+   onConflictIgnore @GitRepoFacts
+    ( gitLwwRef
+    , gitLwwSeq
+    , gitRefLog
+    , gitTx
+    , gitRepoHead
+    , gitName
+    , gitBrief
+    , gitEncrypted
+    )
 
 

@@ -303,6 +303,8 @@ updateState = do
       for_ facts $ \case
         (tx, Right f) -> do
           debug $ "GOOD FACT" <+> pretty tx
+          insertRepoFacts f
+          insertTxProcessed (HashVal tx)
 
         (tx, _) -> do
           debug "BAD FACT"
