@@ -215,17 +215,21 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
     withOracleEnv env do
       items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
-                  select lwwref, name, brief
-                  from (
-                    select
-                        lwwref
-                      , name
-                      , brief
-                      , max(lwwseq)
-                      , max(repoheadseq)
 
-                    from gitrepofact
-                    group by lwwref,name,brief) as s0;
+          SELECT
+            lwwref,
+            name,
+            brief
+          FROM (
+            SELECT
+              lwwref,
+              name,
+              brief,
+              ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC) as rn
+            FROM gitrepofact
+          ) as s0
+          WHERE rn = 1;
+
                |]
 
       let root = object [ "rows"  .= items
