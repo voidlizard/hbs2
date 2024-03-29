@@ -162,6 +162,7 @@ library
       HBS2.Peer.Proto.AnyRef
       HBS2.Peer.Proto.LWWRef
       HBS2.Peer.Proto.LWWRef.Internal
+      HBS2.Peer.Proto.BrowserPlugin
 
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer

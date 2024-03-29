@@ -1,15 +1,19 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# Language TypeOperators #-}
 module HttpWorker where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
+import HBS2.Base58
 import HBS2.Hash
 import HBS2.Actors.Peer
 import HBS2.Storage
 import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
+import HBS2.Net.Messaging.Pipe
 import HBS2.Peer.Proto
+import HBS2.Peer.Proto.BrowserPlugin
 import HBS2.Peer.Proto.LWWRef
 import HBS2.Peer.Browser.Assets
 import HBS2.Net.Auth.Schema
@@ -30,32 +34,33 @@ import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Network.Wai.Middleware.StaticEmbedded
-import Text.InterpolatedString.Perl6 (qc,qq,q)
 import Web.Scotty
-
-import Data.Text.Lazy.IO qualified as TIO
-import Data.Text.Lazy.Encoding qualified as Enc
-import Text.Microstache.Compile
-import Text.Microstache.Render
 
 import Data.ByteString.Builder (byteString, Builder)
 
-import Control.Concurrent
-import Data.Either
-import Data.HashMap.Strict qualified as HM
 import Codec.Serialise (deserialiseOrFail)
+import Control.Concurrent
+import Control.Monad.Except
+import Control.Monad.Identity
+import Control.Monad.Reader
+import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
+import Data.Function
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
-import Control.Monad.Reader
+import Data.Either
+import Data.HashMap.Strict qualified as HM
+import Data.HashMap.Strict (HashMap)
+import Data.Maybe
+import Data.List qualified as List
+import Data.Text qualified as Text
 import Lens.Micro.Platform (view)
+import Streaming.Prelude qualified as S
 import System.FilePath
-import Control.Monad.Except
-import Control.Monad.Trans.Cont
+import Text.InterpolatedString.Perl6 (qc)
+import System.Process.Typed
 
--- import Lucid (renderTextT)
--- import Lucid.Html5 hiding (for_)
-
-import UnliftIO (async)
+import UnliftIO hiding (orElse)
 
 {- HLINT ignore "Functor law" -}
 
@@ -69,6 +74,89 @@ extractMetadataHash what blob =
 
 orElse :: m r -> Maybe a -> ContT r m a
 orElse a mb = ContT $ maybe1 mb a
+
+
+data Plugin =
+  Plugin
+  {
+  }
+
+pattern Spawn :: forall {c}. [Syntax c] -> Syntax c
+pattern Spawn args <- ListVal (SymbolVal "spawn" : args)
+
+runPlugin :: forall m . MonadUnliftIO m
+           => RefChanId L4Proto
+           -> [FilePath]
+           -> TVar (HashMap (RefChanId L4Proto) (ServiceCaller BrowserPluginAPI PIPE))
+           -> m ()
+
+runPlugin _ [] _ = pure ()
+runPlugin pks (self:args) handles = do
+
+  let cmd = proc self args
+              & setStdin createPipe
+              & setStdout createPipe
+              & setStderr closed
+
+  forever do
+    flip runContT pure do
+
+      debug $ yellow "started channel plugin" <+> pretty (AsBase58 pks) <+> pretty self
+
+      p <- ContT $ withProcessWait cmd
+
+      let ssin = getStdin p
+      let sout = getStdout p
+      client <- newMessagingPipe (sout,ssin)
+
+      void $ ContT $ withAsync $ runMessagingPipe client
+
+      caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
+
+      ContT $ bracket (atomically $ modifyTVar handles (HM.insert pks caller))
+                      (const $ atomically $ modifyTVar handles (HM.delete pks))
+
+      liftIO $ runReaderT (runServiceClient caller) client
+      void $ waitExitCode p
+
+
+findPlugins :: forall m . MonadIO m => [Syntax C] -> m [(RefChanId L4Proto, [FilePath])]
+findPlugins syn = w $ S.toList_ $ do
+
+  let chans = mconcat [ channels b | ListVal (SymbolVal "browser" : b)  <- syn ]
+
+  for_ chans $ \cha -> void $ runMaybeT do
+
+    rchan <- toMPlus $ headMay $
+                 catMaybes [ fromStringMay @(RefChanId L4Proto) (Text.unpack x)
+                           | ListVal [SymbolVal "refchan", LitStrVal x] <- cha
+                           ]
+
+    plug <- toMPlus $ headMay $ catMaybes $
+               [ mkProcessArgs what
+               | ListVal [ SymbolVal "plugin", Spawn what ] <- cha
+               ]
+
+    debug $ red "FOUND CHANNEL" <+> pretty (AsBase58 rchan) <+> parens (pretty plug)
+
+    lift $ S.yield (rchan, plug)
+
+  where
+
+    w l = l >>= uniq
+
+    uniq s = pure (List.nubBy ((==) `on` fst) s)
+
+    mkProcessArgs ssyn = sequence $
+      flip fmap ssyn \case
+        LitStrVal s -> Just (Text.unpack s)
+        SymbolVal (Id s) -> Just (Text.unpack s)
+        _  -> Nothing
+
+
+    channels bro =  [ chan
+                    | ListVal (SymbolVal "channel" : chan)  <- bro
+                    ]
 
 httpWorker :: forall e s m . ( MyPeer e
                              , MonadIO m
@@ -87,9 +175,18 @@ httpWorker (PeerConfig syn) pmeta e = do
   let bro   = runReader (cfgValue @PeerBrowser) syn == FeatureOn
   penv <- ask
 
-  maybe1 port' none $ \port -> liftIO do
+  void $ flip runContT pure do
 
-    scotty port $ do
+    handles <- newTVarIO mempty
+
+    plugins <- findPlugins syn
+
+    for_ plugins $ \(r, args) -> do
+      void $ ContT $ withAsync (runPlugin r args handles)
+
+    port <- ContT $ maybe1 port' none
+
+    liftIO $ scotty port $ do
       middleware logStdout
 
       defaultHandler $ const do

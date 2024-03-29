@@ -20,10 +20,11 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx
 
+import HBS2.Peer.Proto.BrowserPlugin
+
 import DBPipe.SQLite
 
 import Data.ByteString.Lazy (ByteString)
-
 
 import Data.Maybe
 import Lens.Micro.Platform hiding ( (.=) )
@@ -186,15 +187,6 @@ runDump pks = do
 
     void $ waitExitCode p
 
-data RpcChannelQuery
-
--- API definition
-type BrowserPluginAPI = '[ RpcChannelQuery ]
-
--- API endpoint definition
-type instance Input RpcChannelQuery = [(Text,Text)]
-type instance Output RpcChannelQuery = Maybe ByteString
-
 class HasOracleEnv m where
   getOracleEnv :: m OracleEnv
 
@@ -253,12 +245,6 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
       formatHtml args items = do
         renderEntries args items <&> Just
 
--- Codec for protocol
-instance HasProtocol PIPE (ServiceProto BrowserPluginAPI PIPE) where
-  type instance ProtocolId (ServiceProto BrowserPluginAPI PIPE) = 0xDEADF00D123
-  type instance Encoded PIPE = ByteString
-  decode = either (const Nothing) Just . deserialiseOrFail
-  encode = serialise
 
 -- Some "deferred" implementation for our monad
 --   note -- plain asyncs may cause to resource leak
