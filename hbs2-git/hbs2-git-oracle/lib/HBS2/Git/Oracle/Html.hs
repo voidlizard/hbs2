@@ -10,6 +10,7 @@ import Lucid.Html5 hiding (for_)
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Word
 import Data.ByteString.Lazy
 import Text.Pandoc
 import Text.Pandoc.Error (handleError)
@@ -27,14 +28,14 @@ renderMarkdown markdown = case markdownToHtml markdown of
     Right html -> toHtmlRaw $ Text.pack html
 
 
-renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text)] -> m ByteString
+renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
 renderEntries _ items = pure $ renderBS do
   doctypehtml_ do
     head_ mempty do
       meta_ [charset_ "utf-8"]
 
     body_ mempty do
-        for_ items $ \(h,n,b) -> do
+        for_ items $ \(h,n,b,t) -> do
           div_ do
 
             when ( Text.length n > 2) do

@@ -44,6 +44,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import System.Environment (getProgName, getArgs)
 import System.Environment
 import System.Posix.Signals
+import Data.Word
 
 import System.Exit
 
@@ -217,18 +218,20 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
       listEntries args = do
         env <- getOracleEnv
         withOracleEnv env do
-          items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
+          items <- withState $ select_ @_ @(HashVal, Text, Text, Word64) [qc|
 
               SELECT
                 lwwref,
                 name,
-                brief
+                brief,
+                repoheadseq
               FROM (
                 SELECT
                   lwwref,
                   name,
                   brief,
-                  ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC) as rn
+                  repoheadseq,
+                  ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC, repoheadseq DESC) as rn
                 FROM gitrepofact
               ) as s0
               WHERE rn = 1;
