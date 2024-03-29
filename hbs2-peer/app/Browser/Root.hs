@@ -8,16 +8,21 @@ import HBS2.Prelude.Plated
 import HBS2.Base58
 import HBS2.Net.Proto.Types
 import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.BrowserPlugin
+import HBS2.Net.Messaging.Pipe
 
 import Data.Config.Suckless.Syntax
 
+import Data.HashMap.Strict qualified as HM
 import Data.Maybe
-import Lucid (Html,HtmlT,toHtml)
+import Lucid (Html,HtmlT,toHtml,toHtmlRaw)
 import Lucid.Html5 hiding (for_)
 import Data.Text qualified as Text
 import Text.InterpolatedString.Perl6 (q)
 import System.FilePath
+import Control.Monad
 
+import UnliftIO
 
 rootPath :: [String] -> [String]
 rootPath = ("/browser":)
@@ -117,8 +122,17 @@ browserRootPage syn = rootPage do
             p_ (toHtml s)
 
 
-channelPage :: Monad m => RefChanId L4Proto -> HtmlT m ()
-channelPage chan = rootPage $ pure ()
+channelPage :: MonadIO m
+            => ServiceCaller BrowserPluginAPI PIPE
+            -> [(Text,Text)]
+            -> HtmlT m ()
+channelPage api env' = do
+  let env = HM.toList $ HM.fromList env' <> HM.fromList [("METHOD","list-entries"),("OUTPUT","html")]
 
+  r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api env)
+         <&> join
+         <&> fromMaybe mempty
+
+  rootPage $ toHtmlRaw r
 
 

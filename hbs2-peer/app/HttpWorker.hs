@@ -314,13 +314,17 @@ httpWorker (PeerConfig syn) pmeta e = do
         get "/browser" do
           renderTextT (browserRootPage syn) >>= html
 
-        get "/browser/channel/:refchan" $ void $ flip runContT pure do
+        -- get "/browser/channel/:refchan" $ void $ flip runContT pure do
 
-          chan <- lift (param @String "refchan")
-                   <&> fromStringMay
-                   >>= orElse (status status404)
+        --   chan <- lift (param @String "refchan")
+        --            <&> fromStringMay
+        --            >>= orElse (status status404)
 
-          lift $ renderTextT (channelPage chan) >>= html
+        --   plugin <- readTVarIO handles <&> HM.lookup chan
+        --              >>= orElse (status status404)
+
+        --   let env = mempty
+        --   lift $ renderTextT (channelPage plugin env) >>= html
 
 
       put "/" do

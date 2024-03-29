@@ -1,5 +1,6 @@
 module HBS2.Peer.Proto.BrowserPlugin
   ( module HBS2.Peer.Proto.BrowserPlugin
+  , module HBS2.Net.Proto.Service
   , PIPE
   ) where
 
