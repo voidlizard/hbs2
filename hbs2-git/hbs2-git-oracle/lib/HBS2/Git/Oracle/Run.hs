@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PolyKinds #-}
@@ -195,6 +196,8 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
   handleMethod args' = do
     env <- getOracleEnv
 
+    debug $ green "PLUGIN: HANDLE METHOD!"
+
     let args = HM.fromList args'
 
     case HM.lookup "METHOD" args of
@@ -260,8 +263,11 @@ runPipe :: forall m  . MonadUnliftIO m
         => Oracle m ()
 
 runPipe = do
+
+  setLogging @DEBUG  (logPrefix "" . toStderr)
+
   chan <- asks _refchanId
-  debug "run pipe"
+  debug $ green "RUN PIPE!!!"
 
   liftIO $ void $ installHandler sigPIPE Ignore Nothing
 

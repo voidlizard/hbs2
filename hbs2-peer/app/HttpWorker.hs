@@ -96,7 +96,7 @@ runPlugin pks (self:args) handles = do
   let cmd = proc self args
               & setStdin createPipe
               & setStdout createPipe
-              & setStderr closed
+              -- & setStderr closed
 
   forever do
     flip runContT pure do
@@ -111,12 +111,18 @@ runPlugin pks (self:args) handles = do
 
       void $ ContT $ withAsync $ runMessagingPipe client
 
+      debug $ red "RUNNING PLUGIN!"
+
       caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
+
+      void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
       ContT $ bracket (atomically $ modifyTVar handles (HM.insert pks caller))
                       (const $ atomically $ modifyTVar handles (HM.delete pks))
 
-      liftIO $ runReaderT (runServiceClient caller) client
+
+
+
       void $ waitExitCode p
 
 
@@ -172,7 +178,7 @@ httpWorker (PeerConfig syn) pmeta e = do
 
   sto <- getStorage
   let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
-  let bro   = runReader (cfgValue @PeerBrowser) syn == FeatureOn
+  let bro   = runReader (cfgValue @PeerBrowserEnable) syn == FeatureOn
   penv <- ask
 
   void $ flip runContT pure do
@@ -314,17 +320,17 @@ httpWorker (PeerConfig syn) pmeta e = do
         get "/browser" do
           renderTextT (browserRootPage syn) >>= html
 
-        -- get "/browser/channel/:refchan" $ void $ flip runContT pure do
+        get "/browser/channel/:refchan" $ void $ flip runContT pure do
 
-        --   chan <- lift (param @String "refchan")
-        --            <&> fromStringMay
-        --            >>= orElse (status status404)
+          chan <- lift (param @String "refchan")
+                   <&> fromStringMay
+                   >>= orElse (status status404)
 
-        --   plugin <- readTVarIO handles <&> HM.lookup chan
-        --              >>= orElse (status status404)
+          plugin <- readTVarIO handles <&> HM.lookup chan
+                     >>= orElse (status status404)
 
-        --   let env = mempty
-        --   lift $ renderTextT (channelPage plugin env) >>= html
+          let env = mempty
+          lift $ renderTextT (channelPage plugin env) >>= html
 
 
       put "/" do

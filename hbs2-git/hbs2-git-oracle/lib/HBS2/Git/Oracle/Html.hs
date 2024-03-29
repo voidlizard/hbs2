@@ -11,6 +11,7 @@ import Lucid.Html5 hiding (for_)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word
+import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy
 import Text.Pandoc
 import Text.Pandoc.Error (handleError)
@@ -29,18 +30,27 @@ renderMarkdown markdown = case markdownToHtml markdown of
 
 
 renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
-renderEntries _ items = pure $ renderBS do
-  doctypehtml_ do
-    head_ mempty do
-      meta_ [charset_ "utf-8"]
+renderEntries args items = pure $ renderBS do
+  wrapped do
+    for_ items $ \(h,n,b,t) -> do
+      div_ [class_ "resource-box"] do
 
-    body_ mempty do
-        for_ items $ \(h,n,b,t) -> do
-          div_ do
+        let name = if Text.length n > 2 then toHtml n else toHtml (show $ pretty h)
 
-            when ( Text.length n > 2) do
-              h3_ [class_ "repo-name"] (toHtml (show $ pretty n))
-              div_ [class_ "repo-reference"] (toHtml (show $ pretty h))
-              div_ [class_ "repo-brief"] do
-                renderMarkdown b
+        h3_ [class_ "repo-name"] name
+
+        div_ [class_ "repo-brief"] do
+          renderMarkdown b
+
+        div_ [class_ "repo-reference"] $ a_ [] (toHtml (show $ pretty h))
+
+  where
+
+    wrapped f | not (HM.member "HTML_WRAPPED" args) = div_ f
+              | otherwise = do
+      doctypehtml_ do
+        head_ mempty do
+          meta_ [charset_ "utf-8"]
+
+        body_ mempty f
 

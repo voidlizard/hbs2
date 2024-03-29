@@ -89,7 +89,7 @@ rootPage content  = do
 browserRootPage :: Monad m => [Syntax c] -> HtmlT m ()
 browserRootPage syn = rootPage do
 
-  let bro = mconcat [ [b] | ListVal [ SymbolVal "browser", b ] <- syn ]
+  let bro = mconcat [ b | ListVal (SymbolVal "browser": b ) <- syn ]
 
   let channels = [ mchan | ListVal (SymbolVal "channel" : mchan) <- bro ]
 
