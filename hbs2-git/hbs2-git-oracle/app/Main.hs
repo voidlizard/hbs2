@@ -63,14 +63,17 @@ runApp chan mode = do
   setLogging @ERROR  (toStderr . logPrefix "[error] ")
   setLogging @NOTICE (toStderr . logPrefix "[debug] ")
 
-
   case mode of
     RunIndex a  -> runWithOracleEnv chan $ runOracleIndex a
-    RunPipe{}   -> runWithOracleEnv chan $ runPipe
+    RunPipe{}   -> shutUp >> (runWithOracleEnv chan $ runPipe)
     RunDump pks -> runDump pks
     RunUpdate   -> runWithOracleEnv chan $ updateState
 
   `finally` do
+    shutUp
+
+  where
+    shutUp = do
       setLoggingOff @DEBUG
       setLoggingOff @WARN
       setLoggingOff @ERROR

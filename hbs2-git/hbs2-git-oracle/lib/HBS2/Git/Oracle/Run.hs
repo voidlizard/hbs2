@@ -7,6 +7,7 @@ import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.App
 import HBS2.Git.Oracle.Facts
 import HBS2.Git.Oracle.State
+import HBS2.Git.Oracle.Html
 
 import HBS2.Actors.Peer
 
@@ -35,12 +36,13 @@ import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Ord
 import Data.Text qualified as Text
+import Data.List qualified as List
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy qualified as LBS
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import System.Environment (getProgName, getArgs)
-
+import System.Environment
 import System.Posix.Signals
 
 import System.Exit
@@ -151,6 +153,9 @@ runDump :: forall m  . MonadUnliftIO m
 runDump pks = do
   self <- liftIO getProgName
 
+  env <- liftIO getEnvironment
+           <&> fmap (over _1 Text.pack . over _2 Text.pack)
+
   let cmd = proc self ["pipe", "-r", show (pretty (AsBase58 pks))]
               & setStdin createPipe
               & setStdout createPipe
@@ -158,39 +163,27 @@ runDump pks = do
   flip runContT pure do
 
     p <- ContT $ withProcessWait cmd
-    -- p <- lift $ startProcess cmd
 
     let ssin = getStdin p
     let sout = getStdout p
     client <- newMessagingPipe (sout,ssin) -- ,sout)
 
-    mess <- ContT $ bracket (async $ runMessagingPipe client) cancel
+    void $ ContT $ withAsync $ runMessagingPipe client
 
     caller <- makeServiceCaller @BrowserPluginAPI @PIPE (localPeer client)
 
-    broker <- ContT $ bracket (async $ liftIO $ runReaderT (runServiceClient caller) client) cancel
+    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
-    wtf <- callService @RpcChannelQuery caller ()
+    wtf <- callService @RpcChannelQuery caller env
             >>= orThrowUser "can't query rpc"
 
     r <- ContT $ maybe1 wtf (pure ())
 
-    let val = Aeson.decode @Value r
-
-    liftIO $ LBS.putStr (A.encodePretty val)
-
     hClose ssin
-    hClose sout
 
-    waitExitCode p
+    liftIO $ LBS.putStr r >> hFlush stdout
 
-    debug "CLIENT: WTF?"
-
-    -- stopProcess p
-    -- error "MOTHERFUCKER!"
-    -- void $ callService @RpcChannelQuery caller ()
-    --   >>= orThrowUser "can't query rpc"
-    -- liftIO $ exitSuccess
+    void $ waitExitCode p
 
 data RpcChannelQuery
 
@@ -198,7 +191,7 @@ data RpcChannelQuery
 type BrowserPluginAPI = '[ RpcChannelQuery ]
 
 -- API endpoint definition
-type instance Input RpcChannelQuery = ()
+type instance Input RpcChannelQuery = [(Text,Text)]
 type instance Output RpcChannelQuery = Maybe ByteString
 
 class HasOracleEnv m where
@@ -206,37 +199,56 @@ class HasOracleEnv m where
 
 -- API handler
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
-  handleMethod _ = do
+  handleMethod args' = do
     env <- getOracleEnv
-    -- let chan  = _refchanId env
-    -- let rchanAPI = _refchanAPI env
-    -- let sto = _storage env
 
+    let args = HM.fromList args'
 
-    withOracleEnv env do
-      items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
+    case HM.lookup "METHOD" args of
+      Just "debug"        -> listEnv args
+      Just "list-entries" -> listEntries args
+      Nothing             -> listEntries args
+      _                   -> pure mempty
 
-          SELECT
-            lwwref,
-            name,
-            brief
-          FROM (
-            SELECT
-              lwwref,
-              name,
-              brief,
-              ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC) as rn
-            FROM gitrepofact
-          ) as s0
-          WHERE rn = 1;
+    where
+      listEnv args = do
+        pure $ Just $ A.encodePretty args
 
-               |]
+      listEntries args = do
+        env <- getOracleEnv
+        withOracleEnv env do
+          items <- withState $ select_ @_ @(HashVal, Text, Text) [qc|
 
-      let root = object [ "rows"  .= items
-                        , "desc"  .= [ "entity", "name", "brief" ]
-                        ]
+              SELECT
+                lwwref,
+                name,
+                brief
+              FROM (
+                SELECT
+                  lwwref,
+                  name,
+                  brief,
+                  ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC) as rn
+                FROM gitrepofact
+              ) as s0
+              WHERE rn = 1;
 
-      pure $ Just $ A.encodePretty root
+                   |]
+
+          case HM.lookup "OUTPUT" args of
+            Just "html" -> formatHtml args items
+            Just "json" -> formatJson items
+            _           -> formatJson items
+
+      formatJson items = do
+          let root = object [ "rows"  .= items
+                            , "desc"  .= [ "entity", "name", "brief" ]
+                            ]
+
+          pure $ Just $ A.encodePretty root
+
+      formatHtml args items = do
+        renderEntries args items <&> Just
 
 -- Codec for protocol
 instance HasProtocol PIPE (ServiceProto BrowserPluginAPI PIPE) where
@@ -270,10 +282,12 @@ runPipe = do
 
     void $ ContT $ bracket (async $ runMessagingPipe server) cancel
 
-    void $ ContT $ withAsync $ forever do
-      debug $ yellow "updateState"
-      updateState
-      pause @'Seconds 60
+    void $ ContT $ withAsync $ do
+      pause @'Seconds 10
+      forever do
+        debug $ yellow "updateState"
+        updateState
+        pause @'Seconds 60
 
     -- make server protocol responder
     serv <- ContT $ withAsync $ flip runReaderT server do
@@ -282,12 +296,10 @@ runPipe = do
           ]
 
     fix \next -> do
-      -- debug $ red "YAYAYAYA"
       done1 <- hIsClosed stdin
       done2 <- hIsClosed stdout
       done3 <- hIsEOF stdin
       let done = done1 || done2 || done3
-      debug $ red "DONE:" <+> pretty done
       unless done (pause @'Seconds 0.01 >> next)
 
 updateState :: MonadUnliftIO m => Oracle m ()

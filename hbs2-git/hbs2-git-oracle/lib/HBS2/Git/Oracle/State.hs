@@ -59,6 +59,7 @@ newtype GitRepoKey = GitRepoKey (LWWRefKey HBS2Basic)
 
 newtype HashVal    = HashVal HashRef
                      deriving stock Generic
+                     deriving newtype (Pretty,Show)
 
 instance ToJSON HashVal where
   toJSON (HashVal x) = toJSON (show $ pretty x)
