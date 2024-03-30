@@ -240,7 +240,7 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
       formatJson items = do
           let root = object [ "rows"  .= items
-                            , "desc"  .= [ "entity", "name", "brief" ]
+                            , "desc"  .= [ "entity", "name", "brief", "timestamp" ]
                             ]
 
           pure $ Just $ A.encodePretty root

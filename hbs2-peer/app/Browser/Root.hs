@@ -19,8 +19,11 @@ import Lucid (Html,HtmlT,toHtml,toHtmlRaw)
 import Lucid.Html5 hiding (for_)
 import Data.Text qualified as Text
 import Text.InterpolatedString.Perl6 (q)
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.FilePath
 import Control.Monad
+
+import Text.HTML.TagSoup
 
 import UnliftIO
 
@@ -35,7 +38,7 @@ myCss = style_ $ [q|
 
 input, button  {
   font-size: var(--form-element-font-size);
-  height: 2rem;
+  height: 2.5rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   border: 1px solid #ccc;
@@ -43,7 +46,7 @@ input, button  {
 
 input[type="search"] {
   font-size: var(--form-element-font-size);
-  height: 2rem;
+  height: 2.5rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   border: 1px solid #ccc;
@@ -53,6 +56,7 @@ input[type="search"] {
 body, html {
   margin: 0;
   height: 100%;
+  font-size: 16px;
 }
 
 header {
@@ -60,13 +64,21 @@ header {
 
   display: flex;
   align-items: center;
-  padding: 1rem;
+
+  padding: 8px;
 
   top: 0;
   left: 0;
   z-index: 100;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-  height: 64px;
+}
+
+/* height: 64px; */
+
+header h1 {
+  font-size: 1.45rem;
+  margin: 0 0 0 2.21rem;
+  font-weight: 500;
 }
 
 .header-title {
@@ -104,13 +116,10 @@ nav.left {
 main {
   flex-grow: 1;
   padding: 2rem 0 0 4rem;
-  height: calc(100vh - 64px);
 }
 
-header h1 {
-  font-size: 16pt;
-  margin-left: 2rem;
-}
+
+/*  height: calc(100vh - 64px); */
 
 section {
   margin-top: 1rem;
@@ -124,11 +133,11 @@ section {
 }
 
 main h1 {
-  font-size: 24pt;
+  font-size: 1.5rem;
 }
 
 main h2 {
-  font-size: 18pt;
+  font-size: 1.45rem;
   font-weight: 400;
 }
 
@@ -160,10 +169,16 @@ div .repo-list-item {
   flex: 1;
 }
 
+.repo-info h2 a {
+  text-decoration: none;
+  color: inherit;
+}
+
 .repo-info-misc {
   text-align: right;
   font-size: 0.85rem;
 }
+
 
 .attr {
   display: flex;
@@ -217,7 +232,7 @@ rootPage content  = do
 
     body_ do
       header_ do
-        div_ [class_ "header-title"] $ strong_ "hbs2-peer dashboard"
+        div_ [class_ "header-title"] $ h1_ "hbs2-peer dashboard"
       content
 
 
@@ -275,6 +290,24 @@ channelPage api env' = do
          <&> join
          <&> fromMaybe mempty
 
-  rootPage $ toHtmlRaw r
+  let str = LBS.unpack r
 
+  rootPage $ do
+
+    div_ [class_ "container main"] $ do
+      nav_ [class_ "left"] $ do
+        div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+        div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+
+      main_ do
+        toHtmlRaw (extractBodyHtml str)
+
+  where
+    extractBodyHtml :: String -> String
+    extractBodyHtml html =
+        let tags = parseTags html
+            bodyTags = takeWhile (~/= "</main>") . dropWhile (~/= "<main>") $ tags
+            -- Убираем начальный и конечный тег <body>, если это необходимо
+            contentTags = drop 1 $ take (length bodyTags - 1) bodyTags
+        in renderTags contentTags
 
