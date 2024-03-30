@@ -30,61 +30,177 @@ rootPath = ("/browser":)
 path :: [String] -> Text
 path = Text.pack . joinPath . rootPath
 
+myCss :: Monad m => HtmlT m ()
+myCss = style_ $ [q|
+input, button  {
+  font-size: var(--form-element-font-size);
+  height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #ccc;
+}
+
+input[type="search"] {
+  font-size: var(--form-element-font-size);
+  height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #ccc;
+}
+
+
+body, html {
+  margin: 0;
+  height: 100%;
+}
+
+header {
+  width: 100%;
+
+  display: flex;
+  position: fixed;
+  align-items: center;
+  padding: 1rem;
+
+  top: 0;
+  left: 0;
+  z-index: 100;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  height: 64px;
+}
+
+.header-title {
+}
+
+.container {
+  width: 100%;
+}
+
+.header-links {
+  display: flex;
+  margin-left: 10em;
+  gap: 2rem;
+  background: white;
+}
+
+header a {
+  /* display: inline; */
+  height: 1rem;
+  text-decoration: none;
+}
+
+.header-actions {
+  margin-left: auto;
+}
+
+nav.left {
+  display: block;
+  padding: 2rem;
+  margin: 0;
+  background: #FAFAFA;
+  width: 20em;
+}
+
+main {
+  flex-grow: 1;
+  padding: 2rem 0 0 4rem;
+  height: calc(100vh - 64px);
+}
+
+header h1 {
+  font-size: 16pt;
+  margin-left: 2rem;
+}
+
+section {
+  margin-top: 1rem;
+}
+
+.main {
+  display: flex;
+  padding: 64px 0 0 0;
+  margin: 0;
+}
+
+main h1 {
+  font-size: 24pt;
+}
+
+main h2 {
+  font-size: 18pt;
+  font-weight: 400;
+}
+
+div .repo-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+
+
+  background: #FAFAFA;
+  padding: 0.75rem;
+  margin-top: 1.75rem;
+  border-radius: 0.25rem;
+  border: 1px solid #BFC7D9;
+}
+
+.repo-info, .repo-info-misc {
+  flex: 1;
+}
+
+.repo-info-misc {
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.attr {
+  display: flex;
+  margin-bottom: 0.5em;
+}
+
+.attrname, .attribute-value {
+  flex: 1;
+  margin-right: 0.5em;
+}
+
+.attrval {
+  text-align: right;
+  font-weight: bold;
+  flex-basis: 30%;
+  text-align: right;
+}
+
+nav.left .info-block {
+  margin-top: 4em;
+}
+
+form.search {
+  display: flex;
+  align-items: center;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+form.search input[type="search"] {
+  align: center;
+  flex-grow: 1;
+  margin-right: 0.5em;
+}
+
+form.search button {
+  align: center;
+}
+|]
+
+
 rootPage :: Monad m => HtmlT m () -> HtmlT m ()
 rootPage content  = do
-  head_ $ do
-    meta_ [charset_ "utf-8"]
-    meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
-    title_ "hbs2-peer browser"
-    link_ [rel_ "stylesheet", href_ "/css/pico.min.css"]
-    link_ [rel_ "stylesheet", href_ "/css/custom.css"]
+  doctypehtml_ do
+    head_ do
+      myCss
 
-    style_ [type_ "text/css"]  [q|
-      /* jopakita */
-      body, html {
-        height: 100%;
-        margin: 0;
-      }
-      .root {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-      }
-      main {
-        flex-grow: 1;
-      }
-      .flex-container {
-        display: flex;
-        justify-content: space-around;
-      }
-      .flex-item {
-        margin: 10px;
-        padding: 20px;
-        border: 1px solid #ccc;
-      }
-      .resource-box {
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        margin: 4px;
-        padding: 20px;
-        border-radius: 8px;
-      }
-
-      h2 {
-        font-size: 1.15rem;
-      };
-
-      |]
-
-  body_ $ do
-    div_ [class_ "container root"] $ do
-
-      header_ $ do
-        h1_ "hbs2-peer browser"
-
-      main_ content
-
-      footer_ [class_ "footer"]"hbs2-peer by hbs2.net 2024"
-
+    body_ do
+      content
 
 browserRootPage :: Monad m => [Syntax c] -> HtmlT m ()
 browserRootPage syn = rootPage do
