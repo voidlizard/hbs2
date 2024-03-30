@@ -59,7 +59,6 @@ header {
   width: 100%;
 
   display: flex;
-  position: fixed;
   align-items: center;
   padding: 1rem;
 
@@ -119,8 +118,9 @@ section {
 
 .main {
   display: flex;
-  padding: 64px 0 0 0;
+  padding: 4px 0 0 0;
   margin: 0;
+  min-height: 100vh;
 }
 
 main h1 {
