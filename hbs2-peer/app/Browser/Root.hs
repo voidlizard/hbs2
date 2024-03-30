@@ -158,7 +158,7 @@ div .repo-list-item {
   display: block;
 
   background: #FAFAFA;
-  padding: 0.75rem;
+  padding: .95rem;
   margin-top: 1.75rem;
   border-radius: 0.25rem;
   border: 1px solid #BFC7D9;
