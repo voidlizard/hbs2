@@ -38,7 +38,7 @@ renderEntries args items = pure $ renderBS do
             h1_ "Git repositories"
             form_ [class_ "search"] do
                 input_ [type_ "search", id_ "search"]
-                button_ "apply"
+                button_ [class_ "search"] mempty
 
 
           section_ [id_ "repo-search-results"] do

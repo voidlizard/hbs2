@@ -53,12 +53,20 @@ input[type="search"] {
   border: 1px solid #ccc;
 }
 
+button.search {
+  background: url('/icon/refresh.svg') no-repeat center center;
+  background-size: 24px 24px;
+  fill: white;
+  min-width:  32px;
+  height: 2.5rem;
+}
 
 body, html {
   margin: 0;
   height: 100%;
   font-size: 16px;
 }
+
 
 header {
   width: 100%;
@@ -241,6 +249,21 @@ rootPage content  = do
       header_ do
         div_ [class_ "header-title"] $ h1_ "hbs2-peer dashboard"
       content
+
+
+-- <svg xmlns="http://www.w3.org/2000/svg"
+-- class="icon icon-tabler icon-tabler-refresh-dot" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#2c3e50" fill="none" stroke-linecap="round" stroke-linejoin="round">
+--   <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+--   <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+--   <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+--   <path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+-- </svg>
+
+-- <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+--   <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+--   <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+--   <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+-- </svg>
 
 
 browserRootPage :: Monad m => [Syntax c] -> HtmlT m ()
