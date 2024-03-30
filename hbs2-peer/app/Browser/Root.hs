@@ -32,6 +32,7 @@ path = Text.pack . joinPath . rootPath
 
 myCss :: Monad m => HtmlT m ()
 myCss = style_ $ [q|
+
 input, button  {
   font-size: var(--form-element-font-size);
   height: 2rem;
@@ -144,6 +145,17 @@ div .repo-list-item {
   border: 1px solid #BFC7D9;
 }
 
+.channel-list-item {
+  display: block;
+
+  background: #FAFAFA;
+  padding: 0.75rem;
+  margin-top: 1.75rem;
+  border-radius: 0.25rem;
+  border: 1px solid #BFC7D9;
+
+}
+
 .repo-info, .repo-info-misc {
   flex: 1;
 }
@@ -197,10 +209,17 @@ rootPage :: Monad m => HtmlT m () -> HtmlT m ()
 rootPage content  = do
   doctypehtml_ do
     head_ do
+      meta_ [charset_ "UTF-8"]
+      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+      -- link_ [rel_ "stylesheet", href_"/css/pico.min.css"]
+      link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"]
       myCss
 
     body_ do
+      header_ do
+        div_ [class_ "header-title"] $ strong_ "hbs2-peer dashboard"
       content
+
 
 browserRootPage :: Monad m => [Syntax c] -> HtmlT m ()
 browserRootPage syn = rootPage do
@@ -209,33 +228,40 @@ browserRootPage syn = rootPage do
 
   let channels = [ mchan | ListVal (SymbolVal "channel" : mchan) <- bro ]
 
-  for_ channels $ \chan -> do
+  div_ [class_ "container main"] $ do
+    nav_ [class_ "left"] $ do
+      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
-    let title = headDef "unknown" [ t
-                                      | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
-                                      ]
-    let desc = mconcat [ d
-                       | ListVal (SymbolVal "description" : d) <- chan
-                       ] & take 5
+    main_ do
+      for_ channels $ \chan -> do
 
-    let rchan = headMay $ catMaybes
-                        [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
-                        | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
-                        ]
+        let title = headDef "unknown" [ t
+                                          | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
+                                          ]
+        let desc = mconcat [ d
+                           | ListVal (SymbolVal "description" : d) <- chan
+                           ] & take 5
 
-    for_ rchan $ \r -> do
+        let rchan = headMay $ catMaybes
+                            [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
+                            | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
+                            ]
 
-      let rcs = show $ pretty (AsBase58 r)
 
-      div_ [class_ "resource-box"] do
-        h2_ ( "Channel: "  <> toHtml title)
-        div_ do
-          a_ [href_ (path ["channel", rcs])] (toHtml rcs)
+        for_ rchan $ \r -> do
 
-          p_ mempty
+          let rcs = show $ pretty (AsBase58 r)
 
-          for_ [ s | LitStrVal s <- desc ] $ \s -> do
-            p_ (toHtml s)
+          section_ do
+
+            div_ [class_ "channel-list-item"] do
+              h2_ $ toHtml title
+
+              a_ [href_ (path ["channel", rcs])] (toHtml rcs)
+
+              for_ [ s | LitStrVal s <- desc ] $ \s -> do
+                p_ (toHtml s)
 
 
 channelPage :: MonadIO m

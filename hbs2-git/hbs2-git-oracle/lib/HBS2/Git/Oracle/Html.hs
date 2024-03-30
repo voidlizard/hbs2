@@ -32,17 +32,46 @@ renderMarkdown markdown = case markdownToHtml markdown of
 renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
 renderEntries args items = pure $ renderBS do
   wrapped do
-    for_ items $ \(h,n,b,t) -> do
-      div_ [class_ "resource-box"] do
 
-        let name = if Text.length n > 2 then toHtml n else toHtml (show $ pretty h)
+    div_ [class_ "container main"] $ do
+      nav_ [class_ "left"] $ do
+        div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+        div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
-        h3_ [class_ "repo-name"] name
+      main_ do
 
-        div_ [class_ "repo-brief"] do
-          renderMarkdown b
+        div_ [class_ "container"] do
 
-        div_ [class_ "repo-reference"] $ a_ [] (toHtml (show $ pretty h))
+          section_ do
+            h1_ "Git repositories"
+            form_ [class_ "search"] do
+                input_ [type_ "search", id_ "search"]
+                button_ "apply"
+
+
+          section_ [id_ "repo-search-results"] do
+
+            for_ items $ \(h,n,b,t) -> do
+
+              -- let name = if Text.length n > 2 then toHtml (n <> "-" <>) else toHtml (show $ pretty h)
+
+              let name = mempty
+
+              div_ [class_ "repo-list-item"] do
+                div_ [class_ "repo-info"] do
+                  h2_ $ a_ [href_ ""] name
+
+                  a_ [href_ ""] (toHtml (show $ pretty h))
+
+                  renderMarkdown b
+
+
+                -- h3_ [class_ "repo-name"] name
+
+                -- div_ [class_ "repo-brief"] do
+                --   renderMarkdown b
+
+                -- div_ [class_ "repo-reference"] $ a_ [] (toHtml (show $ pretty h))
 
   where
 
