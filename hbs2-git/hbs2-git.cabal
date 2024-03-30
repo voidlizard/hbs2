@@ -187,7 +187,7 @@ library hbs2-git-oracle-oracle-lib
                     , base16-bytestring
                     , binary
                     , lucid
-                    , pandoc == 3.1.12.3
+                    , pandoc
                     , unix
             -- FIXME: ASAP-remove
                     , sqlite-simple
