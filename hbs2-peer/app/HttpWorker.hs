@@ -120,13 +120,10 @@ runPlugin pks (self:args) handles = do
       ContT $ bracket (atomically $ modifyTVar handles (HM.insert pks caller))
                       (const $ atomically $ modifyTVar handles (HM.delete pks))
 
-
-
-
       void $ waitExitCode p
 
 
-findPlugins :: forall m . MonadIO m => [Syntax C] -> m [(RefChanId L4Proto, [FilePath])]
+findPlugins :: forall m . MonadIO m => [Syntax C] -> m [(Maybe Text, RefChanId L4Proto, [FilePath])]
 findPlugins syn = w $ S.toList_ $ do
 
   let chans = mconcat [ channels b | ListVal (SymbolVal "browser" : b)  <- syn ]
@@ -138,6 +135,10 @@ findPlugins syn = w $ S.toList_ $ do
                            | ListVal [SymbolVal "refchan", LitStrVal x] <- cha
                            ]
 
+    let alias =  headMay [ x
+                         | ListVal [SymbolVal "alias", LitStrVal x] <- cha
+                         ]
+
     plug <- toMPlus $ headMay $ catMaybes $
                [ mkProcessArgs what
                | ListVal [ SymbolVal "plugin", Spawn what ] <- cha
@@ -145,13 +146,14 @@ findPlugins syn = w $ S.toList_ $ do
 
     debug $ red "FOUND CHANNEL" <+> pretty (AsBase58 rchan) <+> parens (pretty plug)
 
-    lift $ S.yield (rchan, plug)
+    lift $ S.yield (alias, rchan, plug)
 
   where
 
     w l = l >>= uniq
 
-    uniq s = pure (List.nubBy ((==) `on` fst) s)
+    uniq s = pure (List.nubBy ((==) `on` ukey) s)
+      where ukey (a,b,_) = (a,b)
 
     mkProcessArgs ssyn = sequence $
       flip fmap ssyn \case
@@ -185,9 +187,12 @@ httpWorker (PeerConfig syn) pmeta e = do
 
     handles <- newTVarIO mempty
 
+    aliases <- newTVarIO (mempty :: HashMap Text (RefChanId L4Proto))
+
     plugins <- findPlugins syn
 
-    for_ plugins $ \(r, args) -> do
+    for_ plugins $ \(a, r, args) -> do
+      for_ a $ \alias -> atomically $ modifyTVar aliases (HM.insert alias r)
       void $ ContT $ withAsync (runPlugin r args handles)
 
     port <- ContT $ maybe1 port' none
@@ -320,17 +325,20 @@ httpWorker (PeerConfig syn) pmeta e = do
         get "/browser" do
           renderTextT (browserRootPage syn) >>= html
 
-        get "/browser/channel/:refchan" $ void $ flip runContT pure do
+        get "/browser/:plugin" $ do
+          url <- param @Text "plugin"
+          alias <- readTVarIO aliases <&> HM.lookup url
 
-          chan <- lift (param @String "refchan")
-                   <&> fromStringMay
-                   >>= orElse (status status404)
+          void $ flip runContT pure do
 
-          plugin <- readTVarIO handles <&> HM.lookup chan
-                     >>= orElse (status status404)
+            chan <- maybe (fromStringMay $ Text.unpack url) pure alias
+                   & orElse (status status404)
 
-          let env = mempty
-          lift $ renderTextT (channelPage plugin env) >>= html
+            plugin <- readTVarIO handles <&> HM.lookup chan
+                       >>= orElse (status status404)
+
+            let env = mempty
+            lift $ renderTextT (channelPage plugin env) >>= html
 
 
       put "/" do

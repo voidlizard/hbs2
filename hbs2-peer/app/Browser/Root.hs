@@ -22,6 +22,7 @@ import Text.InterpolatedString.Perl6 (q)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.FilePath
 import Control.Monad
+import Control.Monad.Trans.Maybe
 
 import Text.HTML.TagSoup
 
@@ -255,7 +256,7 @@ browserRootPage syn = rootPage do
       div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
     main_ do
-      for_ channels $ \chan -> do
+      for_ channels $ \chan -> void $ runMaybeT do
 
         let title = headDef "unknown" [ t
                                           | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
@@ -264,25 +265,28 @@ browserRootPage syn = rootPage do
                            | ListVal (SymbolVal "description" : d) <- chan
                            ] & take 5
 
-        let rchan = headMay $ catMaybes
-                            [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
-                            | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
+        rchan <- headMay ( catMaybes
+                       [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
+                       | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
+                       ] ) & toMPlus
+
+
+        let alias = headMay [ x
+                            | ListVal [SymbolVal "alias", LitStrVal x] <- chan
                             ]
 
+        let url = case alias of
+                    Just x -> Text.unpack x
+                    Nothing -> (show . pretty . AsBase58) rchan
 
-        for_ rchan $ \r -> do
+        lift do
+          div_ [class_ "channel-list-item"] do
+            h2_ $ toHtml title
 
-          let rcs = show $ pretty (AsBase58 r)
+            a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
 
-          section_ do
-
-            div_ [class_ "channel-list-item"] do
-              h2_ $ toHtml title
-
-              a_ [href_ (path ["channel", rcs])] (toHtml rcs)
-
-              for_ [ s | LitStrVal s <- desc ] $ \s -> do
-                p_ (toHtml s)
+            for_ [ s | LitStrVal s <- desc ] $ \s -> do
+              p_ (toHtml s)
 
 
 channelPage :: MonadIO m
