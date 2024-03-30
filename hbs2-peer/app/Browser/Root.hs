@@ -158,8 +158,8 @@ div .repo-list-item {
   display: block;
 
   background: #FAFAFA;
-  padding: .95rem;
-  margin-top: 1.75rem;
+  padding: 1.45rem;
+  margin-top: 2rem;
   border-radius: 0.25rem;
   border: 1px solid #BFC7D9;
 
@@ -167,12 +167,18 @@ div .repo-list-item {
 
 .repo-info, .repo-info-misc {
   flex: 1;
+  padding: 1.25rem;
 }
 
 .repo-info h2 a {
   text-decoration: none;
   color: inherit;
 }
+
+.repo-info h2 a:hover {
+  text-decoration: underline dotted;
+}
+
 
 .repo-info-misc {
   text-align: right;
