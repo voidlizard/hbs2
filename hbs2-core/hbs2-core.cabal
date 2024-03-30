@@ -150,7 +150,7 @@ library
                     , clock
                     , constraints
                     , containers
-                    , cryptonite
+                    , crypton
                     , data-default
                     , deepseq
                     , directory

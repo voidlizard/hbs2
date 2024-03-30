@@ -73,7 +73,7 @@ executable hbs2
                     , cborg
                     , clock
                     , containers
-                    , cryptonite
+                    , crypton
                     , deepseq
                     , directory
                     , filepath

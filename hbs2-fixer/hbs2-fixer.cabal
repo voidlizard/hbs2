@@ -68,7 +68,7 @@ common shared-properties
                , streaming
                , streaming-bytestring
                , streaming-commons
-               , cryptonite
+               , crypton
                , directory
                , exceptions
                , filelock
