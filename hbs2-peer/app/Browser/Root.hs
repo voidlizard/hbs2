@@ -234,6 +234,27 @@ form.search input[type="search"] {
 form.search button {
   align: center;
 }
+
+.xclip::after {
+  content: "";
+  display: inline-block;
+  height: 16px;
+  width: 16px;
+  vertical-align: top;
+}
+
+.xclip:hover::after {
+  content: url('/icon/xclip.svg');
+  margin-left: 1rem;
+  height: 16px;
+  width: 16x;
+  vertical-align: top;
+}
+
+.xclip:hover {
+  text-decoration: underline dotted;
+}
+
 |]
 
 
@@ -309,7 +330,7 @@ browserRootPage syn = rootPage do
           div_ [class_ "channel-list-item"] do
             h2_ $ toHtml title
 
-            a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
+            p_ $ a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
 
             for_ [ s | LitStrVal s <- desc ] $ \s -> do
               p_ (toHtml s)

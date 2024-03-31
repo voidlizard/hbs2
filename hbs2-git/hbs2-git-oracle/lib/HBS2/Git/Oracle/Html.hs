@@ -29,6 +29,13 @@ renderMarkdown markdown = case markdownToHtml markdown of
     Left{} -> mempty
     Right html -> toHtmlRaw $ Text.pack html
 
+-- <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copy-check" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#2c3e50" fill="none" stroke-linecap="round" stroke-linejoin="round">
+--   <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+--   <path d="M7 7m0 2.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z" />
+--   <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" />
+--   <path d="M11 14l2 2l4 -4" />
+-- </svg>
+
 
 -- FIXME: move-to-hbs2-browser-lib
 hyper_ :: Text -> Attribute
@@ -60,9 +67,9 @@ renderEntries args items = pure $ renderBS do
 
               div_ [class_ "repo-list-item"] do
                 div_ [class_ "repo-info"] do
-                  h2_ $ a_ [href_ "", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
+                  h2_ [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
 
-                  a_ [href_ "", hyper_ ""] (toHtml (show $ pretty h))
+                  p_ $ a_ [href_ ""] (toHtml (show $ pretty h))
 
                   renderMarkdown b
 
