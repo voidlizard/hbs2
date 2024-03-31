@@ -56,9 +56,11 @@ input[type="search"] {
 button.search {
   background: url('/icon/refresh.svg') no-repeat center center;
   background-size: 24px 24px;
-  fill: white;
   min-width:  32px;
   height: 2.5rem;
+}
+
+button.search svg {
 }
 
 body, html {
@@ -243,6 +245,7 @@ rootPage content  = do
       meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
       -- link_ [rel_ "stylesheet", href_"/css/pico.min.css"]
       link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"]
+      script_ [src_ "https://unpkg.com/hyperscript.org@0.9.12"] ""
       myCss
 
     body_ do

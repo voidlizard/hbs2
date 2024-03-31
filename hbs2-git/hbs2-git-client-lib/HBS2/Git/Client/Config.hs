@@ -38,9 +38,14 @@ getConfigDir = do
 getManifest :: GitPerks m => m (Text, Text, Maybe Text)
 getManifest = do
   dir <- getConfigDir
+
+  dirFull <- expandPath dir
+
   let mf = dir </> "manifest"
 
-  let defname = takeFileName (takeDirectory dir) & Text.pack
+  -- directory/.hbs2-git/manifest
+  -- so, it should be:
+  let defname = takeFileName (takeDirectory dirFull) & Text.pack
   let defbrief = "n/a"
 
   content <- liftIO (try @_ @IOException $ readFile mf)
@@ -88,3 +93,4 @@ export include "refs/heads/main"
 export exclude "refs/heads/*"
 export tags
 |]
+

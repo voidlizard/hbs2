@@ -5,7 +5,8 @@ import HBS2.Git.Oracle.State
 
 import Data.HashMap.Strict (HashMap)
 
-import Lucid (Html,HtmlT,toHtml,toHtmlRaw,renderBS)
+import Lucid hiding (for_)
+import Lucid.Base
 import Lucid.Html5 hiding (for_)
 
 import Data.Text (Text)
@@ -15,7 +16,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy
 import Text.Pandoc
 import Text.Pandoc.Error (handleError)
-
+import Text.InterpolatedString.Perl6 (qc)
 
 markdownToHtml :: Text -> Either PandocError String
 markdownToHtml markdown = runPure $ do
@@ -28,6 +29,14 @@ renderMarkdown markdown = case markdownToHtml markdown of
     Left{} -> mempty
     Right html -> toHtmlRaw $ Text.pack html
 
+
+-- FIXME: move-to-hbs2-browser-lib
+hyper_ :: Text -> Attribute
+hyper_  = makeAttribute "_"
+
+-- FIXME: move-to-hbs2-browser-lib
+onClickCopy :: Text -> Attribute
+onClickCopy s = hyper_ [qc|on click writeText('{s}') into the navigator's clipboard|]
 
 renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
 renderEntries args items = pure $ renderBS do
@@ -47,12 +56,13 @@ renderEntries args items = pure $ renderBS do
 
               let s = if Text.length n > 2 then n else "unnamed"
               let refpart = Text.take 8 $ Text.pack $ show $ pretty h
+              let ref =  Text.pack $ show $ pretty h
 
               div_ [class_ "repo-list-item"] do
                 div_ [class_ "repo-info"] do
-                  h2_ $ a_ [href_ ""] $ toHtml (s <> "-" <> refpart)
+                  h2_ $ a_ [href_ "", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
 
-                  a_ [href_ ""] (toHtml (show $ pretty h))
+                  a_ [href_ "", hyper_ ""] (toHtml (show $ pretty h))
 
                   renderMarkdown b
 
