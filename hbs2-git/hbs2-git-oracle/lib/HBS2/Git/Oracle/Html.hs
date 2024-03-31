@@ -43,7 +43,8 @@ hyper_  = makeAttribute "_"
 
 -- FIXME: move-to-hbs2-browser-lib
 onClickCopy :: Text -> Attribute
-onClickCopy s = hyper_ [qc|on click writeText('{s}') into the navigator's clipboard|]
+onClickCopy s =
+  hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
 renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
 renderEntries args items = pure $ renderBS do

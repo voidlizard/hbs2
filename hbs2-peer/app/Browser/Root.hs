@@ -246,14 +246,23 @@ form.search button {
 .xclip:hover::after {
   content: url('/icon/xclip.svg');
   margin-left: 1rem;
-  height: 16px;
-  width: 16x;
+  height: 24x;
+  width: 24x;
   vertical-align: top;
 }
 
 .xclip:hover {
   text-decoration: underline dotted;
 }
+
+.clicked:hover::after {
+  content: url('/icon/xclipdone.svg');
+  margin-left: 1rem;
+  height: 24px;
+  width: 24x;
+  vertical-align: top;
+}
+
 
 |]
 

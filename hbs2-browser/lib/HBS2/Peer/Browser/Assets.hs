@@ -6,7 +6,7 @@ import Data.FileEmbed
 import Data.ByteString
 
 version :: Int
-version = 3
+version = 6
 
 cssDir :: [(FilePath, ByteString)]
 cssDir = $(embedDir "assets")
