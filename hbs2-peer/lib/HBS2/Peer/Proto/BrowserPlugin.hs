@@ -1,3 +1,4 @@
+{-# Language TemplateHaskell #-}
 module HBS2.Peer.Proto.BrowserPlugin
   ( module HBS2.Peer.Proto.BrowserPlugin
   , module HBS2.Net.Proto.Service
@@ -10,6 +11,7 @@ import HBS2.Net.Proto.Service
 
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
+import Lens.Micro.Platform
 
 data RpcChannelQuery
 
@@ -17,8 +19,12 @@ data RpcChannelQuery
 type BrowserPluginAPI = '[ RpcChannelQuery ]
 
 data PluginMethod =
-    Get (Maybe Text) [(Text,Text)]
+    Get { _getPath :: [Text]
+        , _getArgs :: [(Text,Text)]
+        }
     deriving stock Generic
+
+makeLenses 'Get
 
 instance Serialise PluginMethod
 

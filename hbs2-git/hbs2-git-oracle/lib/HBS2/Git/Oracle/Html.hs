@@ -3,6 +3,8 @@ module HBS2.Git.Oracle.Html where
 import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.State
 
+import HBS2.Peer.HTTP.Root
+
 import Data.HashMap.Strict (HashMap)
 
 import Lucid hiding (for_)
@@ -64,13 +66,14 @@ renderEntries args items = pure $ renderBS do
 
               let s = if Text.length n > 2 then n else "unnamed"
               let refpart = Text.take 8 $ Text.pack $ show $ pretty h
-              let ref =  Text.pack $ show $ pretty h
+              let sref = show $ pretty h
+              let ref =  Text.pack sref
 
               div_ [class_ "repo-list-item"] do
                 div_ [class_ "repo-info"] do
                   h2_ [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
 
-                  p_ $ a_ [href_ ""] (toHtml (show $ pretty h))
+                  p_ $ a_ [href_ (path ["repo", sref])] (toHtml ref)
 
                   renderMarkdown b
 

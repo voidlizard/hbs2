@@ -47,12 +47,14 @@ import Control.Monad.Trans.Maybe
 import Data.Function
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Char8 qualified as BS8
 import Data.Either
 import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe
 import Data.List qualified as List
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LT
 import Data.Text.Encoding qualified as Text
 import Lens.Micro.Platform (view)
 import Streaming.Prelude qualified as S
@@ -279,14 +281,26 @@ httpWorker (PeerConfig syn) pmeta e = do
 
       middleware (static cssDir)
 
+
+      let pluginPath = function $ \r -> case splitDirectories (BS8.unpack (rawPathInfo r)) of
+                                         ("/" : "browser" : plugin : _ ) -> Just [("plugin", LT.pack plugin)]
+                                         _                               -> Nothing
+
       when bro do
 
         get "/browser" do
           renderTextT (browserRootPage syn) >>= html
 
-        get "/browser/:plugin" $ do
+        get pluginPath do
+
+          req <- Scotty.request
+
+          debug $ red "BROWSER" <+> viaShow (splitDirectories (BS8.unpack (rawPathInfo req)))
+
           url <- param @Text "plugin"
           alias <- readTVarIO aliases <&> HM.lookup url
+
+          -- args <- param @String "1"
 
           void $ flip runContT pure do
 
@@ -296,13 +310,9 @@ httpWorker (PeerConfig syn) pmeta e = do
             plugin <- readTVarIO handles <&> HM.lookup chan
                        >>= orElse (status status404)
 
-            envv <- liftIO getEnvironment
+            let req = Get mempty mempty
 
-            debug $ red "ENV" <+> pretty envv
-
-            env <- lift makeHttpEnv
-
-            lift $ renderTextT (pluginPage plugin env) >>= html
+            lift $ renderTextT (pluginPage plugin req) >>= html
 
 
       put "/" do
@@ -324,44 +334,6 @@ httpWorker (PeerConfig syn) pmeta e = do
   warn "http port not set"
   forever $ pause @'Seconds 600
 
-
-
-class ToPluginArg a where
-  pluginArgs :: Text -> a -> [(Text,Text)]
-
-instance ToPluginArg Text where
-  pluginArgs n s = [(n,s)]
-
-
-makeHttpEnv :: ActionM [(Text,Text)]
-makeHttpEnv = do
-  req <- Scotty.request
-  pure mempty
-
-  -- pure $ pluginArgs "REQUEST_METHOD" (requestMethod req)
-  --        <>
-  --        pluginArgs "PATH_INFO" (pathInfo req)
-
-  where
-    part s bs = [ (s, Text.decodeUtf8 bs) ]
-
-
---                 { requestMethod = rmethod
---                 , rawPathInfo = B.pack pinfo
---                 , pathInfo = H.decodePathSegments $ B.pack pinfo
---                 , rawQueryString = B.pack qstring
---                 , queryString = H.parseQuery $ B.pack qstring
---                 , requestHeaders = reqHeaders
---                 , isSecure = isSecure'
---                 , remoteHost = addr
---                 , httpVersion = H.http11 -- FIXME
---                 , vault = mempty
---                 , requestBodyLength = KnownLength $ fromIntegral contentLength
---                 , requestHeaderHost = lookup "host" reqHeaders
---                 , requestHeaderRange = lookup hRange reqHeaders
--- #if MIN_VERSION_wai(3,2,0)
---             , requestHeaderReferer = lookup "referer" reqHeaders
---             , requestHeaderUserAgent = lookup "user-agent" reqHeaders
 
 
 getTreeHash :: AnyStorage -> HashRef -> ActionM ()

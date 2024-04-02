@@ -90,7 +90,6 @@ runMessagingPipe bus = liftIO do
     done <- hIsEOF who
     unless done do
       r <- try @_ @SomeException do
-        debug $ "GET SHIT!"
         frame <- LBS.hGet who 4 <&> word32 . LBS.toStrict
         piece <- LBS.hGet who (fromIntegral frame)
         atomically (writeTQueue (inQ bus) piece)

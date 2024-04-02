@@ -21,6 +21,7 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx
 
+import HBS2.Peer.HTTP.Root
 import HBS2.Peer.Proto.BrowserPlugin
 
 import DBPipe.SQLite
@@ -47,6 +48,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import System.Environment (getProgName, getArgs)
 import System.Environment
 import System.Posix.Signals
+import System.FilePath
 import Data.Word
 
 import System.Exit
@@ -161,8 +163,9 @@ runDump pks = do
            <&> fmap (over _1 Text.pack . over _2 Text.pack)
 
   path <- liftIO (lookupEnv "PATH_INFO")
-           <&> fromMaybe "/"
-           <&> Text.pack
+           <&> fmap splitDirectories
+           <&> fromMaybe mempty
+           <&> fmap Text.pack
 
   let cmd = proc self ["pipe", "-r", show (pretty (AsBase58 pks))]
               & setStdin createPipe
@@ -182,7 +185,7 @@ runDump pks = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
-    wtf <- callService @RpcChannelQuery caller (Get (Just path) env)
+    wtf <- callService @RpcChannelQuery caller (Get path env)
             >>= orThrowUser "can't query rpc"
 
     r <- ContT $ maybe1 wtf (liftIO (hClose ssin >> exitFailure))
@@ -205,11 +208,13 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
     let args = HM.fromList args'
 
-    case HM.lookup "METHOD" args <|> path of
+    let cmd  = HM.lookup "METHOD" args <|> headMay path
+
+    case cmd of
       Just "debug"        -> listEnv args
       Just "list-entries" -> listEntries args
       Just "/"            -> listEntries args
-      Just ""             -> listEntries args
+      Nothing             -> listEntries args
       _                   -> pure Nothing
 
     where

@@ -177,6 +177,8 @@ library
       HBS2.Peer.RPC.Internal.Types
       HBS2.Peer.CLI.Detect
 
+      HBS2.Peer.HTTP.Root
+
     other-modules:
       -- HBS2.System.Logger.Simple
 

@@ -9,9 +9,6 @@ import HBS2.Base58
 import HBS2.Net.Proto.Types
 import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.Proto.BrowserPlugin
-import HBS2.Net.Messaging.Pipe
-import HBS2.System.Logger.Simple.ANSI
-import HBS2.Misc.PrettyStuff
 
 import Data.Config.Suckless.Syntax
 
@@ -25,6 +22,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.FilePath
 import Control.Monad
 import Control.Monad.Trans.Maybe
+import Lens.Micro.Platform
 
 import Text.HTML.TagSoup
 
@@ -351,14 +349,13 @@ browserRootPage syn = rootPage do
 
 pluginPage :: MonadIO m
             => ServiceCaller BrowserPluginAPI PIPE
-            -> [(Text,Text)]
+            -> PluginMethod
             -> HtmlT m ()
-pluginPage api env' = do
-  let env = HM.toList $ HM.fromList env' <> HM.fromList [("METHOD","list-entries"),("OUTPUT","html")]
+pluginPage api method' = do
 
-  let plGet = Get Nothing [("OUTPUT", "html")]
+  let method = method' & over getArgs ( ("OUTPUT", "html") : )
 
-  r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api plGet)
+  r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api method)
          <&> join
          <&> fromMaybe mempty
 
