@@ -22,7 +22,7 @@ data PluginMethod =
     Get { _getPath :: [Text]
         , _getArgs :: [(Text,Text)]
         }
-    deriving stock Generic
+    deriving stock (Show,Generic)
 
 makeLenses 'Get
 

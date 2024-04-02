@@ -295,7 +295,9 @@ httpWorker (PeerConfig syn) pmeta e = do
 
           req <- Scotty.request
 
-          debug $ red "BROWSER" <+> viaShow (splitDirectories (BS8.unpack (rawPathInfo req)))
+          let rawPath = BS8.unpack (rawPathInfo req)
+
+          debug $ red "BROWSER" <+> viaShow (splitDirectories rawPath)
 
           url <- param @Text "plugin"
           alias <- readTVarIO aliases <&> HM.lookup url
@@ -310,9 +312,13 @@ httpWorker (PeerConfig syn) pmeta e = do
             plugin <- readTVarIO handles <&> HM.lookup chan
                        >>= orElse (status status404)
 
-            let req = Get mempty mempty
+            let pp = splitDirectories rawPath
+            let norm = fromMaybe pp $ List.stripPrefix ["/","browser",Text.unpack url] pp
+            let q = Get (Text.pack <$> norm) (("RAW_PATH_INFO", fromString rawPath) : mempty)
 
-            lift $ renderTextT (pluginPage plugin req) >>= html
+            debug $ red "CALL PLUGIN" <+> viaShow q
+
+            lift $ renderTextT (pluginPage plugin q) >>= html
 
 
       put "/" do

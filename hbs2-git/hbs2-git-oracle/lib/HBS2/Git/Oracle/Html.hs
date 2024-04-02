@@ -4,6 +4,7 @@ import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.State
 
 import HBS2.Peer.HTTP.Root
+import HBS2.Peer.Proto.BrowserPlugin
 
 import Data.HashMap.Strict (HashMap)
 
@@ -48,8 +49,11 @@ onClickCopy :: Text -> Attribute
 onClickCopy s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
-renderEntries :: Monad m => HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
-renderEntries args items = pure $ renderBS do
+renderEntries :: Monad m => PluginMethod -> HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
+renderEntries (Get p _) args items = pure $ renderBS do
+
+  let hrefBase = fmap Text.unpack p & Prelude.takeWhile (/= "repo")
+
   wrapped do
       main_ do
 
@@ -69,11 +73,15 @@ renderEntries args items = pure $ renderBS do
               let sref = show $ pretty h
               let ref =  Text.pack sref
 
+              let suff = ["repo", sref]
+
+              let url = path (hrefBase <> suff)
+
               div_ [class_ "repo-list-item"] do
                 div_ [class_ "repo-info"] do
                   h2_ [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
 
-                  p_ $ a_ [href_ (path ["repo", sref])] (toHtml ref)
+                  p_ $ a_ [href_ url] (toHtml ref)
 
                   renderMarkdown b
 

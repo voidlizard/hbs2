@@ -201,21 +201,22 @@ class HasOracleEnv m where
 
 -- API handler
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
-  handleMethod (Get path args') = do
+  handleMethod req@(Get path args') = do
     env <- getOracleEnv
 
     debug $ green "PLUGIN: HANDLE METHOD!"
 
     let args = HM.fromList args'
 
-    let cmd  = HM.lookup "METHOD" args <|> headMay path
+    let cmd  = path
 
     case cmd of
-      Just "debug"        -> listEnv args
-      Just "list-entries" -> listEntries args
-      Just "/"            -> listEntries args
-      Nothing             -> listEntries args
-      _                   -> pure Nothing
+      ("debug":_)        -> listEnv args
+      ("list-entries":_) -> listEntries args
+      ("repo" : _)       -> renderRepo req
+      ("/":_)            -> listEntries args
+      []                 -> listEntries args
+      _                  -> pure Nothing
 
     where
       listEnv args = do
@@ -249,6 +250,10 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
             Just "json" -> formatJson items
             _           -> formatJson items
 
+
+      renderRepo _ = do
+        pure $ Just "<main><h1>REPO</h1></main>"
+
       formatJson items = do
           let root = object [ "rows"  .= items
                             , "desc"  .= [ "entity", "name", "brief", "timestamp" ]
@@ -257,7 +262,7 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
           pure $ Just $ A.encodePretty root
 
       formatHtml args items = do
-        renderEntries args items <&> Just
+        renderEntries req args items <&> Just
 
 
 -- Some "deferred" implementation for our monad
