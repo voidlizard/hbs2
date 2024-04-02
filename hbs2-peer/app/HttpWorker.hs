@@ -106,54 +106,12 @@ httpWorker (PeerConfig syn) pmeta e = do
                   >>= orElse (status status404)
                   <&> lwwValue . snd
 
-          lift $ redirect [qc|/tree/{pretty rv}|]
+          lift $ getTreeHash sto rv
 
+      -- TODO: define-parsable-instance-for-our-types
       get "/tree/:hash" do
         what <- param @String "hash" <&> fromString
-
-        void $ flip runContT pure do
-
-          callCC $ \exit -> do
-
-            blob <- liftIO (getBlock sto what)
-                      >>= orElse (status status404)
-
-            mh <- orElse (status status404) (extractMetadataHash what blob)
-
-            meta <- lift (getBlock sto mh) >>= orElse (status status404)
-                       <&> LBS8.unpack
-                       <&> fromRight mempty . parseTop
-
-            let tp = headDef "application/octet-stream"
-                     [ show (pretty w)
-                     | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
-                     ]
-
-            let fn = headMay
-                     [ show (pretty w)
-                     | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
-                     ]
-
-            -- liftIO $ print $ pretty meta
-
-            case fn of
-              Just x | takeExtension x == ".html" -> pure  ()
-                     | otherwise -> lift $ do
-                         addHeader "content-disposition" [qc|attachment; filename="{x}"|]
-
-              _ -> pure ()
-
-            lift $ addHeader "content-type" (fromString tp)
-
-            elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
-
-            case elbs of
-              Left{} -> lift $ status status404
-              Right lbs -> lift do
-                stream $ \write flush -> do
-                  for_ (LBS.toChunks lbs) $ \chunk -> do
-                    write $ byteString chunk
-                  flush
+        getTreeHash sto what
 
       get "/cat/:hash" do
         what <- param @String "hash" <&> fromString
@@ -212,4 +170,50 @@ httpWorker (PeerConfig syn) pmeta e = do
 
   warn "http port not set"
   forever $ pause @'Seconds 600
+
+
+getTreeHash :: AnyStorage -> HashRef -> ActionM ()
+getTreeHash sto what' = void $ flip runContT pure do
+  blob <- liftIO (getBlock sto what)
+            >>= orElse (status status404)
+
+  mh <- orElse (status status404) (extractMetadataHash what blob)
+
+  meta <- lift (getBlock sto mh) >>= orElse (status status404)
+             <&> LBS8.unpack
+             <&> fromRight mempty . parseTop
+
+  let tp = headDef "application/octet-stream"
+           [ show (pretty w)
+           | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
+           ]
+
+  let fn = headMay
+           [ show (pretty w)
+           | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
+           ]
+
+  -- liftIO $ print $ pretty meta
+
+  case fn of
+    Just x | takeExtension x == ".html" -> pure  ()
+           | otherwise -> lift $ do
+               addHeader "content-disposition" [qc|attachment; filename="{x}"|]
+
+    _ -> pure ()
+
+  lift $ addHeader "content-type" (fromString tp)
+
+  elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
+
+  case elbs of
+    Left{} -> lift $ status status404
+    Right lbs -> lift do
+      stream $ \write flush -> do
+        for_ (LBS.toChunks lbs) $ \chunk -> do
+          write $ byteString chunk
+        flush
+  where
+    what = fromHashRef what'
+
 

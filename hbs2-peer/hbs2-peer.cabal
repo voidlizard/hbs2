@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hbs2-peer
-version:            0.24.1.0
+version:            0.24.1.1
 -- synopsis:
 -- description:
 license:            BSD-3-Clause
