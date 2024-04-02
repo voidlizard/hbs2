@@ -4,10 +4,10 @@ module HBS2.Peer.Proto.BrowserPlugin
   , PIPE
   ) where
 
+import HBS2.Prelude.Plated
 import HBS2.Net.Messaging.Pipe
 import HBS2.Net.Proto.Service
 
-import Data.Text (Text)
 import Data.ByteString.Lazy (ByteString)
 import Codec.Serialise
 
@@ -16,8 +16,14 @@ data RpcChannelQuery
 -- API definition
 type BrowserPluginAPI = '[ RpcChannelQuery ]
 
+data PluginMethod =
+    Get (Maybe Text) [(Text,Text)]
+    deriving stock Generic
+
+instance Serialise PluginMethod
+
 -- API endpoint definition
-type instance Input RpcChannelQuery = [(Text,Text)]
+type instance Input RpcChannelQuery = PluginMethod
 type instance Output RpcChannelQuery = Maybe ByteString
 
 

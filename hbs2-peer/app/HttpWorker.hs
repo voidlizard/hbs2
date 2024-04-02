@@ -12,11 +12,11 @@ import HBS2.Data.Detect
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.Net.Messaging.Pipe
-import HBS2.Peer.Proto
-import HBS2.Peer.Proto.BrowserPlugin
+import HBS2.Peer.Proto hiding (Request)
+import HBS2.Peer.Proto.BrowserPlugin hiding (Request)
 import HBS2.Peer.Proto.LWWRef
 import HBS2.Peer.Browser.Assets
-import HBS2.Net.Auth.Schema
+import HBS2.Net.Auth.Schema (HBS2Basic)
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
@@ -34,14 +34,13 @@ import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Network.Wai.Middleware.StaticEmbedded
-import Web.Scotty
+import Network.Wai
+import Web.Scotty as Scotty
 
 import Data.ByteString.Builder (byteString, Builder)
 
 import Codec.Serialise (deserialiseOrFail)
-import Control.Concurrent
 import Control.Monad.Except
-import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
@@ -54,11 +53,13 @@ import Data.HashMap.Strict (HashMap)
 import Data.Maybe
 import Data.List qualified as List
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Lens.Micro.Platform (view)
 import Streaming.Prelude qualified as S
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 import System.Process.Typed
+import System.Environment
 
 import UnliftIO hiding (orElse)
 
@@ -295,8 +296,13 @@ httpWorker (PeerConfig syn) pmeta e = do
             plugin <- readTVarIO handles <&> HM.lookup chan
                        >>= orElse (status status404)
 
-            let env = mempty
-            lift $ renderTextT (channelPage plugin env) >>= html
+            envv <- liftIO getEnvironment
+
+            debug $ red "ENV" <+> pretty envv
+
+            env <- lift makeHttpEnv
+
+            lift $ renderTextT (pluginPage plugin env) >>= html
 
 
       put "/" do
@@ -317,6 +323,45 @@ httpWorker (PeerConfig syn) pmeta e = do
 
   warn "http port not set"
   forever $ pause @'Seconds 600
+
+
+
+class ToPluginArg a where
+  pluginArgs :: Text -> a -> [(Text,Text)]
+
+instance ToPluginArg Text where
+  pluginArgs n s = [(n,s)]
+
+
+makeHttpEnv :: ActionM [(Text,Text)]
+makeHttpEnv = do
+  req <- Scotty.request
+  pure mempty
+
+  -- pure $ pluginArgs "REQUEST_METHOD" (requestMethod req)
+  --        <>
+  --        pluginArgs "PATH_INFO" (pathInfo req)
+
+  where
+    part s bs = [ (s, Text.decodeUtf8 bs) ]
+
+
+--                 { requestMethod = rmethod
+--                 , rawPathInfo = B.pack pinfo
+--                 , pathInfo = H.decodePathSegments $ B.pack pinfo
+--                 , rawQueryString = B.pack qstring
+--                 , queryString = H.parseQuery $ B.pack qstring
+--                 , requestHeaders = reqHeaders
+--                 , isSecure = isSecure'
+--                 , remoteHost = addr
+--                 , httpVersion = H.http11 -- FIXME
+--                 , vault = mempty
+--                 , requestBodyLength = KnownLength $ fromIntegral contentLength
+--                 , requestHeaderHost = lookup "host" reqHeaders
+--                 , requestHeaderRange = lookup hRange reqHeaders
+-- #if MIN_VERSION_wai(3,2,0)
+--             , requestHeaderReferer = lookup "referer" reqHeaders
+--             , requestHeaderUserAgent = lookup "user-agent" reqHeaders
 
 
 getTreeHash :: AnyStorage -> HashRef -> ActionM ()

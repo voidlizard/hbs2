@@ -30,6 +30,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Maybe
 import Lens.Micro.Platform hiding ( (.=) )
 
+import Control.Applicative
 import Data.Aeson as Aeson
 import Data.Aeson.Encode.Pretty qualified as A
 import Streaming.Prelude qualified as S
@@ -159,11 +160,15 @@ runDump pks = do
   env <- liftIO getEnvironment
            <&> fmap (over _1 Text.pack . over _2 Text.pack)
 
+  path <- liftIO (lookupEnv "PATH_INFO")
+           <&> fromMaybe "/"
+           <&> Text.pack
+
   let cmd = proc self ["pipe", "-r", show (pretty (AsBase58 pks))]
               & setStdin createPipe
               & setStdout createPipe
 
-  flip runContT pure do
+  flip runContT (const $ liftIO exitSuccess) do
 
     p <- ContT $ withProcessWait cmd
 
@@ -177,10 +182,10 @@ runDump pks = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
-    wtf <- callService @RpcChannelQuery caller env
+    wtf <- callService @RpcChannelQuery caller (Get (Just path) env)
             >>= orThrowUser "can't query rpc"
 
-    r <- ContT $ maybe1 wtf (pure ())
+    r <- ContT $ maybe1 wtf (liftIO (hClose ssin >> exitFailure))
 
     hClose ssin
 
@@ -193,18 +198,19 @@ class HasOracleEnv m where
 
 -- API handler
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
-  handleMethod args' = do
+  handleMethod (Get path args') = do
     env <- getOracleEnv
 
     debug $ green "PLUGIN: HANDLE METHOD!"
 
     let args = HM.fromList args'
 
-    case HM.lookup "METHOD" args of
+    case HM.lookup "METHOD" args <|> path of
       Just "debug"        -> listEnv args
       Just "list-entries" -> listEntries args
-      Nothing             -> listEntries args
-      _                   -> pure mempty
+      Just "/"            -> listEntries args
+      Just ""             -> listEntries args
+      _                   -> pure Nothing
 
     where
       listEnv args = do

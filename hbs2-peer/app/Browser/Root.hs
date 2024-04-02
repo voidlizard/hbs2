@@ -1,7 +1,7 @@
 module Browser.Root
   ( module Lucid
   , browserRootPage
-  , channelPage
+  , pluginPage
   ) where
 
 import HBS2.Prelude.Plated
@@ -10,6 +10,8 @@ import HBS2.Net.Proto.Types
 import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.Proto.BrowserPlugin
 import HBS2.Net.Messaging.Pipe
+import HBS2.System.Logger.Simple.ANSI
+import HBS2.Misc.PrettyStuff
 
 import Data.Config.Suckless.Syntax
 
@@ -299,6 +301,8 @@ rootPage content  = do
 -- </svg>
 
 
+{- HLINT ignore "Functor law" -}
+
 browserRootPage :: Monad m => [Syntax c] -> HtmlT m ()
 browserRootPage syn = rootPage do
 
@@ -345,18 +349,22 @@ browserRootPage syn = rootPage do
               p_ (toHtml s)
 
 
-channelPage :: MonadIO m
+pluginPage :: MonadIO m
             => ServiceCaller BrowserPluginAPI PIPE
             -> [(Text,Text)]
             -> HtmlT m ()
-channelPage api env' = do
+pluginPage api env' = do
   let env = HM.toList $ HM.fromList env' <> HM.fromList [("METHOD","list-entries"),("OUTPUT","html")]
 
-  r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api env)
+  let plGet = Get Nothing [("OUTPUT", "html")]
+
+  r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api plGet)
          <&> join
          <&> fromMaybe mempty
 
   let str = LBS.unpack r
+
+  let stripped = extractBodyHtml str
 
   rootPage $ do
 
@@ -366,7 +374,7 @@ channelPage api env' = do
         div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
       main_ do
-        toHtmlRaw (extractBodyHtml str)
+        toHtmlRaw stripped
 
   where
     extractBodyHtml :: String -> String
