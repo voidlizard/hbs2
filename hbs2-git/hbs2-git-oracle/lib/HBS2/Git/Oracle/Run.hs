@@ -31,6 +31,9 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Maybe
 import Lens.Micro.Platform hiding ( (.=) )
 
+import Lucid.Base hiding (for_)
+import Lucid.Html5 hiding (for_,select_)
+
 import Control.Applicative
 import Data.Aeson as Aeson
 import Data.Aeson.Encode.Pretty qualified as A
@@ -45,7 +48,6 @@ import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy qualified as LBS
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
-import System.Environment (getProgName, getArgs)
 import System.Environment
 import System.Posix.Signals
 import System.FilePath
@@ -54,6 +56,10 @@ import Data.Word
 import System.Exit
 
 {- HLINT ignore "Functor law" -}
+
+withParams :: [Text] -> PluginMethod -> PluginMethod
+withParams ps (Method p a) = createPluginMethod p (HM.toList a <> pa)
+  where pa = zipWith (\n s -> ([qc|_{n}|],s)) [1..] ps
 
 runOracleIndex :: forall m  . MonadUnliftIO m
                => PubKey 'Sign HBS2Basic
@@ -214,10 +220,10 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
     case cmd of
       ("debug":_)        -> listEnv req
-      ("list-entries":_) -> listEntries req
-      ("repo" : _)       -> renderRepo req
-      ("/":_)            -> listEntries req
       []                 -> listEntries req
+      ("list-entries":_) -> listEntries req
+      ("/":_)            -> listEntries req
+      ("repo" : params)  -> renderRepo (withParams params req)
       _                  -> pure Nothing
 
     where
@@ -253,8 +259,11 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
             _           -> formatJson items
 
 
-      renderRepo _ = do
-        pure $ Just "<main><h1>REPO</h1></main>"
+      renderRepo (Method _ kw) = do
+        Just <$> renderBST do
+          main_ do
+            let repoRef = fromMaybe "unknown" $ HM.lookup "_1" kw
+            h1_ $ toHtml $ "REPO " <> repoRef
 
       formatJson items = do
           let root = object [ "rows"  .= items
