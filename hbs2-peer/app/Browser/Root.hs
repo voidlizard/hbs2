@@ -17,6 +17,8 @@ import Data.Maybe
 import Lucid (Html,HtmlT,toHtml,toHtmlRaw)
 import Lucid.Html5 hiding (for_)
 import Data.Text qualified as Text
+import Data.Text.Lazy.Encoding as TLE
+import Data.Text.Lazy qualified as TL
 import Text.InterpolatedString.Perl6 (q)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import System.FilePath
@@ -66,7 +68,7 @@ button.search svg {
 body, html {
   margin: 0;
   height: 100%;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 
@@ -363,9 +365,9 @@ pluginPage api method' = do
          <&> join
          <&> fromMaybe mempty
 
-  let str = LBS.unpack r
+  let str = TLE.decodeUtf8 r & TL.unpack
 
-  let stripped = extractBodyHtml str
+  let stripped = extractBodyHtml str & TL.pack & TLE.encodeUtf8
 
   rootPage $ do
 
