@@ -11,8 +11,11 @@ import Data.Generics.Uniplate.Data()
 import Data.Generics.Uniplate.Operations
 import GHC.Generics()
 import Safe
+import Codec.Serialise
 
 import HBS2.Prelude
+
+deriving instance Data DeserialiseFailure
 
 uniLastMay :: forall to from . (Data from, Data to) => from -> Maybe to
 uniLastMay = lastMay . universeBi

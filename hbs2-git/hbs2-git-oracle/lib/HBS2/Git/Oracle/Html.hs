@@ -3,6 +3,8 @@ module HBS2.Git.Oracle.Html where
 import HBS2.Git.Oracle.Prelude
 import HBS2.Git.Oracle.State
 
+import HBS2.Git.Oracle.Facts
+
 import HBS2.Peer.HTTP.Root
 import HBS2.Peer.Proto.BrowserPlugin
 
@@ -12,7 +14,9 @@ import Lucid hiding (for_)
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
 
+import Data.Coerce
 import Data.Text (Text)
+import Data.Maybe
 import Data.Text qualified as Text
 import Data.Word
 import Data.List qualified as List
@@ -30,7 +34,7 @@ markdownToHtml markdown = runPure $ do
 
 renderMarkdown :: Text -> Html ()
 renderMarkdown markdown = case markdownToHtml markdown of
-    Left{} -> mempty
+    Left{} -> blockquote_ (toHtml markdown)
     Right html -> toHtmlRaw $ Text.pack html
 
 -- <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copy-check" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#2c3e50" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -87,14 +91,21 @@ renderEntries (Method _ kw) items = pure $ renderBS do
 
                   renderMarkdown b
 
-  where
+wrapped :: Monad m => HtmlT m a -> HtmlT m a
+wrapped f = do
+  doctypehtml_ do
+    head_ mempty do
+      meta_ [charset_ "utf-8"]
 
-    -- wrapped f | not (HM.member "HTML_WRAPPED" args) = div_ f
-    --           | otherwise = do
-      wrapped f = do
-        doctypehtml_ do
-          head_ mempty do
-            meta_ [charset_ "utf-8"]
+    body_ mempty f
 
-          body_ mempty f
+
+renderRepoHtml :: Monad m => PluginMethod -> Maybe GitManifest -> m ByteString
+renderRepoHtml (Method _ kw) mf' = pure $ renderBS $ wrapped do
+  main_ do
+    let txt = coerce @_ @(Maybe Text) <$> mf' & join & fromMaybe ""
+    section_ [id_ "repo-manifest-text"] do
+      renderMarkdown txt
+
+
 

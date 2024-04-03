@@ -19,7 +19,8 @@ deriving instance Data (RefLogKey HBS2Basic)
 deriving instance Data (LWWRefKey HBS2Basic)
 
 data GitRepoExtended =
-  GitRepoExtended
+    GitRepoExtendedNone
+  | GitRepoExtendedManifest GitManifest
   deriving stock (Generic,Data)
 
 newtype GitLwwRef  = GitLwwRef (LWWRefKey HBS2Basic)
@@ -55,6 +56,10 @@ newtype GitBrief  = GitBrief (Maybe Text)
                     deriving stock (Generic,Data)
                     deriving newtype (ToField)
 
+newtype GitManifest = GitManifest (Maybe Text)
+                      deriving stock (Generic,Data)
+                      deriving newtype (ToField,FromField)
+
 newtype GitEncrypted = GitEncrypted (Maybe HashRef)
                        deriving stock (Generic,Data)
                        deriving newtype (ToField)
@@ -84,6 +89,7 @@ instance Serialise GitTx
 instance Serialise GitRepoHeadRef
 instance Serialise GitName
 instance Serialise GitBrief
+instance Serialise GitManifest
 instance Serialise GitRepoExtended
 instance Serialise GitEncrypted
 instance Serialise GitRepoHeadSeq
@@ -108,6 +114,15 @@ instance (FromField (RefLogKey HBS2Basic))  where
 
 instance HasTableName GitRepoFacts where
   tableName = "gitrepofact"
+
+instance HasTableName GitManifest where
+  tableName = "gitrepomanifest"
+
+instance HasColumnName GitManifest where
+  columnName = "manifest"
+
+instance HasPrimaryKey GitManifest where
+  primaryKey = ["repohead"]
 
 instance HasPrimaryKey GitRepoFacts where
   primaryKey = ["lwwref","lwwseq","reflog","tx","repohead"]

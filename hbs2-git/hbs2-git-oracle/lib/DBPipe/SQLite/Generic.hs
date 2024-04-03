@@ -107,7 +107,7 @@ newtype OnCoflictIgnore t r = OnCoflictIgnore r
 instance (HasPrimaryKey t, HasColumnNames r) => HasColumnNames (OnCoflictIgnore t r) where
   columnNames (OnCoflictIgnore r) = columnNames r
 
-onConflictIgnore :: forall t r . (HasTableName t, HasColumnNames r) => r -> OnCoflictIgnore t r
+onConflictIgnore :: (HasTableName t, HasColumnNames r) => r -> OnCoflictIgnore t r
 onConflictIgnore = OnCoflictIgnore
 
 instance ToField Bound where

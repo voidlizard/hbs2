@@ -228,6 +228,17 @@ readRepoHeadFromTx sto href = runMaybeT do
     >>= toMPlus
     <&> (rhh,)
 
+readRepoHead :: (MonadIO m, MonadError OperationError m)
+             => AnyStorage
+             -> HashRef
+             -> m RepoHead
+
+readRepoHead sto rhh =
+  readFromMerkle sto (SimpleKey (fromHashRef rhh))
+    <&> deserialiseOrFail @RepoHead
+    >>= \case
+           Left{} -> throwError UnsupportedFormat
+           Right x -> pure x
 
 data BundleMeta =
   BundleMeta

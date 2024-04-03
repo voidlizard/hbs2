@@ -43,7 +43,7 @@ import HBS2.Net.Proto.Service
 import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Pipe
-import HBS2.Actors.Peer
+import HBS2.Actors.Peer hiding (handle)
 import HBS2.Storage
 
 import HBS2.Misc.PrettyStuff

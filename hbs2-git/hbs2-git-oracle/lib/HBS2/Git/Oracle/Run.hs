@@ -10,7 +10,7 @@ import HBS2.Git.Oracle.Facts
 import HBS2.Git.Oracle.State
 import HBS2.Git.Oracle.Html
 
-import HBS2.Actors.Peer
+import HBS2.Actors.Peer hiding (handle)
 
 import HBS2.Hash
 import HBS2.Merkle
@@ -51,7 +51,12 @@ import Text.InterpolatedString.Perl6 (qc)
 import System.Environment
 import System.Posix.Signals
 import System.FilePath
+import Data.Either
+import Control.Monad.Except
+import Control.Exception (SomeException)
+import Control.Exception qualified as E
 import Data.Word
+
 
 import System.Exit
 
@@ -135,7 +140,7 @@ runOracleIndex auPk = do
                              (GitName (Just name))
                              (GitBrief (Just brief))
                              (GitEncrypted _repoHeadGK0)
-                             mempty
+                             [GitRepoExtendedManifest (GitManifest manifest)]
 
           -- liftIO $ withDB db (insertTxProcessed (HashVal tx))
 
@@ -198,7 +203,7 @@ runDump pks = do
     wtf <- callService @RpcChannelQuery caller (createPluginMethod path env & filterKW kw)
             >>= orThrowUser "can't query rpc"
 
-    r <- ContT $ maybe1 wtf (liftIO (hClose ssin >> exitFailure))
+    r <- ContT $ maybe1 wtf (liftIO (hClose ssin) >> void (waitExitCode p))
 
     hClose ssin
 
@@ -209,9 +214,24 @@ runDump pks = do
 class HasOracleEnv m where
   getOracleEnv :: m OracleEnv
 
+instance Monad m => HasOracleEnv (Oracle m) where
+  getOracleEnv = ask
+
+instance (Monad m, HasOracleEnv m) => HasOracleEnv (MaybeT m) where
+  getOracleEnv = lift getOracleEnv
+
+hardened :: (HasOracleEnv m, MonadIO m)
+         => Oracle IO (Maybe a)
+         -> m (Maybe a)
+hardened m = do
+  env <- getOracleEnv
+  liftIO $ E.try @SomeException (withOracleEnv env m) >>= \case
+    Left e -> err (viaShow e) >> pure Nothing
+    Right x -> pure $ x
+
 -- API handler
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
-  handleMethod req@(Method path args) = do
+  handleMethod req@(Method path args) = hardened do
     env <- getOracleEnv
 
     debug $ green "PLUGIN: HANDLE METHOD!" <+> viaShow req
@@ -223,7 +243,10 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
       []                 -> listEntries req
       ("list-entries":_) -> listEntries req
       ("/":_)            -> listEntries req
-      ("repo" : params)  -> renderRepo (withParams params req)
+
+      ("repo" : params)  -> do
+        renderRepo (withParams params req)
+
       _                  -> pure Nothing
 
     where
@@ -259,11 +282,30 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
             _           -> formatJson items
 
 
-      renderRepo (Method _ kw) = do
-        Just <$> renderBST do
-          main_ do
-            let repoRef = fromMaybe "unknown" $ HM.lookup "_1" kw
-            h1_ $ toHtml $ "REPO " <> repoRef
+      renderRepo req@(Method _ kw) = runMaybeT do
+        env <- getOracleEnv
+        sto <- getOracleEnv <&> _storage
+
+        debug $ yellow "ONE"
+
+        ref <- HM.lookup "_1" kw  & toMPlus
+                 <&> Text.unpack
+                 <&> fromStringMay @HashRef
+                 >>= toMPlus
+
+        debug $ yellow "TWO"
+
+        mf' <- lift ( withOracleEnv env do
+                withState $ select @(HashRef, GitManifest) [qc|
+                       select v.repohead, m.manifest
+                       from vrepofact v join gitrepomanifest m on v.repohead = m.repohead
+                       where v.lwwref = ?
+                       limit 1
+                       |] (Only ref)
+                    )  <&> headMay
+                       <&> fmap snd
+
+        renderRepoHtml req mf'
 
       formatJson items = do
           let root = object [ "rows"  .= items
@@ -292,6 +334,8 @@ runPipe :: forall m  . MonadUnliftIO m
 runPipe = do
 
   setLogging @DEBUG  (logPrefix "" . toStderr)
+  setLogging @ERROR  (logPrefix "" . toStderr)
+  setLogging @WARN   (logPrefix "" . toStderr)
 
   chan <- asks _refchanId
   debug $ green "RUN PIPE!!!"
@@ -302,7 +346,7 @@ runPipe = do
 
     server  <- newMessagingPipe (stdin,stdout)
 
-    void $ ContT $ bracket (async $ runMessagingPipe server) cancel
+    void $ ContT $ withAsync (runMessagingPipe server)
 
     void $ ContT $ withAsync $ do
       pause @'Seconds 10
@@ -312,7 +356,7 @@ runPipe = do
         pause @'Seconds 60
 
     -- make server protocol responder
-    serv <- ContT $ withAsync $ flip runReaderT server do
+    void $ ContT $ withAsync $ flip runReaderT server do
         runProto @PIPE
           [ makeResponse (makeServer @BrowserPluginAPI)
           ]
@@ -324,12 +368,14 @@ runPipe = do
       let done = done1 || done2 || done3
       unless done (pause @'Seconds 0.01 >> next)
 
+
 updateState :: MonadUnliftIO m => Oracle m ()
 updateState = do
   debug $ yellow "update state"
 
   chan  <- asks _refchanId
   rchanAPI <- asks _refchanAPI
+  peerAPI <- asks _peerAPI
   sto  <- asks  _storage
   db   <- asks _db
 
@@ -372,4 +418,13 @@ updateState = do
         (tx, _) -> do
           debug "BAD FACT"
           insertTxProcessed (HashVal tx)
+
+    let refs = [ h | GitRepoHeadRef h <- universeBi facts ]
+
+    w <- for refs $ \r -> do
+      -- TODO: dont-fetch-repeatedly
+      debug $ red "repo-head-to-fetch" <+> pretty r
+      lift $ async (callRpcWaitMay @RpcFetch (TimeoutSec 1) peerAPI r)
+
+    lift $ mapM_ wait w
 

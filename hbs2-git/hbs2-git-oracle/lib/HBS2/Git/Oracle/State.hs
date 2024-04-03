@@ -26,6 +26,8 @@ evolveDB :: MonadUnliftIO m => DBPipeM m ()
 evolveDB = do
   debug $ yellow "evolveDB"
   gitRepoFactTable
+  gitRepoManifestTable
+  gitRepoFactView
   txProcessedTable
 
 txProcessedTable :: MonadUnliftIO m => DBPipeM m ()
@@ -52,6 +54,41 @@ gitRepoFactTable = do
     , gk            text null
     , primary key (lwwref,lwwseq,reflog,tx,repohead)
     )
+  |]
+
+
+gitRepoManifestTable :: MonadUnliftIO m => DBPipeM m ()
+gitRepoManifestTable = do
+  ddl [qc|
+    create table if not exists gitrepomanifest
+    ( repohead      text not null
+    , manifest      text
+    , primary key (repohead)
+    )
+  |]
+
+
+gitRepoFactView :: MonadUnliftIO m => DBPipeM m ()
+gitRepoFactView = do
+  ddl [qc|
+    CREATE VIEW IF NOT EXISTS vrepofact AS
+    SELECT
+      lwwref,
+      repohead,
+      name,
+      brief,
+      repoheadseq
+    FROM (
+      SELECT
+        lwwref,
+        repohead,
+        name,
+        brief,
+        repoheadseq,
+        ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC, repoheadseq DESC) as rn
+      FROM gitrepofact
+    ) as s0
+    WHERE rn = 1;
   |]
 
 newtype GitRepoKey = GitRepoKey (LWWRefKey HBS2Basic)
@@ -91,7 +128,7 @@ isTxProcessed hash = do
 
 
 insertRepoFacts :: (MonadUnliftIO m) => GitRepoFacts -> DBPipeM m ()
-insertRepoFacts GitRepoFacts{..} = do
+insertRepoFacts facts@GitRepoFacts{..} = do
  insert @GitRepoFacts $
    onConflictIgnore @GitRepoFacts
     ( gitLwwRef
@@ -104,5 +141,11 @@ insertRepoFacts GitRepoFacts{..} = do
     , gitBrief
     , gitEncrypted
     )
+ let mf = [ m | m :: GitManifest <- universeBi facts ]
+ for_ mf $ \m@GitManifest{} -> do
+  insert @GitManifest $ onConflictIgnore @GitManifest (gitRepoHead, m)
+  pure ()
+
+  -- insert @GitManifest ( gitRepoHead,
 
 

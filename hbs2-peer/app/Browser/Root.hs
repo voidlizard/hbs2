@@ -121,7 +121,11 @@ nav.left {
   padding: 2rem;
   margin: 0;
   background: #FAFAFA;
-  width: 20em;
+  width: 20rem;
+}
+
+section#repo-manifest-text {
+  width: 60rem;
 }
 
 main {

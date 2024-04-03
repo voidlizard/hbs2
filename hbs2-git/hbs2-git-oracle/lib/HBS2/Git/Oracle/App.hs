@@ -77,7 +77,7 @@ runWithOracleEnv rchan m = do
 
   debug $ red "DBPATH" <+> pretty dbfile
 
-  db <- newDBPipeEnv dbPipeOptsDef dbfile
+  db <- newDBPipeEnv (dbPipeOptsDef { dbLogger = err . viaShow } ) dbfile
 
   env <- pure $ OracleEnv rchan
                           peerAPI
@@ -100,11 +100,11 @@ runWithOracleEnv rchan m = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    lift $ withOracleEnv env m
+    lift $ withOracleEnv env (withState evolveDB >> m)
 
 withOracleEnv :: MonadUnliftIO m => OracleEnv -> Oracle m a -> m a
 withOracleEnv env action = do
- runReaderT (fromOracle (withState evolveDB >> action)) env
+ runReaderT (fromOracle action) env
 
 class Monad m => HasDB m where
   getDB :: m DBPipeEnv
