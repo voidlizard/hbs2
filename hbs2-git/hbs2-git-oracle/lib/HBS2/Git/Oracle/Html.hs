@@ -15,6 +15,7 @@ import Lucid.Html5 hiding (for_)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word
+import Data.List qualified as List
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy
 import Text.Pandoc
@@ -49,10 +50,11 @@ onClickCopy :: Text -> Attribute
 onClickCopy s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
-renderEntries :: Monad m => PluginMethod -> HashMap Text Text -> [(HashVal, Text, Text, Word64)] -> m ByteString
-renderEntries (Get p _) args items = pure $ renderBS do
+renderEntries :: Monad m => PluginMethod -> [(HashVal, Text, Text, Word64)] -> m ByteString
+renderEntries (Method _ kw) items = pure $ renderBS do
 
-  let hrefBase = fmap Text.unpack p & Prelude.takeWhile (/= "repo")
+  -- TODO: ugly
+  let hrefBase = HM.lookup "URL_PREFIX" kw & List.singleton . maybe "/" Text.unpack
 
   wrapped do
       main_ do

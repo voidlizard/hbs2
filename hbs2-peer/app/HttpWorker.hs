@@ -282,9 +282,11 @@ httpWorker (PeerConfig syn) pmeta e = do
       middleware (static cssDir)
 
 
-      let pluginPath = function $ \r -> case splitDirectories (BS8.unpack (rawPathInfo r)) of
-                                         ("/" : "browser" : plugin : _ ) -> Just [("plugin", LT.pack plugin)]
-                                         _                               -> Nothing
+      let pluginPath =
+            function $ \r ->
+               case splitDirectories (BS8.unpack (rawPathInfo r)) of
+                  ("/" : "browser" : plugin : _ ) -> Just [("plugin", LT.pack plugin)]
+                  _                               -> Nothing
 
       when bro do
 
@@ -302,7 +304,6 @@ httpWorker (PeerConfig syn) pmeta e = do
           url <- param @Text "plugin"
           alias <- readTVarIO aliases <&> HM.lookup url
 
-          -- args <- param @String "1"
 
           void $ flip runContT pure do
 
@@ -313,8 +314,14 @@ httpWorker (PeerConfig syn) pmeta e = do
                        >>= orElse (status status404)
 
             let pp = splitDirectories rawPath
+
             let norm = fromMaybe pp $ List.stripPrefix ["/","browser",Text.unpack url] pp
-            let q = Get (Text.pack <$> norm) (("RAW_PATH_INFO", fromString rawPath) : mempty)
+
+            let opts = [ ("RAW_PATH_INFO", fromString rawPath)
+                       , ("URL_PREFIX", "/browser" <> "/" <> url)
+                       ]
+
+            let q = createPluginMethod (Text.pack <$> norm) opts
 
             debug $ red "CALL PLUGIN" <+> viaShow q
 

@@ -110,6 +110,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
             pkgs.icu72
             pkgs.openssl
             weeder
+            pkgs.html-tidy
           ])
           ++
           [ pkgs.pkg-config

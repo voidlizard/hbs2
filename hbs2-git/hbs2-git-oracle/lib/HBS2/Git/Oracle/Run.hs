@@ -157,6 +157,10 @@ runDump :: forall m  . MonadUnliftIO m
         -> m ()
 
 runDump pks = do
+
+  let kw = ["OUTPUT", "METHOD", "URL_PREFIX", "RAW_PATH_INFO"]
+           <> [ [qc|_{i}|] | i <- [0..9] ]
+
   self <- liftIO getProgName
 
   env <- liftIO getEnvironment
@@ -185,7 +189,7 @@ runDump pks = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClient caller) client
 
-    wtf <- callService @RpcChannelQuery caller (Get path env)
+    wtf <- callService @RpcChannelQuery caller (createPluginMethod path env & filterKW kw)
             >>= orThrowUser "can't query rpc"
 
     r <- ContT $ maybe1 wtf (liftIO (hClose ssin >> exitFailure))
@@ -201,28 +205,26 @@ class HasOracleEnv m where
 
 -- API handler
 instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery where
-  handleMethod req@(Get path args') = do
+  handleMethod req@(Method path args) = do
     env <- getOracleEnv
 
-    debug $ green "PLUGIN: HANDLE METHOD!"
+    debug $ green "PLUGIN: HANDLE METHOD!" <+> viaShow req
 
-    let args = HM.fromList args'
-
-    let cmd  = path
+    let cmd  = maybe path List.singleton $ HM.lookup "METHOD" args
 
     case cmd of
-      ("debug":_)        -> listEnv args
-      ("list-entries":_) -> listEntries args
+      ("debug":_)        -> listEnv req
+      ("list-entries":_) -> listEntries req
       ("repo" : _)       -> renderRepo req
-      ("/":_)            -> listEntries args
-      []                 -> listEntries args
+      ("/":_)            -> listEntries req
+      []                 -> listEntries req
       _                  -> pure Nothing
 
     where
-      listEnv args = do
-        pure $ Just $ A.encodePretty args
+      listEnv (Method _ a) = do
+        pure $ Just $ A.encodePretty a
 
-      listEntries args = do
+      listEntries (Method _ a) = do
         env <- getOracleEnv
         withOracleEnv env do
           items <- withState $ select_ @_ @(HashVal, Text, Text, Word64) [qc|
@@ -245,8 +247,8 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
                    |]
 
-          case HM.lookup "OUTPUT" args of
-            Just "html" -> formatHtml args items
+          case HM.lookup "OUTPUT" a of
+            Just "html" -> formatHtml items
             Just "json" -> formatJson items
             _           -> formatJson items
 
@@ -261,8 +263,8 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
           pure $ Just $ A.encodePretty root
 
-      formatHtml args items = do
-        renderEntries req args items <&> Just
+      formatHtml items = do
+        renderEntries req items <&> Just
 
 
 -- Some "deferred" implementation for our monad

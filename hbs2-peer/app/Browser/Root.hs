@@ -353,7 +353,7 @@ pluginPage :: MonadIO m
             -> HtmlT m ()
 pluginPage api method' = do
 
-  let method = method' & over getArgs ( ("OUTPUT", "html") : )
+  let method = method' & over getArgs ( HM.singleton "OUTPUT" "html" <> )
 
   r <- liftIO (callRpcWaitMay @RpcChannelQuery (TimeoutSec 1) api method)
          <&> join
