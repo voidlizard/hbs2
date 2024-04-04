@@ -68,12 +68,14 @@ button.search svg {
 body, html {
   margin: 0;
   height: 100%;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 
 header {
   width: 100%;
+
+  font-size: 20px;
 
   display: flex;
   align-items: center;
@@ -89,7 +91,7 @@ header {
 /* height: 64px; */
 
 header h1 {
-  font-size: 1.45rem;
+  font-size: 20px;
   margin: 0 0 0 2.21rem;
   font-weight: 500;
 }
@@ -121,6 +123,7 @@ header a {
 nav.left {
   flex: 0 0 20rem;
   padding: 4rem 0rem 0 1rem;
+  font-size: 20px;
   flex-direction: column;
   justify-content: normal;
   background: #FAFAFA;
@@ -132,6 +135,7 @@ nav.left .info-block {
 
 section#repo-manifest-text {
   width: 60rem;
+  font-size: 24px;
 }
 
 
@@ -253,6 +257,7 @@ form.search input[type="search"] {
 
 form.search button {
   align: center;
+  min-width: 4rem;
 }
 
 .xclip::after {
@@ -295,6 +300,7 @@ rootPage content  = do
       -- link_ [rel_ "stylesheet", href_"/css/pico.min.css"]
       link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"]
       script_ [src_ "https://unpkg.com/hyperscript.org@0.9.12"] ""
+      script_ [src_ "https://unpkg.com/htmx.org@1.9.11"] ""
       myCss
 
     body_ do

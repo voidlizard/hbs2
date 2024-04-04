@@ -295,17 +295,21 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
         debug $ yellow "TWO"
 
-        mf' <- lift ( withOracleEnv env do
-                withState $ select @(HashRef, GitManifest) [qc|
-                       select v.repohead, m.manifest
-                       from vrepofact v join gitrepomanifest m on v.repohead = m.repohead
+        mf <- lift ( withOracleEnv env do
+                withState $ select @GitRepoPage [qc|
+                       select  v.lwwref
+                             , v.repohead
+                             , v.name
+                             , v.brief
+                             , m.manifest
+                       from vrepofact v left join gitrepomanifest m on v.repohead = m.repohead
                        where v.lwwref = ?
                        limit 1
                        |] (Only ref)
                     )  <&> headMay
-                       <&> fmap snd
+                       >>= toMPlus
 
-        renderRepoHtml req mf'
+        renderRepoHtml req mf
 
       formatJson items = do
           let root = object [ "rows"  .= items

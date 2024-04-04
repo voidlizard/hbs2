@@ -26,6 +26,8 @@ import Text.Pandoc
 import Text.Pandoc.Error (handleError)
 import Text.InterpolatedString.Perl6 (qc)
 
+
+
 markdownToHtml :: Text -> Either PandocError String
 markdownToHtml markdown = runPure $ do
   doc <- readMarkdown def {readerExtensions = pandocExtensions} markdown
@@ -100,12 +102,35 @@ wrapped f = do
     body_ mempty f
 
 
-renderRepoHtml :: Monad m => PluginMethod -> Maybe GitManifest -> m ByteString
-renderRepoHtml (Method _ kw) mf' = pure $ renderBS $ wrapped do
+renderRepoHtml :: Monad m => PluginMethod -> GitRepoPage -> m ByteString
+renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped do
+
+  let mf = headDef "" [ fromMaybe "" s | GitManifest s <- universeBi page ]
+            & Text.lines
+            & List.dropWhile (not . Text.null)
+            & Text.unlines
+
+  let name' = coerce @_ @(Maybe Text) repoPageName
+  let brief = coerce @_ @(Maybe Text) repoPageBrief & fromMaybe ""
+
   main_ do
-    let txt = coerce @_ @(Maybe Text) <$> mf' & join & fromMaybe ""
+
+    section_ [id_ "repo-data"] do
+
+      for_ name' $ \name -> do
+        h1_ (toHtml name)
+        renderMarkdown brief
+
+      table_ do
+        tr_ do
+          th_ "code/hbs2:"
+          td_ mempty
+
+      pure ()
+
+
     section_ [id_ "repo-manifest-text"] do
-      renderMarkdown txt
+      renderMarkdown mf
 
 
 

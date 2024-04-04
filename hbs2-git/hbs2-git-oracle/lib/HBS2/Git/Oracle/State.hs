@@ -19,6 +19,18 @@ import Data.Coerce
 import Data.Word
 import Data.Text qualified as Text
 
+data GitRepoPage =
+  GitRepoPage
+  { repoPageRef      :: GitLwwRef
+  , repoPageHead     :: GitRepoHeadRef
+  , repoPageName     :: GitName
+  , repoPageBrief    :: GitBrief
+  , repoPageManifest :: GitManifest
+  }
+  deriving stock (Generic,Data)
+
+instance FromRow GitRepoPage
+
 processedRepoTx :: (LWWRefKey HBS2Basic, HashRef) -> HashVal
 processedRepoTx w = HashVal $ HashRef $ hashObject @HbSync (serialise w)
 

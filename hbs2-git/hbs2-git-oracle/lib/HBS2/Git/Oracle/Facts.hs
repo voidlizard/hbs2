@@ -25,7 +25,7 @@ data GitRepoExtended =
 
 newtype GitLwwRef  = GitLwwRef (LWWRefKey HBS2Basic)
                      deriving stock (Generic,Data)
-                     deriving newtype (ToField)
+                     deriving newtype (ToField,FromField)
 
 newtype GitLwwSeq  = GitLwwSeq Word64
                      deriving stock (Generic,Data)
@@ -46,15 +46,15 @@ newtype GitTx  = GitTx HashRef
 
 newtype GitRepoHeadRef  = GitRepoHeadRef HashRef
                           deriving stock (Generic,Data)
-                          deriving newtype (ToField)
+                          deriving newtype (ToField,FromField)
 
 newtype GitName  = GitName  (Maybe Text)
                    deriving stock (Generic,Data)
-                   deriving newtype (ToField)
+                   deriving newtype (ToField,FromField)
 
 newtype GitBrief  = GitBrief (Maybe Text)
                     deriving stock (Generic,Data)
-                    deriving newtype (ToField)
+                    deriving newtype (ToField,FromField)
 
 newtype GitManifest = GitManifest (Maybe Text)
                       deriving stock (Generic,Data)
