@@ -119,20 +119,19 @@ header a {
 }
 
 nav.left {
-  display: block;
-  padding: 2rem;
-  margin: 0;
+  flex: 0 0 20rem;
+  padding: 4rem 0rem 0 1rem;
+  flex-direction: column;
+  justify-content: normal;
   background: #FAFAFA;
-  width: 20rem;
+}
+
+nav.left .info-block {
+  margin-bottom: 4rem;
 }
 
 section#repo-manifest-text {
   width: 60rem;
-}
-
-main {
-  flex-grow: 1;
-  padding: 2rem 0 0 4rem;
 }
 
 
@@ -141,6 +140,13 @@ main {
 section {
   margin-top: 1rem;
 }
+
+
+main {
+  flex-grow: 1;
+  padding: 2rem 0 0 4rem;
+}
+
 
 .main {
   display: flex;
@@ -218,10 +224,6 @@ div .repo-list-item {
   font-weight: bold;
   flex-basis: 30%;
   text-align: right;
-}
-
-nav.left .info-block {
-  margin-top: 4em;
 }
 
 form.search {
