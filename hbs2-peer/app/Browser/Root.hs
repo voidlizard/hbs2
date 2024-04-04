@@ -288,6 +288,33 @@ form.search button {
   vertical-align: top;
 }
 
+
+[role="tabs"] {
+  display: flex;
+}
+
+[role="tabs"] section {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+[role="tabs"] figure {
+  flex-grow: 1;
+  width: 100%;
+  height: 100%;
+  display: none;
+}
+
+[role="tabs"] [type="radio"]:checked + figure {
+  display: block;
+}
+
+nav[role="tab-control"] label.active {
+  color: red; /*var(--primary);*/
+  cursor: pointer;
+}
+
 |]
 
 

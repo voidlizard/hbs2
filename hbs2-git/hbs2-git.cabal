@@ -187,6 +187,7 @@ library hbs2-git-oracle-oracle-lib
                     , base16-bytestring
                     , binary
                     , lucid
+                    , lucid-htmx
                     , pandoc
                     , unix
             -- FIXME: ASAP-remove

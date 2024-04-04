@@ -13,6 +13,7 @@ import Data.HashMap.Strict (HashMap)
 import Lucid hiding (for_)
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
+import Lucid.Html5 qualified as Html
 
 import Data.Coerce
 import Data.Text (Text)
@@ -50,6 +51,10 @@ renderMarkdown markdown = case markdownToHtml markdown of
 -- FIXME: move-to-hbs2-browser-lib
 hyper_ :: Text -> Attribute
 hyper_  = makeAttribute "_"
+
+tabClick :: Attribute
+tabClick =
+  hyper_ "on click take .active from .tab for event's target"
 
 -- FIXME: move-to-hbs2-browser-lib
 onClickCopy :: Text -> Attribute
@@ -115,22 +120,59 @@ renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped 
 
   main_ do
 
-    section_ [id_ "repo-data"] do
+    nav_ [ role_ "tab-control", tabClick ] do
+      ul_ do
+        li_ [] $ label_ [Html.for_ "tab1", class_ "tab active"] "manifest"
+        li_ [] $ label_ [Html.for_ "tab2", class_ "tab"] "Tab 2"
+        li_ [] $ label_ [Html.for_ "tab3", class_ "tab"] "Tab 3"
+        li_ [] $ label_ [Html.for_ "tab4", class_ "tab"] "Tab 4"
 
-      for_ name' $ \name -> do
-        h1_ (toHtml name)
-        renderMarkdown brief
+      div_ [ role_  "tabs" ] do
+        pure ()
 
-      table_ do
-        tr_ do
-          th_ "code/hbs2:"
-          td_ mempty
+    -- div_ [ id_ "tabs"
+    --      , term "hx-get" "manifest"
+    --      , term "hx-trigger" "load delay:100ms"
+    --      , term "hx-target" "#tabs"
+    --      , term "hx-swap" "innerHTML"
+    --      ] do
 
-      pure ()
+    --   div_  [class_ "tab-list", role_ "tablist"] do
+    --     button_ [ class_  "selected"
+    --             , role_ "tab"
+    --             , term "hx-get" "manifest"
+    --             , term "aria-selected" "false"
+    --             , term "aria-controls" "tab-content"
+    --             ] "Manifest"
+
+    --     div_  [id_ "tab-content",  role_ "tabpanel",  class_ "tab-content"] do
+    --       [qc|
+    --       Commodo normcore truffaut VHS duis gluten-free keffiyeh iPhone taxidermy godard ramps anim pour-over.
+    --       Pitchfork vegan mollit umami quinoa aute aliquip kinfolk eiusmod live-edge cardigan ipsum locavore.
+    --       Polaroid duis occaecat narwhal small batch food truck.
+    --       PBR&B venmo shaman small batch you probably haven't heard of them hot chicken readymade.
+    --       Enim tousled cliche woke, typewriter single-origin coffee hella culpa.
+    --       Art party readymade 90's, asymmetrical hell of fingerstache ipsum.
+    --      |]
+
+     -- pure ()
+
+    -- section_ [id_ "repo-data"] do
+
+    --   for_ name' $ \name -> do
+    --     h1_ (toHtml name)
+    --     renderMarkdown brief
+
+    --   table_ do
+    --     tr_ do
+    --       th_ "code/hbs2:"
+    --       td_ mempty
+
+    --   pure ()
 
 
-    section_ [id_ "repo-manifest-text"] do
-      renderMarkdown mf
+    -- section_ [id_ "repo-manifest-text"] do
+    --   renderMarkdown mf
 
 
 
