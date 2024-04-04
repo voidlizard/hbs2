@@ -135,6 +135,18 @@ section#repo-manifest-text {
 }
 
 
+section#repo-manifest-text > h1::after,
+section#repo-manifest-text > h2::after,
+section#repo-manifest-text > h3::after,
+section#repo-manifest-text > h4::after
+{
+  content: "";
+  display: block;
+  margin: 8px 0;
+  height: 1px;
+  background-color: #ccc;
+}
+
 /*  height: calc(100vh - 64px); */
 
 section {
@@ -270,7 +282,6 @@ form.search button {
   width: 24x;
   vertical-align: top;
 }
-
 
 |]
 
