@@ -301,7 +301,7 @@ nav[role="tab-control"] {
 nav[role="tab-control"] li {
   display: block;
   padding: 0 0 0 0;
-  padding-right: 1rem;
+  padding-right: 2rem;
   margin-right: 2rem;
   border-right: 2px solid gray;
   font-weight: bolder;
