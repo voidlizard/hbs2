@@ -68,7 +68,7 @@ button.search svg {
 body, html {
   margin: 0;
   height: 100%;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 
@@ -133,16 +133,14 @@ nav.left .info-block {
   margin-bottom: 4rem;
 }
 
-section#repo-manifest-text {
-  width: 60rem;
-  font-size: 24px;
+section#repo-data {
+  margin-top: 1.5rem;
 }
 
-
-section#repo-manifest-text > h1::after,
-section#repo-manifest-text > h2::after,
-section#repo-manifest-text > h3::after,
-section#repo-manifest-text > h4::after
+section#repo-data> h1::after,
+section#repo-data> h2::after,
+section#repo-data> h3::after,
+section#repo-data> h4::after
 {
   content: "";
   display: block;
@@ -212,6 +210,10 @@ div .repo-list-item {
 .repo-info h2 a {
   text-decoration: none;
   color: inherit;
+}
+
+.repo-info h2 {
+  font-size: 1.35rem;
 }
 
 .repo-info h2 a:hover {
@@ -288,31 +290,31 @@ form.search button {
   vertical-align: top;
 }
 
-
-[role="tabs"] {
-  display: flex;
-}
-
-[role="tabs"] section {
-  display: flex;
-  flex-wrap: wrap;
-  width: 100%;
-}
-
-[role="tabs"] figure {
-  flex-grow: 1;
-  width: 100%;
-  height: 100%;
-  display: none;
-}
-
-[role="tabs"] [type="radio"]:checked + figure {
+nav[role="tab-control"] {
+  min-height: 24px;
+  font-size: 18px;
+ /*  border: 1px solid black; */
   display: block;
+  margin-bottom: 4rem;
 }
 
-nav[role="tab-control"] label.active {
-  color: red; /*var(--primary);*/
-  cursor: pointer;
+nav[role="tab-control"] li {
+  display: block;
+  padding: 0 0 0 0;
+  padding-right: 1rem;
+  margin-right: 2rem;
+  border-right: 2px solid gray;
+  font-weight: bolder;
+}
+
+nav[role="tab-control"] li a {
+  color: black;
+  text-decoration: none;
+}
+
+nav[role="tab-control"] li.active {
+  display: block;
+  color: #0089D1;
 }
 
 |]
@@ -324,7 +326,7 @@ rootPage content  = do
     head_ do
       meta_ [charset_ "UTF-8"]
       meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-      -- link_ [rel_ "stylesheet", href_"/css/pico.min.css"]
+      -- FIXME: static-local-loading
       link_ [rel_ "stylesheet", href_ "https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css"]
       script_ [src_ "https://unpkg.com/hyperscript.org@0.9.12"] ""
       script_ [src_ "https://unpkg.com/htmx.org@1.9.11"] ""

@@ -107,6 +107,19 @@ wrapped f = do
     body_ mempty f
 
 
+{- HLINT ignore "Eta reduce" -}
+
+-- repoMenu :: Monad m => HtmlT m () -> HtmlT m ()
+repoMenu :: Term [Attribute] (t1 -> t2) => t1 -> t2
+repoMenu = ul_ []
+
+
+repoMenuItem0 :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
+repoMenuItem0 misc name = li_ ([class_  "tab active"] <> misc <> [tabClick]) name
+
+repoMenuItem :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
+repoMenuItem misc name = li_ ([class_  "tab"] <> misc <> [tabClick]) name
+
 renderRepoHtml :: Monad m => PluginMethod -> GitRepoPage -> m ByteString
 renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped do
 
@@ -118,61 +131,21 @@ renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped 
   let name' = coerce @_ @(Maybe Text) repoPageName
   let brief = coerce @_ @(Maybe Text) repoPageBrief & fromMaybe ""
 
+  let hrefBase = HM.lookup "URL_PREFIX" kw & List.singleton . maybe "/" Text.unpack
+                   & path
+
   main_ do
 
-    nav_ [ role_ "tab-control", tabClick ] do
-      ul_ do
-        li_ [] $ label_ [Html.for_ "tab1", class_ "tab active"] "manifest"
-        li_ [] $ label_ [Html.for_ "tab2", class_ "tab"] "Tab 2"
-        li_ [] $ label_ [Html.for_ "tab3", class_ "tab"] "Tab 3"
-        li_ [] $ label_ [Html.for_ "tab4", class_ "tab"] "Tab 4"
+    -- FIXME: click-on-nav-make-tab-lost-active
+    nav_ [ role_ "tab-control" ] do
+     repoMenu do
+      repoMenuItem  mempty $ a_ [href_ hrefBase] "root"
+      repoMenuItem0 mempty "manifest"
 
-      div_ [ role_  "tabs" ] do
-        pure ()
+    section_ [id_ "repo-data"] do
+      for_ name' $ \name -> do
+        h1_ (toHtml name)
+        renderMarkdown brief
 
-    -- div_ [ id_ "tabs"
-    --      , term "hx-get" "manifest"
-    --      , term "hx-trigger" "load delay:100ms"
-    --      , term "hx-target" "#tabs"
-    --      , term "hx-swap" "innerHTML"
-    --      ] do
-
-    --   div_  [class_ "tab-list", role_ "tablist"] do
-    --     button_ [ class_  "selected"
-    --             , role_ "tab"
-    --             , term "hx-get" "manifest"
-    --             , term "aria-selected" "false"
-    --             , term "aria-controls" "tab-content"
-    --             ] "Manifest"
-
-    --     div_  [id_ "tab-content",  role_ "tabpanel",  class_ "tab-content"] do
-    --       [qc|
-    --       Commodo normcore truffaut VHS duis gluten-free keffiyeh iPhone taxidermy godard ramps anim pour-over.
-    --       Pitchfork vegan mollit umami quinoa aute aliquip kinfolk eiusmod live-edge cardigan ipsum locavore.
-    --       Polaroid duis occaecat narwhal small batch food truck.
-    --       PBR&B venmo shaman small batch you probably haven't heard of them hot chicken readymade.
-    --       Enim tousled cliche woke, typewriter single-origin coffee hella culpa.
-    --       Art party readymade 90's, asymmetrical hell of fingerstache ipsum.
-    --      |]
-
-     -- pure ()
-
-    -- section_ [id_ "repo-data"] do
-
-    --   for_ name' $ \name -> do
-    --     h1_ (toHtml name)
-    --     renderMarkdown brief
-
-    --   table_ do
-    --     tr_ do
-    --       th_ "code/hbs2:"
-    --       td_ mempty
-
-    --   pure ()
-
-
-    -- section_ [id_ "repo-manifest-text"] do
-    --   renderMarkdown mf
-
-
+      renderMarkdown mf
 
