@@ -23,8 +23,7 @@ import Data.Word
 import Data.List qualified as List
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString.Lazy
-import Text.Pandoc
-import Text.Pandoc.Error (handleError)
+import Text.Pandoc hiding (getPOSIXTime)
 import Text.InterpolatedString.Perl6 (qc)
 
 
@@ -61,42 +60,54 @@ onClickCopy :: Text -> Attribute
 onClickCopy s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
-renderEntries :: Monad m => PluginMethod -> [(HashVal, Text, Text, Word64)] -> m ByteString
-renderEntries (Method _ kw) items = pure $ renderBS do
+renderEntries :: MonadIO m => PluginMethod -> [(HashVal, Text, Text, Word64)] -> m ByteString
+renderEntries (Method _ kw) items = do
 
-  -- TODO: ugly
-  let hrefBase = HM.lookup "URL_PREFIX" kw & List.singleton . maybe "/" Text.unpack
+  now  <- liftIO getPOSIXTime <&> fromIntegral . round
 
-  wrapped do
-      main_ do
+  pure $ renderBS do
 
-          section_ do
-            h1_ "Git repositories"
-            form_ [class_ "search"] do
-                input_ [type_ "search", id_ "search"]
-                button_ [class_ "search"] mempty
+    -- TODO: ugly
+    let hrefBase = HM.lookup "URL_PREFIX" kw & List.singleton . maybe "/" Text.unpack
+
+    wrapped do
+        main_ do
+
+            section_ do
+              h1_ "Git repositories"
+              form_ [class_ "search"] do
+                  input_ [type_ "search", id_ "search"]
+                  button_ [class_ "search"] mempty
 
 
-          section_ [id_ "repo-search-results"] do
+            section_ [id_ "repo-search-results"] do
 
-            for_ items $ \(h,n,b,t) -> do
+              for_ items $ \(h,n,b,t) -> do
 
-              let s = if Text.length n > 2 then n else "unnamed"
-              let refpart = Text.take 8 $ Text.pack $ show $ pretty h
-              let sref = show $ pretty h
-              let ref =  Text.pack sref
+                let days = "updated" <+> if d == 0 then "today" else viaShow d <+> "days ago"
+                      where d = ( now - t ) `div` 86400
 
-              let suff = ["repo", sref]
+                let s = if Text.length n > 2 then n else "unnamed"
+                let refpart = Text.take 8 $ Text.pack $ show $ pretty h
+                let sref = show $ pretty h
+                let ref =  Text.pack sref
 
-              let url = path (hrefBase <> suff)
+                let suff = ["repo", sref]
 
-              div_ [class_ "repo-list-item"] do
-                div_ [class_ "repo-info"] do
-                  h2_ [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
+                let url = path (hrefBase <> suff)
 
-                  p_ $ a_ [href_ url] (toHtml ref)
+                div_ [class_ "repo-list-item"] do
+                  div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
 
-                  renderMarkdown b
+                    h2_ [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
+
+                    p_ $ a_ [href_ url] (toHtml ref)
+
+                    renderMarkdown b
+
+                  div_ [ class_ "attr" ] do
+                    div_ [ class_ "attrname"]  (toHtml $ show days)
+
 
 wrapped :: Monad m => HtmlT m a -> HtmlT m a
 wrapped f = do
@@ -141,6 +152,18 @@ renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped 
      repoMenu do
       repoMenuItem  mempty $ a_ [href_ hrefBase] "root"
       repoMenuItem0 mempty "manifest"
+
+    section_ [] do
+
+      div_  [class_ "attr"] do
+
+        let ref = headDef "" [ r | GitLwwRef r <- universeBi page ]
+                   & Text.pack . show . pretty
+
+        div_ [class_ "attrname"] "reference"
+
+        div_ [class_ "attrval", style_ "align: left; width: 20rem;"] do
+          span_ [class_ "xclip", onClickCopy ref] (toHtml ref)
 
     section_ [id_ "repo-data"] do
       for_ name' $ \name -> do

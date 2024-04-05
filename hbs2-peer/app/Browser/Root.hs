@@ -229,18 +229,20 @@ div .repo-list-item {
 
 .attr {
   display: flex;
+  flex-direction: row;
+  gap: 2rem;
   margin-bottom: 0.5em;
+  padding-right: 1rem;
 }
 
-.attrname, .attribute-value {
+.attrname,  {
   flex: 1;
   margin-right: 0.5em;
 }
 
 .attrval {
-  text-align: right;
-  font-weight: bold;
-  flex-basis: 30%;
+  text-align: left;
+  flex-basis: 70%;
   text-align: right;
 }
 
@@ -263,19 +265,30 @@ form.search button {
 }
 
 .xclip::after {
-  content: "";
   display: inline-block;
-  height: 16px;
-  width: 16px;
-  vertical-align: top;
+  content: url('/icon/xclip.svg');
+  vertical-align: middle;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  left: 16px;
+  position: relative;
 }
 
 .xclip:hover::after {
+  left: 16px;
+  position: relative;
   content: url('/icon/xclip.svg');
-  margin-left: 1rem;
+  vertical-align: middle;
   height: 24x;
   width: 24x;
-  vertical-align: top;
+  opacity: 1;
+}
+
+.xclip {
+  /*position: relative;*/
+  text-decoration: underline dotted;
 }
 
 .xclip:hover {
@@ -284,10 +297,11 @@ form.search button {
 
 .clicked:hover::after {
   content: url('/icon/xclipdone.svg');
-  margin-left: 1rem;
-  height: 24px;
+  vertical-align: middle;
+  right: 16px;
+  height: 24x;
   width: 24x;
-  vertical-align: top;
+  opacity: 1;
 }
 
 nav[role="tab-control"] {
