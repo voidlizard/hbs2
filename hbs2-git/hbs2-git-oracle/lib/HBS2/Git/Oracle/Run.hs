@@ -24,7 +24,8 @@ import HBS2.Git.Data.Tx
 import HBS2.Peer.HTTP.Root
 import HBS2.Peer.Proto.BrowserPlugin
 
-import DBPipe.SQLite
+import DBPipe.SQLite hiding (columnName)
+import DBPipe.SQLite.Generic
 
 import Data.ByteString.Lazy (ByteString)
 
@@ -255,26 +256,12 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
 
       listEntries (Method _ a) = do
         env <- getOracleEnv
+
         withOracleEnv env do
-          items <- withState $ select_ @_ @(HashVal, Text, Text, Word64) [qc|
-
-              SELECT
-                lwwref,
-                name,
-                brief,
-                repoheadseq
-              FROM (
-                SELECT
-                  lwwref,
-                  name,
-                  brief,
-                  repoheadseq,
-                  ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC, repoheadseq DESC) as rn
-                FROM gitrepofact
-              ) as s0
-              WHERE rn = 1;
-
-                   |]
+          items <- withState $ select_ @_ @GitRepoListEntry [qc|
+              SELECT {fromSQL $ columnListPart (AllColumns @GitRepoListEntry)}
+              FROM vrepofact
+              |]
 
           case HM.lookup "OUTPUT" a of
             Just "html" -> formatHtml items
@@ -302,7 +289,9 @@ instance (MonadUnliftIO m, HasOracleEnv m) => HandleMethod m RpcChannelQuery whe
                              , v.name
                              , v.brief
                              , m.manifest
-                       from vrepofact v left join gitrepomanifest m on v.repohead = m.repohead
+                             , v.gk
+                       from vrepofact v left
+                             join gitrepomanifest m on v.repohead = m.repohead
                        where v.lwwref = ?
                        limit 1
                        |] (Only ref)

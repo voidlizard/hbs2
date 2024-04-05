@@ -8,6 +8,7 @@ import DBPipe.SQLite qualified as SQL
 import DBPipe.SQLite hiding (insert,columnName)
 
 import GHC.Generics
+import Data.Proxy
 import Data.Text qualified as Text
 import Data.Text (Text)
 import Data.String (IsString(..))
@@ -19,9 +20,12 @@ newtype SQLName = SQLName Text
                   deriving stock (Eq,Ord)
                   deriving newtype (IsString,Monoid,Semigroup,Show)
 
-newtype SQLPart = SQLPart Text
+newtype SQLPart = SQLPart { fromSQL :: Text }
                   deriving stock (Eq,Ord)
                   deriving newtype (IsString,Monoid,Semigroup,Show)
+
+data AllColumns a = AllColumns
+                    deriving stock (Generic)
 
 class ToSQL a where
   toSQL :: a -> SQLPart
@@ -67,6 +71,42 @@ instance HasColumnName c => GHasColumnNames (K1 i c) where
 instance GHasColumnNames a => GHasColumnNames (M1 i t a) where
   gColumnNames (M1 a) = gColumnNames a
 
+
+class GColumnNames f where
+  gColumnNames1 :: [SQLName]
+
+instance GColumnNames U1 where
+  gColumnNames1 = []
+
+instance (GColumnNames a, GColumnNames b) => GColumnNames (a :+: b) where
+  gColumnNames1 = gColumnNames1 @a ++ gColumnNames1 @b
+
+instance (GColumnNames a, GColumnNames b) => GColumnNames (a :*: b) where
+  gColumnNames1 = gColumnNames1 @a ++ gColumnNames1 @b
+
+instance (Selector s, HasColumnName c) => GColumnNames (M1 S s (K1 i c)) where
+  gColumnNames1 = [columnName @c]
+
+instance GColumnNames a => GColumnNames (M1 D d a) where
+  gColumnNames1 = gColumnNames1 @a
+
+instance GColumnNames a => GColumnNames (M1 C c a) where
+  gColumnNames1 = gColumnNames1 @a
+
+instance (Generic a, GColumnNames (Rep a)) => HasColumnNames (AllColumns a) where
+  columnNames _ = gColumnNames1 @(Rep a)
+
+-- -- Реализация GHasColumnNames для AllColumns a
+-- instance (Generic a, GHasColumnNames (Rep a)) => GHasColumnNames AllColumns where
+--   gColumnNames _ = gColumnNames (from (undefined :: a))
+
+-- -- Функция для получения списка имен колонок через AllColumns
+-- columnNamesForAll :: forall a. (Generic a, GHasColumnNames AllColumns) => [SQLName]
+-- columnNamesForAll = gColumnNames (AllColumns @a)
+
+-- Пример использования этой функции:
+-- myList = columnNamesFor (Proxy :: Proxy GitRepoListEntry)
+
 data Bound = forall a . ToField a => Bound a
 
 class GToBoundList f where
@@ -106,6 +146,10 @@ newtype OnCoflictIgnore t r = OnCoflictIgnore r
 
 instance (HasPrimaryKey t, HasColumnNames r) => HasColumnNames (OnCoflictIgnore t r) where
   columnNames (OnCoflictIgnore r) = columnNames r
+
+-- instance (HasColumnNames r) => HasColumnNames (AllColumns r) where
+  -- columnNames _ = gColumnNames @r
+  -- columnNames AllColumns = columnNames r
 
 onConflictIgnore :: (HasTableName t, HasColumnNames r) => r -> OnCoflictIgnore t r
 onConflictIgnore = OnCoflictIgnore

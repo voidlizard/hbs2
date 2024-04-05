@@ -60,7 +60,7 @@ onClickCopy :: Text -> Attribute
 onClickCopy s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
-renderEntries :: MonadIO m => PluginMethod -> [(HashVal, Text, Text, Word64)] -> m ByteString
+renderEntries :: MonadIO m => PluginMethod -> [GitRepoListEntry] -> m ByteString
 renderEntries (Method _ kw) items = do
 
   now  <- liftIO getPOSIXTime <&> fromIntegral . round
@@ -82,7 +82,13 @@ renderEntries (Method _ kw) items = do
 
             section_ [id_ "repo-search-results"] do
 
-              for_ items $ \(h,n,b,t) -> do
+              for_ items $ \GitRepoListEntry{..} -> do
+
+                let t = coerce @_ @Word64 listEntrySeq
+                let h = coerce @_ @(LWWRefKey HBS2Basic) listEntryRef
+                let n = coerce @_ @(Maybe Text) listEntryName & fromMaybe ""
+                let b = coerce @_ @(Maybe Text) listEntryBrief & fromMaybe ""
+                let locked = listEntryGK0 & coerce @_ @(Maybe HashRef) & isJust
 
                 let days = "updated" <+> if d == 0 then "today" else viaShow d <+> "days ago"
                       where d = ( now - t ) `div` 86400
@@ -105,8 +111,14 @@ renderEntries (Method _ kw) items = do
 
                     renderMarkdown b
 
-                  div_ [ class_ "attr" ] do
-                    div_ [ class_ "attrname"]  (toHtml $ show days)
+                  div_ [ ] do
+                    div_ [ class_ "attr" ] do
+                      div_ [ class_ "attrname"]  (toHtml $ show days)
+
+                    when locked do
+                      div_ [ class_ "attr" ] do
+                        div_ [ class_ "attrval icon"] do
+                          img_ [src_ "/icon/lock-closed.svg"]
 
 
 wrapped :: Monad m => HtmlT m a -> HtmlT m a
@@ -164,6 +176,18 @@ renderRepoHtml (Method _ kw) page@(GitRepoPage{..}) = pure $ renderBS $ wrapped 
 
         div_ [class_ "attrval", style_ "align: left; width: 20rem;"] do
           span_ [class_ "xclip", onClickCopy ref] (toHtml ref)
+
+      div_  [class_ "attr"] do
+
+        let gk' = headMay [ gk0 | GitEncrypted gk0 <- universeBi page ]
+                   & join <&> Text.pack . show . pretty
+
+        for gk' $ \gk -> do
+          div_ [class_ "attrname"] "encrypted"
+
+          div_ [class_ "attrval", style_ "align: left; width: 20rem;"] do
+            span_ [class_ "xclip", onClickCopy gk] (toHtml gk)
+
 
     section_ [id_ "repo-data"] do
       for_ name' $ \name -> do

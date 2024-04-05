@@ -241,10 +241,15 @@ div .repo-list-item {
 }
 
 .attrval {
-  text-align: left;
   flex-basis: 70%;
   text-align: right;
 }
+
+.icon {
+  flex-basis: 90%;
+  text-align: right;
+}
+
 
 form.search {
   display: flex;

@@ -26,10 +26,27 @@ data GitRepoPage =
   , repoPageName     :: GitName
   , repoPageBrief    :: GitBrief
   , repoPageManifest :: GitManifest
+  , repoPageGK0      :: GitEncrypted
   }
   deriving stock (Generic,Data)
 
 instance FromRow GitRepoPage
+
+
+data GitRepoListEntry =
+  GitRepoListEntry
+  { listEntryRef   :: GitLwwRef
+  , listEntrySeq   :: GitLwwSeq
+  , listEntryHead  :: GitRepoHeadRef
+  , listEntryName  :: GitName
+  , listEntryBrief :: GitBrief
+  , listEntryGK0   :: GitEncrypted
+  }
+  deriving stock (Generic,Data)
+
+instance ToJSON GitRepoListEntry
+
+instance FromRow GitRepoListEntry
 
 processedRepoTx :: (LWWRefKey HBS2Basic, HashRef) -> HashVal
 processedRepoTx w = HashVal $ HashRef $ hashObject @HbSync (serialise w)
@@ -82,14 +99,16 @@ gitRepoManifestTable = do
 
 gitRepoFactView :: MonadUnliftIO m => DBPipeM m ()
 gitRepoFactView = do
+  ddl [qc|DROP VIEW IF EXISTS vrepofact|]
   ddl [qc|
     CREATE VIEW IF NOT EXISTS vrepofact AS
     SELECT
       lwwref,
+      repoheadseq as lwwseq,
       repohead,
       name,
       brief,
-      repoheadseq
+      gk
     FROM (
       SELECT
         lwwref,
@@ -97,6 +116,7 @@ gitRepoFactView = do
         name,
         brief,
         repoheadseq,
+        gk,
         ROW_NUMBER() OVER (PARTITION BY lwwref ORDER BY lwwseq DESC, repoheadseq DESC) as rn
       FROM gitrepofact
     ) as s0

@@ -10,6 +10,7 @@ import HBS2.Hash
 import DBPipe.SQLite
 import DBPipe.SQLite.Generic
 
+import Data.Aeson
 import GHC.Generics
 import Data.Word
 
@@ -29,7 +30,7 @@ newtype GitLwwRef  = GitLwwRef (LWWRefKey HBS2Basic)
 
 newtype GitLwwSeq  = GitLwwSeq Word64
                      deriving stock (Generic,Data)
-                     deriving newtype (ToField)
+                     deriving newtype (ToField,FromField,ToJSON)
 
 
 newtype GitRepoHeadSeq = GitRepoHeadSeq Word64
@@ -62,7 +63,23 @@ newtype GitManifest = GitManifest (Maybe Text)
 
 newtype GitEncrypted = GitEncrypted (Maybe HashRef)
                        deriving stock (Generic,Data)
-                       deriving newtype (ToField)
+                       deriving newtype (ToField, FromField)
+
+
+instance ToJSON GitLwwRef where
+  toJSON (GitLwwRef k) = toJSON $ show $ pretty k
+
+instance ToJSON GitRepoHeadRef where
+  toJSON (GitRepoHeadRef k) = toJSON $ show $ pretty k
+
+instance ToJSON GitEncrypted where
+  toJSON (GitEncrypted k) = toJSON $ show . pretty <$> k
+
+instance ToJSON GitBrief where
+  toJSON (GitBrief k) = toJSON $ show . pretty <$> k
+
+instance ToJSON GitName where
+  toJSON (GitName k) = toJSON $ show . pretty <$> k
 
 data Facts
 
