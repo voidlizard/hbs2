@@ -327,7 +327,7 @@ nav[role="tab-control"] li {
 }
 
 nav[role="tab-control"] li a {
-  color: black;
+  color: inherit;
   text-decoration: none;
 }
 
