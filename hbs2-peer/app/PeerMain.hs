@@ -31,6 +31,8 @@ import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
+import HBS2.KeyMan.Keys.Direct
+
 import HBS2.Version
 import Paths_hbs2_peer qualified as Pkg
 
@@ -281,6 +283,8 @@ runCLI = do
     pVersion = pure do
         LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
+    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+
     pRun = do
       runPeer <$> common
 
@@ -417,10 +421,13 @@ runCLI = do
 
     pRefLogSend = do
       rpc <- pRpcCommon
-      kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
+      pk <- argument pPubKeySign (metavar "REFLOG-KEY")
+
       pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
-        s <- BS.readFile kr
-        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
+
+        creds <- runKeymanClient $ loadCredentials pk
+                  >>= orThrowUser "can't find credentials"
+
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
         let privk = view peerSignSk creds

@@ -12,11 +12,10 @@ import DBPipe.SQLite hiding (insert,columnName)
 import DBPipe.SQLite qualified as SQL
 import DBPipe.SQLite.Generic
 
-import GHC.Generics
+import Data.HashSet qualified as HS
 import Data.Aeson
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
-import Data.Word
 import Data.Text qualified as Text
 
 data GitRepoPage =
@@ -55,7 +54,9 @@ evolveDB :: MonadUnliftIO m => DBPipeM m ()
 evolveDB = do
   debug $ yellow "evolveDB"
   gitRepoFactTable
+  gitRepoRelatedFactTable
   gitRepoManifestTable
+  gitRepoBundleTable
   gitRepoFactView
   txProcessedTable
 
@@ -86,6 +87,16 @@ gitRepoFactTable = do
   |]
 
 
+gitRepoRelatedFactTable :: MonadUnliftIO m => DBPipeM m ()
+gitRepoRelatedFactTable = do
+  ddl [qc|
+    create table if not exists gitreporelatedfact
+    ( lwwref        text not null
+    , lwwrefrel     text not null
+    , primary key (lwwref,lwwrefrel)
+    )
+  |]
+
 gitRepoManifestTable :: MonadUnliftIO m => DBPipeM m ()
 gitRepoManifestTable = do
   ddl [qc|
@@ -96,6 +107,16 @@ gitRepoManifestTable = do
     )
   |]
 
+
+gitRepoBundleTable :: MonadUnliftIO m => DBPipeM m ()
+gitRepoBundleTable = do
+  ddl [qc|
+    create table if not exists gitrepobundle
+    ( lwwref     text not null
+    , bundle     text not null
+    , primary key (lwwref,bundle)
+    )
+  |]
 
 gitRepoFactView :: MonadUnliftIO m => DBPipeM m ()
 gitRepoFactView = do
@@ -159,7 +180,33 @@ isTxProcessed hash = do
   pure $ not $ null (results :: [Only Int])
 
 
+gitRepoBundleProcessedKey :: HashRef -> HashVal
+gitRepoBundleProcessedKey mhead =
+  hashObject @HbSync (serialise ("GitRepoBundle", mhead)) & HashRef & HashVal
+
+isGitRepoBundleProcessed :: MonadUnliftIO m => HashRef -> DBPipeM m Bool
+isGitRepoBundleProcessed mhead = do
+  isTxProcessed (gitRepoBundleProcessedKey mhead)
+
+insertGitRepoBundleProcessed :: MonadUnliftIO m => HashRef -> DBPipeM m ()
+insertGitRepoBundleProcessed mhead = do
+  insertTxProcessed (gitRepoBundleProcessedKey mhead)
+
+insertRepoBundleFact :: MonadUnliftIO m => GitRepoBundle -> DBPipeM m ()
+insertRepoBundleFact rb = do
+ insert @GitRepoBundle $
+   onConflictIgnore @GitRepoBundle rb
+
 insertRepoFacts :: (MonadUnliftIO m) => GitRepoFacts -> DBPipeM m ()
+
+insertRepoFacts GitRepoRelatedFact{..} = do
+  for_ (HS.toList gitRelated) $ \rel -> do
+   insert @GitRepoRelatedFactTable $
+     onConflictIgnore @GitRepoRelatedFactTable
+     ( gitLwwRef
+     , GitLwwRefRel (coerce rel)
+     )
+
 insertRepoFacts facts@GitRepoFacts{..} = do
  insert @GitRepoFacts $
    onConflictIgnore @GitRepoFacts

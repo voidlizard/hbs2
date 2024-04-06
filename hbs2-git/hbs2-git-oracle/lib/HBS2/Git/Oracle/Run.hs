@@ -46,6 +46,7 @@ import Data.Ord
 import Data.Text qualified as Text
 import Data.List qualified as List
 import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.ByteString.Lazy qualified as LBS
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
@@ -114,14 +115,28 @@ runOracleIndex auPk = do
                            <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                            >>= toMPlus
                            >>= unpackTx
-                           >>= \(n,h,_) -> lift (S.yield (n,htx))
+                           >>= \(n,h,blk) -> lift (S.yield (n,htx,blk))
 
-        let tx' = maximumByMay (comparing fst) txs
+        relAlready <- lift $ withDB db do
+          -- FIXME: uncomment-for-speedup
+          done <- isGitRepoBundleProcessed mh >> pure False
+          unless done do
+            transactional do
+              for_ txs $ \(n,_,bu) -> do
+                refs <- fromRight mempty <$> readBundleRefs sto bu
+                for_ refs  $ \r -> do
+                  debug $ red "bundle-fact" <+> pretty lw <+> pretty r
+                  insertRepoBundleFact (GitRepoBundle (GitLwwRef lw) (GitBundle r))
 
-        for_ tx' $ \(n,tx) -> void $ runMaybeT do
+              insertGitRepoBundleProcessed mh
+          pure done
+
+        -- let tx' = maximumByMay (comparing (view _1)) txs
+
+        for_ txs $ \(n,tx,blk) -> void $ runMaybeT do
           liftIO $ withDB db do
             transactional do
-              for_ [ t | (i,t) <- txs, i < n ] $ \tran -> do
+              for_ [ t | (i,t,_) <- txs, i < n ] $ \tran -> do
                 insertTxProcessed (HashVal tran)
 
           (rhh,RepoHeadSimple{..}) <- readRepoHeadFromTx sto tx
@@ -142,6 +157,24 @@ runOracleIndex auPk = do
                              (GitBrief (Just brief))
                              (GitEncrypted _repoHeadGK0)
                              [GitRepoExtendedManifest (GitManifest manifest)]
+
+          -- yield repo relation facts by common bundles
+          unless relAlready do
+
+            what <- withDB db do
+              select_ @_ @(GitLwwRef, GitLwwRef) [qc|
+                select distinct
+                    b1.lwwref
+                  , b2.lwwref
+                 from gitrepobundle b1 join gitrepobundle  b2 on b1.bundle = b2.bundle
+                 where b1.lwwref <> b2.lwwref
+              |]
+
+            let r = HM.fromListWith (<>) [ (a, HS.singleton b) | (a,b) <- what ]
+                     & HM.toList
+
+            for_ r $ \(lww, rel) -> do
+              lift $ S.yield $ GitRepoRelatedFact lww rel
 
           -- liftIO $ withDB db (insertTxProcessed (HashVal tx))
 

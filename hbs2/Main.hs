@@ -553,7 +553,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ withStore o $ runCat
           $ CatOpts hash (CatHashesOnly <$> onlyh) (OptKeyringFile <$> keyringFile) raw
 
-    pMetadata = hsubparser ( command "dump" (info pMetadataDump (progDesc "dump metadata"))
+    pMetadata = hsubparser (  command "dump" (info pMetadataDump (progDesc "dump metadata"))
                            <> command "create" (info pMetadataCreate (progDesc "create tree with metadata"))
                            )
 

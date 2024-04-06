@@ -8,10 +8,10 @@ import HBS2.Git.Oracle.Prelude
 import HBS2.Hash
 
 import DBPipe.SQLite
-import DBPipe.SQLite.Generic
+import DBPipe.SQLite.Generic as G
 
+import Data.HashSet (HashSet)
 import Data.Aeson
-import GHC.Generics
 import Data.Word
 
 type PKS = PubKey 'Sign HBS2Basic
@@ -25,8 +25,13 @@ data GitRepoExtended =
   deriving stock (Generic,Data)
 
 newtype GitLwwRef  = GitLwwRef (LWWRefKey HBS2Basic)
-                     deriving stock (Generic,Data)
-                     deriving newtype (ToField,FromField)
+                     deriving stock (Generic,Data,Eq)
+                     deriving newtype (ToField,FromField,Hashable)
+
+
+newtype GitLwwRefRel = GitLwwRefRel (LWWRefKey HBS2Basic)
+                       deriving stock (Generic,Data,Eq)
+                       deriving newtype (ToField,FromField,Hashable)
 
 newtype GitLwwSeq  = GitLwwSeq Word64
                      deriving stock (Generic,Data)
@@ -65,6 +70,10 @@ newtype GitEncrypted = GitEncrypted (Maybe HashRef)
                        deriving stock (Generic,Data)
                        deriving newtype (ToField, FromField)
 
+newtype GitBundle = GitBundle HashRef
+                    deriving stock (Generic,Data)
+                    deriving newtype (ToField,FromField)
+
 
 instance ToJSON GitLwwRef where
   toJSON (GitLwwRef k) = toJSON $ show $ pretty k
@@ -84,17 +93,33 @@ instance ToJSON GitName where
 data Facts
 
 data GitRepoFacts =
-  GitRepoFacts
-  { gitLwwRef       :: GitLwwRef
-  , gitLwwSeq       :: GitLwwSeq
-  , gitRefLog       :: GitRefLog
-  , gitTx           :: GitTx
-  , gitRepoHead     :: GitRepoHeadRef
-  , gitRepoHeadSeq  :: GitRepoHeadSeq
-  , gitName         :: GitName
-  , gitBrief        :: GitBrief
-  , gitEncrypted    :: GitEncrypted
-  , gitExtended     :: [GitRepoExtended]
+    GitRepoFacts
+    { gitLwwRef       :: GitLwwRef
+    , gitLwwSeq       :: GitLwwSeq
+    , gitRefLog       :: GitRefLog
+    , gitTx           :: GitTx
+    , gitRepoHead     :: GitRepoHeadRef
+    , gitRepoHeadSeq  :: GitRepoHeadSeq
+    , gitName         :: GitName
+    , gitBrief        :: GitBrief
+    , gitEncrypted    :: GitEncrypted
+    , gitExtended     :: [GitRepoExtended]
+    }
+  | GitRepoRelatedFact
+    { gitLwwRef       :: GitLwwRef
+    , gitRelated      :: HashSet GitLwwRef
+    }
+
+  deriving stock (Generic,Data)
+
+data GitRepoRelatedFactTable =
+     GitRepoRelatedFactTable
+     deriving stock (Data,Generic)
+
+data GitRepoBundle =
+  GitRepoBundle
+  { gitRepo       :: GitLwwRef
+  , gitRepoBundle :: GitBundle
   }
   deriving stock (Generic,Data)
 
@@ -110,6 +135,7 @@ instance Serialise GitManifest
 instance Serialise GitRepoExtended
 instance Serialise GitEncrypted
 instance Serialise GitRepoHeadSeq
+instance Serialise GitBundle
 
 instance ToField HashRef where
   toField = toField @String . show . pretty
@@ -132,8 +158,21 @@ instance (FromField (RefLogKey HBS2Basic))  where
 instance HasTableName GitRepoFacts where
   tableName = "gitrepofact"
 
+instance HasTableName GitRepoRelatedFactTable where
+  tableName = "gitreporelatedfact"
+
+instance HasPrimaryKey GitRepoRelatedFactTable where
+  primaryKey = [G.columnName @GitLwwRef, G.columnName @GitLwwRefRel]
+
 instance HasTableName GitManifest where
   tableName = "gitrepomanifest"
+
+instance HasTableName GitRepoBundle where
+  tableName = "gitrepobundle"
+
+instance HasPrimaryKey GitRepoBundle where
+  primaryKey = [G.columnName @GitLwwRef, G.columnName @GitBundle]
+
 
 instance HasColumnName GitManifest where
   columnName = "manifest"
@@ -146,6 +185,9 @@ instance HasPrimaryKey GitRepoFacts where
 
 instance HasColumnName GitLwwRef where
   columnName = "lwwref"
+
+instance HasColumnName GitLwwRefRel where
+  columnName = "lwwrefrel"
 
 instance HasColumnName GitLwwSeq where
   columnName = "lwwseq"
@@ -170,4 +212,7 @@ instance HasColumnName GitEncrypted where
 
 instance HasColumnName GitRepoHeadSeq where
   columnName = "repoheadseq"
+
+instance HasColumnName GitBundle where
+  columnName = "bundle"
 
