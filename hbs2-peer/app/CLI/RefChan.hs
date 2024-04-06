@@ -5,6 +5,7 @@ import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Credentials.Sigil
+import HBS2.Merkle
 import HBS2.Peer.Proto.RefChan
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs
@@ -46,12 +47,13 @@ import UnliftIO
 
 
 pRefChan :: Parser (IO ())
-pRefChan = hsubparser (   command "head" (info pRefChanHead (progDesc "head commands" ))
+pRefChan = hsubparser (   command "head" (info pRefChanHead       (progDesc "head commands" ))
                        <> command "propose" (info pRefChanPropose (progDesc "post propose transaction"))
-                       <> command "notify"  (info pRefChanNotify (progDesc "post notify message"))
-                       <> command "fetch"   (info pRefChanFetch (progDesc "fetch and sync refchan value"))
-                       <> command "get"     (info pRefChanGet (progDesc "get refchan value"))
-                       <> command "gk"      (info pRefChanGK  (progDesc "generate a group key"))
+                       <> command "notify"  (info pRefChanNotify  (progDesc "post notify message"))
+                       <> command "fetch"   (info pRefChanFetch   (progDesc "fetch and sync refchan value"))
+                       <> command "get"     (info pRefChanGet     (progDesc "get refchan value"))
+                       <> command "gk"      (info pRefChanGK      (progDesc "generate a group key"))
+                       <> command "dump"    (info pRefChanDump    (progDesc "dump refchan content"))
                       )
 
 
@@ -65,11 +67,13 @@ pRefChanHead = hsubparser (   command "gen"  (info pRefChanHeadGen (progDesc "ge
 
 pRefChanHeadGen :: Parser (IO ())
 pRefChanHeadGen = do
-  kr <- strOption (long "keyring" <> short 'k' <> help "owner credentials")
   fn <- optional $ strArgument (metavar "head dsl file")
+  rchan <- argument pRefChanId (metavar "REFCHAN-KEY")
   pure $ do
-    sc <- BS.readFile kr
-    creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+
+    creds <- runKeymanClient $ loadCredentials rchan
+               >>= orThrowUser "can't load credentials"
+
     s <- maybe1 fn getContents readFile
     hd <- pure (fromStringMay @(RefChanHeadBlock L4Proto) s) `orDie` "can't generate head block"
     let qq = makeSignedBox @L4Proto @(RefChanHeadBlock L4Proto) (view peerSignPk creds) (view peerSignSk creds) hd
@@ -82,8 +86,6 @@ pRefChanHeadDump= do
     lbs <- maybe1 fn LBS.getContents LBS.readFile
     (_, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @L4Proto  lbs) `orDie` "can't unbox signed box"
     print $ pretty hdblk
-
-
 
 
 pRefChanHeadPost :: Parser (IO ())
@@ -117,13 +119,14 @@ pRefChanHeadGet = do
 pRefChanPropose :: Parser (IO ())
 pRefChanPropose = do
   opts <- pRpcCommon
-  kra <- strOption (long "author" <> short 'a' <> help "author credentials")
+  kra <- option pRefChanId (long "author" <> short 'a' <> help "author key")
   fn  <- optional $ strOption (long "file" <> short 'f' <> help "file")
   dry <- optional (flag' True (long "dry" <> short 'n' <> help "only dump transaction")) <&> fromMaybe False
   puk <- argument pRefChanId (metavar "REFCHAH-KEY")
+
   pure $ withMyRPC @RefChanAPI opts $ \caller -> do
-    sc <- BS.readFile kra
-    creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
+    creds <- runKeymanClient $ loadCredentials kra
+               >>= orThrowUser "can't load credentials"
 
     lbs <- maybe1 fn LBS.getContents LBS.readFile
 
@@ -368,4 +371,47 @@ pRefChanGK = do
     gk <- generateGroupKey @HBS2Basic Nothing (HashSet.toList readers)
 
     liftIO $ print $ pretty (AsGroupKeyFile gk)
+
+
+pRefChanDump :: Parser (IO ())
+pRefChanDump = do
+  opts <- pRpcCommon
+  puk <- argument pRefChanId (metavar "REFCHAH-REF")
+  pure $ flip runContT pure do
+
+    client <- ContT $ withRPCMessaging opts
+
+    self <- runReaderT (ownPeer @UNIX) client
+    refChanAPI  <- makeServiceCaller @RefChanAPI self
+    storageAPI  <- makeServiceCaller @StorageAPI self
+
+    let endpoints = [ Endpoint @UNIX refChanAPI
+                    , Endpoint @UNIX storageAPI
+                    ]
+
+    void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+    let sto = AnyStorage (StorageClient storageAPI)
+
+    rv' <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) refChanAPI puk)
+             >>= orThrowUser "rpc call error/timeout"
+
+    rv <- ContT $ maybe1 rv' none
+
+    walkMerkle (fromHashRef rv) (getBlock sto) $ \case
+      Left{} -> pure ()
+      Right (hrs :: [HashRef]) -> do
+        for_ hrs $ \h -> void $ runMaybeT do
+
+          s <- getBlock sto (fromHashRef h)
+                 >>= toMPlus
+                 <&> deserialiseOrFail @(RefChanUpdate L4Proto)
+                 >>= toMPlus
+
+          case s of
+            Accept{} -> pure ()
+            Propose _ box -> do
+              (_, ProposeTran _ pbox :: ProposeTran L4Proto) <- toMPlus $ unboxSignedBox0 box
+              (_, bs2) <- toMPlus $ unboxSignedBox0 pbox
+              liftIO $ BS.putStr bs2
 

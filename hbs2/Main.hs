@@ -260,7 +260,7 @@ runCat opts ss = do
             Right lbs -> LBS.putStr lbs
             Left e    -> die (show e)
 
-        MerkleAnn ann -> die "asymmetric gropup encryption is deprecated"
+        MerkleAnn ann -> die "asymmetric group encryption is deprecated"
 
         -- FIXME: what-if-multiple-seq-ref-?
         SeqRef (SequentialRef _ (AnnotatedHashRef _ h)) -> do
