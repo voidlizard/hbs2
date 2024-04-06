@@ -53,7 +53,7 @@ pRefChan = hsubparser (   command "head" (info pRefChanHead       (progDesc "hea
                        <> command "fetch"   (info pRefChanFetch   (progDesc "fetch and sync refchan value"))
                        <> command "get"     (info pRefChanGet     (progDesc "get refchan value"))
                        <> command "gk"      (info pRefChanGK      (progDesc "generate a group key"))
-                       <> command "dump"    (info pRefChanDump    (progDesc "dump refchan content"))
+                       <> command "cat"     (info pRefChanCat    (progDesc "dump refchan content"))
                       )
 
 
@@ -373,8 +373,8 @@ pRefChanGK = do
     liftIO $ print $ pretty (AsGroupKeyFile gk)
 
 
-pRefChanDump :: Parser (IO ())
-pRefChanDump = do
+pRefChanCat :: Parser (IO ())
+pRefChanCat = do
   opts <- pRpcCommon
   puk <- argument pRefChanId (metavar "REFCHAH-REF")
   pure $ flip runContT pure do
