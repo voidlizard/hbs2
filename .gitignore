@@ -10,3 +10,4 @@ cabal.project.local
 *.key
 
 .backup/
+.hbs2-git/
