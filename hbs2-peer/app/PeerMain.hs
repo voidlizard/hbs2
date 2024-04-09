@@ -9,6 +9,7 @@ import HBS2.Prelude.Plated
 
 import HBS2.Actors.Peer
 import HBS2.Base58
+import HBS2.Merkle
 import HBS2.Defaults
 import HBS2.Events
 import HBS2.Hash
@@ -30,6 +31,8 @@ import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
+
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Version
 import Paths_hbs2_peer qualified as Pkg
@@ -281,6 +284,8 @@ runCLI = do
     pVersion = pure do
         LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
+    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+
     pRun = do
       runPeer <$> common
 
@@ -413,14 +418,18 @@ runCLI = do
                          <> command "send-raw" (info pRefLogSendRaw (progDesc "send reflog raw transaction" ))
                          <> command "fetch" (info pRefLogFetch (progDesc "fetch reflog from all" ))
                          <> command "get"   (info pRefLogGet (progDesc "get own reflog from all" ))
+                         <> command "cat"   (info pRefLogCat (progDesc "dump decoded reflog transcations"))
                          )
 
     pRefLogSend = do
       rpc <- pRpcCommon
-      kr <- strOption (long  "keyring" <> short 'k' <> help "reflog keyring" <> metavar "FILE")
+      pk <- argument pPubKeySign (metavar "REFLOG-KEY")
+
       pure $ withMyRPC @RefLogAPI rpc $ \caller -> do
-        s <- BS.readFile kr
-        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile s)) `orDie` "bad keyring file"
+
+        creds <- runKeymanClient $ loadCredentials pk
+                  >>= orThrowUser "can't find credentials"
+
         bs <- BS.take defChunkSize  <$> BS.hGetContents stdin
         let pubk = view peerSignPk creds
         let privk = view peerSignSk creds
@@ -451,6 +460,46 @@ runCLI = do
           Right Nothing -> exitFailure
           Right (Just h) -> print (pretty h) >> exitSuccess
 
+    pRefLogCat = do
+      rpc <- pRpcCommon
+      ref <- strArgument ( metavar "REFLOG-KEY" )
+
+      pure $ flip runContT pure do
+
+        client <- ContT $ withRPCMessaging rpc
+
+        self         <- runReaderT (ownPeer @UNIX) client
+        refLogAPI    <- makeServiceCaller @RefLogAPI self
+        peerAPI      <- makeServiceCaller @PeerAPI self
+        storageAPI   <- makeServiceCaller @StorageAPI self
+        let sto = AnyStorage (StorageClient storageAPI)
+
+        let endpoints = [ Endpoint @UNIX peerAPI
+                        , Endpoint @UNIX refLogAPI
+                        , Endpoint @UNIX storageAPI
+                        ]
+
+        void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+
+        href <- pure (fromStringMay ref) `orDie` "invalid REFLOG-KEY"
+
+        rv' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI href
+                >>= orThrowUser "rpc calling error"
+
+        rv <- ContT $ maybe1 rv' none
+
+        walkMerkle @[HashRef] (fromHashRef rv) (getBlock sto) $ \case
+          Left h -> liftIO $ throwIO (userError $ show $ "missed block:" <+> pretty h)
+          Right hrs -> do
+            for_ hrs $ \h -> void $ runMaybeT do
+              s <- getBlock sto (fromHashRef h)
+                     >>= toMPlus
+                     <&> deserialiseOrFail @(RefLogUpdate L4Proto)
+                     >>= toMPlus
+
+              guard =<< verifyRefLogUpdate s
+              liftIO $ BS.putStr (view refLogUpdData s)
 
     pPoll = hsubparser (  command "list" (info pPollList (progDesc "list current pollers" ))
                        <> command "add" (info  pPollAdd (progDesc "add poller" ))

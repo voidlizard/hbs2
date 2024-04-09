@@ -1,0 +1,8 @@
+TODO: asap-exponential-backoff-on-download
+  Увеличивать таймаут между запросами блока с
+  какой-то степенью; достаточно пологой
+
+TODO: download-drop-cli-command
+  Сделать команду hbs2-peer download drop
+  которая удалит все активные скачивания из очереди
+
