@@ -945,7 +945,7 @@ logMergeProcess penv env q = withPeerM penv do
                     hd <- MaybeT $ lift $ getHead menv headRef
 
                     let quo = view refChanHeadQuorum hd & fromIntegral
-                    guard $ checkACL hd (Just pk) ak
+                    guard $ checkACL ACLUpdate hd (Just pk) ak
                     pure [(href, (quo,mempty))]
 
                   Accept  _ box -> do

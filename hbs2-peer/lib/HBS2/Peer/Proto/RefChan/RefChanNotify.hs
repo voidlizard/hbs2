@@ -79,7 +79,7 @@ refChanNotifyProto self adapter msg@(Notify rchan box) = do
       let refchanKey = RefChanHeadKey @s rchan
       headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
 
-      guard $ checkACL headBlock Nothing authorKey
+      guard $ checkACL ACLNotify headBlock Nothing authorKey
 
       -- FIXME: garbage-collection-required
       liftIO $ putBlock sto (serialise msg)

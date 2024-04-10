@@ -46,6 +46,9 @@ type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
 type Weight = Integer
 
+data ACLType = ACLUpdate | ACLNotify
+              deriving stock (Eq,Ord,Generic,Data,Show)
+
 data RefChanHeadBlock e =
   RefChanHeadBlockSmall
    { _refChanHeadVersion     :: Integer
@@ -363,15 +366,19 @@ getRefChanHead sto k = runMaybeT do
 
 
 checkACL :: forall e s . (Encryption e ~ s, ForRefChans e)
-         => RefChanHeadBlock e
+         => ACLType
+         -> RefChanHeadBlock e
          -> Maybe (PubKey 'Sign s)
          -> PubKey 'Sign s
          -> Bool
 
-checkACL theHead mbPeerKey authorKey = match
+checkACL acl theHead mbPeerKey authorKey = match
   where
     pips = view refChanHeadPeers theHead
     aus  = view refChanHeadAuthors theHead
+    notifiers = view refChanHeadNotifiers theHead
     match = maybe True (`HashMap.member` pips) mbPeerKey
-           && authorKey `HashSet.member` aus
+           && ( authorKey `HashSet.member` aus
+              || acl == ACLNotify && authorKey `HashSet.member` notifiers
+              )
 
