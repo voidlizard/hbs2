@@ -168,7 +168,7 @@ withApp cfgPath action = do
     client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
                 >>= orThrowUser ("can't connect to" <+> pretty soname)
 
-    mess <-  ContT $ bracket (async $ runMessagingUnix client) $ \_ -> error "FUCK!" >> liftIO exitFailure
+    mess <-  ContT $ withAsync $ runMessagingUnix client
 
     link mess
 
@@ -185,10 +185,10 @@ withApp cfgPath action = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    let o = [MUWatchdog 20]
+    let o = [MUWatchdog 20,MUDontRetry]
     clientN <- newMessagingUnixOpts o False 1.0 soname
 
-    notif <- ContT $ bracket (async $ runMessagingUnix clientN) (\_ -> error "FUCK2" >> liftIO exitFailure)
+    notif <- ContT $ withAsync (runMessagingUnix clientN)
 
     link notif
 
