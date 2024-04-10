@@ -272,19 +272,22 @@ instance (ForRefChans e
                <>
                parens ("wait" <+> pretty (view refChanHeadWaitAccept blk)) <> line
                <>
-               vcat (fmap peer (HashMap.toList $ view refChanHeadPeers blk)) <> line
+               lstOf peer   (HashMap.toList $ view refChanHeadPeers blk)
                <>
-               vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
+               lstOf author (HashSet.toList $ view refChanHeadAuthors blk)
                <>
-               vcat (fmap reader (HashSet.toList $ view refChanHeadReaders blk)) <> line
+               lstOf reader (HashSet.toList $ view refChanHeadReaders blk)
                <>
-               vcat (fmap notifier (HashSet.toList $ view refChanHeadNotifiers blk)) <> line
+               lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
 
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
       notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
+
+      lstOf f e | null e = mempty
+                | otherwise = vcat (fmap f e) <> line
 
 
 -- блок головы может быть довольно большой.
