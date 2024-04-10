@@ -314,13 +314,11 @@ mainLoop = do
       r <- liftIO $ E.try @SomeException (join $ atomically $ readTQueue jobs)
       case r of
         Left e -> do
-          err ("CATCHED" <+> viaShow e)
+          err (viaShow e)
           let ee = fromException @AsyncCancelled e
 
           unless (isJust ee) do
             next
-
-          debug "WE'RE FUCKING CANCELLED!"
 
         _ -> next
 
