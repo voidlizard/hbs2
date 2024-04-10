@@ -225,7 +225,7 @@ withApp cfgPath action = do
 
       void $ waitAnyCatchCancel [mess,mn,notif,p1,p3]
 
-    debug $ red "FUCKING CANCELLED!"
+    debug $ red "respawning..."
     pause @'Seconds 5
     next
 
