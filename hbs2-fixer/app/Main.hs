@@ -239,6 +239,8 @@ mainLoop = forever $ do
 
   flip runContT pure do
 
+    debug $ red "Reloading..."
+
     lift $ updateFromConfig conf
 
     void $ ContT $ withAsync $ do
