@@ -63,6 +63,16 @@ data RefChanHeadBlock e =
    , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
    , _refChanHeadExt         :: ByteString
   }
+  | RefChanHeadBlock2
+  {  _refChanHeadVersion     :: Integer
+   , _refChanHeadQuorum      :: Integer
+   , _refChanHeadWaitAccept  :: Integer
+   , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+   , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
+   , _refChanHeadNotifiers'  :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadExt         :: ByteString
+  }
   deriving stock (Generic)
 
 makeLenses ''RefChanHeadBlock
@@ -126,7 +136,25 @@ refChanHeadReaders = lens g s
   where
     g (RefChanHeadBlockSmall{}) = mempty
     g (RefChanHeadBlock1{..})   = _refChanHeadReaders'
+    g (RefChanHeadBlock2{..})   = _refChanHeadReaders'
     s v@(RefChanHeadBlock1{}) x = v { _refChanHeadReaders' = x }
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadReaders' = x }
+    s x _ = x
+
+
+refChanHeadNotifiers :: ForRefChans e
+                    => Lens (RefChanHeadBlock e)
+                            (RefChanHeadBlock e)
+                            (HashSet (PubKey 'Sign (Encryption e)))
+                            (HashSet (PubKey 'Sign (Encryption e)))
+
+refChanHeadNotifiers = lens g s
+  where
+    g (RefChanHeadBlockSmall{}) = mempty
+    g (RefChanHeadBlock1{})     = mempty
+    g (RefChanHeadBlock2{..})   = _refChanHeadNotifiers'
+
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadNotifiers' = x }
     s x _ = x
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
