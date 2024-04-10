@@ -228,21 +228,16 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanLogKey s) where
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
 
+  -- NOTE: we-dont-support-old-head-formats-anymore
   fromStringMay str =
-    case readers of
-      [] -> RefChanHeadBlockSmall <$> version
-                                  <*> quorum
-                                  <*> wait
-                                  <*> pure (HashMap.fromList peers)
-                                  <*> pure (HashSet.fromList authors)
-
-      rs -> RefChanHeadBlock1 <$> version
-                              <*> quorum
-                              <*> wait
-                              <*> pure (HashMap.fromList peers)
-                              <*> pure (HashSet.fromList authors)
-                              <*> pure (HashSet.fromList rs)
-                              <*> pure mempty
+    RefChanHeadBlock2 <$> version
+                      <*> quorum
+                      <*> wait
+                      <*> pure (HashMap.fromList peers)
+                      <*> pure (HashSet.fromList authors)
+                      <*> pure (HashSet.fromList readers)
+                      <*> pure (HashSet.fromList notifiers)
+                      <*> pure mempty
 
     where
       parsed = parseTop str & fromRight mempty
@@ -262,6 +257,11 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                           | (ListVal [SymbolVal "reader", LitStrVal s] ) <- parsed
                           ]
 
+
+      notifiers = catMaybes [ fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack s)
+                            | (ListVal [SymbolVal "notifier", LitStrVal s] ) <- parsed
+                            ]
+
 instance (ForRefChans e
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
@@ -277,11 +277,14 @@ instance (ForRefChans e
                vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
                <>
                vcat (fmap reader (HashSet.toList $ view refChanHeadReaders blk)) <> line
+               <>
+               vcat (fmap notifier (HashSet.toList $ view refChanHeadNotifiers blk)) <> line
 
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
+      notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
 
 
 -- блок головы может быть довольно большой.
