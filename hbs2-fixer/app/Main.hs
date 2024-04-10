@@ -56,6 +56,8 @@ import System.Exit qualified as Exit
 import Data.Cache qualified as Cache
 import Data.Cache (Cache)
 
+import System.Exit
+
 {- HLINT ignore "Functor law" -}
 
 
@@ -166,7 +168,9 @@ withApp cfgPath action = do
     client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
                 >>= orThrowUser ("can't connect to" <+> pretty soname)
 
-    void $ ContT $ withAsync $ runMessagingUnix client
+    mess <-  ContT $ bracket (async $ runMessagingUnix client) $ \_ -> error "FUCK!" >> liftIO exitFailure
+
+    link mess
 
     peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
     refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
@@ -181,10 +185,12 @@ withApp cfgPath action = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    let o = [MUWatchdog 20, MUDontRetry]
+    let o = [MUWatchdog 20]
     clientN <- newMessagingUnixOpts o False 1.0 soname
 
-    void $ ContT $ withAsync $ runMessagingUnix clientN
+    notif <- ContT $ bracket (async $ runMessagingUnix clientN) (\_ -> error "FUCK2" >> liftIO exitFailure)
+
+    link notif
 
     sink <- newNotifySink
 
