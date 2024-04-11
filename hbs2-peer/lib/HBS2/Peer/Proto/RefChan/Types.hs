@@ -46,6 +46,9 @@ type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
 type Weight = Integer
 
+data ACLType = ACLUpdate | ACLNotify
+              deriving stock (Eq,Ord,Generic,Data,Show)
+
 data RefChanHeadBlock e =
   RefChanHeadBlockSmall
    { _refChanHeadVersion     :: Integer
@@ -61,6 +64,16 @@ data RefChanHeadBlock e =
    , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
    , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
    , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
+   , _refChanHeadExt         :: ByteString
+  }
+  | RefChanHeadBlock2
+  {  _refChanHeadVersion     :: Integer
+   , _refChanHeadQuorum      :: Integer
+   , _refChanHeadWaitAccept  :: Integer
+   , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+   , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
+   , _refChanHeadNotifiers'  :: HashSet (PubKey 'Sign (Encryption e))
    , _refChanHeadExt         :: ByteString
   }
   deriving stock (Generic)
@@ -126,7 +139,25 @@ refChanHeadReaders = lens g s
   where
     g (RefChanHeadBlockSmall{}) = mempty
     g (RefChanHeadBlock1{..})   = _refChanHeadReaders'
+    g (RefChanHeadBlock2{..})   = _refChanHeadReaders'
     s v@(RefChanHeadBlock1{}) x = v { _refChanHeadReaders' = x }
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadReaders' = x }
+    s x _ = x
+
+
+refChanHeadNotifiers :: ForRefChans e
+                    => Lens (RefChanHeadBlock e)
+                            (RefChanHeadBlock e)
+                            (HashSet (PubKey 'Sign (Encryption e)))
+                            (HashSet (PubKey 'Sign (Encryption e)))
+
+refChanHeadNotifiers = lens g s
+  where
+    g (RefChanHeadBlockSmall{}) = mempty
+    g (RefChanHeadBlock1{})     = mempty
+    g (RefChanHeadBlock2{..})   = _refChanHeadNotifiers'
+
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadNotifiers' = x }
     s x _ = x
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
@@ -197,21 +228,16 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanLogKey s) where
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
 
+  -- NOTE: we-dont-support-old-head-formats-anymore
   fromStringMay str =
-    case readers of
-      [] -> RefChanHeadBlockSmall <$> version
-                                  <*> quorum
-                                  <*> wait
-                                  <*> pure (HashMap.fromList peers)
-                                  <*> pure (HashSet.fromList authors)
-
-      rs -> RefChanHeadBlock1 <$> version
-                              <*> quorum
-                              <*> wait
-                              <*> pure (HashMap.fromList peers)
-                              <*> pure (HashSet.fromList authors)
-                              <*> pure (HashSet.fromList rs)
-                              <*> pure mempty
+    RefChanHeadBlock2 <$> version
+                      <*> quorum
+                      <*> wait
+                      <*> pure (HashMap.fromList peers)
+                      <*> pure (HashSet.fromList authors)
+                      <*> pure (HashSet.fromList readers)
+                      <*> pure (HashSet.fromList notifiers)
+                      <*> pure mempty
 
     where
       parsed = parseTop str & fromRight mempty
@@ -231,6 +257,11 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                           | (ListVal [SymbolVal "reader", LitStrVal s] ) <- parsed
                           ]
 
+
+      notifiers = catMaybes [ fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack s)
+                            | (ListVal [SymbolVal "notifier", LitStrVal s] ) <- parsed
+                            ]
+
 instance (ForRefChans e
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
@@ -241,16 +272,22 @@ instance (ForRefChans e
                <>
                parens ("wait" <+> pretty (view refChanHeadWaitAccept blk)) <> line
                <>
-               vcat (fmap peer (HashMap.toList $ view refChanHeadPeers blk)) <> line
+               lstOf peer   (HashMap.toList $ view refChanHeadPeers blk)
                <>
-               vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
+               lstOf author (HashSet.toList $ view refChanHeadAuthors blk)
                <>
-               vcat (fmap reader (HashSet.toList $ view refChanHeadReaders blk)) <> line
+               lstOf reader (HashSet.toList $ view refChanHeadReaders blk)
+               <>
+               lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
 
     where
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
+      notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
+
+      lstOf f e | null e = mempty
+                | otherwise = vcat (fmap f e) <> line
 
 
 -- блок головы может быть довольно большой.
@@ -335,15 +372,19 @@ getRefChanHead sto k = runMaybeT do
 
 
 checkACL :: forall e s . (Encryption e ~ s, ForRefChans e)
-         => RefChanHeadBlock e
+         => ACLType
+         -> RefChanHeadBlock e
          -> Maybe (PubKey 'Sign s)
          -> PubKey 'Sign s
          -> Bool
 
-checkACL theHead mbPeerKey authorKey = match
+checkACL acl theHead mbPeerKey authorKey = match
   where
     pips = view refChanHeadPeers theHead
     aus  = view refChanHeadAuthors theHead
+    notifiers = view refChanHeadNotifiers theHead
     match = maybe True (`HashMap.member` pips) mbPeerKey
-           && authorKey `HashSet.member` aus
+           && ( authorKey `HashSet.member` aus
+              || acl == ACLNotify && authorKey `HashSet.member` notifiers
+              )
 

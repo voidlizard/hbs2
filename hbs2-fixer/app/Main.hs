@@ -56,6 +56,8 @@ import System.Exit qualified as Exit
 import Data.Cache qualified as Cache
 import Data.Cache (Cache)
 
+import System.Exit
+
 {- HLINT ignore "Functor law" -}
 
 
@@ -158,67 +160,80 @@ withApp cfgPath action = do
   setLogging @WARN  warnPrefix
   setLogging @NOTICE noticePrefix
 
-  soname <- detectRPC
-              `orDie` "can't detect RPC"
+  fix \next -> do
 
-  flip runContT pure do
+    flip runContT pure do
 
-    client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
-                >>= orThrowUser ("can't connect to" <+> pretty soname)
+      soname' <- lift detectRPC
 
-    void $ ContT $ withAsync $ runMessagingUnix client
+      soname <- ContT $ maybe1 soname' (pure ())
 
-    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
-    refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
-    storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
-    lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
+      client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+                  >>= orThrowUser ("can't connect to" <+> pretty soname)
 
-    let endpoints = [ Endpoint @UNIX  peerAPI
-                    , Endpoint @UNIX  refLogAPI
-                    , Endpoint @UNIX  lwwAPI
-                    , Endpoint @UNIX  storageAPI
-                    ]
+      mess <-  ContT $ withAsync $ runMessagingUnix client
 
-    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+      peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+      refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+      storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+      lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
 
-    let o = [MUWatchdog 20, MUDontRetry]
-    clientN <- newMessagingUnixOpts o False 1.0 soname
+      let endpoints = [ Endpoint @UNIX  peerAPI
+                      , Endpoint @UNIX  refLogAPI
+                      , Endpoint @UNIX  lwwAPI
+                      , Endpoint @UNIX  storageAPI
+                      ]
 
-    void $ ContT $ withAsync $ runMessagingUnix clientN
+      mn <- ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-    sink <- newNotifySink
+      let o = [MUWatchdog 20,MUDontRetry]
+      clientN <- newMessagingUnixOpts o False 1.0 soname
 
-    void $ ContT $ withAsync $ flip runReaderT clientN $ do
-              debug $ red "notify restarted!"
-              runNotifyWorkerClient sink
+      notif <- ContT $ withAsync (runMessagingUnix clientN)
 
-    void  $ ContT $ withAsync $ flip runReaderT clientN $ do
-        runProto @UNIX
-          [ makeResponse (makeNotifyClient @(RefLogEvents L4Proto) sink)
-          ]
 
-    env <- FixerEnv Nothing
-                    lwwAPI
-                    refLogAPI
-                    sink
-                    peerAPI
-                    (AnyStorage (StorageClient storageAPI))
-             <$> newTVarIO mempty
-             <*> newTVarIO 30
-             <*> newTVarIO mempty
-             <*> newTVarIO mempty
-             <*> newTVarIO mempty
-             <*> newTVarIO 0
-             <*> newTVarIO mempty
-             <*> newTQueueIO
+      sink <- newNotifySink
 
-    lift $ runReaderT (runFixerM $ withConfig cfgPath action) env
-      `finally` do
-         setLoggingOff @DEBUG
-         setLoggingOff @INFO
-         setLoggingOff @ERROR
-         setLoggingOff @WARN
-         setLoggingOff @NOTICE
+      void $ ContT $ withAsync $ flip runReaderT clientN $ do
+                debug $ red "notify restarted!"
+                runNotifyWorkerClient sink
+
+      p1 <- ContT $ withAsync $ flip runReaderT clientN $ do
+          runProto @UNIX
+            [ makeResponse (makeNotifyClient @(RefLogEvents L4Proto) sink)
+            ]
+
+      env <- FixerEnv Nothing
+                      lwwAPI
+                      refLogAPI
+                      sink
+                      peerAPI
+                      (AnyStorage (StorageClient storageAPI))
+               <$> newTVarIO mempty
+               <*> newTVarIO 30
+               <*> newTVarIO mempty
+               <*> newTVarIO mempty
+               <*> newTVarIO mempty
+               <*> newTVarIO 0
+               <*> newTVarIO mempty
+               <*> newTQueueIO
+
+      void $ ContT $ bracket (pure ()) $ \_ -> do
+               readTVarIO (_listeners env) <&> HM.elems >>= mapM_ cancel
+
+      p3 <- ContT $ withAsync $ runReaderT (runFixerM $ withConfig cfgPath action) env
+
+      void $ waitAnyCatchCancel [mess,mn,notif,p1,p3]
+
+    debug $ red "respawning..."
+    pause @'Seconds 5
+    next
+
+  setLoggingOff @DEBUG
+  setLoggingOff @INFO
+  setLoggingOff @ERROR
+  setLoggingOff @WARN
+  setLoggingOff @NOTICE
 
   where
     errorPrefix  = toStdout . logPrefix "[error] "
@@ -232,16 +247,18 @@ data ConfWatch =
   | ConfUpdate [Syntax C]
 
 mainLoop :: FixerM IO ()
-mainLoop = forever $ do
+mainLoop = do
   debug "hbs2-fixer. do stuff since 2024"
   conf <- getConf
   -- debug $ line <> vcat (fmap pretty conf)
 
   flip runContT pure do
 
+    debug $ red "Reloading..."
+
     lift $ updateFromConfig conf
 
-    void $ ContT $ withAsync $ do
+    p1 <- ContT $ withAsync $ do
             cfg <- asks _configFile `orDie` "config file not specified"
 
             flip fix ConfRead $ \next -> \case
@@ -271,7 +288,7 @@ mainLoop = forever $ do
                 next  ConfRead
 
     -- poll reflogs
-    void $ ContT $ withAsync do
+    p2 <- ContT $ withAsync do
 
       let w = asks _watchers
                >>= readTVarIO
@@ -292,15 +309,20 @@ mainLoop = forever $ do
 
       pure ()
 
-
     jobs <- asks _pipeline
-    void $ ContT $ withAsync $ forever do
-      liftIO $ E.try @SomeException (join $ atomically $ readTQueue jobs)
-        >>= \case
-          Left e -> err (viaShow e)
-          _ -> pure ()
+    p3 <-  ContT $ withAsync $ fix \next -> do
+      r <- liftIO $ E.try @SomeException (join $ atomically $ readTQueue jobs)
+      case r of
+        Left e -> do
+          err (viaShow e)
+          let ee = fromException @AsyncCancelled e
 
-    forever $ pause @'Seconds 60
+          unless (isJust ee) do
+            next
+
+        _ -> next
+
+    void $ waitAnyCatchCancel [p1,p2,p3]
 
 oneSec :: MonadUnliftIO m => m b -> m (Either () b)
 oneSec = race (pause @'Seconds 1)

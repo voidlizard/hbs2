@@ -295,7 +295,7 @@ refChanUpdateProto self pc adapter msg = do
 
         let pips = view refChanHeadPeers headBlock
 
-        guard $ checkACL headBlock (Just peerKey) authorKey
+        guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
@@ -453,7 +453,7 @@ refChanUpdateProto self pc adapter msg = do
              (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
 
              -- может, и не надо второй раз проверять
-             guard $ checkACL headBlock (Just peerKey) authorKey
+             guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
              debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 

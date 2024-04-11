@@ -18,6 +18,9 @@ inputs = {
     db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
 
+    lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
+    lsm.inputs.nixpkgs.follows = "nixpkgs";
+
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
       flake = false;

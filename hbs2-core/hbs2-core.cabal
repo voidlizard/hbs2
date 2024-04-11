@@ -105,6 +105,7 @@ library
                     , HBS2.Net.Messaging.UDP
                     , HBS2.Net.Messaging.TCP
                     , HBS2.Net.Messaging.Unix
+                    , HBS2.Net.Messaging.Pipe
                     , HBS2.Net.Messaging.Stream
                     , HBS2.Net.Messaging.Encrypted.RandomPrefix
                     , HBS2.Net.Messaging.Encrypted.ByPass
@@ -196,6 +197,7 @@ library
                     , time
                     , transformers
                     , uniplate
+                    , unix
                     , unordered-containers
                     , unliftio
                     , unliftio-core

@@ -10,6 +10,10 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Codec.Serialise
 import Lens.Micro.Platform
+import Control.Monad.Trans.Cont
+
+import Control.Monad
+import UnliftIO
 
 -- желаемое поведение: добавить в новую версию A какое-нибудь поле так,
 -- что бы предыдущие записи продолжали десериализоваться без этого поля,
@@ -63,6 +67,29 @@ test :: W -> String
 test w = case w of
   B val -> "Match B with value " ++ show val
   A     -> "Match A"
+
+
+runWithAsync :: IO ()
+runWithAsync = do
+
+  hSetBuffering stdout LineBuffering
+
+  flip runContT pure do
+
+    t1 <- ContT $ withAsync do
+            forever do
+              print "PIU"
+              pause @'Seconds 1
+
+    q <- ContT $ withAsync do
+               pause @'Seconds 10
+               print "FUCKIG QUIT"
+
+    pysh <- ContT $ withAsync $ forever do
+               pause @'Seconds 2
+               print "PYSHPYSH"
+
+    void $ waitAnyCatchCancel [t1,q,pysh]
 
 
 main :: IO ()
