@@ -995,3 +995,41 @@ executable test-pipe-mess
 
 
 
+executable test-merge-limits
+    import:           shared-properties
+    default-language: Haskell2010
+
+    -- other-extensions:
+
+    hs-source-dirs:   test
+    main-is:          TestMergeLimits.hs
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple
+        , async
+        , bytestring
+        , cache
+        , containers
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , quickcheck-instances
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-quickcheck
+        , tasty-hunit
+        , tasty-quickcheck
+        , transformers
+        , uniplate
+        , vector
+        , filepath
+        , temporary
+        , unliftio
+        , unordered-containers
+        , unix
+        , timeit

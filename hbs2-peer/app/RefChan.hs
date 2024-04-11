@@ -656,8 +656,8 @@ refChanWorker env brains = do
 
         let byChan = HashMap.fromListWith (<>) [ (x, [y]) | (x,y) <- catMaybes trans ]
 
-        -- FIXME: process-in-parallel
-        forM_ (HashMap.toList byChan) $ \(c,new) -> do
+        -- FIXME: thread-num-hardcode-to-remove
+        pooledForConcurrentlyN_ 4 (HashMap.toList byChan) $ \(c,new) -> do
           mbLog <- liftIO $ getRef sto c
 
           hashes <- maybe1 mbLog (pure mempty) $ readLog (getBlock sto) . HashRef
