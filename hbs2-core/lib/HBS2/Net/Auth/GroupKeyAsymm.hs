@@ -8,7 +8,6 @@ import HBS2.Base58
 import HBS2.Data.Types
 import HBS2.Data.Types.EncryptedBox
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 
 import Codec.Serialise
@@ -21,20 +20,18 @@ import Data.ByteString.Char8 (ByteString)
 import Data.List.Split (chunksOf)
 
 
-type ForAccessKey s = ( Crypto.IsEncoding (PubKey 'Encrypt s)
-                      , Serialise (PubKey 'Encrypt s)
-                      , Serialise (PubKey 'Sign s)
-                      , Serialise (PrivKey 'Sign s)
-                      , Serialise (PrivKey 'Encrypt s)
-                      )
+type ForAccessKey (s :: CryptoScheme)  = ( Crypto.IsEncoding (PubKey 'Encrypt s)
+                                         , Serialise (PubKey 'Encrypt s)
+                                         , Serialise (PubKey 'Sign s)
+                                         , Serialise (PrivKey 'Sign s)
+                                         , Serialise (PrivKey 'Encrypt s)
+                                         )
 
 
 
----
+data family AccessKey ( s :: CryptoScheme )
 
-data family AccessKey s
-
-newtype instance AccessKey s =
+newtype instance AccessKey (s :: CryptoScheme) =
   AccessKeyNaClAsymm
   { permitted :: [(PubKey 'Encrypt s, EncryptedBox (KeyringEntry s))]
   }

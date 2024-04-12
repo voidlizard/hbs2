@@ -69,7 +69,7 @@ instance Exception TxKeyringNotFound
 
 class GroupKeyOperations m where
   openGroupKey :: GK0 -> m (Maybe GroupSecret)
-  loadKeyrings :: HashRef -> m [KeyringEntry HBS2Basic]
+  loadKeyrings :: HashRef -> m [KeyringEntry 'HBS2Basic]
 
 makeRepoHeadSimple :: MonadIO m
                    => Text
@@ -85,7 +85,7 @@ makeRepoHeadSimple name brief manifest gk refs = do
 writeRepoHead :: MonadUnliftIO  m => AnyStorage -> RepoHead -> m HashRef
 writeRepoHead sto rh = writeAsMerkle sto (serialise rh) <&> HashRef
 
-makeTx :: forall s m . (MonadUnliftIO m, GroupKeyOperations m, s ~ HBS2Basic)
+makeTx :: forall s m . (MonadUnliftIO m, GroupKeyOperations m, s ~ 'HBS2Basic)
        => AnyStorage
        -> Bool   -- ^ rewrite bundle merkle tree with new gk0
        -> Rank   -- ^ tx rank
@@ -98,7 +98,7 @@ makeTx :: forall s m . (MonadUnliftIO m, GroupKeyOperations m, s ~ HBS2Basic)
 
 makeTx sto rewrite r puk findSk rh prev lbss = do
 
-  let rfk = RefLogKey @HBS2Basic puk
+  let rfk = RefLogKey @'HBS2Basic puk
 
   privk <- findSk puk
              >>= orThrow TxKeyringNotFound
@@ -140,7 +140,7 @@ makeTx sto rewrite r puk findSk rh prev lbss = do
 
             debug $ "update GK0 for existed block" <+> pretty bh
             let rcpt = HM.keys (recipients (wbeGk0 writeEnv))
-            gk1 <- generateGroupKey @HBS2Basic (Just gks) rcpt
+            gk1 <- generateGroupKey @'HBS2Basic (Just gks) rcpt
 
             gk1h <- writeAsMerkle sto (serialise gk1)
 
@@ -166,7 +166,7 @@ makeTx sto rewrite r puk findSk rh prev lbss = do
             & serialise
             & LBS.toStrict
 
-  makeRefLogUpdate @L4Proto @HBS2Basic puk privk tx
+  makeRefLogUpdate @L4Proto @'HBS2Basic puk privk tx
 
 
 unpackTx :: MonadIO m

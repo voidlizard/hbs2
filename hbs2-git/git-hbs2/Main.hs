@@ -47,7 +47,7 @@ pRefLogId :: ReadM RefLogId
 pRefLogId = maybeReader (fromStringMay @RefLogId)
 
 
-pLwwKey :: ReadM (LWWRefKey HBS2Basic)
+pLwwKey :: ReadM (LWWRefKey 'HBS2Basic)
 pLwwKey = maybeReader fromStringMay
 
 pHashRef :: ReadM HashRef

@@ -43,7 +43,7 @@ findFilesBy fp = liftIO do
 
 findKeyRing :: forall s m . ( MonadUnliftIO m
                             , SerialisedCredentials s
-                            , ForHBS2Basic s
+                            , For'HBS2Basic s
                             )
             => [FilePattern]
             -> PubKey 'Sign s
@@ -68,7 +68,7 @@ findKeyRing fp kr = do
 findKeyRingEntries :: forall s m . ( MonadUnliftIO m
                                    , SerialisedCredentials s
                                    , Hashable (PubKey 'Encrypt s)
-                                   -- , ForHBS2Basic s
+                                   -- , For'HBS2Basic s
                                    )
                  => [FilePattern]
                  -> [PubKey 'Encrypt s]

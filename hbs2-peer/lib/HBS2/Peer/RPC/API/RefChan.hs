@@ -43,22 +43,22 @@ instance HasProtocol UNIX  (ServiceProto RefChanAPI UNIX) where
   encode = serialise
 
 
-type instance Input RpcRefChanHeadGet = PubKey 'Sign HBS2Basic
+type instance Input RpcRefChanHeadGet = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefChanHeadGet = Maybe HashRef
 
-type instance Input RpcRefChanHeadFetch = PubKey 'Sign HBS2Basic
+type instance Input RpcRefChanHeadFetch = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefChanHeadFetch = ()
 
-type instance Input RpcRefChanFetch = PubKey 'Sign HBS2Basic
+type instance Input RpcRefChanFetch = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefChanFetch = ()
 
-type instance Input RpcRefChanGet = PubKey 'Sign HBS2Basic
+type instance Input RpcRefChanGet = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefChanGet = Maybe HashRef
 
-type instance Input RpcRefChanPropose = (PubKey 'Sign HBS2Basic, SignedBox BS.ByteString L4Proto)
+type instance Input RpcRefChanPropose = (PubKey 'Sign 'HBS2Basic, SignedBox BS.ByteString 'HBS2Basic)
 type instance Output RpcRefChanPropose = ()
 
-type instance Input RpcRefChanNotify = (PubKey 'Sign HBS2Basic, SignedBox BS.ByteString L4Proto)
+type instance Input RpcRefChanNotify = (PubKey 'Sign 'HBS2Basic, SignedBox BS.ByteString 'HBS2Basic)
 type instance Output RpcRefChanNotify = ()
 
 type instance Input RpcRefChanHeadPost = HashRef

@@ -48,7 +48,7 @@ main = do
             <> header "Raw tx test"
         )
   krData <- BS.readFile $ credentialsFile options
-  creds <- pure (parseCredentials @HBS2Basic (AsCredFile krData)) `orDie` "bad keyring file"
+  creds <- pure (parseCredentials @'HBS2Basic (AsCredFile krData)) `orDie` "bad keyring file"
   let pubk = view peerSignPk creds
   let privk = view peerSignSk creds
   bs <- pure (fromBase58 $ BS8.pack $ tx options) `orDie` "transaction is not in Base58 format"

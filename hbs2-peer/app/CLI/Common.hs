@@ -61,5 +61,5 @@ pRpcCommon = do
   RPCOpt <$> optional confOpt
          <*> optional rpcOpt
 
-pPubKey :: ReadM (PubKey 'Sign HBS2Basic)
+pPubKey :: ReadM (PubKey 'Sign 'HBS2Basic)
 pPubKey = maybeReader fromStringMay

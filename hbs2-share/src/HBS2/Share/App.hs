@@ -169,8 +169,8 @@ makeGK0Key rpc = runMaybeT do
 
 getGK0 :: forall e s m . ( AppPerks m
                          , HasProtocol e (ServiceProto StorageAPI e)
-                         , ForGroupKeySymm HBS2Basic
-                         , s ~ HBS2Basic
+                         , ForGroupKeySymm 'HBS2Basic
+                         , s ~ 'HBS2Basic
                          )
        => RpcEndpoints e
        -> ShareCLI m (GK0 s)
@@ -273,10 +273,9 @@ withRpcClientUnix action = do
   pure r
 
 
-loadSigil :: forall e s m . ( s ~ Encryption e
-                            , ForSigil e
-                            , AppPerks m
-                            ) => ShareCLI m (PubKey 'Sign s, SigilData e)
+loadSigil :: forall  s m . ( ForSigil s
+                           , AppPerks m
+                           ) => ShareCLI m (PubKey 'Sign s, SigilData s)
 loadSigil = do
 
   dir <- getLocalConfigDir
@@ -293,10 +292,10 @@ loadSigil = do
 
   trace $ "SIGIL PATH" <+> pretty path
 
-  sigil <- liftIO $ (BS.readFile path <&> parseSerialisableFromBase58 @(Sigil e))
+  sigil <- liftIO $ (BS.readFile path <&> parseSerialisableFromBase58 @(Sigil s))
              >>= orThrowUser ("invalid sigil format" <+> pretty path)
 
-  w@(_,sd) <- orThrowUser "malformed sigil" (unboxSignedBox0 @(SigilData e) (sigilData sigil))
+  w@(_,sd) <- orThrowUser "malformed sigil" (unboxSignedBox0 @(SigilData s) (sigilData sigil))
 
   pure w
 
@@ -304,7 +303,7 @@ loadAllEncryptionStuff :: AppPerks m => ShareCLI m ()
 loadAllEncryptionStuff = do
 
   -- 1. загружаем sigil
-  (pk, sd) <- loadSigil @L4Proto
+  (pk, sd) <- loadSigil @'HBS2Basic
 
   trace $ "sigil loaded" <+> pretty (AsBase58 pk)
 
@@ -640,7 +639,7 @@ updateLocalState = do
 postState :: forall e s m . ( AppPerks m
                             , HasProtocol e (ServiceProto RefChanAPI e)
                             , HasProtocol e (ServiceProto StorageAPI e)
-                            , s ~ HBS2Basic
+                            , s ~ 'HBS2Basic
                             )
 
           => RpcEndpoints e
@@ -755,7 +754,7 @@ postState rpc px = do
       let ssk = view (creds . peerSignSk) encStuff
       let spk = view (creds . peerSignPk) encStuff
 
-      let box = makeSignedBox @L4Proto @BS.ByteString spk ssk (LBS.toStrict $ serialise tx)
+      let box = makeSignedBox spk ssk (LBS.toStrict $ serialise tx)
 
       dont <- lift dontPost
 
@@ -765,7 +764,7 @@ postState rpc px = do
         pure ()
 
   where
-    -- genTreeOverride :: AnyStorage -> EncryptionStuff -> GK0 HBS2Basic -> HashRef -> m ()
+    -- genTreeOverride :: AnyStorage -> EncryptionStuff -> GK0 'HBS2Basic -> HashRef -> m ()
     genTreeOverride sto enc gk0 tree = do
       let (KeyringKeys pk sk) = view kre enc
       runMaybeT do
@@ -819,7 +818,7 @@ runSync = do
       updateLocalState
       postState rpc px
 
-writeEncryptedFile :: forall m s nonce . (MonadIO m, Serialise nonce, s ~ HBS2Basic)
+writeEncryptedFile :: forall m s nonce . (MonadIO m, Serialise nonce, s ~ 'HBS2Basic)
                    => GroupSecret
                    -> GroupKey 'Symm s
                    -> AnyStorage

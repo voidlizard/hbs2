@@ -54,8 +54,8 @@ data RpcEndpoints e =
 
 data EncryptionStuff =
   EncryptionStuff
-  { _creds :: PeerCredentials HBS2Basic
-  , _kre   :: KeyringEntry HBS2Basic
+  { _creds :: PeerCredentials 'HBS2Basic
+  , _kre   :: KeyringEntry 'HBS2Basic
   }
 
 makeLenses ''EncryptionStuff

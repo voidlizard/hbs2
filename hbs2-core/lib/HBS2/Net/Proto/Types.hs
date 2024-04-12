@@ -9,7 +9,6 @@ module HBS2.Net.Proto.Types
   ) where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
 import HBS2.Net.IP.Addr
 
 import Control.Applicative
@@ -37,14 +36,19 @@ data CryptoAction = Sign | Encrypt
 data GroupKeyScheme = Symm | Asymm
   deriving stock (Eq,Ord,Show,Data,Generic)
 
-type family PubKey  (a :: CryptoAction) e  :: Type
-type family PrivKey (a :: CryptoAction) e  :: Type
+data CryptoScheme = HBS2Basic
 
-type family Encryption e :: Type
+type family PubKey  (a :: CryptoAction) (s :: CryptoScheme) :: Type
+
+type family PrivKey (a :: CryptoAction) (s :: CryptoScheme) :: Type
+
+type family Encryption e :: CryptoScheme
+
+type instance Encryption L4Proto = 'HBS2Basic
 
 type family KeyActionOf k :: CryptoAction
 
-data family GroupKey (scheme :: GroupKeyScheme) s
+data family GroupKey (scheme :: GroupKeyScheme) (s :: CryptoScheme)
 
 -- NOTE: throws-error
 class  MonadIO m => HasDerivedKey s (a :: CryptoAction) nonce m where
@@ -53,9 +57,9 @@ class  MonadIO m => HasDerivedKey s (a :: CryptoAction) nonce m where
 -- TODO: move-to-an-appropriate-place
 newtype AsGroupKeyFile a = AsGroupKeyFile a
 
-data family ToEncrypt (scheme :: GroupKeyScheme) s a -- = ToEncrypt a
+data family ToEncrypt (scheme :: GroupKeyScheme) (s :: CryptoScheme) a -- = ToEncrypt a
 
-data family ToDecrypt (scheme :: GroupKeyScheme) s a
+data family ToDecrypt (scheme :: GroupKeyScheme) (s :: CryptoScheme) a
 
 -- FIXME: move-to-a-crypto-definition-modules
 
@@ -167,7 +171,6 @@ instance HasPeer L4Proto where
     , _sockAddr :: SockAddr
     }
     deriving stock (Eq,Ord,Show,Generic)
-
 
 instance AddrPriority (Peer L4Proto) where
   addrPriority (PeerL4 _ sa) = addrPriority sa

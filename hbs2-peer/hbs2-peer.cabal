@@ -30,6 +30,7 @@ common common-deps
         , dns
         , filepath
         , generic-lens
+        , generic-data
         , hashable
         , microlens-platform
         , mtl

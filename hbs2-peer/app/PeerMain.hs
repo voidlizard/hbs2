@@ -284,7 +284,7 @@ runCLI = do
     pVersion = pure do
         LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
-    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
 
     pRun = do
       runPeer <$> common
@@ -586,7 +586,7 @@ runCLI = do
           void $ runMaybeT do
            void $ callService @RpcPerformGC caller ()
 
-    refP :: ReadM (PubKey 'Sign HBS2Basic)
+    refP :: ReadM (PubKey 'Sign 'HBS2Basic)
     refP = maybeReader fromStringMay
 
     hashP :: ReadM HashRef
@@ -1124,7 +1124,7 @@ runPeer opts = Exception.handle (\e -> myException e
                 blk1 <- liftIO $ getBlock sto ha
                 maybe1 blk1 none S.yield
 
-          let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) e) (LBS.concat chunks)
+          let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) s) (LBS.concat chunks)
 
           case box of
             -- FIXME: proper-error-handling

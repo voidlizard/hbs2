@@ -30,7 +30,7 @@ instance Pretty (AsBase58 a) => ToField (Base58Field a) where
 instance IsString a => FromField (Base58Field a) where
   fromField = fmap (Base58Field . fromString) . fromField @String
 
-instance FromField (RefLogKey HBS2Basic) where
+instance FromField (RefLogKey 'HBS2Basic) where
   fromField = fmap fromString . fromField @String
 
 instance ToField HashRef where
@@ -51,7 +51,7 @@ instance FromField GitRef where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
-instance FromField (LWWRefKey HBS2Basic) where
+instance FromField (LWWRefKey 'HBS2Basic) where
   fromField = fmap fromString . fromField @String
 
 createStateDir :: (GitPerks m, MonadReader GitEnv m)  => m ()
@@ -367,16 +367,16 @@ limit 1
   |] (Only (Base58Field reflog)) <&> listToMaybe
 
 
-insertLww :: MonadIO m => LWWRefKey HBS2Basic -> Word64 -> RefLogId -> DBPipeM m ()
+insertLww :: MonadIO m => LWWRefKey 'HBS2Basic -> Word64 -> RefLogId -> DBPipeM m ()
 insertLww lww snum reflog = do
   insert [qc|
 INSERT INTO lww (hash, seq, reflog) VALUES (?, ?, ?)
 ON CONFLICT (hash,seq,reflog) DO NOTHING
   |] (Base58Field lww, snum, Base58Field reflog)
 
-selectAllLww :: MonadIO m => DBPipeM m [(LWWRefKey HBS2Basic, Word64, RefLogId)]
+selectAllLww :: MonadIO m => DBPipeM m [(LWWRefKey 'HBS2Basic, Word64, RefLogId)]
 selectAllLww = do
   select_  [qc|
 SELECT hash, seq, reflog FROM lww
-  |] <&> fmap (over _3 (fromRefLogKey @HBS2Basic))
+  |] <&> fmap (over _3 (fromRefLogKey @'HBS2Basic))
 

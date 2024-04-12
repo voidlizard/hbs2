@@ -110,7 +110,7 @@ newtype OptGroupkeyFile = OptGroupkeyFile { unOptGroupkeyFile :: FilePath }
                        deriving newtype (Eq,Ord,IsString)
                        deriving stock (Data)
 
-newtype OptEncPubKey = OptEncPubKey { unOptEncPk :: PubKey 'Encrypt HBS2Basic  }
+newtype OptEncPubKey = OptEncPubKey { unOptEncPk :: PubKey 'Encrypt 'HBS2Basic  }
                        deriving newtype (Eq,Ord)
                        deriving stock (Data)
 
@@ -151,8 +151,8 @@ newtype NewRefOpts =
   deriving stock (Data)
 
 
-data EncSchema  = EncSymm   (GroupKey 'Symm HBS2Basic)
-                | EncAsymm  (GroupKey 'Asymm HBS2Basic)
+data EncSchema  = EncSymm   (GroupKey 'Symm 'HBS2Basic)
+                | EncAsymm  (GroupKey 'Asymm 'HBS2Basic)
 
 
 hPrint :: (MonadIO m, Show a) => Handle -> a -> m ()
@@ -183,7 +183,7 @@ runHash opts _ = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
-runCat :: forall s . ForHBS2Basic s => CatOpts -> SimpleStorage HbSync -> IO ()
+runCat :: forall s . For'HBS2Basic s => CatOpts -> SimpleStorage HbSync -> IO ()
 
 runCat opts ss | catRaw opts == Just True = do
 
@@ -242,7 +242,7 @@ runCat opts ss = do
           keyring <- case uniLastMay @OptKeyringFile opts of
                        Just krf -> do
                         s <- BS.readFile (unOptKeyringFile krf)
-                        cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
+                        cred <- pure (parseCredentials @'HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
                         pure $ view peerKeyring cred
 
                        Nothing -> fromMaybe mempty <$> runMaybeT do
@@ -319,7 +319,7 @@ runStore opts ss = runResourceT do
 
     Just gkfile -> do
 
-      gkSymm  <- liftIO $ Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile <$> LBS.readFile (unOptGroupkeyFile gkfile)
+      gkSymm  <- liftIO $ Symm.parseGroupKey @'HBS2Basic . AsGroupKeyFile <$> LBS.readFile (unOptGroupkeyFile gkfile)
 
       let mbGk = EncSymm <$> gkSymm
 
@@ -331,7 +331,7 @@ runStore opts ss = runResourceT do
           krf <- pure (uniLastMay @OptKeyringFile opts) `orDie` "keyring file not set"
 
           s <- liftIO $ BS.readFile (unOptKeyringFile krf)
-          cred <- pure (parseCredentials @HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
+          cred <- pure (parseCredentials @'HBS2Basic (AsCredFile s)) `orDie` "bad keyring file"
 
           sk <- pure (headMay [ (view krPk k, view krSk k)
                               |  k <- view peerKeyring cred
@@ -380,7 +380,7 @@ runStore opts ss = runResourceT do
 
           hPrint stdout $ "merkle-ann-root: " <+> pretty mannh
 
-runNewGroupKeyAsymm :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
+runNewGroupKeyAsymm :: forall s . (s ~ 'HBS2Basic) => FilePath -> IO ()
 runNewGroupKeyAsymm pubkeysFile = do
   s <- BS.readFile pubkeysFile
   pubkeys <- pure (parsePubKeys @s s) `orDie` "bad pubkeys file"
@@ -389,20 +389,20 @@ runNewGroupKeyAsymm pubkeysFile = do
       List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
   print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
 
-runNewKey :: forall s . (s ~ HBS2Basic) => Int -> IO ()
+runNewKey :: forall s . (s ~ 'HBS2Basic) => Int -> IO ()
 runNewKey n = do
   cred0 <- newCredentials @s
   cred <- foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
   print $ pretty $ AsCredFile $ AsBase58 cred
 
-runListKeys :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
+runListKeys :: forall s . (s ~ 'HBS2Basic) => FilePath -> IO ()
 runListKeys fp = do
   s <- BS.readFile fp
   cred <- pure (parseCredentials @s (AsCredFile s)) `orDie` "bad keyring file"
   print $ pretty (ListKeyringKeys cred)
 
 
-runKeyAdd :: forall s . (s ~ HBS2Basic) => FilePath -> IO ()
+runKeyAdd :: forall s . (s ~ 'HBS2Basic) => FilePath -> IO ()
 runKeyAdd fp = do
   hPrint stderr $ "adding a key into keyring" <+> pretty fp
   s <- BS.readFile fp
@@ -410,7 +410,7 @@ runKeyAdd fp = do
   credNew <- addKeyPair Nothing cred
   print $ pretty $ AsCredFile $ AsBase58 credNew
 
-runKeyDel :: forall s . (s ~ HBS2Basic) => String -> FilePath -> IO ()
+runKeyDel :: forall s . (s ~ 'HBS2Basic) => String -> FilePath -> IO ()
 runKeyDel n fp = do
   hPrint stderr $ "removing key" <+> pretty n <+> "from keyring" <+> pretty fp
   s <- BS.readFile fp
@@ -419,7 +419,7 @@ runKeyDel n fp = do
   print $ pretty $ AsCredFile $ AsBase58 credNew
 
 
-runShowPeerKey :: forall s . ( s ~ HBS2Basic) => Maybe FilePath -> IO ()
+runShowPeerKey :: forall s . ( s ~ 'HBS2Basic) => Maybe FilePath -> IO ()
 runShowPeerKey fp = do
   handle <- maybe (pure stdin) (`openFile` ReadMode) fp
   bs <- LBS.hGet handle 4096 <&> LBS.toStrict
@@ -541,7 +541,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     epk  :: ReadM OptEncPubKey
     epk = eitherReader $ \arg -> do
-      let mpk = fromStringMay @(PubKey 'Encrypt HBS2Basic) arg
+      let mpk = fromStringMay @(PubKey 'Encrypt 'HBS2Basic) arg
       maybe1 mpk (Left "invalid public key") (pure . OptEncPubKey)
 
     pCat = do
@@ -641,24 +641,24 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ do
         members <- for fns $ \fn -> do
 
-          sigil <- (BS.readFile fn <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+          sigil <- (BS.readFile fn <&> parseSerialisableFromBase58 @(Sigil 'HBS2Basic))
                       `orDie` "parse sigil failed"
-          (_,sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+          (_,sd) <- pure (unboxSignedBox0 @(SigilData 'HBS2Basic) (sigilData sigil))
                     `orDie` ("signature check failed "  <> fn)
 
           pure (sigilDataEncKey sd)
 
-        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
+        gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
         print $ pretty (AsGroupKeyFile gk)
 
     pGroupKeyFromKeys = do
       pure $ do
         input <- getContents <&> words
         members <- for input $ \s -> do
-                     fromStringMay @(PubKey 'Encrypt HBS2Basic) s
+                     fromStringMay @(PubKey 'Encrypt 'HBS2Basic) s
                        & maybe (die "invalid public key") pure
 
-        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
+        gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
         print $ pretty (AsGroupKeyFile gk)
 
 
@@ -667,18 +667,18 @@ main = join . customExecParser (prefs showHelpOnError) $
       pure $ do
         syn <- maybe1 fn getContents readFile <&> parseTop <&> fromRight mempty
 
-        let members = [ fromStringMay @(PubKey 'Encrypt HBS2Basic) (Text.unpack s)
+        let members = [ fromStringMay @(PubKey 'Encrypt 'HBS2Basic) (Text.unpack s)
                       | (ListVal (Key "member" [LitStrVal s]) ) <- syn
                       ] & catMaybes
 
-        gk <- Symm.generateGroupKey @HBS2Basic Nothing members
+        gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
         print $ pretty (AsGroupKeyFile gk)
 
     pGroupKeySymmDump = do
       fn <- optional $ strArgument ( metavar "FILE" <> help "group key file" )
       pure $ do
         gk <- ( maybe1 fn LBS.getContents LBS.readFile
-                <&> Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
+                <&> Symm.parseGroupKey @'HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
 
         print $ pretty gk
 
@@ -695,7 +695,7 @@ main = join . customExecParser (prefs showHelpOnError) $
         creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
 
         gk <- ( LBS.readFile fn
-                <&> Symm.parseGroupKey @HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
+                <&> Symm.parseGroupKey @'HBS2Basic . AsGroupKeyFile ) `orDie` "Invalid group key file"
 
         let keys = [ (view krPk x, view krSk x) | x <- view peerKeyring creds ]
 
@@ -706,13 +706,13 @@ main = join . customExecParser (prefs showHelpOnError) $
         syn <- readFile dsl <&> parseTop <&> fromRight mempty
 
         -- FIXME: fix-code-dup-members
-        let members = [ fromStringMay @(PubKey 'Encrypt HBS2Basic) (Text.unpack s)
+        let members = [ fromStringMay @(PubKey 'Encrypt 'HBS2Basic) (Text.unpack s)
                       | (ListVal (Key "member" [LitStrVal s]) ) <- syn
                       ] & catMaybes
 
         debug $ vcat (fmap (pretty.AsBase58) members)
 
-        gkNew <- Symm.generateGroupKey @HBS2Basic (Just gsec) members
+        gkNew <- Symm.generateGroupKey @'HBS2Basic (Just gsec) members
         print $ pretty (AsGroupKeyFile gkNew)
 
     pHash = do
@@ -758,7 +758,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     pRefLogGet = do
       o <- common
       reflogs <- strArgument ( metavar "REFLOG" )
-      pure $ withStore o (runRefLogGet @HBS2Basic reflogs)
+      pure $ withStore o (runRefLogGet @'HBS2Basic reflogs)
 
 
     pAnyRef = hsubparser (  command "get" (info pAnyRefGet (progDesc "get anyref value") )
@@ -768,7 +768,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     pAnyRefGet = do
       o <- common
       anyref <- strArgument ( metavar "ANYREF" )
-      pure $ withStore o (runAnyRefGet @HBS2Basic anyref)
+      pure $ withStore o (runAnyRefGet @'HBS2Basic anyref)
 
     pAnyRefSet = do
       o <- common
@@ -776,7 +776,7 @@ main = join . customExecParser (prefs showHelpOnError) $
       val    <- strArgument ( metavar "HASHREF" )
       pure $ do
         hr <- pure (fromStringMay val) `orDie` "bad HASHREF"
-        withStore o (runAnyRefSet @HBS2Basic anyref hr)
+        withStore o (runAnyRefSet @'HBS2Basic anyref hr)
 
     pFsck = do
       o <- common
@@ -871,7 +871,7 @@ main = join . customExecParser (prefs showHelpOnError) $
 
         ref <- pure (fromStringMay hash) `orDie` "invalid HASHREF"
 
-        let refval = makeBundleRefValue @L4Proto pk sk (BundleRefSimple ref)
+        let refval = makeBundleRefValue @'HBS2Basic pk sk (BundleRefSimple ref)
 
         mh <- putBlock sto (serialise refval)
 
@@ -927,9 +927,9 @@ main = join . customExecParser (prefs showHelpOnError) $
       fn <- optional $ strArgument ( metavar "SIGIL-FILE" )
       pure $ do
         handle <- maybe1 fn (pure stdin) (flip openFile ReadMode)
-        sigil <- (BS.hGetContents handle <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+        sigil <- (BS.hGetContents handle <&> parseSerialisableFromBase58 @(Sigil 'HBS2Basic))
                     `orDie` "parse sigil failed"
-        (_,sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+        (_,sd) <- pure (unboxSignedBox0 @(SigilData 'HBS2Basic) (sigilData sigil))
                   `orDie` "signature check failed"
         print $ parens ("sigil" <> line <> indent 2 (vcat $ [pretty sigil, pretty sd]))
 
@@ -941,8 +941,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       pk <- argument ppk (metavar "PUBKEY")
       pure $ do
         sc <- BS.readFile krf
-        creds <- pure (parseCredentials @(Encryption L4Proto) (AsCredFile sc)) `orDie` "bad keyring file"
-        sigil <- pure (makeSigilFromCredentials @L4Proto creds pk txt href)
+        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
+        sigil <- pure (makeSigilFromCredentials @'HBS2Basic creds pk txt href)
                   `orDie` "public key not found in credentials file"
         print $ pretty (AsBase58 sigil)
 
@@ -950,7 +950,7 @@ main = join . customExecParser (prefs showHelpOnError) $
     phref = maybeReader fromStringMay
 
 
-    pPubKey = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+    pPubKey = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
 
 
 

@@ -48,7 +48,7 @@ sendLine = liftIO . IO.putStrLn
 die :: (MonadIO m, Pretty a) => a -> m b
 die s = liftIO $ Exit.die (show $ pretty s)
 
-parseURL :: String -> Maybe (LWWRefKey HBS2Basic)
+parseURL :: String -> Maybe (LWWRefKey 'HBS2Basic)
 parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
   where
     p = do
@@ -56,7 +56,7 @@ parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
 
       Atto.takeWhile1 (`elem` getAlphabet)
        <&> BS8.unpack
-       <&> fromStringMay @(LWWRefKey HBS2Basic)
+       <&> fromStringMay @(LWWRefKey 'HBS2Basic)
        >>= maybe (fail "invalid reflog key") pure
 
 parsePush :: String -> Maybe (Maybe GitRef, GitRef)

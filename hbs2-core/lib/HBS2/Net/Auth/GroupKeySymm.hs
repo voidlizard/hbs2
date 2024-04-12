@@ -13,6 +13,7 @@ import HBS2.Base58
 import HBS2.Data.Types.EncryptedBox
 import HBS2.Data.Types.SmallEncryptedBlock
 import HBS2.Data.Types.Refs
+import HBS2.Net.Auth.Schema
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Data.Detect
@@ -96,14 +97,17 @@ data instance ToEncrypt 'Symm s LBS.ByteString =
   }
   deriving (Generic)
 
-type ForGroupKeySymm s = ( Eq (PubKey 'Encrypt s)
-                         , PubKey 'Encrypt s ~ AK.PublicKey
-                         , PrivKey 'Encrypt s ~ AK.SecretKey
-                         , Serialise (PubKey 'Encrypt s)
-                         , Serialise GroupSecret
-                         , Serialise SK.Nonce
-                         , FromStringMaybe (PubKey 'Encrypt s)
-                         )
+type ForGroupKeySymm (s :: CryptoScheme ) =
+  (
+    -- Eq (PubKey 'Encrypt s)
+  -- , PubKey 'Encrypt s
+  -- , PrivKey 'Encrypt s
+    Serialise (PubKey 'Encrypt s)
+  , Serialise GroupSecret
+  , Serialise SK.Nonce
+  , FromStringMaybe (PubKey 'Encrypt s)
+  , Hashable (PubKey 'Encrypt s)
+  )
 
 instance ForGroupKeySymm s => Serialise (GroupKey 'Symm s)
 
@@ -142,7 +146,7 @@ instance ( Serialise  (GroupKey 'Symm s)
     pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
 
 
-generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m)
+generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
                  => Maybe GroupSecret
                  -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
@@ -155,7 +159,10 @@ generateGroupKey mbk pks = GroupKeySymm <$> create
         box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
         pure (pk, box)
 
-lookupGroupKey :: ForGroupKeySymm s
+lookupGroupKey :: forall s .  ( ForGroupKeySymm s
+                              , PubKey 'Encrypt s ~ AK.PublicKey
+                              , PrivKey 'Encrypt s ~ AK.SecretKey
+                              )
                => PrivKey 'Encrypt s
                -> PubKey 'Encrypt s
                -> GroupKey 'Symm s
@@ -278,8 +285,8 @@ instance ( MonadIO m
          , MonadError OperationError m
          , h ~ HbSync
          , Storage s h ByteString m
+         , sch ~ 'HBS2Basic
          -- TODO: why?
-         , sch ~ HBS2Basic
          ) => MerkleReader (ToDecrypt 'Symm sch ByteString) s h m where
 
   data instance TreeKey (ToDecrypt 'Symm sch ByteString) =
@@ -389,6 +396,8 @@ decryptBlock :: forall t s sto h m . ( MonadIO m
                                      , MonadError OperationError m
                                      , Storage sto h ByteString m
                                      , ForGroupKeySymm s
+                                     , PubKey 'Encrypt s ~ AK.PublicKey
+                                     , PrivKey 'Encrypt s ~ AK.SecretKey
                                      , h ~ HbSync
                                      , Serialise t
                                      )

@@ -35,7 +35,7 @@ data LWWRefProtoAdapter e m =
   }
 
 lwwRefProto :: forall e s m proto . ( MonadIO m
-                                    , ForLWWRefProto e
+                                    , ForLWWRefProto s
                                     , Request e proto m
                                     , Response e proto m
                                     , HasDeferred proto e m
@@ -66,7 +66,7 @@ lwwRefProto adapter pkt@(LWWRefProto1 req) = do
                  <&> deserialiseOrFail
                  >>= toMPlus
 
-      lift $ response (LWWRefProto1 (LWWProtoSet @e key box))
+      lift $ response (LWWRefProto1 @e (LWWProtoSet key box))
 
     LWWProtoSet key box -> void $ runMaybeT do
 
@@ -97,7 +97,7 @@ lwwRefProto adapter pkt@(LWWRefProto1 req) = do
             blk' <- getBlock sto rv
             maybe1 blk' (forcedUpdateLwwRef sto key bs) $ \blk -> do
 
-              let lww0 = deserialiseOrFail @(SignedBox (LWWRef e) e) blk
+              let lww0 = deserialiseOrFail @(SignedBox (LWWRef s) s) blk
                              & either (const Nothing) Just
                              >>= unboxSignedBox0
                              <&> snd

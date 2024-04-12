@@ -37,7 +37,7 @@ instance RefChanContext m => HandleMethod m RpcRefChanHeadGet where
     debug $ "rpc.refchanHeadGet:"  <+> pretty (AsBase58 puk)
     liftIO $ withPeerM penv $ do
       sto <- getStorage
-      liftIO $ getRef sto (RefChanHeadKey @HBS2Basic puk) <&> fmap HashRef
+      liftIO $ getRef sto (RefChanHeadKey @'HBS2Basic puk) <&> fmap HashRef
 
 instance (RefChanContext m) => HandleMethod m RpcRefChanHeadFetch where
 
@@ -63,7 +63,7 @@ instance RefChanContext m => HandleMethod m RpcRefChanGet where
     debug $ "rpc.refchanGet:"  <+> pretty (AsBase58 puk)
     liftIO $ withPeerM penv $ do
       sto <- getStorage
-      liftIO $ getRef sto (RefChanLogKey @HBS2Basic puk) <&> fmap HashRef
+      liftIO $ getRef sto (RefChanLogKey @'HBS2Basic puk) <&> fmap HashRef
 
 instance RefChanContext m => HandleMethod m RpcRefChanPropose where
 

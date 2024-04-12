@@ -76,7 +76,7 @@ pRefChanHeadGen = do
 
     s <- maybe1 fn getContents readFile
     hd <- pure (fromStringMay @(RefChanHeadBlock L4Proto) s) `orDie` "can't generate head block"
-    let qq = makeSignedBox @L4Proto @(RefChanHeadBlock L4Proto) (view peerSignPk creds) (view peerSignSk creds) hd
+    let qq = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) hd
     LBS.putStr (serialise qq)
 
 pRefChanHeadDump :: Parser (IO ())
@@ -84,7 +84,7 @@ pRefChanHeadDump= do
   fn <- optional $ strArgument (metavar "refchan head blob")
   pure $ do
     lbs <- maybe1 fn LBS.getContents LBS.readFile
-    (_, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @L4Proto  lbs) `orDie` "can't unbox signed box"
+    (_, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs) `orDie` "can't unbox signed box"
     print $ pretty hdblk
 
 
@@ -130,7 +130,7 @@ pRefChanPropose = do
 
     lbs <- maybe1 fn LBS.getContents LBS.readFile
 
-    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
+    let box = makeSignedBox (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs)
 
     if dry then do
       LBS.putStr (serialise box)
@@ -178,15 +178,15 @@ pRefChanNotifyPost = do
 
     -- caller <- ContT $ withMyRPC @RefChanAPI opts
 
-    sigil <- liftIO $ (BS.readFile si <&> parseSerialisableFromBase58 @(Sigil L4Proto))
+    sigil <- liftIO $ (BS.readFile si <&> parseSerialisableFromBase58)
                         `orDie` "parse sigil failed"
 
-    (auPk, sd) <- pure (unboxSignedBox0 @(SigilData L4Proto) (sigilData sigil))
+    (auPk, sd) <- pure (unboxSignedBox0 (sigilData sigil))
                    >>= orThrowUser "malformed sigil/bad signature"
 
     keys <- liftIO $ runKeymanClient do
               creds  <- loadCredentials auPk >>= orThrowUser "can't load credentials"
-              encKey <- loadKeyRingEntry (sigilDataEncKey sd)
+              encKey <- loadKeyRingEntry (sigilDataEncKey @'HBS2Basic sd)
               pure (creds,encKey)
 
     let creds = view _1 keys
@@ -253,7 +253,7 @@ pRefChanNotifyPost = do
                     gks <- runExceptT (readFromMerkle sto (SimpleKey gkv))
                              >>= toMPlus
 
-                    gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gks
+                    gk <- deserialiseOrFail @(GroupKey 'Symm 'HBS2Basic) gks
                             & toMPlus
 
                     notice $ "found GK0" <+> pretty gkv
@@ -263,7 +263,7 @@ pRefChanNotifyPost = do
             gk <- case mgk of
                     Just x -> pure x
                     Nothing -> do
-                      gknew <- generateGroupKey @HBS2Basic Nothing (HashSet.toList rcpts)
+                      gknew <- generateGroupKey @'HBS2Basic Nothing (HashSet.toList rcpts)
 
                       gkh <- writeAsMerkle sto (serialise gknew)
 
@@ -281,7 +281,7 @@ pRefChanNotifyPost = do
             -- FIXME: use-deterministic-nonce
             lift $ encryptBlock sto gks (Right gk) Nothing lbs <&> serialise
 
-    let box = makeSignedBox @L4Proto @BS.ByteString (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict ss)
+    let box = makeSignedBox (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict ss)
     void $ callService @RpcRefChanNotify refChanAPI (puk, box)
 
   where
@@ -368,7 +368,7 @@ pRefChanGK = do
 
     let readers = view refChanHeadReaders' hd
 
-    gk <- generateGroupKey @HBS2Basic Nothing (HashSet.toList readers)
+    gk <- generateGroupKey @'HBS2Basic Nothing (HashSet.toList readers)
 
     liftIO $ print $ pretty (AsGroupKeyFile gk)
 

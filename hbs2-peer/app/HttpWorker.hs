@@ -93,16 +93,16 @@ httpWorker (PeerConfig syn) pmeta e = do
       get "/ref/:key" do
 
         void $ flip runContT pure do
-          what <- lift (param @String "key" <&> fromStringMay @(LWWRefKey HBS2Basic))
+          what <- lift (param @String "key" <&> fromStringMay @(LWWRefKey s))
                     >>= orElse (status status404)
 
           rv <- getRef sto what
                   >>= orElse (status status404)
                   >>= getBlock sto
                   >>= orElse (status status404)
-                  <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef e) e)
+                  <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef s) s)
                   >>= orElse (status status404)
-                  <&> unboxSignedBox0 @(LWWRef e)
+                  <&> unboxSignedBox0 @(LWWRef s)
                   >>= orElse (status status404)
                   <&> lwwValue . snd
 

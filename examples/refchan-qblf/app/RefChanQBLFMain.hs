@@ -70,7 +70,7 @@ data DefStateOpt
 data StateRefOpt
 
 data QBLFRefKey
-type MyRefKey = AnyRefKey QBLFRefKey HBS2Basic
+type MyRefKey = AnyRefKey QBLFRefKey 'HBS2Basic
 
 instance Monad m => HasCfgKey HttpPortOpt (Maybe Int) m where
   key = "http"
@@ -98,8 +98,8 @@ instance Monad m => HasCfgKey DefStateOpt (Maybe String) m where
 instance Monad m => HasCfgKey StateRefOpt (Maybe String) m where
   key = "state-ref"
 
-class ToBalance e tx where
-  toBalance :: tx -> [(Account e, Amount)]
+class ToBalance s tx where
+  toBalance :: tx -> [(Account s, Amount)]
 
 tracePrefix :: SetLoggerEntry
 tracePrefix  = toStderr . logPrefix "[trace] "
@@ -153,7 +153,7 @@ data MyEnv =
   , myChan  :: RefChanId UNIX
   , myRef   :: MyRefKey
   , mySto   :: AnyStorage
-  , myCred  :: PeerCredentials HBS2Basic
+  , myCred  :: PeerCredentials 'HBS2Basic
   , myHttpPort :: Int
   , myFetch :: Cache HashRef ()
   }
@@ -211,8 +211,8 @@ instance Monad m => HasTimeLimits UNIX (RefChanNotify UNIX) (App m) where
   tryLockForPeriod _ _ = pure True
 
 instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) where
-  type QBLFActor ConsensusQBLF = Actor L4Proto
-  type QBLFTransaction ConsensusQBLF = QBLFDemoToken L4Proto
+  type QBLFActor ConsensusQBLF = Actor 'HBS2Basic
+  type QBLFTransaction ConsensusQBLF = QBLFDemoToken 'HBS2Basic
   type QBLFState ConsensusQBLF = DAppState
 
   qblfMoveForward _ s1 = do
@@ -247,7 +247,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
               -- пробуем разослать бандлы с транзакциями
               runMaybeT do
                 ref <- MaybeT $ createBundle sto (fmap HashRef hashes)
-                let refval = makeBundleRefValue @L4Proto pk sk (BundleRefSimple ref)
+                let refval = makeBundleRefValue @'HBS2Basic pk sk (BundleRefSimple ref)
                 r <- MaybeT $ liftIO $ putBlock sto (serialise refval)
                 lift $ request self (ActionRequest @UNIX chan (RefChanAnnounceBlock (HashRef r)))
 
@@ -280,7 +280,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
       let sk = view peerSignSk creds
       let pk = view peerSignPk creds
       nonce <- randomIO @Word64 <&> serialise <&> LBS.toStrict
-      let box = makeSignedBox @UNIX pk sk (LBS.toStrict (serialise msg) <> nonce)
+      let box = makeSignedBox pk sk (LBS.toStrict (serialise msg) <> nonce)
       let notify = Notify @UNIX chan box
       request self notify
 
@@ -327,17 +327,17 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
 
               bs <- MaybeT $ liftIO $ getBlock sto (fromHashRef t)
 
-              tx <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) bs & either (const Nothing) Just
+              tx <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken 'HBS2Basic) bs & either (const Nothing) Just
 
               case tx of
                 Emit box -> do
-                  (pk, e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx L4Proto) box
+                  (pk, e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx 'HBS2Basic) box
                   guard ( chan == pk )
                   debug $ "VALID EMIT TRANSACTION" <+> pretty t <+> pretty (AsBase58 a) <+> pretty q
                   pure ([(t,e)], mempty)
 
                 (Move box) -> do
-                  (_, m@(MoveTx _ _ qty _)) <- MaybeT $ pure $ unboxSignedBox0 @(MoveTx L4Proto) box
+                  (_, m@(MoveTx _ _ qty _)) <- MaybeT $ pure $ unboxSignedBox0 @(MoveTx 'HBS2Basic) box
 
                   guard (qty > 0)
                   debug $ "MOVE TRANSACTION" <+> pretty t
@@ -352,7 +352,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
       bal0 <- balances (fromDAppState s0)
 
       -- баланс с учётом новых emit
-      let balE = foldMap (toBalance @L4Proto . snd) emits
+      let balE = foldMap (toBalance @'HBS2Basic. snd) emits
                         & HashMap.fromListWith (+)
                         & HashMap.unionWith (+) bal0
 
@@ -391,12 +391,12 @@ balances :: forall e s m . ( e ~ L4Proto
                            , HasStorage m
                            -- , FromStringMaybe (PubKey 'Sign s)
                            , s ~ Encryption e
-                           , ToBalance L4Proto (EmitTx L4Proto)
-                           , ToBalance L4Proto (MoveTx L4Proto)
+                           , ToBalance s (EmitTx s)
+                           , ToBalance s (MoveTx s)
                            , Pretty (AsBase58 (PubKey 'Sign s))
                            )
          => HashRef
-         -> m (HashMap (Account e) Amount)
+         -> m (HashMap (Account s) Amount)
 
 balances root = do
   sto <- getStorage
@@ -406,7 +406,7 @@ balances root = do
   cached <- runMaybeT do
     rval <- MaybeT $ liftIO $ getRef sto pk
     val  <- MaybeT $ liftIO $ getBlock sto rval
-    MaybeT $ deserialiseOrFail @(HashMap (Account e) Amount) val
+    MaybeT $ deserialiseOrFail @(HashMap (Account s) Amount) val
           & either (const $ pure Nothing) (pure . Just)
 
   case cached of
@@ -417,16 +417,16 @@ balances root = do
 
       r <- forM txs $ \h -> runMaybeT do
         blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef h)
-        tx  <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken L4Proto) blk & either (const Nothing) Just
+        tx  <- MaybeT $ pure $ deserialiseOrFail @(QBLFDemoToken s) blk & either (const Nothing) Just
 
         case tx of
           Emit box -> do
-            (_, emit) <- MaybeT $ pure $  unboxSignedBox0 @(EmitTx L4Proto) box
-            pure $ toBalance @e emit
+            (_, emit) <- MaybeT $ pure $  unboxSignedBox0 @(EmitTx s) box
+            pure $ toBalance @s emit
 
           Move box -> do
-            (_, move) <- MaybeT $ pure $  unboxSignedBox0 @(MoveTx L4Proto) box
-            pure $ toBalance @e move
+            (_, move) <- MaybeT $ pure $  unboxSignedBox0 @(MoveTx s) box
+            pure $ toBalance @s move
 
       let val = catMaybes r & mconcat & HashMap.fromListWith (+)
 
@@ -450,8 +450,8 @@ balances root = do
 --              -> [(tx, b)]
 --              -> [(tx, b)]
 
-updBalances :: forall e a tx . (ForRefChans e, ToBalance e tx)
-            => HashMap (Account e) Amount
+updBalances :: forall e s a tx . (ForRefChans e, ToBalance s tx, s ~ Encryption e)
+            => HashMap (Account s) Amount
             -> [(a, tx)]
             -> [(a, tx)]
 
@@ -467,7 +467,7 @@ updBalances = go
         go bal rest
 
       where
-        nb = HashMap.unionWith (+) bal (HashMap.fromList (toBalance @e (snd t)))
+        nb = HashMap.unionWith (+) bal (HashMap.fromList (toBalance @s (snd t)))
         good = HashMap.filter (<0) nb & HashMap.null
 
 
@@ -515,7 +515,7 @@ runMe conf = withLogging $ flip runReaderT conf do
            ) `orDie` "state-ref not set"
 
   sc <- liftIO $ BS.readFile kr
-  creds <- pure (parseCredentials @HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
+  creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
 
   chan  <- pure (fromStringMay @(RefChanId L4Proto) chan') `orDie` "invalid REFCHAN"
 
@@ -560,11 +560,11 @@ runMe conf = withLogging $ flip runReaderT conf do
 
   headBlk <- getRefChanHead @L4Proto sto (RefChanHeadKey chan) `orDie` "can't read head block"
 
-  let self = view peerSignPk creds & Actor @L4Proto
+  let self = view peerSignPk creds & Actor
 
   let actors = view refChanHeadAuthors headBlk
                   & HashSet.toList
-                  & fmap (Actor @L4Proto)
+                  & fmap Actor
 
   runApp myEnv do
 
@@ -590,7 +590,7 @@ runMe conf = withLogging $ flip runReaderT conf do
 
                 debug $ "GOT TX" <+> pretty hBin
 
-                tok <- check DeserializationError =<< pure (deserialiseOrFail @(QBLFDemoToken L4Proto) bin)
+                tok <- check DeserializationError =<< pure (deserialiseOrFail @(QBLFDemoToken 'HBS2Basic) bin)
 
                 tx <- case tok of
                         (Emit box) -> do
@@ -649,7 +649,7 @@ runMe conf = withLogging $ flip runReaderT conf do
 
       let coco = hashObject @HbSync $ serialise msg
       void $ runMaybeT do
-        (_, wrapped) <- MaybeT $ pure $ unboxSignedBox0 @ByteString @UNIX msg
+        (_, wrapped) <- MaybeT $ pure $ unboxSignedBox0  msg
         qbmess <- MaybeT $ pure $ deserialiseOrFail @(QBLFMessage ConsensusQBLF) (LBS.fromStrict wrapped)
                                               & either (const Nothing) Just
 
@@ -729,11 +729,11 @@ main = join . customExecParser (prefs showHelpOnError) $
       dest <- strArgument ( metavar "ADDRESS" )
       pure $ const $ silently do
         sc <- BS.readFile kr
-        creds <- pure (parseCredentials @HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
+        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
         let pk = view peerSignPk creds
         let sk = view peerSignSk creds
         acc <- pure (fromStringMay @(RefChanId L4Proto) dest) `orDie` "bad account address"
-        tx <- makeEmitTx @L4Proto pk sk acc amnt
+        tx <- makeEmitTx @_ @L4Proto pk sk acc amnt
         LBS.putStr $ serialise tx
 
     pGenMove = do
@@ -742,29 +742,29 @@ main = join . customExecParser (prefs showHelpOnError) $
       dest <- strArgument ( metavar "ADDRESS" )
       pure $ const $ silently do
         sc <- BS.readFile kr
-        creds <- pure (parseCredentials @HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
+        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
         let pk = view peerSignPk creds
         let sk = view peerSignSk creds
         acc <- pure (fromStringMay @(RefChanId L4Proto) dest) `orDie` "bad account address"
-        tx <- makeMoveTx @L4Proto pk sk acc amnt
+        tx <- makeMoveTx @_ @L4Proto pk sk acc amnt
         LBS.putStr $ serialise tx
 
     pCheckTx = do
       kr    <- strOption   ( long "keyring"  <> short 'k' <> help "keyring file" )
       pure $ const do
         sc <- BS.readFile kr
-        creds <- pure (parseCredentials @HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
+        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
         let pk = view peerSignPk creds
         let sk = view peerSignSk creds
 
-        tx <- LBS.getContents <&> deserialise @(QBLFDemoToken L4Proto)
+        tx <- LBS.getContents <&> deserialise @(QBLFDemoToken 'HBS2Basic)
 
         case tx of
           Emit box -> do
-            void $ pure (unboxSignedBox0 @(EmitTx L4Proto) @L4Proto box) `orDie` "bad emit tx"
+            void $ pure (unboxSignedBox0 box) `orDie` "bad emit tx"
 
           Move box -> do
-            void $ pure (unboxSignedBox0 @(MoveTx L4Proto) @L4Proto box) `orDie` "bad move tx"
+            void $ pure (unboxSignedBox0 box) `orDie` "bad move tx"
 
         pure ()
 

@@ -88,7 +88,7 @@ data RefChanActionRequest =
 instance Serialise RefChanActionRequest
 
 data RefChanNotify e =
-    Notify (RefChanId e) (SignedBox ByteString e) -- подписано ключом автора
+    Notify (RefChanId e) (SignedBox ByteString (Encryption e)) -- подписано ключом автора
   -- довольно уместно будет добавить эти команды сюда -
   -- они постоянно нужны, и это сильно упростит коммуникации
   | ActionRequest (RefChanId e) RefChanActionRequest
@@ -126,7 +126,6 @@ type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
                      , Hashable (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Sign (Encryption e))
                      )
-
 
 
 refChanHeadReaders :: ForRefChans e
@@ -367,7 +366,7 @@ getRefChanHead :: forall e s m . ( MonadIO m
 getRefChanHead sto k = runMaybeT do
     h <- MaybeT $ liftIO $ getRef sto k
     hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
-    (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+    (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @s hdblob
     pure headblk
 
 

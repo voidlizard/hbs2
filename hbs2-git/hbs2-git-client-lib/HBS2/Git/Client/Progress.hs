@@ -22,7 +22,7 @@ class HasProgress a where
 
 data ProgressEvent =
     ImportIdle
-  | ImportWaitLWW Int (LWWRefKey HBS2Basic)
+  | ImportWaitLWW Int (LWWRefKey 'HBS2Basic)
   | ImportRefLogStart RefLogId
   | ImportRefLogDone  RefLogId (Maybe HashRef)
   | ImportWaitTx HashRef

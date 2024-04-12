@@ -49,7 +49,7 @@ deriving newtype instance ForRefChans e => Hashable (NotifyKey (RefChanEvents e)
 deriving newtype instance ForRefChans e => Eq (NotifyKey (RefChanEvents e))
 
 data instance NotifyData (RefChanEvents e) =
-  RefChanNotifyData (RefChanId e) (SignedBox BS.ByteString e)
+  RefChanNotifyData (RefChanId e) (SignedBox BS.ByteString (Encryption e))
   deriving Generic
 
 instance ForRefChans e => Serialise (NotifyKey (RefChanEvents e))

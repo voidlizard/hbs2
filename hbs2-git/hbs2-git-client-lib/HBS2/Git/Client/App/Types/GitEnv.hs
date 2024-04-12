@@ -46,7 +46,7 @@ data GitEnv =
   , _storage         :: AnyStorage -- ServiceCaller StorageAPI UNIX
   , _db              :: DBPipeEnv
   , _progress        :: AnyProgress
-  , _keyringCache    :: TVar (HashMap HashRef [KeyringEntry HBS2Basic])
+  , _keyringCache    :: TVar (HashMap HashRef [KeyringEntry 'HBS2Basic])
   }
 
 

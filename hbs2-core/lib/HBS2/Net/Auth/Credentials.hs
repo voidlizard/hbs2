@@ -29,13 +29,9 @@ import Data.List qualified as List
 import Lens.Micro.Platform
 import Data.Kind
 
-type instance PubKey  'Sign HBS2Basic = Sign.PublicKey
-type instance PrivKey 'Sign HBS2Basic = Sign.SecretKey
-type instance PubKey  'Encrypt HBS2Basic = Encrypt.PublicKey
-type instance PrivKey 'Encrypt HBS2Basic = Encrypt.SecretKey
 
-instance Signatures HBS2Basic where
-  type Signature HBS2Basic = Sign.Signature
+instance Signatures 'HBS2Basic where
+  type Signature 'HBS2Basic = Sign.Signature
   makeSign = Sign.signDetached
   verifySign = Sign.signVerifyDetached
 
@@ -68,10 +64,10 @@ class AsymmPubKey e ~ PubKey 'Encrypt e => Asymm e where
 class HasCredentials s m where
   getCredentials :: m (PeerCredentials s)
 
-data KeyringEntry e =
+data KeyringEntry s =
   KeyringEntry
-  { _krPk   :: PubKey  'Encrypt e
-  , _krSk   :: PrivKey 'Encrypt e
+  { _krPk   :: PubKey  'Encrypt s
+  , _krSk   :: PrivKey 'Encrypt s
   , _krDesc :: Maybe Text
   }
   deriving stock (Generic)
@@ -94,24 +90,25 @@ data PeerCredentials s =
 makeLenses 'KeyringEntry
 makeLenses 'PeerCredentials
 
-type ForHBS2Basic s = ( Signatures s
-                      , PrivKey 'Sign s ~ Sign.SecretKey
-                      , PubKey 'Sign s ~ Sign.PublicKey
-                      , Eq (PubKey 'Encrypt HBS2Basic)
-                      , IsEncoding (PubKey 'Encrypt s)
-                      , Eq (PubKey 'Encrypt HBS2Basic)
-                      , s ~ HBS2Basic
-                      )
+type For'HBS2Basic s = ( Signatures s
+                       , PrivKey 'Sign s ~ Sign.SecretKey
+                       , PubKey 'Sign s ~ Sign.PublicKey
+                       , Eq (PubKey 'Encrypt 'HBS2Basic)
+                       , IsEncoding (PubKey 'Encrypt s)
+                       , Eq (PubKey 'Encrypt 'HBS2Basic)
+                       , s ~ 'HBS2Basic
+                       )
 
-type SerialisedCredentials e = ( Serialise (PrivKey 'Sign e)
-                               , Serialise (PubKey 'Sign e)
-                               , Serialise (PubKey 'Encrypt e)
-                               , Serialise (PrivKey 'Encrypt e)
-                               )
+type SerialisedCredentials ( s :: CryptoScheme ) =
+    ( Serialise (PrivKey 'Sign s)
+    , Serialise (PubKey 'Sign s)
+    , Serialise (PubKey 'Encrypt s)
+    , Serialise (PrivKey 'Encrypt s)
+    )
 
-instance SerialisedCredentials e => Serialise (KeyringEntry e)
+instance SerialisedCredentials s => Serialise (KeyringEntry s)
 
-instance SerialisedCredentials e => Serialise (PeerCredentials e)
+instance SerialisedCredentials s => Serialise (PeerCredentials s)
 
 newtype AsCredFile a = AsCredFile a
 
@@ -150,7 +147,7 @@ addKeyPair txt cred = do
   pure $ cred & over peerKeyring (List.nub . (<> [kp]))
 
 delKeyPair :: forall e m . ( MonadIO m
-                           , ForHBS2Basic e
+                           , For'HBS2Basic e
                            )
            => AsBase58 String -> PeerCredentials e -> m (PeerCredentials e)
 delKeyPair (AsBase58 pks) cred = do
@@ -160,7 +157,7 @@ delKeyPair (AsBase58 pks) cred = do
   pure $ cred & set peerKeyring rest
 
 
-parseCredentials :: forall s . ( -- ForHBS2Basic s
+parseCredentials :: forall s . ( -- For'HBS2Basic s
                                  SerialisedCredentials s
                                )
                  =>  AsCredFile ByteString -> Maybe (PeerCredentials s)
@@ -234,11 +231,11 @@ instance IsEncoding (PubKey 'Encrypt e)
   pretty ke = fill 10 "pub-key:" <+> pretty (AsBase58 (Crypto.encode (view krPk ke)))
 
 
-instance Asymm HBS2Basic where
-  type AsymmKeypair HBS2Basic = Encrypt.Keypair
-  type AsymmPrivKey HBS2Basic = Encrypt.SecretKey
-  type AsymmPubKey HBS2Basic = Encrypt.PublicKey
-  type CommonSecret HBS2Basic = Encrypt.CombinedKey
+instance Asymm 'HBS2Basic where
+  type AsymmKeypair 'HBS2Basic = Encrypt.Keypair
+  type AsymmPrivKey 'HBS2Basic = Encrypt.SecretKey
+  type AsymmPubKey 'HBS2Basic = Encrypt.PublicKey
+  type CommonSecret 'HBS2Basic = Encrypt.CombinedKey
   asymmNewKeypair = liftIO Encrypt.newKeypair
   privKeyFromKeypair = Encrypt.secretKey
   pubKeyFromKeypair = Encrypt.publicKey

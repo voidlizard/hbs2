@@ -3,7 +3,6 @@
 module HBS2.Git.Data.LWWBlock
   ( module HBS2.Git.Data.LWWBlock
   , module HBS2.Peer.Proto.LWWRef
-  , HBS2Basic
   ) where
 
 import HBS2.Prelude.Plated
@@ -42,19 +41,19 @@ import Control.Monad.Trans.Maybe
 --   (LWWRef PK) -> (LWWBlockData) -> (RefLog : [TX])
 --
 
-data LWWBlockData e =
+data LWWBlockData s =
   LWWBlockData
   { lwwRefSeed       :: Word64
-  , lwwRefLogPubKey  :: PubKey 'Sign (Encryption e)
+  , lwwRefLogPubKey  :: PubKey 'Sign s
   }
   deriving stock Generic
 
-data LWWBlock e =
-  LWWBlock1 { lwwBlockData :: LWWBlockData e }
+data LWWBlock s =
+  LWWBlock1 { lwwBlockData :: LWWBlockData s }
   deriving stock Generic
 
-instance Serialise (PubKey 'Sign (Encryption e)) => Serialise (LWWBlockData e)
-instance Serialise (PubKey 'Sign (Encryption e)) => Serialise (LWWBlock e)
+instance Serialise (PubKey 'Sign s) => Serialise (LWWBlockData s)
+instance Serialise (PubKey 'Sign s) => Serialise (LWWBlock s)
 
 
 data LWWBlockOpError =
@@ -67,38 +66,34 @@ instance Exception LWWBlockOpError
 
 {- HLINT ignore "Functor law" -}
 
-readLWWBlock :: forall e s m . ( MonadIO m
-                               , Signatures s
-                               , s ~ Encryption e
-                               , ForLWWRefProto e
-                               , IsRefPubKey s
-                               , e ~ L4Proto
-                               )
+readLWWBlock :: forall  s m . ( MonadIO m
+                              , Signatures s
+                              , ForLWWRefProto s
+                              , IsRefPubKey s
+                              )
              => AnyStorage
              -> LWWRefKey s
-             -> m (Maybe (LWWRef e, LWWBlockData e))
+             -> m (Maybe (LWWRef s, LWWBlockData s))
 
 readLWWBlock sto k = runMaybeT do
 
-  w@LWWRef{..} <- runExceptT (readLWWRef @e sto k)
+  w@LWWRef{..} <- runExceptT (readLWWRef @s sto k)
                   >>= toMPlus
                   >>= toMPlus
 
   getBlock sto (fromHashRef lwwValue)
     >>= toMPlus
-    <&> deserialiseOrFail @(LWWBlock e)
+    <&> deserialiseOrFail @(LWWBlock s)
     >>= toMPlus
     <&> lwwBlockData
     <&> (w,)
 
-initLWWRef :: forall e s m . ( MonadIO m
+initLWWRef :: forall  s m . ( MonadIO m
                              , MonadError LWWBlockOpError m
                              , IsRefPubKey s
-                             , ForSignedBox e
+                             , ForSignedBox s
                              , HasDerivedKey s 'Sign Word64 m
-                             , s ~ Encryption e
                              , Signatures s
-                             , e ~ L4Proto
                              )
            => AnyStorage
            -> Maybe Word64
@@ -116,7 +111,7 @@ initLWWRef sto seed' findSk lwwKey  = do
   lww0 <- runMaybeT do
             getRef sto lwwKey >>= toMPlus
               >>= getBlock sto >>= toMPlus
-              <&> deserialiseOrFail @(SignedBox (LWWRef e) e)
+              <&> deserialiseOrFail @(SignedBox (LWWRef s) s)
               >>= toMPlus
               <&> unboxSignedBox0
               >>= toMPlus
@@ -124,7 +119,7 @@ initLWWRef sto seed' findSk lwwKey  = do
 
   (pk1, _) <- derivedKey @s @'Sign seed sk0
 
-  let newLwwData = LWWBlock1 (LWWBlockData @e seed pk1)
+  let newLwwData = LWWBlock1 @s (LWWBlockData seed pk1)
 
   hx <- putBlock sto (serialise newLwwData)
           >>= orThrowError LWWBlockOpStorageError

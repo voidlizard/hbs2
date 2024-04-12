@@ -51,10 +51,10 @@ runKeymanClient action = do
 loadCredentials :: forall a m .
                      ( MonadIO m
                      , SomePubKeyPerks a
-                     , SerialisedCredentials HBS2Basic
+                     , SerialisedCredentials 'HBS2Basic
                      )
                   => a
-                  -> KeyManClient m (Maybe (PeerCredentials HBS2Basic))
+                  -> KeyManClient m (Maybe (PeerCredentials 'HBS2Basic))
 loadCredentials k = KeyManClient do
 
   fnames <- select @(Only FilePath) [qc|
@@ -71,10 +71,10 @@ loadCredentials k = KeyManClient do
 
 loadKeyRingEntry :: forall m .
                     ( MonadIO m
-                    , SerialisedCredentials HBS2Basic
+                    , SerialisedCredentials 'HBS2Basic
                     )
-                 => PubKey 'Encrypt HBS2Basic
-                 -> KeyManClient m (Maybe (KeyringEntry HBS2Basic))
+                 => PubKey 'Encrypt 'HBS2Basic
+                 -> KeyManClient m (Maybe (KeyringEntry 'HBS2Basic))
 loadKeyRingEntry pk = KeyManClient do
   runMaybeT do
     fn <- toMPlus =<< lift (selectKeyFile pk)
@@ -87,10 +87,10 @@ loadKeyRingEntry pk = KeyManClient do
 
 loadKeyRingEntries :: forall m .
                     ( MonadIO m
-                    , SerialisedCredentials HBS2Basic
+                    , SerialisedCredentials 'HBS2Basic
                     )
-                 => [PubKey 'Encrypt HBS2Basic]
-                 -> KeyManClient m [(Word, KeyringEntry HBS2Basic)]
+                 => [PubKey 'Encrypt 'HBS2Basic]
+                 -> KeyManClient m [(Word, KeyringEntry 'HBS2Basic)]
 loadKeyRingEntries pks = KeyManClient do
     r <- for pks $ \pk -> runMaybeT do
               fn <- lift (selectKeyFile pk) >>= toMPlus

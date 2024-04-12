@@ -33,7 +33,7 @@ type Command m = m ()
 globalOptions :: Parser GlobalOptions
 globalOptions = pure GlobalOptions
 
-type AppPerks m = (MonadIO m, MonadUnliftIO m, MonadReader AppEnv m, HasConf m, SerialisedCredentials HBS2Basic)
+type AppPerks m = (MonadIO m, MonadUnliftIO m, MonadReader AppEnv m, HasConf m, SerialisedCredentials 'HBS2Basic)
 
 -- Парсер для команд
 commands :: (AppPerks m) => Parser (Command m)
@@ -93,7 +93,7 @@ updateKeys = do
 
       bs <- liftIO $ BS.readFile fn
 
-      krf <- parseCredentials @HBS2Basic (AsCredFile bs) & toMPlus
+      krf <- parseCredentials @'HBS2Basic (AsCredFile bs) & toMPlus
 
       let skp = view peerSignPk krf
 

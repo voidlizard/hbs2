@@ -64,8 +64,8 @@ import System.Exit
 type Config = [Syntax C]
 
 
-type RLWW = LWWRefKey HBS2Basic
-type RRefLog = RefLogKey HBS2Basic
+type RLWW = LWWRefKey 'HBS2Basic
+type RRefLog = RefLogKey 'HBS2Basic
 
 newtype Watcher =
   Watcher [Syntax C]
@@ -81,7 +81,7 @@ instance Pretty Ref where
   pretty (RefLWW r)    = parens $ "lwwref" <+> dquotes (pretty r)
 
 newtype AnyPolledRef =
-  AnyPolledRef (PubKey 'Sign HBS2Basic)
+  AnyPolledRef (PubKey 'Sign 'HBS2Basic)
   deriving (Eq,Generic)
 
 instance Hashable AnyPolledRef
@@ -91,7 +91,7 @@ deriving newtype instance Hashable Id
 
 instance Pretty AnyPolledRef where
   pretty (AnyPolledRef r) = pretty (AsBase58 r)
--- deriving newtype instance Pretty (PubKey 'Sign HBS2Basic) => Pretty AnyPolledRef
+-- deriving newtype instance Pretty (PubKey 'Sign 'HBS2Basic) => Pretty AnyPolledRef
 
 instance FromStringMaybe AnyPolledRef where
   fromStringMay = fmap AnyPolledRef . fromStringMay

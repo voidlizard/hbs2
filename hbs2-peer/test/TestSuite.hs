@@ -50,17 +50,17 @@ testVersionedKeysHashes = do
                & orThrowUser "bad base58"
                <&> LBS.fromStrict
 
-  pk <- fromStringMay @(PubKey 'Sign HBS2Basic) "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
+  pk <- fromStringMay @(PubKey 'Sign 'HBS2Basic) "BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
           & orThrowUser "key decode"
 
   let pks = serialise pk
 
-  pks2 <- deserialiseOrFail @(PubKey 'Sign HBS2Basic) (pks <> "12345")
+  pks2 <- deserialiseOrFail @(PubKey 'Sign 'HBS2Basic) (pks <> "12345")
            & orThrowUser "key decode error"
 
-  let rfk = serialise (RefLogKey @HBS2Basic pk)
-  let wrfk = serialise $ W (RefLogKey @HBS2Basic pk)
-  let xrfk = serialise $ X (RefLogKey @HBS2Basic pk)
+  let rfk = serialise (RefLogKey @'HBS2Basic pk)
+  let wrfk = serialise $ W (RefLogKey @'HBS2Basic pk)
+  let xrfk = serialise $ X (RefLogKey @'HBS2Basic pk)
 
   print $ pretty (AsHexSparse keypart)
   print $ pretty (AsHexSparse pks)

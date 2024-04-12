@@ -721,7 +721,7 @@ refChanWorker env brains = do
           trace $ "BLOCK IS HERE" <+> pretty hr
           -- читаем блок
           lbs <- readBlobFromTree (getBlock sto) hr <&> fromMaybe mempty
-          let what = unboxSignedBox @(RefChanHeadBlock e) @e lbs
+          let what = unboxSignedBox @(RefChanHeadBlock e) @s lbs
 
           notify <- atomically $ do
                         no <- readTVar (_refChanWorkerEnvNotify env) <&> HashMap.member chan
@@ -742,7 +742,7 @@ refChanWorker env brains = do
 
                 lbss <- MaybeT $ readBlobFromTree (getBlock sto) (HashRef cur)
 
-                (_, blkOur) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e lbss
+                (_, blkOur) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @s lbss
 
                 pure $ view refChanHeadVersion blkOur
 
@@ -863,7 +863,7 @@ logMergeProcess penv env q = withPeerM penv do
         Just x -> pure (Just x)
         Nothing -> runMaybeT do
           hdblob <- MaybeT $ readBlobFromTree ( liftIO . getBlock sto ) h
-          (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+          (_, headblk) <- MaybeT $ pure $ unboxSignedBox @_ @s hdblob
           atomically $ modifyTVar (mergeHeads e) (HashMap.insert h headblk)
           pure headblk
 

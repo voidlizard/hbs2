@@ -36,8 +36,8 @@ data RPC2Context =
   , rpcByPassInfo         :: IO ByPassStat
   , rpcDoFetch            :: HashRef -> IO ()
   , rpcDoRefChanHeadPost  :: HashRef -> IO ()
-  , rpcDoRefChanPropose   :: (PubKey 'Sign HBS2Basic, SignedBox ByteString L4Proto) -> IO ()
-  , rpcDoRefChanNotify    :: (PubKey 'Sign HBS2Basic, SignedBox ByteString L4Proto) -> IO ()
+  , rpcDoRefChanPropose   :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  , rpcDoRefChanNotify    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
   }
 
 instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT RPC2Context m) where

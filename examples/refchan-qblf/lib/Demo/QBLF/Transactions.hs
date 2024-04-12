@@ -1,4 +1,6 @@
 {-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
+{-# Language TypeOperators #-}
 module Demo.QBLF.Transactions where
 
 import HBS2.Prelude.Plated
@@ -16,17 +18,17 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Word (Word64)
 import System.Random
 
-newtype Actor e =
-  Actor { fromActor :: PubKey 'Sign (Encryption e) }
+newtype Actor s =
+  Actor { fromActor :: PubKey 'Sign s }
   deriving stock (Generic)
 
-deriving stock instance Eq (PubKey 'Sign (Encryption e)) => Eq (Actor e)
-deriving newtype instance Hashable (PubKey 'Sign (Encryption e)) => Hashable (Actor e)
+deriving stock instance Eq (PubKey 'Sign s) => Eq (Actor s)
+deriving newtype instance Hashable (PubKey 'Sign s) => Hashable (Actor s)
 
-instance Pretty (AsBase58 (PubKey 'Sign (Encryption e))) => Pretty (Actor e) where
+instance Pretty (AsBase58 (PubKey 'Sign s)) => Pretty (Actor s) where
   pretty (Actor a) = pretty (AsBase58 a)
 
-type Account e = PubKey 'Sign (Encryption e)
+type Account s = PubKey 'Sign s
 
 newtype Amount = Amount Integer
                 deriving stock (Eq,Show,Ord,Data,Generic)
@@ -39,48 +41,48 @@ newtype DAppState = DAppState { fromDAppState :: HashRef }
 instance Hashed HbSync DAppState where
   hashObject (DAppState (HashRef h)) = h
 
-data EmitTx e = EmitTx (Account e) Amount Word64
+data EmitTx s = EmitTx (Account s) Amount Word64
                 deriving stock (Generic)
 
-data MoveTx e = MoveTx (Account e) (Account e) Amount Word64
+data MoveTx s = MoveTx (Account s) (Account s) Amount Word64
                 deriving stock (Generic)
 
-data QBLFDemoToken e =
-    Emit (SignedBox (EmitTx e) e)  --  proof: owner's  key
-  | Move (SignedBox (MoveTx e) e)  --  proof: wallet's key
+data QBLFDemoToken s =
+    Emit (SignedBox (EmitTx s) s)  --  proof: owner's  key
+  | Move (SignedBox (MoveTx s) s)  --  proof: wallet's key
   deriving stock (Generic)
 
-instance ForRefChans e => Serialise (Actor e)
+instance ForQBLFDemoToken s => Serialise (Actor s)
 
 instance Serialise DAppState
 
 instance Serialise Amount
 
-instance Serialise (PubKey 'Sign (Encryption e)) => Serialise (EmitTx e)
+instance ForQBLFDemoToken s => Serialise (EmitTx s)
 
-instance Serialise (PubKey 'Sign (Encryption e)) => Serialise (MoveTx e)
+instance ForQBLFDemoToken s => Serialise (MoveTx s)
 
-instance (Serialise (Account e), ForRefChans e) => Serialise (QBLFDemoToken e)
+instance ForQBLFDemoToken s => Serialise (QBLFDemoToken s)
 
-type ForQBLFDemoToken e = ( Eq (PubKey 'Sign (Encryption e))
-                          , Eq (Signature (Encryption e))
-                          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
-                          , ForSignedBox e
-                          , FromStringMaybe (PubKey 'Sign (Encryption e))
-                          , Serialise (PubKey 'Sign (Encryption e))
-                          , Serialise (Signature (Encryption e))
-                          , Hashable (PubKey 'Sign (Encryption e))
+type ForQBLFDemoToken s = ( Eq (PubKey 'Sign s)
+                          , Eq (Signature s)
+                          , Pretty (AsBase58 (PubKey 'Sign s))
+                          , ForSignedBox s
+                          , FromStringMaybe (PubKey 'Sign s)
+                          , Serialise (PubKey 'Sign s)
+                          , Serialise (Signature s)
+                          , Hashable (PubKey 'Sign s)
                           )
 
-deriving stock instance (ForQBLFDemoToken e) => Eq (QBLFDemoToken e)
+deriving stock instance (ForQBLFDemoToken s) => Eq (QBLFDemoToken s)
 
-instance ForQBLFDemoToken e => Hashable (QBLFDemoToken e) where
+instance ForQBLFDemoToken s => Hashable (QBLFDemoToken s) where
   hashWithSalt salt = \case
     Emit box  -> hashWithSalt salt box
     Move box  -> hashWithSalt salt box
 
 newtype QBLFDemoTran e =
-  QBLFDemoTran (SignedBox (QBLFDemoToken e) e)
+  QBLFDemoTran (SignedBox (QBLFDemoToken (Encryption e)) (Encryption e))
   deriving stock Generic
 
 instance ForRefChans e => Serialise (QBLFDemoTran e)
@@ -93,39 +95,43 @@ deriving newtype instance
   (Eq (Signature (Encryption e)), ForRefChans e)
     => Hashable (QBLFDemoTran e)
 
-instance Serialise (QBLFDemoTran UNIX) => HasProtocol UNIX (QBLFDemoTran UNIX) where
+instance HasProtocol UNIX (QBLFDemoTran UNIX) where
   type instance ProtocolId (QBLFDemoTran UNIX) = 0xFFFF0001
   type instance Encoded UNIX = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-makeEmitTx :: forall e m . ( MonadIO m
-                           , ForRefChans e
-                           , Signatures (Encryption e)
-                           )
-           => PubKey 'Sign (Encryption e)
-           -> PrivKey 'Sign (Encryption e)
-           -> Account e
+makeEmitTx :: forall s e m . ( MonadIO m
+                             , ForRefChans e
+                             , ForQBLFDemoToken s
+                             , Signatures (Encryption e)
+                             , s ~ Encryption e
+                             )
+           => PubKey 'Sign s
+           -> PrivKey 'Sign s
+           -> Account s
            -> Amount
-           -> m (QBLFDemoToken e)
+           -> m (QBLFDemoToken s)
 
 makeEmitTx pk sk acc amount = do
   nonce <- randomIO
-  let box = makeSignedBox @e pk sk (EmitTx @e acc amount nonce)
-  pure (Emit @e box)
+  let box = makeSignedBox @s pk sk (EmitTx acc amount nonce)
+  pure (Emit @s box)
 
-makeMoveTx :: forall e m . ( MonadIO m
-                           , ForRefChans e
-                           , Signatures (Encryption e)
-                           )
-           => PubKey 'Sign (Encryption e)  -- from pk
-           -> PrivKey 'Sign (Encryption e) -- from sk
-           -> Account e
+makeMoveTx :: forall s e m . ( MonadIO m
+                             , ForQBLFDemoToken s
+                             , ForRefChans e
+                             , Signatures s
+                             , s ~ Encryption e
+                             )
+           => PubKey 'Sign s  -- from pk
+           -> PrivKey 'Sign s -- from sk
+           -> Account s
            -> Amount                       -- amount
-           -> m (QBLFDemoToken e)
+           -> m (QBLFDemoToken s)
 
 makeMoveTx pk sk acc amount = do
   nonce <- randomIO
-  let box = makeSignedBox @e pk sk (MoveTx @e pk acc amount nonce)
-  pure (Move @e box)
+  let box = makeSignedBox @s pk sk (MoveTx pk acc amount nonce)
+  pure (Move @s box)
 

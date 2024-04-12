@@ -66,7 +66,7 @@ merelySubscribeRepo :: forall e s m . ( GitPerks m
                                       , e ~ L4Proto
                                       , s ~ Encryption e
                                       )
-                    => LWWRefKey HBS2Basic
+                    => LWWRefKey 'HBS2Basic
                     -> m (Maybe (PubKey 'Sign s))
 merelySubscribeRepo lwwKey = do
 
@@ -108,7 +108,7 @@ importRepoWait :: ( GitPerks m
                   , HasAPI LWWRefAPI UNIX m
                   , HasAPI RefLogAPI UNIX m
                   )
-               => LWWRefKey HBS2Basic
+               => LWWRefKey 'HBS2Basic
                -> m ()
 
 importRepoWait lwwKey = do

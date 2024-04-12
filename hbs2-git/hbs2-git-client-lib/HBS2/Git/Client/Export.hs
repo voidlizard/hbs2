@@ -153,7 +153,7 @@ export :: ( GitPerks m
           , GroupKeyOperations m
           , HasAPI PeerAPI UNIX m
           )
-       => LWWRefKey HBS2Basic
+       => LWWRefKey 'HBS2Basic
        -> [(GitRef,Maybe GitHash)]
        -> m ()
 export key refs  = do
@@ -177,7 +177,7 @@ export key refs  = do
                              >>= orThrowUser ("can't load credentials" <+> pretty (AsBase58 puk0))
                 pure ( view peerSignSk  creds, view peerSignPk creds )
 
-  (puk,sk) <- derivedKey @HBS2Basic @'Sign lwwRefSeed sk0
+  (puk,sk) <- derivedKey @'HBS2Basic @'Sign lwwRefSeed sk0
 
   subscribeRefLog puk
 

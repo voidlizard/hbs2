@@ -15,13 +15,13 @@ import Data.Word
 testDerivedKeys1 :: IO ()
 testDerivedKeys1 = do
 
-  cred <- newCredentials @HBS2Basic
+  cred <- newCredentials @'HBS2Basic
 
   let _ = view peerSignPk cred
   let sk = view peerSignSk cred
 
   let nonce = 0x123456780928934 :: Word64
-  (pk1,sk1) <- derivedKey @HBS2Basic @'Sign nonce sk
+  (pk1,sk1) <- derivedKey @'HBS2Basic @'Sign nonce sk
 
   let box = makeSignedBox @L4Proto pk1 sk1 (42 :: Word32)
 

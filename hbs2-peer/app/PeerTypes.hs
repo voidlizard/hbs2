@@ -131,7 +131,7 @@ type MyPeer e = ( Eq (Peer e)
                 , Hashable (Peer e)
                 , Pretty (Peer e)
                 , HasPeer e
-                , ForSignedBox e
+                , ForSignedBox (Encryption e)
                 )
 
 data DownloadReq e
@@ -162,7 +162,7 @@ instance Expires (EventKey e (DownloadReq e)) where
 type DownloadFromPeerStuff e m = ( MyPeer e
                                  , MonadIO m
                                  , MonadUnliftIO m
-                                 , ForSignedBox e
+                                 , ForSignedBox (Encryption e)
                                  , Request e (BlockInfo e) m
                                  , Request e (BlockChunks e) m
                                  , MonadReader (PeerEnv e ) m
