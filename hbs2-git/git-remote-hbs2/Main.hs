@@ -10,8 +10,8 @@ import HBS2.Git.Client.State
 import HBS2.Git.Client.Progress
 import HBS2.Git.Client.Config
 import HBS2.Git.Data.RefLog
-import HBS2.Git.Data.Tx qualified as TX
-import HBS2.Git.Data.Tx (RepoHead(..))
+import HBS2.Git.Data.Tx.Git qualified as TX
+import HBS2.Git.Data.Tx.Git (RepoHead(..))
 import HBS2.Git.Data.LWWBlock
 
 import HBS2.System.Dir

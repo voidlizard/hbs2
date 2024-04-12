@@ -6,7 +6,7 @@ import HBS2.Git.Client.Prelude
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
 
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 
 data Progress a =
   Progress

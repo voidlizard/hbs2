@@ -7,7 +7,7 @@ import HBS2.Git.Client.RefLog
 import HBS2.Git.Client.Progress
 
 import HBS2.Git.Data.RefLog
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.LWWBlock
 
 import Data.ByteString.Lazy qualified as LBS

@@ -1,5 +1,5 @@
-module HBS2.Git.Data.Tx
-  ( module HBS2.Git.Data.Tx
+module HBS2.Git.Data.Tx.Git
+  ( module HBS2.Git.Data.Tx.Git
   , OperationError(..)
   ) where
 

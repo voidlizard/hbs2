@@ -13,7 +13,7 @@ import HBS2.Git.Client.Progress
 import HBS2.Git.Local
 import HBS2.Git.Client.App.Types.GitEnv
 
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.GK
 
 import HBS2.KeyMan.Keys.Direct

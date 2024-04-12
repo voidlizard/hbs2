@@ -100,7 +100,7 @@ library
       HBS2.Git.Local
       HBS2.Git.Local.CLI
 
-      HBS2.Git.Data.Tx
+      HBS2.Git.Data.Tx.Git
       HBS2.Git.Data.GK
       HBS2.Git.Data.RefLog
       HBS2.Git.Data.LWWBlock
