@@ -39,6 +39,7 @@ commands =
   hsubparser (  command "export"  (info pExport  (progDesc "export repo to hbs2-git"))
              <> command "import" (info pImport  (progDesc "import repo from reflog"))
              <> command "key"    (info pKey     (progDesc "key management"))
+             <> command "track"  (info pTrack   (progDesc "track tools"))
              <> command "tools"  (info pTools   (progDesc "misc tools"))
              )
 
@@ -46,6 +47,8 @@ commands =
 pRefLogId :: ReadM RefLogId
 pRefLogId = maybeReader (fromStringMay @RefLogId)
 
+pRefChanId :: ReadM GitRefChanId
+pRefChanId = maybeReader (fromStringMay @GitRefChanId)
 
 pLwwKey :: ReadM (LWWRefKey 'HBS2Basic)
 pLwwKey = maybeReader fromStringMay
@@ -204,6 +207,18 @@ pKeyUpdate = do
     case added of
       Nothing -> liftIO $ putStrLn "not added" >> exitFailure
       Just x  -> liftIO $ print $ pretty x
+
+
+pTrack :: GitPerks m => Parser (GitCLI m ())
+pTrack = hsubparser (  command "send-repo-notify" (info pSendRepoNotify (progDesc "sends repository notification"))
+                    )
+
+pSendRepoNotify :: GitPerks m => Parser (GitCLI m ())
+pSendRepoNotify = do
+  notifyChan <- argument pRefChanId (metavar "CHANNEL-KEY")
+  pure do
+    notice "JOPA"
+    pure ()
 
 main :: IO ()
 main = do

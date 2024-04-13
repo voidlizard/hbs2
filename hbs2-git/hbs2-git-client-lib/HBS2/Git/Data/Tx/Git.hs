@@ -161,6 +161,15 @@ makeTx sto rewrite r puk findSk rh prev lbss = do
 
   let meRef = HashRef me
 
+  -- FIXME: ASAP-race-condition-on-seq-ref
+  --   При разборе транзакции, если по какой-то причине
+  --   голова сразу не подъезжает, то не подъедет уже никогда,
+  --   и бранчи не приедут (Import).
+  --
+  --   Возможные решения: запатчить процедуру импорта (1)
+  --   Добавить ссылкун а RepoHead в блок, где приезжают
+  --   пулы
+
   -- TODO: post-real-rank-for-tx
   let tx = SequentialRef r (AnnotatedHashRef (Just headRef) meRef)
             & serialise

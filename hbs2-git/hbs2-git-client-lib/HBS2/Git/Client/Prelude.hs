@@ -17,6 +17,7 @@ module HBS2.Git.Client.Prelude
   , module HBS2.Peer.Proto.LWWRef
   , module HBS2.Peer.RPC.API.Peer
   , module HBS2.Peer.RPC.API.RefLog
+  , module HBS2.Peer.RPC.API.RefChan
   , module HBS2.Peer.RPC.API.LWWRef
   , module HBS2.Peer.RPC.API.Storage
   , module HBS2.Peer.RPC.Client.StorageClient
@@ -33,6 +34,7 @@ module HBS2.Git.Client.Prelude
   , getSocketName
   , formatRef
   , deserialiseOrFail
+  , GitRefChanId
   ) where
 
 import HBS2.Prelude.Plated hiding (at)
@@ -56,6 +58,7 @@ import HBS2.Net.Proto.Service
 import HBS2.Peer.Proto.LWWRef
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
@@ -72,6 +75,9 @@ import UnliftIO
 import System.Process.Typed
 import Lens.Micro.Platform
 import Codec.Serialise
+
+-- FIXME: subject-to-change-signature
+type GitRefChanId = RefChanId L4Proto
 
 data RPCNotFoundError = RPCNotFoundError
                         deriving stock (Show,Typeable)

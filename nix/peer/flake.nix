@@ -7,7 +7,7 @@
     extra-container.url = "github:erikarvstedt/extra-container";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     hbs2.url =
-      "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=lwwrepo";
+      "git+http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP?ref=dev-0.24.2";
     hbs2.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager";
