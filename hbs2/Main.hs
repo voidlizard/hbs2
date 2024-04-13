@@ -11,6 +11,7 @@ import HBS2.Peer.Proto
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Net.Auth.GroupKeyAsymm as Asymm
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Net.Auth.GroupKeySymm
@@ -787,6 +788,7 @@ main = join . customExecParser (prefs showHelpOnError) $
                       <> yellow "Note:" <+> "the key will be safe until you publish its hash"
                       <+> "somewhere" <> line
                       <> "so if you have changed your mind --- you may delete it with hbs2 del"
+                      <> line <> line
 
           runKeymanClient $ loadCredentials pks
 
@@ -797,11 +799,11 @@ main = join . customExecParser (prefs showHelpOnError) $
 
         rpc <- ContT $ withRPC2 @StorageAPI soname
 
-        -- locate storage
-        -- put key block
-        -- done
+        let sto = AnyStorage (StorageClient rpc)
 
-        pure ()
+        h <- putBlock sto (serialise creds1)
+
+        liftIO $ print $ pretty h
 
     -- TODO: all-keyring-management-to-keyman
     pKeyRing = hsubparser (    command "find" (info pKeyRingFind (progDesc "find keyring"))

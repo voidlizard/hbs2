@@ -27,16 +27,20 @@ import HBS2.System.Logger.Simple
 
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe
+import Data.Either
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Data.Hashable hiding (Hashed)
-
+import Data.Coerce
+import Data.List qualified as List
+import Codec.Serialise
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -89,11 +93,24 @@ instance Serialise RefChanActionRequest
 
 type DisclosedCredentials e = PeerCredentials (Encryption e)
 
-data RefChanHeadExt e =
-  RefChanDisclosedCredentials (TaggedHashRef (DisclosedCredentials e))
-  deriving stock (Generic)
+newtype RefChanHeadExt e =
+  RefChanHeadExt [LBS.ByteString]
+  deriving stock Generic
+  deriving newtype (Semigroup, Monoid)
 
-instance SerialisedCredentials (Encryption e) => Serialise (RefChanHeadExt e)
+data  RefChanDisclosedCredentials e =
+  RefChanDisclosedCredentials (TaggedHashRef (DisclosedCredentials e))
+  deriving stock (Eq,Generic)
+
+instance Pretty (AsBase58 (RefChanDisclosedCredentials e)) where
+  pretty (AsBase58 (RefChanDisclosedCredentials x)) = pretty x
+
+instance Pretty (RefChanDisclosedCredentials e) where
+  pretty (RefChanDisclosedCredentials x) = pretty x
+
+instance Serialise (RefChanHeadExt e)
+
+instance SerialisedCredentials (Encryption e) => Serialise (RefChanDisclosedCredentials e)
 
 data RefChanNotify e =
     Notify (RefChanId e) (SignedBox ByteString (Encryption e)) -- подписано ключом автора
@@ -246,7 +263,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                       <*> pure (HashSet.fromList authors)
                       <*> pure (HashSet.fromList readers)
                       <*> pure (HashSet.fromList notifiers)
-                      <*> pure mempty
+                      <*> pure (LBS.toStrict $ serialise ext)
 
     where
       parsed = parseTop str & fromRight mempty
@@ -272,6 +289,13 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                             ]
 
 
+      disclosed = catMaybes [ fromStringMay @HashRef (Text.unpack s)
+                            | (ListVal [SymbolVal "disclosed", LitStrVal s] ) <- parsed
+                            ]
+
+      ext1 = fmap serialise [ RefChanDisclosedCredentials @L4Proto (coerce c) | c <- disclosed ]
+      ext  = RefChanHeadExt ext1 & serialise
+
 instance (ForRefChans e
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
@@ -289,12 +313,24 @@ instance (ForRefChans e
                lstOf reader (HashSet.toList $ view refChanHeadReaders blk)
                <>
                lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
+               <>
+               lstOf disclosed_ disclosed
 
     where
+
+      RefChanHeadExt exs = deserialiseOrFail @(RefChanHeadExt L4Proto) (LBS.fromStrict $ view refChanHeadExt blk)
+                                & fromRight mempty
+
+      disclosed = [ deserialiseOrFail @(RefChanDisclosedCredentials L4Proto) s
+                  | s <- exs
+                  ] & rights
+
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
       notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
+      disclosed_ p = parens ("disclosed" <+> dquotes (pretty (AsBase58 p)))
+
       -- disclosed p =
 
       lstOf f e | null e = mempty

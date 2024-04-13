@@ -41,6 +41,9 @@ newtype TheHashRef t = TheHashRef { fromTheHashRef :: Hash HbSync }
 instance Pretty (AsBase58 (TheHashRef t)) where
   pretty (AsBase58 x) = pretty x
 
+instance Pretty (AsBase58 (TaggedHashRef t)) where
+  pretty (AsBase58 x) = pretty x
+
 instance FromStringMaybe (TheHashRef t) where
   fromStringMay = fmap TheHashRef . fromStringMay
 

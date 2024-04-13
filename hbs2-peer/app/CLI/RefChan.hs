@@ -38,6 +38,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.HashSet qualified as HashSet
 import Data.Maybe
+import Data.Coerce
 import Lens.Micro.Platform
 import Options.Applicative
 import System.Exit
@@ -79,13 +80,50 @@ pRefChanHeadGen = do
     let qq = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) hd
     LBS.putStr (serialise qq)
 
+data HeadDumpOpts = HeadDumpRef (RefChanId L4Proto)
+                  | HeadDumpFile FilePath
+
 pRefChanHeadDump :: Parser (IO ())
 pRefChanHeadDump= do
-  fn <- optional $ strArgument (metavar "refchan head blob")
-  pure $ do
-    lbs <- maybe1 fn LBS.getContents LBS.readFile
+  opts <- pRpcCommon
+
+  what <- optional $ HeadDumpRef <$> argument pRefChanId  (metavar "REFCHAN-KEY")
+            <|> HeadDumpFile <$> strOption (short 'f' <> long "file"
+                                                      <> metavar "FILE"
+                                                      <> help "read from file")
+
+  pure $ flip runContT pure do
+
+    lbs <- case what of
+              Nothing -> lift $ LBS.getContents
+              Just (HeadDumpFile f) -> lift $ LBS.readFile f
+              Just (HeadDumpRef r) -> do
+
+                client <- ContT $ withRPCMessaging opts
+
+                self <- runReaderT (ownPeer @UNIX) client
+                refChanAPI  <- makeServiceCaller @RefChanAPI self
+                storageAPI  <- makeServiceCaller @StorageAPI self
+
+                let endpoints = [ Endpoint @UNIX refChanAPI
+                                , Endpoint @UNIX storageAPI
+                                ]
+
+                void $ ContT $ bracket (async $ runReaderT (runServiceClientMulti endpoints) client) cancel
+
+                rv <- lift (callRpcWaitMay @RpcRefChanHeadGet (TimeoutSec 1) refChanAPI r)
+                        >>= orThrowUser "rpc error"
+                        >>= orThrowUser "refchan head value not found"
+
+                liftIO $ print (pretty rv)
+
+                let sto = AnyStorage (StorageClient storageAPI)
+                runExceptT (readFromMerkle sto (SimpleKey (coerce rv)))
+                          >>= orThrowUser "can't decode refchan head "
+
+
     (_, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs) `orDie` "can't unbox signed box"
-    print $ pretty hdblk
+    liftIO $ print $ pretty hdblk
 
 
 pRefChanHeadPost :: Parser (IO ())
