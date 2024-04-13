@@ -35,11 +35,13 @@ globalOptions = pure GlobalOptions
 
 type AppPerks m = (MonadIO m, MonadUnliftIO m, MonadReader AppEnv m, HasConf m, SerialisedCredentials 'HBS2Basic)
 
--- Парсер для команд
+-- TODO: key-mamagement-command-about-to-move-here
+
 commands :: (AppPerks m) => Parser (Command m)
 commands = hsubparser
   (  command "update"     (O.info (updateKeys <**> helper) (progDesc "update keys" ))
   <> command "list"       (O.info (listKeysCmd <**> helper) (progDesc "list keys" ))
+  <> command "disclose"   (O.info (discloseKeyCmd <**> helper) (progDesc "disclose credentials" ))
   <> command "set-weight" (O.info (setWeightCmd <**> helper) (progDesc "set weight for a key"))
   <> command "add-mask"   (O.info (addPath <**> helper) (progDesc "add path/mask to search keys, ex. '/home/user/keys/*.key'"))
   <> command "config"     (O.info (showConfig <**> helper) (progDesc "show hbs2-keyman config"))
@@ -116,6 +118,12 @@ setWeightCmd = do
   pure do
     withState $ updateKeyWeight k v
 
+discloseKeyCmd :: (AppPerks m) => Parser (Command m)
+discloseKeyCmd  = do
+  -- k <- argument str (metavar "KEY" <> help "Key identifier")
+  -- v <- argument auto (metavar "WEIGHT" <> help "Weight value")
+  pure do
+    notice "WIP"
 
 main :: IO ()
 main = do
