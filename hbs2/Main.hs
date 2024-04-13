@@ -8,6 +8,9 @@ import HBS2.Data.KeyRing as KeyRing
 import HBS2.Defaults
 import HBS2.Merkle
 import HBS2.Peer.Proto
+import HBS2.Peer.CLI.Detect
+import HBS2.Peer.RPC.Client.Unix
+import HBS2.Peer.RPC.API.Storage
 import HBS2.Net.Auth.GroupKeyAsymm as Asymm
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Net.Auth.GroupKeySymm
@@ -160,6 +163,11 @@ hPrint h s = liftIO $ IO.hPrint h s
 
 hGetContents :: MonadIO m => Handle -> m String
 hGetContents h = liftIO $ IO.hGetContents h
+
+{- HLINT ignore "Use getChar" -}
+
+hGetChar :: MonadIO m => Handle -> m Char
+hGetChar = liftIO . IO.hGetChar
 
 hPutStrLn :: MonadIO m => Handle -> String -> m ()
 hPutStrLn h s = liftIO $ IO.hPutStrLn h s
@@ -510,10 +518,10 @@ main = join . customExecParser (prefs showHelpOnError) $
                         <> command "deps"            (info pDeps (progDesc "print dependencies"))
                         <> command "del"             (info pDel (progDesc "del block"))
                         <> command "keyring"         (info pKeyRing (progDesc "keyring commands"))
-                        <> command "keyring-new"     (info pNewKey (progDesc "generates a new keyring"))
-                        <> command "keyring-list"    (info pKeyList (progDesc "list public keys from keyring"))
-                        <> command "keyring-key-add" (info pKeyAdd (progDesc "adds a new keypair into the keyring"))
-                        <> command "keyring-key-del" (info pKeyDel (progDesc "removes a keypair from the keyring"))
+                        <> command "keyring-new"     iNewKey
+                        <> command "keyring-list"    iKeyList
+                        <> command "keyring-key-add" iKeyAdd
+                        <> command "keyring-key-del" iKeyDel
                         <> command "sigil"           (info pSigil (progDesc "sigil functions"))
                         <> command "show-peer-key"   (info pShowPeerKey (progDesc "show peer key from credential file"))
                         <> command "groupkey"        (info pGroupKey (progDesc "group key commands"))
@@ -720,6 +728,8 @@ main = join . customExecParser (prefs showHelpOnError) $
       hash  <- strArgument ( metavar "HASH" )
       pure $ withStore o $ runHash $ HashOpts hash
 
+    iNewKey = info pNewKey (progDesc "generates a new keyring")
+
     pNewKey = do
       n <- optional $ option auto ( short 'n' <> long "number")
       pure $ runNewKey (fromMaybe 0 n)
@@ -728,21 +738,78 @@ main = join . customExecParser (prefs showHelpOnError) $
       fp <- optional $ strArgument ( metavar "FILE" )
       pure $ runShowPeerKey fp
 
+    iKeyList = info pKeyList (progDesc "list public keys from keyring")
+
     pKeyList = do
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runListKeys f)
+
+    iKeyAdd = info pKeyAdd (progDesc "adds a new keypair into the keyring")
 
     pKeyAdd = do
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyAdd f)
 
+    iKeyDel = info pKeyDel (progDesc "removes a keypair from the keyring")
 
     pKeyDel = do
       s <- strArgument ( metavar "PUB-KEY-BASE58" )
       f <- strArgument ( metavar "KEYRING-FILE" )
       pure (runKeyDel s f)
 
-    pKeyRing = hsubparser ( command "find" (info pKeyRingFind (progDesc "find keyring"))
+
+    iKeyDisclose = info pKeyDisclose (progDesc "disclose private key")
+
+    pKeyDisclose = do
+      pks <- argument pPubKey ( metavar "PUB-KEY-ID" )
+
+      pure $ flip runContT pure $ callCC \_ -> do
+
+        soname <- lift detectRPC `orDie` "peer rpc not found"
+
+        y <- lift do
+          hSetBuffering stdin NoBuffering
+          hPutDoc stderr $  yellow "Note: you are about to disclose private signing key"
+                              <+> pretty (AsBase58 pks) <> line
+                  <> "Probably, you wish to enable unsolicited notifications for some channel" <> line
+                  <> "Anyway, make sure you know what you doing before proceeding" <> line
+                  <> yellow "Proceed?" <+> "[y/n]: "
+          hFlush stderr
+          hGetChar stdin
+
+
+        void $ ContT $ whenTrue ()
+                         ( y `elem` "yY")
+                         (hPutStrLn stderr "" >> hPutDoc stderr "wise. see you!")
+
+        mcreds <- lift do
+          hPutDoc stderr $ line
+                      <> yellow "Note:" <+> "the key will be safe until you publish its hash"
+                      <+> "somewhere" <> line
+                      <> "so if you have changed your mind --- you may delete it with hbs2 del"
+
+          runKeymanClient $ loadCredentials pks
+
+        creds <- ContT $ maybe1 mcreds exitFailure
+
+        -- NOTE: only-sign-key-disclosed-yet
+        let creds1 = set peerKeyring mempty creds
+
+        rpc <- ContT $ withRPC2 @StorageAPI soname
+
+        -- locate storage
+        -- put key block
+        -- done
+
+        pure ()
+
+    -- TODO: all-keyring-management-to-keyman
+    pKeyRing = hsubparser (    command "find" (info pKeyRingFind (progDesc "find keyring"))
+                           <>  command "new"  iNewKey
+                           <>  command "list" iKeyList
+                           <>  command "add"  iKeyAdd
+                           <>  command "del"  iKeyDel
+                           <>  command "disclose" iKeyDisclose
                           )
 
     pKeyRingFind = do
@@ -951,8 +1018,5 @@ main = join . customExecParser (prefs showHelpOnError) $
 
 
     pPubKey = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
-
-
-
 
 
