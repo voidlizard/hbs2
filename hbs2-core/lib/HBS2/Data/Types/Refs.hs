@@ -23,6 +23,9 @@ newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
                   deriving stock (Data,Generic,Show)
 
+newtype TaggedHashRef t = TaggedHashRef { fromTaggedHashRef :: HashRef }
+                          deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
+                          deriving stock (Data,Generic,Show)
 
 instance Pretty (AsBase58 HashRef) where
   pretty (AsBase58 x) = pretty x
@@ -65,6 +68,7 @@ data SequentialRef =
 instance Serialise AnnotatedHashRef
 instance Serialise SequentialRef
 instance Serialise HashRef
+instance Serialise (TaggedHashRef e)
 
 
 type IsRefPubKey s =  ( Eq (PubKey 'Sign s)

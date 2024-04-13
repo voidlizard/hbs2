@@ -183,7 +183,7 @@ runHash opts _ = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
-runCat :: forall s . For'HBS2Basic s => CatOpts -> SimpleStorage HbSync -> IO ()
+runCat :: forall s . ForHBS2Basic s => CatOpts -> SimpleStorage HbSync -> IO ()
 
 runCat opts ss | catRaw opts == Just True = do
 

@@ -217,7 +217,7 @@ pSendRepoNotify :: GitPerks m => Parser (GitCLI m ())
 pSendRepoNotify = do
   notifyChan <- argument pRefChanId (metavar "CHANNEL-KEY")
   pure do
-    notice "JOPA"
+    notice "wip"
     pure ()
 
 main :: IO ()

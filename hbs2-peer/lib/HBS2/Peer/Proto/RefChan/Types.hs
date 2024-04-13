@@ -87,6 +87,14 @@ data RefChanActionRequest =
 
 instance Serialise RefChanActionRequest
 
+type DisclosedCredentials e = PeerCredentials (Encryption e)
+
+data RefChanHeadExt e =
+  RefChanDisclosedCredentials (TaggedHashRef (DisclosedCredentials e))
+  deriving stock (Generic)
+
+instance SerialisedCredentials (Encryption e) => Serialise (RefChanHeadExt e)
+
 data RefChanNotify e =
     Notify (RefChanId e) (SignedBox ByteString (Encryption e)) -- подписано ключом автора
   -- довольно уместно будет добавить эти команды сюда -
@@ -96,6 +104,7 @@ data RefChanNotify e =
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanNotify e)
+
 
 newtype instance EventKey e (RefChanNotify e) =
   RefChanNotifyEventKey (RefChanId e)
@@ -116,7 +125,8 @@ instance Expires (EventKey e (RefChanNotify e)) where
 
 
 
-type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
+type ForRefChans e = ( Serialise (PubKey 'Sign (Encryption e))
+                     , Serialise (PrivKey 'Sign (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , FromStringMaybe (PubKey 'Encrypt (Encryption e))
@@ -261,6 +271,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                             | (ListVal [SymbolVal "notifier", LitStrVal s] ) <- parsed
                             ]
 
+
 instance (ForRefChans e
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
@@ -284,6 +295,7 @@ instance (ForRefChans e
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
       notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
+      -- disclosed p =
 
       lstOf f e | null e = mempty
                 | otherwise = vcat (fmap f e) <> line

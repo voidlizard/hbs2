@@ -90,7 +90,7 @@ data PeerCredentials s =
 makeLenses 'KeyringEntry
 makeLenses 'PeerCredentials
 
-type For'HBS2Basic s = ( Signatures s
+type ForHBS2Basic s = ( Signatures s
                        , PrivKey 'Sign s ~ Sign.SecretKey
                        , PubKey 'Sign s ~ Sign.PublicKey
                        , Eq (PubKey 'Encrypt 'HBS2Basic)
@@ -147,7 +147,7 @@ addKeyPair txt cred = do
   pure $ cred & over peerKeyring (List.nub . (<> [kp]))
 
 delKeyPair :: forall e m . ( MonadIO m
-                           , For'HBS2Basic e
+                           , ForHBS2Basic e
                            )
            => AsBase58 String -> PeerCredentials e -> m (PeerCredentials e)
 delKeyPair (AsBase58 pks) cred = do
@@ -157,7 +157,7 @@ delKeyPair (AsBase58 pks) cred = do
   pure $ cred & set peerKeyring rest
 
 
-parseCredentials :: forall s . ( -- For'HBS2Basic s
+parseCredentials :: forall s . ( -- ForHBS2Basic s
                                  SerialisedCredentials s
                                )
                  =>  AsCredFile ByteString -> Maybe (PeerCredentials s)
