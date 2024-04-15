@@ -15,6 +15,7 @@ import HBS2.Net.Auth.Schema
 import HBS2.Base58
 import HBS2.Hash
 
+import Control.Applicative
 import Codec.Serialise
 import Crypto.Saltine.Core.Sign (Keypair(..))
 import Crypto.Saltine.Core.Sign qualified as Sign
@@ -161,7 +162,13 @@ parseCredentials :: forall s . ( -- ForHBS2Basic s
                                  SerialisedCredentials s
                                )
                  =>  AsCredFile ByteString -> Maybe (PeerCredentials s)
-parseCredentials (AsCredFile bs) = parseSerialisableFromBase58 bs
+parseCredentials (AsCredFile bs) =
+  parseSerialisableFromBase58 bs <|> parseSerialisableFromCbor (LBS.fromStrict bs)
+
+parseSerialisableFromCbor :: SerialisedCredentials s => LBS.ByteString -> Maybe (PeerCredentials s)
+parseSerialisableFromCbor = fromCbor
+    where fromCbor s = deserialiseOrFail s
+                        & either (const Nothing) Just
 
 parseSerialisableFromBase58 :: Serialise a => ByteString -> Maybe a
 parseSerialisableFromBase58 bs = maybe1 b58_1 Nothing fromCbor
