@@ -91,26 +91,26 @@ data RefChanActionRequest =
 
 instance Serialise RefChanActionRequest
 
-type DisclosedCredentials e = PeerCredentials (Encryption e)
+type DisclosedCredentialsRef e = PeerCredentials (Encryption e)
 
 newtype RefChanHeadExt e =
   RefChanHeadExt [LBS.ByteString]
   deriving stock Generic
   deriving newtype (Semigroup, Monoid)
 
-data  RefChanDisclosedCredentials e =
-  RefChanDisclosedCredentials (TaggedHashRef (DisclosedCredentials e))
+newtype RefChanDisclosedCredentialsRef e =
+  RefChanDisclosedCredentialsRef (TaggedHashRef (DisclosedCredentialsRef e))
   deriving stock (Eq,Generic)
 
-instance Pretty (AsBase58 (RefChanDisclosedCredentials e)) where
-  pretty (AsBase58 (RefChanDisclosedCredentials x)) = pretty x
+instance Pretty (AsBase58 (RefChanDisclosedCredentialsRef e)) where
+  pretty (AsBase58 (RefChanDisclosedCredentialsRef x)) = pretty x
 
-instance Pretty (RefChanDisclosedCredentials e) where
-  pretty (RefChanDisclosedCredentials x) = pretty x
+instance Pretty (RefChanDisclosedCredentialsRef e) where
+  pretty (RefChanDisclosedCredentialsRef x) = pretty x
 
 instance Serialise (RefChanHeadExt e)
 
-instance SerialisedCredentials (Encryption e) => Serialise (RefChanDisclosedCredentials e)
+instance SerialisedCredentials (Encryption e) => Serialise (RefChanDisclosedCredentialsRef e)
 
 data RefChanNotify e =
     Notify (RefChanId e) (SignedBox ByteString (Encryption e)) -- подписано ключом автора
@@ -188,19 +188,19 @@ refChanHeadNotifiers = lens g s
     s x _ = x
 
 refChanHeadDisclosed :: forall e . ForRefChans e
-                      => SimpleGetter (RefChanHeadBlock e) [RefChanDisclosedCredentials e]
+                      => SimpleGetter (RefChanHeadBlock e) [RefChanDisclosedCredentialsRef e]
 
 refChanHeadDisclosed = to getDisclosed
   where
-    getDisclosed :: ForRefChans e => RefChanHeadBlock e -> [RefChanDisclosedCredentials e]
+    getDisclosed :: ForRefChans e => RefChanHeadBlock e -> [RefChanDisclosedCredentialsRef e]
     getDisclosed blk = case blk of
       RefChanHeadBlockSmall{} -> []
       RefChanHeadBlock1{}     -> []
       RefChanHeadBlock2{..}   -> extractDisclosed _refChanHeadExt
 
-    extractDisclosed :: ByteString -> [RefChanDisclosedCredentials e]
+    extractDisclosed :: ByteString -> [RefChanDisclosedCredentialsRef e]
     extractDisclosed ext = case deserialiseOrFail @(RefChanHeadExt e) (LBS.fromStrict ext) of
-      Right (RefChanHeadExt exts) -> rights $ map (deserialiseOrFail @(RefChanDisclosedCredentials e)) exts
+      Right (RefChanHeadExt exts) -> rights $ map (deserialiseOrFail @(RefChanDisclosedCredentialsRef e)) exts
       Left _                      -> []
 
 
@@ -311,7 +311,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                             | (ListVal [SymbolVal "disclosed", LitStrVal s] ) <- parsed
                             ]
 
-      ext1 = fmap serialise [ RefChanDisclosedCredentials @L4Proto (coerce c) | c <- disclosed ]
+      ext1 = fmap serialise [ RefChanDisclosedCredentialsRef @L4Proto (coerce c) | c <- disclosed ]
       ext  = RefChanHeadExt ext1 & serialise
 
 instance (ForRefChans e
@@ -345,7 +345,7 @@ instance (ForRefChans e
       RefChanHeadExt exs = deserialiseOrFail @(RefChanHeadExt L4Proto) extLbs
                                 & fromRight mempty
 
-      disclosed = [ deserialiseOrFail @(RefChanDisclosedCredentials L4Proto) s
+      disclosed = [ deserialiseOrFail @(RefChanDisclosedCredentialsRef L4Proto) s
                   | s <- exs
                   ] & rights
 
