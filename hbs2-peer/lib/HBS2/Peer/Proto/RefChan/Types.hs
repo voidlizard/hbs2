@@ -200,7 +200,7 @@ refChanHeadDisclosed = to getDisclosed
 
     extractDisclosed :: ByteString -> [RefChanDisclosedCredentialsRef e]
     extractDisclosed ext = case deserialiseOrFail @(RefChanHeadExt e) (LBS.fromStrict ext) of
-      Right (RefChanHeadExt exts) -> rights $ map (deserialiseOrFail @(RefChanDisclosedCredentialsRef e)) exts
+      Right (RefChanHeadExt exts) -> rights $ fmap (deserialiseOrFail @(RefChanDisclosedCredentialsRef e)) exts
       Left _                      -> []
 
 
