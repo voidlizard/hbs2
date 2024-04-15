@@ -59,8 +59,11 @@ loadCredentials k = KeyManClient do
 
   fnames <- select @(Only FilePath) [qc|
     select f.file
-    from keytype t join keyfile f on t.key = f.key
+    from keytype t
+            join keyfile f on t.key = f.key
+       left join keyweight w on w.key = f.key
     where t.key = ? and t.type = 'sign'
+    order by w.weight desc nulls last
     limit 1 |]  (Only (SomePubKey k))
 
   runMaybeT do

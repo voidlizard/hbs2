@@ -418,13 +418,10 @@ getActualRefChanHead key = do
 
     case mbHead of
       Just hd -> do
-        debug "HEAD DISCOVERED"
         pure hd
 
       Nothing -> do
-        headblk <- MaybeT $ getRefChanHead sto key
-        debug "HEAD FOUND"
-        pure headblk
+        MaybeT $ getRefChanHead sto key
 
 getRefChanHead :: forall e s m . ( MonadIO m
                                  , s ~ Encryption e

@@ -48,7 +48,7 @@ import UnliftIO
 
 
 pRefChan :: Parser (IO ())
-pRefChan = hsubparser (   command "head" (info pRefChanHead       (progDesc "head commands" ))
+pRefChan = hsubparser (   command "head"    (info pRefChanHead       (progDesc "head commands" ))
                        <> command "propose" (info pRefChanPropose (progDesc "post propose transaction"))
                        <> command "notify"  (info pRefChanNotify  (progDesc "post notify message"))
                        <> command "fetch"   (info pRefChanFetch   (progDesc "fetch and sync refchan value"))

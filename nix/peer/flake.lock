@@ -329,16 +329,17 @@
         "suckless-conf": "suckless-conf_2"
       },
       "locked": {
-        "lastModified": 1711190148,
-        "narHash": "sha256-XnvjD8yvSrSTMmsy3fE7chVg1oDBamMaWkEZ0lJ8sHU=",
-        "ref": "dev-0.24.2",
-        "rev": "37618a32bb0ae5bfa8b8380c6537638b1f5d412d",
-        "revCount": 983,
+        "lastModified": 1713159635,
+        "narHash": "sha256-iXf8qcJxePLM65E0fsAK2kj69/YIyQdNMrZ5yULzVGc=",
+        "ref": "hbs2-git-index",
+        "rev": "2289845078ba839bade83a1daf5234435e6e631e",
+        "revCount": 997,
         "type": "git",
         "url": "http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
       },
       "original": {
-        "ref": "dev-0.24.2",
+        "ref": "hbs2-git-index",
+        "rev": "2289845078ba839bade83a1daf5234435e6e631e",
         "type": "git",
         "url": "http://git.hbs2/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP"
       }

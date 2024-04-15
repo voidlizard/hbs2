@@ -11,13 +11,21 @@ import HBS2.Git.Data.RefLog
 import HBS2.Git.Local.CLI qualified as Git
 import HBS2.Git.Data.Tx.Git qualified as TX
 import HBS2.Git.Data.Tx.Git (RepoHead(..))
+import HBS2.Git.Data.Tx.Index
 import HBS2.Git.Data.LWWBlock
+import HBS2.Peer.Proto.RefChan.Types
 import HBS2.Git.Data.GK
 
+import HBS2.KeyMan.Keys.Direct
 import HBS2.Storage.Operations.ByteString
 
+import Data.HashSet qualified as HS
+import Data.Maybe
+import Data.Coerce
 import Options.Applicative as O
 import Data.ByteString.Lazy qualified as LBS
+
+import Streaming.Prelude qualified as S
 
 import System.Exit
 
@@ -215,10 +223,48 @@ pTrack = hsubparser (  command "send-repo-notify" (info pSendRepoNotify (progDes
 
 pSendRepoNotify :: GitPerks m => Parser (GitCLI m ())
 pSendRepoNotify = do
+  dry <- flag False True (short 'n' <> long "dry" <> help "don't post anything")
   notifyChan <- argument pRefChanId (metavar "CHANNEL-KEY")
   pure do
-    notice "wip"
-    pure ()
+    notice $ "test send-repo-notify" <+> pretty (AsBase58 notifyChan)
+    -- откуда мы берём ссылку, которую постим? их много.
+
+    lwws <- withState selectAllLww
+
+    -- берём те, для которых у нас есть приватный ключ (наши)
+    creds <- catMaybes <$> runKeymanClient do
+                for lwws $ \(lwref,_,_) -> do
+                  loadCredentials (coerce @_ @(PubKey 'Sign 'HBS2Basic) lwref)
+
+    sto <- getStorage
+    rchanAPI <- asks _refChanAPI
+
+    hd <- getRefChanHead @L4Proto sto (RefChanHeadKey notifyChan)
+             `orDie` "refchan head not found"
+
+    let notifiers = view refChanHeadNotifiers hd & HS.toList
+
+    -- откуда мы берём ключ, которым подписываем?
+    -- ищем тоже в кеймане, берём тот, у которого выше weight
+    foundKey <- runKeymanClient (
+                  S.head_ do
+                     for notifiers $ \n -> do
+                      lift (loadCredentials n) >>= maybe none S.yield
+                      ) `orDie` "signing key not found"
+
+    for_ creds $ \c -> do
+      let lww = LWWRefKey @'HBS2Basic (view peerSignPk c)
+      let lwwSk = view peerSignSk c
+      let tx = makeNotificationTx @'HBS2Basic (NotifyCredentials foundKey) lww lwwSk Nothing
+
+      notice $ "about to publish lwwref index entry:"
+        <+> pretty (AsBase58 $ view peerSignPk c)
+
+      -- как мы постим ссылку
+      unless dry do
+        void $ callService @RpcRefChanNotify rchanAPI (notifyChan, tx)
+
+    -- кто парсит ссылку и помещает в рефчан
 
 main :: IO ()
 main = do

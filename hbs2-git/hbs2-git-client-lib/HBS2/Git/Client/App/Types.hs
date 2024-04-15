@@ -85,11 +85,12 @@ newGitEnv :: GitPerks m
           -> Config
           -> ServiceCaller PeerAPI UNIX
           -> ServiceCaller RefLogAPI UNIX
+          -> ServiceCaller RefChanAPI UNIX
           -> ServiceCaller LWWRefAPI UNIX
           -> ServiceCaller StorageAPI UNIX
           -> m GitEnv
 
-newGitEnv p opts path cpath conf peer reflog lww sto = do
+newGitEnv p opts path cpath conf peer reflog rchan lww sto = do
   let dbfile  = cpath </> "state.db"
   let dOpt = dbPipeOptsDef { dbLogger = \x -> debug ("state:" <+> pretty x) }
   db <- newDBPipeEnv dOpt dbfile
@@ -105,6 +106,7 @@ newGitEnv p opts path cpath conf peer reflog lww sto = do
            conf
            peer
            reflog
+           rchan
            lww
            (AnyStorage (StorageClient sto))
            db
