@@ -315,11 +315,16 @@ instance (ForRefChans e
                lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
                <>
                lstOf disclosed_ disclosed
-               <> semi <+> parens ("head-ext-number:" <+> pretty (length exs))
+               <> semi <+> parens ("head-extensions:"
+                                      <+> parens ("count:" <+> pretty (length exs))
+                                      <+> parens ("size"   <+> pretty (LBS.length extLbs))
+                                  )
 
     where
 
-      RefChanHeadExt exs = deserialiseOrFail @(RefChanHeadExt L4Proto) (LBS.fromStrict $ view refChanHeadExt blk)
+      extLbs  = LBS.fromStrict $ view refChanHeadExt blk
+
+      RefChanHeadExt exs = deserialiseOrFail @(RefChanHeadExt L4Proto) extLbs
                                 & fromRight mempty
 
       disclosed = [ deserialiseOrFail @(RefChanDisclosedCredentials L4Proto) s
