@@ -3,11 +3,11 @@ module CLI.RefChan where
 import HBS2.Prelude.Plated
 
 import HBS2.Hash
+import HBS2.Base58
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Credentials.Sigil
 import HBS2.Merkle
 import HBS2.Peer.Proto.RefChan
-import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs
 import HBS2.Actors.Peer.Types
 import HBS2.Data.Types.SignedBox
@@ -122,8 +122,9 @@ pRefChanHeadDump= do
                           >>= orThrowUser "can't decode refchan head "
 
 
-    (_, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs) `orDie` "can't unbox signed box"
-    liftIO $ print $ pretty hdblk
+    (pk, hdblk) <- pure (unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs) `orDie` "can't unbox signed box"
+    liftIO $ print $
+      (semi <+> "refchan" <+> pretty (AsBase58 pk)) <> line <> pretty hdblk
 
 
 pRefChanHeadPost :: Parser (IO ())
