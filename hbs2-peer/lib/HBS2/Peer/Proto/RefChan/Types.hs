@@ -263,7 +263,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                       <*> pure (HashSet.fromList authors)
                       <*> pure (HashSet.fromList readers)
                       <*> pure (HashSet.fromList notifiers)
-                      <*> pure (LBS.toStrict $ serialise ext)
+                      <*> pure (LBS.toStrict ext)
 
     where
       parsed = parseTop str & fromRight mempty
@@ -315,6 +315,7 @@ instance (ForRefChans e
                lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
                <>
                lstOf disclosed_ disclosed
+               <> semi <+> parens ("head-ext-number:" <+> pretty (length exs))
 
     where
 
