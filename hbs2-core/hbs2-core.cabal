@@ -127,10 +127,6 @@ library
                     , HBS2.System.Logger.Simple.ANSI
                     , HBS2.System.Logger.Simple.Class
                     , HBS2.System.Dir
-                    , HBS2.Net.Dialog.Core
-                    , HBS2.Net.Dialog.Client
-                    , HBS2.Net.Dialog.Helpers.List
-                    , HBS2.Net.Dialog.Helpers.Streaming
                     , HBS2.Misc.PrettyStuff
                     , HBS2.Version
 
@@ -218,7 +214,6 @@ test-suite test
                   -- , TestUniqProtoId
                   , FakeMessaging
                   , HasProtocol
-                  , DialogSpec
                   , TestScheduled
                   , TestDerivedKey
 

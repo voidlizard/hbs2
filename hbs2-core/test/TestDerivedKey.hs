@@ -23,7 +23,7 @@ testDerivedKeys1 = do
   let nonce = 0x123456780928934 :: Word64
   (pk1,sk1) <- derivedKey @'HBS2Basic @'Sign nonce sk
 
-  let box = makeSignedBox @L4Proto pk1 sk1 (42 :: Word32)
+  let box = makeSignedBox @'HBS2Basic pk1 sk1 (42 :: Word32)
 
   (pk, n) <- pure (unboxSignedBox0 box)
               `orDie` "can not unbox"
