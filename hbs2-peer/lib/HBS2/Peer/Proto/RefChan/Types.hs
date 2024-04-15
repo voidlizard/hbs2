@@ -144,12 +144,13 @@ instance Expires (EventKey e (RefChanNotify e)) where
 
 type ForRefChans e = ( Serialise (PubKey 'Sign (Encryption e))
                      , Serialise (PrivKey 'Sign (Encryption e))
+                     , Serialise (Signature (Encryption e))
+                     , Serialise (PubKey 'Encrypt (Encryption e))
+                     , Serialise (PrivKey 'Encrypt (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , FromStringMaybe (PubKey 'Encrypt (Encryption e))
                      , Signatures (Encryption e)
-                     , Serialise (Signature (Encryption e))
-                     , Serialise (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Sign (Encryption e))
                      )
@@ -185,6 +186,23 @@ refChanHeadNotifiers = lens g s
 
     s v@(RefChanHeadBlock2{}) x = v { _refChanHeadNotifiers' = x }
     s x _ = x
+
+refChanHeadDisclosed :: forall e . ForRefChans e
+                      => SimpleGetter (RefChanHeadBlock e) [RefChanDisclosedCredentials e]
+
+refChanHeadDisclosed = to getDisclosed
+  where
+    getDisclosed :: ForRefChans e => RefChanHeadBlock e -> [RefChanDisclosedCredentials e]
+    getDisclosed blk = case blk of
+      RefChanHeadBlockSmall{} -> []
+      RefChanHeadBlock1{}     -> []
+      RefChanHeadBlock2{..}   -> extractDisclosed _refChanHeadExt
+
+    extractDisclosed :: ByteString -> [RefChanDisclosedCredentials e]
+    extractDisclosed ext = case deserialiseOrFail @(RefChanHeadExt e) (LBS.fromStrict ext) of
+      Right (RefChanHeadExt exts) -> rights $ map (deserialiseOrFail @(RefChanDisclosedCredentials e)) exts
+      Left _                      -> []
+
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
 
