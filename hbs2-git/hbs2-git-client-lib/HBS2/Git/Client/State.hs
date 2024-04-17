@@ -28,6 +28,8 @@ import Data.Coerce
 
 import Streaming.Prelude qualified as S
 
+data Limit = Limit Integer
+
 data SortOrder = ASC | DESC
 
 newtype SQL a = SQL a

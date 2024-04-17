@@ -183,7 +183,7 @@ pManifestList :: GitPerks m => Parser (GitCLI m ())
 pManifestList = do
   what <- argument pLwwKey (metavar "LWWREF")
   pure do
-    heads <- withState $ selectRepoHeadsFor DESC what
+    heads <- withState $ selectRepoHeadsFor ASC what
     sto   <- getStorage
     for_ heads $ \h -> runMaybeT do
 
