@@ -396,7 +396,7 @@ selectRepoHeadsFor  what = do
 SELECT t.head
 FROM lww l join tx t on l.reflog = t.reflog
 WHERE l.hash = ?
-ORDER BY l.seq ASC
+ORDER BY t.seq ASC
 |]
 
   select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
