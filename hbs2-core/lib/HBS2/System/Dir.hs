@@ -47,9 +47,7 @@ touch what = do
 
   when (not here || hard) do
     mkdir (takeDirectory fn)
-    liftIO $ print (takeDirectory fn)
     unless dir do
-      liftIO $ print fn
       liftIO $ LBS.appendFile fn mempty
 
   where

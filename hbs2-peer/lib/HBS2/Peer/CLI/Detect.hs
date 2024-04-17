@@ -7,9 +7,8 @@ import Data.Config.Suckless
 import System.Process.Typed
 import Data.Text qualified as Text
 import Data.Either
-import UnliftIO
 
-detectRPC :: (MonadUnliftIO m) => m (Maybe FilePath)
+detectRPC :: MonadIO m => m (Maybe FilePath)
 detectRPC = do
 
   (_, o, _) <- readProcess (shell "hbs2-peer poke")

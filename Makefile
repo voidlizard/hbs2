@@ -13,6 +13,7 @@ BINS := \
   hbs2-keyman        \
 	hbs2-fixer         \
 	hbs2-git-subscribe \
+	hbs2-git-dashboard \
   git-remote-hbs2    \
   git-hbs2           \
 

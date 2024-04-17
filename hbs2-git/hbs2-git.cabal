@@ -132,12 +132,16 @@ executable hbs2-git-dashboard
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, hbs2-peer, hbs2-git
+        base, hbs2-peer, hbs2-git, suckless-conf
         , binary
         , vector
         , optparse-applicative
+        , http-types
+        , wai-extra
+        , scotty
 
-    hs-source-dirs:   hbs2-git-dashboard
+    hs-source-dirs:   hbs2-git-dashboard hbs2-git-dashboard/src
+
     default-language: GHC2021
 
 
