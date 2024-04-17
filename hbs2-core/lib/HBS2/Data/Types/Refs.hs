@@ -27,6 +27,7 @@ newtype TaggedHashRef t = TaggedHashRef { fromTaggedHashRef :: HashRef }
                           deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
                           deriving stock (Data,Generic,Show)
 
+
 instance Pretty (AsBase58 HashRef) where
   pretty (AsBase58 x) = pretty x
   -- TODO: should be instance Pretty (AsBase58 (Hash HbSync))

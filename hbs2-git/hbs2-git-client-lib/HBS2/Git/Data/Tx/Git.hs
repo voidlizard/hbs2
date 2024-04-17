@@ -1,6 +1,7 @@
 module HBS2.Git.Data.Tx.Git
   ( module HBS2.Git.Data.Tx.Git
   , OperationError(..)
+  , RepoHead(..)
   ) where
 
 import HBS2.Git.Client.Prelude
@@ -16,6 +17,7 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.Operations.Missed
 
 import HBS2.Git.Data.GK
+import HBS2.Git.Data.RepoHead
 
 import HBS2.Git.Local
 
@@ -38,29 +40,6 @@ type LBS = LBS.ByteString
 
 type RepoTx = RefLogUpdate L4Proto
 
-data RepoHeadType = RepoHeadType1
-                    deriving stock (Enum,Generic)
-
-data RepoHeadExt = RepoHeadExt
-                   deriving stock Generic
-
-data RepoHead =
-  RepoHeadSimple
-  { _repoHeadType   :: RepoHeadType
-  , _repoHeadTime   :: Word64
-  , _repoHeadGK0    :: Maybe HashRef
-  , _repoHeadName   :: Text
-  , _repoHeadBrief  :: Text
-  , _repoManifest   :: Maybe Text
-  , _repoHeadRefs   :: [(GitRef, GitHash)]
-  , _repoHeadExt    :: [RepoHeadExt]
-  }
-  deriving stock (Generic)
-
-
-instance Serialise RepoHeadType
-instance Serialise RepoHeadExt
-instance Serialise RepoHead
 
 data TxKeyringNotFound = TxKeyringNotFound
                          deriving stock (Show, Typeable, Generic)

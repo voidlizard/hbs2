@@ -3,15 +3,14 @@
 module HBS2.Git.Data.Tx.Index where
 
 import HBS2.Git.Client.Prelude
-import HBS2.Data.Types.Refs
-import HBS2.Data.Types.SignedBox
+import HBS2.Git.Data.RepoHead
 
+import HBS2.Data.Types.SignedBox
 import HBS2.Storage.Operations.Class
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce
-import Control.Monad.Identity
 
 import Data.Word
 
@@ -34,6 +33,7 @@ data GitRepoAnnounce s =
   GitRepoAnnounce
   { repoLwwRef   :: LWWRefKey s
   , repoForkInfo :: Maybe (RepoForkInfo s)
+  , repoHeadInfo :: Maybe (TaggedHashRef RepoHead)
   }
   deriving stock (Generic)
 
@@ -78,7 +78,7 @@ makeNotificationTx :: forall  s . (ForGitIndex s)
                    -> SignedBox ByteString s
 makeNotificationTx ncred lww lwsk forkInfo = do
   let creds = coerce ncred :: PeerCredentials s
-  let annData = GitRepoAnnounce @s lww forkInfo
+  let annData = GitRepoAnnounce @s lww forkInfo Nothing
   let lwpk = coerce lww :: PubKey 'Sign s
   let repoAnn = makeSignedBox @s lwpk lwsk (LBS.toStrict $ serialise annData)
   makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict $ serialise repoAnn)
@@ -99,6 +99,5 @@ unpackNotificationTx box = do
 
   deserialiseOrFail @(GitRepoAnnounce s) (LBS.fromStrict bs3)
     & orThrowError UnsupportedFormat
-
 
 

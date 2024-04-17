@@ -102,6 +102,7 @@ library
 
       HBS2.Git.Data.Tx.Git
       HBS2.Git.Data.Tx.Index
+      HBS2.Git.Data.RepoHead
       HBS2.Git.Data.GK
       HBS2.Git.Data.RefLog
       HBS2.Git.Data.LWWBlock
