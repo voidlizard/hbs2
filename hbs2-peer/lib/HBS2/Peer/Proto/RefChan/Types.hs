@@ -4,7 +4,10 @@
 {-# Language FunctionalDependencies #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
-module HBS2.Peer.Proto.RefChan.Types where
+module HBS2.Peer.Proto.RefChan.Types
+  ( module HBS2.Peer.Proto.RefChan.Types
+  , L4Proto
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash

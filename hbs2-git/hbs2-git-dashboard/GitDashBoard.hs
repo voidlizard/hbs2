@@ -6,10 +6,13 @@ import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.System.Dir
 
+import HBS2.Git.Html.Root
+
 import HBS2.Peer.CLI.Detect
 
 import Data.Config.Suckless
 
+import Lucid
 import Options.Applicative as O
 import Data.Maybe
 import Data.Either
@@ -17,6 +20,7 @@ import Options.Applicative.BashCompletion
 import Control.Applicative
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
+import Network.Wai.Middleware.Static hiding ((<|>))
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty.Trans
@@ -24,6 +28,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import System.Directory
 import Control.Monad.Except
+
 import UnliftIO
 
 data HttpPortOpt
@@ -105,6 +110,17 @@ runDashBoardM cli m = do
 
   withDashBoardEnv env m
 
+-- type App =
+
+runDashboardWeb :: ScottyT (DashBoardM IO) ()
+runDashboardWeb = do
+  middleware logStdout
+
+  middleware $ staticPolicy (noDots >-> addBase "hbs2-git/hbs2-git-dashboard/assets/")
+
+  get "/" $ do
+    html =<< renderTextT (dashboardRootPage mempty)
+
 main :: IO ()
 main = do
 
@@ -120,8 +136,7 @@ main = do
 
     env <- ask
 
-    scottyT pno (withDashBoardEnv env) do
-      middleware logStdout
+    scottyT pno (withDashBoardEnv env) runDashboardWeb
 
   where
     opts = info (configParser <**> helper)

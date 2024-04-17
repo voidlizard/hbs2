@@ -76,8 +76,8 @@ httpWorker (PeerConfig syn) pmeta e = do
     scotty port $ do
       middleware logStdout
 
-      defaultHandler $ const do
-        status status500
+      -- defaultHandler do
+      --   status status500
 
       get "/size/:hash" do
 

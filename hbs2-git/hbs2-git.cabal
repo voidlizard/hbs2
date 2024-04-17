@@ -6,7 +6,6 @@ version:            0.24.1.2
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Dmitry Zuikov
-maintainer:         dzuikov@gmail.com
 -- copyright:
 category:           System
 build-type:         Simple
@@ -129,7 +128,10 @@ library
 executable hbs2-git-dashboard
     import:           shared-properties
     main-is:          GitDashBoard.hs
-    -- other-modules:
+
+    other-modules:
+      HBS2.Git.Html.Root
+
     -- other-extensions:
     build-depends:
         base, hbs2-peer, hbs2-git, suckless-conf
@@ -137,10 +139,14 @@ executable hbs2-git-dashboard
         , vector
         , optparse-applicative
         , http-types
+        , wai
         , wai-extra
-        , scotty
+        , wai-middleware-static
+        , lucid
+        , lucid-htmx
+        , scotty >= 0.22
 
-    hs-source-dirs:   hbs2-git-dashboard hbs2-git-dashboard/src
+    hs-source-dirs:   hbs2-git-dashboard, hbs2-git-dashboard/src
 
     default-language: GHC2021
 
@@ -187,6 +193,5 @@ executable git-remote-hbs2
 
     hs-source-dirs:   git-remote-hbs2
     default-language: GHC2021
-
 
 
