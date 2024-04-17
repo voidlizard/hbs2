@@ -11,6 +11,7 @@ import Data.Kind
 data OperationError =
     StorageError
   | CryptoError
+  | SignCheckError
   | DecryptError
   | DecryptionError
   | MissedBlockError

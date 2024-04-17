@@ -7,6 +7,7 @@ import HBS2.Git.Client.Export
 import HBS2.Git.Client.Import
 import HBS2.Git.Client.State
 
+import HBS2.Data.Types.SignedBox
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Local.CLI qualified as Git
 import HBS2.Git.Data.Tx.Git qualified as TX
@@ -24,6 +25,8 @@ import Data.Maybe
 import Data.Coerce
 import Options.Applicative as O
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString (ByteString)
+-- import Data.ByteString.Lazy (ByteString)
 
 import Streaming.Prelude qualified as S
 
@@ -218,7 +221,8 @@ pKeyUpdate = do
 
 
 pTrack :: GitPerks m => Parser (GitCLI m ())
-pTrack = hsubparser (  command "send-repo-notify" (info pSendRepoNotify (progDesc "sends repository notification"))
+pTrack = hsubparser (   command "send-repo-notify" (info pSendRepoNotify (progDesc "sends repository notification"))
+                     <> command "show-repo-notify" (info pShowRepoNotify (progDesc "shows repository notification"))
                     )
 
 pSendRepoNotify :: GitPerks m => Parser (GitCLI m ())
@@ -265,6 +269,26 @@ pSendRepoNotify = do
         void $ callService @RpcRefChanNotify rchanAPI (notifyChan, tx)
 
     -- кто парсит ссылку и помещает в рефчан
+
+
+pShowRepoNotify :: GitPerks m => Parser (GitCLI m ())
+pShowRepoNotify = do
+  href <- argument pHashRef (metavar "HASH")
+  pure do
+    sto <- asks _storage
+
+    box <- getBlock sto (coerce href)
+            `orDie` "tx not found"
+           <&> deserialiseOrFail @(RefChanNotify L4Proto)
+           >>= orThrowUser "malformed announce tx 1"
+           >>= \case
+                  Notify _ box -> pure box
+                  _            -> throwIO (userError "malformed announce tx 2")
+
+    ann <- runExceptT (unpackNotificationTx box)
+            >>= either (error . show) pure
+
+    liftIO $ print $ pretty ann
 
 main :: IO ()
 main = do

@@ -187,8 +187,11 @@ exitFailure = do
 die :: MonadIO m => String -> m a
 die = liftIO . Exit.die
 
-runHash :: HashOpts -> SimpleStorage HbSync -> IO ()
-runHash opts _ = do
+runHash :: Maybe HashOpts -> SimpleStorage HbSync -> IO ()
+runHash Nothing _ = do
+    LBS.getContents >>= print . pretty . hashObject @HbSync
+
+runHash (Just opts) _ = do
   withBinaryFile (hashFp opts) ReadMode $ \h -> do
     LBS.hGetContents h >>= print . pretty . hashObject @HbSync
 
@@ -726,8 +729,8 @@ main = join . customExecParser (prefs showHelpOnError) $
 
     pHash = do
       o <- common
-      hash  <- strArgument ( metavar "HASH" )
-      pure $ withStore o $ runHash $ HashOpts hash
+      what  <- optional $ HashOpts <$> strArgument ( metavar "FILE" )
+      pure $ withStore o $ runHash what
 
     iNewKey = info pNewKey (progDesc "generates a new keyring")
 
