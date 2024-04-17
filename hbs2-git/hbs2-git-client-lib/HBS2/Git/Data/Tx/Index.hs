@@ -28,12 +28,10 @@ data RepoForkInfo e =
   RepoForkInfoNone
   deriving stock (Generic)
 
-
 data GitRepoAnnounce s =
   GitRepoAnnounce
   { repoLwwRef   :: LWWRefKey s
   , repoForkInfo :: Maybe (RepoForkInfo s)
-  , repoHeadInfo :: Maybe (TaggedHashRef RepoHead)
   }
   deriving stock (Generic)
 
@@ -46,8 +44,27 @@ instance ForGitIndex s => Pretty (GitRepoAnnounce s) where
 
 newtype NotifyCredentials s = NotifyCredentials (PeerCredentials s)
 
+newtype GitIndexRepoName = GitIndexRepoName Text
+                           deriving stock (Generic,Show)
+                           deriving newtype (Serialise)
+
+newtype GitIndexRepoBrief = GitIndexRepoBrief Text
+                            deriving stock (Generic,Show)
+                            deriving newtype (Serialise)
+
+newtype GitIndexRepoManifest = GitIndexRepoManifest (Maybe Text)
+                               deriving stock (Generic,Show)
+                               deriving newtype (Serialise)
+
+data GitIndexRepoDefineData =
+  GitIndexRepoDefineData
+  { gitIndexRepoName     :: GitIndexRepoName
+  , gitIndexRepoBrief    :: GitIndexRepoBrief
+  }
+  deriving stock (Generic,Show)
+
 data GitIndexEntry =
-    GitIndexRepoDefine
+    GitIndexRepoDefine GitIndexRepoDefineData
   | GitIndexRepoTombEntry
   | GitIndexRepoLikes Integer
   deriving stock (Generic)
@@ -62,7 +79,7 @@ data GitIndexTx s =
 
 instance ForGitIndex s => Pretty (GitIndexTx s) where
   pretty GitIndexTx{..} = case gitIndexTxPayload of
-    GitIndexRepoDefine    -> "git-repo-define" <+> pretty gitIndexTxRef
+    GitIndexRepoDefine{}  -> "git-repo-define" <+> pretty gitIndexTxRef
     GitIndexRepoTombEntry -> "git-repo-tomb"   <+> pretty gitIndexTxRef
     GitIndexRepoLikes n   -> "git-repo-likes"  <+> pretty gitIndexTxRef <+> pretty n
 
@@ -78,7 +95,7 @@ makeNotificationTx :: forall  s . (ForGitIndex s)
                    -> SignedBox ByteString s
 makeNotificationTx ncred lww lwsk forkInfo = do
   let creds = coerce ncred :: PeerCredentials s
-  let annData = GitRepoAnnounce @s lww forkInfo Nothing
+  let annData = GitRepoAnnounce @s lww forkInfo
   let lwpk = coerce lww :: PubKey 'Sign s
   let repoAnn = makeSignedBox @s lwpk lwsk (LBS.toStrict $ serialise annData)
   makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict $ serialise repoAnn)
@@ -99,5 +116,6 @@ unpackNotificationTx box = do
 
   deserialiseOrFail @(GitRepoAnnounce s) (LBS.fromStrict bs3)
     & orThrowError UnsupportedFormat
+
 
 

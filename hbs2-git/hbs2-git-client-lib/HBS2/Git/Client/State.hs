@@ -11,9 +11,12 @@ import HBS2.Git.Client.App.Types
 import HBS2.Git.Client.Config
 
 import HBS2.Peer.Proto.RefLog
+import HBS2.Storage.Operations.ByteString
 
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
+import HBS2.Git.Data.Tx.Index
 
 import DBPipe.SQLite
 import Data.Maybe
@@ -38,6 +41,8 @@ instance ToField HashRef where
 
 instance FromField HashRef where
   fromField = fmap fromString . fromField @String
+
+deriving newtype instance FromField (TaggedHashRef t)
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -379,4 +384,49 @@ selectAllLww = do
   select_  [qc|
 SELECT hash, seq, reflog FROM lww
   |] <&> fmap (over _3 (fromRefLogKey @'HBS2Basic))
+
+
+
+selectRepoHeadsFor :: (MonadIO m, HasStorage m)
+                    => LWWRefKey 'HBS2Basic
+                    -> DBPipeM m [TaggedHashRef RepoHead]
+
+selectRepoHeadsFor  what = do
+  let q = [qc|
+SELECT t.head
+FROM lww l join tx t on l.reflog = t.reflog
+WHERE l.hash = ?
+ORDER BY l.seq ASC
+|]
+
+  select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
+   <&> fmap fromOnly
+
+
+selectRepoIndexEntryFor :: (MonadIO m, HasStorage m)
+                        => LWWRefKey 'HBS2Basic
+                        -> DBPipeM m (Maybe GitIndexRepoDefineData)
+
+selectRepoIndexEntryFor what = runMaybeT do
+  let q = [qc|
+SELECT l.hash, t.head
+FROM lww l join tx t on l.reflog = t.reflog
+WHERE l.hash = ?
+ORDER BY l.seq DESC
+LIMIT 1
+|]
+
+  (k,rh) <- lift (select @(LWWRefKey 'HBS2Basic, HashRef) q (Only $ Base58Field what))
+              <&> listToMaybe >>= toMPlus
+
+  sto <- lift $ lift getStorage
+
+  repohead <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef rh)))
+                >>= toMPlus
+                <&> deserialiseOrFail @RepoHead
+                >>= toMPlus
+
+  pure $ GitIndexRepoDefineData (GitIndexRepoName $ _repoHeadName repohead)
+                                (GitIndexRepoBrief $ _repoHeadBrief repohead)
+
 

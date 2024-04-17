@@ -20,6 +20,8 @@ import HBS2.Git.Data.GK
 import HBS2.KeyMan.Keys.Direct
 import HBS2.Storage.Operations.ByteString
 
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Data.HashSet qualified as HS
 import Data.Maybe
 import Data.Coerce
@@ -27,6 +29,7 @@ import Options.Applicative as O
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString (ByteString)
 -- import Data.ByteString.Lazy (ByteString)
+import Text.InterpolatedString.Perl6 (qc)
 
 import Streaming.Prelude qualified as S
 
@@ -47,11 +50,12 @@ globalOptions = do
 
 commands :: GitPerks m => Parser (GitCLI m ())
 commands =
-  hsubparser (  command "export"  (info pExport  (progDesc "export repo to hbs2-git"))
-             <> command "import" (info pImport  (progDesc "import repo from reflog"))
-             <> command "key"    (info pKey     (progDesc "key management"))
-             <> command "track"  (info pTrack   (progDesc "track tools"))
-             <> command "tools"  (info pTools   (progDesc "misc tools"))
+  hsubparser (  command "export"   (info pExport  (progDesc "export repo to hbs2-git"))
+             <> command "import"   (info pImport  (progDesc "import repo from reflog"))
+             <> command "key"      (info pKey     (progDesc "key management"))
+             <> command "manifest" (info pManifest (progDesc "manifest commands"))
+             <> command "track"    (info pTrack   (progDesc "track tools"))
+             <> command "tools"    (info pTools   (progDesc "misc tools"))
              )
 
 
@@ -169,6 +173,45 @@ pShowRef = do
       liftIO $ print $ vcat (fmap formatRef (_repoHeadRefs rh))
 
 
+pManifest :: GitPerks m => Parser (GitCLI m ())
+pManifest = hsubparser (   command "list" (info pManifestList (progDesc "list all manifest"))
+                        <> command "show" (info pManifestShow (progDesc "show manifest"))
+                       )
+
+pManifestList :: GitPerks m => Parser (GitCLI m ())
+pManifestList = do
+  what <- argument pLwwKey (metavar "LWWREF")
+  pure do
+    heads <- withState $ selectRepoHeadsFor what
+    sto   <- getStorage
+    for_ heads $ \h -> runMaybeT do
+
+      rhead <- runExceptT (readFromMerkle sto (SimpleKey (coerce h)))
+                 >>= toMPlus
+                 <&> deserialiseOrFail @RepoHead
+                 >>= toMPlus
+
+      let mfsize = maybe 0 Text.length (_repoManifest rhead)
+      let mf = parens ( "manifest" <+> pretty mfsize)
+
+      liftIO $ print $ pretty (_repoHeadTime rhead)
+                         <+> pretty h
+                         <+> mf
+
+pManifestShow :: GitPerks m => Parser (GitCLI m ())
+pManifestShow = do
+  what <- argument pHashRef (metavar "HASH")
+  pure do
+
+      sto <- getStorage
+      rhead <- runExceptT (readFromMerkle sto (SimpleKey (coerce what)))
+                 >>= orThrowUser "repo head not found"
+                 <&> deserialiseOrFail @RepoHead
+                 >>= orThrowUser "repo head format not supported"
+
+      liftIO $ for_ (_repoManifest rhead) Text.putStrLn
+
+
 pKey :: GitPerks m => Parser (GitCLI m ())
 pKey = hsubparser (  command "show"   (info pKeyShow  (progDesc "show current key"))
                   <> command "update" (info pKeyUpdate (progDesc "update current key"))
@@ -223,6 +266,7 @@ pKeyUpdate = do
 pTrack :: GitPerks m => Parser (GitCLI m ())
 pTrack = hsubparser (   command "send-repo-notify" (info pSendRepoNotify (progDesc "sends repository notification"))
                      <> command "show-repo-notify" (info pShowRepoNotify (progDesc "shows repository notification"))
+                     <> command "gen-repo-index"   (info pGenRepoIndex (progDesc "generates repo index tx"))
                     )
 
 pSendRepoNotify :: GitPerks m => Parser (GitCLI m ())
@@ -289,6 +333,19 @@ pShowRepoNotify = do
             >>= either (error . show) pure
 
     liftIO $ print $ pretty ann
+
+
+pGenRepoIndex :: GitPerks m => Parser (GitCLI m ())
+pGenRepoIndex = do
+  what <- argument pLwwKey (metavar "LWWREF")
+  pure do
+    withState do
+      idx <- selectRepoIndexEntryFor what
+               `orDie` "repo head not found"
+
+      liftIO $ print idx
+
+    pure ()
 
 main :: IO ()
 main = do
