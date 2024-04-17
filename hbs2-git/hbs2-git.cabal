@@ -125,23 +125,39 @@ library
     hs-source-dirs:   hbs2-git-client-lib
 
 
+library hbs2-git-dashboard-assets
+  import:           shared-properties
+
+  build-depends:
+    base, file-embed
+
+  exposed-modules:
+      HBS2.Git.Web.Assets
+
+  hs-source-dirs:   hbs2-git-dashboard-assets
+
+  default-language: GHC2021
+
+
 executable hbs2-git-dashboard
     import:           shared-properties
     main-is:          GitDashBoard.hs
 
     other-modules:
-      HBS2.Git.Html.Root
+      HBS2.Git.Web.Html.Root
 
     -- other-extensions:
     build-depends:
-        base, hbs2-peer, hbs2-git, suckless-conf
+        base, hbs2-git-dashboard-assets, hbs2-peer, hbs2-git, suckless-conf
         , binary
         , vector
         , optparse-applicative
         , http-types
+        , file-embed
         , wai
         , wai-extra
         , wai-middleware-static
+        , wai-middleware-static-embedded
         , lucid
         , lucid-htmx
         , scotty >= 0.22

@@ -6,11 +6,13 @@ import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.System.Dir
 
-import HBS2.Git.Html.Root
+import HBS2.Git.Web.Assets
+import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
 
 import Data.Config.Suckless
+import Data.Config.Suckless.KeyValue
 
 import Lucid
 import Options.Applicative as O
@@ -21,6 +23,7 @@ import Control.Applicative
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.Static hiding ((<|>))
+import Network.Wai.Middleware.StaticEmbedded as E
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty.Trans
@@ -33,8 +36,14 @@ import UnliftIO
 
 data HttpPortOpt
 
+data DevelopAssetsOpt
+
 instance HasConf m => HasCfgKey HttpPortOpt a m where
   key = "port"
+
+
+instance HasConf m => HasCfgKey DevelopAssetsOpt a m where
+  key = "develop-assets"
 
 data RunDashBoardOpts = RunDashBoardOpts
   { configPath :: Maybe FilePath }
@@ -110,15 +119,26 @@ runDashBoardM cli m = do
 
   withDashBoardEnv env m
 
--- type App =
 
-runDashboardWeb :: ScottyT (DashBoardM IO) ()
-runDashboardWeb = do
+data WebOptions =
+  WebOptions
+  { _assetsOverride :: Maybe FilePath
+  }
+
+
+runDashboardWeb :: WebOptions -> ScottyT (DashBoardM IO) ()
+runDashboardWeb wo = do
   middleware logStdout
 
-  middleware $ staticPolicy (noDots >-> addBase "hbs2-git/hbs2-git-dashboard/assets/")
+  let assets = _assetsOverride wo
 
-  get "/" $ do
+  case assets of
+    Nothing -> do
+      middleware (E.static assetsDir)
+    Just f -> do
+     middleware $ staticPolicy (noDots >-> addBase f)
+
+  get "/" do
     html =<< renderTextT (dashboardRootPage mempty)
 
 main :: IO ()
@@ -130,13 +150,15 @@ main = do
 
     -- FIXME: to-config
     pno <- cfgValue @HttpPortOpt @(Maybe Int) <&> fromMaybe 8090
+    wo  <- cfgValue @DevelopAssetsOpt @(Maybe FilePath) <&> WebOptions
 
     soname <- runMaybeT (getRPC <|> detectRPC)
                 `orDie` "hbs2-peer RPC not detected"
 
     env <- ask
+    conf <- getConf
 
-    scottyT pno (withDashBoardEnv env) runDashboardWeb
+    scottyT pno (withDashBoardEnv env) (runDashboardWeb wo)
 
   where
     opts = info (configParser <**> helper)

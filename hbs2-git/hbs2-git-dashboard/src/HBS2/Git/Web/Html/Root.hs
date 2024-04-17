@@ -1,4 +1,4 @@
-module HBS2.Git.Html.Root where
+module HBS2.Git.Web.Html.Root where
 
 import HBS2.Prelude
 import HBS2.Base58
