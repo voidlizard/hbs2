@@ -77,6 +77,10 @@ data GitIndexTx s =
   }
   deriving stock (Generic)
 
+instance ForGitIndex s => Serialise (GitIndexTx s)
+instance Serialise GitIndexRepoDefineData
+instance Serialise GitIndexEntry
+
 instance ForGitIndex s => Pretty (GitIndexTx s) where
   pretty GitIndexTx{..} = case gitIndexTxPayload of
     GitIndexRepoDefine{}  -> "git-repo-define" <+> pretty gitIndexTxRef

@@ -22,7 +22,19 @@ import DBPipe.SQLite
 import Data.Maybe
 import Data.List qualified as List
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Text qualified as Text
 import Data.Word
+import Data.Coerce
+
+import Streaming.Prelude qualified as S
+
+data SortOrder = ASC | DESC
+
+newtype SQL a = SQL a
+
+instance Pretty (SQL SortOrder) where
+  pretty (SQL ASC) = "ASC"
+  pretty (SQL DESC) = "DESC"
 
 newtype Base58Field a = Base58Field { fromBase58Field :: a }
                         deriving stock (Eq,Ord,Generic)
@@ -388,45 +400,57 @@ SELECT hash, seq, reflog FROM lww
 
 
 selectRepoHeadsFor :: (MonadIO m, HasStorage m)
-                    => LWWRefKey 'HBS2Basic
+                    => SortOrder
+                    -> LWWRefKey 'HBS2Basic
                     -> DBPipeM m [TaggedHashRef RepoHead]
 
-selectRepoHeadsFor  what = do
+selectRepoHeadsFor order what = do
   let q = [qc|
 SELECT t.head
 FROM lww l join tx t on l.reflog = t.reflog
 WHERE l.hash = ?
-ORDER BY t.seq ASC
+ORDER BY t.seq {pretty (SQL order)}
 |]
 
   select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
    <&> fmap fromOnly
 
 
+instance (Monad m, HasStorage m) => HasStorage (DBPipeM m) where
+  getStorage = lift getStorage
+
 selectRepoIndexEntryFor :: (MonadIO m, HasStorage m)
                         => LWWRefKey 'HBS2Basic
                         -> DBPipeM m (Maybe GitIndexRepoDefineData)
 
 selectRepoIndexEntryFor what = runMaybeT do
-  let q = [qc|
-SELECT l.hash, t.head
-FROM lww l join tx t on l.reflog = t.reflog
-WHERE l.hash = ?
-ORDER BY l.seq DESC
-LIMIT 1
-|]
 
-  (k,rh) <- lift (select @(LWWRefKey 'HBS2Basic, HashRef) q (Only $ Base58Field what))
-              <&> listToMaybe >>= toMPlus
+  headz <- lift $ selectRepoHeadsFor DESC what
 
-  sto <- lift $ lift getStorage
+  rhh <- S.head_ do
+            for_ headz $ \ha -> do
+              rh' <- lift $ loadRepoHead ha
+              for_ rh' $ \rh -> do
+                when (notEmpty $ _repoManifest  rh) do
+                  S.yield rh
 
-  repohead <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef rh)))
-                >>= toMPlus
-                <&> deserialiseOrFail @RepoHead
-                >>= toMPlus
+
+  repohead <- toMPlus rhh
 
   pure $ GitIndexRepoDefineData (GitIndexRepoName $ _repoHeadName repohead)
                                 (GitIndexRepoBrief $ _repoHeadBrief repohead)
+
+
+  where
+    notEmpty s = maybe 0 Text.length s > 0
+
+loadRepoHead :: (HasStorage m, MonadIO m) => TaggedHashRef RepoHead -> m (Maybe RepoHead)
+loadRepoHead rh = do
+  sto <- getStorage
+  runMaybeT do
+    runExceptT (readFromMerkle sto (SimpleKey (coerce rh)))
+       >>= toMPlus
+       <&> deserialiseOrFail @RepoHead
+       >>= toMPlus
 
 

@@ -8,6 +8,7 @@ import HBS2.Git.Client.Import
 import HBS2.Git.Client.State
 
 import HBS2.Data.Types.SignedBox
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Local.CLI qualified as Git
 import HBS2.Git.Data.Tx.Git qualified as TX
@@ -182,7 +183,7 @@ pManifestList :: GitPerks m => Parser (GitCLI m ())
 pManifestList = do
   what <- argument pLwwKey (metavar "LWWREF")
   pure do
-    heads <- withState $ selectRepoHeadsFor what
+    heads <- withState $ selectRepoHeadsFor DESC what
     sto   <- getStorage
     for_ heads $ \h -> runMaybeT do
 
@@ -339,13 +340,12 @@ pGenRepoIndex :: GitPerks m => Parser (GitCLI m ())
 pGenRepoIndex = do
   what <- argument pLwwKey (metavar "LWWREF")
   pure do
-    withState do
-      idx <- selectRepoIndexEntryFor what
-               `orDie` "repo head not found"
+    hd <- withState $ selectRepoIndexEntryFor what
+            >>= orThrowUser "no decent repo head data found"
 
-      liftIO $ print idx
-
-    pure ()
+    seq <- getEpoch
+    let tx = GitIndexTx what seq (GitIndexRepoDefine hd)
+    liftIO $ LBS.putStr (serialise tx)
 
 main :: IO ()
 main = do
