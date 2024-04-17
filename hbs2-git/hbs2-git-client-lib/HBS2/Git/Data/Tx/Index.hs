@@ -30,8 +30,8 @@ data RepoForkInfo e =
   deriving stock (Generic)
 
 
-data GitRepoAnnounceData s =
-  GitRepoAnnounceData
+data GitRepoAnnounce s =
+  GitRepoAnnounce
   { repoLwwRef   :: LWWRefKey s
   , repoForkInfo :: Maybe (RepoForkInfo s)
   }
@@ -39,10 +39,10 @@ data GitRepoAnnounceData s =
 
 
 instance ForGitIndex s => Serialise (RepoForkInfo s)
-instance ForGitIndex s => Serialise (GitRepoAnnounceData s)
+instance ForGitIndex s => Serialise (GitRepoAnnounce s)
 
-instance ForGitIndex s => Pretty (GitRepoAnnounceData s) where
-  pretty GitRepoAnnounceData{..} = parens $ "git-repo-announce-data" <+> pretty repoLwwRef
+instance ForGitIndex s => Pretty (GitRepoAnnounce s) where
+  pretty GitRepoAnnounce{..} = parens $ "git-repo-announce" <+> pretty repoLwwRef
 
 newtype NotifyCredentials s = NotifyCredentials (PeerCredentials s)
 
@@ -78,7 +78,7 @@ makeNotificationTx :: forall  s . (ForGitIndex s)
                    -> SignedBox ByteString s
 makeNotificationTx ncred lww lwsk forkInfo = do
   let creds = coerce ncred :: PeerCredentials s
-  let annData = GitRepoAnnounceData @s lww forkInfo
+  let annData = GitRepoAnnounce @s lww forkInfo
   let lwpk = coerce lww :: PubKey 'Sign s
   let repoAnn = makeSignedBox @s lwpk lwsk (LBS.toStrict $ serialise annData)
   makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict $ serialise repoAnn)
@@ -86,7 +86,7 @@ makeNotificationTx ncred lww lwsk forkInfo = do
 
 unpackNotificationTx :: forall s m . (ForGitIndex s, MonadError OperationError m)
                      => SignedBox ByteString s
-                     -> m (GitRepoAnnounceData s)
+                     -> m (GitRepoAnnounce s)
 unpackNotificationTx box = do
   (_, bs1) <- unboxSignedBox0 @_ @s box
                 & orThrowError SignCheckError
@@ -97,7 +97,7 @@ unpackNotificationTx box = do
   (_, bs3) <- unboxSignedBox0 bs2
                 & orThrowError SignCheckError
 
-  deserialiseOrFail @(GitRepoAnnounceData s) (LBS.fromStrict bs3)
+  deserialiseOrFail @(GitRepoAnnounce s) (LBS.fromStrict bs3)
     & orThrowError UnsupportedFormat
 
 
