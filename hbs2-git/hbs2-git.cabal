@@ -144,6 +144,8 @@ executable hbs2-git-dashboard
     main-is:          GitDashBoard.hs
 
     other-modules:
+      HBS2.Git.DashBoard.Types
+      HBS2.Git.DashBoard.State
       HBS2.Git.Web.Html.Root
 
     -- other-extensions:
@@ -162,7 +164,9 @@ executable hbs2-git-dashboard
         , lucid-htmx
         , scotty >= 0.22
 
-    hs-source-dirs:   hbs2-git-dashboard, hbs2-git-dashboard/src
+    hs-source-dirs:
+      hbs2-git-dashboard
+      hbs2-git-dashboard/src
 
     default-language: GHC2021
 
