@@ -114,8 +114,6 @@ runDashBoardM cli m = do
   -- FIXME: unix-socket-from-config
   soname <- detectRPC `orDie` "hbs2-peer rpc not found"
 
-  env <- newDashBoardEnv conf dbFile
-
   let errorPrefix  = toStderr . logPrefix "[error] "
   let warnPrefix   = toStderr . logPrefix "[warn] "
   let noticePrefix = toStderr . logPrefix ""
@@ -129,10 +127,6 @@ runDashBoardM cli m = do
 
   flip runContT pure do
 
-    void $ ContT $ withAsync do
-      q <- withDashBoardEnv env $ asks _pipeline
-      forever do
-        liftIO (atomically $ readTQueue q) & liftIO . join
 
     client <- liftIO $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
               >>= orThrowUser ("can't connect to" <+> pretty soname)
@@ -141,6 +135,7 @@ runDashBoardM cli m = do
 
     peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
     refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+    refChanAPI <- makeServiceCaller @RefChanAPI (fromString soname)
     storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
     lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
 
@@ -148,12 +143,26 @@ runDashBoardM cli m = do
 
     let endpoints = [ Endpoint @UNIX  peerAPI
                     , Endpoint @UNIX  refLogAPI
+                    , Endpoint @UNIX  refChanAPI
                     , Endpoint @UNIX  lwwAPI
                     , Endpoint @UNIX  storageAPI
                     ]
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
+    env <- newDashBoardEnv
+                conf
+                dbFile
+                peerAPI
+                refLogAPI
+                refChanAPI
+                lwwAPI
+                sto
+
+    void $ ContT $ withAsync do
+      q <- withDashBoardEnv env $ asks _pipeline
+      forever do
+        liftIO (atomically $ readTQueue q) & liftIO . join
 
     lift $ withDashBoardEnv env (withState evolveDB >> m)
       `finally` do

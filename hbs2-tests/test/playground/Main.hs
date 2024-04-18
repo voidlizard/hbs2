@@ -92,6 +92,19 @@ runWithAsync = do
     void $ waitAnyCatchCancel [t1,q,pysh]
 
 
+testCont :: IO ()
+testCont = do
+
+  flip runContT pure do
+    for_ [1..10] $ \i -> do
+      callCC \next -> do
+
+        when (even i) do
+          next ()
+
+        liftIO $ print i
+
+
 main :: IO ()
 main = do
   print "1"

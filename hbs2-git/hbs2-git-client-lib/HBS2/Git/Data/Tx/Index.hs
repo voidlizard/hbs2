@@ -45,11 +45,11 @@ instance ForGitIndex s => Pretty (GitRepoAnnounce s) where
 newtype NotifyCredentials s = NotifyCredentials (PeerCredentials s)
 
 newtype GitIndexRepoName = GitIndexRepoName Text
-                           deriving stock (Generic,Show)
+                           deriving stock (Data,Generic,Show)
                            deriving newtype (Serialise)
 
 newtype GitIndexRepoBrief = GitIndexRepoBrief Text
-                            deriving stock (Generic,Show)
+                            deriving stock (Data,Generic,Show)
                             deriving newtype (Serialise)
 
 newtype GitIndexRepoManifest = GitIndexRepoManifest (Maybe Text)
@@ -61,13 +61,13 @@ data GitIndexRepoDefineData =
   { gitIndexRepoName     :: GitIndexRepoName
   , gitIndexRepoBrief    :: GitIndexRepoBrief
   }
-  deriving stock (Generic,Show)
+  deriving stock (Data,Generic,Show)
 
 data GitIndexEntry =
     GitIndexRepoDefine GitIndexRepoDefineData
   | GitIndexRepoTombEntry
   | GitIndexRepoLikes Integer
-  deriving stock (Generic)
+  deriving stock (Data,Generic)
 
 data GitIndexTx s =
   GitIndexTx
@@ -103,6 +103,9 @@ makeNotificationTx ncred lww lwsk forkInfo = do
   let lwpk = coerce lww :: PubKey 'Sign s
   let repoAnn = makeSignedBox @s lwpk lwsk (LBS.toStrict $ serialise annData)
   makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict $ serialise repoAnn)
+
+
+
 
 
 unpackNotificationTx :: forall s m . (ForGitIndex s, MonadError OperationError m)

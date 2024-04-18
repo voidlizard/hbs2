@@ -29,6 +29,7 @@ import Codec.Serialise
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
@@ -563,6 +564,33 @@ refChanRequestProto self adapter msg = do
         lift $ emit RefChanRequestEventKey (RefChanRequestEvent @e chan val)
         debug $ "RefChanResponse" <+> pretty peer <+> pretty (AsBase58 chan) <+> pretty val
 
+          -- case s of
+          --   Accept{} -> pure ()
+          --   Propose _ box -> do
+          --     (_, ProposeTran _ pbox :: ProposeTran L4Proto) <- toMPlus $ unboxSignedBox0 box
+          --     (_, bs2) <- toMPlus $ unboxSignedBox0 pbox
+          --     liftIO $ BS.putStr bs2
+
+readProposeTranMay :: forall p e s m . ( Monad m
+                                       , ForRefChans e
+                                       , Signatures (Encryption e)
+                                       , s ~ Encryption e
+                                       , Serialise p
+                                       )
+                => LBS.ByteString
+                -> m (Maybe p)
+readProposeTranMay lbs = runMaybeT do
+
+  updTx <- deserialiseOrFail @(RefChanUpdate e) lbs & toMPlus
+
+  box <- case updTx of
+           Accept{} -> mzero
+           Propose _ box -> pure box
+
+  (_, ProposeTran _ pbox :: ProposeTran e) <- toMPlus $ unboxSignedBox0 @_ @s box
+  (_, bs2) <- toMPlus $ unboxSignedBox0 pbox
+
+  deserialiseOrFail @p (LBS.fromStrict bs2) & toMPlus
 
 makeProposeTran :: forall e s m . ( MonadIO m
                                   , ForRefChans e
