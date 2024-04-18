@@ -8,6 +8,24 @@ import HBS2.OrDie
 import HBS2.System.Dir
 import HBS2.System.Logger.Simple.ANSI hiding (info)
 
+import HBS2.Data.Types.Refs
+import HBS2.Net.Auth.Credentials
+import HBS2.Merkle
+import HBS2.Storage
+import HBS2.Net.Messaging.Unix
+import HBS2.OrDie
+import HBS2.Misc.PrettyStuff
+
+import HBS2.Net.Proto.Service
+import HBS2.Peer.Proto.LWWRef
+import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.API.LWWRef
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client.StorageClient
+
+
 import HBS2.Git.Web.Assets
 import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.Types
@@ -93,6 +111,9 @@ runDashBoardM cli m = do
 
   liftIO $ print (pretty conf)
 
+  -- FIXME: unix-socket-from-config
+  soname <- detectRPC `orDie` "hbs2-peer rpc not found"
+
   env <- newDashBoardEnv conf dbFile
 
   let errorPrefix  = toStderr . logPrefix "[error] "
@@ -112,6 +133,27 @@ runDashBoardM cli m = do
       q <- withDashBoardEnv env $ asks _pipeline
       forever do
         liftIO (atomically $ readTQueue q) & liftIO . join
+
+    client <- liftIO $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+              >>= orThrowUser ("can't connect to" <+> pretty soname)
+
+    void $ ContT $ withAsync $ runMessagingUnix client
+
+    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+    refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+    storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+    lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
+
+    let sto = AnyStorage (StorageClient storageAPI)
+
+    let endpoints = [ Endpoint @UNIX  peerAPI
+                    , Endpoint @UNIX  refLogAPI
+                    , Endpoint @UNIX  lwwAPI
+                    , Endpoint @UNIX  storageAPI
+                    ]
+
+    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+
 
     lift $ withDashBoardEnv env (withState evolveDB >> m)
       `finally` do
@@ -148,9 +190,6 @@ runScotty :: DashBoardPerks m => DashBoardM m ()
 runScotty  = do
     pno <- cfgValue @HttpPortOpt @(Maybe Int) <&> fromMaybe 8090
     wo  <- cfgValue @DevelopAssetsOpt @(Maybe FilePath) <&> WebOptions
-
-    soname <- runMaybeT (getRPC <|> detectRPC)
-                `orDie` "hbs2-peer RPC not detected"
 
     env <- ask
 
