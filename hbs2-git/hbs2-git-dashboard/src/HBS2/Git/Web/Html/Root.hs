@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.Git.Web.Html.Root where
 
 import HBS2.Prelude
@@ -16,6 +17,9 @@ import Data.Maybe
 import Data.Text qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
+
+import Text.Pandoc hiding (getPOSIXTime)
+import Control.Monad.Identity
 import System.FilePath
 import Text.InterpolatedString.Perl6 (q)
 
@@ -28,6 +32,29 @@ path = Text.pack . joinPath . rootPath
 myCss :: Monad m => HtmlT m ()
 myCss = do
   link_ [rel_ "stylesheet", href_ (path ["css/custom.css"])]
+
+
+
+
+markdownToHtml :: Text -> Either PandocError String
+markdownToHtml markdown = runPure $ do
+  doc <- readMarkdown def {readerExtensions = pandocExtensions} markdown
+  html <- writeHtml5String def {writerExtensions = pandocExtensions} doc
+  return $ Text.unpack html
+
+renderMarkdown' :: Text -> Text
+renderMarkdown' markdown = case markdownToHtml markdown of
+    Left{} -> markdown
+    Right html -> Text.pack html
+
+renderMarkdown :: Text -> Html ()
+renderMarkdown markdown = case markdownToHtml markdown of
+    Left{} -> blockquote_ (toHtml markdown)
+    Right html -> toHtmlRaw $ Text.pack html
+
+instance ToHtml RepoBrief where
+  toHtml (RepoBrief txt) = toHtmlRaw (renderMarkdown' txt)
+  toHtmlRaw (RepoBrief txt) = toHtmlRaw ("JOPA:" <> renderMarkdown' txt)
 
 rootPage :: Monad m => HtmlT m () -> HtmlT m ()
 rootPage content  = do
@@ -97,6 +124,7 @@ dashboardRootPage = rootPage do
 
               -- p_ $ a_ [href_ url] (toHtml ref)
 
+              toHtml rlRepoBrief
               -- renderMarkdown b
 
             -- div_ [ ] do
