@@ -192,7 +192,7 @@ runDashboardWeb wo = do
       middleware $ staticPolicy (noDots >-> addBase f)
 
   get "/" do
-    html =<< renderTextT (dashboardRootPage mempty)
+    html =<< lift (renderTextT dashboardRootPage)
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()

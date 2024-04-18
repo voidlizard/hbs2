@@ -162,6 +162,7 @@ executable hbs2-git-dashboard
         , wai-middleware-static-embedded
         , lucid
         , lucid-htmx
+        , pandoc
         , scotty >= 0.22
 
     hs-source-dirs:

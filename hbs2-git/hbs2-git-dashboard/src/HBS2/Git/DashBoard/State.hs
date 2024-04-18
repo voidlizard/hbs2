@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 module HBS2.Git.DashBoard.State where
@@ -27,6 +28,7 @@ import Data.Config.Suckless
 import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite.Generic as G
 
+import Lucid.Base
 import Data.Maybe
 import Data.Text qualified as Text
 import Text.InterpolatedString.Perl6 (qc)
@@ -46,6 +48,15 @@ evolveDB = do
     create table if not exists repo
       (  lww text not null
       ,  primary key (lww)
+      )
+  |]
+
+
+  ddl [qc|
+    create table if not exists repochannel
+      ( lww text not null
+      , channel text not null
+      , primary key (lww,channel)
       )
   |]
 
@@ -81,22 +92,39 @@ instance ToField HashRef where
 instance Pretty (AsBase58 (PubKey 'Sign s)) => ToField (LWWRefKey s) where
   toField x = toField $ show $ pretty (AsBase58 x)
 
+instance FromField (LWWRefKey HBS2Basic) where
+  fromField = fmap fromString . fromField @String
+
+
 newtype TxHash = TxHash HashRef
+                 deriving stock (Generic)
                  deriving newtype (ToField)
 
 newtype RepoName = RepoName Text
-                   deriving newtype (ToField)
+                   deriving stock (Generic)
+                   deriving newtype (ToField,FromField,ToHtml)
 
 newtype RepoBrief = RepoBrief Text
-                   deriving newtype (ToField)
+                   deriving stock (Generic)
+                   deriving newtype (ToField,FromField)
 
 newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
-                  deriving newtype (ToField)
+                  deriving stock (Generic)
+                  deriving newtype (ToField,FromField)
+
+newtype RepoChannel = RepoChannel MyRefChan
+
+instance ToField RepoChannel where
+  toField (RepoChannel x) = toField $ show $ pretty (AsBase58 x)
 
 data TxProcessedTable
 data RepoTable
+data RepoChannelTable
 data RepoNameTable
 data RepoBriefTable
+
+instance HasTableName RepoChannelTable where
+  tableName = "repochannel"
 
 instance HasTableName RepoTable where
   tableName = "repo"
@@ -122,8 +150,14 @@ instance HasColumnName RepoName where
 instance HasColumnName RepoBrief where
   columnName = "brief"
 
+instance HasColumnName RepoChannel where
+  columnName = "channel"
+
 instance HasPrimaryKey TxProcessedTable where
   primaryKey = [G.columnName @TxHash]
+
+instance HasPrimaryKey RepoChannelTable where
+  primaryKey = [G.columnName @RepoLww, G.columnName @RepoChannel]
 
 instance HasPrimaryKey RepoTable where
   primaryKey = [G.columnName @RepoLww]
@@ -146,9 +180,28 @@ asRefChan = \case
 getIndexEntries :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m [MyRefChan]
 getIndexEntries = do
   conf <- getConf
-
   pure [ s | ListVal [ SymbolVal "index", PRefChan s] <- conf ]
 
+
+data RepoListItem =
+  RepoListItem
+  { rlRepoLww   :: RepoLww
+  , rlRepoName  :: RepoName
+  , rlRepoBrief :: RepoBrief
+  }
+  deriving stock (Generic)
+
+instance FromRow RepoListItem
+
+selectRepoList :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoListItem]
+selectRepoList = withState do
+  select_ @_ @RepoListItem [qc|select
+                                    r.lww
+                                  , n.name
+                                  , b.brief
+                               from repo r join name n on r.lww = n.lww
+                                           join brief b on b.lww = r.lww
+                              |]
 
 updateIndex :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m ()
 updateIndex = do
@@ -196,12 +249,17 @@ updateIndex = do
 
               insert @RepoTable $ onConflictIgnore @RepoTable (Only (RepoLww gitIndexTxRef))
 
+              insert @RepoChannelTable $
+                onConflictIgnore @RepoChannelTable (RepoLww gitIndexTxRef, RepoChannel rc)
+
               -- FIXME: on-conflict-update!
               for_ nm $ \n -> do
-                insert @RepoNameTable $ onConflictIgnore @RepoNameTable (RepoLww gitIndexTxRef, n)
+                insert @RepoNameTable $
+                  onConflictIgnore @RepoNameTable (RepoLww gitIndexTxRef, n)
 
               for_ bri $ \n -> do
-                insert @RepoBriefTable $ onConflictIgnore @RepoBriefTable (RepoLww gitIndexTxRef, n)
+                insert @RepoBriefTable $
+                  onConflictIgnore @RepoBriefTable (RepoLww gitIndexTxRef, n)
 
         lift $ withState $ transactional do
           for_ txs $ \t -> do

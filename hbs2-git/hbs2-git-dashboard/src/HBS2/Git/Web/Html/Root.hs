@@ -1,12 +1,17 @@
 module HBS2.Git.Web.Html.Root where
 
 import HBS2.Prelude
+
+import HBS2.Git.DashBoard.Types
+import HBS2.Git.DashBoard.State
+
 import HBS2.Base58
 import HBS2.Peer.Proto.RefChan.Types
 
 import Data.Config.Suckless
 
 import Control.Monad.Trans.Maybe
+import Control.Monad.Reader
 import Data.Maybe
 import Data.Text qualified as Text
 import Lucid.Base
@@ -43,11 +48,10 @@ rootPage content  = do
 
 
 
-dashboardRootPage :: Monad m => [Syntax c] -> HtmlT m ()
-dashboardRootPage syn = rootPage do
+dashboardRootPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => HtmlT m ()
+dashboardRootPage = rootPage do
 
-  let channels = mempty
-  -- [ mchan | ListVal (SymbolVal "channel" : mchan) <- bro ]
+  items <- lift selectRepoList
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
@@ -55,35 +59,87 @@ dashboardRootPage syn = rootPage do
       div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
     main_ do
-      for_ channels $ \chan -> void $ runMaybeT do
 
-        let title = headDef "unknown" [ t
-                                          | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
-                                          ]
-        let desc = mconcat [ d
-                           | ListVal (SymbolVal "description" : d) <- chan
-                           ] & take 5
-
-        rchan <- headMay ( catMaybes
-                       [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
-                       | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
-                       ] ) & toMPlus
+      section_ do
+        h1_ "Git repositories"
+        form_ [class_ "search"] do
+            input_ [type_ "search", id_ "search"]
+            button_ [class_ "search"] mempty
 
 
-        let alias = headMay [ x
-                            | ListVal [SymbolVal "alias", LitStrVal x] <- chan
-                            ]
+      section_ [id_ "repo-search-results"] do
 
-        let url = case alias of
-                    Just x -> Text.unpack x
-                    Nothing -> (show . pretty . AsBase58) rchan
+        for_ items $ \RepoListItem{..} -> do
 
-        lift do
-          div_ [class_ "channel-list-item"] do
-            h2_ $ toHtml title
+          -- let t = coerce @_ @Word64 listEntrySeq
+          -- let h = coerce @_ @(LWWRefKey HBS2Basic) listEntryRef
+          -- let n = coerce @_ @(Maybe Text) listEntryName & fromMaybe ""
+          -- let b = coerce @_ @(Maybe Text) listEntryBrief & fromMaybe ""
+          -- let locked = listEntryGK0 & coerce @_ @(Maybe HashRef) & isJust
 
-            p_ $ a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
+          -- let days = "updated" <+> if d == 0 then "today" else viaShow d <+> "days ago"
+          --       where d = ( now - t ) `div` 86400
 
-            for_ [ s | LitStrVal s <- desc ] $ \s -> do
-              p_ (toHtml s)
+          -- let s = if Text.length n > 2 then n else "unnamed"
+          -- let refpart = Text.take 8 $ Text.pack $ show $ pretty h
+          -- let sref = show $ pretty h
+          -- let ref =  Text.pack sref
+
+          -- let suff = ["repo", sref]
+
+          -- let url = path (hrefBase <> suff)
+
+          div_ [class_ "repo-list-item"] do
+            div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
+
+              h2_ $ toHtml rlRepoName
+              -- [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
+
+              -- p_ $ a_ [href_ url] (toHtml ref)
+
+              -- renderMarkdown b
+
+            -- div_ [ ] do
+            --   div_ [ class_ "attr" ] do
+            --     div_ [ class_ "attrname"]  (toHtml $ show days)
+
+              -- when locked do
+              --   div_ [ class_ "attr" ] do
+              --     div_ [ class_ "attrval icon"] do
+              --       img_ [src_ "/icon/lock-closed.svg"]
+
+
+
+      pure ()
+      -- for_ channels $ \chan -> void $ runMaybeT do
+
+      --   let title = headDef "unknown" [ t
+      --                                     | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
+      --                                     ]
+      --   let desc = mconcat [ d
+      --                      | ListVal (SymbolVal "description" : d) <- chan
+      --                      ] & take 5
+
+      --   rchan <- headMay ( catMaybes
+      --                  [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
+      --                  | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
+      --                  ] ) & toMPlus
+
+
+      --   let alias = headMay [ x
+      --                       | ListVal [SymbolVal "alias", LitStrVal x] <- chan
+      --                       ]
+
+      --   let url = case alias of
+      --               Just x -> Text.unpack x
+      --               Nothing -> (show . pretty . AsBase58) rchan
+
+      --   lift do
+      --     div_ [class_ "channel-list-item"] do
+      --       h2_ $ toHtml title
+
+      --       p_ $ a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
+
+      --       for_ [ s | LitStrVal s <- desc ] $ \s -> do
+      --         p_ (toHtml s)
 
