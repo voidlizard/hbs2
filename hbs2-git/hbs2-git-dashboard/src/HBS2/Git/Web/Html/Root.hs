@@ -1,8 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.Git.Web.Html.Root where
 
-import HBS2.Prelude
-
+import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 
@@ -17,11 +16,13 @@ import Data.Maybe
 import Data.Text qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
+import Lucid.Htmx
 
 import Text.Pandoc hiding (getPOSIXTime)
 import Control.Monad.Identity
 import System.FilePath
 import Text.InterpolatedString.Perl6 (q)
+import Data.Word
 
 rootPath :: [String] -> [String]
 rootPath = ("/":)
@@ -33,8 +34,12 @@ myCss :: Monad m => HtmlT m ()
 myCss = do
   link_ [rel_ "stylesheet", href_ (path ["css/custom.css"])]
 
+hyper_ :: Text -> Attribute
+hyper_  = makeAttribute "_"
 
-
+onClickCopy :: Text -> Attribute
+onClickCopy s =
+  hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
 
 markdownToHtml :: Text -> Either PandocError String
 markdownToHtml markdown = runPure $ do
@@ -54,7 +59,45 @@ renderMarkdown markdown = case markdownToHtml markdown of
 
 instance ToHtml RepoBrief where
   toHtml (RepoBrief txt) = toHtmlRaw (renderMarkdown' txt)
-  toHtmlRaw (RepoBrief txt) = toHtmlRaw ("JOPA:" <> renderMarkdown' txt)
+  toHtmlRaw (RepoBrief txt) = toHtmlRaw (renderMarkdown' txt)
+
+data WithTime a = WithTime Integer a
+
+instance ToHtml (WithTime RepoListItem) where
+  toHtmlRaw = pure mempty
+
+  toHtml (WithTime t it@RepoListItem{..}) = do
+
+    let now = t
+
+    let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
+
+    let url = path ["repo", Text.unpack $ view rlRepoLwwAsText it]
+    let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
+
+    let updated = "" <+> d
+          where
+            sec = now - t
+            d | sec > 86400  = pretty (sec `div` 86400)  <+> "days ago"
+              | sec > 3600   = pretty (sec `div` 3600)   <+> "hours ago"
+              | otherwise    = pretty (sec `div` 60)     <+> "minutes ago"
+
+    div_ [class_ "repo-list-item"] do
+      div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
+
+        h2_ [class_ "xclip", onClickCopy (view rlRepoLwwAsText it)] $ toHtml rlRepoName
+        p_ $ a_ [href_ url] (toHtml $ view rlRepoLwwAsText it)
+
+        toHtml rlRepoBrief
+
+      div_ [ ] do
+        div_ [ class_ "attr" ] do
+          div_ [ class_ "attrname"]  (toHtml $ show updated)
+
+        when locked do
+          div_ [ class_ "attr" ] do
+            div_ [ class_ "attrval icon"] do
+              img_ [src_ "/icon/lock-closed.svg"]
 
 rootPage :: Monad m => HtmlT m () -> HtmlT m ()
 rootPage content  = do
@@ -78,6 +121,7 @@ rootPage content  = do
 dashboardRootPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => HtmlT m ()
 dashboardRootPage = rootPage do
 
+  now  <- liftIO getPOSIXTime <&> fromIntegral . round
   items <- lift selectRepoList
 
   div_ [class_ "container main"] $ do
@@ -96,46 +140,8 @@ dashboardRootPage = rootPage do
 
       section_ [id_ "repo-search-results"] do
 
-        for_ items $ \RepoListItem{..} -> do
-
-          -- let t = coerce @_ @Word64 listEntrySeq
-          -- let h = coerce @_ @(LWWRefKey HBS2Basic) listEntryRef
-          -- let n = coerce @_ @(Maybe Text) listEntryName & fromMaybe ""
-          -- let b = coerce @_ @(Maybe Text) listEntryBrief & fromMaybe ""
-          -- let locked = listEntryGK0 & coerce @_ @(Maybe HashRef) & isJust
-
-          -- let days = "updated" <+> if d == 0 then "today" else viaShow d <+> "days ago"
-          --       where d = ( now - t ) `div` 86400
-
-          -- let s = if Text.length n > 2 then n else "unnamed"
-          -- let refpart = Text.take 8 $ Text.pack $ show $ pretty h
-          -- let sref = show $ pretty h
-          -- let ref =  Text.pack sref
-
-          -- let suff = ["repo", sref]
-
-          -- let url = path (hrefBase <> suff)
-
-          div_ [class_ "repo-list-item"] do
-            div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
-
-              h2_ $ toHtml rlRepoName
-              -- [class_ "xclip", onClickCopy ref] $ toHtml (s <> "-" <> refpart)
-
-              -- p_ $ a_ [href_ url] (toHtml ref)
-
-              toHtml rlRepoBrief
-              -- renderMarkdown b
-
-            -- div_ [ ] do
-            --   div_ [ class_ "attr" ] do
-            --     div_ [ class_ "attrname"]  (toHtml $ show days)
-
-              -- when locked do
-              --   div_ [ class_ "attr" ] do
-              --     div_ [ class_ "attrval icon"] do
-              --       img_ [src_ "/icon/lock-closed.svg"]
-
+        for_ items $ \item@RepoListItem{..} -> do
+          toHtml (WithTime now item)
 
 
       pure ()

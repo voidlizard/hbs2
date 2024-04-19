@@ -21,6 +21,15 @@ import Lucid.Base
 import Data.Text qualified as Text
 import Data.Word
 
+-- import Data.Generics.Generic (genericDataType)
+
+import GHC.Generics (Generic)
+import Generic.Data -- (gdataDefault, Generically(..))
+-- import Data.Data (Data)
+
+-- import Generics.Deriving.Uniplate qualified as U
+
+
 type MyRefChan = RefChanId L4Proto
 
 
@@ -76,6 +85,9 @@ evolveDB = do
 instance ToField HashRef where
   toField x = toField $ show $ pretty x
 
+instance FromField HashRef where
+  fromField = fmap (fromString @HashRef) . fromField @String
+
 instance Pretty (AsBase58 (PubKey 'Sign s)) => ToField (LWWRefKey s) where
   toField x = toField $ show $ pretty (AsBase58 x)
 
@@ -88,8 +100,8 @@ newtype TxHash = TxHash HashRef
                  deriving newtype (ToField)
 
 newtype RepoName = RepoName Text
-                   deriving stock (Generic)
-                   deriving newtype (ToField,FromField,ToHtml)
+                   deriving stock (Eq,Show,Generic)
+                   deriving newtype (ToField,FromField,ToHtml,IsString)
 
 newtype RepoBrief = RepoBrief Text
                    deriving stock (Generic)
@@ -97,7 +109,7 @@ newtype RepoBrief = RepoBrief Text
 
 newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving stock (Generic)
-                  deriving newtype (ToField,FromField)
+                  deriving newtype (ToField,FromField,Pretty)
 
 newtype RepoChannel = RepoChannel MyRefChan
 
@@ -109,12 +121,12 @@ newtype RepoHeadRef = RepoHeadRef HashRef
 
 newtype RepoHeadSeq = RepoHeadSeq Word64
                       deriving stock (Generic)
-                      deriving newtype (ToField)
+                      deriving newtype (ToField,FromField)
 
 
 newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
                       deriving stock (Generic)
-                      deriving newtype (ToField)
+                      deriving newtype (ToField,FromField)
 
 instance ToField RepoChannel where
   toField (RepoChannel x) = toField $ show $ pretty (AsBase58 x)
@@ -185,28 +197,41 @@ getIndexEntries = do
   pure [ s | ListVal [ SymbolVal "index", PRefChan s] <- conf ]
 
 
+data NiceTS = NiceTS
+
 data RepoListItem =
   RepoListItem
-  { rlRepoLww   :: RepoLww
-  , rlRepoName  :: RepoName
-  , rlRepoBrief :: RepoBrief
+  { rlRepoLww      :: RepoLww
+  , rlRepoSeq      :: RepoHeadSeq
+  , rlRepoName     :: RepoName
+  , rlRepoBrief    :: RepoBrief
+  , rlRepoGK0      :: RepoHeadGK0
   }
   deriving stock (Generic)
+
+-- deriving instance Data RepoListItem via Generically RepoListItem
+
+rlRepoLwwAsText :: SimpleGetter RepoListItem Text
+rlRepoLwwAsText =
+  to \RepoListItem{..} -> do
+    Text.pack $ show $ pretty $ rlRepoLww
 
 instance FromRow RepoListItem
 
 selectRepoList :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoListItem]
-selectRepoList = withState do
-  select_ @_ @RepoListItem [qc|select
-                                    r.lww
-                                  , n.name
-                                  , b.brief
-                               from repo r join name n on r.lww = n.lww
-                                           join brief b on b.lww = r.lww
+selectRepoList = fmap fixName <$> withState do
+  select_ @_ @RepoListItem [qc|select r.lww
+                                    , r.seq
+                                    , r.name
+                                    , r.brief
+                                    , r.gk0
+                               from repolistview r
                               |]
 
-
-
+  where
+    fixName x@RepoListItem{..} | Text.length (coerce rlRepoName) < 3 = x { rlRepoName = fixed }
+                               | otherwise = x
+      where fixed = Text.pack (show $ pretty (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww) ) & RepoName
 
 createRepoListView :: DashBoardPerks m => DBPipeM m ()
 createRepoListView = do
@@ -222,7 +247,8 @@ with repolist as (
     r.lww,
     0 as seq,
     coalesce(n.name, r.lww) as name,
-    coalesce(b.brief, '') as brief
+    coalesce(b.brief, '') as brief,
+    null as gk0
   from repo r
     left join name n on r.lww = n.lww
     left join brief b on r.lww = b.lww
@@ -231,7 +257,8 @@ with repolist as (
     lww,
     seq,
     name,
-    brief
+    brief,
+    gk0
   from repohead
 ),
 ranked_repos as (
@@ -240,15 +267,18 @@ ranked_repos as (
     seq,
     name,
     brief,
+    gk0,
     row_number() over (partition by lww order by seq desc) as rn
   from repolist
+  order by seq desc
 )
 
-select lww, seq, name, brief
+select lww, seq, name, brief, gk0
 from ranked_repos
 where rn = 1;
 
   |]
+
 
 
 createRepoHeadTable :: DashBoardPerks m => DBPipeM m ()

@@ -156,6 +156,9 @@ executable hbs2-git-dashboard
     build-depends:
         base, hbs2-git-dashboard-assets, hbs2-peer, hbs2-git, suckless-conf
         , binary
+        , generic-deriving
+        , generic-data
+        , deriving-compat
         , vector
         , optparse-applicative
         , http-types
