@@ -112,7 +112,7 @@ rootPage content  = do
 
     body_ do
       header_ do
-        div_ [class_ "header-title"] $ h1_ "hbs2-peer dashboard"
+        div_ [class_ "header-title"] $ h1_ [] $ a_ [href_ "/"] "hbs2-peer dashboard"
       content
 
 
