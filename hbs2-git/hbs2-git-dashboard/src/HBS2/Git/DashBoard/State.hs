@@ -3,40 +3,19 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
-module HBS2.Git.DashBoard.State where
+module HBS2.Git.DashBoard.State
+  ( module HBS2.Git.DashBoard.State
+  , Only(..)
+  ) where
 
-import HBS2.Prelude.Plated
-import HBS2.Merkle
-import HBS2.Data.Types.Refs
-import HBS2.Base58
-import HBS2.Clock
-import HBS2.Net.Auth.Schema
-import HBS2.Misc.PrettyStuff
-import HBS2.Net.Proto.Service
-import HBS2.Storage
-
-import HBS2.Peer.Proto.LWWRef
-import HBS2.Peer.Proto.RefChan.Types
-import HBS2.Peer.Proto.RefChan.RefChanUpdate
-import HBS2.Peer.RPC.API.RefChan
-
+import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
-
-import HBS2.System.Logger.Simple.ANSI
-import Data.Config.Suckless
 
 import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite.Generic as G
 
 import Lucid.Base
-import Data.Maybe
 import Data.Text qualified as Text
-import Text.InterpolatedString.Perl6 (qc)
-import Control.Monad.Reader
-import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
-import Data.Coerce
-import Streaming.Prelude qualified as S
 
 type MyRefChan = RefChanId L4Proto
 
@@ -203,65 +182,9 @@ selectRepoList = withState do
                                            join brief b on b.lww = r.lww
                               |]
 
-updateIndex :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m ()
-updateIndex = do
-  debug "updateIndex"
 
-  rchanAPI <- asks _refChanAPI
-  sto      <- asks _sto
 
-  flip runContT pure do
 
-    es <- lift getIndexEntries
 
-    for_ es $ \rc -> do
-      callCC \next -> do
-        debug $ red (pretty (AsBase58 rc))
 
-        h <- lift (callRpcWaitMay @RpcRefChanGet (1 :: Timeout 'Seconds) rchanAPI rc)
-               <&> join
-               >>= maybe (next ()) pure
-
-        debug $ "rechan val" <+> red (pretty h)
-
-        txs <- S.toList_ do
-          walkMerkle @[HashRef] (coerce h) (getBlock sto) $ \case
-            Left{} -> pure ()
-            Right hs -> mapM_ S.yield hs
-
-        for_ txs $ \txh -> void $ runMaybeT do
-
-            done <- lift $ lift $ withState do
-                      select @(Only Int)
-                             [qc|select 1 from processed where hash = ? limit 1|]
-                             (Only (TxHash txh)) <&> isJust . listToMaybe
-
-            guard (not done)
-
-            tx@GitIndexTx{..} <- getBlock sto (coerce txh)
-                                    >>= toMPlus
-                                    >>= readProposeTranMay @(GitIndexTx 'HBS2Basic) @L4Proto
-                                    >>= toMPlus
-
-            lift $ lift $ withState $ transactional do
-              let nm  = [ RepoName n  | GitIndexRepoName n <- universeBi gitIndexTxPayload ] & headMay
-              let bri = [ RepoBrief n | GitIndexRepoBrief n <- universeBi gitIndexTxPayload ] & headMay
-
-              insert @RepoTable $ onConflictIgnore @RepoTable (Only (RepoLww gitIndexTxRef))
-
-              insert @RepoChannelTable $
-                onConflictIgnore @RepoChannelTable (RepoLww gitIndexTxRef, RepoChannel rc)
-
-              -- FIXME: on-conflict-update!
-              for_ nm $ \n -> do
-                insert @RepoNameTable $
-                  onConflictIgnore @RepoNameTable (RepoLww gitIndexTxRef, n)
-
-              for_ bri $ \n -> do
-                insert @RepoBriefTable $
-                  onConflictIgnore @RepoBriefTable (RepoLww gitIndexTxRef, n)
-
-        lift $ withState $ transactional do
-          for_ txs $ \t -> do
-            insert @TxProcessedTable $ onConflictIgnore @TxProcessedTable (Only (TxHash t))
 

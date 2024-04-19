@@ -6,26 +6,13 @@ module HBS2.Git.DashBoard.Types
   , module HBS2.Git.Data.Tx.Index
   ) where
 
-import HBS2.Prelude.Plated
+import HBS2.Git.DashBoard.Prelude
 
 import HBS2.Git.Data.Tx.Index
 
-import HBS2.Net.Proto.Service
-import HBS2.Storage
-import HBS2.Peer.RPC.API.Peer
-import HBS2.Peer.RPC.API.RefLog
-import HBS2.Peer.RPC.API.RefChan
-import HBS2.Peer.RPC.API.LWWRef
-import HBS2.Peer.RPC.API.Storage
-import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Net.Messaging.Unix
 
-import Data.Config.Suckless
-
 import DBPipe.SQLite
-import Control.Monad.Reader
-
-import UnliftIO
 
 data HttpPortOpt
 

@@ -3,60 +3,36 @@
 {-# Language AllowAmbiguousTypes #-}
 module Main where
 
-import HBS2.Prelude.Plated
-import HBS2.OrDie
+import HBS2.Git.DashBoard.Prelude
 import HBS2.System.Dir
-import HBS2.System.Logger.Simple.ANSI hiding (info)
 
-import HBS2.Data.Types.Refs
-import HBS2.Net.Auth.Credentials
-import HBS2.Merkle
-import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 import HBS2.OrDie
-import HBS2.Misc.PrettyStuff
 
-import HBS2.Net.Proto.Service
-import HBS2.Peer.Proto.LWWRef
-import HBS2.Peer.RPC.API.Peer
-import HBS2.Peer.RPC.API.RefLog
-import HBS2.Peer.RPC.API.RefChan
-import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
 
 import HBS2.Git.Web.Assets
 import HBS2.Git.DashBoard.State
+import HBS2.Git.DashBoard.State.Index
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
 
-import Data.Config.Suckless
-
-import DBPipe.SQLite
 
 import Lucid
 import Options.Applicative as O
-import Data.Maybe
 import Data.Either
-import Control.Applicative
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.Static hiding ((<|>))
 import Network.Wai.Middleware.StaticEmbedded as E
 import Network.Wai.Middleware.RequestLogger
-import Text.InterpolatedString.Perl6 (qc)
 import Web.Scotty.Trans
-import Control.Monad.Reader
-import Control.Monad.Trans.Maybe
 import System.Directory
 import Control.Monad.Except
-import Control.Monad.Trans.Cont
-
-import UnliftIO
-
 
 
 configParser :: DashBoardPerks m => Parser (m ())
@@ -70,7 +46,7 @@ configParser = do
       ))
 
   cmd <- subparser
-              ( command "web" (info pRunWeb (progDesc "Run the web interface")) )
+              ( command "web" (O.info pRunWeb (progDesc "Run the web interface")) )
 
   pure $ cmd opts
 
@@ -211,7 +187,7 @@ main :: IO ()
 main = do
   execParser opts & join
   where
-    opts = info (configParser <**> helper)
+    opts = O.info (configParser <**> helper)
       ( fullDesc
      <> progDesc "hbs2-git-dashboard"
      <> O.header "hbs2-git-dashboard" )
