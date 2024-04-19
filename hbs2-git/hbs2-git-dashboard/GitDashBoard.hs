@@ -46,7 +46,9 @@ configParser = do
       ))
 
   cmd <- subparser
-              ( command "web" (O.info pRunWeb (progDesc "Run the web interface")) )
+              (  command "web" (O.info pRunWeb (progDesc "Run the web interface"))
+              <> command "index" (O.info pRunIndex (progDesc "update index"))
+              )
 
   pure $ cmd opts
 
@@ -54,6 +56,9 @@ configParser = do
 pRunWeb :: DashBoardPerks m => Parser (RunDashBoardOpts -> m ())
 pRunWeb = pure $ \x -> runDashBoardM x runScotty
 
+pRunIndex :: DashBoardPerks m => Parser (RunDashBoardOpts -> m ())
+pRunIndex = pure $ \x -> runDashBoardM x do
+  updateIndex
 
 {- HLINT ignore "Eta reduce" -}
 {- HLINT ignore "Functor law" -}

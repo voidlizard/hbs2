@@ -6,21 +6,25 @@
 module HBS2.Git.DashBoard.State
   ( module HBS2.Git.DashBoard.State
   , Only(..)
+  , transactional
   ) where
 
 import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
+
+import HBS2.Git.Data.Tx.Git
 
 import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite.Generic as G
 
 import Lucid.Base
 import Data.Text qualified as Text
+import Data.Word
 
 type MyRefChan = RefChanId L4Proto
 
 
-evolveDB :: MonadIO m => DBPipeM m ()
+evolveDB :: DashBoardPerks m => DBPipeM m ()
 evolveDB = do
 
   ddl [qc|
@@ -54,6 +58,10 @@ evolveDB = do
       ,  primary key (lww)
       )
   |]
+
+
+  createRepoHeadTable
+  createRepoListView
 
   ddl [qc|
     create table if not exists processed
@@ -92,6 +100,21 @@ newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving newtype (ToField,FromField)
 
 newtype RepoChannel = RepoChannel MyRefChan
+
+
+newtype RepoHeadRef = RepoHeadRef HashRef
+                      deriving stock (Generic)
+                      deriving newtype (ToField)
+
+
+newtype RepoHeadSeq = RepoHeadSeq Word64
+                      deriving stock (Generic)
+                      deriving newtype (ToField)
+
+
+newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
+                      deriving stock (Generic)
+                      deriving newtype (ToField)
 
 instance ToField RepoChannel where
   toField (RepoChannel x) = toField $ show $ pretty (AsBase58 x)
@@ -185,6 +208,95 @@ selectRepoList = withState do
 
 
 
+createRepoListView :: DashBoardPerks m => DBPipeM m ()
+createRepoListView = do
+  ddl [qc|
+drop view if exists repolistview
+  |]
 
+  ddl [qc|
+create view repolistview as
+
+with repolist as (
+  select
+    r.lww,
+    0 as seq,
+    coalesce(n.name, r.lww) as name,
+    coalesce(b.brief, '') as brief
+  from repo r
+    left join name n on r.lww = n.lww
+    left join brief b on r.lww = b.lww
+  union
+  select
+    lww,
+    seq,
+    name,
+    brief
+  from repohead
+),
+ranked_repos as (
+  select
+    lww,
+    seq,
+    name,
+    brief,
+    row_number() over (partition by lww order by seq desc) as rn
+  from repolist
+)
+
+select lww, seq, name, brief
+from ranked_repos
+where rn = 1;
+
+  |]
+
+
+createRepoHeadTable :: DashBoardPerks m => DBPipeM m ()
+createRepoHeadTable = do
+  ddl [qc|
+    create table if not exists repohead
+      (  lww        text not null
+      ,  repohead   text not null
+      ,  seq        integer not null
+      ,  gk0        text null
+      ,  name       text
+      ,  brief      text
+      ,  primary key (lww,repohead)
+      )
+  |]
+
+data RepoHeadTable
+
+instance HasTableName RepoHeadTable where
+  tableName = "repohead"
+
+instance HasPrimaryKey RepoHeadTable where
+  primaryKey = ["lww", "repohead"]
+
+instance HasColumnName RepoHeadRef where
+  columnName = "repohead"
+
+instance HasColumnName RepoHeadSeq where
+  columnName = "seq"
+
+instance HasColumnName RepoHeadGK0 where
+  columnName = "gk0"
+
+insertRepoHead :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+               => LWWRefKey 'HBS2Basic
+               -> HashRef
+               -> RepoHead
+               -> DBPipeM m ()
+insertRepoHead lww href rh = do
+  insert @RepoHeadTable $ onConflictIgnore @RepoHeadTable
+    ( RepoLww lww
+    , RepoHeadRef href
+    , RepoHeadSeq      (_repoHeadTime rh)
+    , RepoHeadGK0      (_repoHeadGK0 rh)
+    , RepoName         (_repoHeadName rh)
+    , RepoBrief        (_repoHeadBrief rh)
+    )
+
+  pure ()
 
 

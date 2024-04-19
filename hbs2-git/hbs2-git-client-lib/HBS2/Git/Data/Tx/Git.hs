@@ -197,10 +197,11 @@ readTx sto href = do
   pure (n, rhh, rh, blkh)
 
 
+
 readRepoHeadFromTx :: MonadIO m
        => AnyStorage
        -> HashRef
-       -> m (Maybe RepoHead)
+       -> m (Maybe (HashRef, RepoHead))
 
 readRepoHeadFromTx sto href = runMaybeT do
 
@@ -214,6 +215,7 @@ readRepoHeadFromTx sto href = runMaybeT do
     >>= toMPlus
     <&> deserialiseOrFail @RepoHead
     >>= toMPlus
+    <&> (rhh,)
 
 
 data BundleMeta =

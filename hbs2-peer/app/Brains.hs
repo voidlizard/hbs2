@@ -256,6 +256,22 @@ instance ( Hashable (Peer e)
     where
       postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
 
+  listPolledRefsFiltered brains (t, p)  = liftIO do
+    debug $ red "brains: listPolledRefsFiltered" <+> pretty (t,p)
+    let conn = view brainsDb brains
+    let sql = [qc|
+      select ref, type, interval
+      from {poll_table}
+      where coalesce(type = ?, true)
+      limit ?
+      offset ?
+    |]
+    query conn sql (t, lim, off ) <&> postprocess
+    where
+      postprocess = mapMaybe (\(r,t1,i) -> (,t1,i) <$> fromStringMay r )
+      off = maybe 0 fst p
+      lim = maybe 1000 snd p
+
   isPolledRef brains tp ref = do
 
     cached <- liftIO $ readTVarIO (_brainsPolled brains) <&> HashSet.member (ref,tp)
