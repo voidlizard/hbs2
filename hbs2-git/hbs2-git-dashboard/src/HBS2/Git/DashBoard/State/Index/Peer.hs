@@ -57,11 +57,11 @@ updateIndexFromPeer = do
         for_ txs $ \(n,tx,blk) -> void $ runMaybeT do
           (rhh, rhead) <- readRepoHeadFromTx sto tx >>= toMPlus
           debug $ yellow "found repo head" <+> pretty rhh <+> pretty "for" <+> pretty lw
-          lift $ S.yield (lw, rhh, rhead)
+          lift $ S.yield (lw, RepoHeadTx tx, RepoHeadRef rhh, rhead)
 
       withState $ transactional do
-        for_ headz $ \(l, rh, rhead) -> do
-          insertRepoHead l rh rhead
+        for_ headz $ \(l, tx, rh, rhead) -> do
+          insertRepoHead l tx rh rhead
 
   -- db <- asks _db
 

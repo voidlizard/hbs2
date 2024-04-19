@@ -5,23 +5,16 @@ import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 
-import HBS2.Base58
-import HBS2.Peer.Proto.RefChan.Types
+import HBS2.Git.Data.Tx.Git
 
-import Data.Config.Suckless
-
-import Control.Monad.Trans.Maybe
-import Control.Monad.Reader
-import Data.Maybe
 import Data.Text qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
 import Lucid.Htmx
 
+import Control.Applicative
 import Text.Pandoc hiding (getPOSIXTime)
-import Control.Monad.Identity
 import System.FilePath
-import Text.InterpolatedString.Perl6 (q)
 import Data.Word
 
 rootPath :: [String] -> [String]
@@ -121,8 +114,9 @@ rootPage content  = do
 dashboardRootPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => HtmlT m ()
 dashboardRootPage = rootPage do
 
+  items <- lift $ selectRepoList mempty
+
   now  <- liftIO getPOSIXTime <&> fromIntegral . round
-  items <- lift selectRepoList
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
@@ -144,36 +138,28 @@ dashboardRootPage = rootPage do
           toHtml (WithTime now item)
 
 
-      pure ()
-      -- for_ channels $ \chan -> void $ runMaybeT do
+repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
+repoPage RepoListItem{..} = rootPage do
 
-      --   let title = headDef "unknown" [ t
-      --                                     | ListVal [ SymbolVal "title", LitStrVal t ] <- chan
-      --                                     ]
-      --   let desc = mconcat [ d
-      --                      | ListVal (SymbolVal "description" : d) <- chan
-      --                      ] & take 5
+  sto <- asks _sto
+  mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
 
-      --   rchan <- headMay ( catMaybes
-      --                  [ fromStringMay @(RefChanId L4Proto) (Text.unpack rc)
-      --                  | ListVal [SymbolVal "refchan", LitStrVal rc] <- chan
-      --                  ] ) & toMPlus
+  let manifest = _repoManifest . snd =<< mhead
+
+  debug $ yellow "HEAD" <+> pretty rlRepoTx
+
+  div_ [class_ "container main"] $ do
+    nav_ [class_ "left"] $ do
+      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+
+    main_ do
+
+      section_ [id_ "repo-data"] do
+        h1_ (toHtml $ rlRepoName)
+
+        for_ manifest $ \m -> do
+          toHtmlRaw (renderMarkdown' m)
 
 
-      --   let alias = headMay [ x
-      --                       | ListVal [SymbolVal "alias", LitStrVal x] <- chan
-      --                       ]
-
-      --   let url = case alias of
-      --               Just x -> Text.unpack x
-      --               Nothing -> (show . pretty . AsBase58) rchan
-
-      --   lift do
-      --     div_ [class_ "channel-list-item"] do
-      --       h2_ $ toHtml title
-
-      --       p_ $ a_ [href_ (path [url])] (toHtml (show $ pretty $ AsBase58 rchan))
-
-      --       for_ [ s | LitStrVal s <- desc ] $ \s -> do
-      --         p_ (toHtml s)
 

@@ -159,6 +159,8 @@ data WebOptions =
   { _assetsOverride :: Maybe FilePath
   }
 
+orFall :: m r -> Maybe a -> ContT r m a
+orFall a mb = ContT $ maybe1 mb a
 
 runDashboardWeb :: WebOptions -> ScottyT (DashBoardM IO) ()
 runDashboardWeb wo = do
@@ -174,6 +176,23 @@ runDashboardWeb wo = do
 
   get "/" do
     html =<< lift (renderTextT dashboardRootPage)
+
+  get "/repo/:lww" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+
+    env <- lift ask
+
+    flip runContT pure do
+      lww <- lwws' & orFall (status status404)
+
+      item <- lift (selectRepoList ( mempty
+                                      & set repoListByLww (Just lww)
+                                      & set repoListLimit (Just 1))
+                                   )
+                 <&> listToMaybe
+                 >>= orFall (status status404)
+
+      lift $ html =<< renderTextT (repoPage item)
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()

@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -20,15 +21,22 @@ import DBPipe.SQLite.Generic as G
 import Lucid.Base
 import Data.Text qualified as Text
 import Data.Word
+import Data.List qualified as List
 
--- import Data.Generics.Generic (genericDataType)
+data RepoListPred =
+  RepoListPred
+  { _repoListByLww :: Maybe (LWWRefKey 'HBS2Basic)
+  , _repoListLimit :: Maybe Int
+  }
 
-import GHC.Generics (Generic)
-import Generic.Data -- (gdataDefault, Generically(..))
--- import Data.Data (Data)
+makeLenses 'RepoListPred
 
--- import Generics.Deriving.Uniplate qualified as U
+instance Semigroup RepoListPred where
+  (<>) _ b = mempty & set repoListByLww (view repoListByLww b)
+                    & set repoListLimit (view repoListLimit b)
 
+instance Monoid RepoListPred where
+  mempty = RepoListPred Nothing Nothing
 
 type MyRefChan = RefChanId L4Proto
 
@@ -99,6 +107,11 @@ newtype TxHash = TxHash HashRef
                  deriving stock (Generic)
                  deriving newtype (ToField)
 
+
+newtype RepoHeadTx = RepoHeadTx HashRef
+                     deriving stock (Generic)
+                     deriving newtype (ToField,FromField,Pretty)
+
 newtype RepoName = RepoName Text
                    deriving stock (Eq,Show,Generic)
                    deriving newtype (ToField,FromField,ToHtml,IsString)
@@ -116,7 +129,7 @@ newtype RepoChannel = RepoChannel MyRefChan
 
 newtype RepoHeadRef = RepoHeadRef HashRef
                       deriving stock (Generic)
-                      deriving newtype (ToField)
+                      deriving newtype (ToField,FromField)
 
 
 newtype RepoHeadSeq = RepoHeadSeq Word64
@@ -203,6 +216,8 @@ data RepoListItem =
   RepoListItem
   { rlRepoLww      :: RepoLww
   , rlRepoSeq      :: RepoHeadSeq
+  , rlRepoHead     :: RepoHeadRef
+  , rlRepoTx       :: RepoHeadTx
   , rlRepoName     :: RepoName
   , rlRepoBrief    :: RepoBrief
   , rlRepoGK0      :: RepoHeadGK0
@@ -218,16 +233,39 @@ rlRepoLwwAsText =
 
 instance FromRow RepoListItem
 
-selectRepoList :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoListItem]
-selectRepoList = fmap fixName <$> withState do
-  select_ @_ @RepoListItem [qc|select r.lww
-                                    , r.seq
-                                    , r.name
-                                    , r.brief
-                                    , r.gk0
-                               from repolistview r
-                              |]
 
+
+selectRepoList :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListPred -> m [RepoListItem]
+selectRepoList pred = fmap fixName <$> withState do
+
+  let onLww   = maybe1 (view repoListByLww pred) mempty $ \w -> [("r.lww = ?", w)]
+  let claus   = onLww
+
+  let where_ | List.null claus = "true"
+             | otherwise = Text.intercalate " and " (fmap fst claus)
+
+  let limit_ = case view repoListLimit pred of
+                 Nothing -> mempty
+                 Just n  -> show $ "limit" <+> pretty n
+
+  let params = fmap snd claus
+
+  let sql = [qc|
+  select r.lww
+       , r.seq
+       , r.repohead
+       , r.tx
+       , r.name
+       , r.brief
+       , r.gk0
+   from repolistview r
+   where  {where_}
+   {limit_}
+  |]
+
+  debug $ yellow "selectRepoList" <+> pretty sql
+
+  select  @RepoListItem sql params
   where
     fixName x@RepoListItem{..} | Text.length (coerce rlRepoName) < 3 = x { rlRepoName = fixed }
                                | otherwise = x
@@ -246,6 +284,8 @@ with repolist as (
   select
     r.lww,
     0 as seq,
+    null as repohead,
+    null as tx,
     coalesce(n.name, r.lww) as name,
     coalesce(b.brief, '') as brief,
     null as gk0
@@ -256,6 +296,8 @@ with repolist as (
   select
     lww,
     seq,
+    repohead,
+    tx,
     name,
     brief,
     gk0
@@ -265,6 +307,8 @@ ranked_repos as (
   select
     lww,
     seq,
+    repohead,
+    tx,
     name,
     brief,
     gk0,
@@ -273,12 +317,11 @@ ranked_repos as (
   order by seq desc
 )
 
-select lww, seq, name, brief, gk0
+select lww, seq, repohead, tx, name, brief, gk0
 from ranked_repos
 where rn = 1;
 
   |]
-
 
 
 createRepoHeadTable :: DashBoardPerks m => DBPipeM m ()
@@ -287,6 +330,7 @@ createRepoHeadTable = do
     create table if not exists repohead
       (  lww        text not null
       ,  repohead   text not null
+      ,  tx         text not null
       ,  seq        integer not null
       ,  gk0        text null
       ,  name       text
@@ -312,15 +356,20 @@ instance HasColumnName RepoHeadSeq where
 instance HasColumnName RepoHeadGK0 where
   columnName = "gk0"
 
+instance HasColumnName RepoHeadTx where
+  columnName = "tx"
+
 insertRepoHead :: (DashBoardPerks m, MonadReader DashBoardEnv m)
                => LWWRefKey 'HBS2Basic
-               -> HashRef
+               -> RepoHeadTx
+               -> RepoHeadRef
                -> RepoHead
                -> DBPipeM m ()
-insertRepoHead lww href rh = do
+insertRepoHead lww tx rf rh = do
   insert @RepoHeadTable $ onConflictIgnore @RepoHeadTable
     ( RepoLww lww
-    , RepoHeadRef href
+    , rf
+    , tx
     , RepoHeadSeq      (_repoHeadTime rh)
     , RepoHeadGK0      (_repoHeadGK0 rh)
     , RepoName         (_repoHeadName rh)
