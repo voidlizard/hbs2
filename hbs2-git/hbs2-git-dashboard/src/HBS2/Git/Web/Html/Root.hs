@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language OverloadedStrings #-}
 module HBS2.Git.Web.Html.Root where
 
 import HBS2.Git.DashBoard.Prelude
@@ -6,6 +7,7 @@ import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 
 import HBS2.Git.Data.Tx.Git
+import HBS2.Git.Data.RepoHead
 
 import Data.Text qualified as Text
 import Lucid.Base
@@ -16,6 +18,10 @@ import Control.Applicative
 import Text.Pandoc hiding (getPOSIXTime)
 import System.FilePath
 import Data.Word
+import Data.Either
+import Safe
+
+import Streaming.Prelude qualified as S
 
 rootPath :: [String] -> [String]
 rootPath = ("/":)
@@ -138,28 +144,89 @@ dashboardRootPage = rootPage do
           toHtml (WithTime now item)
 
 
+
+tabClick :: Attribute
+tabClick =
+  hyper_ "on click take .active from .tab for event's target"
+
+-- repoMenu :: Monad m => HtmlT m () -> HtmlT m ()
+repoMenu :: Term [Attribute] (t1 -> t2) => t1 -> t2
+repoMenu = ul_ []
+
+
+repoMenuItem0 :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
+repoMenuItem0 misc name = li_ ([class_  "tab active"] <> misc <> [tabClick]) name
+
+repoMenuItem :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
+repoMenuItem misc name = li_ ([class_  "tab"] <> misc <> [tabClick]) name
+
+
 repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
 repoPage RepoListItem{..} = rootPage do
 
   sto <- asks _sto
   mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
 
-  let manifest = _repoManifest . snd =<< mhead
+  let rawManifest  = (_repoManifest . snd =<< mhead)
+                      & fromMaybe (coerce rlRepoBrief)
+                      & Text.lines
+
+  w <- S.toList_ do
+         flip fix rawManifest $ \next ss -> do
+          case ss of
+            ( "" : rest )  -> S.yield (Right (Text.stripStart (Text.unlines rest)))
+            ( a : rest )   -> S.yield (Left a ) >> next rest
+            [] -> pure ()
+
+  let meta = Text.unlines (lefts w)
+                & Text.unpack
+                & parseTop
+                & fromRight mempty
+
+  let manifest = mconcat $ rights  w
 
   debug $ yellow "HEAD" <+> pretty rlRepoTx
+  debug $ yellow "META" <+> pretty meta
+
+  let author = headMay [ s | ListVal [ SymbolVal "author:", LitStrVal s ] <- meta ]
+  let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
+
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
-      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
-      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+
+      div_ [class_ "info-block" ] do
+        for_ author $ \a -> do
+            div_ [ class_ "attr" ] do
+              div_ [ class_ "attrname"] "author:"
+              div_ [ class_ "attrval"] $ toHtml a
+
+        for_ public $ \p -> do
+            div_ [ class_ "attr" ] do
+              div_ [ class_ "attrname"] "public:"
+              div_ [ class_ "attrval"] $ toHtml p
+
+      div_ [class_ "info-block" ] do
+        for_ (snd <$> mhead) $ \rh -> do
+          h6_ [] "heads"
+          for_ (view repoHeadHeads rh) $ \branch -> do
+            div_ [ class_ "attrval onleft"] $ toHtml branch
+
+      div_ [class_ "info-block" ] do
+        for_ (snd <$> mhead) $ \rh -> do
+          h6_ [] "tags"
+          for_ (view repoHeadTags rh) $ \tag -> do
+            div_ [ class_ "attrval onleft"] $ toHtml tag
 
     main_ do
+
+      nav_ [ role_ "tab-control" ] do
+       repoMenu do
+        repoMenuItem  mempty $ a_ [href_ "/"] "root"
+        repoMenuItem0 mempty "manifest"
 
       section_ [id_ "repo-data"] do
         h1_ (toHtml $ rlRepoName)
 
-        for_ manifest $ \m -> do
-          toHtmlRaw (renderMarkdown' m)
-
-
+        toHtmlRaw (renderMarkdown' manifest)
 

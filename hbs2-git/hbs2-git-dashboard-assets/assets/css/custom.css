@@ -90,6 +90,8 @@ nav.left {
 
 nav.left .info-block {
   margin-bottom: 4rem;
+  padding-left: 1em;
+  padding-right: 1.2em;
 }
 
 section#repo-data {
@@ -204,9 +206,22 @@ div .repo-list-item {
   text-align: right;
 }
 
+.onleft {
+  text-align: left;
+}
+
 .icon {
   flex-basis: 90%;
   text-align: right;
+}
+
+.info-block .attrname {
+  font-size: 0.85rem;
+  font-weight: bolder;
+}
+
+.info-block .attrval {
+  font-size: 0.85rem;
 }
 
 
