@@ -258,6 +258,7 @@ repoTree lww root tree back' = do
               a_ [ href_ "#"
                  , hxGet_ (link <> backPart)
                  , hxTarget_ "#repo-tab-data"
+                 , hxPushUrl_ "true"
                  ] (toHtml $ show $ pretty h)
 
             _ -> mempty
@@ -316,9 +317,12 @@ repoPage it@RepoListItem{..} = rootPage do
                       , hxTarget_ "#repo-tab-data"
                       ] "manifest"
 
+        repoMenuItem  [
+                      ] "commits"
+
         repoMenuItem  [ hxGet_ (path ["repo", repo, "refs"])
                       , hxTarget_ "#repo-tab-data"
-                      ] "browse"
+                      ] "tree"
 
       section_ [id_ "repo-data"] do
         h1_ (toHtml $ rlRepoName)
