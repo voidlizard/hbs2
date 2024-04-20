@@ -303,8 +303,8 @@ with repolist as (
   select
     r.lww,
     0 as lwwseq,
-    0 as seq,
     null as reflog,
+    0 as seq,
     null as repohead,
     null as tx,
     coalesce(n.name, r.lww) as name,
