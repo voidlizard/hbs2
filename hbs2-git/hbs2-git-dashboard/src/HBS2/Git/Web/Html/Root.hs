@@ -21,6 +21,10 @@ import Data.Word
 import Data.Either
 import Safe
 
+import Data.ByteString.Char8 qualified as BS8
+import Network.URI (uriToString, parseURI, URI(..), URIAuth(..))
+import Network.HTTP.Types.URI (renderQuery)
+
 import Streaming.Prelude qualified as S
 
 rootPath :: [String] -> [String]
@@ -161,11 +165,11 @@ repoMenuItem :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
 repoMenuItem misc name = li_ ([class_  "tab"] <> misc <> [tabClick]) name
 
 
-repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
-repoPage RepoListItem{..} = rootPage do
+parsedManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem  -> m ([Syntax C], Text)
+parsedManifest RepoListItem{..} = do
 
   sto <- asks _sto
-  mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
+  mhead <- readRepoHeadFromTx sto (coerce rlRepoTx)
 
   let rawManifest  = (_repoManifest . snd =<< mhead)
                       & fromMaybe (coerce rlRepoBrief)
@@ -184,6 +188,90 @@ repoPage RepoListItem{..} = rootPage do
                 & fromRight mempty
 
   let manifest = mconcat $ rights  w
+
+  pure (meta, manifest)
+
+
+repoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
+repoManifest it@RepoListItem{..} = do
+  (_, manifest) <- lift $ parsedManifest it
+  toHtmlRaw (renderMarkdown' manifest)
+
+repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+         => LWWRefKey 'HBS2Basic
+         -> [(GitRef, GitHash)]
+         -> HtmlT m ()
+repoRefs lww refs = do
+  table_ [] do
+    for_ refs $ \(r,h) -> do
+      let link = path [ "repo", show $ pretty lww, "tree",  show (pretty h) ]
+      tr_ mempty do
+        td_ mempty (toHtml $ show $ pretty r)
+        td_ [class_ "mono"] $ a_ [ href_ "#"
+                                 , hxGet_ link
+                                 , hxTarget_ "#repo-tab-data"
+                                 ] (toHtml $ show $ pretty h)
+
+
+
+repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+         => LWWRefKey 'HBS2Basic
+         -> GitHash -- ^ this
+         -> [(GitObjectType, GitHash, Text)]
+         -> Maybe GitHash -- ^ back
+         -> HtmlT m ()
+
+repoTree lww root tree back' = do
+
+  table_ [] do
+    tr_ mempty do
+
+      for_ back' $ \root -> do
+        let rootLink = path [ "repo", show $ pretty lww, "tree", show (pretty root) ]
+        td_ $ img_ [src_ "/icon/tree-up.svg"]
+        td_ ".."
+        td_ do a_ [ href_ "#"
+                  , hxGet_ rootLink
+                  , hxTarget_ "#repo-tab-data"
+                  ] (toHtml $ show $ pretty root)
+
+    for_ tree $ \(tp,h,name) -> do
+
+      let back = show $ pretty root
+      let backPart = [qc|?back={back}|]
+
+      let link = path [ "repo", show $ pretty lww, "tree", show (pretty h) ]
+      tr_ mempty do
+        td_  $ case tp of
+          Blob -> img_ [src_ "/icon/blob.svg"]
+          Tree -> img_ [src_ "/icon/tree.svg"]
+          _    -> mempty
+
+        td_ mempty (toHtml $ show $ pretty name)
+        td_ [class_ "mono"] do
+          case tp of
+            Blob -> do
+              span_ do
+                toHtml $ show $ pretty h
+
+            Tree -> do
+              a_ [ href_ "#"
+                 , hxGet_ (link <> backPart)
+                 , hxTarget_ "#repo-tab-data"
+                 ] (toHtml $ show $ pretty h)
+
+            _ -> mempty
+
+
+repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
+repoPage it@RepoListItem{..} = rootPage do
+
+  let repo = show $ pretty rlRepoLww
+
+  sto <- asks _sto
+  mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
+
+  (meta, manifest) <- lift $ parsedManifest it
 
   debug $ yellow "HEAD" <+> pretty rlRepoTx
   debug $ yellow "META" <+> pretty meta
@@ -223,10 +311,18 @@ repoPage RepoListItem{..} = rootPage do
       nav_ [ role_ "tab-control" ] do
        repoMenu do
         repoMenuItem  mempty $ a_ [href_ "/"] "root"
-        repoMenuItem0 mempty "manifest"
+
+        repoMenuItem0 [ hxGet_ (path ["repo", repo, "manifest"])
+                      , hxTarget_ "#repo-tab-data"
+                      ] "manifest"
+
+        repoMenuItem  [ hxGet_ (path ["repo", repo, "refs"])
+                      , hxTarget_ "#repo-tab-data"
+                      ] "browse"
 
       section_ [id_ "repo-data"] do
         h1_ (toHtml $ rlRepoName)
 
+      div_ [id_ "repo-tab-data"] do
         toHtmlRaw (renderMarkdown' manifest)
 

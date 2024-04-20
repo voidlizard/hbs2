@@ -17,6 +17,7 @@ module HBS2.Git.DashBoard.Prelude
   , module Lens.Micro.Platform
   , module UnliftIO
   , module Codec.Serialise
+  , GitRef(..), GitHash(..), GitObjectType(..)
   , qc, q
   ) where
 
@@ -41,6 +42,7 @@ import HBS2.Peer.Proto.LWWRef    as API
 import HBS2.Peer.Proto.RefChan.Types as API
 import HBS2.Peer.Proto.RefChan.RefChanUpdate as API
 
+import HBS2.Git.Local
 
 import Data.Config.Suckless as Config
 

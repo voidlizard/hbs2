@@ -13,6 +13,8 @@ import HBS2.Polling
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
+import HBS2.Git.Local
+import HBS2.Git.Local.CLI
 
 import HBS2.Git.Web.Assets
 import HBS2.Git.DashBoard.State
@@ -39,6 +41,7 @@ import Control.Concurrent.STM (flushTQueue)
 import System.FilePath
 import System.Process.Typed
 import System.Directory (XdgDirectory(..),getXdgDirectory)
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 
 
 configParser :: DashBoardPerks m => Parser (m ())
@@ -185,9 +188,6 @@ runDashboardWeb wo = do
 
   get "/repo/:lww" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
-
-    env <- lift ask
-
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
 
@@ -199,6 +199,80 @@ runDashboardWeb wo = do
                  >>= orFall (status status404)
 
       lift $ html =<< renderTextT (repoPage item)
+
+  get "/repo/:lww/manifest" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    flip runContT pure do
+      lww <- lwws' & orFall (status status404)
+
+      item <- lift (selectRepoList ( mempty
+                                      & set repoListByLww (Just lww)
+                                      & set repoListLimit (Just 1))
+                                   )
+                 <&> listToMaybe
+                 >>= orFall (status status404)
+
+      lift $ html =<< renderTextT (repoManifest item)
+
+
+  get "/repo/:lww/refs" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    flip runContT pure do
+      lww <- lwws' & orFall (status status404)
+      refs <- lift $ gitShowRefs lww
+      lift $ html =<< renderTextT (repoRefs lww refs)
+
+  get "/repo/:lww/tree/:hash" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    hash'  <- captureParam @String "hash" <&> fromStringMay @GitHash
+    back   <- queryParamMaybe @String "back" <&> ((fromStringMay @GitHash) =<<)
+
+    flip runContT pure do
+      lww  <- lwws' & orFall (status status404)
+      hash <- hash' & orFall (status status404)
+      tree <- lift $ gitShowTree lww hash
+      lift $ html =<< renderTextT (repoTree lww hash tree back)
+
+
+repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath
+repoDataPath lw = asks _dataDir <&> (</> (show $ pretty lw)) >>= canonicalizePath
+
+
+gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => LWWRefKey 'HBS2Basic
+            -> GitHash
+            -> m [(GitObjectType, GitHash, Text)]
+gitShowTree what hash  = do
+  path <- repoDataPath what
+  let cmd = [qc|git --git-dir {path} ls-tree {show $ pretty hash}|]
+
+  -- FIXME: extract-method
+  gitRunCommand cmd
+    >>= orThrowUser ("can't read git repo" <+> pretty path)
+    <&> LBS8.lines
+    <&> fmap LBS8.words
+    <&> mapMaybe \case
+         [_,tp,h,name] -> do
+            (,,) <$> fromStringMay (LBS8.unpack tp)
+                 <*> fromStringMay (LBS8.unpack h)
+                 <*> pure (fromString (LBS8.unpack name))
+
+         _          -> Nothing
+
+
+gitShowRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m [(GitRef, GitHash)]
+gitShowRefs what = do
+  path <- repoDataPath what
+  let cmd = [qc|git --git-dir {path} show-ref|]
+
+  -- FIXME: extract-method
+  gitRunCommand cmd
+    >>= orThrowUser ("can't read git repo" <+> pretty path)
+    <&> LBS8.lines
+    <&> fmap LBS8.words
+    <&> mapMaybe \case
+         [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
+         _          -> Nothing
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()

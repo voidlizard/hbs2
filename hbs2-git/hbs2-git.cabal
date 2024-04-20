@@ -163,6 +163,7 @@ executable hbs2-git-dashboard
         , optparse-applicative
         , http-types
         , file-embed
+        , network-uri
         , wai
         , wai-extra
         , wai-middleware-static
