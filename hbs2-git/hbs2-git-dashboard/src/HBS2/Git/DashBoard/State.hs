@@ -529,6 +529,10 @@ buildCommitTreeIndex dir = do
 
         for_ (Map.toList trees) $ \(t,h0) -> do
 
+          case t of
+            [_] -> insertTree co root h0
+            _   -> pure ()
+
           let child = tailSafe t
           debug $ red "TREE-REL:" <+> pretty t
           let parent = Map.lookup child trees
