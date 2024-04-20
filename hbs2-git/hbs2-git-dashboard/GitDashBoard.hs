@@ -222,16 +222,19 @@ runDashboardWeb wo = do
       refs <- lift $ gitShowRefs lww
       lift $ html =<< renderTextT (repoRefs lww refs)
 
-  get "/repo/:lww/tree/:hash" do
+  get "/repo/:lww/tree/:co/:hash" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
-    back  <- queryParamMaybe @String "back" <&> ((fromStringMay @GitHash) =<<)
+    co'   <- captureParam @String "co" <&> fromStringMay @GitHash
 
     flip runContT pure do
       lww  <- lwws' & orFall (status status404)
       hash <- hash' & orFall (status status404)
+      co   <- co'   & orFall (status status404)
       tree <- lift $ gitShowTree lww hash
-      lift $ html =<< renderTextT (repoTree lww hash tree back)
+      back <- lift $ selectParentTree co hash
+      debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
+      lift $ html =<< renderTextT (repoTree lww co hash tree back)
 
 
 repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath

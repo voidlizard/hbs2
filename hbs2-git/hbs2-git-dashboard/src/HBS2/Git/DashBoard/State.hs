@@ -24,6 +24,7 @@ import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
 
+import Control.Applicative
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Lucid.Base
 import Data.Text qualified as Text
@@ -443,17 +444,11 @@ createRepoTreeIndexTable = do
     create table if not exists tree
     ( parent text not null
     , child  text not null
-    , primary key (parent,child)
+    , kommit text not null
+    , primary key (parent,child,kommit)
     )
   |]
 
-  ddl [qc|
-    create table if not exists committree
-    ( kommit text not null
-    , tree   text not null
-    , primary key (kommit,tree)
-    )
-  |]
 
 isProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m Bool
 isProcessed href = do
@@ -468,23 +463,26 @@ insertProcessed href = do
   on conflict(hash) do nothing
   |] (Only href)
 
-insertCommitTree :: (DashBoardPerks m) => GitHash -> GitHash -> DBPipeM m ()
-insertCommitTree commit tree = do
+insertTree :: (DashBoardPerks m) => GitHash -> GitHash -> GitHash -> DBPipeM m ()
+insertTree commit parent child = do
   S.insert [qc|
-  insert into committree (kommit,tree)
-  values (?,?)
-  on conflict (kommit,tree) do nothing
-  |] (commit,tree)
+  insert into tree (parent,child,kommit)
+  values (?,?,?)
+  on conflict (parent,child,kommit) do nothing
+  |] (parent,child,commit)
 
-insertTree :: (DashBoardPerks m) => GitHash -> GitHash -> DBPipeM m ()
-insertTree parent child = do
-  S.insert [qc|
-  insert into tree (parent,child)
-  values (?,?)
-  on conflict (parent,child) do nothing
-  |] (parent,child)
+selectParentTree :: (DashBoardPerks m, MonadReader DashBoardEnv m) => GitHash -> GitHash -> m (Maybe GitHash)
+selectParentTree  co me = withState do
+  w <- select [qc|select coalesce(parent,kommit) from tree where child = ? and kommit = ?|] (me,co)
+        <&> listToMaybe . fmap fromOnly
+
+  if co == me then
+    pure Nothing
+  else do
+    pure $ w <|> Just co
 
 {- HLINT ignore "Functor law" -}
+
 
 pattern TreeHash :: GitHash -> LBS8.ByteString
 pattern TreeHash hash <- (LBS8.words -> (_ : (fromStringMay . LBS8.unpack -> Just hash) : _))
@@ -519,7 +517,6 @@ buildCommitTreeIndex dir = do
                 >>= toMPlus
 
       lift $ transactional do
-        insertCommitTree co root
 
         trees <- gitRunCommand [qc|git --git-dir {dir} ls-tree -r -t {pretty co}|]
           <&> fromRight mempty
@@ -538,7 +535,7 @@ buildCommitTreeIndex dir = do
 
           for_ parent $ \p -> do
             debug $ red "FOUND SHIT:" <+> pretty (h0,p)
-            insertTree p h0
+            insertTree co p h0
 
         insertProcessed hkey
 

@@ -20,10 +20,9 @@ import System.FilePath
 import Data.Word
 import Data.Either
 import Safe
+import Data.List (sortOn)
+import Data.Ord (comparing, Down(..))
 
-import Data.ByteString.Char8 qualified as BS8
-import Network.URI (uriToString, parseURI, URI(..), URIAuth(..))
-import Network.HTTP.Types.URI (renderQuery)
 
 import Streaming.Prelude qualified as S
 
@@ -204,30 +203,39 @@ repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
 repoRefs lww refs = do
   table_ [] do
     for_ refs $ \(r,h) -> do
-      let link = path [ "repo", show $ pretty lww, "tree",  show (pretty h) ]
+      let co = show $ pretty h
+      let uri = path [ "repo", show $ pretty lww, "tree", co, co ]
       tr_ mempty do
         td_ mempty (toHtml $ show $ pretty r)
         td_ [class_ "mono"] $ a_ [ href_ "#"
-                                 , hxGet_ link
+                                 , hxGet_ uri
                                  , hxTarget_ "#repo-tab-data"
                                  ] (toHtml $ show $ pretty h)
-
 
 
 repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> GitHash -- ^ this
+         -> GitHash -- ^ this
          -> [(GitObjectType, GitHash, Text)]
          -> Maybe GitHash -- ^ back
          -> HtmlT m ()
 
-repoTree lww root tree back' = do
+repoTree lww co root tree back' = do
+
+  let co_ = show $ pretty co
+
+  let sorted = sortOn (\(tp, _, name) -> (tpOrder tp, name)) tree
+        where
+          tpOrder Tree = (0 :: Int)
+          tpOrder Blob = 1
+          tpOrder _    = 2
 
   table_ [] do
     tr_ mempty do
 
       for_ back' $ \root -> do
-        let rootLink = path [ "repo", show $ pretty lww, "tree", show (pretty root) ]
+        let rootLink = path [ "repo", show $ pretty lww, "tree", co_, show (pretty root) ]
         td_ $ img_ [src_ "/icon/tree-up.svg"]
         td_ ".."
         td_ do a_ [ href_ "#"
@@ -235,19 +243,17 @@ repoTree lww root tree back' = do
                   , hxTarget_ "#repo-tab-data"
                   ] (toHtml $ show $ pretty root)
 
-    for_ tree $ \(tp,h,name) -> do
-
-      let back = show $ pretty root
-      let backPart = [qc|?back={back}|]
-
-      let link = path [ "repo", show $ pretty lww, "tree", show (pretty h) ]
+    for_ sorted $ \(tp,h,name) -> do
+      let itemClass = pretty tp & show & Text.pack
+      let hash_ = show $ pretty h
+      let uri = path [ "repo", show $ pretty lww, "tree", co_, hash_ ]
       tr_ mempty do
         td_  $ case tp of
           Blob -> img_ [src_ "/icon/blob.svg"]
           Tree -> img_ [src_ "/icon/tree.svg"]
           _    -> mempty
 
-        td_ mempty (toHtml $ show $ pretty name)
+        td_ [class_ itemClass] (toHtml $ show $ pretty name)
         td_ [class_ "mono"] do
           case tp of
             Blob -> do
@@ -256,9 +262,9 @@ repoTree lww root tree back' = do
 
             Tree -> do
               a_ [ href_ "#"
-                 , hxGet_ (link <> backPart)
+                 , hxGet_ uri
                  , hxTarget_ "#repo-tab-data"
-                 , hxPushUrl_ "true"
+                 -- , hxPushUrl_ "true"
                  ] (toHtml $ show $ pretty h)
 
             _ -> mempty

@@ -314,13 +314,8 @@ nav[role="tab-control"] li.active {
     font-family: 'Courier New', Courier, monospace;
 }
 
-
-.blob {
-    width: 16px;
-    height: 16px;
-    display: inline-block;
-
-    background-image: url('/icon/file.svg');
-    background-size: cover;
+.tree {
+  font-weight: 600;
 }
+
 
