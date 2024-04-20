@@ -946,6 +946,10 @@ executable test-playground
         , unordered-containers
         , resourcet
         , text-icu >= 0.8.0.3
+        , skylighting-core
+        , skylighting
+        , skylighting-lucid
+        , text
 
 
 executable test-pipe-mess

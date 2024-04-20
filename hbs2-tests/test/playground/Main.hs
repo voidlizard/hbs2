@@ -15,6 +15,16 @@ import Control.Monad.Trans.Cont
 import Control.Monad
 import UnliftIO
 
+import Skylighting.Core
+import Skylighting.Types
+import Skylighting.Syntax
+import Skylighting.Tokenizer
+
+import Skylighting
+import Data.Text (Text)
+import Data.Text qualified as Text
+import qualified Data.Text.IO as Text
+
 -- желаемое поведение: добавить в новую версию A какое-нибудь поле так,
 -- что бы предыдущие записи продолжали десериализоваться без этого поля,
 -- а новое поле было бы пустым, если его нет -- в новой версии.
@@ -104,9 +114,39 @@ testCont = do
 
         liftIO $ print i
 
+-- Функция для вывода токенов
+printTokens :: [SourceLine] -> IO ()
+printTokens = mapM_ printSourceLine
+
+-- Вспомогательная функция для печати одной строки токенов
+printSourceLine :: SourceLine -> IO ()
+printSourceLine = mapM_ (putStrLn . show . tokenToText)
+
+-- Преобразование токена в текст
+tokenToText :: Token -> Text.Text
+tokenToText (_,t) = t
+
 
 main :: IO ()
 main = do
+  let syntaxMap = defaultSyntaxMap
+  let maybeSyntax = lookupSyntax "haskell" syntaxMap
+  case maybeSyntax of
+      Nothing -> putStrLn "Синтаксис для Haskell не найден."
+      Just syntax -> do
+          -- Чтение кода из stdin или файла
+          code <- Text.getContents
+          -- Конфигурация токенизатора
+          let config = TokenizerConfig { traceOutput = False, syntaxMap = syntaxMap }
+          -- Токенизация кода
+          case tokenize config syntax code of
+              Left err -> putStrLn $ "Ошибка токенизации: " ++ show err
+              Right tokens -> do
+                  mapM_ print tokens
+
+
+main' :: IO ()
+main' = do
   print "1"
   let a1 = serialise (A0 22) & deserialiseOrFail @A1
   let a2 = serialise (A11 22) & deserialiseOrFail @A0
@@ -126,6 +166,5 @@ main = do
   print $ a1 <&> set a1Str (Just "JOPAKITA")
   print $ a4 <&> set a1Str (Just "JOPAKITA")
 
-  pure ()
 
 
