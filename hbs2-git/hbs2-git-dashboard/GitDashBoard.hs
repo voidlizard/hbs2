@@ -224,8 +224,8 @@ runDashboardWeb wo = do
 
   get "/repo/:lww/tree/:hash" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
-    hash'  <- captureParam @String "hash" <&> fromStringMay @GitHash
-    back   <- queryParamMaybe @String "back" <&> ((fromStringMay @GitHash) =<<)
+    hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
+    back  <- queryParamMaybe @String "back" <&> ((fromStringMay @GitHash) =<<)
 
     flip runContT pure do
       lww  <- lwws' & orFall (status status404)
@@ -273,6 +273,8 @@ gitShowRefs what = do
     <&> mapMaybe \case
          [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
          _          -> Nothing
+
+
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()
@@ -342,6 +344,9 @@ updateIndexPeriodially = do
               let cmd = [qc|git --git-dir {dir} hbs2 import {show $ pretty lww}|]
               debug $ red "SYNC" <+> pretty cmd
               void $ runProcess $ shell cmd
+
+              lift $ buildCommitTreeIndex dir
+
 
 main :: IO ()
 main = do

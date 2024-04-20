@@ -13,15 +13,26 @@ module HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
 
+import HBS2.Hash
+
 import HBS2.Git.Data.Tx.Git
+import HBS2.Git.Local
+import HBS2.Git.Local.CLI
 
 import DBPipe.SQLite hiding (insert)
+import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
+
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Lucid.Base
 import Data.Text qualified as Text
 import Data.Word
+import Data.Either
 import Data.List qualified as List
+import Data.Map qualified as Map
+import Data.Map (Map)
+import System.FilePath
 
 data RepoListPred =
   RepoListPred
@@ -87,8 +98,14 @@ evolveDB = do
       )
   |]
 
-  pure ()
+  createRepoTreeIndexTable
 
+
+instance ToField GitHash where
+  toField x = toField $ show $ pretty x
+
+instance FromField GitHash where
+  fromField = fmap fromString . fromField @String
 
 instance ToField HashRef where
   toField x = toField $ show $ pretty x
@@ -420,4 +437,108 @@ selectRefLogs :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoRefLog
 selectRefLogs = withState do
   select_ [qc|select distinct(reflog) from repolistview|] <&> fmap fromOnly
 
+createRepoTreeIndexTable :: (DashBoardPerks m) => DBPipeM m ()
+createRepoTreeIndexTable = do
+  ddl [qc|
+    create table if not exists tree
+    ( parent text not null
+    , child  text not null
+    , primary key (parent,child)
+    )
+  |]
+
+  ddl [qc|
+    create table if not exists committree
+    ( kommit text not null
+    , tree   text not null
+    , primary key (kommit,tree)
+    )
+  |]
+
+isProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m Bool
+isProcessed href = do
+  select @(Only Int) [qc|select 1 from processed where hash = ? limit 1|] (Only href)
+    <&> not . List.null
+
+insertProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m ()
+insertProcessed href = do
+  S.insert [qc|
+  insert into processed (hash)
+  values(?)
+  on conflict(hash) do nothing
+  |] (Only href)
+
+insertCommitTree :: (DashBoardPerks m) => GitHash -> GitHash -> DBPipeM m ()
+insertCommitTree commit tree = do
+  S.insert [qc|
+  insert into committree (kommit,tree)
+  values (?,?)
+  on conflict (kommit,tree) do nothing
+  |] (commit,tree)
+
+insertTree :: (DashBoardPerks m) => GitHash -> GitHash -> DBPipeM m ()
+insertTree parent child = do
+  S.insert [qc|
+  insert into tree (parent,child)
+  values (?,?)
+  on conflict (parent,child) do nothing
+  |] (parent,child)
+
+{- HLINT ignore "Functor law" -}
+
+pattern TreeHash :: GitHash -> LBS8.ByteString
+pattern TreeHash hash <- (LBS8.words -> (_ : (fromStringMay . LBS8.unpack -> Just hash) : _))
+
+buildCommitTreeIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => FilePath -> m ()
+buildCommitTreeIndex dir = do
+
+  commits <- gitRunCommand [qc|git --git-dir {dir} rev-list --all|]
+              <&> fromRight mempty
+              <&> mapMaybe (headMay . LBS8.words) . LBS8.lines
+              <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack)
+
+  -- FIXME: check-names-with-spaces
+
+  withState do
+
+    for_ commits $ \co -> void $ runMaybeT do
+      let hkey = ("commit-for-tree-index", co) & serialise & hashObject @HbSync & HashRef
+
+      done <- lift $ isProcessed hkey
+
+      guard (not done)
+
+      let cmd =  [qc|git --git-dir {dir} cat-file commit {pretty co}|]
+
+      root <- gitRunCommand cmd
+                <&> fromRight mempty
+                <&> LBS8.lines
+                <&> \case
+                       (TreeHash ha : _) -> Just ha
+                       _                 -> Nothing
+                >>= toMPlus
+
+      lift $ transactional do
+        insertCommitTree co root
+
+        trees <- gitRunCommand [qc|git --git-dir {dir} ls-tree -r -t {pretty co}|]
+          <&> fromRight mempty
+          <&> fmap LBS8.words . LBS8.lines
+          <&> mapMaybe \case
+                [_,"tree",h,n] ->
+                  (reverse $ splitDirectories $ LBS8.unpack n,) <$> fromStringMay @GitHash (LBS8.unpack h)
+                _ -> Nothing
+          <&> Map.fromList
+
+        for_ (Map.toList trees) $ \(t,h0) -> do
+
+          let child = tailSafe t
+          debug $ red "TREE-REL:" <+> pretty t
+          let parent = Map.lookup child trees
+
+          for_ parent $ \p -> do
+            debug $ red "FOUND SHIT:" <+> pretty (h0,p)
+            insertTree p h0
+
+        insertProcessed hkey
 
