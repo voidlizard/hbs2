@@ -38,8 +38,8 @@ instance Semigroup RepoListPred where
 instance Monoid RepoListPred where
   mempty = RepoListPred Nothing Nothing
 
-type MyRefChan = RefChanId L4Proto
-
+type MyRefChan    = RefChanId L4Proto
+type MyRefLogKey  = RefLogKey 'HBS2Basic
 
 evolveDB :: DashBoardPerks m => DBPipeM m ()
 evolveDB = do
@@ -148,7 +148,7 @@ newtype RepoHeadSeq = RepoHeadSeq Word64
 
 newtype RepoRefLog = RepoRefLog (RefLogKey 'HBS2Basic)
                      deriving stock (Generic)
-                     deriving newtype (ToField,FromField)
+                     deriving newtype (ToField,FromField,Pretty)
 
 newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
                       deriving stock (Generic)
@@ -409,5 +409,9 @@ insertRepoHead lww lwwseq rlog tx rf rh = do
     )
 
   pure ()
+
+selectRefLogs :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoRefLog]
+selectRefLogs = withState do
+  select_ [qc|select distinct(reflog) from repolistview|] <&> fmap fromOnly
 
 

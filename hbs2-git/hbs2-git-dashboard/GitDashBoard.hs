@@ -8,6 +8,7 @@ import HBS2.System.Dir
 
 import HBS2.Net.Messaging.Unix
 import HBS2.OrDie
+import HBS2.Polling
 
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
@@ -21,8 +22,7 @@ import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
 
-
-import Lucid
+import Lucid (renderTextT)
 import Options.Applicative as O
 import Data.Either
 import Data.ByteString.Lazy qualified as LBS
@@ -33,6 +33,10 @@ import Network.Wai.Middleware.RequestLogger
 import Web.Scotty.Trans
 import System.Directory
 import Control.Monad.Except
+import System.Random
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Control.Concurrent.STM (flushTQueue)
 
 
 configParser :: DashBoardPerks m => Parser (m ())
@@ -202,9 +206,51 @@ runScotty  = do
 
     env <- ask
 
-    addJob (withDashBoardEnv env updateIndex)
+    flip runContT pure do
 
-    scottyT pno (withDashBoardEnv env) (runDashboardWeb wo)
+      void $ ContT $ withAsync updateIndexPeriodially
+
+      scottyT pno (withDashBoardEnv env) (runDashboardWeb wo)
+
+updateIndexPeriodially :: DashBoardPerks m => DashBoardM m ()
+updateIndexPeriodially = do
+
+  cached <- newTVarIO ( mempty :: HashMap MyRefLogKey HashRef )
+
+  changes <- newTQueueIO
+
+  api <- asks _refLogAPI
+
+  env <- ask
+
+  let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 30)
+
+  flip runContT pure do
+
+    void $ ContT $ withAsync $ forever do
+      _ <- atomically $ peekTQueue changes >> flushTQueue changes
+      addJob (withDashBoardEnv env updateIndex)
+      pause @'Seconds 30
+
+    lift do
+      polling (Polling 10 10) rlogs $ \r -> do
+
+        debug $ yellow "POLL REFLOG" <+> pretty r
+
+        rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) api (coerce r)
+                <&> join
+
+        old <- readTVarIO cached <&> HM.lookup r
+
+        for_ rv $ \x -> do
+
+          when (rv /= old) do
+            debug $ yellow "REFLOG UPDATED" <+> pretty r <+> pretty x
+            atomically $ modifyTVar cached (HM.insert r x)
+            atomically $ writeTQueue changes r
+
+        delay <- liftIO $ randomRIO (0.5,10)
+        pause (TimeoutSec (realToFrac delay))
 
 
 main :: IO ()
