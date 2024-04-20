@@ -949,6 +949,7 @@ executable test-playground
         , skylighting-core
         , skylighting
         , skylighting-lucid
+        , lucid
         , text
 
 

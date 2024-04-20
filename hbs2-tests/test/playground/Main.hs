@@ -19,11 +19,14 @@ import Skylighting.Core
 import Skylighting.Types
 import Skylighting.Syntax
 import Skylighting.Tokenizer
+import Skylighting.Format.HTML.Lucid as Lucid
+import Lucid qualified as Lucid
 
 import Skylighting
 import Data.Text (Text)
 import Data.Text qualified as Text
 import qualified Data.Text.IO as Text
+import qualified Data.Text.Lazy.IO as LT
 
 -- желаемое поведение: добавить в новую версию A какое-нибудь поле так,
 -- что бы предыдущие записи продолжали десериализоваться без этого поля,
@@ -142,7 +145,10 @@ main = do
           case tokenize config syntax code of
               Left err -> putStrLn $ "Ошибка токенизации: " ++ show err
               Right tokens -> do
-                  mapM_ print tokens
+                  let fo = defaultFormatOpts { numberLines = False, ansiColorLevel = ANSI256Color  }
+                  let code = Lucid.formatHtmlBlock fo tokens
+                  let txt = Lucid.renderText code
+                  LT.putStrLn txt
 
 
 main' :: IO ()
