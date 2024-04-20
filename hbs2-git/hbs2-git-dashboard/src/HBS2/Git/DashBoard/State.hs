@@ -99,6 +99,12 @@ instance FromField HashRef where
 instance Pretty (AsBase58 (PubKey 'Sign s)) => ToField (LWWRefKey s) where
   toField x = toField $ show $ pretty (AsBase58 x)
 
+instance Pretty (AsBase58 (PubKey 'Sign s)) => ToField (RefLogKey s) where
+  toField x = toField $ show $ pretty (AsBase58 x)
+
+instance IsRefPubKey s => FromField (RefLogKey s) where
+  fromField = fmap (fromString @(RefLogKey s)) . fromField @String
+
 instance FromField (LWWRefKey HBS2Basic) where
   fromField = fmap fromString . fromField @String
 
@@ -124,6 +130,10 @@ newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving stock (Generic)
                   deriving newtype (ToField,FromField,Pretty)
 
+newtype RepoLwwSeq = RepoLwwSeq Integer
+                     deriving stock (Generic)
+                     deriving newtype (ToField,FromField,Pretty)
+
 newtype RepoChannel = RepoChannel MyRefChan
 
 
@@ -136,6 +146,9 @@ newtype RepoHeadSeq = RepoHeadSeq Word64
                       deriving stock (Generic)
                       deriving newtype (ToField,FromField)
 
+newtype RepoRefLog = RepoRefLog (RefLogKey 'HBS2Basic)
+                     deriving stock (Generic)
+                     deriving newtype (ToField,FromField)
 
 newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
                       deriving stock (Generic)
@@ -171,11 +184,17 @@ instance HasColumnName TxHash where
 instance HasColumnName RepoLww where
   columnName = "lww"
 
+instance HasColumnName RepoLwwSeq where
+  columnName = "lwwseq"
+
 instance HasColumnName RepoName where
   columnName = "name"
 
 instance HasColumnName RepoBrief where
   columnName = "brief"
+
+instance HasColumnName RepoRefLog where
+  columnName = "reflog"
 
 instance HasColumnName RepoChannel where
   columnName = "channel"
@@ -283,7 +302,9 @@ create view repolistview as
 with repolist as (
   select
     r.lww,
+    0 as lwwseq,
     0 as seq,
+    null as reflog,
     null as repohead,
     null as tx,
     coalesce(n.name, r.lww) as name,
@@ -295,6 +316,8 @@ with repolist as (
   union
   select
     lww,
+    lwwseq,
+    reflog,
     seq,
     repohead,
     tx,
@@ -306,18 +329,20 @@ with repolist as (
 ranked_repos as (
   select
     lww,
+    lwwseq,
+    reflog,
     seq,
     repohead,
     tx,
     name,
     brief,
     gk0,
-    row_number() over (partition by lww order by seq desc) as rn
+    row_number() over (partition by lww order by lwwseq desc, seq desc) as rn
   from repolist
   order by seq desc
 )
 
-select lww, seq, repohead, tx, name, brief, gk0
+select lww, lwwseq, reflog, seq, repohead, tx, name, brief, gk0
 from ranked_repos
 where rn = 1;
 
@@ -329,13 +354,15 @@ createRepoHeadTable = do
   ddl [qc|
     create table if not exists repohead
       (  lww        text not null
+      ,  lwwseq     integer not null
+      ,  reflog     text not null
       ,  repohead   text not null
       ,  tx         text not null
       ,  seq        integer not null
       ,  gk0        text null
       ,  name       text
       ,  brief      text
-      ,  primary key (lww,repohead)
+      ,  primary key (lww,lwwseq,repohead)
       )
   |]
 
@@ -345,7 +372,7 @@ instance HasTableName RepoHeadTable where
   tableName = "repohead"
 
 instance HasPrimaryKey RepoHeadTable where
-  primaryKey = ["lww", "repohead"]
+  primaryKey = ["lww", "lwwseq", "repohead"]
 
 instance HasColumnName RepoHeadRef where
   columnName = "repohead"
@@ -359,15 +386,20 @@ instance HasColumnName RepoHeadGK0 where
 instance HasColumnName RepoHeadTx where
   columnName = "tx"
 
+
 insertRepoHead :: (DashBoardPerks m, MonadReader DashBoardEnv m)
                => LWWRefKey 'HBS2Basic
+               -> RepoLwwSeq
+               -> RepoRefLog
                -> RepoHeadTx
                -> RepoHeadRef
                -> RepoHead
                -> DBPipeM m ()
-insertRepoHead lww tx rf rh = do
+insertRepoHead lww lwwseq rlog tx rf rh = do
   insert @RepoHeadTable $ onConflictIgnore @RepoHeadTable
     ( RepoLww lww
+    , lwwseq
+    , rlog
     , rf
     , tx
     , RepoHeadSeq      (_repoHeadTime rh)
