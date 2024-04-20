@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language TemplateHaskell #-}
 module HBS2.Git.DashBoard.Types
   ( module HBS2.Git.DashBoard.Types
   , module HBS2.Git.Data.Tx.Index
@@ -13,6 +14,8 @@ import HBS2.Git.Data.Tx.Index
 import HBS2.Net.Messaging.Unix
 
 import DBPipe.SQLite
+
+import System.FilePath
 
 data HttpPortOpt
 
@@ -44,8 +47,11 @@ data DashBoardEnv =
   , _sto            :: AnyStorage
   , _dashBoardConf  :: TVar [Syntax C]
   , _db             :: DBPipeEnv
+  , _dataDir        :: FilePath
   , _pipeline       :: TQueue (IO ())
   }
+
+makeLenses 'DashBoardEnv
 
 type DashBoardPerks m = MonadUnliftIO m
 
@@ -74,9 +80,11 @@ newDashBoardEnv :: MonadIO m
                 -> AnyStorage
                 -> m DashBoardEnv
 newDashBoardEnv cfg dbFile peer rlog rchan lww sto  = do
+  let ddir = takeDirectory dbFile
   DashBoardEnv peer rlog rchan lww sto
         <$> newTVarIO cfg
         <*> newDBPipeEnv dbPipeOptsDef dbFile
+        <*> pure ddir
         <*> newTQueueIO
 
 withDashBoardEnv :: Monad m => DashBoardEnv -> DashBoardM m a -> m a

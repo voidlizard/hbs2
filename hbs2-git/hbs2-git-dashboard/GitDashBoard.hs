@@ -4,9 +4,9 @@
 module Main where
 
 import HBS2.Git.DashBoard.Prelude
-import HBS2.System.Dir
 
 import HBS2.Net.Messaging.Unix
+import HBS2.System.Dir
 import HBS2.OrDie
 import HBS2.Polling
 
@@ -31,12 +31,14 @@ import Network.Wai.Middleware.Static hiding ((<|>))
 import Network.Wai.Middleware.StaticEmbedded as E
 import Network.Wai.Middleware.RequestLogger
 import Web.Scotty.Trans
-import System.Directory
 import Control.Monad.Except
 import System.Random
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Control.Concurrent.STM (flushTQueue)
+import System.FilePath
+import System.Process.Typed
+import System.Directory (XdgDirectory(..),getXdgDirectory)
 
 
 configParser :: DashBoardPerks m => Parser (m ())
@@ -228,12 +230,12 @@ updateIndexPeriodially = do
   flip runContT pure do
 
     void $ ContT $ withAsync $ forever do
-      _ <- atomically $ peekTQueue changes >> flushTQueue changes
+      rs <- atomically $ peekTQueue changes >> flushTQueue changes
       addJob (withDashBoardEnv env updateIndex)
       pause @'Seconds 30
 
     lift do
-      polling (Polling 10 10) rlogs $ \r -> do
+      polling (Polling 1 10) rlogs $ \r -> do
 
         debug $ yellow "POLL REFLOG" <+> pretty r
 
@@ -249,9 +251,23 @@ updateIndexPeriodially = do
             atomically $ modifyTVar cached (HM.insert r x)
             atomically $ writeTQueue changes r
 
-        delay <- liftIO $ randomRIO (0.5,10)
-        pause (TimeoutSec (realToFrac delay))
+            flip runContT pure $ callCC $ \exit -> do
 
+              lww <- lift (selectLwwByRefLog (RepoRefLog r))
+                       >>= maybe (exit ()) pure
+
+              dir <- asks (view dataDir) <&> (</> (show $ pretty lww))
+
+              here <- doesDirectoryExist dir
+
+              unless here do
+                debug $ red "INIT DATA DIR" <+> pretty dir
+                mkdir dir
+                void $ runProcess $ shell [qc|git --git-dir {dir} init --bare|]
+
+              let cmd = [qc|git --git-dir {dir} hbs2 import {show $ pretty lww}|]
+              debug $ red "SYNC" <+> pretty cmd
+              void $ runProcess $ shell cmd
 
 main :: IO ()
 main = do

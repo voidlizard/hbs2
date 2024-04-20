@@ -410,6 +410,12 @@ insertRepoHead lww lwwseq rlog tx rf rh = do
 
   pure ()
 
+-- FIXME: what-if-two-repo-shares-one-reflog?
+selectLwwByRefLog :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoRefLog -> m (Maybe RepoLww)
+selectLwwByRefLog rlog  = withState do
+  select [qc|select lww from repolistview where reflog = ?|] (Only rlog)
+    <&> listToMaybe . fmap fromOnly
+
 selectRefLogs :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoRefLog]
 selectRefLogs = withState do
   select_ [qc|select distinct(reflog) from repolistview|] <&> fmap fromOnly
