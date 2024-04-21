@@ -35,6 +35,9 @@ import Data.Map qualified as Map
 import Data.Map (Map)
 import System.FilePath
 
+import Skylighting.Core qualified as Sky
+import Skylighting qualified as Sky
+
 data RepoListPred =
   RepoListPred
   { _repoListByLww :: Maybe (LWWRefKey 'HBS2Basic)
@@ -100,6 +103,7 @@ evolveDB = do
   |]
 
   createRepoTreeIndexTable
+  createRepoBlobIndexTable
 
 
 instance ToField GitHash where
@@ -452,6 +456,8 @@ createRepoTreeIndexTable = do
   |]
 
 
+
+
 isProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m Bool
 isProcessed href = do
   select @(Only Int) [qc|select 1 from processed where hash = ? limit 1|] (Only href)
@@ -506,6 +512,45 @@ selectParentTree  co me = withState do
 
 
 
+createRepoBlobIndexTable :: (DashBoardPerks m) => DBPipeM m ()
+createRepoBlobIndexTable = do
+  ddl [qc|
+    create table if not exists blob
+    ( hash    text not null
+    , name    text not null
+    , size    int  not null
+    , syntax  text
+    , primary key (hash)
+    )
+  |]
+
+
+newtype BlobSyn = BlobSyn (Maybe Text)
+                  deriving newtype (FromField,ToField,Pretty)
+
+newtype BlobName = BlobName FilePath
+                   deriving newtype (FromField,ToField,Pretty)
+
+newtype BlobHash = BlobHash GitHash
+                   deriving newtype (FromField,ToField,Pretty)
+
+newtype BlobSize = BlobSize Integer
+                   deriving newtype (FromField,ToField,Pretty)
+
+insertBlob :: DashBoardPerks m
+           => (BlobHash, BlobName, BlobSize, BlobSyn)
+           -> DBPipeM m ()
+insertBlob (h,n,size,syn) = do
+  S.insert [qc|
+  insert into blob (hash,name,size,syntax)
+  values (?,?,?,?)
+  on conflict (hash)
+  do update set name = excluded.name
+              , size = excluded.size
+              , syntax = excluded.syntax
+  |] (h,n,size,syn)
+
+
 selectTreeLocator :: (DashBoardPerks m, MonadReader DashBoardEnv m)
                   => TreeCommit
                   -> TreeTree
@@ -539,6 +584,8 @@ pattern TreeHash hash <- (LBS8.words -> (_ : (fromStringMay . LBS8.unpack -> Jus
 buildCommitTreeIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => FilePath -> m ()
 buildCommitTreeIndex dir = do
 
+  let syntaxMap = Sky.defaultSyntaxMap
+
   commits <- gitRunCommand [qc|git --git-dir {dir} rev-list --all|]
               <&> fromRight mempty
               <&> mapMaybe (headMay . LBS8.words) . LBS8.lines
@@ -567,14 +614,34 @@ buildCommitTreeIndex dir = do
 
       lift $ transactional do
 
-        trees <- gitRunCommand [qc|git --git-dir {dir} ls-tree -r -t {pretty co}|]
+        items <- gitRunCommand [qc|git --git-dir {dir} ls-tree -l -r -t {pretty co}|]
           <&> fromRight mempty
           <&> fmap LBS8.words . LBS8.lines
           <&> mapMaybe \case
-                [_,"tree",h,n] ->
-                  (reverse $ splitDirectories $ LBS8.unpack n,) <$> fromStringMay @GitHash (LBS8.unpack h)
+                [_,"tree",h,_,n] ->
+                  (reverse $ splitDirectories $ LBS8.unpack n,) <$> fmap Right (fromStringMay @GitHash (LBS8.unpack h))
+
+                [_,"blob",h,size,n] -> do
+                  let fn = headMay (reverse $ splitDirectories $ LBS8.unpack n)
+                             <&> List.singleton
+
+                  let ha  = fromStringMay @GitHash (LBS8.unpack h)
+                  let sz  = readMay @Integer (LBS8.unpack size)
+
+                  let syn = Sky.syntaxesByFilename syntaxMap (LBS8.unpack n)
+                              & headMay
+                              <&> Text.toLower . Sky.sName
+
+                  (,) <$> fn <*> fmap Left ( (,,) <$> ha <*> sz <*> pure syn )
+
                 _ -> Nothing
-          <&> Map.fromList
+
+        let trees = Map.fromList [ (k,v) | (k,Right v) <- items ]
+
+        let blobs = [ (k,v) | ([k],Left v) <- items ]
+
+        for_ blobs $ \(fn, (hash, size, syn)) -> do
+          insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
 
         for_ (Map.toList trees) $ \(t,h0) -> do
 
