@@ -238,8 +238,25 @@ runDashboardWeb wo = do
       debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
       lift $ html =<< renderTextT (repoTree lww co hash tree (coerce <$> back))
 
-repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath
-repoDataPath lw = asks _dataDir <&> (</> (show $ pretty lw)) >>= canonicalizePath
+  get "/repo/:lww/blob/:co/:hash/:blob" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
+    co'   <- captureParam @String "co" <&> fromStringMay @GitHash
+    blob' <- captureParam @String "blob" <&> fromStringMay @GitHash
+
+    flip runContT pure do
+      lww       <- lwws' & orFall (status status404)
+      hash      <- hash' & orFall (status status404)
+      co        <- co'   & orFall (status status404)
+      blobHash  <- blob' & orFall (status status404)
+
+      back <- lift $ selectParentTree (TreeCommit co) (TreeTree hash)
+
+      blobInfo <- lift (selectBlobInfo (BlobHash blobHash))
+                    >>= orFall (status status404)
+
+      lift $ html =<< renderTextT (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
+
 
 
 gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)

@@ -23,9 +23,8 @@ import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
-
-import Control.Applicative
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Lazy (ByteString)
 import Lucid.Base
 import Data.Text qualified as Text
 import Data.Word
@@ -526,7 +525,7 @@ createRepoBlobIndexTable = do
 
 
 newtype BlobSyn = BlobSyn (Maybe Text)
-                  deriving newtype (FromField,ToField,Pretty)
+                  deriving newtype (FromField,ToField,Pretty,Eq,Ord)
 
 newtype BlobName = BlobName FilePath
                    deriving newtype (FromField,ToField,Pretty)
@@ -535,7 +534,21 @@ newtype BlobHash = BlobHash GitHash
                    deriving newtype (FromField,ToField,Pretty)
 
 newtype BlobSize = BlobSize Integer
-                   deriving newtype (FromField,ToField,Pretty)
+                   deriving newtype (FromField,ToField,Pretty,Num,Enum,Eq,Ord)
+
+
+data BlobInfo =
+  BlobInfo
+  { blobHash :: BlobHash
+  , blobName :: BlobName
+  , blobSize :: BlobSize
+  , blobSyn  :: BlobSyn
+  }
+  deriving stock (Generic)
+
+instance FromRow BlobInfo
+
+type TreeLocator = [(TreeParent, TreeTree, TreeLevel, TreePath)]
 
 insertBlob :: DashBoardPerks m
            => (BlobHash, BlobName, BlobSize, BlobSyn)
@@ -551,10 +564,21 @@ insertBlob (h,n,size,syn) = do
   |] (h,n,size,syn)
 
 
+selectBlobInfo :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+               => BlobHash
+               -> m (Maybe BlobInfo)
+selectBlobInfo what = withState do
+  select [qc|
+  select hash,name,size,syntax
+  from blob
+  where hash = ?
+  |] (Only what)
+  <&> listToMaybe
+
 selectTreeLocator :: (DashBoardPerks m, MonadReader DashBoardEnv m)
                   => TreeCommit
                   -> TreeTree
-                  -> m [(TreeParent, TreeTree, TreeLevel, TreePath)]
+                  -> m TreeLocator
 
 selectTreeLocator kommit tree = withState do
 
@@ -580,6 +604,19 @@ ORDER BY level
 
 pattern TreeHash :: GitHash -> LBS8.ByteString
 pattern TreeHash hash <- (LBS8.words -> (_ : (fromStringMay . LBS8.unpack -> Just hash) : _))
+
+readBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+         => LWWRefKey 'HBS2Basic
+         -> BlobHash
+         -> m ByteString
+
+readBlob repo hash = do
+
+  dir <- repoDataPath repo
+
+  gitRunCommand [qc|git --git-dir {dir} cat-file blob {pretty hash}|]
+    <&> fromRight mempty
+
 
 buildCommitTreeIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => FilePath -> m ()
 buildCommitTreeIndex dir = do

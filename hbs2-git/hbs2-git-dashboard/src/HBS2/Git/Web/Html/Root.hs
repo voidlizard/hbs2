@@ -9,19 +9,25 @@ import HBS2.Git.DashBoard.State
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.RepoHead
 
+import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
 import Lucid.Htmx
 
+import Skylighting qualified as Sky
+import Skylighting.Tokenizer
+import Skylighting.Format.HTML.Lucid as Lucid
+
+import Control.Applicative
 import Text.Pandoc hiding (getPOSIXTime)
 import System.FilePath
 import Data.Word
 import Data.Either
+import Data.List qualified as List
 import Data.List (sortOn)
 
-import Skylighting.Core qualified as Sky
-import Skylighting qualified as Sky
 
 import Streaming.Prelude qualified as S
 
@@ -232,6 +238,42 @@ showRefsHtmxAttribs repo =
   , hxTarget_ "#repo-tab-data"
   ]
 
+
+treeLocator :: DashBoardPerks m
+            => LWWRefKey 'HBS2Basic
+            -> GitHash
+            -> TreeLocator
+            -> HtmlT m ()
+            -> HtmlT m ()
+
+treeLocator lww co locator next = do
+
+  let repo = show $ pretty $ lww
+
+  let co_ = show $ pretty co
+
+  let prefixSlash x = if fromIntegral x > 1 then span_ "/" else ""
+  let showRoot =
+        [ hxGet_ (path ["repo", repo, "tree", co_, co_])
+        , hxTarget_ "#repo-tab-data"
+        , href_ "#"
+        ]
+
+  span_ [] $ a_ (showRefsHtmxAttribs repo <> [href_ "#" ]) $ toHtml (take 10 repo <> "..")
+  span_ [] "/"
+  span_ [] $ a_ showRoot $ toHtml (take 10 co_ <> "..")
+  unless (List.null locator) do
+    span_ [] "/"
+    for_ locator $ \(_,this,level,name) -> do
+      prefixSlash level
+      let uri = path [ "repo", show $ pretty lww, "tree", co_, show (pretty this) ]
+      span_ [] do
+        a_ [ href_ "#"
+           , hxGet_ uri
+           , hxTarget_ "#repo-tab-data"
+           ] (toHtml (show $ pretty name))
+  next
+
 repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> GitHash -- ^ this
@@ -247,6 +289,7 @@ repoTree lww co root tree back' = do
   let syntaxMap = Sky.defaultSyntaxMap
 
   let co_ = show $ pretty co
+  let this_ = show $ pretty $ root
 
   let sorted = sortOn (\(tp, _, name) -> (tpOrder tp, name)) tree
         where
@@ -256,29 +299,12 @@ repoTree lww co root tree back' = do
 
   locator <- lift $ selectTreeLocator (TreeCommit co) (TreeTree root)
 
-  let prefixSlash x = if fromIntegral x > 1 then span_ "/" else ""
-  let showRoot =
-        [ hxGet_ (path ["repo", repo, "tree", co_, co_])
-        , hxTarget_ "#repo-tab-data"
-        , href_ "#"
-        ]
 
   table_ [] do
 
     tr_ do
       td_ [class_ "tree-locator", colspan_ "3"] do
-        span_ [] $ a_ (showRefsHtmxAttribs repo <> [href_ "#" ]) $ toHtml (take 10 repo <> "..")
-        span_ [] "/"
-        span_ [] $ a_ showRoot $ toHtml (take 10 co_ <> "..")
-        span_ [] "/"
-        for_ locator $ \(_,this,level,name) -> do
-          prefixSlash level
-          let uri = path [ "repo", show $ pretty lww, "tree", co_, show (pretty this) ]
-          span_ [] do
-            a_ [ href_ "#"
-               , hxGet_ uri
-               , hxTarget_ "#repo-tab-data"
-               ] (toHtml (show $ pretty name))
+        treeLocator lww co locator none
 
     tr_ mempty do
 
@@ -322,17 +348,102 @@ repoTree lww co root tree back' = do
         td_ [class_ "mono"] do
           case tp of
             Blob -> do
-              span_ do
-                toHtml $ show $ pretty h
+              let blobUri = path ["repo", repo, "blob", co_, this_, hash_ ]
+              a_ [ href_ "#"
+                 , hxGet_ blobUri
+                 , hxTarget_ "#repo-tab-data"
+                 ] (toHtml hash_)
 
             Tree -> do
               a_ [ href_ "#"
                  , hxGet_ uri
                  , hxTarget_ "#repo-tab-data"
-                 -- , hxPushUrl_ "true"
-                 ] (toHtml $ show $ pretty h)
+                 ] (toHtml hash_)
 
             _ -> mempty
+
+
+{- HLINT ignore "Functor law" -}
+
+repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+         => LWWRefKey 'HBS2Basic
+         -> TreeCommit
+         -> TreeTree
+         -> BlobInfo
+         -> HtmlT m ()
+
+repoBlob lww co tree BlobInfo{..} = do
+  locator <- lift $ selectTreeLocator co tree
+  let co_ = show $ pretty co
+  let tree_ = show $ pretty tree
+  table_ [] do
+    tr_ do
+      td_ [class_ "tree-locator", colspan_ "3"] do
+        treeLocator lww (coerce co) locator do
+          span_ "/"
+          span_ $ toHtml (show $ pretty blobName)
+
+
+  table_ [] do
+    tr_ do
+      th_ $ strong_ "hash"
+      td_ [colspan_ "8"] do
+        span_ [class_ "mono"] $ toHtml $ show $ pretty blobHash
+
+    tr_ do
+      th_ $ strong_ "syntax"
+      td_ $ toHtml $ show $ pretty blobSyn
+
+      th_ $ strong_ "size"
+      td_ $ toHtml $ show $ pretty blobSize
+
+      th_ $ none
+      td_ $ none
+
+      th_ $ none
+      td_ $ none
+
+
+  let fallback _ = mempty
+
+
+  fromMaybe mempty <$> runMaybeT do
+
+    guard (blobSize < 10485760)
+
+    let fn = blobName & coerce
+    let syntaxMap = Sky.defaultSyntaxMap
+
+    syn <- ( Sky.syntaxesByFilename syntaxMap fn
+               & headMay
+           ) <|> Sky.syntaxByName syntaxMap "default"
+           & toMPlus
+
+    lift do
+
+      txt <- lift (readBlob lww blobHash)
+                <&> LBS.toStrict
+                <&> Text.decodeUtf8
+
+      case blobSyn of
+        BlobSyn (Just "markdown") -> do
+
+          toHtmlRaw (renderMarkdown' txt)
+
+        _ -> do
+
+          txt <- lift (readBlob lww blobHash)
+                    <&> LBS.toStrict
+                    <&> Text.decodeUtf8
+
+          let config = TokenizerConfig { traceOutput = False, syntaxMap = syntaxMap }
+
+          case tokenize config syn txt of
+            Left _ -> fallback txt
+            Right tokens -> do
+              let fo = Sky.defaultFormatOpts { Sky.numberLines = False, Sky.ansiColorLevel = Sky.ANSI256Color  }
+              let code = renderText (Lucid.formatHtmlBlock fo tokens)
+              toHtmlRaw code
 
 
 repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()

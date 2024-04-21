@@ -15,6 +15,8 @@ import HBS2.Net.Messaging.Unix
 
 import DBPipe.SQLite
 
+import HBS2.System.Dir
+
 import System.FilePath
 
 data HttpPortOpt
@@ -52,6 +54,9 @@ data DashBoardEnv =
   }
 
 makeLenses 'DashBoardEnv
+
+repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath
+repoDataPath lw = asks _dataDir <&> (</> (show $ pretty lw)) >>= canonicalizePath
 
 type DashBoardPerks m = MonadUnliftIO m
 
