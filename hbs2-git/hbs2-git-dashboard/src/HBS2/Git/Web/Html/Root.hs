@@ -190,8 +190,8 @@ parsedManifest RepoListItem{..} = do
   pure (meta, manifest)
 
 
-repoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
-repoManifest it@RepoListItem{..} = do
+thisRepoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
+thisRepoManifest it@RepoListItem{..} = do
   (_, manifest) <- lift $ parsedManifest it
   toHtmlRaw (renderMarkdown' manifest)
 

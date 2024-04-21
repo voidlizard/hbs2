@@ -13,6 +13,8 @@ import HBS2.Polling
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
+import HBS2.Git.Data.Tx.Git
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
@@ -212,7 +214,7 @@ runDashboardWeb wo = do
                  <&> listToMaybe
                  >>= orFall (status status404)
 
-      lift $ html =<< renderTextT (repoManifest item)
+      lift $ html =<< renderTextT (thisRepoManifest item)
 
 
   get "/repo/:lww/refs" do
@@ -267,16 +269,18 @@ gitShowRefs what = do
   path <- repoDataPath what
   let cmd = [qc|git --git-dir {path} show-ref|]
 
-  -- FIXME: extract-method
-  gitRunCommand cmd
-    >>= orThrowUser ("can't read git repo" <+> pretty path)
-    <&> LBS8.lines
-    <&> fmap LBS8.words
-    <&> mapMaybe \case
-         [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
-         _          -> Nothing
+  sto <- asks _sto
 
+  fromMaybe mempty <$> runMaybeT do
 
+    (_,hd) <- lift (selectRepoList (mempty & set repoListByLww (Just what) & set repoListLimit (Just 1)))
+                <&> listToMaybe
+                >>= toMPlus
+                <&> rlRepoTx
+                >>= readRepoHeadFromTx sto . coerce
+                >>= toMPlus
+
+    pure $ view repoHeadRefs hd
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()
