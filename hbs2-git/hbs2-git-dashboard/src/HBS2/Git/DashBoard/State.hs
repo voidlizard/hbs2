@@ -477,7 +477,7 @@ newtype TreeTree =  TreeTree GitHash
                     deriving newtype (FromField,ToField,Pretty)
 
 newtype TreeLevel = TreeLevel Int
-                    deriving newtype (FromField,ToField,Pretty,Num,Enum)
+                    deriving newtype (FromField,ToField,Pretty,Num,Enum,Real,Integral,Ord,Eq)
 
 newtype TreePath = TreePath FilePath
                    deriving newtype (FromField,ToField,Pretty)
@@ -503,6 +503,34 @@ selectParentTree  co me = withState do
     <&> listToMaybe . fmap fromOnly
 
 {- HLINT ignore "Functor law" -}
+
+
+
+selectTreeLocator :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                  => TreeCommit
+                  -> TreeTree
+                  -> m [(TreeParent, TreeTree, TreeLevel, TreePath)]
+
+selectTreeLocator kommit tree = withState do
+
+  let sql = [qc|
+WITH RECURSIVE ParentTree AS (
+    SELECT parent, tree, kommit, level, path
+    FROM tree
+    WHERE tree = ? AND kommit = ?
+
+    UNION ALL
+
+    SELECT t.parent, t.tree, t.kommit, t.level, t.path
+    FROM tree t
+    JOIN ParentTree pt ON t.tree = pt.parent AND t.kommit = pt.kommit
+     WHERE t.kommit = ?
+)
+SELECT parent, tree, level, path FROM ParentTree
+ORDER BY level
+|]
+
+  select sql (tree, kommit, kommit)
 
 
 pattern TreeHash :: GitHash -> LBS8.ByteString
@@ -569,4 +597,6 @@ buildCommitTreeIndex dir = do
             -- insertTree co p h0
 
         insertProcessed hkey
+
+
 

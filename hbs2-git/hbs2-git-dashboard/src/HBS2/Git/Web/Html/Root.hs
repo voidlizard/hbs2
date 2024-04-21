@@ -21,11 +21,13 @@ import Data.Word
 import Data.Either
 import Safe
 import Data.List (sortOn)
+import Data.List qualified as List
 import Data.Ord (comparing, Down(..))
 
 import Skylighting.Core qualified as Sky
 import Skylighting qualified as Sky
 
+import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 
 rootPath :: [String] -> [String]
@@ -215,6 +217,12 @@ repoRefs lww refs = do
                                  ] (toHtml $ show $ pretty h)
 
 
+showRefsHtmxAttribs :: String -> [Attribute]
+showRefsHtmxAttribs repo =
+  [ hxGet_ (path ["repo", repo, "refs"])
+  , hxTarget_ "#repo-tab-data"
+  ]
+
 repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> GitHash -- ^ this
@@ -224,6 +232,8 @@ repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          -> HtmlT m ()
 
 repoTree lww co root tree back' = do
+
+  let repo = show $ pretty $ lww
 
   let syntaxMap = Sky.defaultSyntaxMap
 
@@ -235,7 +245,32 @@ repoTree lww co root tree back' = do
           tpOrder Blob = 1
           tpOrder _    = 2
 
+  locator <- lift $ selectTreeLocator (TreeCommit co) (TreeTree root)
+
+  let prefixSlash x = if fromIntegral x > 1 then span_ "/" else ""
+  let showRoot =
+        [ hxGet_ (path ["repo", repo, "tree", co_, co_])
+        , hxTarget_ "#repo-tab-data"
+        , href_ "#"
+        ]
+
   table_ [] do
+
+    tr_ do
+      td_ [class_ "tree-locator", colspan_ "3"] do
+        span_ [] $ a_ (showRefsHtmxAttribs repo <> [href_ "#" ]) $ toHtml (take 10 repo <> "..")
+        span_ [] "/"
+        span_ [] $ a_ showRoot $ toHtml (take 10 co_ <> "..")
+        span_ [] "/"
+        for_ locator $ \(_,this,level,name) -> do
+          prefixSlash level
+          let uri = path [ "repo", show $ pretty lww, "tree", co_, show (pretty this) ]
+          span_ [] do
+            a_ [ href_ "#"
+               , hxGet_ uri
+               , hxTarget_ "#repo-tab-data"
+               ] (toHtml (show $ pretty name))
+
     tr_ mempty do
 
       for_ back' $ \root -> do
@@ -347,9 +382,7 @@ repoPage it@RepoListItem{..} = rootPage do
         repoMenuItem  [
                       ] "commits"
 
-        repoMenuItem  [ hxGet_ (path ["repo", repo, "refs"])
-                      , hxTarget_ "#repo-tab-data"
-                      ] "tree"
+        repoMenuItem (showRefsHtmxAttribs repo) "tree"
 
       section_ [id_ "repo-data"] do
         h1_ (toHtml $ rlRepoName)

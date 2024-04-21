@@ -318,4 +318,11 @@ nav[role="tab-control"] li.active {
   font-weight: 600;
 }
 
+td.tree-locator {
+  border-bottom: none;
+}
+
+td.tree-locator span {
+  margin-right: .5rem;
+}
 
