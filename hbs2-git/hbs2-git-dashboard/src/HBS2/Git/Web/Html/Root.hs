@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# Language OverloadedStrings #-}
+{-# Language MultiWayIf #-}
 module HBS2.Git.Web.Html.Root where
 
 import HBS2.Git.DashBoard.Prelude
@@ -207,10 +207,19 @@ repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
 repoRefs lww refs = do
   table_ [] do
     for_ refs $ \(r,h) -> do
+      let r_ = Text.pack $ show $ pretty r
       let co = show $ pretty h
       let uri = path [ "repo", show $ pretty lww, "tree", co, co ]
-      tr_ mempty do
-        td_ mempty (toHtml $ show $ pretty r)
+      tr_ do
+        td_ do
+
+          if | Text.isPrefixOf "refs/heads" r_ -> do
+                img_ [src_ "/icon/git-branch.svg"]
+             | Text.isPrefixOf "refs/tags" r_ -> do
+                img_ [src_ "/icon/git-tag.svg"]
+             | otherwise -> mempty
+
+        td_ (toHtml r_)
         td_ [class_ "mono"] $ a_ [ href_ "#"
                                  , hxGet_ uri
                                  , hxTarget_ "#repo-tab-data"
