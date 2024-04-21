@@ -205,20 +205,25 @@ repoRefs lww refs = do
       let r_ = Text.pack $ show $ pretty r
       let co = show $ pretty h
       let uri = path [ "repo", show $ pretty lww, "tree", co, co ]
-      tr_ do
-        td_ do
 
-          if | Text.isPrefixOf "refs/heads" r_ -> do
-                img_ [src_ "/icon/git-branch.svg"]
-             | Text.isPrefixOf "refs/tags" r_ -> do
-                img_ [src_ "/icon/git-tag.svg"]
-             | otherwise -> mempty
+      let showRef = Text.isPrefixOf "refs" r_
 
-        td_ (toHtml r_)
-        td_ [class_ "mono"] $ a_ [ href_ "#"
-                                 , hxGet_ uri
-                                 , hxTarget_ "#repo-tab-data"
-                                 ] (toHtml $ show $ pretty h)
+      when showRef do
+        tr_ do
+          td_ do
+
+            if | Text.isPrefixOf "refs/heads" r_ -> do
+                  img_ [src_ "/icon/git-branch.svg"]
+               | Text.isPrefixOf "refs/tags" r_ -> do
+                  img_ [src_ "/icon/git-tag.svg"]
+               | otherwise -> mempty
+
+          td_ (toHtml r_)
+          td_ [class_ "mono"] $ do
+              a_ [ href_ "#"
+                 , hxGet_ uri
+                 , hxTarget_ "#repo-tab-data"
+                 ] (toHtml $ show $ pretty h)
 
 
 showRefsHtmxAttribs :: String -> [Attribute]
