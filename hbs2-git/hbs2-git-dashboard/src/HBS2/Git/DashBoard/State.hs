@@ -443,9 +443,11 @@ createRepoTreeIndexTable = do
   ddl [qc|
     create table if not exists tree
     ( parent text not null
-    , child  text not null
+    , tree   text not null
     , kommit text not null
-    , primary key (parent,child,kommit)
+    , level  int  not null
+    , path   text not null
+    , primary key (parent,tree,kommit)
     )
   |]
 
@@ -463,23 +465,42 @@ insertProcessed href = do
   on conflict(hash) do nothing
   |] (Only href)
 
-insertTree :: (DashBoardPerks m) => GitHash -> GitHash -> GitHash -> DBPipeM m ()
-insertTree commit parent child = do
+
+newtype TreeCommit = TreeCommit GitHash
+                     deriving newtype (FromField,ToField,Pretty)
+
+newtype TreeParent = TreeParent GitHash
+                     deriving newtype (FromField,ToField,Pretty)
+
+
+newtype TreeTree =  TreeTree GitHash
+                    deriving newtype (FromField,ToField,Pretty)
+
+newtype TreeLevel = TreeLevel Int
+                    deriving newtype (FromField,ToField,Pretty,Num,Enum)
+
+newtype TreePath = TreePath FilePath
+                   deriving newtype (FromField,ToField,Pretty)
+
+insertTree :: (DashBoardPerks m)
+           => (TreeCommit,TreeParent,TreeTree,TreeLevel,TreePath)
+           -> DBPipeM m ()
+insertTree (commit,parent,tree,level,path) = do
   S.insert [qc|
-  insert into tree (parent,child,kommit)
-  values (?,?,?)
-  on conflict (parent,child,kommit) do nothing
-  |] (parent,child,commit)
+  insert into tree (parent,tree,kommit,level,path)
+  values (?,?,?,?,?)
+  on conflict (parent,tree,kommit)
+  do update set level = excluded.level
+              , path  = excluded.path
+  |] (parent,tree,commit,level,path)
 
-selectParentTree :: (DashBoardPerks m, MonadReader DashBoardEnv m) => GitHash -> GitHash -> m (Maybe GitHash)
+selectParentTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                 => TreeCommit
+                 -> TreeTree
+                 -> m (Maybe TreeParent)
 selectParentTree  co me = withState do
-  w <- select [qc|select coalesce(parent,kommit) from tree where child = ? and kommit = ?|] (me,co)
-        <&> listToMaybe . fmap fromOnly
-
-  if co == me then
-    pure Nothing
-  else do
-    pure $ w <|> Just co
+  select [qc|select parent from tree where tree = ? and kommit = ?|] (me,co)
+    <&> listToMaybe . fmap fromOnly
 
 {- HLINT ignore "Functor law" -}
 
@@ -530,7 +551,7 @@ buildCommitTreeIndex dir = do
         for_ (Map.toList trees) $ \(t,h0) -> do
 
           case t of
-            [_] -> insertTree co root h0
+            [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
             _   -> pure ()
 
           let child = tailSafe t
@@ -539,7 +560,13 @@ buildCommitTreeIndex dir = do
 
           for_ parent $ \p -> do
             debug $ red "FOUND SHIT:" <+> pretty (h0,p)
-            insertTree co p h0
+            insertTree ( TreeCommit co
+                       , TreeParent p
+                       , TreeTree h0
+                       , TreeLevel (length t)
+                       , TreePath (headDef "" t)
+                       )
+            -- insertTree co p h0
 
         insertProcessed hkey
 

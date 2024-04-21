@@ -232,10 +232,9 @@ runDashboardWeb wo = do
       hash <- hash' & orFall (status status404)
       co   <- co'   & orFall (status status404)
       tree <- lift $ gitShowTree lww hash
-      back <- lift $ selectParentTree co hash
+      back <- lift $ selectParentTree (TreeCommit co) (TreeTree hash)
       debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
-      lift $ html =<< renderTextT (repoTree lww co hash tree back)
-
+      lift $ html =<< renderTextT (repoTree lww co hash tree (coerce <$> back))
 
 repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath
 repoDataPath lw = asks _dataDir <&> (</> (show $ pretty lw)) >>= canonicalizePath

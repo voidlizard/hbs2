@@ -23,6 +23,8 @@ import Safe
 import Data.List (sortOn)
 import Data.Ord (comparing, Down(..))
 
+import Skylighting.Core qualified as Sky
+import Skylighting qualified as Sky
 
 import Streaming.Prelude qualified as S
 
@@ -223,6 +225,8 @@ repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
 
 repoTree lww co root tree back' = do
 
+  let syntaxMap = Sky.defaultSyntaxMap
+
   let co_ = show $ pretty co
 
   let sorted = sortOn (\(tp, _, name) -> (tpOrder tp, name)) tree
@@ -249,9 +253,26 @@ repoTree lww co root tree back' = do
       let uri = path [ "repo", show $ pretty lww, "tree", co_, hash_ ]
       tr_ mempty do
         td_  $ case tp of
-          Blob -> img_ [src_ "/icon/blob.svg"]
-          Tree -> img_ [src_ "/icon/tree.svg"]
-          _    -> mempty
+          Commit -> mempty
+          Tree   -> img_ [src_ "/icon/tree.svg"]
+          Blob   -> do
+            let syn = Sky.syntaxesByFilename syntaxMap (Text.unpack name)
+                        & headMay
+                        <&> Text.toLower . Sky.sName
+
+            let icon = case syn of
+                         Just "haskell"    -> [src_ "/icon/haskell.svg"]
+                         Just "markdown"   -> [src_ "/icon/markdown.svg"]
+                         Just "nix"        -> [src_ "/icon/nixos.svg"]
+                         Just "bash"       -> [src_ "/icon/terminal.svg"]
+                         Just "python"     -> [src_ "/icon/python.svg"]
+                         Just "javascript" -> [src_ "/icon/javascript.svg"]
+                         Just "sql"        -> [src_ "/icon/sql.svg"]
+                         Just s | s `elem` ["cabal","makefile","toml","ini","yaml"]
+                                           -> [src_ "/icon/gear.svg"]
+                         _                 -> [src_ "/icon/blob-filled.svg"]
+
+            img_ ([alt_ (fromMaybe "blob" syn)] <> icon)
 
         td_ [class_ itemClass] (toHtml $ show $ pretty name)
         td_ [class_ "mono"] do

@@ -171,6 +171,9 @@ executable hbs2-git-dashboard
         , lucid
         , lucid-htmx
         , pandoc
+        , skylighting
+        , skylighting-core
+        , skylighting-lucid
         , scotty >= 0.22
 
     hs-source-dirs:
