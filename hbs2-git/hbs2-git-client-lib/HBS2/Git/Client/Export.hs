@@ -109,7 +109,6 @@ refsForExport forPushL = do
     <&> mapMaybe \case
          [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
          _          -> Nothing
-    <&> filterPat incl excl
     <&> HashMap.fromList
     <&> HashMap.filterWithKey (\k _ -> not (HashSet.member k deleted))
     <&> mappend forPush
