@@ -14,20 +14,15 @@ import Lucid.Base
 import Lucid.Html5 hiding (for_)
 import Lucid.Htmx
 
-import Control.Applicative
 import Text.Pandoc hiding (getPOSIXTime)
 import System.FilePath
 import Data.Word
 import Data.Either
-import Safe
 import Data.List (sortOn)
-import Data.List qualified as List
-import Data.Ord (comparing, Down(..))
 
 import Skylighting.Core qualified as Sky
 import Skylighting qualified as Sky
 
-import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 
 rootPath :: [String] -> [String]
