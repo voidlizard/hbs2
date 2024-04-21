@@ -30,7 +30,7 @@ data RepoHead =
   , _repoHeadName   :: Text
   , _repoHeadBrief  :: Text
   , _repoManifest   :: Maybe Text
-  , _repoHeadRefs   :: [(GitRef, GitHash)]
+  ,  repoHeadRefs'  :: [(GitRef, GitHash)]
   , _repoHeadExt    :: [RepoHeadExt]
   }
   deriving stock (Generic)
@@ -39,18 +39,29 @@ makeLenses ''RepoHead
 
 repoHeadTags :: SimpleGetter RepoHead [Text]
 repoHeadTags =
-  to \RepoHeadSimple{..} -> do
+  to \h@RepoHeadSimple{} -> do
     catMaybes [ lastMay (B8.split '/' s) <&> (Text.pack . B8.unpack)
-                      | (GitRef s, _)  <- _repoHeadRefs, B8.isPrefixOf "refs/tags" s
+                      | (GitRef s, _)  <- view repoHeadRefs h, B8.isPrefixOf "refs/tags" s
                       ] & Set.fromList & Set.toList
 
 
 repoHeadHeads :: SimpleGetter RepoHead [Text]
 repoHeadHeads =
-  to \RepoHeadSimple{..} -> do
+  to \h@RepoHeadSimple{} -> do
     catMaybes [ lastMay (B8.split '/' s) <&> (Text.pack . B8.unpack)
-                      | (GitRef s, _)  <- _repoHeadRefs, B8.isPrefixOf "refs/heads" s
-                      ] & Set.fromList & Set.toList
+              | (GitRef s, v)  <- view repoHeadRefs h, B8.isPrefixOf "refs/heads" s
+              ] & Set.fromList & Set.toList
+
+
+repoHeadRefs :: Lens RepoHead
+                     RepoHead
+                     [(GitRef, GitHash)]
+                     [(GitRef, GitHash)]
+
+repoHeadRefs = lens g s
+  where
+   s rh r = rh { repoHeadRefs' = r }
+   g rh = [ (r,v) | (r,v) <- repoHeadRefs' rh, v /= gitHashTomb ]
 
 instance Serialise RepoHeadType
 instance Serialise RepoHeadExt

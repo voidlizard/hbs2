@@ -171,7 +171,7 @@ pShowRef = do
 
       (_,rh) <- TX.readRepoHeadFromTx sto tx >>= toMPlus
 
-      liftIO $ print $ vcat (fmap formatRef (_repoHeadRefs rh))
+      liftIO $ print $ vcat (fmap formatRef (view repoHeadRefs rh))
 
 
 pManifest :: GitPerks m => Parser (GitCLI m ())

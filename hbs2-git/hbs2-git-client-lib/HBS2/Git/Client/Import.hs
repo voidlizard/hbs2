@@ -9,6 +9,7 @@ import HBS2.Git.Client.Progress
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.LWWBlock
+import HBS2.Git.Data.RepoHead
 
 import Data.ByteString.Lazy qualified as LBS
 
@@ -291,7 +292,7 @@ applyTx h = do
 
     applyHeads rh = do
 
-      let refs = _repoHeadRefs rh
+      let refs = view repoHeadRefs rh
 
       withGitFastImport $ \ps -> do
         let psin = getStdin ps

@@ -110,7 +110,7 @@ refsForExport forPushL = do
          [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
          _          -> Nothing
     <&> HashMap.fromList
-    <&> HashMap.filterWithKey (\k _ -> not (HashSet.member k deleted))
+    <&> HashMap.mapWithKey (\k v -> if k `HashSet.member` deleted then gitHashTomb else v)
     <&> mappend forPush
     <&> mappend (HashMap.singleton currentBranch currentVal)
     <&> HashMap.toList
@@ -217,7 +217,7 @@ export key refs  = do
 
       repohead <- makeRepoHeadSimple name brief mf gk0 myrefs
 
-      let oldRefs = maybe mempty _repoHeadRefs rh0
+      let oldRefs = maybe mempty repoHeadRefs' rh0
 
       trace $ "TX0" <+> pretty  tx0
 

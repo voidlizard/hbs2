@@ -9,6 +9,7 @@ import HBS2.Git.Client.Export
 import HBS2.Git.Client.State
 import HBS2.Git.Client.Progress
 import HBS2.Git.Client.Config
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.Tx.Git qualified as TX
 import HBS2.Git.Data.Tx.Git (RepoHead(..))
@@ -178,7 +179,7 @@ main = do
                             tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
                             (_,rh) <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
-                            pure (_repoHeadRefs rh)
+                            pure (view repoHeadRefs rh)
 
                     let r = fromMaybe mempty r'
 
