@@ -326,6 +326,23 @@ td.tree-locator span {
   margin-right: .5rem;
 }
 
+tr.commit-brief-title td,th {
+  border-bottom: none;
+  align: top;
+}
+
+tr.commit-brief-details td,th {
+  border-top: none;
+}
+
+td.commit-brief-title {
+  background-color:
+}
+
+td.commit-brief-last, th.commit-brief-last {
+  border: none;
+}
+
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { line-height: 1.25; }
 pre > code.sourceCode > span:empty { height: 1.2em; }
@@ -388,5 +405,7 @@ code span.st { color: #4e9a06; } /* String */
 code span.va { color: #000000; } /* Variable */
 code span.vs { color: #4e9a06; } /* VerbatimString */
 code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+
+
 
 

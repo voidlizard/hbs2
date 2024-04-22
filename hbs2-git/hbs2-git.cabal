@@ -147,6 +147,7 @@ executable hbs2-git-dashboard
       HBS2.Git.DashBoard.Prelude
       HBS2.Git.DashBoard.Types
       HBS2.Git.DashBoard.State
+      HBS2.Git.DashBoard.State.Commits
       HBS2.Git.DashBoard.State.Index
       HBS2.Git.DashBoard.State.Index.Channels
       HBS2.Git.DashBoard.State.Index.Peer

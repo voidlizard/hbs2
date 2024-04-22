@@ -5,6 +5,7 @@ module HBS2.Git.Web.Html.Root where
 import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
+import HBS2.Git.DashBoard.State.Commits
 
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.RepoHead
@@ -44,6 +45,9 @@ myCss = do
 hyper_ :: Text -> Attribute
 hyper_  = makeAttribute "_"
 
+-- makeGetQuery :: String -> Attribute
+-- makeGetQuery _ = termRaw "jop"
+
 onClickCopy :: Text -> Attribute
 onClickCopy s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
@@ -70,6 +74,14 @@ instance ToHtml RepoBrief where
 
 data WithTime a = WithTime Integer a
 
+agePure :: forall a b . (Integral a,Integral b)  => a -> b -> Text
+agePure t0 t = do
+  let sec = fromIntegral @_ @Word64 t - fromIntegral t0
+  fromString $ show $
+    if | sec > 86400  -> pretty (sec `div` 86400)  <+> "days ago"
+       | sec > 3600   -> pretty (sec `div` 3600)   <+> "hours ago"
+       | otherwise    -> pretty (sec `div` 60)     <+> "minutes ago"
+
 instance ToHtml (WithTime RepoListItem) where
   toHtmlRaw = pure mempty
 
@@ -82,12 +94,7 @@ instance ToHtml (WithTime RepoListItem) where
     let url = path ["repo", Text.unpack $ view rlRepoLwwAsText it]
     let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
 
-    let updated = "" <+> d
-          where
-            sec = now - t
-            d | sec > 86400  = pretty (sec `div` 86400)  <+> "days ago"
-              | sec > 3600   = pretty (sec `div` 3600)   <+> "hours ago"
-              | otherwise    = pretty (sec `div` 60)     <+> "minutes ago"
+    let updated = agePure t now
 
     div_ [class_ "repo-list-item"] do
       div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
@@ -99,7 +106,7 @@ instance ToHtml (WithTime RepoListItem) where
 
       div_ [ ] do
         div_ [ class_ "attr" ] do
-          div_ [ class_ "attrname"]  (toHtml $ show updated)
+          div_ [ class_ "attrname"]  (toHtml updated)
 
         when locked do
           div_ [ class_ "attr" ] do
@@ -365,6 +372,55 @@ repoTree lww co root tree back' = do
 
 {- HLINT ignore "Functor law" -}
 
+repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => LWWRefKey 'HBS2Basic
+            -> Either SelectCommitsPred SelectCommitsPred
+            -> HtmlT m ()
+
+repoCommits lww predicate' = do
+  now <- getEpoch
+  let repo = show $ pretty lww
+
+  let predicate = either id id predicate'
+
+  co <- lift $ selectCommits lww predicate
+
+  let off = view commitPredOffset predicate
+  let lim = view commitPredLimit  predicate
+  let noff = off + lim
+
+  let query = path ["repo", repo, "commits", show noff, show lim]
+
+  let rows = do
+        for_ co $ \case
+          CommitListItemBrief{..} -> do
+            tr_ [class_ "commit-brief-title"] do
+              td_ $ img_ [src_ "/icon/git-commit.svg"]
+              td_ $ small_ $ toHtml (agePure (coerce @_ @Integer commitListTime) now)
+              td_ [class_ "mono", width_ "20rem"] do
+                  let hash = show $ pretty $ coerce @_ @GitHash commitListHash
+                  a_ [href_ ""] (toHtml hash)
+              td_ do
+                small_ $ toHtml $ coerce @_ @Text commitListAuthor
+            tr_ [class_ "commit-brief-details"] do
+              td_ [colspan_ "1"] mempty
+              td_ [colspan_ "3", class_ "commit-brief-title"] do
+                  small_ $ toHtml $ coerce @_ @Text commitListTitle
+
+        unless (List.null co) do
+          tr_ [ class_ "commit-brief-last"
+              , hxGet_ query
+              , hxTrigger_ "revealed"
+              , hxSwap_ "afterend"
+              ] do
+            td_ [colspan_ "4"] do
+              mempty
+
+  if isRight predicate' then do
+    table_ rows
+  else do
+    rows
+
 repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> TreeCommit
@@ -499,7 +555,8 @@ repoPage it@RepoListItem{..} = rootPage do
                       , hxTarget_ "#repo-tab-data"
                       ] "manifest"
 
-        repoMenuItem  [
+        repoMenuItem  [ hxGet_ (path ["repo", repo, "commits"])
+                      , hxTarget_ "#repo-tab-data"
                       ] "commits"
 
         repoMenuItem (showRefsHtmxAttribs repo) "tree"

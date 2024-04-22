@@ -23,6 +23,7 @@ import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
+
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Lucid.Base
@@ -701,6 +702,8 @@ buildCommitTreeIndex dir = do
             -- insertTree co p h0
 
         insertProcessed hkey
+
+
 
 
 

@@ -21,6 +21,7 @@ import HBS2.Git.Local.CLI
 import HBS2.Git.Web.Assets
 import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.State.Index
+import HBS2.Git.DashBoard.State.Commits
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.Web.Html.Root
 
@@ -250,13 +251,33 @@ runDashboardWeb wo = do
       co        <- co'   & orFall (status status404)
       blobHash  <- blob' & orFall (status status404)
 
-      back <- lift $ selectParentTree (TreeCommit co) (TreeTree hash)
-
       blobInfo <- lift (selectBlobInfo (BlobHash blobHash))
                     >>= orFall (status status404)
 
       lift $ html =<< renderTextT (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
 
+
+  get "/repo/:lww/commits" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+
+    let pred = mempty & set commitPredOffset 0
+                      & set commitPredLimit 100
+
+    flip runContT pure do
+      lww       <- lwws' & orFall (status status404)
+      lift $ html =<< renderTextT (repoCommits lww (Right pred))
+
+  get "/repo/:lww/commits/:off/:lim" do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    off   <- captureParam  @Int "off"
+    lim   <- captureParam  @Int "lim"
+
+    let pred = mempty & set commitPredOffset off
+                      & set commitPredLimit lim
+
+    flip runContT pure do
+      lww       <- lwws' & orFall (status status404)
+      lift $ html =<< renderTextT (repoCommits lww (Left pred))
 
 
 gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
@@ -355,7 +376,7 @@ updateIndexPeriodially = do
               lww <- lift (selectLwwByRefLog (RepoRefLog r))
                        >>= maybe (exit ()) pure
 
-              dir <- asks (view dataDir) <&> (</> (show $ pretty lww))
+              dir <- lift $ repoDataPath (coerce lww)
 
               here <- doesDirectoryExist dir
 
