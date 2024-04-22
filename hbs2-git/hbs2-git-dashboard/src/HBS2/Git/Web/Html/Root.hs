@@ -34,6 +34,15 @@ import Data.List (sortOn)
 
 import Streaming.Prelude qualified as S
 
+data ViewContext =
+  ViewContext
+  { _baseUri :: String
+  , _tab     :: Text
+  }
+  deriving stock Generic
+
+instance Serialise ViewContext
+
 rootPath :: [String] -> [String]
 rootPath = ("/":)
 
@@ -284,14 +293,15 @@ treeLocator lww co locator next = do
   next
 
 repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
-         => LWWRefKey 'HBS2Basic
+         => ViewContext
+         -> LWWRefKey 'HBS2Basic
          -> GitHash -- ^ this
          -> GitHash -- ^ this
          -> [(GitObjectType, GitHash, Text)]
          -> Maybe GitHash -- ^ back
          -> HtmlT m ()
 
-repoTree lww co root tree back' = do
+repoTree ctx lww co root tree back' = do
 
   let repo = show $ pretty $ lww
 
@@ -306,8 +316,9 @@ repoTree lww co root tree back' = do
           tpOrder Blob = 1
           tpOrder _    = 2
 
-  locator <- lift $ selectTreeLocator (TreeCommit co) (TreeTree root)
+  let wtf = show $ pretty $ AsBase58 (serialise ctx)
 
+  locator <- lift $ selectTreeLocator (TreeCommit co) (TreeTree root)
 
   table_ [] do
 
@@ -353,6 +364,8 @@ repoTree lww co root tree back' = do
 
             img_ ([alt_ (fromMaybe "blob" syn)] <> icon)
 
+        -- debug $ red "PUSH URL" <+> pretty (path ["back", wtf])
+
         td_ [class_ itemClass] (toHtml $ show $ pretty name)
         td_ [class_ "mono"] do
           case tp of
@@ -361,14 +374,12 @@ repoTree lww co root tree back' = do
               a_ [ href_ "#"
                  , hxGet_ blobUri
                  , hxTarget_ "#repo-tab-data"
-                 , hxPushUrl_ (path ["repo", repo, "refs" ])
                  ] (toHtml hash_)
 
             Tree -> do
               a_ [ href_ "#"
                  , hxGet_ uri
                  , hxTarget_ "#repo-tab-data"
-                 , hxPushUrl_ (path ["repo", repo, "refs" ])
                  ] (toHtml hash_)
 
             _ -> mempty
@@ -525,8 +536,11 @@ repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
 
 repoBlob lww co tree BlobInfo{..} = do
   locator <- lift $ selectTreeLocator co tree
+
+  let repo = show $ pretty lww
   let co_ = show $ pretty co
   let tree_ = show $ pretty tree
+
   table_ [] do
     tr_ do
       td_ [class_ "tree-locator", colspan_ "3"] do

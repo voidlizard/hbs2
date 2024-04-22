@@ -30,12 +30,13 @@ import HBS2.Peer.CLI.Detect
 import Lucid (renderTextT)
 import Options.Applicative as O
 import Data.Either
+import Data.Text qualified as Text
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.Static hiding ((<|>))
 import Network.Wai.Middleware.StaticEmbedded as E
 import Network.Wai.Middleware.RequestLogger
-import Web.Scotty.Trans
+import Web.Scotty.Trans as Scotty
 import Control.Monad.Except
 import System.Random
 import Data.HashMap.Strict (HashMap)
@@ -230,14 +231,18 @@ runDashboardWeb wo = do
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
     co'   <- captureParam @String "co" <&> fromStringMay @GitHash
 
+
     flip runContT pure do
       lww  <- lwws' & orFall (status status404)
       hash <- hash' & orFall (status status404)
       co   <- co'   & orFall (status status404)
       tree <- lift $ gitShowTree lww hash
       back <- lift $ selectParentTree (TreeCommit co) (TreeTree hash)
+
+      let ctx = ViewContext [qc|/repo/{show $ pretty $ lww}/tree/{show $ pretty co}/{show $ pretty hash}|] mempty
+
       debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
-      lift $ html =<< renderTextT (repoTree lww co hash tree (coerce <$> back))
+      lift $ html =<< renderTextT (repoTree ctx lww co hash tree (coerce <$> back))
 
   get "/repo/:lww/blob/:co/:hash/:blob" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
@@ -279,13 +284,21 @@ runDashboardWeb wo = do
                       & set commitPredLimit lim
 
     flip runContT pure do
+
       lww       <- lwws' & orFall (status status404)
+
+      referrer <- lift (Scotty.header "Referer")
+                    >>= orFall (redirect $ fromString $ Text.unpack $ path ["repo", show $ pretty  lww])
+
       lift $ html =<< renderTextT (repoCommits lww (Left pred))
 
   where
     commitRoute style = do
       lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
       co    <- captureParam @String "hash" <&> fromStringMay @GitHash
+
+      referrer <- Scotty.header "Referer"
+      debug $ yellow "COMMIT-REFERRER" <+> pretty referrer
 
       flip runContT pure do
         lww   <- lwws' & orFall (status status404)
