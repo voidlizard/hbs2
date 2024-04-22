@@ -22,10 +22,11 @@ import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
 
-import Lucid (renderTextT)
+import Lucid (renderTextT,HtmlT(..),toHtml)
 import Options.Applicative as O
 import Data.Either
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LT
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.Static hiding ((<|>))
@@ -170,6 +171,9 @@ data WebOptions =
 orFall :: m r -> Maybe a -> ContT r m a
 orFall a mb = ContT $ maybe1 mb a
 
+renderHtml :: MonadIO m => HtmlT (ActionT m) a -> ActionT m ()
+renderHtml m = renderTextT m >>= html
+
 runDashboardWeb :: WebOptions -> ScottyT (DashBoardM IO) ()
 runDashboardWeb wo = do
   middleware logStdout
@@ -182,13 +186,15 @@ runDashboardWeb wo = do
     Just f -> do
       middleware $ staticPolicy (noDots >-> addBase f)
 
-  get "/" do
-    html =<< lift (renderTextT dashboardRootPage)
+  get (routePattern RepoListPage) do
+    renderHtml dashboardRootPage
 
-  get "/repo/:lww" do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+  get (routePattern (RepoPage "lww")) do
+    lww' <- captureParam @String "lww"  <&> fromStringMay @(LWWRefKey HBS2Basic)
+
     flip runContT pure do
-      lww <- lwws' & orFall (status status404)
+
+      lww <- lww' & orFall (status status404)
 
       item <- lift (selectRepoList ( mempty
                                       & set repoListByLww (Just lww)
@@ -197,9 +203,9 @@ runDashboardWeb wo = do
                  <&> listToMaybe
                  >>= orFall (status status404)
 
-      lift $ html =<< renderTextT (repoPage item)
+      lift $ renderHtml (repoPage item)
 
-  get "/repo/:lww/manifest" do
+  get (routePattern (RepoManifest "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
@@ -214,21 +220,20 @@ runDashboardWeb wo = do
       lift $ html =<< renderTextT (thisRepoManifest item)
 
 
-  get "/repo/:lww/refs" do
+  get (routePattern (RepoRefs "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
 
-    setHeader "HX-Push-Url" [qc|/repo/{show $ pretty lwws'}|]
+    setHeader "HX-Push-Url" [qc|/{show $ pretty lwws'}|]
 
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
       refs <- lift $ gitShowRefs lww
-      lift $ html =<< renderTextT (repoRefs lww refs)
+      lift $ renderHtml (repoRefs lww refs)
 
-  get "/repo/:lww/tree/:co/:hash" do
+  get (routePattern (RepoTree "lww" "co" "hash")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
     co'   <- captureParam @String "co" <&> fromStringMay @GitHash
-
 
     flip runContT pure do
       lww  <- lwws' & orFall (status status404)
@@ -242,7 +247,7 @@ runDashboardWeb wo = do
       debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
       lift $ html =<< renderTextT (repoTree ctx lww co hash tree (coerce <$> back))
 
-  get "/repo/:lww/blob/:co/:hash/:blob" do
+  get (routePattern (RepoBlob "lww" "co" "hash" "blob")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
     co'   <- captureParam @String "co" <&> fromStringMay @GitHash
@@ -257,13 +262,13 @@ runDashboardWeb wo = do
       blobInfo <- lift (selectBlobInfo (BlobHash blobHash))
                     >>= orFall (status status404)
 
-      lift $ html =<< renderTextT (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
+      lift $ renderHtml (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
 
-  get "/repo/:lww/commit/:hash" (commitRoute RepoCommitSummary)
-  get "/repo/:lww/commit/summary/:hash" (commitRoute RepoCommitSummary)
-  get "/repo/:lww/commit/patch/:hash" (commitRoute RepoCommitPatch)
+  get (routePattern (RepoCommitDefault  "lww" "hash")) (commitRoute RepoCommitSummary)
+  get (routePattern (RepoCommitSummaryQ "lww" "hash")) (commitRoute RepoCommitSummary)
+  get (routePattern (RepoCommitPatchQ   "lww" "hash")) (commitRoute RepoCommitPatch)
 
-  get "/repo/:lww/commits" do
+  get (routePattern (RepoCommits "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
 
     let pred = mempty & set commitPredOffset 0
@@ -273,7 +278,7 @@ runDashboardWeb wo = do
       lww       <- lwws' & orFall (status status404)
       lift $ html =<< renderTextT (repoCommits lww (Right pred))
 
-  get "/repo/:lww/commits/:off/:lim" do
+  get (routePattern (RepoCommitsQ "lww" "off" "lim")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
     off   <- captureParam  @Int "off"
     lim   <- captureParam  @Int "lim"
@@ -285,10 +290,13 @@ runDashboardWeb wo = do
 
       lww       <- lwws' & orFall (status status404)
 
+      -- FIXME: this
       referrer <- lift (Scotty.header "Referer")
-                    >>= orFall (redirect $ fromString $ Text.unpack $ path ["repo", show $ pretty  lww])
+                    >>= orFall (redirect $ LT.fromStrict $ toURL (RepoPage lww))
 
-      lift $ html =<< renderTextT (repoCommits lww (Left pred))
+      lift $ renderHtml (repoCommits lww (Left pred))
+
+  -- "pages"
 
   where
     commitRoute style = do
@@ -301,9 +309,7 @@ runDashboardWeb wo = do
       flip runContT pure do
         lww   <- lwws' & orFall (status status404)
         hash  <- co & orFall (status status404)
-        lift $ html =<< renderTextT (repoCommit style lww hash)
-
-
+        lift $ renderHtml (repoCommit style lww hash)
 
 
 runScotty :: DashBoardPerks m => DashBoardM m ()
