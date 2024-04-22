@@ -505,7 +505,8 @@ repoBlob lww co tree BlobInfo{..} = do
 repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
 repoPage it@RepoListItem{..} = rootPage do
 
-  let repo = show $ pretty rlRepoLww
+  let lww = rlRepoLww & coerce
+  let repo = show $ pretty lww
 
   sto <- asks _sto
   mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
@@ -551,13 +552,13 @@ repoPage it@RepoListItem{..} = rootPage do
        repoMenu do
         repoMenuItem  mempty $ a_ [href_ "/"] "root"
 
-        repoMenuItem0 [ hxGet_ (path ["repo", repo, "manifest"])
-                      , hxTarget_ "#repo-tab-data"
-                      ] "manifest"
-
-        repoMenuItem  [ hxGet_ (path ["repo", repo, "commits"])
+        repoMenuItem0 [ hxGet_ (path ["repo", repo, "commits"])
                       , hxTarget_ "#repo-tab-data"
                       ] "commits"
+
+        repoMenuItem [ hxGet_ (path ["repo", repo, "manifest"])
+                     , hxTarget_ "#repo-tab-data"
+                     ] "manifest"
 
         repoMenuItem (showRefsHtmxAttribs repo) "tree"
 
@@ -565,5 +566,6 @@ repoPage it@RepoListItem{..} = rootPage do
         h1_ (toHtml $ rlRepoName)
 
       div_ [id_ "repo-tab-data"] do
-        toHtmlRaw (renderMarkdown' manifest)
+        let predicate = Right mempty
+        repoCommits lww predicate
 
