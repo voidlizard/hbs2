@@ -440,10 +440,10 @@ repoBlob lww co tree BlobInfo{..} = do
           span_ $ toHtml (show $ pretty blobName)
 
 
-  table_ [] do
+  table_ [class_ "item-attr"] do
     tr_ do
       th_ $ strong_ "hash"
-      td_ [colspan_ "8"] do
+      td_ [colspan_ "7"] do
         span_ [class_ "mono"] $ toHtml $ show $ pretty blobHash
 
     tr_ do
@@ -453,11 +453,7 @@ repoBlob lww co tree BlobInfo{..} = do
       th_ $ strong_ "size"
       td_ $ toHtml $ show $ pretty blobSize
 
-      th_ $ none
-      td_ $ none
-
-      th_ $ none
-      td_ $ none
+      td_ [colspan_ "3"] mempty
 
 
   let fallback _ = mempty

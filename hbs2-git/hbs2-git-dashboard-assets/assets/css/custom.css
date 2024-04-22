@@ -326,12 +326,14 @@ td.tree-locator span {
   margin-right: .5rem;
 }
 
-tr.commit-brief-title td,th {
+tr.commit-brief-title td,
+tr.commit-brief-title th {
   border-bottom: none;
-  align: top;
+  vertical-align: top;
 }
 
-tr.commit-brief-details td,th {
+tr.commit-brief-details td,
+tr.commit-brief-details th {
   border-top: none;
 }
 
@@ -339,19 +341,24 @@ td.commit-brief-title {
   background-color:
 }
 
-tr.commit-brief-last  td,th {
+tr.commit-brief-last  td {
   border: none;
 }
+
+tr.commit-brief-last  th {
+  border: none;
+}
+
 
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { line-height: 1.25; }
 pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
+.sourceCode { overflow: auto; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; overflow: auto; }
+div.sourceCode { margin: 1em 0; overflow: auto; }
 pre.sourceCode { margin: 0; }
 @media screen {
-div.sourceCode { overflow: auto; }
+div.sourceCode { overflow: auto; max-width: 120rem; }
 }
 @media print {
 pre > code.sourceCode { white-space: pre-wrap; }
