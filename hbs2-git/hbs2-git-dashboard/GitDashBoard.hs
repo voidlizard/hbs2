@@ -221,6 +221,9 @@ runDashboardWeb wo = do
 
   get "/repo/:lww/refs" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+
+    setHeader "HX-Push-Url" [qc|/repo/{show $ pretty lwws'}|]
+
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
       refs <- lift $ gitShowRefs lww
