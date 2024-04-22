@@ -156,6 +156,7 @@ executable hbs2-git-dashboard
     -- other-extensions:
     build-depends:
         base, hbs2-git-dashboard-assets, hbs2-peer, hbs2-git, suckless-conf
+        , fuzzy-parse
         , binary
         , generic-deriving
         , generic-data

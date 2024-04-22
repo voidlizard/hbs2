@@ -10,6 +10,8 @@ import HBS2.Git.DashBoard.State.Commits
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.RepoHead
 
+-- import Data.Text.Fuzzy.Tokenize as Fuzz
+
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -359,18 +361,107 @@ repoTree lww co root tree back' = do
               a_ [ href_ "#"
                  , hxGet_ blobUri
                  , hxTarget_ "#repo-tab-data"
+                 , hxPushUrl_ (path ["repo", repo, "refs" ])
                  ] (toHtml hash_)
 
             Tree -> do
               a_ [ href_ "#"
                  , hxGet_ uri
                  , hxTarget_ "#repo-tab-data"
+                 , hxPushUrl_ (path ["repo", repo, "refs" ])
                  ] (toHtml hash_)
 
             _ -> mempty
 
 
 {- HLINT ignore "Functor law" -}
+
+data RepoCommitStyle = RepoCommitSummary | RepoCommitPatch
+                       deriving (Eq,Ord,Show)
+
+repoCommit :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => RepoCommitStyle
+            -> LWWRefKey 'HBS2Basic
+            -> GitHash
+            -> HtmlT m ()
+
+repoCommit style lww hash = do
+  let syntaxMap = Sky.defaultSyntaxMap
+
+  let repo = show $ pretty lww
+  let co_ = show $ pretty hash
+  let root = co_
+
+  txt <- lift $ getCommitRawBrief lww hash
+
+  let header = Text.lines txt & takeWhile (not . Text.null)
+                              & fmap Text.words
+
+  let au = [ Text.takeWhile (/= '<') (Text.unwords a)
+           | ("Author:" : a) <- header
+           ] & headMay
+
+  table_ [class_ "item-attr"] do
+
+    tr_ do
+      th_ [width_ "16rem"] $ strong_ "commit"
+      td_ $ a_ [ href_ "#"
+               , hxGet_ (path [ "repo", show $ pretty lww, "tree", co_, co_ ])
+               , hxTarget_ "#repo-tab-data"
+               ] $ toHtml $ show $ pretty hash
+
+    for_ au $ \author -> do
+      tr_ do
+        th_ $ strong_ "author"
+        td_ $ toHtml  author
+
+    tr_ $ do
+      th_ $ strong_ "view"
+      td_ do
+        ul_ [class_ "misc-menu"]do
+          unless (style == RepoCommitSummary ) do
+            li_ $ a_ [ href_ "#"
+                     , hxGet_ (path ["repo", repo, "commit", "summary", co_])
+                     , hxTarget_ "#repo-tab-data"
+                     ] "summary"
+          unless (style == RepoCommitPatch ) do
+            li_ $ a_ [ href_ "#"
+                     , hxGet_ (path ["repo", repo, "commit", "patch", co_])
+                     , hxTarget_ "#repo-tab-data"
+                     ] "patch"
+
+  case style of
+    RepoCommitSummary -> do
+
+      let msyn = Sky.syntaxByName syntaxMap "default"
+
+      for_ msyn $ \syn -> do
+
+        let config = TokenizerConfig { traceOutput = False, syntaxMap = syntaxMap }
+
+        case tokenize config syn txt of
+          Left _ -> mempty
+          Right tokens -> do
+            let fo = Sky.defaultFormatOpts { Sky.numberLines = False, Sky.ansiColorLevel = Sky.ANSI256Color  }
+            let code = renderText (Lucid.formatHtmlBlock fo tokens)
+            toHtmlRaw code
+
+    RepoCommitPatch -> do
+
+      let msyn = Sky.syntaxByName syntaxMap "diff"
+
+      for_ msyn $ \syn -> do
+
+        txt <- lift $ getCommitRawPatch lww hash
+
+        let config = TokenizerConfig { traceOutput = False, syntaxMap = syntaxMap }
+
+        case tokenize config syn txt of
+          Left _ -> mempty
+          Right tokens -> do
+            let fo = Sky.defaultFormatOpts { Sky.numberLines = False, Sky.ansiColorLevel = Sky.ANSI256Color  }
+            let code = renderText (Lucid.formatHtmlBlock fo tokens)
+            toHtmlRaw code
 
 repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             => LWWRefKey 'HBS2Basic
@@ -399,7 +490,11 @@ repoCommits lww predicate' = do
               td_ $ small_ $ toHtml (agePure (coerce @_ @Integer commitListTime) now)
               td_ [class_ "mono", width_ "20rem"] do
                   let hash = show $ pretty $ coerce @_ @GitHash commitListHash
-                  a_ [href_ ""] (toHtml hash)
+                  a_ [ href_ "#"
+                     , hxGet_ (path ["repo",repo,"commit",hash])
+                     , hxTarget_ "#repo-tab-data"
+                     , hxPushUrl_ query
+                     ] (toHtml hash)
               td_ do
                 small_ $ toHtml $ coerce @_ @Text commitListAuthor
             tr_ [class_ "commit-brief-details"] do

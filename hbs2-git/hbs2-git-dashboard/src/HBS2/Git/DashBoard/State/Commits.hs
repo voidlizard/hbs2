@@ -112,5 +112,36 @@ selectCommits lww SelectCommitsPred{..} = do
 
         _ -> none
 
+getCommitRawBrief :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                  => LWWRefKey 'HBS2Basic
+                  -> GitHash
+                  -> m Text
 
+getCommitRawBrief lww hash = do
 
+  dir <- repoDataPath lww
+
+  let cmd = [qc|git --git-dir={dir} show --stat {pretty hash}|]
+
+  debug $ red "getCommitRawBrief" <+> viaShow cmd
+
+  gitRunCommand cmd
+    <&> fromRight mempty
+    <&> Text.decodeUtf8 . LBS8.toStrict
+
+getCommitRawPatch :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                  => LWWRefKey 'HBS2Basic
+                  -> GitHash
+                  -> m Text
+
+getCommitRawPatch lww hash = do
+
+  dir <- repoDataPath lww
+
+  let cmd = [qc|git --git-dir={dir} show {pretty hash}|]
+
+  debug $ red "getCommitRawPatch" <+> viaShow cmd
+
+  gitRunCommand cmd
+    <&> fromRight mempty
+    <&> Text.decodeUtf8 . LBS8.toStrict

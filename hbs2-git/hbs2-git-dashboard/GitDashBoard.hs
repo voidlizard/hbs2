@@ -256,6 +256,9 @@ runDashboardWeb wo = do
 
       lift $ html =<< renderTextT (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
 
+  get "/repo/:lww/commit/:hash" (commitRoute RepoCommitSummary)
+  get "/repo/:lww/commit/summary/:hash" (commitRoute RepoCommitSummary)
+  get "/repo/:lww/commit/patch/:hash" (commitRoute RepoCommitPatch)
 
   get "/repo/:lww/commits" do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
@@ -278,6 +281,16 @@ runDashboardWeb wo = do
     flip runContT pure do
       lww       <- lwws' & orFall (status status404)
       lift $ html =<< renderTextT (repoCommits lww (Left pred))
+
+  where
+    commitRoute style = do
+      lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+      co    <- captureParam @String "hash" <&> fromStringMay @GitHash
+
+      flip runContT pure do
+        lww   <- lwws' & orFall (status status404)
+        hash  <- co & orFall (status status404)
+        lift $ html =<< renderTextT (repoCommit style lww hash)
 
 
 gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)

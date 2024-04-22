@@ -149,6 +149,42 @@
         "type": "github"
       }
     },
+    "flake-utils_8": {
+      "locked": {
+        "lastModified": 1644229661,
+        "narHash": "sha256-1YdnJAsNy69bpcjuoKdOYQX0YxZBiCYZo4Twxerqv7k=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "3cecb5b042f7f209c56ffd8371b2711a290ec797",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "fuzzy": {
+      "inputs": {
+        "haskell-flake-utils": "haskell-flake-utils_4",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1711855026,
+        "narHash": "sha256-uO2dNqFiio46cuZURBC00k17uKGAtUgP7bZAYZ9HlOU=",
+        "ref": "refs/heads/master",
+        "rev": "a579201f0672f90eec7c42e65d6828978dddb816",
+        "revCount": 39,
+        "type": "git",
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+      },
+      "original": {
+        "type": "git",
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+      }
+    },
     "haskell-flake-utils": {
       "inputs": {
         "flake-utils": "flake-utils"
@@ -208,6 +244,24 @@
         "flake-utils": "flake-utils_4"
       },
       "locked": {
+        "lastModified": 1707809372,
+        "narHash": "sha256-wfTL9PlCSOqSSyU4eenFFI7pHrV21gba4GEILnI4nAU=",
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "rev": "3cbdc5d6093e8b4464ae64097e0c8c61e4414ff2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "type": "github"
+      }
+    },
+    "haskell-flake-utils_5": {
+      "inputs": {
+        "flake-utils": "flake-utils_5"
+      },
+      "locked": {
         "lastModified": 1698938553,
         "narHash": "sha256-oXpTKXioqFbl2mhhvpJIAvgNd+wYyv4ekI+YnJHEJ6s=",
         "owner": "ivanovs-4",
@@ -222,9 +276,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_5": {
+    "haskell-flake-utils_6": {
       "inputs": {
-        "flake-utils": "flake-utils_5"
+        "flake-utils": "flake-utils_6"
       },
       "locked": {
         "lastModified": 1672412555,
@@ -241,9 +295,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_6": {
+    "haskell-flake-utils_7": {
       "inputs": {
-        "flake-utils": "flake-utils_6"
+        "flake-utils": "flake-utils_7"
       },
       "locked": {
         "lastModified": 1698938553,
@@ -259,9 +313,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_7": {
+    "haskell-flake-utils_8": {
       "inputs": {
-        "flake-utils": "flake-utils_7"
+        "flake-utils": "flake-utils_8"
       },
       "locked": {
         "lastModified": 1672412555,
@@ -279,7 +333,7 @@
     },
     "hspup": {
       "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_5",
+        "haskell-flake-utils": "haskell-flake-utils_6",
         "nixpkgs": [
           "nixpkgs"
         ]
@@ -300,7 +354,7 @@
     },
     "lsm": {
       "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_6",
+        "haskell-flake-utils": "haskell-flake-utils_7",
         "nixpkgs": [
           "nixpkgs"
         ]
@@ -339,7 +393,8 @@
       "inputs": {
         "db-pipe": "db-pipe",
         "fixme": "fixme",
-        "haskell-flake-utils": "haskell-flake-utils_4",
+        "fuzzy": "fuzzy",
+        "haskell-flake-utils": "haskell-flake-utils_5",
         "hspup": "hspup",
         "lsm": "lsm",
         "nixpkgs": "nixpkgs",
@@ -388,7 +443,7 @@
     },
     "suckless-conf_2": {
       "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_7",
+        "haskell-flake-utils": "haskell-flake-utils_8",
         "nixpkgs": [
           "nixpkgs"
         ]

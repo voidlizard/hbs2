@@ -310,6 +310,23 @@ nav[role="tab-control"] li.active {
   color: #0089D1;
 }
 
+
+nav.secondary[role="tab-control"] li {
+  border-right: none;
+  font-weight: normal;
+}
+
+ul.misc-menu  {
+  margin: 0 0 0 0;
+  padding: 0 0 0 0;
+}
+
+ul.misc-menu li {
+  padding: 0 0 0 0;
+  margin-right: 1em;
+  display: inline;
+}
+
 .mono {
     font-family: 'Courier New', Courier, monospace;
 }

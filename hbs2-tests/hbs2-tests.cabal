@@ -19,6 +19,7 @@ common warnings
 common common-deps
     build-depends:
           base, hbs2-core, hbs2-storage-simple, hbs2-peer
+        , fuzzy-parse
         , async
         , bytestring
         , cache
@@ -914,6 +915,7 @@ executable test-playground
     main-is:          Main.hs
     build-depends:
           base, hbs2-core
+        , fuzzy-parse
         , async
         , bytestring
         , cache
