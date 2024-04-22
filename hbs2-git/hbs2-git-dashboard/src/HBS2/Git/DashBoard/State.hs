@@ -15,6 +15,7 @@ import HBS2.Git.DashBoard.Types
 
 import HBS2.Hash
 
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -704,6 +705,47 @@ buildCommitTreeIndex dir = do
         insertProcessed hkey
 
 
+gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => LWWRefKey 'HBS2Basic
+            -> GitHash
+            -> m [(GitObjectType, GitHash, Text)]
+gitShowTree what hash  = do
+  path <- repoDataPath what
+  let cmd = [qc|git --git-dir {path} ls-tree {show $ pretty hash}|]
 
+  -- FIXME: extract-method
+  gitRunCommand cmd
+    <&> fromRight mempty
+    <&> LBS8.lines
+    <&> fmap LBS8.words
+    <&> mapMaybe \case
+         [_,tp,h,name] -> do
+            (,,) <$> fromStringMay (LBS8.unpack tp)
+                 <*> fromStringMay (LBS8.unpack h)
+                 <*> pure (fromString (LBS8.unpack name))
+
+         _          -> Nothing
+
+
+gitShowRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => LWWRefKey 'HBS2Basic
+            -> m [(GitRef, GitHash)]
+
+gitShowRefs what = do
+  path <- repoDataPath what
+  let cmd = [qc|git --git-dir {path} show-ref|]
+
+  sto <- asks _sto
+
+  fromMaybe mempty <$> runMaybeT do
+
+    (_,hd) <- lift (selectRepoList (mempty & set repoListByLww (Just what) & set repoListLimit (Just 1)))
+                <&> listToMaybe
+                >>= toMPlus
+                <&> rlRepoTx
+                >>= readRepoHeadFromTx sto . coerce
+                >>= toMPlus
+
+    pure $ view repoHeadRefs hd
 
 
