@@ -339,7 +339,7 @@ td.commit-brief-title {
   background-color:
 }
 
-td.commit-brief-last, th.commit-brief-last {
+tr.commit-brief-last  td,th {
   border: none;
 }
 
