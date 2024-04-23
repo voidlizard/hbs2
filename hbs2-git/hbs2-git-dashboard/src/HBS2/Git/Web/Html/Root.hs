@@ -827,10 +827,13 @@ repoPage tab lww params = rootPage do
   sto <- asks _sto
   mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
 
+  let mbHead = snd <$> mhead
+
   (meta, manifest) <- lift $ parsedManifest it
 
   let author = headMay [ s | ListVal [ SymbolVal "author:", LitStrVal s ] <- meta ]
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
+
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
@@ -846,20 +849,29 @@ repoPage tab lww params = rootPage do
               div_ [ class_ "attrname"] "public:"
               div_ [ class_ "attrval"] $ toHtml p
 
-      div_ [class_ "info-block" ] do
-        for_ (snd <$> mhead) $ \rh -> do
-          h6_ [] "heads"
-          for_ (view repoHeadHeads rh) $ \(branch,v) -> do
-            div_ [ class_ "attrval onleft"] do
-              a_ [ href_ (toURL (RepoPage (CommitsTab (Just v))  lww ))
-                 ] $ toHtml branch
 
-      div_ [class_ "info-block" ] do
-        for_ (snd <$> mhead) $ \rh -> do
-          h6_ [] "tags"
-          for_ (view repoHeadTags rh) $ \(tag,v) -> do
-            div_ [ class_ "attrval onleft"] do
-              a_ [href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))] $ toHtml tag
+      for_ mbHead $ \rh -> do
+
+        let theHead = headMay [ v | (GitRef "HEAD", v) <- view repoHeadRefs rh ]
+
+        let checkHead v what | v == theHead = strong_ what
+                             | otherwise    = what
+
+        div_ [class_ "info-block" ] do
+            h6_ [] "heads"
+            for_ (view repoHeadHeads rh) $ \(branch,v) -> do
+              div_ [ class_ "attrval onleft"] do
+                  a_ [ href_ (toURL (RepoPage (CommitsTab (Just v))  lww ))
+                     ] do checkHead (Just v)
+                           $ toHtml branch
+
+        div_ [class_ "info-block" ] do
+            h6_ [] "tags"
+            for_ (view repoHeadTags rh) $ \(tag,v) -> do
+                div_ [ class_ "attrval onleft"] do
+                    a_ [href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))]
+                      do checkHead (Just v) $
+                           toHtml tag
 
     main_ do
 
