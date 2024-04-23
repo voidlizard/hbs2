@@ -608,7 +608,7 @@ repoCommit style lww hash = do
 
     tr_ do
       th_ [width_ "16rem"] $ strong_ "back"
-      td_ $ a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))
+      td_ $ a_ [ href_ (toURL (RepoPage (CommitsTab (Just hash)) lww))
                ] $ toHtml $ show $ pretty hash
 
     for_ au $ \author -> do
