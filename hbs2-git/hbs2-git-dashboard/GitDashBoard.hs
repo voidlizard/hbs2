@@ -376,7 +376,7 @@ updateIndexPeriodially = do
               debug $ red "SYNC" <+> pretty cmd
               void $ runProcess $ shell cmd
 
-              lift $ buildCommitTreeIndex dir
+              lift $ buildCommitTreeIndex (coerce lww)
 
 
 main :: IO ()

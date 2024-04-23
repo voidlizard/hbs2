@@ -105,6 +105,7 @@ evolveDB = do
 
   createRepoTreeIndexTable
   createRepoBlobIndexTable
+  createRepoCommitTable
 
 
 instance ToField GitHash where
@@ -185,6 +186,7 @@ data RepoTable
 data RepoChannelTable
 data RepoNameTable
 data RepoBriefTable
+data RepoCommitTable
 
 instance HasTableName RepoChannelTable where
   tableName = "repochannel"
@@ -200,6 +202,9 @@ instance HasTableName RepoBriefTable where
 
 instance HasTableName TxProcessedTable where
   tableName = "processed"
+
+instance HasTableName RepoCommitTable where
+  tableName = "repocommit"
 
 instance HasColumnName TxHash where
   columnName = "hash"
@@ -222,6 +227,9 @@ instance HasColumnName RepoRefLog where
 instance HasColumnName RepoChannel where
   columnName = "channel"
 
+instance HasColumnName RepoCommit where
+  columnName = "kommit"
+
 instance HasPrimaryKey TxProcessedTable where
   primaryKey = [G.columnName @TxHash]
 
@@ -237,6 +245,8 @@ instance HasPrimaryKey RepoNameTable where
 instance HasPrimaryKey RepoBriefTable where
   primaryKey = [G.columnName @RepoLww]
 
+instance HasPrimaryKey RepoCommitTable where
+  primaryKey = [G.columnName @RepoLww, G.columnName @RepoCommit]
 
 pattern PRefChan :: MyRefChan -> Syntax C
 pattern PRefChan s <- ListVal [ SymbolVal "refchan" , asRefChan -> Just s ]
@@ -457,6 +467,15 @@ createRepoTreeIndexTable = do
   |]
 
 
+createRepoCommitTable :: (DashBoardPerks m) => DBPipeM m ()
+createRepoCommitTable  = do
+  ddl [qc|
+    create table if not exists repocommit
+    ( lww     text not null
+    , kommit  text not null
+    , primary key (lww,kommit)
+    )
+  |]
 
 
 isProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m Bool
@@ -472,6 +491,9 @@ insertProcessed href = do
   on conflict(hash) do nothing
   |] (Only href)
 
+
+newtype RepoCommit = RepoCommit GitHash
+                     deriving newtype (FromField,ToField,Pretty)
 
 newtype TreeCommit = TreeCommit GitHash
                      deriving newtype (FromField,ToField,Pretty)
@@ -620,8 +642,10 @@ readBlob repo hash = do
     <&> fromRight mempty
 
 
-buildCommitTreeIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => FilePath -> m ()
-buildCommitTreeIndex dir = do
+buildCommitTreeIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m ()
+buildCommitTreeIndex lww = do
+
+  dir <- repoDataPath lww
 
   let syntaxMap = Sky.defaultSyntaxMap
 
@@ -634,75 +658,81 @@ buildCommitTreeIndex dir = do
 
   withState do
 
-    for_ commits $ \co -> void $ runMaybeT do
-      let hkey = ("commit-for-tree-index", co) & serialise & hashObject @HbSync & HashRef
+    for_ commits $ \co -> do
+      let hkey = ("commit-for-tree-index", co, lww) & serialise & hashObject @HbSync & HashRef
 
-      done <- lift $ isProcessed hkey
+      here <- (select [qc|select 1 from repocommit where lww = ? and kommit = ?|] (lww, co))
+                  <&> listToMaybe @(Only Int) <&> isJust
 
-      guard (not done)
+      unless here do
 
-      let cmd =  [qc|git --git-dir {dir} cat-file commit {pretty co}|]
+        transactional do
 
-      root <- gitRunCommand cmd
-                <&> fromRight mempty
-                <&> LBS8.lines
-                <&> \case
-                       (TreeHash ha : _) -> Just ha
-                       _                 -> Nothing
-                >>= toMPlus
+          insert @RepoCommitTable $ onConflictIgnore @RepoCommitTable (RepoLww lww, RepoCommit co)
 
-      lift $ transactional do
+          let cmd =  [qc|git --git-dir {dir} cat-file commit {pretty co}|]
 
-        items <- gitRunCommand [qc|git --git-dir {dir} ls-tree -l -r -t {pretty co}|]
-          <&> fromRight mempty
-          <&> fmap LBS8.words . LBS8.lines
-          <&> mapMaybe \case
-                [_,"tree",h,_,n] ->
-                  (reverse $ splitDirectories $ LBS8.unpack n,) <$> fmap Right (fromStringMay @GitHash (LBS8.unpack h))
+          root' <- gitRunCommand cmd
+                    <&> fromRight mempty
+                    <&> LBS8.lines
+                    <&> \case
+                           (TreeHash ha : _) -> Just ha
+                           _                 -> Nothing
 
-                [_,"blob",h,size,n] -> do
-                  let fn = headMay (reverse $ splitDirectories $ LBS8.unpack n)
-                             <&> List.singleton
+          items <- gitRunCommand [qc|git --git-dir {dir} ls-tree -l -r -t {pretty co}|]
+            <&> fromRight mempty
+            <&> fmap LBS8.words . LBS8.lines
+            <&> mapMaybe \case
+                  [_,"tree",h,_,n] ->
+                    (reverse $ splitDirectories $ LBS8.unpack n,) <$> fmap Right (fromStringMay @GitHash (LBS8.unpack h))
 
-                  let ha  = fromStringMay @GitHash (LBS8.unpack h)
-                  let sz  = readMay @Integer (LBS8.unpack size)
+                  [_,"blob",h,size,n] -> do
+                    let fn = headMay (reverse $ splitDirectories $ LBS8.unpack n)
+                               <&> List.singleton
 
-                  let syn = Sky.syntaxesByFilename syntaxMap (LBS8.unpack n)
-                              & headMay
-                              <&> Text.toLower . Sky.sName
+                    let ha  = fromStringMay @GitHash (LBS8.unpack h)
+                    let sz  = readMay @Integer (LBS8.unpack size)
 
-                  (,) <$> fn <*> fmap Left ( (,,) <$> ha <*> sz <*> pure syn )
+                    let syn = Sky.syntaxesByFilename syntaxMap (LBS8.unpack n)
+                                & headMay
+                                <&> Text.toLower . Sky.sName
 
-                _ -> Nothing
+                    (,) <$> fn <*> fmap Left ( (,,) <$> ha <*> sz <*> pure syn )
 
-        let trees = Map.fromList [ (k,v) | (k,Right v) <- items ]
+                  _ -> Nothing
 
-        let blobs = [ (k,v) | ([k],Left v) <- items ]
+          let trees = Map.fromList [ (k,v) | (k,Right v) <- items ]
 
-        for_ blobs $ \(fn, (hash, size, syn)) -> do
-          insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
+          let blobs = [ (k,v) | ([k],Left v) <- items ]
 
-        for_ (Map.toList trees) $ \(t,h0) -> do
+          for_ blobs $ \(fn, (hash, size, syn)) -> do
+            insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
 
-          case t of
-            [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
-            _   -> pure ()
 
-          let child = tailSafe t
-          debug $ red "TREE-REL:" <+> pretty t
-          let parent = Map.lookup child trees
+          for_ root' \root -> do
 
-          for_ parent $ \p -> do
-            debug $ red "FOUND SHIT:" <+> pretty (h0,p)
-            insertTree ( TreeCommit co
-                       , TreeParent p
-                       , TreeTree h0
-                       , TreeLevel (length t)
-                       , TreePath (headDef "" t)
-                       )
+            for_ (Map.toList trees) $ \(t,h0) -> do
+
+              case t of
+                [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
+                _   -> pure ()
+
+              let child = tailSafe t
+              debug $ red "TREE-REL:" <+> pretty t
+              let parent = Map.lookup child trees
+
+              for_ parent $ \p -> do
+                debug $ red "FOUND SHIT:" <+> pretty (h0,p)
+                insertTree ( TreeCommit co
+                           , TreeParent p
+                           , TreeTree h0
+                           , TreeLevel (length t)
+                           , TreePath (headDef "" t)
+                           )
             -- insertTree co p h0
 
-        insertProcessed hkey
+
+      -- insertProcessed hkey
 
 
 gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)

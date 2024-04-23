@@ -321,7 +321,10 @@ rootPage content  = do
 
     body_ do
       header_ do
-        div_ [class_ "header-title"] $ h1_ [] $ a_ [href_ (toURL RepoListPage)] "hbs2-peer dashboard"
+        div_ [class_ "header-title"] $ h1_ [] $ do
+          a_ [href_ (toURL RepoListPage)] "hbs2-peer dashboard"
+
+
       content
 
 
@@ -839,6 +842,13 @@ repoPage tab lww params = rootPage do
     nav_ [class_ "left"] $ do
 
       div_ [class_ "info-block" ] do
+        div_ [ class_ "attr" ] do
+         img_ [src_ "/icon/tree-up.svg"]
+         small_ do
+           a_ [ href_ "/"] "back to projects"
+
+
+      div_ [class_ "info-block" ] do
         for_ author $ \a -> do
             div_ [ class_ "attr" ] do
               div_ [ class_ "attrname"] "author:"
@@ -849,6 +859,11 @@ repoPage tab lww params = rootPage do
               div_ [ class_ "attrname"] "public:"
               div_ [ class_ "attrval"] $ toHtml p
 
+      div_ [class_ "info-block" ] do
+        when (Text.length manifest > 100) do
+            div_ [ class_ "attr" ] do
+              div_ [ class_ "attrname"] do
+                a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Manifest"
 
       for_ mbHead $ \rh -> do
 
@@ -877,7 +892,6 @@ repoPage tab lww params = rootPage do
 
       nav_ [ role_ "tab-control" ] do
        repoMenu do
-        repoMenuItem  mempty $ a_ [href_ "/"] "root"
 
         let menu t = if isActiveTab tab t then repoMenuItem0 else repoMenuItem
 
@@ -886,9 +900,6 @@ repoPage tab lww params = rootPage do
                        , hxTarget_ "#repo-tab-data"
                        ] "commits"
 
-        menu ManifestTab [ hxGet_ (toURL (RepoManifest lww))
-                        , hxTarget_ "#repo-tab-data"
-                        ] "manifest"
 
         menu (TreeTab Nothing)
                     [ hxGet_ (toURL (RepoRefs lww))
