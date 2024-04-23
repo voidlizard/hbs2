@@ -194,7 +194,7 @@ runDashboardWeb wo = do
     lww <- captureParam @String "lww"  <&> fromStringMay @(LWWRefKey 'HBS2Basic)
                 >>= orThrow (itemNotFound "repository key")
 
-    redirect (LT.fromStrict  $ toURL (RepoPage CommitsTab lww))
+    redirect (LT.fromStrict  $ toURL (RepoPage (CommitsTab Nothing) lww))
 
   get (routePattern (RepoPage "tab" "lww")) do
     lww <- captureParam @String "lww"  <&> fromStringMay
@@ -202,7 +202,7 @@ runDashboardWeb wo = do
 
     tab <- captureParam @String "tab"
               <&> fromStringMay
-              <&> fromMaybe CommitsTab
+              <&> fromMaybe (CommitsTab Nothing)
 
     qp <- queryParams
 
@@ -241,11 +241,7 @@ runDashboardWeb wo = do
       lww  <- lwws' & orFall (status status404)
       hash <- hash' & orFall (status status404)
       co   <- co'   & orFall (status status404)
-      tree <- lift $ gitShowTree lww hash
-      back <- lift $ selectParentTree (TreeCommit co) (TreeTree hash)
-
-      debug $ "selectParentTree" <+> pretty co <+> pretty hash <+> pretty back
-      lift $ html =<< renderTextT (repoTree lww co hash tree (coerce <$> back))
+      lift $ html =<< renderTextT (repoTree lww co hash)
 
   get (routePattern (RepoBlob "lww" "co" "hash" "blob")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
@@ -292,7 +288,7 @@ runDashboardWeb wo = do
 
       -- FIXME: this
       referrer <- lift (Scotty.header "Referer")
-                    >>= orFall (redirect $ LT.fromStrict $ toURL (RepoPage CommitsTab lww))
+                    >>= orFall (redirect $ LT.fromStrict $ toURL (RepoPage (CommitsTab Nothing) lww))
 
       lift $ renderHtml (repoCommits lww (Left pred))
 

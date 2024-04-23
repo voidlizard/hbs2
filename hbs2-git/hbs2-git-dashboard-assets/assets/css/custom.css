@@ -367,7 +367,7 @@ tr.commit-brief-details th {
 }
 
 td.commit-brief-title {
-  background-color:
+  text-align: left;
 }
 
 tr.commit-brief-last  td {
@@ -376,6 +376,16 @@ tr.commit-brief-last  td {
 
 tr.commit-brief-last  th {
   border: none;
+}
+
+td.commit-icon {
+  width: 4rem;
+  /* width: px; */
+}
+
+td.commit-hash {
+  width: 10rem;
+  text-align: left;
 }
 
 
