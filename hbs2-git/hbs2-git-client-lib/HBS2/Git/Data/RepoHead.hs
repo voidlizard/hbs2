@@ -37,18 +37,18 @@ data RepoHead =
 
 makeLenses ''RepoHead
 
-repoHeadTags :: SimpleGetter RepoHead [Text]
+repoHeadTags :: SimpleGetter RepoHead [(GitRef,GitHash)]
 repoHeadTags =
   to \h@RepoHeadSimple{} -> do
-    catMaybes [ lastMay (B8.split '/' s) <&> (Text.pack . B8.unpack)
-                      | (GitRef s, _)  <- view repoHeadRefs h, B8.isPrefixOf "refs/tags" s
+    catMaybes [ (,v) <$> (lastMay (B8.split '/' s) <&> GitRef)
+                      | (GitRef s, v)  <- view repoHeadRefs h, B8.isPrefixOf "refs/tags" s
                       ] & Set.fromList & Set.toList
 
 
-repoHeadHeads :: SimpleGetter RepoHead [Text]
+repoHeadHeads :: SimpleGetter RepoHead [(GitRef,GitHash)]
 repoHeadHeads =
   to \h@RepoHeadSimple{} -> do
-    catMaybes [ lastMay (B8.split '/' s) <&> (Text.pack . B8.unpack)
+    catMaybes [ (,v) <$> (lastMay (B8.split '/' s) <&> GitRef)
               | (GitRef s, v)  <- view repoHeadRefs h, B8.isPrefixOf "refs/heads" s
               ] & Set.fromList & Set.toList
 

@@ -225,6 +225,18 @@ div .repo-list-item {
 }
 
 
+.info-block a {
+  font-size: inherit;
+  color: inherit;
+  text-decoration: none;
+}
+
+.info-block a:hover {
+  text-decoration: underline dotted 2px black;
+  color: black;
+}
+
+
 form.search {
   display: flex;
   align-items: center;

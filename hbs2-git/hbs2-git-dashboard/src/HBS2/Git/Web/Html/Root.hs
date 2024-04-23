@@ -7,6 +7,8 @@ import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.State.Commits
 
+import HBS2.OrDie
+
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.RepoHead
 
@@ -37,14 +39,7 @@ import Data.Kind
 
 import Streaming.Prelude qualified as S
 
-data ViewContext =
-  ViewContext
-  { _baseUri :: String
-  , _tab     :: Text
-  }
-  deriving stock Generic
-
-instance Serialise ViewContext
+import Network.HTTP.Types.Status
 
 rootPath :: [String] -> [String]
 rootPath = ("/":)
@@ -65,7 +60,13 @@ data family Tabs a :: Type
 
 data RepoListPage = RepoListPage
 
-newtype RepoPage a = RepoPage a
+data RepoPageTabs =  CommitsTab
+                   | CommitsTabPred GitHash
+                   | ManifestTab
+                   | TreeTab
+                    deriving stock (Eq,Ord,Show)
+
+data RepoPage s a = RepoPage s a
 
 data RepoRefs repo = RepoRefs repo
 
@@ -88,15 +89,37 @@ data RepoCommitPatchQ repo commit = RepoCommitPatchQ repo commit
 toArg :: (Semigroup a, IsString a) => a -> a
 toArg s = ":" <> s
 
+toPattern :: Text -> RoutePattern
+toPattern = fromString . Text.unpack
+
+instance Pretty RepoPageTabs where
+  pretty = \case
+    CommitsTab        -> "commits"
+    CommitsTabPred{}  -> "commits"
+    ManifestTab       -> "manifest"
+    TreeTab           -> "tree"
+
+instance FromStringMaybe RepoPageTabs where
+  fromStringMay = \case
+    "commits"  -> pure CommitsTab
+    "manifest" -> pure ManifestTab
+    "tree"     -> pure TreeTab
+    _          -> pure CommitsTab
+
 instance ToRoutePattern RepoListPage where
   routePattern = \case
     RepoListPage -> "/"
 
-instance ToURL (RepoPage (LWWRefKey 'HBS2Basic)) where
-  toURL (RepoPage w)  = path @String [ "/", show (pretty w) ]
+instance ToURL (RepoPage RepoPageTabs (LWWRefKey 'HBS2Basic)) where
+  toURL (RepoPage s w)  = path @String [ "/", show (pretty s), show (pretty w)]
+                            <> pred_
+    where
+     pred_ = case s of
+      CommitsTabPred p -> Text.pack $ "?ref=" <> show (pretty p)
+      _ -> mempty
 
-instance ToRoutePattern (RepoPage String) where
-  routePattern (RepoPage w) = fromString ("/" <> toArg w)
+instance ToRoutePattern (RepoPage String String) where
+  routePattern (RepoPage s w) = path ["/", toArg s, toArg w] & toPattern
 
 instance ToURL RepoListPage where
   toURL _ =  "/"
@@ -107,7 +130,7 @@ instance ToURL (RepoRefs (LWWRefKey 'HBS2Basic))  where
       repo = show $ pretty repo'
 
 instance ToRoutePattern (RepoRefs String) where
-  routePattern (RepoRefs s) = path ["/", "htmx", "refs", toArg s] & Text.unpack & fromString
+  routePattern (RepoRefs s) = path ["/", "htmx", "refs", toArg s] & toPattern
 
 
 instance ToURL (RepoTree (LWWRefKey 'HBS2Basic) GitHash GitHash)  where
@@ -119,7 +142,7 @@ instance ToURL (RepoTree (LWWRefKey 'HBS2Basic) GitHash GitHash)  where
 
 instance ToRoutePattern (RepoTree String String String) where
   routePattern (RepoTree r co tree) =
-    path ["/", "htmx", "tree", toArg r, toArg co, toArg tree] & Text.unpack & fromString
+    path ["/", "htmx", "tree", toArg r, toArg co, toArg tree] & toPattern
 
 instance ToURL (RepoBlob (LWWRefKey 'HBS2Basic) GitHash GitHash GitHash)  where
   toURL (RepoBlob k co t bo) = path ["/", "htmx", "blob", repo, commit, tree, blob]
@@ -131,7 +154,7 @@ instance ToURL (RepoBlob (LWWRefKey 'HBS2Basic) GitHash GitHash GitHash)  where
 
 instance ToRoutePattern (RepoBlob String String String String) where
   routePattern (RepoBlob r c t b) =
-    path ["/", "htmx", "blob", toArg r, toArg c, toArg t, toArg b] & Text.unpack & fromString
+    path ["/", "htmx", "blob", toArg r, toArg c, toArg t, toArg b] & toPattern
 
 instance ToURL (RepoManifest (LWWRefKey 'HBS2Basic))  where
   toURL (RepoManifest repo') = path ["/", "htmx", "manifest", repo]
@@ -139,7 +162,7 @@ instance ToURL (RepoManifest (LWWRefKey 'HBS2Basic))  where
       repo = show $ pretty repo'
 
 instance ToRoutePattern (RepoManifest String) where
-  routePattern (RepoManifest s) = path ["/", "htmx", "manifest", toArg s] & Text.unpack & fromString
+  routePattern (RepoManifest s) = path ["/", "htmx", "manifest", toArg s] & toPattern
 
 instance ToURL (RepoCommits (LWWRefKey 'HBS2Basic))  where
   toURL (RepoCommits repo') = path ["/", "htmx", "commits", repo]
@@ -147,7 +170,7 @@ instance ToURL (RepoCommits (LWWRefKey 'HBS2Basic))  where
       repo = show $ pretty repo'
 
 instance ToRoutePattern (RepoCommits String) where
-  routePattern (RepoCommits s) = path ["/", "htmx", "commits", toArg s] & Text.unpack & fromString
+  routePattern (RepoCommits s) = path ["/", "htmx", "commits", toArg s] & toPattern
 
 instance ToURL (RepoCommitsQ (LWWRefKey 'HBS2Basic) Int Int)  where
   toURL (RepoCommitsQ repo' off lim) = path ["/", "htmx", "commits", repo, show off, show lim]
@@ -155,7 +178,8 @@ instance ToURL (RepoCommitsQ (LWWRefKey 'HBS2Basic) Int Int)  where
       repo = show $ pretty repo'
 
 instance ToRoutePattern (RepoCommitsQ String String String) where
-  routePattern (RepoCommitsQ r o l) = path ["/", "htmx", "commits", toArg r, toArg o, toArg l] & Text.unpack & fromString
+  routePattern (RepoCommitsQ r o l) =
+    path ["/", "htmx", "commits", toArg r, toArg o, toArg l] & toPattern
 
 instance ToURL (RepoCommitDefault (LWWRefKey 'HBS2Basic) GitHash)  where
   toURL (RepoCommitDefault repo' h) = toURL (RepoCommitSummaryQ repo' h)
@@ -170,7 +194,8 @@ instance ToURL (RepoCommitSummaryQ (LWWRefKey 'HBS2Basic) GitHash)  where
       ha = show $ pretty h
 
 instance ToRoutePattern (RepoCommitSummaryQ String String) where
-  routePattern (RepoCommitSummaryQ r h) = path ["/", "htmx", "commit", "summary", toArg r, toArg h] & Text.unpack & fromString
+  routePattern (RepoCommitSummaryQ r h) =
+    path ["/", "htmx", "commit", "summary", toArg r, toArg h] & toPattern
 
 instance ToURL (RepoCommitPatchQ (LWWRefKey 'HBS2Basic) GitHash)  where
   toURL (RepoCommitPatchQ repo' h) = path ["/", "htmx", "commit", "patch", repo, ha]
@@ -179,7 +204,8 @@ instance ToURL (RepoCommitPatchQ (LWWRefKey 'HBS2Basic) GitHash)  where
       ha = show $ pretty h
 
 instance ToRoutePattern (RepoCommitPatchQ String String) where
-  routePattern (RepoCommitPatchQ r h) = path ["/", "htmx", "commit", "patch", toArg r, toArg h] & Text.unpack & fromString
+  routePattern (RepoCommitPatchQ r h) =
+    path ["/", "htmx", "commit", "patch", toArg r, toArg h] & toPattern
 
 
 myCss :: Monad m => HtmlT m ()
@@ -224,6 +250,11 @@ agePure t0 t = do
        | sec > 3600   -> pretty (sec `div` 3600)   <+> "hours ago"
        | otherwise    -> pretty (sec `div` 60)     <+> "minutes ago"
 
+
+instance ToHtml GitRef where
+  toHtml (GitRef s)= toHtml s
+  toHtmlRaw (GitRef s)= toHtmlRaw s
+
 instance ToHtml (WithTime RepoListItem) where
   toHtmlRaw = pure mempty
 
@@ -233,7 +264,7 @@ instance ToHtml (WithTime RepoListItem) where
 
     let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
 
-    let url = toURL (RepoPage (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
+    let url = toURL (RepoPage CommitsTab (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
     -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
     let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
 
@@ -353,9 +384,9 @@ thisRepoManifest it@RepoListItem{..} = do
 
 repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
-         -> [(GitRef, GitHash)]
          -> HtmlT m ()
-repoRefs lww refs = do
+repoRefs lww  = do
+  refs <- lift $ gitShowRefs lww
   table_ [] do
     for_ refs $ \(r,h) -> do
       let r_ = Text.pack $ show $ pretty r
@@ -421,15 +452,14 @@ treeLocator lww co locator next = do
   next
 
 repoTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
-         => ViewContext
-         -> LWWRefKey 'HBS2Basic
+         => LWWRefKey 'HBS2Basic
          -> GitHash -- ^ this
          -> GitHash -- ^ this
          -> [(GitObjectType, GitHash, Text)]
          -> Maybe GitHash -- ^ back
          -> HtmlT m ()
 
-repoTree ctx lww co root tree back' = do
+repoTree lww co root tree back' = do
 
   let syntaxMap = Sky.defaultSyntaxMap
 
@@ -438,8 +468,6 @@ repoTree ctx lww co root tree back' = do
           tpOrder Tree = (0 :: Int)
           tpOrder Blob = 1
           tpOrder _    = 2
-
-  let wtf = show $ pretty $ AsBase58 (serialise ctx)
 
   locator <- lift $ selectTreeLocator (TreeCommit co) (TreeTree root)
 
@@ -724,11 +752,24 @@ repoBlob lww co tree BlobInfo{..} = do
               let code = renderText (Lucid.formatHtmlBlock fo tokens)
               toHtmlRaw code
 
-repoPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
-repoPage it@RepoListItem{..} = rootPage do
 
-  let lww = rlRepoLww & coerce
-  let repo = show $ pretty lww
+raiseStatus :: forall m . MonadIO m => Status -> Text -> m ()
+raiseStatus s t = throwIO (StatusError s t)
+
+itemNotFound s = StatusError status404 (Text.pack $ show $ pretty s)
+
+repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
+         => RepoPageTabs
+         -> LWWRefKey 'HBS2Basic
+         -> [(Text,Text)]
+         -> HtmlT m ()
+repoPage tab lww params = rootPage do
+
+  it@RepoListItem{..} <- lift (selectRepoList ( mempty
+                                  & set repoListByLww (Just lww)
+                                  & set repoListLimit (Just 1))
+                               <&> listToMaybe
+                              ) >>= orThrow (itemNotFound lww)
 
   sto <- asks _sto
   mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
@@ -738,6 +779,8 @@ repoPage it@RepoListItem{..} = rootPage do
   let author = headMay [ s | ListVal [ SymbolVal "author:", LitStrVal s ] <- meta ]
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
 
+  let setActive True  = class_ "tab active"
+      setActive False = class_ mempty
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
@@ -756,14 +799,17 @@ repoPage it@RepoListItem{..} = rootPage do
       div_ [class_ "info-block" ] do
         for_ (snd <$> mhead) $ \rh -> do
           h6_ [] "heads"
-          for_ (view repoHeadHeads rh) $ \branch -> do
-            div_ [ class_ "attrval onleft"] $ toHtml branch
+          for_ (view repoHeadHeads rh) $ \(branch,v) -> do
+            div_ [ class_ "attrval onleft"] do
+              a_ [ href_ (toURL (RepoPage (CommitsTabPred v)  lww ))
+                 ] $ toHtml branch
 
       div_ [class_ "info-block" ] do
         for_ (snd <$> mhead) $ \rh -> do
           h6_ [] "tags"
-          for_ (view repoHeadTags rh) $ \tag -> do
-            div_ [ class_ "attrval onleft"] $ toHtml tag
+          for_ (view repoHeadTags rh) $ \(tag,v) -> do
+            div_ [ class_ "attrval onleft"] do
+              a_ [href_ (toURL (RepoPage (CommitsTabPred v) lww ))] $ toHtml tag
 
     main_ do
 
@@ -771,15 +817,17 @@ repoPage it@RepoListItem{..} = rootPage do
        repoMenu do
         repoMenuItem  mempty $ a_ [href_ "/"] "root"
 
-        repoMenuItem0 [ hxGet_ (toURL (RepoCommits lww))
-                      , hxTarget_ "#repo-tab-data"
-                      ] "commits"
+        let menu t = if tab == t then repoMenuItem0 else repoMenuItem
 
-        repoMenuItem [ hxGet_ (toURL (RepoManifest lww))
-                     , hxTarget_ "#repo-tab-data"
-                     ] "manifest"
+        menu CommitsTab [ hxGet_ (toURL (RepoCommits lww))
+                        , hxTarget_ "#repo-tab-data"
+                        ] "commits"
 
-        repoMenuItem [ hxGet_ (toURL (RepoRefs lww))
+        menu ManifestTab [ hxGet_ (toURL (RepoManifest lww))
+                         , hxTarget_ "#repo-tab-data"
+                         ] "manifest"
+
+        menu TreeTab [ hxGet_ (toURL (RepoRefs lww))
                      , hxTarget_ "#repo-tab-data"
                      ] "tree"
 
@@ -787,6 +835,21 @@ repoPage it@RepoListItem{..} = rootPage do
         h1_ (toHtml $ rlRepoName)
 
       div_ [id_ "repo-tab-data"] do
-        let predicate = Right mempty
-        repoCommits lww predicate
+
+        case tab of
+
+          TreeTab -> do
+            repoRefs lww
+
+          ManifestTab -> do
+            thisRepoManifest it
+
+          CommitsTab -> do
+            let predicate = Right (fromQueryParams params)
+            repoCommits lww predicate
+
+          CommitsTabPred _ -> do
+            let predicate = Right (fromQueryParams params)
+            repoCommits lww predicate
+
 

@@ -18,6 +18,9 @@ import Streaming.Prelude qualified as S
 
 {- HLINT ignore "Functor law" -}
 
+class Monoid a => FromQueryParams a where
+  fromQueryParams :: [(Text,Text)] -> a
+
 data CommitListStyle = CommitListBrief
 
 data SelectCommitsPred =
@@ -25,18 +28,28 @@ data SelectCommitsPred =
   { _commitListStyle  :: CommitListStyle
   , _commitPredOffset :: Int
   , _commitPredLimit  :: Int
+  , _commitRef        :: Maybe GitRef
   }
 
 makeLenses ''SelectCommitsPred
 
 instance Semigroup SelectCommitsPred where
-  (<>) _ _ = mempty
+  (<>) _ b = mempty & set commitListStyle (view commitListStyle b)
+                    & set commitPredOffset (view commitPredOffset b)
+                    & set commitPredLimit (view commitPredLimit b)
+                    & set commitRef (view commitRef b)
 
 instance Monoid SelectCommitsPred where
-  mempty = SelectCommitsPred CommitListBrief 0 100
+  mempty = SelectCommitsPred CommitListBrief 0 100 Nothing
 
 briefCommits :: SelectCommitsPred
 briefCommits = mempty
+
+
+instance FromQueryParams SelectCommitsPred where
+  fromQueryParams args = do
+    let val = headMay [ GitRef (fromString (Text.unpack v)) | ("ref", v) <- args ]
+    mempty & set commitRef val
 
 newtype Author = Author Text
                  deriving stock (Generic,Data)
@@ -79,10 +92,12 @@ selectCommits lww SelectCommitsPred{..} = do
   let delim = "|||" :: Text
   dir <- repoDataPath lww
 
+  let what = maybe "--all" (show . pretty) _commitRef
+
   let cmd = case _commitListStyle of
               CommitListBrief -> do
                 let fmt = [qc|--pretty=format:"%H{delim}%at{delim}%an{delim}%s"|] :: String
-                [qc|git --git-dir={dir} log --all --max-count {lim} --skip {off} {fmt}|]
+                [qc|git --git-dir={dir} log {what} --max-count {lim} --skip {off} {fmt}|]
 
   debug $ red "selectCommits" <+> pretty cmd
 
