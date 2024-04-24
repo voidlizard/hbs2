@@ -860,10 +860,21 @@ repoPage tab lww params = rootPage do
               div_ [ class_ "attrval"] $ toHtml p
 
       div_ [class_ "info-block" ] do
+
         when (Text.length manifest > 100) do
             div_ [ class_ "attr" ] do
               div_ [ class_ "attrname"] do
                 a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Manifest"
+
+        div_ [ class_ "attr" ] do
+          div_ [ class_ "attrname"] do
+            a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Forks"
+          div_ [ class_ "attrval"] $ toHtml (show $ rlRepoForks)
+
+        div_ [ class_ "attr" ] do
+          div_ [ class_ "attrname"] do
+            a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))] "Commits"
+          div_ [ class_ "attrval"] $ toHtml (show $ rlRepoCommits)
 
       for_ mbHead $ \rh -> do
 

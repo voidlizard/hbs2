@@ -151,6 +151,15 @@ newtype RepoBrief = RepoBrief Text
                    deriving stock (Generic)
                    deriving newtype (ToField,FromField)
 
+
+newtype RepoForks = RepoForks Int
+                    deriving stock (Generic,Data)
+                    deriving newtype (ToField,FromField,Show,Pretty)
+
+newtype RepoCommitsNum = RepoCommitsNum Int
+                         deriving stock (Generic,Data)
+                         deriving newtype (ToField,FromField,Show,Pretty)
+
 newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving stock (Generic)
                   deriving newtype (ToField,FromField,Pretty)
@@ -222,6 +231,12 @@ instance HasColumnName RepoName where
 instance HasColumnName RepoBrief where
   columnName = "brief"
 
+instance HasColumnName RepoForks where
+  columnName = "forks"
+
+instance HasColumnName RepoCommitsNum where
+  columnName = "kommits"
+
 instance HasColumnName RepoRefLog where
   columnName = "reflog"
 
@@ -274,6 +289,8 @@ data RepoListItem =
   , rlRepoName     :: RepoName
   , rlRepoBrief    :: RepoBrief
   , rlRepoGK0      :: RepoHeadGK0
+  , rlRepoForks    :: RepoForks
+  , rlRepoCommits  :: RepoCommitsNum
   }
   deriving stock (Generic)
 
@@ -311,6 +328,8 @@ selectRepoList pred = fmap fixName <$> withState do
        , r.name
        , r.brief
        , r.gk0
+       , r.forks
+       , r.kommits
    from repolistview r
    where  {where_}
    {limit_}
@@ -376,10 +395,19 @@ ranked_repos as (
   order by seq desc
 )
 
-select lww, lwwseq, reflog, seq, repohead, tx, name, brief, gk0
+select lww
+     , lwwseq
+     , reflog
+     , seq
+     , repohead
+     , tx
+     , name
+     , brief
+     , gk0
+     , (select count(1) from fork f where f.a = ranked_repos.lww) as forks
+     , (select count(distinct(kommit)) from repocommit r where r.lww = ranked_repos.lww) as kommits
 from ranked_repos
 where rn = 1;
-
   |]
 
 
