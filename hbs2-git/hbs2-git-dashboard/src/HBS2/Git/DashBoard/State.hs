@@ -154,7 +154,7 @@ newtype RepoBrief = RepoBrief Text
 
 newtype RepoForks = RepoForks Int
                     deriving stock (Generic,Data)
-                    deriving newtype (ToField,FromField,Show,Pretty)
+                    deriving newtype (ToField,FromField,Show,Pretty,Num,Eq,Ord)
 
 newtype RepoCommitsNum = RepoCommitsNum Int
                          deriving stock (Generic,Data)
@@ -178,7 +178,7 @@ newtype RepoHeadRef = RepoHeadRef HashRef
 
 newtype RepoHeadSeq = RepoHeadSeq Word64
                       deriving stock (Generic)
-                      deriving newtype (ToField,FromField)
+                      deriving newtype (ToField,FromField,Integral,Real,Ord,Eq,Num,Enum)
 
 newtype RepoRefLog = RepoRefLog (RefLogKey 'HBS2Basic)
                      deriving stock (Generic)
@@ -815,6 +815,18 @@ buildCommitTreeIndex lww = do
 
   -- FIXME: check-names-with-spaces
 
+selectRepoForks :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                => LWWRefKey 'HBS2Basic
+                -> m [RepoListItem]
+selectRepoForks lww = withState do
+  let cols = columnListPart (AllColumns @RepoListItem) & fromSQL
+  let sql = [qc| select {cols}
+                     from repolistview v join fork f on v.lww = f.b
+                     where f.a = ?
+            |]
+
+  debug $ yellow "selectRepoForks" <+> pretty sql <+> pretty lww
+  select sql (Only (RepoLww lww))
 
 gitShowTree :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             => LWWRefKey 'HBS2Basic

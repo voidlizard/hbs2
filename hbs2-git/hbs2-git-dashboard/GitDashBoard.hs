@@ -209,7 +209,7 @@ runDashboardWeb wo = do
     renderHtml (repoPage tab lww qp)
 
   get (routePattern (RepoManifest "lww")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
 
@@ -224,7 +224,7 @@ runDashboardWeb wo = do
 
 
   get (routePattern (RepoRefs "lww")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
 
     -- setHeader "HX-Push-Url" [qc|/{show $ pretty lwws'}|]
 
@@ -233,7 +233,7 @@ runDashboardWeb wo = do
       lift $ renderHtml (repoRefs lww)
 
   get (routePattern (RepoTree "lww" "co" "hash")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
     co'   <- captureParam @String "co" <&> fromStringMay @GitHash
 
@@ -241,10 +241,10 @@ runDashboardWeb wo = do
       lww  <- lwws' & orFall (status status404)
       hash <- hash' & orFall (status status404)
       co   <- co'   & orFall (status status404)
-      lift $ html =<< renderTextT (repoTree lww co hash)
+      lift $ renderHtml (repoTree lww co hash)
 
   get (routePattern (RepoBlob "lww" "co" "hash" "blob")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     hash' <- captureParam @String "hash" <&> fromStringMay @GitHash
     co'   <- captureParam @String "co" <&> fromStringMay @GitHash
     blob' <- captureParam @String "blob" <&> fromStringMay @GitHash
@@ -264,18 +264,25 @@ runDashboardWeb wo = do
   get (routePattern (RepoCommitSummaryQ "lww" "hash")) (commitRoute RepoCommitSummary)
   get (routePattern (RepoCommitPatchQ   "lww" "hash")) (commitRoute RepoCommitPatch)
 
+  get (routePattern (RepoForksHtmx "lww")) do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
+    flip runContT pure do
+      lww       <- lwws' & orFall (status status404)
+      lift $ renderHtml (repoForks lww)
+      -- lift $ renderHtml (toHtml $ show $ pretty lww)
+
   get (routePattern (RepoCommits "lww")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
 
     let pred = mempty & set commitPredOffset 0
                       & set commitPredLimit 100
 
     flip runContT pure do
       lww       <- lwws' & orFall (status status404)
-      lift $ html =<< renderTextT (repoCommits lww (Right pred))
+      lift $ renderHtml (repoCommits lww (Right pred))
 
   get (routePattern (RepoCommitsQ "lww" "off" "lim")) do
-    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey HBS2Basic)
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     off   <- captureParam  @Int "off"
     lim   <- captureParam  @Int "lim"
 

@@ -63,6 +63,7 @@ data RepoListPage = RepoListPage
 data RepoPageTabs =  CommitsTab (Maybe GitHash)
                    | ManifestTab
                    | TreeTab (Maybe GitHash)
+                   | ForksTab
                     deriving stock (Eq,Ord,Show)
 
 data RepoPage s a = RepoPage s a
@@ -74,6 +75,8 @@ data RepoTree repo commit tree = RepoTree repo commit tree
 data RepoTreeEmbedded repo commit tree = RepoTreeEmbedded repo commit tree
 
 data RepoBlob repo commit tree blob = RepoBlob repo commit tree blob
+
+data RepoForksHtmx repo = RepoForksHtmx repo
 
 newtype RepoManifest repo = RepoManifest repo
 
@@ -105,12 +108,14 @@ instance Pretty RepoPageTabs where
     CommitsTab{}   -> "commits"
     ManifestTab{}  -> "manifest"
     TreeTab{}      -> "tree"
+    ForksTab{}     -> "forks"
 
 instance FromStringMaybe RepoPageTabs where
   fromStringMay = \case
     "commits"  -> pure (CommitsTab Nothing)
     "manifest" -> pure ManifestTab
     "tree"     -> pure (TreeTab Nothing)
+    "forks"    -> pure ForksTab
     _          -> pure (CommitsTab Nothing)
 
 instance ToRoutePattern RepoListPage where
@@ -227,6 +232,15 @@ instance ToRoutePattern (RepoTreeEmbedded String String String) where
   routePattern (RepoTreeEmbedded r co tree) =
     path ["/", "htmx", "tree", "embedded", toArg r, toArg co, toArg tree] & toPattern
 
+
+instance ToURL (RepoForksHtmx (LWWRefKey 'HBS2Basic))  where
+  toURL (RepoForksHtmx k) = path ["/", "htmx", "forks", repo]
+    where
+      repo = show $ pretty k
+
+instance ToRoutePattern (RepoForksHtmx String) where
+  routePattern (RepoForksHtmx r) =
+    path ["/", "htmx", "forks", toArg r] & toPattern
 
 myCss :: Monad m => HtmlT m ()
 myCss = do
@@ -676,11 +690,26 @@ repoCommit style lww hash = do
 
 
 repoForks :: (DashBoardPerks m, MonadReader DashBoardEnv m)
-            => LWWRefKey 'HBS2Basic
-            -> HtmlT m ()
+          => LWWRefKey 'HBS2Basic
+          -> HtmlT m ()
 
 repoForks lww  = do
-  pure mempty
+  forks <- lift $ selectRepoForks lww
+  now <- getEpoch
+
+  unless (List.null forks) do
+    table_ $  do
+      tr_ $ th_ [colspan_ "3"] mempty
+      for_ forks $ \it@RepoListItem{..} -> do
+        let lwwTo = coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww
+        tr_ [class_ "commit-brief-title"] do
+          td_ $ img_ [src_ "/icon/git-fork.svg"]
+          td_ [class_ "mono"] $
+            a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lwwTo))
+               ] do
+              toHtmlRaw $ view rlRepoLwwAsText it
+          td_ $ small_ $ toHtml (agePure rlRepoSeq now)
+
 
 repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             => LWWRefKey 'HBS2Basic
@@ -705,6 +734,7 @@ repoCommits lww predicate' = do
                   | otherwise = x <> "..."
 
   let rows = do
+        tr_ $ th_ [colspan_ "5"] mempty
         for_ co $ \case
           CommitListItemBrief{..} -> do
             tr_ [class_ "commit-brief-title"] do
@@ -827,6 +857,18 @@ raiseStatus s t = throwIO (StatusError s t)
 
 itemNotFound s = StatusError status404 (Text.pack $ show $ pretty s)
 
+newtype ShortRef a = ShortRef a
+
+shortRef :: String -> String
+shortRef a = [qc|{b}..{r}|]
+  where
+    b = take 18 a
+    r = reverse $ take 2 (reverse a)
+
+instance Pretty a => ToHtml (ShortRef a) where
+  toHtml (ShortRef a) = toHtml (shortRef (show $ pretty a))
+  toHtmlRaw (ShortRef a) = toHtml (shortRef (show $ pretty a))
+
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
          -> LWWRefKey 'HBS2Basic
@@ -856,6 +898,10 @@ repoPage tab lww params = rootPage do
 
       div_ [class_ "info-block" ] do
         div_ [ class_ "attr" ] do
+          a_ [href_ (toURL (RepoPage (CommitsTab Nothing) lww))] $ toHtml (ShortRef lww)
+
+      div_ [class_ "info-block" ] do
+        div_ [ class_ "attr" ] do
          img_ [src_ "/icon/tree-up.svg"]
          a_ [ href_ "/"] "back to projects"
 
@@ -877,10 +923,13 @@ repoPage tab lww params = rootPage do
               div_ [ class_ "attrname"] do
                 a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Manifest"
 
-        div_ [ class_ "attr" ] do
-          div_ [ class_ "attrname"] do
-            a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Forks"
-          div_ [ class_ "attrval"] $ toHtml (show $ rlRepoForks)
+        when (rlRepoForks > 0) do
+          div_ [ class_ "attr" ] do
+            div_ [ class_ "attrname"] do
+              a_ [ hxGet_ (toURL (RepoForksHtmx lww))
+                 , hxTarget_ "#repo-tab-data"
+                 ] "Forks"
+            div_ [ class_ "attrval"] $ toHtml (show $ rlRepoForks)
 
         div_ [ class_ "attr" ] do
           div_ [ class_ "attrname"] do
@@ -929,7 +978,7 @@ repoPage tab lww params = rootPage do
                     ] "tree"
 
       section_ [id_ "repo-data"] do
-        h1_ (toHtml $ rlRepoName)
+        strong_ (toHtml $ rlRepoName)
 
       div_ [id_ "repo-tab-data"] do
 
@@ -949,6 +998,9 @@ repoPage tab lww params = rootPage do
           CommitsTab{} -> do
             let predicate = Right (fromQueryParams params)
             repoCommits lww predicate
+
+          ForksTab -> do
+            repoForks lww
 
       div_ [id_ "repo-tab-data-embedded"] mempty
 
