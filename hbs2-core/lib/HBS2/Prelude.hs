@@ -24,7 +24,7 @@ module HBS2.Prelude
   , (&), (<&>), for_, for
   , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
   , ByFirst(..)
-  , whenTrue
+  , whenTrue, whenFalse
   ) where
 
 import HBS2.Clock
@@ -98,6 +98,9 @@ instance Monad m => ToMPlus (MaybeT m) (Either x a) where
 
 whenTrue :: forall m b a . (Monad m) => b -> Bool -> m a -> (b -> m a) -> m a
 whenTrue b f fallback continue = if f then continue b else fallback
+
+whenFalse :: forall m b a . (Monad m) => b -> Bool -> m a -> (b -> m a) -> m a
+whenFalse b f fallback continue = if not f then continue b else fallback
 
 data ErrorStatus = Complete
                  | HasIssuesButOkay
