@@ -746,7 +746,7 @@ repoCommits lww predicate' = do
                      , hxGet_ (toURL (RepoCommitDefault lww hash))
                      , hxTarget_ "#repo-tab-data"
                      , hxPushUrl_ (toURL query)
-                     ] (toHtml $ take 10 (show $ pretty hash) <> "..")
+                     ] $ toHtml (ShortRef hash)
 
               td_ [class_ "commit-brief-title"] do
                   toHtml $ normalizeText $ coerce @_ @Text commitListTitle
@@ -859,15 +859,20 @@ itemNotFound s = StatusError status404 (Text.pack $ show $ pretty s)
 
 newtype ShortRef a = ShortRef a
 
-shortRef :: String -> String
-shortRef a = [qc|{b}..{r}|]
+shortRef :: Int -> Int -> String -> String
+shortRef n k a = if k > 0 then  [qc|{b}..{r}|] else [qc|{b}|]
   where
-    b = take 18 a
-    r = reverse $ take 2 (reverse a)
+    b = take n a
+    r = reverse $ take k (reverse a)
 
-instance Pretty a => ToHtml (ShortRef a) where
-  toHtml (ShortRef a) = toHtml (shortRef (show $ pretty a))
-  toHtmlRaw (ShortRef a) = toHtml (shortRef (show $ pretty a))
+instance ToHtml (ShortRef GitHash) where
+  toHtml (ShortRef a) = toHtml (shortRef 10 0 (show $ pretty a))
+  toHtmlRaw (ShortRef a) = toHtml (shortRef 10 0 (show $ pretty a))
+
+instance ToHtml (ShortRef (LWWRefKey 'HBS2Basic)) where
+  toHtml (ShortRef a) = toHtml (shortRef 14 3 (show $ pretty a))
+  toHtmlRaw (ShortRef a) = toHtml (shortRef 14 3 (show $ pretty a))
+
 
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
