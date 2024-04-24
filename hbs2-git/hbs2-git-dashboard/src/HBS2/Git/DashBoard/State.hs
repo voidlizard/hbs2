@@ -386,7 +386,7 @@ where rn = 1;
 createForksTable :: DashBoardPerks m => DBPipeM m ()
 createForksTable = do
   ddl [qc|
-    create table if not exists forks
+    create table if not exists fork
       ( a text not null
       , b text not null
       , primary key (a,b)
@@ -665,41 +665,61 @@ buildCommitTreeIndex lww = do
 
   for_ commits $ \co -> void $ runMaybeT do
     checkCommitProcessed co >>= guard . not
-    root <- getRootTree co >>= toMPlus
-    (trees, blobs) <- getTreeRecursive co
+    updateRepoData env co
 
-    lift $ addJob $ liftIO $ withDashBoardEnv env do
-
-      withState $ transactional do
-
-        insert @RepoCommitTable $
-          onConflictIgnore @RepoCommitTable (RepoLww lww, RepoCommit co)
-
-        for_ blobs $ \(fn, (hash, size, syn)) -> do
-          insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
-
-          for_ (Map.toList trees) $ \(t,h0) -> do
-
-            case t of
-              [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
-              _   -> pure ()
-
-            let child = tailSafe t
-            debug $ red "TREE-REL:" <+> pretty t
-            let parent = Map.lookup child trees
-
-            for_ parent $ \p -> do
-              debug $ red "FOUND SHIT:" <+> pretty (h0,p)
-              insertTree ( TreeCommit co
-                         , TreeParent p
-                         , TreeTree h0
-                         , TreeLevel (length t)
-                         , TreePath (headDef "" t)
-                         )
+  updateForks
 
   where
 
     syntaxMap = Sky.defaultSyntaxMap
+
+    updateForks = withState do
+
+      S.insert [qc|
+        insert into fork (a,b)
+        select distinct r0.lww
+                        , r1.lww
+          from repocommit r0 join repocommit r1 on r0.kommit = r1.kommit and r0.lww <> r1.lww
+          where r0.lww = ?
+        on conflict (a,b) do nothing
+      |] (Only lww)
+
+      pure ()
+
+    updateRepoData env co  = do
+
+      root <- getRootTree co >>= toMPlus
+      (trees, blobs) <- getTreeRecursive co
+
+      lift $ addJob $ liftIO $ withDashBoardEnv env do
+
+        withState $ transactional do
+
+          insert @RepoCommitTable $
+            onConflictIgnore @RepoCommitTable (RepoLww lww, RepoCommit co)
+
+          for_ blobs $ \(fn, (hash, size, syn)) -> do
+            insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
+
+            for_ (Map.toList trees) $ \(t,h0) -> do
+
+              case t of
+                [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
+                _   -> pure ()
+
+              let child = tailSafe t
+              debug $ red "TREE-REL:" <+> pretty t
+              let parent = Map.lookup child trees
+
+              for_ parent $ \p -> do
+                debug $ red "FOUND SHIT:" <+> pretty (h0,p)
+                insertTree ( TreeCommit co
+                           , TreeParent p
+                           , TreeTree h0
+                           , TreeLevel (length t)
+                           , TreePath (headDef "" t)
+                           )
+
 
     getTreeRecursive co = lift do
       dir <- repoDataPath lww
