@@ -194,6 +194,7 @@ div .repo-list-item {
   gap: 2rem;
   margin-bottom: 0.5em;
   padding-right: 1rem;
+  font-size: 0.85rem;
 }
 
 .attrname,  {
@@ -202,7 +203,7 @@ div .repo-list-item {
 }
 
 .attrval {
-  flex-basis: 70%;
+  flex-basis: 80%;
   text-align: right;
 }
 

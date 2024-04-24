@@ -275,38 +275,6 @@ instance ToHtml GitRef where
   toHtml (GitRef s)= toHtml s
   toHtmlRaw (GitRef s)= toHtmlRaw s
 
-instance ToHtml (WithTime RepoListItem) where
-  toHtmlRaw = pure mempty
-
-  toHtml (WithTime t it@RepoListItem{..}) = do
-
-    let now = t
-
-    let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
-
-    let url = toURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
-    -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
-    let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
-
-    let updated = agePure t now
-
-    div_ [class_ "repo-list-item"] do
-      div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
-
-        h2_ [class_ "xclip", onClickCopy (view rlRepoLwwAsText it)] $ toHtml rlRepoName
-        p_ $ a_ [href_ url] (toHtml $ view rlRepoLwwAsText it)
-
-        toHtml rlRepoBrief
-
-      div_ [ ] do
-        div_ [ class_ "attr" ] do
-          div_ [ class_ "attrname"]  (toHtml updated)
-
-        when locked do
-          div_ [ class_ "attr" ] do
-            div_ [ class_ "attrval icon"] do
-              img_ [src_ "/icon/lock-closed.svg"]
-
 rootPage :: Monad m => HtmlT m () -> HtmlT m ()
 rootPage content  = do
   doctypehtml_ do
@@ -326,7 +294,6 @@ rootPage content  = do
 
 
       content
-
 
 
 dashboardRootPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => HtmlT m ()
@@ -352,8 +319,46 @@ dashboardRootPage = rootPage do
 
       section_ [id_ "repo-search-results"] do
 
-        for_ items $ \item@RepoListItem{..} -> do
-          toHtml (WithTime now item)
+        for_ items $ \it@RepoListItem{..} -> do
+
+          let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
+
+          let url = toURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
+          -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
+          let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
+
+          let updated = agePure t now
+
+          div_ [class_ "repo-list-item"] do
+            div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
+
+              h2_ [class_ "xclip", onClickCopy (view rlRepoLwwAsText it)] do
+                toHtml rlRepoName
+                -- when locked $ img_ [src_ "/icon/lock-closed.svg"]
+
+              p_ $ a_ [href_ url] (toHtml $ view rlRepoLwwAsText it)
+
+              toHtml rlRepoBrief
+
+            div_ [ ] do
+
+              div_ [ class_ "attr" ] do
+                div_ [ class_ "attrname"] ""
+                div_ [ class_ "attrval"]  (toHtml updated)
+
+              when locked do
+                div_ [ class_ "attr" ] do
+                  div_ [ class_ "attrname"]  "encrypted"
+                  div_ [ class_ "attrval"] do
+                    img_ [src_ "/icon/lock-closed.svg"]
+
+              div_ [ class_ "attr" ] do
+                div_ [ class_ "attrname"]  "commits"
+                div_ [ class_ "attrval"]  $ toHtml (show rlRepoCommits)
+
+              div_ [ class_ "attr" ] do
+                div_ [ class_ "attrname"]  "forks"
+                div_ [ class_ "attrval"]  $ toHtml (show rlRepoForks)
 
 
 
@@ -669,6 +674,14 @@ repoCommit style lww hash = do
             let code = renderText (Lucid.formatHtmlBlock fo tokens)
             toHtmlRaw code
 
+
+repoForks :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+            => LWWRefKey 'HBS2Basic
+            -> HtmlT m ()
+
+repoForks lww  = do
+  pure mempty
+
 repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             => LWWRefKey 'HBS2Basic
             -> Either SelectCommitsPred SelectCommitsPred
@@ -844,9 +857,7 @@ repoPage tab lww params = rootPage do
       div_ [class_ "info-block" ] do
         div_ [ class_ "attr" ] do
          img_ [src_ "/icon/tree-up.svg"]
-         small_ do
-           a_ [ href_ "/"] "back to projects"
-
+         a_ [ href_ "/"] "back to projects"
 
       div_ [class_ "info-block" ] do
         for_ author $ \a -> do
