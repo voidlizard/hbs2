@@ -795,8 +795,12 @@ repoSomeBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          -> GitHash
          -> HtmlT m ()
 
-repoSomeBlob lww syn blob = do
-  toHtml "JOPAKITA"
+repoSomeBlob lww syn hash = do
+
+  bi <- lift (selectBlobInfo (BlobHash hash))
+                      >>= orThrow (itemNotFound hash)
+
+  doRenderBlob (pure mempty) lww bi
 
 repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
@@ -805,12 +809,8 @@ repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          -> BlobInfo
          -> HtmlT m ()
 
-repoBlob lww co tree BlobInfo{..} = do
+repoBlob lww co tree bi@BlobInfo{..} = do
   locator <- lift $ selectTreeLocator co tree
-
-  let repo = show $ pretty lww
-  let co_ = show $ pretty co
-  let tree_ = show $ pretty tree
 
   table_ [] do
     tr_ do
@@ -835,10 +835,9 @@ repoBlob lww co tree BlobInfo{..} = do
 
       td_ [colspan_ "3"] mempty
 
+  doRenderBlob (pure mempty) lww bi
 
-  let fallback _ = mempty
-
-
+doRenderBlob fallback lww BlobInfo{..} = do
   fromMaybe mempty <$> runMaybeT do
 
     guard (blobSize < 10485760)
@@ -877,7 +876,6 @@ repoBlob lww co tree BlobInfo{..} = do
               let code = renderText (Lucid.formatHtmlBlock fo tokens)
               toHtmlRaw code
 
-
 raiseStatus :: forall m . MonadIO m => Status -> Text -> m ()
 raiseStatus s t = throwIO (StatusError s t)
 
@@ -901,11 +899,11 @@ instance ToHtml (ShortRef (LWWRefKey 'HBS2Basic)) where
 
 
 pattern PinnedRefBlob :: forall {c}. Text -> Text -> GitHash -> Syntax c
-pattern PinnedRefBlob syn name hash <- ListVal [ SymbolVal "markdown"
-                                              , SymbolVal (Id syn)
-                                              , LitStrVal name
-                                              , asGitHash -> Just hash
-                                              ]
+pattern PinnedRefBlob syn name hash <- ListVal [ SymbolVal "blob"
+                                               , SymbolVal (Id syn)
+                                               , LitStrVal name
+                                               , asGitHash -> Just hash
+                                               ]
 {-# COMPLETE PinnedRefBlob #-}
 
 asGitHash :: forall c . Syntax c -> Maybe GitHash
@@ -937,6 +935,8 @@ repoPage tab lww params = rootPage do
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
   let pinned = [ (name,r) | ListVal [ SymbolVal "pinned:", r@(PinnedRefBlob _ name _) ] <- meta ] & take 5
 
+  debug $ red "META" <+> pretty meta
+
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
 
@@ -965,30 +965,42 @@ repoPage tab lww params = rootPage do
         when (Text.length manifest > 100) do
             div_ [ class_ "attr" ] do
               div_ [ class_ "attrname"] do
-                a_ [ href_ (toURL (RepoPage ManifestTab lww))] "Manifest"
+                a_ [ href_ (toURL (RepoPage ManifestTab lww))] do
+                  img_ [src_ "/icon/license.svg"]
+                  "Manifest"
 
         when (rlRepoForks > 0) do
           div_ [ class_ "attr" ] do
             div_ [ class_ "attrname"] do
-              a_ [ hxGet_ (toURL (RepoForksHtmx lww))
-                 , hxTarget_ "#repo-tab-data"
-                 ] "Forks"
+                a_ [ hxGet_ (toURL (RepoForksHtmx lww))
+                   , hxTarget_ "#repo-tab-data"
+                   ] do
+                      img_ [src_ "/icon/git-fork.svg"]
+                      "Forks"
+
             div_ [ class_ "attrval"] $ toHtml (show $ rlRepoForks)
 
         div_ [ class_ "attr" ] do
           div_ [ class_ "attrname"] do
-            a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))] "Commits"
+              a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))] do
+                img_ [src_ "/icon/git-commit.svg"]
+                "Commits"
+
           div_ [ class_ "attrval"] $ toHtml (show $ rlRepoCommits)
 
-        for_ pinned $ \(name,ref) ->  do
+        for_ pinned $ \(_,ref) ->  do
           div_ [ class_ "attr" ] do
-            div_ [ class_ "attrname"] $ do
               case ref of
-                -- WTF
                 PinnedRefBlob s n hash -> do
-                  a_ [ href_ "#"
-                     , hxGet_ (toURL (RepoSomeBlob lww s hash))
-                     ] $ toHtml n
+                  div_ [ class_ "attrname"] $ do
+                      a_ [ href_ "#"
+                         , hxGet_ (toURL (RepoSomeBlob lww s hash))
+                         , hxTarget_ "#repo-tab-data"
+                         ] do
+                            img_ [src_ "/icon/pinned-light.svg"]
+                            toHtml (Text.take 12 n)
+
+                  div_ [ class_ "attrval"] $ toHtml $ ShortRef hash
 
       for_ mbHead $ \rh -> do
 
@@ -998,7 +1010,7 @@ repoPage tab lww params = rootPage do
                              | otherwise    = what
 
         div_ [class_ "info-block" ] do
-            h6_ [] "heads"
+            strong_ [] "heads"
             for_ (view repoHeadHeads rh) $ \(branch,v) -> do
               div_ [ class_ "attrval onleft"] do
                   a_ [ href_ (toURL (RepoPage (CommitsTab (Just v))  lww ))
@@ -1006,7 +1018,7 @@ repoPage tab lww params = rootPage do
                            $ toHtml branch
 
         div_ [class_ "info-block" ] do
-            h6_ [] "tags"
+            strong_ [] "tags"
             for_ (view repoHeadTags rh) $ \(tag,v) -> do
                 div_ [ class_ "attrval onleft"] do
                     a_ [href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))]

@@ -89,9 +89,9 @@ nav.left {
 }
 
 nav.left .info-block {
-  margin-bottom: 2rem;
-  padding-left: 1em;
-  padding-right: 1.2em;
+  margin-bottom: 1.5rem;
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
 }
 
 section#repo-data {
@@ -191,7 +191,7 @@ div .repo-list-item {
 .attr {
   display: flex;
   flex-direction: row;
-  gap: 2rem;
+  gap: 1rem;
   margin-bottom: 0.5em;
   padding-right: 1rem;
   font-size: 0.85rem;
@@ -199,12 +199,17 @@ div .repo-list-item {
 
 .attrname,  {
   flex: 1;
-  margin-right: 0.5em;
+  margin-right: 0.5rem;
+}
+
+div.attrname a img {
+  margin-right: 0.15rem;
+  display: inline;
 }
 
 .attrval {
-  flex-basis: 80%;
   text-align: right;
+  flex-basis: 8rem;
 }
 
 .onleft {
@@ -224,7 +229,6 @@ div .repo-list-item {
 .info-block .attrval {
   font-size: 0.85rem;
 }
-
 
 .info-block a {
   font-size: inherit;
