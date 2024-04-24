@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 {-# Language MultiWayIf #-}
 module HBS2.Git.Web.Html.Root where
 
@@ -75,6 +77,8 @@ data RepoTree repo commit tree = RepoTree repo commit tree
 data RepoTreeEmbedded repo commit tree = RepoTreeEmbedded repo commit tree
 
 data RepoBlob repo commit tree blob = RepoBlob repo commit tree blob
+
+data RepoSomeBlob repo blob tp = RepoSomeBlob repo blob tp
 
 data RepoForksHtmx repo = RepoForksHtmx repo
 
@@ -168,6 +172,18 @@ instance ToURL (RepoBlob (LWWRefKey 'HBS2Basic) GitHash GitHash GitHash)  where
 instance ToRoutePattern (RepoBlob String String String String) where
   routePattern (RepoBlob r c t b) =
     path ["/", "htmx", "blob", toArg r, toArg c, toArg t, toArg b] & toPattern
+
+
+instance ToURL (RepoSomeBlob (LWWRefKey 'HBS2Basic) Text GitHash)  where
+  toURL (RepoSomeBlob k tp' blo) = path ["/", "htmx", "some-blob", repo, tp, blob]
+    where
+      repo = show $ pretty k
+      tp = Text.unpack tp'
+      blob = show $ pretty blo
+
+instance ToRoutePattern (RepoSomeBlob String String String) where
+  routePattern (RepoSomeBlob r t b) =
+    path ["/", "htmx", "some-blob", toArg r, toArg t, toArg b] & toPattern
 
 instance ToURL (RepoManifest (LWWRefKey 'HBS2Basic))  where
   toURL (RepoManifest repo') = path ["/", "htmx", "manifest", repo]
@@ -772,6 +788,16 @@ repoCommits lww predicate' = do
   else do
     rows
 
+
+repoSomeBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+         => LWWRefKey 'HBS2Basic
+         -> Text
+         -> GitHash
+         -> HtmlT m ()
+
+repoSomeBlob lww syn blob = do
+  toHtml "JOPAKITA"
+
 repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> TreeCommit
@@ -874,6 +900,19 @@ instance ToHtml (ShortRef (LWWRefKey 'HBS2Basic)) where
   toHtmlRaw (ShortRef a) = toHtml (shortRef 14 3 (show $ pretty a))
 
 
+pattern PinnedRefBlob :: forall {c}. Text -> Text -> GitHash -> Syntax c
+pattern PinnedRefBlob syn name hash <- ListVal [ SymbolVal "markdown"
+                                              , SymbolVal (Id syn)
+                                              , LitStrVal name
+                                              , asGitHash -> Just hash
+                                              ]
+{-# COMPLETE PinnedRefBlob #-}
+
+asGitHash :: forall c . Syntax c -> Maybe GitHash
+asGitHash  = \case
+  LitStrVal s -> fromStringMay (Text.unpack s)
+  _ -> Nothing
+
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
          -> LWWRefKey 'HBS2Basic
@@ -896,7 +935,7 @@ repoPage tab lww params = rootPage do
 
   let author = headMay [ s | ListVal [ SymbolVal "author:", LitStrVal s ] <- meta ]
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
-
+  let pinned = [ (name,r) | ListVal [ SymbolVal "pinned:", r@(PinnedRefBlob _ name _) ] <- meta ] & take 5
 
   div_ [class_ "container main"] $ do
     nav_ [class_ "left"] $ do
@@ -940,6 +979,15 @@ repoPage tab lww params = rootPage do
           div_ [ class_ "attrname"] do
             a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))] "Commits"
           div_ [ class_ "attrval"] $ toHtml (show $ rlRepoCommits)
+
+        for_ pinned $ \(name,ref) ->  do
+          div_ [ class_ "attr" ] do
+            div_ [ class_ "attrname"] $ do
+              case ref of
+                PinnedRefBlob s n hash -> do
+                  a_ [ href_ "#"
+                     , hxGet_ (toURL (RepoSomeBlob lww s hash))
+                     ] $ toHtml n
 
       for_ mbHead $ \rh -> do
 

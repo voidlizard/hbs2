@@ -260,6 +260,16 @@ runDashboardWeb wo = do
 
       lift $ renderHtml (repoBlob lww (TreeCommit co) (TreeTree hash) blobInfo)
 
+  get (routePattern (RepoSomeBlob "lww" "syntax" "blob")) do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
+    syn   <- captureParamMaybe @Text "syntax" <&> fromMaybe "default"
+    blob' <- captureParam @String "blob" <&> fromStringMay @GitHash
+
+    flip runContT pure do
+      lww  <- lwws' & orFall (status status404)
+      blob <- blob' & orFall (status status404)
+      lift $ renderHtml (repoSomeBlob lww syn blob)
+
   get (routePattern (RepoCommitDefault  "lww" "hash")) (commitRoute RepoCommitSummary)
   get (routePattern (RepoCommitSummaryQ "lww" "hash")) (commitRoute RepoCommitSummary)
   get (routePattern (RepoCommitPatchQ   "lww" "hash")) (commitRoute RepoCommitPatch)
