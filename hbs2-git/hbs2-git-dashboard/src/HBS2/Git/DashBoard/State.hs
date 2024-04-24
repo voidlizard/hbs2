@@ -464,6 +464,13 @@ selectRefLogs :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [RepoRefLog
 selectRefLogs = withState do
   select_ [qc|select distinct(reflog) from repolistview|] <&> fmap fromOnly
 
+-- TODO: too-much-data-in-tree-index
+--   для навигации по дереву, если нам не нужно
+--   выходить на верхний уровень -- нам не нужно
+--   знать коммит для каждого дерева. таким образом,
+--   если убрать коммит -- вариативность будет на порядок
+--   меньше, но это повлечёт последствия для навигации.
+--   сейчас уже 200K записей на 4K коммитов, нехорошо
 createRepoTreeIndexTable :: (DashBoardPerks m) => DBPipeM m ()
 createRepoTreeIndexTable = do
   ddl [qc|
