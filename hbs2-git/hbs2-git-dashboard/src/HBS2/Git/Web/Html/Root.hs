@@ -984,6 +984,7 @@ repoPage tab lww params = rootPage do
           div_ [ class_ "attr" ] do
             div_ [ class_ "attrname"] $ do
               case ref of
+                -- WTF
                 PinnedRefBlob s n hash -> do
                   a_ [ href_ "#"
                      , hxGet_ (toURL (RepoSomeBlob lww s hash))
