@@ -1,3 +1,4 @@
 
-# 0.24.1.1  2024-04-02
-  - Don't do HTTP redirect on /ref/XXXXXXXXXX requests; show content directly
+# 0.24.1.2  2024-04-27
+  - Bump scotty version
+
