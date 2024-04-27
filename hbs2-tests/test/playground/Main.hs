@@ -28,6 +28,7 @@ import Data.Text qualified as Text
 import qualified Data.Text.IO as Text
 import qualified Data.Text.Lazy.IO as LT
 
+
 -- желаемое поведение: добавить в новую версию A какое-нибудь поле так,
 -- что бы предыдущие записи продолжали десериализоваться без этого поля,
 -- а новое поле было бы пустым, если его нет -- в новой версии.
