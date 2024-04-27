@@ -176,7 +176,7 @@ executable hbs2-git-dashboard
         , skylighting
         , skylighting-core
         , skylighting-lucid
-        , scotty
+        , scotty >= 0.21
 
     hs-source-dirs:
       hbs2-git-dashboard

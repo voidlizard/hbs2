@@ -71,6 +71,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
      saltine = prev.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
+     scotty = final.callHackage "scotty" "0.21" { };
    };
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
