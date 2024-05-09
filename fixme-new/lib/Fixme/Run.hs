@@ -3,7 +3,7 @@
 module Fixme.Run where
 
 import Prelude hiding (init)
-import Fixme.Prelude
+import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.Scan.Git as Git
 
@@ -15,15 +15,18 @@ import Data.Config.Suckless
 import Data.Text.Fuzzy.Tokenize
 
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import System.Environment
 import Data.Maybe
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
+import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
 
@@ -48,12 +51,23 @@ pattern FixmePrefix s <- ListVal [SymbolVal "fixme-prefix", fixmePrefix -> Just 
 pattern FixmeGitScanFilterDays :: forall {c}. Integer -> Syntax c
 pattern FixmeGitScanFilterDays d <- ListVal [ SymbolVal "fixme-git-scan-filter-days", LitIntVal d ]
 
+pattern StringLike :: forall {c} . String -> Syntax c
+pattern StringLike e <- (stringLike -> Just e)
+
+
+
 data ScanGitArgs =
   PrintBlobs
   deriving stock (Eq,Ord,Show,Data,Generic)
 
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
 scanGitArgs syn = [ PrintBlobs | SymbolVal "print-blobs" <- syn ]
+
+stringLike :: Syntax c -> Maybe String
+stringLike = \case
+  LitStrVal s -> Just $ Text.unpack s
+  SymbolVal (Id s) -> Just $ Text.unpack s
+  _ -> Nothing
 
 fileMasks :: [Syntax c] -> [FilePattern]
 fileMasks what = [ show (pretty s) | s <- what ]
@@ -151,14 +165,29 @@ scanGitLocal args p =  do
   co <- listCommits
 
   blobs <- mconcat <$> for co (\c -> do
+                          debug $ "commit" <+> pretty c
                           listBlobs c >>= filterBlobs )
 
   when (PrintBlobs `elem` args) do
     for_ blobs $ \(fp,h) -> do
       liftIO $ print $ pretty h <+> pretty fp
 
+
+exractFixme :: FixmePerks m => ByteString -> m [Fixme]
+exractFixme bs = do
+
+  let ls = LBS8.lines bs
+
+  pure mempty
+
+
+readUtf8 :: ByteString -> Text
+readUtf8 bs = LBS8.toStrict bs & Text.decodeUtf8
+
+
 readFixmeStdin :: FixmePerks m => FixmeM m ()
 readFixmeStdin = do
+  what <- liftIO LBS8.getContents <&> LBS8.lines
   pure ()
 
 printEnv :: FixmePerks m => FixmeM m ()
@@ -167,6 +196,11 @@ printEnv = do
   masks <- asks fixmeEnvFileMask >>= readTVarIO
   tags  <- asks fixmeEnvTags >>= readTVarIO
   days  <- asks fixmeEnvGitScanDays >>= readTVarIO
+  comments1 <- asks fixmeEnvDefComments >>= readTVarIO <&> HS.toList
+
+  comments2 <- asks fixmeEnvFileComments >>= readTVarIO
+                 <&> HM.toList
+                 <&> fmap  (over _2 HS.toList)
 
   for_ tags $ \m -> do
     liftIO $ print $ "fixme-prefix" <+> pretty m
@@ -176,6 +210,15 @@ printEnv = do
 
   for_ days $ \d -> do
     liftIO $ print $ "fixme-git-scan-filter-days" <+> pretty d
+
+  for_ comments1 $ \d -> do
+    liftIO $ print $ "fixme-comments" <+> dquotes (pretty d)
+
+  for_ comments2 $ \(ft, comm') -> do
+    for_ comm' $ \comm -> do
+      liftIO $ print $ "fixme-file-comments"
+                  <+> dquotes (pretty ft) <+> dquotes (pretty  comm)
+
 
 help :: FixmePerks m => m ()
 help = do
@@ -218,6 +261,11 @@ run what = do
       FixmeGitScanFilterDays d -> do
         t <- asks fixmeEnvGitScanDays
         atomically (writeTVar t (Just d))
+
+      ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
+        let co = Text.pack b & HS.singleton
+        t <- asks fixmeEnvFileComments
+        atomically (modifyTVar t (HM.insertWith (<>) ft co))
 
       Init         -> init
 

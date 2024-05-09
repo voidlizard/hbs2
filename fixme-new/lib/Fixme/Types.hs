@@ -3,9 +3,14 @@ module Fixme.Types where
 import Fixme.Prelude
 
 import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
 import Data.Word (Word64)
+import Data.Maybe
 import Data.Coerce
+import System.FilePath
+
 
 data GitLocation =
   GitLocation
@@ -65,11 +70,24 @@ type FixmePerks m = ( MonadUnliftIO m
 
 data FixmeEnv =
   FixmeEnv
-  { fixmeEnvGitDir      :: Maybe FilePath
-  , fixmeEnvFileMask    :: TVar [FilePattern]
-  , fixmeEnvTags        :: TVar (HashSet FixmeTag)
-  , fixmeEnvGitScanDays :: TVar (Maybe Integer)
+  { fixmeEnvGitDir       :: Maybe FilePath
+  , fixmeEnvFileMask     :: TVar [FilePattern]
+  , fixmeEnvTags         :: TVar (HashSet FixmeTag)
+  , fixmeEnvDefComments  :: TVar (HashSet Text)
+  , fixmeEnvFileComments :: TVar (HashMap FilePath (HashSet Text))
+  , fixmeEnvGitScanDays  :: TVar (Maybe Integer)
   }
+
+
+fixmeGetCommentsFor :: FixmePerks m => FilePath -> FixmeM m [Text]
+fixmeGetCommentsFor fp = do
+  cof <- asks fixmeEnvFileComments >>= readTVarIO
+  def <- asks fixmeEnvDefComments >>= readTVarIO
+
+  let r = maybe mempty HS.toList (HM.lookup (commentKey fp) cof)
+           <> HS.toList def
+
+  pure r
 
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                      deriving newtype ( Applicative
@@ -85,6 +103,8 @@ runFixmeCLI m = do
   env <- FixmeEnv Nothing
             <$>  newTVarIO mempty
             <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
 
   runReaderT ( setupLogger >> fromFixmeM m ) env
@@ -118,4 +138,27 @@ instance Pretty FixmeTitle where
 
 instance Pretty FixmeTag where
   pretty = pretty . coerce @_ @Text
+
+
+
+defCommentMap :: HashMap FilePath (HashSet Text)
+defCommentMap = HM.fromList
+  [ comment ".cabal"   ["--"]
+  , comment ".hs"      ["--"]
+  , comment ".c"       ["//"]
+  , comment ".h"       ["//"]
+  , comment ".cc"      ["//"]
+  , comment ".cpp"     ["//"]
+  , comment ".cxx"     ["//"]
+  , comment "Makefile" ["#"]
+  ]
+  where
+    comment a b = (a, HS.fromList b)
+
+commentKey :: FilePath -> FilePath
+commentKey fp =
+  case takeExtension fp of
+    "" -> takeFileName fp
+    xs -> xs
+
 
