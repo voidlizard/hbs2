@@ -66,7 +66,9 @@ type FixmePerks m = ( MonadUnliftIO m
 
 data FixmeEnv =
   FixmeEnv
-  { fixmeEnvGitDir :: Maybe FilePath
+  { fixmeEnvGitDir      :: Maybe FilePath
+  , fixmeEnvFileMask    :: TVar [FilePattern]
+  , fixmeEnvGitScanDays :: TVar (Maybe Integer)
   }
 
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
@@ -79,7 +81,12 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                                       )
 
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
-runFixmeCLI m = runReaderT ( setupLogger >> fromFixmeM m ) (FixmeEnv Nothing)
+runFixmeCLI m = do
+  env <- FixmeEnv Nothing
+            <$>  newTVarIO mempty
+            <*>  newTVarIO Nothing
+
+  runReaderT ( setupLogger >> fromFixmeM m ) env
                  `finally` flushLoggers
   where
     setupLogger = do
