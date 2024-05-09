@@ -2,11 +2,10 @@ module Fixme.Types where
 
 import Fixme.Prelude
 
-import HBS2.System.Logger.Simple.ANSI
-
 import Data.HashMap.Strict (HashMap)
+import Data.HashSet (HashSet)
 import Data.Word (Word64)
-import Control.Monad.Reader
+import Data.Coerce
 
 data GitLocation =
   GitLocation
@@ -21,7 +20,7 @@ data FixmeSource =
   deriving stock (Show,Data,Generic)
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
-                   deriving newtype (Eq,Ord,Show,IsString)
+                   deriving newtype (Eq,Ord,Show,IsString,Hashable)
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
@@ -68,6 +67,7 @@ data FixmeEnv =
   FixmeEnv
   { fixmeEnvGitDir      :: Maybe FilePath
   , fixmeEnvFileMask    :: TVar [FilePattern]
+  , fixmeEnvTags        :: TVar (HashSet FixmeTag)
   , fixmeEnvGitScanDays :: TVar (Maybe Integer)
   }
 
@@ -84,13 +84,13 @@ runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   env <- FixmeEnv Nothing
             <$>  newTVarIO mempty
+            <*>  newTVarIO mempty
             <*>  newTVarIO Nothing
 
   runReaderT ( setupLogger >> fromFixmeM m ) env
                  `finally` flushLoggers
   where
     setupLogger = do
-      setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
       setLogging @ERROR  $ toStderr . logPrefix "[error] "
       setLogging @WARN   $ toStderr . logPrefix "[warn] "
       setLogging @NOTICE $ toStdout . logPrefix ""
@@ -112,4 +112,10 @@ instance Serialise FixmeAttrVal
 instance Serialise FixmeTimestamp
 instance Serialise Fixme
 
+
+instance Pretty FixmeTitle where
+  pretty = pretty . coerce @_ @Text
+
+instance Pretty FixmeTag where
+  pretty = pretty . coerce @_ @Text
 
