@@ -96,8 +96,15 @@ library
     import:           shared-properties
 
     exposed-modules:
+      Fixme
+      Fixme.Types
+      Fixme.Prelude
 
     build-depends:    base
+                    , hbs2-core
+                    , hbs2-peer
+                    , fuzzy-parse
+                    , suckless-conf
                     , base16-bytestring
                     , binary
                     , unix

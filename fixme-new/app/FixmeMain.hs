@@ -1,5 +1,6 @@
 module Main where
 
+import Fixme
 
 -- TODO: fixme-new
 --  после майских:
@@ -46,4 +47,17 @@ module Main where
 main :: IO ()
 main = do
   print "HI, DUDE"
+
+  -- TODO: discover-config
+  --
+  -- TODO: local-config-has-same-name-with-binary
+  --
+  -- TODO: per-user-config-has-same-name-with-binary
+  --
+  -- TODO: per-user-config-added-after-per-project-config
+
+  -- TODO: scan-all-sources
+  --   for-source-from-con
+
+  -- TODO:
 
