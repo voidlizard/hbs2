@@ -16,6 +16,7 @@ BINS := \
 	hbs2-git-dashboard \
   git-remote-hbs2    \
   git-hbs2           \
+  fixme-new          \
 
 ifeq ($(origin .RECIPEPREFIX), undefined)
   $(error This Make does not support .RECIPEPREFIX. Please use GNU Make 4.0 or later)

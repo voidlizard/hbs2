@@ -9,7 +9,8 @@ inputs = {
     hspup.url = "github:voidlizard/hspup";
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
-    fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
+    # fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
+    fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
@@ -43,6 +44,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-keyman"
      "hbs2-share"
      "hbs2-fixer"
+     "fixme-new"
     ];
   in
  haskell-flake-utils.lib.simpleCabalProject2flake {
@@ -53,6 +55,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    haskellFlakes = with inputs; [
      suckless-conf
      db-pipe
+     fixme
    ];
 
    inherit packageNames;
@@ -67,6 +70,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
+     "fixme-new"   = "./fixme-new";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
