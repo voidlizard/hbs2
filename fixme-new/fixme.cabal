@@ -56,8 +56,10 @@ common shared-properties
       , hbs2-peer
       , hbs2-storage-simple
       , hbs2-keyman
+      , hbs2-git
       , db-pipe
       , suckless-conf
+      , fuzzy-parse
 
       , attoparsec
       , atomic-write
@@ -97,14 +99,13 @@ library
 
     exposed-modules:
       Fixme
+      Fixme.Run
       Fixme.Types
       Fixme.Prelude
+      Fixme.State
+      Fixme.Scan.Git
 
     build-depends:    base
-                    , hbs2-core
-                    , hbs2-peer
-                    , fuzzy-parse
-                    , suckless-conf
                     , base16-bytestring
                     , binary
                     , unix

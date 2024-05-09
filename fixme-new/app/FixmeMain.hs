@@ -1,6 +1,8 @@
 module Main where
 
 import Fixme
+import Fixme.Run
+import System.Environment
 
 -- TODO: fixme-new
 --  после майских:
@@ -43,10 +45,8 @@ import Fixme
 
 -- встроить ли jq внутрь или лучше дать доступ к sql запросам по json
 
-
 main :: IO ()
 main = do
-  print "HI, DUDE"
 
   -- TODO: discover-config
   --
@@ -59,5 +59,5 @@ main = do
   -- TODO: scan-all-sources
   --   for-source-from-con
 
-  -- TODO:
+  runFixmeCLI (run =<< liftIO getArgs)
 
