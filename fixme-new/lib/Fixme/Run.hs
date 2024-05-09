@@ -54,6 +54,8 @@ pattern FixmeGitScanFilterDays d <- ListVal [ SymbolVal "fixme-git-scan-filter-d
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
 
+pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
+pattern StringLikeList e <- (stringLikeList -> e)
 
 
 data ScanGitArgs =
@@ -68,6 +70,9 @@ stringLike = \case
   LitStrVal s -> Just $ Text.unpack s
   SymbolVal (Id s) -> Just $ Text.unpack s
   _ -> Nothing
+
+stringLikeList :: [Syntax c] -> [String]
+stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 fileMasks :: [Syntax c] -> [FilePattern]
 fileMasks what = [ show (pretty s) | s <- what ]
@@ -265,7 +270,12 @@ run what = do
       ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
         let co = Text.pack b & HS.singleton
         t <- asks fixmeEnvFileComments
-        atomically (modifyTVar t (HM.insertWith (<>) ft co))
+        atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
+
+      ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
+        t <- asks fixmeEnvDefComments
+        let co = fmap Text.pack xs & HS.fromList
+        atomically $ modifyTVar t (<> co)
 
       Init         -> init
 
