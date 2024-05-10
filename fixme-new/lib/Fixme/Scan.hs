@@ -28,8 +28,12 @@ data SfEnv =
         , l0  :: Int
         , eln :: Int
         }
+        deriving stock Generic
 
-sfEnv0 = SfEnv 0 0 0
+
+succEln :: SfEnv -> ByteString -> SfEnv
+succEln f s | LBS8.null s = over (field @"eln") succ f
+            | otherwise = set (field @"eln") 0 f
 
 data Sx = S0 | Sf SfEnv
 
@@ -81,19 +85,21 @@ scanBlob fpath lbs = do
               emitFixmeStart lno l tag (LBS8.drop (LBS8.length tag) bs)
               next (S (Sf (SfEnv lno l 0)) xs)
 
-        S sf@(Sf (SfEnv{..})) (x : xs) -> do
+        S sf@(Sf env@(SfEnv{..})) (x : xs) -> do
 
-          (li,bs)  <- eatPrefix comments (snd x)
+          (li,bs)  <- eatPrefix0 l0 comments (snd x)
 
-          if li <= l0 && not (LBS8.null bs) then do
-            next (S S0 (x:xs))
-          else do
-            emitFixmeLine lno l0 bs -- (snd x)
-            next (S sf xs)
+          if | eln > 1 -> next (S S0 (x:xs))
+
+             | li <= l0 && not (LBS8.null bs) -> next (S S0 (x:xs))
+
+             | otherwise -> do
+                emitFixmeLine lno l0 bs
+                next (S (Sf (succEln env bs)) xs)
 
         S _ [] -> pure ()
 
-  debug $ vcat (fmap viaShow parts)
+  -- debug $ vcat (fmap viaShow parts)
 
   S.toList_ do
     flip fix (P0 parts) $ \next -> \case
@@ -127,15 +133,30 @@ scanBlob fpath lbs = do
       _ -> Fixme mempty mempty Nothing mempty mempty Nothing
 
     emitFixmeStart lno lvl tagbs restbs = do
-      debug $ red "emitFixmeStart"
       let tag  = decodeUtf8With ignore  (LBS8.toStrict tagbs) & Text.strip
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.strip
       S.yield (FixmePart lno (FixmeHead lvl tag rest))
 
     emitFixmeLine lno l0 restbs = do
-      debug $ red "emitFixmeLine"
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.stripEnd
       S.yield (FixmePart lno (FixmeLine rest))
+
+    eatPrefix0 lim comments x = do
+      over _2 LBS8.pack <$> do
+        flip fix (0, LBS8.unpack x) $ \next w@(k, left) -> do
+
+          if k > lim then
+            pure (k, left)
+          else
+            case w of
+              (n, ' '  : rest) -> next (n+1, if k == lim then ' ' : rest else rest)
+              (n, '\t' : rest) -> next (n+8, if k == lim then '\t' : rest else rest)
+
+              (n, rest) -> do
+                let comm = headMay [ co | co <- comments, LBS8.isPrefixOf co (LBS8.pack rest) ]
+                case comm of
+                  Nothing -> pure (n, rest)
+                  Just co -> next (n+1, drop (fromIntegral $ LBS8.length co) rest)
 
     eatPrefix comments x = do
       -- дропаем пробелы или табы

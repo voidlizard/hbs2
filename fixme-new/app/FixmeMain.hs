@@ -35,15 +35,18 @@ import System.Environment
 --
 --  12. hbs2-git-dashboard понимает и уважает каталог настроек .fixme , а стейт берёт прямо оттуда
 
--- открытые вопросы:
+--  открытые вопросы:
 
--- hbs2-git использует fixme или fixme использует hbs2
+--  hbs2-git использует fixme или fixme использует hbs2
 
--- переводить fixme на fuzzy-parse или нет (скорее, да)
+--  переводить fixme на fuzzy-parse или нет (скорее, да)
 
--- переводить ли suckless-conf на fuzzy-parse сейчас (или хрен пока с ним)
+--  переводить ли suckless-conf на fuzzy-parse сейчас (или хрен пока с ним)
 
--- встроить ли jq внутрь или лучше дать доступ к sql запросам по json
+--  встроить ли jq внутрь или лучше дать доступ к sql запросам по json
+
+
+--  GOVNA PIROGA
 
 main :: IO ()
 main = do
