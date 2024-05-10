@@ -79,8 +79,13 @@ data FixmeEnv =
   }
 
 
-fixmeGetCommentsFor :: FixmePerks m => FilePath -> FixmeM m [Text]
-fixmeGetCommentsFor fp = do
+fixmeGetCommentsFor :: FixmePerks m => Maybe FilePath -> FixmeM m [Text]
+
+fixmeGetCommentsFor Nothing = do
+  asks fixmeEnvDefComments >>= readTVarIO
+    <&> HS.toList
+
+fixmeGetCommentsFor (Just fp) = do
   cof <- asks fixmeEnvFileComments >>= readTVarIO
   def <- asks fixmeEnvDefComments >>= readTVarIO
 

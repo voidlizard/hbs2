@@ -103,6 +103,7 @@ library
       Fixme.Types
       Fixme.Prelude
       Fixme.State
+      Fixme.Scan
       Fixme.Scan.Git
 
     build-depends:    base
