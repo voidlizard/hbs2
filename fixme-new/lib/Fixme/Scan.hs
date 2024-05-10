@@ -73,7 +73,7 @@ scanBlob fpath lbs = do
       flip fix (S S0 ls) $ \next -> \case
         S S0 ((lno,x):xs) -> do
 
-          (l,bs)  <- eatPrefix comments x
+          (l,bs)  <- eatPrefix0 Nothing comments x
 
           let mtag = headMay [ t | t <- tagz, LBS8.isPrefixOf t bs ]
 
@@ -87,7 +87,7 @@ scanBlob fpath lbs = do
 
         S sf@(Sf env@(SfEnv{..})) (x : xs) -> do
 
-          (li,bs)  <- eatPrefix0 l0 comments (snd x)
+          (li,bs)  <- eatPrefix0 (Just l0) comments (snd x)
 
           if | eln > 1 -> next (S S0 (x:xs))
 
@@ -141,9 +141,12 @@ scanBlob fpath lbs = do
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.stripEnd
       S.yield (FixmePart lno (FixmeLine rest))
 
-    eatPrefix0 lim comments x = do
+    eatPrefix0 lim' comments x = do
       over _2 LBS8.pack <$> do
+
         flip fix (0, LBS8.unpack x) $ \next w@(k, left) -> do
+
+          let lim = fromMaybe (succ k) lim'
 
           if k > lim then
             pure (k, left)
@@ -157,28 +160,4 @@ scanBlob fpath lbs = do
                 case comm of
                   Nothing -> pure (n, rest)
                   Just co -> next (n+1, drop (fromIntegral $ LBS8.length co) rest)
-
-    eatPrefix comments x = do
-      -- дропаем пробелы или табы
-      let (pre1,s1) = LBS8.span (`elem` " \t") x
-
-      -- дропаем токен коммента
-      -- перебираем все коменты, пока не найдем первый
-      let comm = headMay [ co | co <- comments, LBS8.isPrefixOf co s1 ]
-
-      let pre2  = pre1 <> fromMaybe mempty comm
-      let rest2 = LBS8.drop (maybe 0 LBS8.length comm) s1
-
-      let (pre3,s2) = LBS8.span (`elem` " \t") rest2
-
-      let pre = pre1 <> pre2 <> pre3
-
-      l <- for (LBS8.unpack pre) $ \case
-              ' '  -> pure 1
-              '\t' -> pure 8
-              _    -> pure 0
-
-      let level = sum l + maybe 0 (const 1) comm
-
-      pure (level, s2)
 

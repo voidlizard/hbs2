@@ -1,0 +1,19 @@
+
+; fixme-files **/*.hs docs/devlog.md
+
+; no-debug
+; debug
+
+fixme-prefix     FIXME:
+fixme-prefix     TODO:
+
+fixme-git-scan-filter-days 30
+
+fixme-files **/*.txt docs/devlog.md
+fixme-files **/*.hs
+
+fixme-file-comments "*.scm" ";"
+
+fixme-comments ";" "--"
+
+

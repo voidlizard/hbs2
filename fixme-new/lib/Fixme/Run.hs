@@ -99,7 +99,8 @@ localConfig = localConfigDir <&> (</> "config")
 readConfig :: FixmePerks m => FixmeM m [Syntax C]
 readConfig = do
   localConfig
-     >>= liftIO . readFile
+     >>= try @_ @IOException . liftIO . readFile
+     <&> fromRight mempty
      <&> parseTop
      <&> fromRight mempty
 
@@ -109,8 +110,8 @@ init = do
 
   let lo0 = takeFileName lo
 
-  touch (lo </> "config")
   mkdir lo
+  touch (lo </> "config")
 
   let gitignore = lo </> ".gitignore"
   here <- doesPathExist gitignore
