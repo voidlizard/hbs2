@@ -5,6 +5,9 @@ import Fixme.Run
 import System.Environment
 
 -- TODO: fixme-new
+--   $author: Dmitry Zuikov <dzuikov@gmail.com>
+--   $milestone: undefined
+--   $priority: ASAP
 --  после майских:
 --  1.  fixme переезжает в дерево hbs2, конкретно в hbs2-git
 
