@@ -1,5 +1,4 @@
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# Language MultiWayIf #-}
 module Fixme.Scan (scanBlob) where
 
 import Fixme.Prelude hiding (indent)
@@ -8,166 +7,157 @@ import Fixme.Types
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
-
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
 
-import Data.Int
-import Data.Map (Map)
-import Data.Map qualified as Map
 import Data.Maybe
 import Data.HashSet qualified as HS
 import Data.Coerce
 
+import GHC.Generics (Generic)
+import Data.Generics.Product.Fields (field)
+import Lens.Micro.Platform
+
+import Streaming.Prelude qualified as S
+
 {- HLINT ignore "Functor law" -}
 
-data Sx =  S0      -- initial state
-         | Sc      -- in-comment state
-         | Scc     -- in-comment-after-space
-         | Sf Int ByteString ByteString -- fixme-found-at-indent
-         deriving stock (Show)
 
-data E =
-  E Int Int64 [ByteString]
-  deriving stock (Show)
+data SfEnv =
+  SfEnv { lno :: Int
+        , l0  :: Int
+        , eln :: Int
+        }
 
-data S = S Sx E
-         deriving stock (Show)
+sfEnv0 = SfEnv 0 0 0
 
-pattern CurrentChar :: Char -> S -> S
-pattern CurrentChar c s <- s@(S _ ( currentChar -> Just c ))
+data Sx = S0 | Sf SfEnv
 
-pattern EndOfLine :: S -> S
-pattern EndOfLine s <- s@(S _ ( currentChar -> Nothing ))
+data S = S Sx [(Int,ByteString)]
 
-pattern EndOfInput :: S -> S
-pattern EndOfInput s <- s@(S _ (E _ _ []))
 
-currentChar :: E -> Maybe Char
-currentChar = \case
-  (E _ n (x:_)) -> LBS8.indexMaybe x n
-  (E _ _ [])    -> Nothing
+data FixmePart = FixmePart Int FixmeWhat
+                 deriving stock (Show,Data,Generic)
 
-currentChunk :: E -> ByteString
-currentChunk (E _ off (x:_)) = LBS8.drop off x
-currentChunk _ = mempty
+data FixmeWhat = FixmeHead Int Text Text
+               | FixmeLine Text
+                 deriving stock (Show,Data,Generic)
 
-indent :: E -> Int
-indent (E n _ _) = n
+data P = P0 [FixmePart] | P1 Fixme [FixmePart]
 
--- increase current indent level by i
-shiftI :: Int -> E -> E
-shiftI i (E j o s) = E (i+j) o s
-
-setI :: Int -> E -> E
-setI i (E _ o s) = E i o s
-
-move :: Int64 -> E -> E
-move i (E x p s) = E x (p+i) s
-
-dropLine :: E -> E
-dropLine (E x _ s) = E x 0 (drop 1 s)
-
-scanBlob :: FixmePerks m
+scanBlob :: forall m . FixmePerks m
          => Maybe FilePath   -- ^ filename to detect type
          -> ByteString       -- ^ content
          -> FixmeM m [Fixme]
 
 scanBlob fpath lbs = do
 
-  tagz' <- asks fixmeEnvTags
+  tagz <- asks fixmeEnvTags
               >>= readTVarIO
               <&> HS.toList
               <&> fmap (Text.unpack . coerce)
               <&> filter (not . null)
-
-  let tagz = [ (head t, LBS8.pack t) | t <- tagz' ] & Map.fromList
+              <&> fmap LBS8.pack
 
   comments <- fixmeGetCommentsFor fpath
-                <&> filter (not . null) . fmap Text.unpack
+                <&> filter (not . LBS8.null) . fmap (LBS8.pack . Text.unpack)
 
-  let co = Map.fromList [ (head s, LBS8.pack s) | s <- comments ]
+  let ls = LBS8.lines lbs & zip [0..]
 
-  let ls = LBS8.lines lbs
+  parts <- S.toList_ do
 
-  -- TODO: ASAP-no-comment-case
-  --   для текстовых файлов нет комментариев,
-  --   этот кейс тоже надо обработать (из S0!)
+      flip fix (S S0 ls) $ \next -> \case
+        S S0 ((lno,x):xs) -> do
 
-  flip fix (S S0 (E 0 0 ls)) $ \next  -> \case
+          (l,bs)  <- eatPrefix comments x
 
-    EndOfInput{} -> pure ()
+          let mtag = headMay [ t | t <- tagz, LBS8.isPrefixOf t bs ]
 
-    -- S0
-    CurrentChar ' ' (S S0 e) -> do
-      next (S S0 (shiftI 1 $ move 1 $ e))
+          case mtag of
+            Nothing ->
+              next (S S0 xs)
 
-    CurrentChar '\t' (S S0 e) -> do
-      next (S S0 (shiftI 8 $ move 1 $ e))
+            Just tag -> do
+              emitFixmeStart lno l tag (LBS8.drop (LBS8.length tag) bs)
+              next (S (Sf (SfEnv lno l 0)) xs)
 
-    -- maybe-start-of-comment
-    CurrentChar c (S S0 e) | Map.member c co -> do
-      let comm = Map.lookup c co & fromMaybe (LBS8.singleton c)
+        S sf@(Sf (SfEnv{..})) (x : xs) -> do
 
-      if LBS8.isPrefixOf comm (currentChunk e) then
-         next (S Sc (shiftI 1 $ move (max 1 (LBS8.length comm)) $ e))
-      else do
-         -- scanning-further
-         next (S S0 (move 1 $ e))
+          (li,bs)  <- eatPrefix comments (snd x)
 
-    CurrentChar _ (S S0 e) -> do
-      next (S S0 (move 1 $ e))
+          if li <= l0 && not (LBS8.null bs) then do
+            next (S S0 (x:xs))
+          else do
+            emitFixmeLine lno l0 bs -- (snd x)
+            next (S sf xs)
 
-    -- Sc
+        S _ [] -> pure ()
 
-    CurrentChar ' ' (S Sc e) -> do
-      next (S Scc (shiftI 1 $ move 1 $ e))
+  debug $ vcat (fmap viaShow parts)
 
-    CurrentChar '\t' (S Sc e) -> do
-      next (S Scc (shiftI 8 $ move 1 $ e))
+  S.toList_ do
+    flip fix (P0 parts) $ \next -> \case
 
-    -- Scc
+        (P0 (FixmePart _ h@FixmeHead{} : rs)) -> do
+          next (P1 (fromHead h) rs)
 
-    CurrentChar ' ' (S Scc e) -> do
-      next (S Scc (shiftI 1 $ move 1 $ e))
+        (P1 fx (FixmePart _ h@FixmeHead{} : rs)) -> do
+          emitFixme fx
+          next (P1 (fromHead h) rs)
 
-    CurrentChar '\t' (S Scc e) -> do
-      next (S Scc (shiftI 8 $ move 1 $ e))
+        (P1 fx (FixmePart _ (FixmeLine what) : rs)) -> do
+          next (P1 (over (field @"fixmePlain") (<> [FixmePlainLine what]) fx) rs)
 
-    CurrentChar c (S Scc e) | Map.member c tagz -> do
+        (P1 fx []) -> emitFixme fx
+        (P0 ( _ : rs ) ) -> next (P0 rs)
+        (P0 []) -> pure ()
 
-      let tag = Map.lookup c tagz & fromJust -- works, cause Map.member
+  where
 
-      if LBS8.isPrefixOf tag (currentChunk e) then
-         next (S (Sf (indent e) tag mempty) (move (max 1 (LBS8.length tag)) $ e))
-        -- это тег
-        -- переходим в обработку fixme
-        -- запоминаем indent
-      else
-         next (S Scc (shiftI 1 $ move 1 $ e))
-         -- это не тег, но и не пробел
-         -- едем дальше по коменту
-         -- двигаем ли indent? ну чо нет-то
+    emitFixme e = do
+      S.yield $ over (field @"fixmePlain") dropEmpty e
+      where
+        dropEmpty = dropWhile $ \case
+          FixmePlainLine "" -> True
+          _                 -> False
 
-    -- Sf
-    -- жрём до
-    --  1. Пока indent > indent (Sf ..)
+    -- FIXME: jopakita
+    fromHead = \case
+      FixmeHead _ tag title -> Fixme (FixmeTag tag) (FixmeTitle title) Nothing mempty mempty Nothing
+      _ -> Fixme mempty mempty Nothing mempty mempty Nothing
 
-    CurrentChar ' ' (S (Sf{}) e) -> do
-      next (S Scc (shiftI 1 $ move 1 $ e))
+    emitFixmeStart lno lvl tagbs restbs = do
+      debug $ red "emitFixmeStart"
+      let tag  = decodeUtf8With ignore  (LBS8.toStrict tagbs) & Text.strip
+      let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.strip
+      S.yield (FixmePart lno (FixmeHead lvl tag rest))
 
-    CurrentChar '\t' (S (Sf{}) e) -> do
-      next (S Scc (shiftI 8 $ move 1 $ e))
+    emitFixmeLine lno l0 restbs = do
+      debug $ red "emitFixmeLine"
+      let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.stripEnd
+      S.yield (FixmePart lno (FixmeLine rest))
 
-    CurrentChar c (S (Sf{}) e) -> do
-      error "WTF?"
+    eatPrefix comments x = do
+      -- дропаем пробелы или табы
+      let (pre1,s1) = LBS8.span (`elem` " \t") x
 
-    -- в любом случае жрём строку, что бы это закончилось
-    EndOfLine (S _ e) -> do
-      next (S S0 (setI 0 $ dropLine $ e))
+      -- дропаем токен коммента
+      -- перебираем все коменты, пока не найдем первый
+      let comm = headMay [ co | co <- comments, LBS8.isPrefixOf co s1 ]
 
-    w -> error (show w)
+      let pre2  = pre1 <> fromMaybe mempty comm
+      let rest2 = LBS8.drop (maybe 0 LBS8.length comm) s1
 
-  pure mempty
+      let (pre3,s2) = LBS8.span (`elem` " \t") rest2
 
+      let pre = pre1 <> pre2 <> pre3
+
+      l <- for (LBS8.unpack pre) $ \case
+              ' '  -> pure 1
+              '\t' -> pure 8
+              _    -> pure 0
+
+      let level = sum l + maybe 0 (const 1) comm
+
+      pure (level, s2)
 

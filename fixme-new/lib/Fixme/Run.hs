@@ -6,6 +6,7 @@ import Prelude hiding (init)
 import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.Scan.Git as Git
+import Fixme.Scan as Scan
 
 import HBS2.Git.Local.CLI
 
@@ -192,8 +193,9 @@ readUtf8 bs = LBS8.toStrict bs & Text.decodeUtf8
 
 readFixmeStdin :: FixmePerks m => FixmeM m ()
 readFixmeStdin = do
-  what <- liftIO LBS8.getContents <&> LBS8.lines
-  pure ()
+  what <- liftIO LBS8.getContents
+  fixmies <- Scan.scanBlob Nothing what
+  liftIO $ print $ vcat (fmap pretty fixmies)
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do

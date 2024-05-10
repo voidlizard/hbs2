@@ -15,8 +15,7 @@ import System.FilePath
 data GitLocation =
   GitLocation
   { gitLocationHash   :: GitHash
-  , gitLocationOffset :: Integer
-  , gitLocationLength :: Integer
+  , gitLocationLine   :: Integer
   }
   deriving stock (Eq,Ord,Show,Data,Generic)
 
@@ -25,15 +24,15 @@ data FixmeSource =
   deriving stock (Show,Data,Generic)
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
-                   deriving newtype (Eq,Ord,Show,IsString,Hashable)
+                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid)
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
-                     deriving newtype (Eq,Ord,Show,IsString)
+                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid)
                      deriving stock (Data,Generic)
 
 newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
-                         deriving newtype (Eq,Ord,Show,IsString)
+                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid)
                          deriving stock (Data,Generic)
 
 
@@ -48,14 +47,14 @@ newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
 
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show)
+                        deriving newtype (Eq,Ord,Show,Num)
                         deriving stock (Data,Generic)
 
 data Fixme =
   Fixme
   { fixmeTag    :: FixmeTag
   , fixmeTitle  :: FixmeTitle
-  , fixmeTs     :: FixmeTimestamp
+  , fixmeTs     :: Maybe FixmeTimestamp
   , fixmePlain  :: [FixmePlainLine]
   , fixmeAttr   :: HashMap FixmeAttrName FixmeAttrVal
   , fixmeSource :: Maybe FixmeSource
@@ -144,6 +143,16 @@ instance Pretty FixmeTitle where
 instance Pretty FixmeTag where
   pretty = pretty . coerce @_ @Text
 
+instance Pretty FixmePlainLine where
+  pretty = pretty . coerce @_ @Text
+
+instance Pretty Fixme where
+  pretty Fixme{..} =
+    pretty fixmeTag <+> pretty fixmeTitle
+    <> lls
+    where
+      lls | not (null fixmePlain) =  line <> vcat (fmap pretty fixmePlain)
+          | otherwise = mempty
 
 
 defCommentMap :: HashMap FilePath (HashSet Text)
