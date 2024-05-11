@@ -9,7 +9,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
-import Data.Word (Word64)
+import Data.Word (Word64,Word32)
 import Data.Maybe
 import Data.Coerce
 import System.FilePath
@@ -53,14 +53,22 @@ newtype FixmeTimestamp = FixmeTimestamp Word64
                         deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
                         deriving stock (Data,Generic)
 
+
+newtype FixmeOffset = FixmeOffset Word32
+                     deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                     deriving stock (Data,Generic)
+
+
 data Fixme =
   Fixme
-  { fixmeTag    :: FixmeTag
-  , fixmeTitle  :: FixmeTitle
-  , fixmeTs     :: Maybe FixmeTimestamp
-  , fixmePlain  :: [FixmePlainLine]
-  , fixmeAttr   :: HashMap FixmeAttrName FixmeAttrVal
-  , fixmeSource :: Maybe FixmeSource
+  { fixmeTag       :: FixmeTag
+  , fixmeTitle     :: FixmeTitle
+  , fixmeTs        :: Maybe FixmeTimestamp
+  , fixmeStart     :: Maybe FixmeOffset
+  , fixmeEnd       :: Maybe FixmeOffset
+  , fixmePlain     :: [FixmePlainLine]
+  , fixmeAttr      :: HashMap FixmeAttrName FixmeAttrVal
+  , fixmeSource    :: Maybe FixmeSource
   }
   deriving stock (Show,Data,Generic)
 
@@ -148,6 +156,7 @@ instance Serialise FixmePlainLine
 instance Serialise FixmeAttrName
 instance Serialise FixmeAttrVal
 instance Serialise FixmeTimestamp
+instance Serialise FixmeOffset
 instance Serialise Fixme
 
 
@@ -164,6 +173,14 @@ instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
 
+instance Pretty FixmeOffset where
+  pretty = pretty . coerce @_ @Word32
+
+instance Pretty FixmeAttrName where
+  pretty = pretty . coerce @_ @Text
+
+instance Pretty FixmeAttrVal where
+  pretty = pretty . coerce @_ @Text
 
 instance Pretty FixmeTitle where
   pretty = pretty . coerce @_ @Text
@@ -177,8 +194,28 @@ instance Pretty FixmePlainLine where
 instance Pretty Fixme where
   pretty Fixme{..} =
     pretty fixmeTag <+> pretty fixmeTitle
+    <> fstart
+    <> fend
+    <> la
     <> lls
+    <> line
     where
+
+      fstart = case fixmeStart of
+        Just s  -> line <> pretty ([qc| $fixme-start: {show $ pretty s}|] :: String)
+        Nothing -> mempty
+
+      fend = case fixmeEnd of
+        Just s  -> line <> pretty ([qc| $fixme-end: {show $ pretty s}|] :: String)
+        Nothing -> mempty
+
+      la | not (HM.null fixmeAttr) = do
+            let a = HM.toList fixmeAttr
+            let ss = [ [qc| ${show $ pretty n}: {show $ pretty v}|]  | (n,v) <- a ]  :: [String]
+            line <> vcat ( fmap pretty ss ) <> line
+
+         | otherwise = mempty
+
       lls | not (null fixmePlain) =  line <> vcat (fmap pretty fixmePlain)
           | otherwise = mempty
 

@@ -12,7 +12,7 @@ import Fixme.Scan as Scan
 import HBS2.Git.Local.CLI
 
 import HBS2.System.Dir
-import DBPipe.SQLite
+import DBPipe.SQLite hiding (field)
 import Data.Config.Suckless
 import Data.Text.Fuzzy.Tokenize
 
@@ -33,6 +33,7 @@ import Data.Word
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
+import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
@@ -174,7 +175,7 @@ listCommits = do
         [co, n, e, t] -> do
           let gh = fromStringMay @GitHash (Text.unpack co)
 
-          let bag = [ ("commit-hash", co)
+          let bag = [ ("commit", co)
                     , ("commit-time", t)
                     , ("committer-name", n)
                     , ("committer-email", e)
@@ -301,7 +302,45 @@ scanGitLocal args p =  do
             blob <- liftIO $ LBS8.hGet ssout len
             void $ liftIO $ BS.hGetLine ssout
 
-            fixmies <- lift (Scan.scanBlob (Just fp) blob)
+            poor <- lift (Scan.scanBlob (Just fp) blob)
+
+            rich <- withDB tempDb do
+                      let q = [qc|
+
+            WITH CommitAttributes AS (
+              SELECT co.cohash, co.ts, coattr.name, coattr.value
+              FROM co
+              JOIN coattr ON co.cohash = coattr.cohash
+            ),
+            MinCommitTimes AS (
+              SELECT blob.hash, MIN(co.ts) as mintime
+              FROM blob
+              JOIN co ON blob.cohash = co.cohash
+              WHERE co.ts IS NOT NULL
+              GROUP BY blob.hash
+            ),
+            RelevantCommits AS (
+              SELECT blob.hash, blob.cohash, blob.path
+              FROM blob
+              JOIN MinCommitTimes ON blob.hash = MinCommitTimes.hash
+              JOIN co ON blob.cohash = co.cohash AND co.ts = MinCommitTimes.mintime
+            )
+            SELECT CommitAttributes.name, CommitAttributes.value
+            FROM RelevantCommits
+            JOIN CommitAttributes ON RelevantCommits.cohash = CommitAttributes.cohash
+            WHERE RelevantCommits.hash = ?
+                      |]
+
+                      what <- select @(FixmeAttrName,FixmeAttrVal) q (Only h)
+                                <&> HM.fromList
+                                <&> (<> HM.fromList [ ("blob",fromString $ show (pretty h))
+                                                    , ("file",fromString fp)
+                                                    ])
+
+                      for poor $ \f -> do
+                        pure $ over (field @"fixmeAttr") (<> what) f
+
+            let fixmies = rich
 
             when ( PrintFixme `elem` args ) do
               for_ fixmies $ \fixme -> do

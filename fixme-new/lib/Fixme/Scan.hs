@@ -43,11 +43,11 @@ data S = S Sx [(Int,ByteString)]
 data FixmePart = FixmePart Int FixmeWhat
                  deriving stock (Show,Data,Generic)
 
-data FixmeWhat = FixmeHead Int Text Text
+data FixmeWhat = FixmeHead Int Int Text Text
                | FixmeLine Text
                  deriving stock (Show,Data,Generic)
 
-data P = P0 [FixmePart] | P1 Fixme [FixmePart]
+data P = P0 [FixmePart] | P1 Int Fixme [FixmePart]
 
 scanBlob :: forall m . FixmePerks m
          => Maybe FilePath   -- ^ filename to detect type
@@ -94,7 +94,7 @@ scanBlob fpath lbs = do
              | li <= l0 && not (LBS8.null bs) -> next (S S0 (x:xs))
 
              | otherwise -> do
-                emitFixmeLine lno l0 bs
+                emitFixmeLine (fst x) l0 bs
                 next (S (Sf (succEln env bs)) xs)
 
         S _ [] -> pure ()
@@ -104,21 +104,25 @@ scanBlob fpath lbs = do
   S.toList_ do
     flip fix (P0 parts) $ \next -> \case
 
-        (P0 (FixmePart _ h@FixmeHead{} : rs)) -> do
-          next (P1 (fromHead h) rs)
+        (P0 (FixmePart l h@FixmeHead{} : rs)) -> do
+          next (P1 l (fromHead h) rs)
 
-        (P1 fx (FixmePart _ h@FixmeHead{} : rs)) -> do
+        (P1 _ fx (FixmePart l h@FixmeHead{} : rs)) -> do
           emitFixme fx
-          next (P1 (fromHead h) rs)
+          next (P1 l (fromHead h) rs)
 
-        (P1 fx (FixmePart _ (FixmeLine what) : rs)) -> do
-          next (P1 (over (field @"fixmePlain") (<> [FixmePlainLine what]) fx) rs)
+        (P1 w fx (FixmePart lno (FixmeLine what) : rs)) -> do
+          next (P1 lno (setLno lno $ over (field @"fixmePlain") (<> [FixmePlainLine what]) fx) rs)
 
-        (P1 fx []) -> emitFixme fx
+        (P1 _ fx []) -> emitFixme fx
         (P0 ( _ : rs ) ) -> next (P0 rs)
         (P0 []) -> pure ()
 
   where
+
+    setLno lno fx@Fixme{} = do
+      let lno1 = Just (FixmeOffset (fromIntegral lno))
+      set (field @"fixmeEnd") lno1 fx
 
     emitFixme e = do
       S.yield $ over (field @"fixmePlain") dropEmpty e
@@ -129,13 +133,22 @@ scanBlob fpath lbs = do
 
     -- FIXME: jopakita
     fromHead = \case
-      FixmeHead _ tag title -> Fixme (FixmeTag tag) (FixmeTitle title) Nothing mempty mempty Nothing
-      _ -> Fixme mempty mempty Nothing mempty mempty Nothing
+      FixmeHead lno  _ tag title ->
+          Fixme (FixmeTag tag)
+                (FixmeTitle title)
+                Nothing
+                (Just (FixmeOffset (fromIntegral lno)))
+                Nothing
+                mempty
+                mempty
+                Nothing
+
+      _ -> Fixme mempty mempty Nothing Nothing Nothing mempty mempty Nothing
 
     emitFixmeStart lno lvl tagbs restbs = do
       let tag  = decodeUtf8With ignore  (LBS8.toStrict tagbs) & Text.strip
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.strip
-      S.yield (FixmePart lno (FixmeHead lvl tag rest))
+      S.yield (FixmePart lno (FixmeHead lno lvl tag rest))
 
     emitFixmeLine lno l0 restbs = do
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.stripEnd
