@@ -9,14 +9,16 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
+import Data.Char (isSpace)
 
 import Data.Maybe
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Data.Coerce
 
-import GHC.Generics (Generic)
 import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
+import Text.InterpolatedString.Perl6 (qc)
 
 import Streaming.Prelude qualified as S
 
@@ -45,6 +47,7 @@ data FixmePart = FixmePart Int FixmeWhat
 
 data FixmeWhat = FixmeHead Int Int Text Text
                | FixmeLine Text
+               | FixmeAttr FixmeAttrName FixmeAttrVal
                  deriving stock (Show,Data,Generic)
 
 data P = P0 [FixmePart] | P1 Int Fixme [FixmePart]
@@ -65,6 +68,10 @@ scanBlob fpath lbs = do
 
   comments <- fixmeGetCommentsFor fpath
                 <&> filter (not . LBS8.null) . fmap (LBS8.pack . Text.unpack)
+
+  anames  <- asks fixmeEnvAttribs >>= readTVarIO <&> HS.toList
+
+  let setters = [ ( LBS8.pack [qc|${show $ pretty n}:|], n ) | n <- anames ]
 
   let ls = LBS8.lines lbs & zip [0..]
 
@@ -94,7 +101,19 @@ scanBlob fpath lbs = do
              | li <= l0 && not (LBS8.null bs) -> next (S S0 (x:xs))
 
              | otherwise -> do
-                emitFixmeLine (fst x) l0 bs
+
+                let stripped = LBS8.dropWhile isSpace bs
+                let attr = headMay [ (s, LBS8.drop (LBS8.length a) stripped)
+                                   | (a,s) <- setters, LBS8.isPrefixOf a stripped
+                                   ]
+
+                case attr of
+                  Just (a,v) -> do
+                    let vv = LBS8.toStrict v & decodeUtf8With ignore & Text.strip
+                    emitFixmeAttr (fst x) l0 a (FixmeAttrVal vv)
+                  Nothing -> do
+                    emitFixmeLine (fst x) l0 bs
+
                 next (S (Sf (succEln env bs)) xs)
 
         S _ [] -> pure ()
@@ -111,8 +130,11 @@ scanBlob fpath lbs = do
           emitFixme fx
           next (P1 l (fromHead h) rs)
 
-        (P1 w fx (FixmePart lno (FixmeLine what) : rs)) -> do
+        (P1 _ fx (FixmePart lno (FixmeLine what) : rs)) -> do
           next (P1 lno (setLno lno $ over (field @"fixmePlain") (<> [FixmePlainLine what]) fx) rs)
+
+        (P1 _ fx (FixmePart lno (FixmeAttr a v) : rs)) -> do
+          next (P1 lno (setLno lno $ over (field @"fixmeAttr") (<> HM.singleton a v) fx) rs)
 
         (P1 _ fx []) -> emitFixme fx
         (P0 ( _ : rs ) ) -> next (P0 rs)
@@ -150,7 +172,10 @@ scanBlob fpath lbs = do
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.strip
       S.yield (FixmePart lno (FixmeHead lno lvl tag rest))
 
-    emitFixmeLine lno l0 restbs = do
+    emitFixmeAttr lno _ name val = do
+      S.yield (FixmePart lno (FixmeAttr name val))
+
+    emitFixmeLine lno _ restbs = do
       let rest = decodeUtf8With ignore  (LBS8.toStrict restbs) & Text.stripEnd
       S.yield (FixmePart lno (FixmeLine rest))
 
