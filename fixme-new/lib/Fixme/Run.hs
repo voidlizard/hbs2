@@ -12,7 +12,7 @@ import Fixme.Scan as Scan
 import HBS2.Git.Local.CLI
 
 import HBS2.System.Dir
-
+import DBPipe.SQLite
 import Data.Config.Suckless
 import Data.Text.Fuzzy.Tokenize
 
@@ -29,6 +29,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
+import Data.Word
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
@@ -212,46 +213,124 @@ filterBlobs xs = do
 scanGitLocal :: FixmePerks m => [ScanGitArgs] -> Maybe FilePath -> FixmeM m ()
 scanGitLocal args p =  do
 
+  env <- ask
+
   flip runContT pure do
+
+    (dbFn, _) <- ContT $ withSystemTempFile "fixme-db" . curry
+
+    tempDb <- newDBPipeEnv dbPipeOptsDef dbFn
+
+    withDB tempDb do
+      ddl [qc| create table co
+               ( cohash text not null
+               , ts   int null
+               , primary key (cohash)
+               )
+             |]
+
+      ddl [qc| create table coattr
+               ( cohash text not null
+               , name   text not null
+               , value  text not null
+               , primary key (cohash,name)
+               )
+             |]
+
+      ddl [qc| create table blob
+               ( hash   text not null
+               , cohash text not null
+               , path   text not null
+               , primary key (hash,cohash,path)
+               )
+             |]
+
 
     co <- lift listCommits
 
-    blobs <- lift $ mconcat <$> for co (\c -> do
-                            listBlobs (fst c) >>= filterBlobs )
+    lift do
+      withDB tempDb $ transactional do
+        for_ co $ \(commit, attr) -> do
+
+          blobs <- listBlobs commit >>= withFixmeEnv env . filterBlobs
+
+          let ts = HM.lookup "commit-time" attr
+                     >>= readMay @Word64 . Text.unpack . coerce
+
+          insert [qc|
+              insert into co (cohash,ts) values (?,?) on conflict (cohash) do nothing
+              |] (commit,ts)
+
+          for_ (HM.toList attr) $ \(a,b) -> do
+            insert [qc|
+                insert into coattr(cohash,name,value) values(?,?,?)
+                on conflict (cohash,name) do nothing
+                |] (commit,a,b)
+
+          for_ blobs $ \(fp,h) -> do
+            insert [qc| insert into blob (hash,cohash,path)
+                        values (?,?,?)
+                        on conflict (hash,cohash,path) do nothing
+                      |] (h,commit,fp)
+
+
+    blobs <- withDB tempDb  do
+                select_ @_ @(GitHash, FilePath) [qc|select distinct hash, path from blob order by path|]
 
     when ( PrintBlobs `elem` args ) do
-      for_ blobs $ \(fp,h) -> do
-        liftIO $ print $ pretty h <+> pretty fp
-
-    gitCat <- ContT $ bracket startGitCatFile (hClose . getStdin)
-
-    let ssin   = getStdin gitCat
-    let ssout  = getStdout gitCat
-
-    liftIO $ IO.hSetBuffering ssin LineBuffering
+        for_ blobs $ \(h,fp) -> do
+          liftIO $ print $ pretty h <+> pretty fp
 
     callCC \fucked -> do
 
-      when ( PrintFixme `elem` args ) do
+      gitCat <- ContT $ bracket startGitCatFile (hClose . getStdin)
 
-        for_ blobs $ \(fp,h) ->  do
-          liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
-          prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
+      let ssin   = getStdin gitCat
+      let ssout  = getStdout gitCat
 
-          case prefix of
-            [_, "blob", ssize] -> do
-              let mslen = readMay @Int (BS.unpack ssize)
-              len <- ContT $ maybe1 mslen (pure ())
-              blob <- liftIO $ LBS8.hGet ssout len
-              void $ liftIO $ BS.hGetLine ssout
-              fixmies <- lift $ Scan.scanBlob (Just fp) blob
+      liftIO $ IO.hSetBuffering ssin LineBuffering
 
+      for_ blobs $ \(h,fp) ->  do
+        liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
+        prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
+
+        case prefix of
+          [_, "blob", ssize] -> do
+            let mslen = readMay @Int (BS.unpack ssize)
+            len <- ContT $ maybe1 mslen (pure ())
+            blob <- liftIO $ LBS8.hGet ssout len
+            void $ liftIO $ BS.hGetLine ssout
+
+            fixmies <- lift (Scan.scanBlob (Just fp) blob)
+
+            when ( PrintFixme `elem` args ) do
               for_ fixmies $ \fixme -> do
                 liftIO $ print $ pretty fixme
 
-            _ -> fucked ()
+          _ -> fucked ()
 
-      debug $ red "NOW WHAT?"
+
+    --   when ( PrintFixme `elem` args ) do
+
+    --     for_ blobs $ \(fp,h) ->  do
+    --       liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
+    --       prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
+
+    --       case prefix of
+    --         [_, "blob", ssize] -> do
+    --           let mslen = readMay @Int (BS.unpack ssize)
+    --           len <- ContT $ maybe1 mslen (pure ())
+    --           blob <- liftIO $ LBS8.hGet ssout len
+    --           void $ liftIO $ BS.hGetLine ssout
+
+    --           fixmies <- lift (Scan.scanBlob (Just fp) blob)
+
+    --           for_ fixmies $ \fixme -> do
+    --             liftIO $ print $ pretty fixme
+
+    --         _ -> fucked ()
+
+    --   debug $ red "NOW WHAT?"
 
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())

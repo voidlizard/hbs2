@@ -1,6 +1,9 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.Types where
 
 import Fixme.Prelude
+import DBPipe.SQLite
+import HBS2.Git.Local
 
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -25,30 +28,29 @@ data FixmeSource =
   deriving stock (Show,Data,Generic)
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
-                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid)
+                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
-                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid)
+                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField)
                      deriving stock (Data,Generic)
 
 newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
-                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid)
+                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField)
                          deriving stock (Data,Generic)
 
 
 newtype FixmeAttrName = FixmeAttrName { fromFixmeAttrName :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString,Hashable)
+                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField)
                         deriving stock (Data,Generic)
 
 
 newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString)
+                        deriving newtype (Eq,Ord,Show,IsString,ToField,FromField)
                         deriving stock (Data,Generic)
 
-
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show,Num)
+                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
                         deriving stock (Data,Generic)
 
 data Fixme =
@@ -111,6 +113,9 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                                       , MonadReader FixmeEnv
                                       )
 
+withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
+withFixmeEnv env what = runReaderT ( fromFixmeM what) env
+
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   env <- FixmeEnv Nothing
@@ -144,6 +149,20 @@ instance Serialise FixmeAttrName
 instance Serialise FixmeAttrVal
 instance Serialise FixmeTimestamp
 instance Serialise Fixme
+
+
+instance ToField GitHash where
+  toField h = toField (show $ pretty h)
+
+instance ToField GitRef where
+  toField h = toField (show $ pretty h)
+
+instance FromField GitRef where
+  fromField = fmap fromString . fromField @String
+
+instance FromField GitHash where
+  fromField = fmap fromString . fromField @String
+
 
 
 instance Pretty FixmeTitle where

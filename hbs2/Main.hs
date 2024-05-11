@@ -865,7 +865,7 @@ main = join . customExecParser (prefs showHelpOnError) $
         deepScan ScanDeep (const none) h (getBlock sto) $ \ha -> do
           print $ pretty ha
 
-    -- TODO: reflog-del-command-- TODO: reflog-del-command
+    -- TODO: reflog-del-command
     pDel = do
       o <- common
       recurse <- optional (flag' True ( short 'r' <> long "recursive" <> help "try to delete all blocks recursively" )
