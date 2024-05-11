@@ -414,6 +414,9 @@ printEnv = do
                  <&> HM.toList
                  <&> fmap  (over _2 HS.toList)
 
+  attr <- asks fixmeEnvAttribs >>= readTVarIO <&> HS.toList
+  vals <- asks fixmeEnvAttribValues >>= readTVarIO <&> HM.toList
+
   for_ tags $ \m -> do
     liftIO $ print $ "fixme-prefix" <+> pretty m
 
@@ -431,6 +434,12 @@ printEnv = do
       liftIO $ print $ "fixme-file-comments"
                   <+> dquotes (pretty ft) <+> dquotes (pretty  comm)
 
+  for_ attr $ \a -> do
+      liftIO $ print $ "fixme-attribs"
+                  <+> pretty a
+
+  for_ vals$ \(v, vs) -> do
+      liftIO $ print $ "fixme-value-set" <+> pretty v <+> hsep (fmap pretty (HS.toList vs))
 
 help :: FixmePerks m => m ()
 help = do
@@ -483,6 +492,16 @@ run what = do
         t <- asks fixmeEnvDefComments
         let co = fmap Text.pack xs & HS.fromList
         atomically $ modifyTVar t (<> co)
+
+      ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
+        ta <- asks fixmeEnvAttribs
+        atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
+
+      ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
+        t <- asks fixmeEnvAttribValues
+        let name = fromString n
+        let vals = fmap fromString xs & HS.fromList
+        atomically $ modifyTVar t (HM.insertWith (<>) name vals)
 
       Init         -> init
 

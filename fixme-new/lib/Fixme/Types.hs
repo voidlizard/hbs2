@@ -46,7 +46,7 @@ newtype FixmeAttrName = FixmeAttrName { fromFixmeAttrName :: Text }
 
 
 newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString,ToField,FromField)
+                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField)
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
@@ -83,6 +83,8 @@ data FixmeEnv =
   { fixmeEnvGitDir       :: Maybe FilePath
   , fixmeEnvFileMask     :: TVar [FilePattern]
   , fixmeEnvTags         :: TVar (HashSet FixmeTag)
+  , fixmeEnvAttribs      :: TVar (HashSet FixmeAttrName)
+  , fixmeEnvAttribValues :: TVar (HashMap FixmeAttrName (HashSet FixmeAttrVal))
   , fixmeEnvDefComments  :: TVar (HashSet Text)
   , fixmeEnvFileComments :: TVar (HashMap FilePath (HashSet Text))
   , fixmeEnvGitScanDays  :: TVar (Maybe Integer)
@@ -128,6 +130,8 @@ runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   env <- FixmeEnv Nothing
             <$>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap

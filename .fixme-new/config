@@ -9,6 +9,17 @@ fixme-prefix     TODO:
 
 fixme-git-scan-filter-days 30
 
+fixme-attribs assigned workflow
+
+fixme-attribs resolution cat scope
+
+fixme-value-set workflow new backlog wip test fixed done
+
+fixme-value-set cat bug feat refactor
+
+fixme-value-set scope mvp-0 mvp-1 backlog
+
+
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
 
