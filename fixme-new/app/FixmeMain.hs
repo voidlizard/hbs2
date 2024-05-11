@@ -64,3 +64,9 @@ main = do
 
   runFixmeCLI (run =<< liftIO getArgs)
 
+-- FIXME: test-fixme
+--   $workflow: wip
+--   $assigned: voidlizard
+--
+--   Тестовый тикет с параметрами
+
