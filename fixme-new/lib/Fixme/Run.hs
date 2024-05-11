@@ -1,3 +1,4 @@
+{-# Language MultiWayIf #-}
 {-# Language PatternSynonyms #-}
 {-# Language ViewPatterns #-}
 module Fixme.Run where
@@ -15,19 +16,26 @@ import HBS2.System.Dir
 import Data.Config.Suckless
 import Data.Text.Fuzzy.Tokenize
 
+import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import System.Environment
 import Data.Maybe
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding.Error (ignore)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
 import Lens.Micro.Platform
+import System.Process.Typed
+import Control.Monad.Trans.Cont
+import System.IO qualified as IO
 
 import Streaming.Prelude qualified as S
 
@@ -38,6 +46,8 @@ pattern Init <- ListVal [SymbolVal "init"]
 
 pattern ScanGitLocal :: forall {c}. [ScanGitArgs] -> Syntax c
 pattern ScanGitLocal e <- ListVal (SymbolVal "scan-git" : (scanGitArgs -> e))
+
+
 
 pattern ReadFixmeStdin :: forall {c}.  Syntax c
 pattern ReadFixmeStdin <- ListVal [SymbolVal "read-fixme-stdin"]
@@ -60,11 +70,21 @@ pattern StringLikeList e <- (stringLikeList -> e)
 
 
 data ScanGitArgs =
-  PrintBlobs
+    PrintBlobs
+  | PrintFixme
   deriving stock (Eq,Ord,Show,Data,Generic)
 
+pattern ScanGitArgs :: forall {c} . ScanGitArgs -> Syntax c
+pattern ScanGitArgs w <- ( scanGitArg -> Just w )
+
+scanGitArg :: Syntax c -> Maybe ScanGitArgs
+scanGitArg = \case
+  SymbolVal "print-blobs" -> Just PrintBlobs
+  SymbolVal "print-fixme" -> Just PrintFixme
+  _ -> Nothing
+
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
-scanGitArgs syn = [ PrintBlobs | SymbolVal "print-blobs" <- syn ]
+scanGitArgs syn = [ w | ScanGitArgs w <- syn ]
 
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
@@ -126,9 +146,9 @@ init = do
     , "git add" <+> pretty (lo0  </> "config")
     ]
 
-listCommits :: FixmePerks m => FixmeM m [GitHash]
+listCommits :: FixmePerks m => FixmeM m [(GitHash, HashMap FixmeAttrName FixmeAttrVal)]
 listCommits = do
-  let gd = ""
+  gd <- fixmeGetGitDirCLIOpt
 
   days <- asks fixmeEnvGitScanDays
             >>= readTVarIO
@@ -136,13 +156,36 @@ listCommits = do
             <&> fromMaybe mempty
             <&> show
 
-  let cmd = [qc|git log --all --format="%H" {days}|]
+  let cmd = [qc|git {gd} log --all --format="%H '%cn' '%ce' %ct" {days}|]
 
   -- FIXME: git-dir
   gitRunCommand cmd
     <&> fromRight mempty
-    <&> mapMaybe (headMay . LBS8.words) . LBS8.lines
-    <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack)
+    <&> LBS8.lines
+    <&> mapMaybe extract
+
+  where
+    extract :: ByteString -> Maybe (GitHash, HashMap FixmeAttrName FixmeAttrVal)
+    extract lbs = do
+      let txt = decodeUtf8With ignore (LBS8.toStrict lbs)
+      let r = tokenize @Text spec txt
+      case r of
+        [co, n, e, t] -> do
+          let gh = fromStringMay @GitHash (Text.unpack co)
+
+          let bag = [ ("commit-hash", co)
+                    , ("commit-time", t)
+                    , ("committer-name", n)
+                    , ("committer-email", e)
+                    , ("committer", [qc|{n} <{e}>|])
+                    ] & fmap ( over _1 FixmeAttrName . over _2 FixmeAttrVal)
+                      & HM.fromList
+
+          (,) <$> gh <*> pure bag
+
+        _ -> Nothing
+
+    spec = sq <> delims " \t"
 
 
 listBlobs :: FixmePerks m => GitHash -> m [(FilePath,GitHash)]
@@ -168,17 +211,60 @@ filterBlobs xs = do
 
 scanGitLocal :: FixmePerks m => [ScanGitArgs] -> Maybe FilePath -> FixmeM m ()
 scanGitLocal args p =  do
-  debug $ yellow "scan for fixmies, wtf?"
-  co <- listCommits
 
-  blobs <- mconcat <$> for co (\c -> do
-                          debug $ "commit" <+> pretty c
-                          listBlobs c >>= filterBlobs )
+  flip runContT pure do
 
-  when (PrintBlobs `elem` args) do
-    for_ blobs $ \(fp,h) -> do
-      liftIO $ print $ pretty h <+> pretty fp
+    co <- lift listCommits
 
+    blobs <- lift $ mconcat <$> for co (\c -> do
+                            listBlobs (fst c) >>= filterBlobs )
+
+    when ( PrintBlobs `elem` args ) do
+      for_ blobs $ \(fp,h) -> do
+        liftIO $ print $ pretty h <+> pretty fp
+
+    gitCat <- ContT $ bracket startGitCatFile (hClose . getStdin)
+
+    let ssin   = getStdin gitCat
+    let ssout  = getStdout gitCat
+
+    liftIO $ IO.hSetBuffering ssin LineBuffering
+
+    callCC \fucked -> do
+
+      when ( PrintFixme `elem` args ) do
+
+        for_ blobs $ \(fp,h) ->  do
+          liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
+          prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
+
+          case prefix of
+            [_, "blob", ssize] -> do
+              let mslen = readMay @Int (BS.unpack ssize)
+              len <- ContT $ maybe1 mslen (pure ())
+              blob <- liftIO $ LBS8.hGet ssout len
+              void $ liftIO $ BS.hGetLine ssout
+              fixmies <- lift $ Scan.scanBlob (Just fp) blob
+
+              for_ fixmies $ \fixme -> do
+                liftIO $ print $ pretty fixme
+
+            _ -> fucked ()
+
+      debug $ red "NOW WHAT?"
+
+
+startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
+startGitCatFile = do
+  gd <- fixmeGetGitDirCLIOpt
+  let cmd = [qc|git {gd} cat-file --batch|]
+  debug $ pretty cmd
+  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ shell cmd
+  startProcess config
+
+extractFixmeFromGitBlob :: FixmePerks m => FilePath -> GitHash -> FixmeM m [Fixme]
+extractFixmeFromGitBlob fp gh = do
+  pure mempty
 
 exractFixme :: FixmePerks m => ByteString -> m [Fixme]
 exractFixme bs = do

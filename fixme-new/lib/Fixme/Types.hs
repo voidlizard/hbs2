@@ -10,6 +10,7 @@ import Data.Word (Word64)
 import Data.Maybe
 import Data.Coerce
 import System.FilePath
+import Text.InterpolatedString.Perl6 (qc)
 
 
 data GitLocation =
@@ -92,6 +93,14 @@ fixmeGetCommentsFor (Just fp) = do
            <> HS.toList def
 
   pure r
+
+{- HLINT ignore "Functor law" -}
+
+fixmeGetGitDirCLIOpt :: MonadReader FixmeEnv m => m String
+fixmeGetGitDirCLIOpt = do
+  asks fixmeEnvGitDir
+      <&> fmap (\d -> [qc|--dir-dir {d}|])
+      <&> fromMaybe ""
 
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                      deriving newtype ( Applicative

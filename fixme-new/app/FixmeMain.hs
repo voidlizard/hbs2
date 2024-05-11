@@ -48,9 +48,6 @@ import System.Environment
 
 --  встроить ли jq внутрь или лучше дать доступ к sql запросам по json
 
-
---  GOVNA PIROGA
-
 main :: IO ()
 main = do
 
