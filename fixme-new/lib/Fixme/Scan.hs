@@ -26,9 +26,9 @@ import Streaming.Prelude qualified as S
 
 
 data SfEnv =
-  SfEnv { lno :: Int
-        , l0  :: Int
-        , eln :: Int
+  SfEnv { lno :: Int  -- ^ line number
+        , l0  :: Int  -- ^ fixme indent
+        , eln :: Int  -- ^ empty lines counter
         }
         deriving stock Generic
 

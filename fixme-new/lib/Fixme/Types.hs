@@ -2,6 +2,7 @@
 module Fixme.Types where
 
 import Fixme.Prelude
+
 import DBPipe.SQLite
 import HBS2.Git.Local
 
@@ -81,6 +82,7 @@ type FixmePerks m = ( MonadUnliftIO m
 data FixmeEnv =
   FixmeEnv
   { fixmeEnvGitDir       :: Maybe FilePath
+  , fixmeEnvDb           :: DBPipeEnv
   , fixmeEnvFileMask     :: TVar [FilePattern]
   , fixmeEnvTags         :: TVar (HashSet FixmeTag)
   , fixmeEnvAttribs      :: TVar (HashSet FixmeAttrName)
@@ -126,31 +128,6 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
 
-runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
-runFixmeCLI m = do
-  env <- FixmeEnv Nothing
-            <$>  newTVarIO mempty
-            <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
-            <*>  newTVarIO defCommentMap
-            <*>  newTVarIO Nothing
-
-  runReaderT ( setupLogger >> fromFixmeM m ) env
-                 `finally` flushLoggers
-  where
-    setupLogger = do
-      setLogging @ERROR  $ toStderr . logPrefix "[error] "
-      setLogging @WARN   $ toStderr . logPrefix "[warn] "
-      setLogging @NOTICE $ toStdout . logPrefix ""
-      pure ()
-
-    flushLoggers = do
-      setLoggingOff @DEBUG
-      setLoggingOff @ERROR
-      setLoggingOff @WARN
-      setLoggingOff @NOTICE
 
 instance Serialise GitLocation
 instance Serialise FixmeSource
@@ -176,6 +153,8 @@ instance FromField GitRef where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
+instance Pretty FixmeTimestamp where
+  pretty = pretty . coerce @_ @Word64
 
 instance Pretty FixmeOffset where
   pretty = pretty . coerce @_ @Word32

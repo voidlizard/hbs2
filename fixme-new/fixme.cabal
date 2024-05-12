@@ -101,6 +101,7 @@ library
 
     exposed-modules:
       Fixme
+      Fixme.Config
       Fixme.Run
       Fixme.Types
       Fixme.Prelude

@@ -6,6 +6,8 @@ module Fixme.Run where
 import Prelude hiding (init)
 import Fixme.Prelude hiding (indent)
 import Fixme.Types
+import Fixme.Config
+import Fixme.State
 import Fixme.Scan.Git as Git
 import Fixme.Scan as Scan
 
@@ -74,6 +76,7 @@ pattern StringLikeList e <- (stringLikeList -> e)
 data ScanGitArgs =
     PrintBlobs
   | PrintFixme
+  | ScanRunDry
   deriving stock (Eq,Ord,Show,Data,Generic)
 
 pattern ScanGitArgs :: forall {c} . ScanGitArgs -> Syntax c
@@ -83,6 +86,7 @@ scanGitArg :: Syntax c -> Maybe ScanGitArgs
 scanGitArg = \case
   SymbolVal "print-blobs" -> Just PrintBlobs
   SymbolVal "print-fixme" -> Just PrintFixme
+  SymbolVal "dry"         -> Just ScanRunDry
   _ -> Nothing
 
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
@@ -105,17 +109,39 @@ fixmePrefix = \case
   SymbolVal s -> Just (FixmeTag (coerce s))
   _ -> Nothing
 
-binName :: FixmePerks m => m FilePath
-binName = liftIO getProgName
 
-localConfigDir :: FixmePerks m => m FilePath
-localConfigDir = do
-  p <- pwd
-  b <- binName
-  pure (p </> ("." <> b))
+runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
+runFixmeCLI m = do
+  db <- newDBPipeEnv dbPipeOptsDef =<< localDBPath
+  env <- FixmeEnv Nothing db
+            <$>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
+            <*>  newTVarIO defCommentMap
+            <*>  newTVarIO Nothing
 
-localConfig:: FixmePerks m => m FilePath
-localConfig = localConfigDir <&> (</> "config")
+  runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
+                 `finally` flushLoggers
+  where
+    setupLogger = do
+      setLogging @ERROR  $ toStderr . logPrefix "[error] "
+      setLogging @WARN   $ toStderr . logPrefix "[warn] "
+      setLogging @NOTICE $ toStdout . logPrefix ""
+      pure ()
+
+    flushLoggers = do
+      silence
+
+
+silence :: FixmePerks m => m ()
+silence = do
+  setLoggingOff @DEBUG
+  setLoggingOff @ERROR
+  setLoggingOff @WARN
+  setLoggingOff @NOTICE
+
 
 
 readConfig :: FixmePerks m => FixmeM m [Syntax C]
@@ -140,7 +166,7 @@ init = do
 
   unless here do
     liftIO $ writeFile gitignore $ show $
-      vcat [ "./state.db"
+      vcat [ pretty ("." </> localDBName)
            ]
 
   notice $ yellow "run" <> line <> vcat [
@@ -211,10 +237,15 @@ filterBlobs xs = do
   let r = [(h,f) | (_,(f,h),_) <- matchMany pat src] & HM.fromList & HM.toList
   pure $ [ (b,a) | (a,b) <- r ]
 
-scanGitLocal :: FixmePerks m => [ScanGitArgs] -> Maybe FilePath -> FixmeM m ()
+scanGitLocal :: FixmePerks m
+             => [ScanGitArgs]
+             -> Maybe FilePath
+             -> FixmeM m ()
 scanGitLocal args p =  do
 
   env <- ask
+
+  dbpath <- localDBPath
 
   flip runContT pure do
 
@@ -246,6 +277,7 @@ scanGitLocal args p =  do
                )
              |]
 
+      update_ [qc|ATTACH DATABASE '{dbpath}' as fixme|]
 
     co <- lift listCommits
 
@@ -304,6 +336,7 @@ scanGitLocal args p =  do
 
             poor <- lift (Scan.scanBlob (Just fp) blob)
 
+
             rich <- withDB tempDb do
                       let q = [qc|
 
@@ -338,7 +371,12 @@ scanGitLocal args p =  do
                                                     ])
 
                       for poor $ \f -> do
-                        pure $ over (field @"fixmeAttr") (<> what) f
+                        let ts = HM.lookup "commit-time" what
+                                  <&> Text.unpack . coerce
+                                  >>= readMay
+                                  <&> FixmeTimestamp
+
+                        pure $ set (field @"fixmeTs") ts $ over (field @"fixmeAttr") (<> what) f
 
             let fixmies = rich
 
@@ -346,30 +384,18 @@ scanGitLocal args p =  do
               for_ fixmies $ \fixme -> do
                 liftIO $ print $ pretty fixme
 
+            when ( ScanRunDry `elem` args ) $ fucked ()
+
+            debug $ "actually-import-fixmies" <+> pretty h
+
+            liftIO $ withFixmeEnv env $ withState $ transactional do
+              for_ fixmies $ \fixme@Fixme{..} -> do
+                debug $ "fixme-ts:" <+> pretty fixmeTs
+                insertFixme fixme
+
           _ -> fucked ()
 
 
-    --   when ( PrintFixme `elem` args ) do
-
-    --     for_ blobs $ \(fp,h) ->  do
-    --       liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
-    --       prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
-
-    --       case prefix of
-    --         [_, "blob", ssize] -> do
-    --           let mslen = readMay @Int (BS.unpack ssize)
-    --           len <- ContT $ maybe1 mslen (pure ())
-    --           blob <- liftIO $ LBS8.hGet ssout len
-    --           void $ liftIO $ BS.hGetLine ssout
-
-    --           fixmies <- lift (Scan.scanBlob (Just fp) blob)
-
-    --           for_ fixmies $ \fixme -> do
-    --             liftIO $ print $ pretty fixme
-
-    --         _ -> fucked ()
-
-    --   debug $ red "NOW WHAT?"
 
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
@@ -379,21 +405,6 @@ startGitCatFile = do
   debug $ pretty cmd
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ shell cmd
   startProcess config
-
-extractFixmeFromGitBlob :: FixmePerks m => FilePath -> GitHash -> FixmeM m [Fixme]
-extractFixmeFromGitBlob fp gh = do
-  pure mempty
-
-exractFixme :: FixmePerks m => ByteString -> m [Fixme]
-exractFixme bs = do
-
-  let ls = LBS8.lines bs
-
-  pure mempty
-
-
-readUtf8 :: ByteString -> Text
-readUtf8 bs = LBS8.toStrict bs & Text.decodeUtf8
 
 
 readFixmeStdin :: FixmePerks m => FixmeM m ()
@@ -450,6 +461,7 @@ splitForms :: [String] -> [[String]]
 splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
   where
     go acc ( "then" : rest ) = emit acc >> go mempty rest
+    go acc ( "and" : rest ) = emit acc >> go mempty rest
     go acc ( x : rest ) = go ( x : acc ) rest
     go acc [] = emit acc
 
@@ -514,6 +526,20 @@ run what = do
 
       ListVal [SymbolVal "no-debug"] -> do
         setLoggingOff @DEBUG
+
+      ListVal [SymbolVal "silence"] -> do
+        silence
+
+      ListVal [SymbolVal "builtin:evolve"] -> do
+        evolve
+
+      ListVal [SymbolVal "trace"] -> do
+        setLogging @TRACE (logPrefix "[trace] " . toStderr)
+        trace "trace on"
+
+      ListVal [SymbolVal "no-trace"] -> do
+        trace "trace off"
+        setLoggingOff @TRACE
 
       ListVal [SymbolVal "debug"] -> do
         setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
