@@ -17,17 +17,6 @@ import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 
 
-data GitLocation =
-  GitLocation
-  { gitLocationHash   :: GitHash
-  , gitLocationLine   :: Integer
-  }
-  deriving stock (Eq,Ord,Show,Data,Generic)
-
-data FixmeSource =
-  FixmeSourceGit GitLocation
-  deriving stock (Show,Data,Generic)
-
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
                    deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
                    deriving stock (Data,Generic)
@@ -69,7 +58,6 @@ data Fixme =
   , fixmeEnd       :: Maybe FixmeOffset
   , fixmePlain     :: [FixmePlainLine]
   , fixmeAttr      :: HashMap FixmeAttrName FixmeAttrVal
-  , fixmeSource    :: Maybe FixmeSource
   }
   deriving stock (Show,Data,Generic)
 
@@ -128,9 +116,6 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
 
-
-instance Serialise GitLocation
-instance Serialise FixmeSource
 instance Serialise FixmeTag
 instance Serialise FixmeTitle
 instance Serialise FixmePlainLine

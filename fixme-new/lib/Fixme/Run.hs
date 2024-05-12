@@ -414,12 +414,16 @@ startGitCatFile = do
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ shell cmd
   startProcess config
 
-
 readFixmeStdin :: FixmePerks m => FixmeM m ()
 readFixmeStdin = do
   what <- liftIO LBS8.getContents
   fixmies <- Scan.scanBlob Nothing what
   liftIO $ print $ vcat (fmap pretty fixmies)
+
+list :: FixmePerks m => FixmeM m ()
+list = do
+  fixmies <- selectFixme ()
+  pure ()
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do

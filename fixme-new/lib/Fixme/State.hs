@@ -3,6 +3,7 @@ module Fixme.State
   ( evolve
   , withState
   , insertFixme
+  , selectFixme
   , insertCommit
   , selectCommit
   , newCommit
@@ -13,7 +14,7 @@ import Fixme.Types
 import Fixme.Config
 
 import HBS2.System.Dir
-
+import Data.Config.Suckless
 import DBPipe.SQLite
 
 import Data.HashMap.Strict qualified as HM
@@ -60,8 +61,28 @@ createTables = do
   ddl [qc|
         create table if not exists fixme
           ( id    text not null
+          , ts    integer
           , fixme blob not null
           , primary key (id)
+          )
+      |]
+
+  ddl [qc|
+        create table if not exists fixmedeleted
+          ( id      text not null
+          , ts      integer not null
+          , deleted bool not null
+          , primary key (id,ts)
+          )
+      |]
+
+  ddl [qc|
+        create table if not exists fixmerel
+          ( origin  text not null
+          , related text not null
+          , ts      integer not null
+          , reason  text not null
+          , primary key (origin,related,ts)
           )
       |]
 
@@ -115,9 +136,9 @@ insertFixme :: FixmePerks m => Fixme -> DBPipeM m ()
 insertFixme fx@Fixme{..} = do
   let fixme = serialise fx
   let fxId = hashObject @HbSync fixme & HashRef
-  insert [qc|insert into fixme (id, fixme) values (?,?)
+  insert [qc|insert into fixme (id, ts, fixme) values (?,?,?)
              on conflict(id) do nothing
-            |] (fxId, fixme)
+            |] (fxId, fixmeTs, fixme)
 
   for_ (HM.toList fixmeAttr) $ \(n,v) -> do
     insert [qc|
@@ -137,5 +158,18 @@ insertFixme fx@Fixme{..} = do
       values (?,?,?,?)
       on conflict (fixme,ts,name) do update set value = excluded.value
               |] (fxId, fixmeTs, "fixme-title", fixmeTitle)
+
+
+data SelectPredicate = All
+
+class HasPredicate a where
+  predicate :: a -> SelectPredicate
+
+instance HasPredicate () where
+  predicate = const All
+
+selectFixme :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [Fixme]
+selectFixme _ = do
+  pure mempty
 
 
