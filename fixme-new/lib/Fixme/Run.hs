@@ -72,11 +72,11 @@ pattern StringLike e <- (stringLike -> Just e)
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
 
-
 data ScanGitArgs =
     PrintBlobs
   | PrintFixme
   | ScanRunDry
+  | ScanAllCommits
   deriving stock (Eq,Ord,Show,Data,Generic)
 
 pattern ScanGitArgs :: forall {c} . ScanGitArgs -> Syntax c
@@ -87,6 +87,7 @@ scanGitArg = \case
   SymbolVal "print-blobs" -> Just PrintBlobs
   SymbolVal "print-fixme" -> Just PrintFixme
   SymbolVal "dry"         -> Just ScanRunDry
+  SymbolVal "all-commits" -> Just ScanAllCommits
   _ -> Nothing
 
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
@@ -277,13 +278,19 @@ scanGitLocal args p =  do
                )
              |]
 
-      update_ [qc|ATTACH DATABASE '{dbpath}' as fixme|]
+      -- update_ [qc|ATTACH DATABASE '{dbpath}' as fixme|]
 
-    co <- lift listCommits
+    let onlyNewCommits xs
+            | ScanAllCommits `elem` args = pure xs
+            | otherwise = lift $ filterM (newCommit . view _1) xs
+
+    co <- lift listCommits >>= onlyNewCommits
 
     lift do
       withDB tempDb $ transactional do
         for_ co $ \(commit, attr) -> do
+
+          debug $ "commit" <+> pretty commit
 
           blobs <- listBlobs commit >>= withFixmeEnv env . filterBlobs
 
@@ -312,7 +319,7 @@ scanGitLocal args p =  do
 
     when ( PrintBlobs `elem` args ) do
         for_ blobs $ \(h,fp) -> do
-          liftIO $ print $ pretty h <+> pretty fp
+          notice $ pretty h <+> pretty fp
 
     callCC \fucked -> do
 
@@ -335,7 +342,6 @@ scanGitLocal args p =  do
             void $ liftIO $ BS.hGetLine ssout
 
             poor <- lift (Scan.scanBlob (Just fp) blob)
-
 
             rich <- withDB tempDb do
                       let q = [qc|
@@ -382,20 +388,21 @@ scanGitLocal args p =  do
 
             when ( PrintFixme `elem` args ) do
               for_ fixmies $ \fixme -> do
-                liftIO $ print $ pretty fixme
+                notice $ pretty fixme
 
             when ( ScanRunDry `elem` args ) $ fucked ()
 
             debug $ "actually-import-fixmies" <+> pretty h
 
             liftIO $ withFixmeEnv env $ withState $ transactional do
-              for_ fixmies $ \fixme@Fixme{..} -> do
-                debug $ "fixme-ts:" <+> pretty fixmeTs
-                insertFixme fixme
+              for_ fixmies insertFixme
 
           _ -> fucked ()
 
 
+      liftIO $ withFixmeEnv env $ withState $ transactional do
+        for_ co $ \w -> do
+          insertCommit (view _1 w)
 
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
