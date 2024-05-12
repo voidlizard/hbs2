@@ -20,7 +20,7 @@ import Fixme.Config
 import HBS2.System.Dir
 import Data.Config.Suckless
 import Data.Config.Suckless.Syntax
-import DBPipe.SQLite
+import DBPipe.SQLite hiding (field)
 
 import Data.Aeson as Aeson
 import Data.HashMap.Strict qualified as HM
@@ -31,6 +31,7 @@ import Data.Either
 import Data.List (sortBy,sortOn)
 import Data.Ord
 import Lens.Micro.Platform
+import Data.Generics.Product.Fields (field)
 import Control.Monad.Trans.Maybe
 import Data.Coerce
 
@@ -265,17 +266,19 @@ selectFixmeHash what = withState do
 
 selectFixme :: FixmePerks m => Text -> FixmeM m (Maybe Fixme)
 selectFixme txt = do
+
   attrs <- selectFixmeThin (FixmeHashExactly txt)
+             <&> fmap coerce . headMay
+             <&> fromMaybe mempty
 
   runMaybeT do
 
-    self <- lift (withState $ select [qc|select blob from fixme where id = ? limit 1|] (Only txt))
-              <&> listToMaybe . fmap fromOnly
-              >>= toMPlus
-              <&> (deserialiseOrFail @Fixme)
-              >>= toMPlus
-
-    error "what"
+    lift (withState $ select [qc|select fixme from fixme where id = ? limit 1|] (Only txt))
+      <&> listToMaybe . fmap fromOnly
+      >>= toMPlus
+      <&> (deserialiseOrFail @Fixme)
+      >>= toMPlus
+      <&> over (field @"fixmeAttr") (<> attrs)
 
 
 data Bound = forall a . (ToField a, Show a) => Bound a

@@ -42,6 +42,7 @@ import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import System.IO qualified as IO
 
 import Streaming.Prelude qualified as S
@@ -414,6 +415,18 @@ list_ a = do
   fixmies <- selectFixmeThin a
   liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
 
+cat_ :: FixmePerks m => Text -> FixmeM m ()
+cat_ hash = void $ flip runContT pure do
+  callCC \exit -> do
+
+    mha <- lift $ selectFixmeHash hash
+
+    ha <- ContT $ maybe1 mha (pure ())
+
+    fme <- lift $ selectFixme ha
+
+    notice $ pretty fme
+
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
   g <- asks fixmeEnvGitDir
@@ -529,8 +542,7 @@ run what = do
         list_ whatever
 
       ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
-        ha <- selectFixmeHash hash
-        notice $ pretty ha
+        cat_ hash
 
       ReadFixmeStdin -> readFixmeStdin
 
