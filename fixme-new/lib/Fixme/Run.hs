@@ -51,7 +51,8 @@ pattern Init <- ListVal [SymbolVal "init"]
 pattern ScanGitLocal :: forall {c}. [ScanGitArgs] -> Syntax c
 pattern ScanGitLocal e <- ListVal (SymbolVal "scan-git" : (scanGitArgs -> e))
 
-
+pattern Update :: forall {c}. [ScanGitArgs] -> Syntax c
+pattern Update e <- ListVal (SymbolVal "update" : (scanGitArgs -> e))
 
 pattern ReadFixmeStdin :: forall {c}.  Syntax c
 pattern ReadFixmeStdin <- ListVal [SymbolVal "read-fixme-stdin"]
@@ -525,6 +526,8 @@ run what = do
       Init         -> init
 
       ScanGitLocal args -> scanGitLocal args Nothing
+
+      Update args -> scanGitLocal args Nothing
 
       ReadFixmeStdin -> readFixmeStdin
 
