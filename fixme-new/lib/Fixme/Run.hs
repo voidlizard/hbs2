@@ -18,7 +18,10 @@ import DBPipe.SQLite hiding (field)
 import Data.Config.Suckless
 import Data.Text.Fuzzy.Tokenize
 
+import Data.Aeson as Aeson
+import Data.Aeson.Encode.Pretty as Aeson
 import Data.ByteString.Char8 qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
@@ -67,12 +70,6 @@ pattern FixmePrefix s <- ListVal [SymbolVal "fixme-prefix", fixmePrefix -> Just 
 pattern FixmeGitScanFilterDays :: forall {c}. Integer -> Syntax c
 pattern FixmeGitScanFilterDays d <- ListVal [ SymbolVal "fixme-git-scan-filter-days", LitIntVal d ]
 
-pattern StringLike :: forall {c} . String -> Syntax c
-pattern StringLike e <- (stringLike -> Just e)
-
-pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
-pattern StringLikeList e <- (stringLikeList -> e)
-
 data ScanGitArgs =
     PrintBlobs
   | PrintFixme
@@ -94,14 +91,6 @@ scanGitArg = \case
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
 scanGitArgs syn = [ w | ScanGitArgs w <- syn ]
 
-stringLike :: Syntax c -> Maybe String
-stringLike = \case
-  LitStrVal s -> Just $ Text.unpack s
-  SymbolVal (Id s) -> Just $ Text.unpack s
-  _ -> Nothing
-
-stringLikeList :: [Syntax c] -> [String]
-stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 fileMasks :: [Syntax c] -> [FilePattern]
 fileMasks what = [ show (pretty s) | s <- what ]
@@ -420,10 +409,10 @@ readFixmeStdin = do
   fixmies <- Scan.scanBlob Nothing what
   liftIO $ print $ vcat (fmap pretty fixmies)
 
-list :: FixmePerks m => FixmeM m ()
-list = do
-  fixmies <- selectFixme ()
-  pure ()
+list_ :: (FixmePerks m, HasPredicate a) => a -> FixmeM m ()
+list_ a = do
+  fixmies <- selectFixmeThin a
+  liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
@@ -532,6 +521,16 @@ run what = do
       ScanGitLocal args -> scanGitLocal args Nothing
 
       Update args -> scanGitLocal args Nothing
+
+      ListVal [SymbolVal "list"] -> do
+        list_ ()
+
+      ListVal (SymbolVal "list" : whatever) -> do
+        list_ whatever
+
+      ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
+        ha <- selectFixmeHash hash
+        notice $ pretty ha
 
       ReadFixmeStdin -> readFixmeStdin
 

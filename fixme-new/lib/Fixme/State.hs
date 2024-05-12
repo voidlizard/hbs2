@@ -1,12 +1,16 @@
+{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.State
   ( evolve
   , withState
   , insertFixme
+  , selectFixmeThin
+  , selectFixmeHash
   , selectFixme
   , insertCommit
   , selectCommit
   , newCommit
+  , HasPredicate(..)
   ) where
 
 import Fixme.Prelude
@@ -15,11 +19,43 @@ import Fixme.Config
 
 import HBS2.System.Dir
 import Data.Config.Suckless
+import Data.Config.Suckless.Syntax
 import DBPipe.SQLite
 
+import Data.Aeson as Aeson
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Text qualified as Text
 import Data.Maybe
+import Data.Either
+import Data.List (sortBy,sortOn)
+import Data.Ord
+import Lens.Micro.Platform
+import Control.Monad.Trans.Maybe
+import Data.Coerce
+
+
+pattern Operand :: forall {c} . Text -> Syntax c
+pattern Operand what <- (operand -> Just what)
+
+pattern BinOp :: forall {c} . Id -> Syntax c
+pattern BinOp what <- (binOp -> Just what)
+
+binOp :: Syntax c -> Maybe Id
+binOp = \case
+  SymbolVal "~"  -> Just "like"
+  SymbolVal "&&" -> Just "and"
+  SymbolVal "||" -> Just "or"
+  _              -> Nothing
+
+operand :: Syntax c -> Maybe Text
+operand = \case
+  SymbolVal c -> Just (coerce c)
+  LitStrVal s -> Just s
+  LitIntVal i -> Just (Text.pack (show i))
+  LitScientificVal v -> Just (Text.pack (show v))
+  _ -> Nothing
+
 
 instance ToField HashRef where
   toField x = toField $ show $ pretty x
@@ -160,7 +196,14 @@ insertFixme fx@Fixme{..} = do
               |] (fxId, fixmeTs, "fixme-title", fixmeTitle)
 
 
-data SelectPredicate = All
+data SelectPredicate =
+    All
+  | FixmeHashExactly Text
+  | AttrLike Text Text
+  | And SelectPredicate SelectPredicate
+  | Or SelectPredicate SelectPredicate
+  | Ignored
+  deriving stock (Data,Generic,Show)
 
 class HasPredicate a where
   predicate :: a -> SelectPredicate
@@ -168,8 +211,135 @@ class HasPredicate a where
 instance HasPredicate () where
   predicate = const All
 
-selectFixme :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [Fixme]
-selectFixme _ = do
-  pure mempty
+instance HasPredicate SelectPredicate where
+  predicate = id
+
+
+instance IsContext c => HasPredicate [Syntax c] where
+  predicate s = goPred $ unlist $ go s
+    where
+
+      goPred :: Syntax c -> SelectPredicate
+      goPred = \case
+        ListVal [SymbolVal "or", a, b]   ->  Or (goPred a) (goPred b)
+        ListVal [SymbolVal "and", a, b]  ->  And (goPred a) (goPred b)
+        ListVal [SymbolVal "like", StringLike a, StringLike b] ->  AttrLike (Text.pack a) (Text.pack b)
+        _ -> Ignored
+
+      go :: [Syntax c] -> Syntax c
+      go = \case
+
+        ( Operand a : SymbolVal "~" : Operand b  : rest ) -> do
+          go (mklist [mksym "like", mkstr a, mkstr b] : rest)
+
+        ( w : SymbolVal "&&" : rest ) -> do
+          mklist [mksym "and", unlist w, unlist (go rest)]
+
+        ( w : SymbolVal "||" : rest ) -> do
+          mklist [mksym "or", unlist w, unlist (go rest)]
+
+        w -> mklist w
+
+      unlist = \case
+        ListVal [x] -> x
+        x -> x
+
+      mklist = List (noContext :: Context c)
+      mksym  = Symbol (noContext :: Context c)
+      mkstr = Literal (noContext :: Context c) . LitStr
+
+{- HLINT ignore "Functor law" -}
+{- HLINT ignore "Eta reduce" -}
+
+selectFixmeHash :: (FixmePerks m) => Text -> FixmeM m (Maybe Text)
+selectFixmeHash what = withState do
+
+  r <- select @(Only Text) [qc|select id from fixme where id like ?|] (Only (what <> "%"))
+         <&> fmap fromOnly
+
+  pure $ catMaybes [ (x,) <$> Text.length . view _1 <$> Text.commonPrefixes what x | x <- r ]
+             & sortBy (comparing (Down . snd))
+             & headMay
+             & fmap fst
+
+
+selectFixme :: FixmePerks m => Text -> FixmeM m (Maybe Fixme)
+selectFixme txt = do
+  attrs <- selectFixmeThin (FixmeHashExactly txt)
+
+  runMaybeT do
+
+    self <- lift (withState $ select [qc|select blob from fixme where id = ? limit 1|] (Only txt))
+              <&> listToMaybe . fmap fromOnly
+              >>= toMPlus
+              <&> (deserialiseOrFail @Fixme)
+              >>= toMPlus
+
+    error "what"
+
+
+data Bound = forall a . (ToField a, Show a) => Bound a
+
+instance ToField Bound where
+  toField (Bound x) = toField x
+
+instance Show Bound where
+  show (Bound x) = show x
+
+genPredQ  :: Text -> SelectPredicate -> (Text, [Bound])
+genPredQ tbl what = go what
+  where
+    go = \case
+      All -> ("true", mempty)
+
+      FixmeHashExactly x ->
+        ([qc|({tbl}.fixme = ?)|], [Bound x])
+
+      AttrLike "fixme-hash" val -> do
+        let binds = [Bound (val <> "%")]
+        ([qc|({tbl}.fixme like ?)|], binds)
+
+      AttrLike name val -> do
+        let binds = [Bound name, Bound (val <> "%")]
+        ([qc|(exists (select null from fixmeattrview x where x.fixme = a.fixme and x.name = ? and x.value like ?))|], binds)
+
+
+      And a b -> do
+        let (asql, abound) = go a
+        let (bsql, bbound) = go b
+        ([qc|{asql} and {bsql}|], abound <> bbound)
+
+      Or a b -> do
+        let asql = go a
+        let bsql = go b
+        ([qc|{fst asql} or {fst bsql}|], snd asql <> snd bsql)
+
+      Ignored -> ("false", mempty)
+
+selectFixmeThin :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [FixmeThin]
+selectFixmeThin a = withState do
+
+  let predic = genPredQ "a" (predicate a)
+
+  let sql = [qc|
+
+select
+  cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', a.fixme) as blob)
+
+from
+  fixmeattrview a join fixme f on a.fixme = f.id
+
+where
+
+  {fst predic}
+
+group by a.fixme
+order by f.ts nulls first
+
+  |]
+
+  trace $ yellow "selectFixmeThin" <> line <> pretty sql
+
+  select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
 
 

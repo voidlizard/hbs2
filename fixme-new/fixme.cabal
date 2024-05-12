@@ -61,6 +61,8 @@ common shared-properties
       , suckless-conf
       , fuzzy-parse
 
+      , aeson
+      , aeson-pretty
       , attoparsec
       , atomic-write
       , bytestring

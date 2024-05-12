@@ -1,11 +1,17 @@
+{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Fixme.Types where
+module Fixme.Types
+  ( module Fixme.Types
+  ) where
 
 import Fixme.Prelude
 
 import DBPipe.SQLite
 import HBS2.Git.Local
 
+import Data.Config.Suckless
+
+import Data.Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
@@ -13,9 +19,36 @@ import Data.HashSet qualified as HS
 import Data.Word (Word64,Word32)
 import Data.Maybe
 import Data.Coerce
+import Data.Text qualified as Text
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 
+
+pattern StringLike :: forall {c} . String -> Syntax c
+pattern StringLike e <- (stringLike -> Just e)
+
+pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
+pattern StringLikeList e <- (stringLikeList -> e)
+
+pattern FixmeHashLike :: forall {c} . Text -> Syntax c
+pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
+
+stringLike :: Syntax c -> Maybe String
+stringLike = \case
+  LitStrVal s -> Just $ Text.unpack s
+  SymbolVal (Id s) -> Just $ Text.unpack s
+  _ -> Nothing
+
+stringLikeList :: [Syntax c] -> [String]
+stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
+
+fixmeHashFromSyn :: Syntax c -> Maybe Text
+fixmeHashFromSyn = \case
+  StringLike s -> do
+    let (_,value) = span (`elem` "#%~:") s
+    Just $ Text.pack value
+
+  _            -> Nothing
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
                    deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
@@ -31,12 +64,14 @@ newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
 
 
 newtype FixmeAttrName = FixmeAttrName { fromFixmeAttrName :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField)
+                        deriving newtype (Eq,Ord,Show,IsString,Hashable)
+                        deriving newtype (ToField,FromField)
+                        deriving newtype (ToJSON,FromJSON,ToJSONKey,FromJSONKey)
                         deriving stock (Data,Generic)
 
 
 newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField)
+                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField,ToJSON,FromJSON)
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
@@ -61,6 +96,9 @@ data Fixme =
   }
   deriving stock (Show,Data,Generic)
 
+newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
+                    deriving newtype (Semigroup,Monoid,Eq,Ord,Show,ToJSON,FromJSON)
+                    deriving stock (Data,Generic)
 
 type FixmePerks m = ( MonadUnliftIO m
                     , MonadIO m
