@@ -421,7 +421,9 @@ scanGitLocal args p =  do
                           Nothing -> pure fx
                           Just (a,b,c) -> do
                             let ks = [qc|{show (pretty a)}#{show (pretty b)}:{show c}|] :: Text
-                            let kv = HM.singleton "fixme-key" (FixmeAttrVal ks)
+                            let ksh = hashObject @HbSync (serialise ks) & pretty & show & Text.pack & FixmeAttrVal
+                            let kh = HM.singleton "fixme-key" ksh
+                            let kv = HM.singleton "fixme-key-string" (FixmeAttrVal ks) <> kh
                             pure $ over (field @"fixmeAttr") (<> kv) fx
 
             when ( PrintFixme `elem` args ) do
