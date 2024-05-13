@@ -184,7 +184,7 @@ listCommits = do
 
   let cmd = [qc|git {gd} log --all --format="%H '%cn' '%ce' %ct" {days}|]
 
-  -- FIXME: git-di
+  -- FIXME: git-dir
   gitRunCommand cmd
     <&> fromRight mempty
     <&> LBS8.lines

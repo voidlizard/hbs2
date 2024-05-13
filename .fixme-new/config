@@ -29,6 +29,6 @@ fixme-file-comments "*.scm" ";"
 
 fixme-comments ";" "--"
 
-; update
+update
 
 
