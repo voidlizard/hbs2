@@ -130,6 +130,18 @@ data UpdateAction = forall c . IsContext c => UpdateAction { runUpdateAction :: 
 
 data ReadLogAction = forall c . IsContext c => ReadLogAction { runReadLog :: Syntax c -> IO () }
 
+-- FIXME: fucking-context-hardcode-wtf
+data SimpleTemplate = forall c . (IsContext c, Data (Context c), Data c) => SimpleTemplate [Syntax c]
+
+data FixmeTemplate =
+  Simple SimpleTemplate
+
+data RenderError = RenderError String
+                   deriving stock (Eq,Show,Typeable)
+
+class FixmeRenderTemplate a where
+  render :: a -> Either RenderError Text
+
 data FixmeEnv =
   FixmeEnv
   { fixmeEnvGitDir         :: Maybe FilePath
@@ -143,6 +155,7 @@ data FixmeEnv =
   , fixmeEnvGitScanDays    :: TVar (Maybe Integer)
   , fixmeEnvUpdateActions  :: TVar [UpdateAction]
   , fixmeEnvReadLogActions :: TVar [ReadLogAction]
+  , fixmeEnvTemplates      :: TVar (HashMap Id FixmeTemplate)
   }
 
 
@@ -180,6 +193,9 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
+
+-- FIXME: move-to-suckless-conf-library
+deriving newtype instance Hashable Id
 
 instance Serialise FixmeTag
 instance Serialise FixmeTitle
@@ -273,5 +289,23 @@ commentKey fp =
   case takeExtension fp of
     "" -> takeFileName fp
     xs -> xs
+
+pattern NL :: forall {c}. Syntax c
+pattern NL <- ListVal [SymbolVal "nl"]
+
+instance FixmeRenderTemplate SimpleTemplate where
+  render (SimpleTemplate syn) =
+    Right $ Text.concat $
+      flip fix (mempty,syn) $ \next -> \case
+        (acc, NL : rest)    -> next (acc <> nl, rest)
+        (acc, ListVal [StringLike w] : rest) -> next (acc <> txt w, rest)
+        (acc, StringLike w : rest) -> next (acc <> txt w, rest)
+        (acc, e : rest) ->  next (acc <> p e, rest)
+        (acc, []) -> acc
+
+    where
+      nl = [ "\n" ]
+      txt s = [fromString s]
+      p e = [Text.pack (show $ pretty e)]
 
 

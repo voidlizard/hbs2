@@ -36,6 +36,8 @@ import Lens.Micro.Platform
 import Data.Generics.Product.Fields (field)
 import Control.Monad.Trans.Maybe
 import Data.Coerce
+import Data.Fixed
+import System.TimeIt
 
 
 pattern Operand :: forall {c} . Text -> Syntax c
@@ -370,11 +372,15 @@ selectFixmeThin a = withState do
 
   let sql = [qc|
 
+with actual as (
+  select x.fixme, f.ts from fixmeactualview x join fixme f on x.fixme = f.id
+  )
+
 select
-  cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', a.fixme) as blob)
+  cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', f.fixme) as blob)
 
 from
-  fixmeattrview a join fixme f on a.fixme = f.id
+  fixmeattrview a join actual f on f.fixme = a.fixme
 
 where
 
@@ -382,17 +388,20 @@ where
   {fst predic}
   )
 
-  and exists (select null from fixmeactualview where fixme = f.id)
-
 group by a.fixme
 order by f.ts nulls first
 
   |]
 
-  trace $ yellow "selectFixmeThin" <> line <> pretty sql
 
-  select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
+  (t,r) <- timeItT $ select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
 
+  trace $ yellow "selectFixmeThin" <> line
+            <> pretty sql <> line
+            <> pretty (length r) <+> "rows" <> line
+            <> pretty "elapsed" <+> pretty (realToFrac t :: Fixed E6)
+
+  pure r
 
 cleanupDatabase :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
 cleanupDatabase = do

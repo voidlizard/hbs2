@@ -31,6 +31,7 @@ import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
@@ -119,6 +120,7 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
+            <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
 
@@ -470,10 +472,31 @@ readFixmeStdin = do
   fixmies <- Scan.scanBlob Nothing what
   liftIO $ print $ vcat (fmap pretty fixmies)
 
-list_ :: (FixmePerks m, HasPredicate a) => a -> FixmeM m ()
-list_ a = do
+
+
+list_ :: (FixmePerks m, HasPredicate a) => Maybe Id -> a -> FixmeM m ()
+list_ tpl a = do
+  tpl <- asks fixmeEnvTemplates >>= readTVarIO
+            <&> HM.lookup (fromMaybe "default" tpl)
+
   fixmies <- selectFixmeThin a
-  liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
+
+  case tpl of
+    Nothing-> do
+      liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
+
+    Just (Simple (SimpleTemplate simple)) -> do
+      for_ fixmies $ \(FixmeThin attr) -> do
+        let subst = [ (mksym k, mkstr v) | (k,v) <- HM.toList attr ]
+        let what = render (SimpleTemplate (inject  subst simple))
+                      & fromRight "render error"
+
+        liftIO $ Text.putStr what
+
+  where
+    mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)
+    mkstr (s :: FixmeAttrVal)  = Literal cc (LitStr (coerce s))
+    cc = noContext :: Context C
 
 cat_ :: FixmePerks m => Text -> FixmeM m ()
 cat_ hash = void $ flip runContT pure do
@@ -546,7 +569,8 @@ help = do
   notice "this is help  message"
 
 -- FIXME: tied-context-type
-inject :: forall a c . (Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
+inject :: forall c  a . (Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
+-- inject ::(Data C, Data (Context C), Data a) => [(Id,Syntax C)] -> a -> a
 inject repl target =
   flip transformBi target $ \case
    w@(SymbolVal x) ->  fromMaybe w (Map.lookup x rmap)
@@ -567,6 +591,17 @@ sanitizeLog :: [Syntax c] -> [Syntax c]
 sanitizeLog lls = flip filter lls $ \case
   ListVal (SymbolVal "deleted" : _) -> True
   _ -> False
+
+pattern Template :: forall {c}. Maybe Id -> [Syntax c] -> [Syntax c]
+pattern Template w syn <- (mbTemplate  -> (w, syn))
+
+mbTemplate :: [Syntax c] -> (Maybe Id, [Syntax c])
+mbTemplate = \case
+  ( SymbolVal "template" : StringLike w : rest ) -> (Just (fromString w), rest)
+  other -> (Nothing, other)
+
+pattern IsSimpleTemplate ::  forall {c} . [Syntax c] -> [Syntax c]
+pattern IsSimpleTemplate xs <- [ListVal (SymbolVal "simple" : xs)]
 
 run :: FixmePerks m => [String] -> FixmeM m ()
 run what = do
@@ -628,11 +663,13 @@ run what = do
 
         Update args -> scanGitLocal args Nothing
 
-        ListVal [SymbolVal "list"] -> do
-          list_ ()
+        ListVal (SymbolVal "list" : (Template n [])) -> do
+          debug $ "list" <+> pretty n
+          list_ n ()
 
-        ListVal (SymbolVal "list" : whatever) -> do
-          list_ whatever
+        ListVal (SymbolVal "list" : (Template n whatever)) -> do
+          debug $ "list" <+> pretty n
+          list_ n whatever
 
         ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
           cat_ hash
@@ -650,6 +687,11 @@ run what = do
 
         ListVal (SymbolVal "hello" : xs) -> do
           notice $ "hello" <+> pretty xs
+
+        ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
+          debug $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
+          t <- asks fixmeEnvTemplates
+          atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
 
         -- FIXME: maybe-rename-fixme-update-action
         ListVal (SymbolVal "fixme-update-action" : xs) -> do
