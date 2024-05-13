@@ -12,6 +12,7 @@ module Fixme.State
   , selectCommit
   , newCommit
   , cleanupDatabase
+  , updateIndexes
   , HasPredicate(..)
   ) where
 
@@ -172,7 +173,7 @@ createTables = do
         join fixme f on a.fixme = f.id
       where
         a.name = 'fixme-key'
-        and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
+        and not exists (select null from fixmedeleted d where d.id = f.id)
     ),
     rn AS (
       select
@@ -184,9 +185,20 @@ createTables = do
         fixme f
         join a1 a on f.id = a.fixme and a.name = 'fixme-key'
     )
-    select id as fixme, fixmekey from rn
+    select id as fixme, fixmekey, ts from rn
       where rn = 1
     |]
+
+
+  ddl [qc|
+        create table if not exists fixmeactual
+          ( fixme   text not null
+          , primary key (fixme)
+          )
+      |]
+
+-- .fixme-new/state.db
+-- and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
 
 insertCommit :: FixmePerks m => GitHash -> DBPipeM m ()
 insertCommit gh = do
@@ -372,15 +384,12 @@ selectFixmeThin a = withState do
 
   let sql = [qc|
 
-with actual as (
-  select x.fixme, f.ts from fixmeactualview x join fixme f on x.fixme = f.id
-  )
-
 select
   cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', f.fixme) as blob)
 
 from
-  fixmeattrview a join actual f on f.fixme = a.fixme
+  fixmeattrview a join fixmeactual f on f.fixme = a.fixme
+                  join fixme f0 on f0.id = f.fixme
 
 where
 
@@ -389,7 +398,7 @@ where
   )
 
 group by a.fixme
-order by f.ts nulls first
+order by f0.ts nulls first
 
   |]
 
@@ -412,6 +421,7 @@ cleanupDatabase = do
     update_ [qc|delete from fixmecommit|]
     update_ [qc|delete from fixmedeleted|]
     update_ [qc|delete from fixmerel|]
+    update_ [qc|delete from fixmeactual|]
 
 
 deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
@@ -421,5 +431,14 @@ deleteFixme hash = withState do
               values (?,(strftime('%s', 'now')),true)
               on conflict(id,ts) do nothing
             |] (Only hash)
+
+
+updateIndexes :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
+updateIndexes = withState $ transactional do
+  update_ [qc|delete from fixmeactual|]
+  update_ [qc|
+    insert into fixmeactual
+      select distinct fixme from fixmeactualview
+    |]
 
 

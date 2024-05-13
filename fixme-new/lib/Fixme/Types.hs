@@ -4,7 +4,7 @@ module Fixme.Types
   ( module Fixme.Types
   ) where
 
-import Fixme.Prelude
+import Fixme.Prelude hiding (align)
 
 import DBPipe.SQLite
 import HBS2.Git.Local
@@ -21,6 +21,9 @@ import Data.Word (Word64,Word32)
 import Data.Maybe
 import Data.Coerce
 import Data.Text qualified as Text
+import Data.List qualified as List
+import Data.Either
+import Data.Map qualified as Map
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 import Lens.Micro.Platform
@@ -290,20 +293,49 @@ commentKey fp =
     "" -> takeFileName fp
     xs -> xs
 
+inject :: forall c  a . (IsContext c, Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
+inject repl target =
+  flip transformBi target $ \case
+   (SymbolVal x) | issubst x -> fromMaybe mt (Map.lookup x rmap)
+   other -> other
+   where
+    mt = Literal (noContext @c) (LitStr "")
+    rmap = Map.fromList repl
+    issubst (Id x) = Text.isPrefixOf "$" x
+
 pattern NL :: forall {c}. Syntax c
 pattern NL <- ListVal [SymbolVal "nl"]
 
 instance FixmeRenderTemplate SimpleTemplate where
-  render (SimpleTemplate syn) =
-    Right $ Text.concat $
+  render (SimpleTemplate syn) = Right $ Text.concat $
       flip fix (mempty,syn) $ \next -> \case
         (acc, NL : rest)    -> next (acc <> nl, rest)
         (acc, ListVal [StringLike w] : rest) -> next (acc <> txt w, rest)
         (acc, StringLike w : rest) -> next (acc <> txt w, rest)
-        (acc, e : rest) ->  next (acc <> p e, rest)
+        (acc, ListVal [SymbolVal "trim", LitIntVal n, e] : rest) -> next (acc <> trim n (deep [e]), rest)
+        (acc, ListVal [SymbolVal "align", LitIntVal n, e] : rest) -> next (acc <> align n (deep [e]), rest)
+        (acc, ListVal es : rest) ->  next (acc <> deep es, rest)
+        (acc, e : rest) -> next (acc <> p e, rest)
         (acc, []) -> acc
 
     where
+
+      align n0 s0 | n > 0     = [Text.justifyLeft n ' ' s]
+                  | otherwise = [Text.justifyRight (abs n) ' ' s]
+
+        where
+          n = fromIntegral n0
+          s = mconcat s0
+
+      trim n0 s0 | n >= 0     = [ Text.take n s ]
+                 | otherwise  = [ Text.takeEnd (abs n) s ]
+        where
+          n = fromIntegral n0
+          s = mconcat s0
+
+      deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep sy = either mempty List.singleton (render (SimpleTemplate sy))
+
       nl = [ "\n" ]
       txt s = [fromString s]
       p e = [Text.pack (show $ pretty e)]

@@ -48,7 +48,12 @@ fixme-comments ";" "--"
 
 (define-template short
   (simple
-     ($fixme-key) (nl)
+     (trim 10  $fixme-key) " "
+     (align 6  $fixme-tag) " "
+     (align 8  ("[" $workflow "]"))  " "
+     (align 12 $assigned)  " "
+     (trim 50  ($fixme-title))
+     (nl)
   )
 )
 

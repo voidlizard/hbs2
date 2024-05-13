@@ -455,8 +455,11 @@ runLogActions :: FixmePerks m => FixmeM m ()
 runLogActions = do
   debug $ yellow "runLogActions"
   actions <- asks fixmeEnvReadLogActions >>= readTVarIO
+
   for_ actions $ \(ReadLogAction a) -> do
     liftIO (a (List noContext []))
+
+  updateIndexes
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
 startGitCatFile = do
@@ -568,14 +571,6 @@ help :: FixmePerks m => m ()
 help = do
   notice "this is help  message"
 
--- FIXME: tied-context-type
-inject :: forall c  a . (Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
--- inject ::(Data C, Data (Context C), Data a) => [(Id,Syntax C)] -> a -> a
-inject repl target =
-  flip transformBi target $ \case
-   w@(SymbolVal x) ->  fromMaybe w (Map.lookup x rmap)
-   other -> other
-   where rmap = Map.fromList repl
 
 splitForms :: [String] -> [[String]]
 splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
