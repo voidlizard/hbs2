@@ -34,6 +34,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
+import Data.List qualified as List
 import Data.Word
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
@@ -46,6 +47,11 @@ import Control.Monad.Trans.Maybe
 import System.IO qualified as IO
 
 import Streaming.Prelude qualified as S
+
+import Data.IntMap qualified as IntMap
+import Data.Map qualified as Map
+import Data.Map (Map)
+import Data.Set qualified as Set
 
 {- HLINT ignore "Functor law" -}
 
@@ -326,11 +332,12 @@ scanGitLocal args p =  do
         prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
 
         case prefix of
-          [_, "blob", ssize] -> do
+          [bh, "blob", ssize] -> do
             let mslen = readMay @Int (BS.unpack ssize)
             len <- ContT $ maybe1 mslen (pure ())
             blob <- liftIO $ LBS8.hGet ssout len
             void $ liftIO $ BS.hGetLine ssout
+
 
             poor <- lift (Scan.scanBlob (Just fp) blob)
 
@@ -361,6 +368,7 @@ scanGitLocal args p =  do
             WHERE RelevantCommits.hash = ?
                       |]
 
+
                       what <- select @(FixmeAttrName,FixmeAttrVal) q (Only h)
                                 <&> HM.fromList
                                 <&> (<> HM.fromList [ ("blob",fromString $ show (pretty h))
@@ -368,14 +376,53 @@ scanGitLocal args p =  do
                                                     ])
 
                       for poor $ \f -> do
+                        let lno = maybe mempty ( HM.singleton "line"
+                                               . FixmeAttrVal
+                                               . Text.pack
+                                               . show
+                                               )
+                                       (fixmeStart f)
+
                         let ts = HM.lookup "commit-time" what
                                   <&> Text.unpack . coerce
                                   >>= readMay
                                   <&> FixmeTimestamp
 
-                        pure $ set (field @"fixmeTs") ts $ over (field @"fixmeAttr") (<> what) f
+                        pure $ set (field @"fixmeTs") ts $ over (field @"fixmeAttr") (<> (what <> lno)) f
 
-            let fixmies = rich
+
+            let fxpos1 = [ (fixmeTitle fx, [i :: Int])
+                         | (i,fx) <- zip [0..] rich
+                         -- , fixmeTitle fx /= mempty
+                         ] & Map.fromListWith (flip (<>))
+
+            let mt e = do
+                  let seed = [ (fst e, i) | i <- snd e ]
+                  flip fix (0,[],seed) $ \next (num,acc,rest) ->
+                    case rest of
+                      [] -> acc
+                      (x:xs) -> next (succ num, (x,num) : acc, xs)
+
+            let fxpos2 = [ mt e
+                         | e <- Map.toList fxpos1
+                         ] & mconcat
+                           & Map.fromList
+
+            debug $ red "fxpos1" <+> pretty h <> line <> pretty (Map.toList fxpos1)
+            debug $ red "fxpos2" <+> pretty h <> line <> pretty (Map.toList fxpos2)
+
+            fixmies <- for (zip [0..] rich) $ \(i,fx) -> do
+                         let title = fixmeTitle fx
+                         let kb = Map.lookup (title,i) fxpos2
+                         let ka = HM.lookup "file" (fixmeAttr fx)
+                         let kk = (,,) <$> ka <*> pure title <*> kb
+
+                         case kk of
+                          Nothing -> pure fx
+                          Just (a,b,c) -> do
+                            let ks = [qc|{show (pretty a)}#{show (pretty b)}:{show c}|] :: Text
+                            let kv = HM.singleton "fixme-key" (FixmeAttrVal ks)
+                            pure $ over (field @"fixmeAttr") (<> kv) fx
 
             when ( PrintFixme `elem` args ) do
               for_ fixmies $ \fixme -> do
@@ -557,6 +604,9 @@ run what = do
 
       ListVal [SymbolVal "builtin:evolve"] -> do
         evolve
+
+      ListVal [SymbolVal "builtin:cleanup-state"] -> do
+        cleanupDatabase
 
       ListVal [SymbolVal "trace"] -> do
         setLogging @TRACE (logPrefix "[trace] " . toStderr)

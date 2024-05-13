@@ -10,6 +10,7 @@ module Fixme.State
   , insertCommit
   , selectCommit
   , newCommit
+  , cleanupDatabase
   , HasPredicate(..)
   ) where
 
@@ -344,5 +345,16 @@ order by f.ts nulls first
   trace $ yellow "selectFixmeThin" <> line <> pretty sql
 
   select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
+
+
+cleanupDatabase :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
+cleanupDatabase = do
+  warn $ red "cleanupDatabase"
+  withState $ transactional do
+    update_ [qc|delete from fixme|]
+    update_ [qc|delete from fixmeattr|]
+    update_ [qc|delete from fixmecommit|]
+    update_ [qc|delete from fixmedeleted|]
+    update_ [qc|delete from fixmerel|]
 
 

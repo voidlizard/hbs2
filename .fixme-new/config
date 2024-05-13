@@ -7,7 +7,7 @@
 fixme-prefix     FIXME:
 fixme-prefix     TODO:
 
-fixme-git-scan-filter-days 30
+fixme-git-scan-filter-days 1
 
 fixme-attribs assigned workflow
 
@@ -20,13 +20,14 @@ fixme-value-set cat bug feat refactor
 fixme-value-set scope mvp-0 mvp-1 backlog
 
 
-fixme-files **/*.txt docs/devlog.md
-fixme-files **/*.hs
+;fixme-files **/*.txt docs/devlog.md
+; fixme-files **/*.hs
+fixme-files **/Run.hs
 
 fixme-file-comments "*.scm" ";"
 
 fixme-comments ";" "--"
 
-update
+; update
 
 

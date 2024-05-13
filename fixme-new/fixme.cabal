@@ -73,6 +73,7 @@ common shared-properties
       , filepath
       , filepattern
       , generic-lens
+      , generic-deriving
       , interpolatedstring-perl6
       , memory
       , microlens-platform

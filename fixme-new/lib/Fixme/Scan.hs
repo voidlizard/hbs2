@@ -159,12 +159,13 @@ scanBlob fpath lbs = do
           Fixme (FixmeTag tag)
                 (FixmeTitle title)
                 Nothing
+                Nothing
                 (Just (FixmeOffset (fromIntegral lno)))
                 Nothing
                 mempty
                 mempty
 
-      _ -> Fixme mempty mempty Nothing Nothing Nothing mempty mempty
+      _ -> mempty
 
     emitFixmeStart lno lvl tagbs restbs = do
       let tag  = decodeUtf8With ignore  (LBS8.toStrict tagbs) & Text.strip

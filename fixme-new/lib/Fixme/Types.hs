@@ -11,6 +11,7 @@ import HBS2.Git.Local
 
 import Data.Config.Suckless
 
+import Control.Applicative
 import Data.Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -22,6 +23,7 @@ import Data.Coerce
 import Data.Text qualified as Text
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
+import Lens.Micro.Platform
 
 
 pattern StringLike :: forall {c} . String -> Syntax c
@@ -79,6 +81,10 @@ newtype FixmeTimestamp = FixmeTimestamp Word64
                         deriving stock (Data,Generic)
 
 
+newtype FixmeKey  = FixmeKey Text
+                    deriving newtype (Eq,Ord,Show,ToField,FromField)
+                    deriving stock (Data,Generic)
+
 newtype FixmeOffset = FixmeOffset Word32
                      deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
                      deriving stock (Data,Generic)
@@ -88,6 +94,7 @@ data Fixme =
   Fixme
   { fixmeTag       :: FixmeTag
   , fixmeTitle     :: FixmeTitle
+  , fixmeKey       :: Maybe FixmeKey
   , fixmeTs        :: Maybe FixmeTimestamp
   , fixmeStart     :: Maybe FixmeOffset
   , fixmeEnd       :: Maybe FixmeOffset
@@ -96,9 +103,23 @@ data Fixme =
   }
   deriving stock (Show,Data,Generic)
 
+instance Monoid Fixme where
+  mempty = Fixme mempty mempty Nothing Nothing Nothing Nothing mempty mempty
+
+instance Semigroup Fixme where
+  (<>) a b = b { fixmeTs  = fixmeTs b <|> fixmeTs a
+               , fixmeStart = fixmeStart b <|> fixmeStart a
+               , fixmeEnd = fixmeEnd b <|> fixmeEnd a
+               , fixmePlain = fixmePlain b
+               , fixmeAttr = fixmeAttr a <> fixmeAttr b
+               }
+
 newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
                     deriving newtype (Semigroup,Monoid,Eq,Ord,Show,ToJSON,FromJSON)
                     deriving stock (Data,Generic)
+
+
+
 
 type FixmePerks m = ( MonadUnliftIO m
                     , MonadIO m
@@ -161,6 +182,7 @@ instance Serialise FixmeAttrName
 instance Serialise FixmeAttrVal
 instance Serialise FixmeTimestamp
 instance Serialise FixmeOffset
+instance Serialise FixmeKey
 instance Serialise Fixme
 
 
