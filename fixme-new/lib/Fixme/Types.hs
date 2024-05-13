@@ -315,17 +315,34 @@ instance FixmeRenderTemplate SimpleTemplate (Doc AnsiStyle) where
         (acc, NL : rest)    -> next (acc <> nl, rest)
         (acc, ListVal [StringLike w] : rest) -> next (acc <> txt w, rest)
         (acc, StringLike w : rest) -> next (acc <> txt w, rest)
-        (acc, ListVal [SymbolVal "trim", LitIntVal n, e] : rest) -> next (acc <> trim n (deep [e]), rest)
-        (acc, ListVal [SymbolVal "align", LitIntVal n, e] : rest) -> next (acc <> align n (deep [e]), rest)
+        (acc, ListVal [SymbolVal "trim", LitIntVal n, e] : rest) -> next (acc <> trim n (deep' [e]), rest)
+        (acc, ListVal [SymbolVal "align", LitIntVal n, e] : rest) -> next (acc <> align n (deep' [e]), rest)
         (acc, ListVal [SymbolVal "fg", SymbolVal co, e] : rest) -> next (acc <> fmap (fg_ (color_ co)) (deep [e]), rest)
         (acc, ListVal [SymbolVal "bg", SymbolVal co, e] : rest) -> next (acc <> fmap (bg_ (color_ co)) (deep [e]), rest)
         (acc, ListVal [SymbolVal "fgd", SymbolVal co, e] : rest) -> next (acc <> fmap (fgd_ (color_ co)) (deep [e]), rest)
         (acc, ListVal [SymbolVal "bgd", SymbolVal co, e] : rest) -> next (acc <> fmap (bgd_ (color_ co)) (deep [e]), rest)
+
+        (acc, ListVal [ SymbolVal "if", cond
+                      , ListVal (SymbolVal "then" : then_)
+                      , ListVal (SymbolVal "else" : else_)
+                      ] : rest) -> do
+
+          let r = case cond of
+                    ListVal [SymbolVal "~", StringLike p, evaluated -> Just x] ->
+                      Text.isPrefixOf (Text.pack p) x
+                    _ -> False
+
+          next (acc <> if r then deep then_ else deep else_, rest)
+
+
         (acc, ListVal es : rest) ->  next (acc <> deep es, rest)
         (acc, e : rest) -> next (acc <> p e, rest)
         (acc, []) -> acc
 
     where
+
+      evaluated :: (IsContext c, Data (Context c), Data c) => Syntax c -> Maybe  Text
+      evaluated what = Just (deep' [what] & Text.concat)
 
       color_ = \case
         "black"   -> Just Black
@@ -360,8 +377,13 @@ instance FixmeRenderTemplate SimpleTemplate (Doc AnsiStyle) where
           n = fromIntegral n0
           s = mconcat s0
 
-      -- deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Doc AnsiStyle]
       deep sy = either mempty List.singleton (render (SimpleTemplate sy))
+
+      deep' :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep' sy = do
+        let what = deep sy
+        [ Text.pack (show x) | x <- what]
 
       nl = [ line ]
       txt s = [fromString s]
