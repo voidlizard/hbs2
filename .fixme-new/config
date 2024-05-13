@@ -6,6 +6,8 @@
 
 fixme-prefix     FIXME:
 fixme-prefix     TODO:
+fixme-prefix     PR:
+fixme-prefix     REVIEW:
 
 fixme-git-scan-filter-days 30
 

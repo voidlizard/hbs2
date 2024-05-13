@@ -154,6 +154,34 @@ createTables = do
       where rn = 1;
     |]
 
+  ddl [qc|drop view if exists fixmeactualview|]
+
+  ddl [qc|
+    create view fixmeactualview as
+    with a1 as (
+      select
+        a.fixme,
+        f.ts,
+        a.name,
+        a.value
+      from
+        fixmeattrview a
+        join fixme f on a.fixme = f.id
+      where
+        a.name = 'fixme-key'
+    ),
+    rn AS (
+      select
+        f.id,
+        f.ts,
+        a.value AS fixmekey,
+        row_number() over (partition by a.value order by f.ts desc) as rn
+      from
+        fixme f
+        join a1 a on f.id = a.fixme and a.name = 'fixme-key'
+    )
+    select id as fixme, fixmekey from rn where rn = 1;
+    |]
 
 insertCommit :: FixmePerks m => GitHash -> DBPipeM m ()
 insertCommit gh = do
@@ -256,13 +284,25 @@ instance IsContext c => HasPredicate [Syntax c] where
 selectFixmeHash :: (FixmePerks m) => Text -> FixmeM m (Maybe Text)
 selectFixmeHash what = withState do
 
-  r <- select @(Only Text) [qc|select id from fixme where id like ?|] (Only (what <> "%"))
+  let w = what <> "%"
+
+  r <- select @(Only Text)
+            [qc| select fixme from fixmeactualview where fixmekey like ?
+                 union
+                 select id from fixme where id like ?
+            |] (w,w)
          <&> fmap fromOnly
 
-  pure $ catMaybes [ (x,) <$> Text.length . view _1 <$> Text.commonPrefixes what x | x <- r ]
-             & sortBy (comparing (Down . snd))
-             & headMay
-             & fmap fst
+
+  let rs = listToMaybe r
+  -- catMaybes [ (x,) <$> Text.length . view _1 <$> Text.commonPrefixes what x
+  --                    | x <- r ]
+  --            & sortBy (comparing (Down . snd))
+  --            & headMay
+  --            & fmap fst
+  -- debug $ red "selectFixmeHash" <+> pretty r <+> pretty rs
+
+  pure rs
 
 
 selectFixme :: FixmePerks m => Text -> FixmeM m (Maybe Fixme)
@@ -335,7 +375,11 @@ from
 
 where
 
+  (
   {fst predic}
+  )
+
+  and exists (select null from fixmeactualview where fixme = f.id)
 
 group by a.fixme
 order by f.ts nulls first
