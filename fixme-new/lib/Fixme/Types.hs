@@ -11,6 +11,7 @@ import HBS2.Git.Local
 
 import Data.Config.Suckless
 
+import Prettyprinter.Render.Terminal
 import Control.Applicative
 import Data.Aeson
 import Data.HashMap.Strict (HashMap)
@@ -142,8 +143,8 @@ data FixmeTemplate =
 data RenderError = RenderError String
                    deriving stock (Eq,Show,Typeable)
 
-class FixmeRenderTemplate a where
-  render :: a -> Either RenderError Text
+class FixmeRenderTemplate a b where
+  render :: a -> Either RenderError b
 
 data FixmeEnv =
   FixmeEnv
@@ -306,7 +307,68 @@ inject repl target =
 pattern NL :: forall {c}. Syntax c
 pattern NL <- ListVal [SymbolVal "nl"]
 
-instance FixmeRenderTemplate SimpleTemplate where
+
+instance FixmeRenderTemplate SimpleTemplate (Doc AnsiStyle) where
+
+  render (SimpleTemplate syn) = Right $ mconcat $
+      flip fix (mempty,syn) $ \next -> \case
+        (acc, NL : rest)    -> next (acc <> nl, rest)
+        (acc, ListVal [StringLike w] : rest) -> next (acc <> txt w, rest)
+        (acc, StringLike w : rest) -> next (acc <> txt w, rest)
+        (acc, ListVal [SymbolVal "trim", LitIntVal n, e] : rest) -> next (acc <> trim n (deep [e]), rest)
+        (acc, ListVal [SymbolVal "align", LitIntVal n, e] : rest) -> next (acc <> align n (deep [e]), rest)
+        (acc, ListVal [SymbolVal "fg", SymbolVal co, e] : rest) -> next (acc <> fmap (fg_ (color_ co)) (deep [e]), rest)
+        (acc, ListVal [SymbolVal "bg", SymbolVal co, e] : rest) -> next (acc <> fmap (bg_ (color_ co)) (deep [e]), rest)
+        (acc, ListVal [SymbolVal "fgd", SymbolVal co, e] : rest) -> next (acc <> fmap (fgd_ (color_ co)) (deep [e]), rest)
+        (acc, ListVal [SymbolVal "bgd", SymbolVal co, e] : rest) -> next (acc <> fmap (bgd_ (color_ co)) (deep [e]), rest)
+        (acc, ListVal es : rest) ->  next (acc <> deep es, rest)
+        (acc, e : rest) -> next (acc <> p e, rest)
+        (acc, []) -> acc
+
+    where
+
+      color_ = \case
+        "black"   -> Just Black
+        "red"     -> Just Red
+        "green"   -> Just Green
+        "yellow"  -> Just Yellow
+        "blue"    -> Just Blue
+        "magenta" -> Just Magenta
+        "cyan"    -> Just Cyan
+        "white"   -> Just White
+        _         -> Nothing
+
+
+      fg_ = maybe id (annotate . color)
+      bg_ = maybe id (annotate . bgColor)
+
+      fgd_ = maybe id (annotate . colorDull)
+      bgd_ = maybe id (annotate . bgColorDull)
+
+      untxt = fmap pretty
+
+      align n0 s0 | n > 0     = untxt [Text.justifyLeft n ' ' s]
+                  | otherwise = untxt [Text.justifyRight (abs n) ' ' s]
+
+        where
+          n = fromIntegral n0
+          s = mconcat s0
+
+      trim n0 s0 | n >= 0     = untxt [ Text.take n s ]
+                 | otherwise  = untxt [ Text.takeEnd (abs n) s ]
+        where
+          n = fromIntegral n0
+          s = mconcat s0
+
+      -- deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep sy = either mempty List.singleton (render (SimpleTemplate sy))
+
+      nl = [ line ]
+      txt s = [fromString s]
+      p e = untxt [Text.pack (show $ pretty e)]
+
+
+instance FixmeRenderTemplate SimpleTemplate Text where
   render (SimpleTemplate syn) = Right $ Text.concat $
       flip fix (mempty,syn) $ \next -> \case
         (acc, NL : rest)    -> next (acc <> nl, rest)

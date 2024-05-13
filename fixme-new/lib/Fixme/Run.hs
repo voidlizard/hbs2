@@ -506,7 +506,7 @@ list_ tpl a = do
         let what = render (SimpleTemplate (inject  subst simple))
                       & fromRight "render error"
 
-        liftIO $ Text.putStr what
+        liftIO $ hPutDoc stdout what
 
   where
     mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)
