@@ -126,17 +126,23 @@ type FixmePerks m = ( MonadUnliftIO m
                     )
 
 
+data UpdateAction = forall c . IsContext c => UpdateAction { runUpdateAction :: Syntax c -> IO () }
+
+data ReadLogAction = forall c . IsContext c => ReadLogAction { runReadLog :: Syntax c -> IO () }
+
 data FixmeEnv =
   FixmeEnv
-  { fixmeEnvGitDir       :: Maybe FilePath
-  , fixmeEnvDb           :: DBPipeEnv
-  , fixmeEnvFileMask     :: TVar [FilePattern]
-  , fixmeEnvTags         :: TVar (HashSet FixmeTag)
-  , fixmeEnvAttribs      :: TVar (HashSet FixmeAttrName)
-  , fixmeEnvAttribValues :: TVar (HashMap FixmeAttrName (HashSet FixmeAttrVal))
-  , fixmeEnvDefComments  :: TVar (HashSet Text)
-  , fixmeEnvFileComments :: TVar (HashMap FilePath (HashSet Text))
-  , fixmeEnvGitScanDays  :: TVar (Maybe Integer)
+  { fixmeEnvGitDir         :: Maybe FilePath
+  , fixmeEnvDb             :: DBPipeEnv
+  , fixmeEnvFileMask       :: TVar [FilePattern]
+  , fixmeEnvTags           :: TVar (HashSet FixmeTag)
+  , fixmeEnvAttribs        :: TVar (HashSet FixmeAttrName)
+  , fixmeEnvAttribValues   :: TVar (HashMap FixmeAttrName (HashSet FixmeAttrVal))
+  , fixmeEnvDefComments    :: TVar (HashSet Text)
+  , fixmeEnvFileComments   :: TVar (HashMap FilePath (HashSet Text))
+  , fixmeEnvGitScanDays    :: TVar (Maybe Integer)
+  , fixmeEnvUpdateActions  :: TVar [UpdateAction]
+  , fixmeEnvReadLogActions :: TVar [ReadLogAction]
   }
 
 

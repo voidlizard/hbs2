@@ -119,6 +119,8 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
+            <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
 
   runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
                  `finally` flushLoggers
@@ -437,13 +439,22 @@ scanGitLocal args p =  do
             liftIO $ withFixmeEnv env $ withState $ transactional do
               for_ fixmies insertFixme
 
+
           _ -> fucked ()
 
+      unless ( ScanRunDry `elem` args ) do
+        lift runLogActions
 
       liftIO $ withFixmeEnv env $ withState $ transactional do
         for_ co $ \w -> do
           insertCommit (view _1 w)
 
+runLogActions :: FixmePerks m => FixmeM m ()
+runLogActions = do
+  debug $ yellow "runLogActions"
+  actions <- asks fixmeEnvReadLogActions >>= readTVarIO
+  for_ actions $ \(ReadLogAction a) -> do
+    liftIO (a (List noContext []))
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
 startGitCatFile = do
@@ -475,6 +486,21 @@ cat_ hash = void $ flip runContT pure do
     fme <- lift $ selectFixme ha
 
     notice $ pretty fme
+
+delete :: FixmePerks m => Text -> FixmeM m ()
+delete txt = do
+  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
+
+  void $ runMaybeT do
+
+    ha <- toMPlus =<< lift (selectFixmeHash txt)
+    let syn = mkLit @Text [qc|deleted "{pretty ha}"|]
+
+    debug $ red "deleted" <+> pretty ha
+
+    for_ acts $ \(UpdateAction what) -> do
+      liftIO $ what (Literal noContext syn)
+
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
@@ -519,6 +545,13 @@ help :: FixmePerks m => m ()
 help = do
   notice "this is help  message"
 
+-- FIXME: tied-context-type
+inject :: forall a c . (Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
+inject repl target =
+  flip transformBi target $ \case
+   w@(SymbolVal x) ->  fromMaybe w (Map.lookup x rmap)
+   other -> other
+   where rmap = Map.fromList repl
 
 splitForms :: [String] -> [[String]]
 splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
@@ -530,6 +563,11 @@ splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
 
     emit = S.yield . reverse
 
+sanitizeLog :: [Syntax c] -> [Syntax c]
+sanitizeLog lls = flip filter lls $ \case
+  ListVal (SymbolVal "deleted" : _) -> True
+  _ -> False
+
 run :: FixmePerks m => [String] -> FixmeM m ()
 run what = do
 
@@ -539,88 +577,137 @@ run what = do
              & rights
              & mconcat
 
+  runForms (sc <> s0)
 
-  for_ (sc <> s0) $ \s -> do
+  where
 
-    debug $ pretty s
+    runForms :: forall c m . (IsContext c, Data c, Data (Context c), FixmePerks m)
+             => [Syntax c]
+             -> FixmeM m ()
+    runForms ss = for_  ss $ \s -> do
 
-    case s of
+      debug $ pretty s
 
-      FixmeFiles xs -> do
-        t <- asks fixmeEnvFileMask
-        atomically (modifyTVar t (<> xs))
+      case s of
 
-      FixmePrefix tag -> do
-        t <- asks fixmeEnvTags
-        atomically (modifyTVar t (HS.insert tag))
+        FixmeFiles xs -> do
+          t <- asks fixmeEnvFileMask
+          atomically (modifyTVar t (<> xs))
 
-      FixmeGitScanFilterDays d -> do
-        t <- asks fixmeEnvGitScanDays
-        atomically (writeTVar t (Just d))
+        FixmePrefix tag -> do
+          t <- asks fixmeEnvTags
+          atomically (modifyTVar t (HS.insert tag))
 
-      ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
-        let co = Text.pack b & HS.singleton
-        t <- asks fixmeEnvFileComments
-        atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
+        FixmeGitScanFilterDays d -> do
+          t <- asks fixmeEnvGitScanDays
+          atomically (writeTVar t (Just d))
 
-      ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
-        t <- asks fixmeEnvDefComments
-        let co = fmap Text.pack xs & HS.fromList
-        atomically $ modifyTVar t (<> co)
+        ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
+          let co = Text.pack b & HS.singleton
+          t <- asks fixmeEnvFileComments
+          atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
 
-      ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
-        ta <- asks fixmeEnvAttribs
-        atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
+        ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
+          t <- asks fixmeEnvDefComments
+          let co = fmap Text.pack xs & HS.fromList
+          atomically $ modifyTVar t (<> co)
 
-      ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
-        t <- asks fixmeEnvAttribValues
-        let name = fromString n
-        let vals = fmap fromString xs & HS.fromList
-        atomically $ modifyTVar t (HM.insertWith (<>) name vals)
+        ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
+          ta <- asks fixmeEnvAttribs
+          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
-      Init         -> init
+        ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
+          t <- asks fixmeEnvAttribValues
+          let name = fromString n
+          let vals = fmap fromString xs & HS.fromList
+          atomically $ modifyTVar t (HM.insertWith (<>) name vals)
 
-      ScanGitLocal args -> scanGitLocal args Nothing
+        Init         -> init
 
-      Update args -> scanGitLocal args Nothing
+        ScanGitLocal args -> scanGitLocal args Nothing
 
-      ListVal [SymbolVal "list"] -> do
-        list_ ()
+        Update args -> scanGitLocal args Nothing
 
-      ListVal (SymbolVal "list" : whatever) -> do
-        list_ whatever
+        ListVal [SymbolVal "list"] -> do
+          list_ ()
 
-      ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
-        cat_ hash
+        ListVal (SymbolVal "list" : whatever) -> do
+          list_ whatever
 
-      ReadFixmeStdin -> readFixmeStdin
+        ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
+          cat_ hash
 
-      ListVal [SymbolVal "print-env"] -> do
-        printEnv
+        ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
+          delete hash
 
-      ListVal [SymbolVal "no-debug"] -> do
-        setLoggingOff @DEBUG
+        ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
+          deleteFixme hash
 
-      ListVal [SymbolVal "silence"] -> do
-        silence
+        ReadFixmeStdin -> readFixmeStdin
 
-      ListVal [SymbolVal "builtin:evolve"] -> do
-        evolve
+        ListVal [SymbolVal "print-env"] -> do
+          printEnv
 
-      ListVal [SymbolVal "builtin:cleanup-state"] -> do
-        cleanupDatabase
+        ListVal (SymbolVal "hello" : xs) -> do
+          notice $ "hello" <+> pretty xs
 
-      ListVal [SymbolVal "trace"] -> do
-        setLogging @TRACE (logPrefix "[trace] " . toStderr)
-        trace "trace on"
+        -- FIXME: maybe-rename-fixme-update-action
+        ListVal (SymbolVal "fixme-update-action" : xs) -> do
+          debug $ "fixme-update-action" <+> pretty xs
+          env <- ask
+          t <- asks fixmeEnvUpdateActions
+          let repl syn = [ ( "$1", syn ) ]
+          let action = UpdateAction @c $ \syn -> liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
+          atomically $ modifyTVar t (<> [action])
 
-      ListVal [SymbolVal "no-trace"] -> do
-        trace "trace off"
-        setLoggingOff @TRACE
+        ListVal (SymbolVal "fixme-play-log-action" : xs) -> do
+          debug $ "fixme-play-log-action" <+> pretty xs
+          env <- ask
+          t <- asks fixmeEnvReadLogActions
+          let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
+          atomically $ modifyTVar t (<> [action])
 
-      ListVal [SymbolVal "debug"] -> do
-        setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+        ListVal (SymbolVal "append-file" : StringLike fn : StringLikeList xs) -> do
+          debug "append-file"
+          liftIO $ for_ xs $ \x -> do
+            appendFile  fn x
+            appendFile fn "\n"
 
-      w         -> err (pretty w)
+        ListVal [SymbolVal "play-log-file", StringLike fn] -> do
+          debug $ yellow "play-log-file" <+> pretty fn
+          -- FIXME: just-for-in-case-sanitize-input
+          what <- try @_ @IOException (liftIO $ readFile fn)
+                    <&> fromRight mempty
+                    <&> parseTop
+                    <&> fromRight mempty
+                    <&> sanitizeLog
+
+          env <- ask
+          liftIO $ withFixmeEnv env (runForms what)
+
+        ListVal [SymbolVal "no-debug"] -> do
+          setLoggingOff @DEBUG
+
+        ListVal [SymbolVal "silence"] -> do
+          silence
+
+        ListVal [SymbolVal "builtin:evolve"] -> do
+          evolve
+
+        ListVal [SymbolVal "builtin:cleanup-state"] -> do
+          cleanupDatabase
+
+        ListVal [SymbolVal "trace"] -> do
+          setLogging @TRACE (logPrefix "[trace] " . toStderr)
+          trace "trace on"
+
+        ListVal [SymbolVal "no-trace"] -> do
+          trace "trace off"
+          setLoggingOff @TRACE
+
+        ListVal [SymbolVal "debug"] -> do
+          setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+
+        w         -> err (pretty w)
 
 

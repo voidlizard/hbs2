@@ -29,6 +29,18 @@ fixme-file-comments "*.scm" ";"
 
 fixme-comments ";" "--"
 
+(fixme-update-action
+  (append-file ".fixme-new/log" $1)
+)
+
+(fixme-play-log-action
+  (play-log-file ".fixme-new/log")
+)
+
+(fixme-play-log-action
+)
+
 update
+
 
 

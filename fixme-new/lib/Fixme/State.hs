@@ -7,6 +7,7 @@ module Fixme.State
   , selectFixmeThin
   , selectFixmeHash
   , selectFixme
+  , deleteFixme
   , insertCommit
   , selectCommit
   , newCommit
@@ -169,6 +170,7 @@ createTables = do
         join fixme f on a.fixme = f.id
       where
         a.name = 'fixme-key'
+        and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
     ),
     rn AS (
       select
@@ -180,7 +182,8 @@ createTables = do
         fixme f
         join a1 a on f.id = a.fixme and a.name = 'fixme-key'
     )
-    select id as fixme, fixmekey from rn where rn = 1;
+    select id as fixme, fixmekey from rn
+      where rn = 1
     |]
 
 insertCommit :: FixmePerks m => GitHash -> DBPipeM m ()
@@ -400,5 +403,14 @@ cleanupDatabase = do
     update_ [qc|delete from fixmecommit|]
     update_ [qc|delete from fixmedeleted|]
     update_ [qc|delete from fixmerel|]
+
+
+deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
+deleteFixme hash = withState do
+  trace $ red "deleteFixme" <+> pretty hash
+  insert [qc| insert into fixmedeleted (id,ts,deleted)
+              values (?,(strftime('%s', 'now')),true)
+              on conflict(id,ts) do nothing
+            |] (Only hash)
 
 
