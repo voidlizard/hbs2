@@ -40,12 +40,6 @@ fixme-comments ";" "--"
 (fixme-play-log-action
 )
 
-;(define-template default
-;  (simple
-;     ($fixme-key) | ($fixme-title) (nl)
-;  )
-;)
-
 (define-template short
   (simple
      (trim 10  $fixme-key) " "

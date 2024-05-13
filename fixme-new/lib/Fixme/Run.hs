@@ -109,6 +109,18 @@ fixmePrefix = \case
   _ -> Nothing
 
 
+defaultTemplate :: HashMap Id FixmeTemplate
+defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
+  where
+    short = parseTop s & fromRight mempty
+    s = [qc|
+(trim 10  $fixme-key) " "
+(align 6  $fixme-tag) " "
+(trim 50  ($fixme-title))
+(nl)
+    |]
+
+
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   db <- newDBPipeEnv dbPipeOptsDef =<< localDBPath
@@ -122,7 +134,7 @@ runFixmeCLI m = do
             <*>  newTVarIO Nothing
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
+            <*>  newTVarIO defaultTemplate
 
   runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
                  `finally` flushLoggers
