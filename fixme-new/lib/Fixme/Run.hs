@@ -747,6 +747,9 @@ run what = do
         ListVal [SymbolVal "builtin:cleanup-state"] -> do
           cleanupDatabase
 
+        ListVal [SymbolVal "builtin:update-indexes"] -> do
+          updateIndexes
+
         ListVal [SymbolVal "trace"] -> do
           setLogging @TRACE (logPrefix "[trace] " . toStderr)
           trace "trace on"

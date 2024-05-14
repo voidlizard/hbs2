@@ -199,6 +199,19 @@ createTables = do
           )
       |]
 
+  ddl [qc|
+        create table if not exists fixmejson
+          ( fixme     text not null
+          , fixmekey  text
+          , json      blob
+          , primary key (fixme)
+          )
+      |]
+
+  ddl [qc|
+        create index if not exists idx_fixmekey ON fixmejson(fixmekey)
+      |]
+
 -- .fixme-new/state.db
 -- and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
 
@@ -370,8 +383,9 @@ genPredQ tbl what = go what
         ([qc|({tbl}.fixme like ?)|], binds)
 
       AttrLike name val -> do
-        let binds = [Bound name, Bound (val <> "%")]
-        ([qc|(exists (select null from fixmeattrview x where x.fixme = a.fixme and x.name = ? and x.value like ?))|], binds)
+        let x = val <> "%"
+        let binds = [Bound x]
+        ([qc|(json_extract(json, '$."{name}"') like ?)|], binds)
 
 
       And a b -> do
@@ -386,19 +400,45 @@ genPredQ tbl what = go what
 
       Ignored -> ("false", mempty)
 
+
+updateFixmeJson :: FixmePerks m =>  DBPipeM m ()
+updateFixmeJson = do
+
+  update_ [qc|
+
+    insert into fixmejson (fixme,fixmekey,json)
+      with json as  (
+        select
+            a.fixme as fixme,
+            cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', f.fixme) as blob) as json
+
+        from
+          fixmeattrview a join fixmeactual f on f.fixme = a.fixme
+
+        group by a.fixme
+      )
+
+      select
+          fixme
+        , json_extract(json, '$."fixme-key"') as fixmekey
+        , json
+         from json where true
+      on conflict (fixme) do update set json = excluded.json, fixmekey = excluded.fixmekey
+  |]
+
+
 selectFixmeThin :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [FixmeThin]
 selectFixmeThin a = withState do
 
-  let predic = genPredQ "a" (predicate a)
+  let predic = genPredQ "j" (predicate a)
 
   let sql = [qc|
 
-select
-  cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', f.fixme) as blob)
+select j.json as blob
 
 from
-  fixmeattrview a join fixmeactual f on f.fixme = a.fixme
-                  join fixme f0 on f0.id = f.fixme
+  fixmejson j join fixmeactual f on f.fixme = j.fixme
+              join fixme f0 on f0.id = f.fixme
 
 where
 
@@ -406,11 +446,11 @@ where
   {fst predic}
   )
 
-group by a.fixme
 order by f0.ts nulls first
 
   |]
 
+  trace $ red "selectFixmeThin" <> line <> pretty sql
 
   (t,r) <- timeItT $ select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
 
@@ -431,7 +471,7 @@ cleanupDatabase = do
     update_ [qc|delete from fixmedeleted|]
     update_ [qc|delete from fixmerel|]
     update_ [qc|delete from fixmeactual|]
-
+    update_ [qc|delete from fixmejson|]
 
 deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
 deleteFixme hash = withState do
@@ -449,5 +489,6 @@ updateIndexes = withState $ transactional do
     insert into fixmeactual
       select distinct fixme from fixmeactualview
     |]
+  updateFixmeJson
 
 

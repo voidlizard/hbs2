@@ -9,7 +9,7 @@ fixme-prefix     TODO:
 fixme-prefix     PR:
 fixme-prefix     REVIEW:
 
-fixme-git-scan-filter-days 600
+fixme-git-scan-filter-days 60
 
 fixme-attribs assigned workflow
 
