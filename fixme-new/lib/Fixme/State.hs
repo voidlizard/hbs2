@@ -142,22 +142,48 @@ createTables = do
 
   ddl [qc| drop view if exists fixmeattrview |]
 
+  let commits = [qc|name in ('commit','committer','committer-name','committer-email','commit-time')|] :: Text
+
   ddl [qc|
     create view fixmeattrview as
-      with ranked as (
+      with ranked1 as (
         select
           fixme,
           name,
           value,
           row_number() over (partition by fixme, name order by ts desc nulls first) as rn
         from fixmeattr
+        where not ({commits})
+      ),
+      ranked2 as (
+        select
+          fixme,
+          name,
+          value,
+          row_number() over (partition by fixme, name order by ts asc nulls last) as rn
+        from fixmeattr
+        where ({commits})
       )
-      select
-        fixme,
-        name,
-        value
-      from ranked
-      where rn = 1;
+
+      select distinct fixme,name,value
+      from
+      (
+        select
+          fixme,
+          name,
+          value
+        from ranked1
+        where rn = 1
+
+        union
+
+        select
+          fixme,
+          name,
+          value
+        from ranked2
+        where rn = 1
+      )
     |]
 
   ddl [qc|drop view if exists fixmeactualview|]
