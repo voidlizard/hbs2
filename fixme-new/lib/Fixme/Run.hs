@@ -726,6 +726,7 @@ run what = do
         ListVal [SymbolVal "play-log-file", StringLike fn] -> do
           debug $ yellow "play-log-file" <+> pretty fn
           -- FIXME: just-for-in-case-sanitize-input
+          --   $workflow: wip
           what <- try @_ @IOException (liftIO $ readFile fn)
                     <&> fromRight mempty
                     <&> parseTop
