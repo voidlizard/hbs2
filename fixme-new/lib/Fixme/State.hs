@@ -271,6 +271,7 @@ data SelectPredicate =
   | AttrLike Text Text
   | And SelectPredicate SelectPredicate
   | Or SelectPredicate SelectPredicate
+  | Not SelectPredicate
   | Ignored
   deriving stock (Data,Generic,Show)
 
@@ -290,6 +291,7 @@ instance IsContext c => HasPredicate [Syntax c] where
 
       goPred :: Syntax c -> SelectPredicate
       goPred = \case
+        ListVal [SymbolVal "not", a]     ->  Not (goPred a)
         ListVal [SymbolVal "or", a, b]   ->  Or (goPred a) (goPred b)
         ListVal [SymbolVal "and", a, b]  ->  And (goPred a) (goPred b)
         ListVal [SymbolVal "like", StringLike a, StringLike b] ->  AttrLike (Text.pack a) (Text.pack b)
@@ -297,6 +299,9 @@ instance IsContext c => HasPredicate [Syntax c] where
 
       go :: [Syntax c] -> Syntax c
       go = \case
+
+        ( SymbolVal "!" : rest ) -> do
+            mklist [mksym "not", unlist (go rest)]
 
         ( Operand a : SymbolVal "~" : Operand b  : rest ) -> do
           go (mklist [mksym "like", mkstr a, mkstr b] : rest)
@@ -326,9 +331,13 @@ selectFixmeHash what = withState do
   let w = what <> "%"
 
   r <- select @(Only Text)
-            [qc| select fixme from fixmeactualview where fixmekey like ?
+            [qc| select fixme
+                 from fixmejson
+                 where json_extract(json,'$."fixme-key"') like ?
                  union
-                 select id from fixme where id like ?
+                 select id
+                 from fixme
+                 where id like ?
             |] (w,w)
          <&> fmap fromOnly
 
@@ -387,6 +396,9 @@ genPredQ tbl what = go what
         let binds = [Bound x]
         ([qc|(json_extract(json, '$."{name}"') like ?)|], binds)
 
+      Not a -> do
+        let (sql, bound) = go a
+        ([qc|(coalesce(not {sql},true))|], bound)
 
       And a b -> do
         let (asql, abound) = go a
