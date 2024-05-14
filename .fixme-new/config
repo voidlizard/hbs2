@@ -38,6 +38,7 @@ fixme-comments ";" "--"
 )
 
 (fixme-play-log-action
+;  (hello kitty)
 )
 
 (define-template short
@@ -60,6 +61,8 @@ fixme-comments ";" "--"
      (nl)
   )
 )
+
+(set-template default short)
 
 ; update
 

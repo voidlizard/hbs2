@@ -69,4 +69,7 @@ expandPath = liftIO . D.canonicalizePath
 doesDirectoryExist :: MonadIO m => FilePath -> m Bool
 doesDirectoryExist = liftIO . D.doesDirectoryExist
 
+home :: MonadIO m => m FilePath
+home = liftIO D.getHomeDirectory
+
 

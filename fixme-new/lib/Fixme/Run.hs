@@ -134,7 +134,9 @@ runFixmeCLI m = do
             <*>  newTVarIO Nothing
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
+            <*>  newTVarIO defaultCatAction
             <*>  newTVarIO defaultTemplate
+            <*>  newTVarIO (1,3)
 
   runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
                  `finally` flushLoggers
@@ -148,6 +150,10 @@ runFixmeCLI m = do
     flushLoggers = do
       silence
 
+    -- FIXME: tied-fucking-context
+    defaultCatAction = CatAction $ \dict lbs -> do
+      LBS.putStr lbs
+      pure ()
 
 silence :: FixmePerks m => m ()
 silence = do
@@ -160,11 +166,17 @@ silence = do
 
 readConfig :: FixmePerks m => FixmeM m [Syntax C]
 readConfig = do
-  localConfig
-     >>= try @_ @IOException . liftIO . readFile
-     <&> fromRight mempty
-     <&> parseTop
-     <&> fromRight mempty
+
+  user <- userConfigs
+  lo   <- localConfig
+
+  w <- for (lo : user) $ \conf -> do
+    try @_ @IOException (liftIO $ readFile conf)
+      <&> fromRight mempty
+      <&> parseTop
+      <&> fromRight mempty
+
+  pure $ mconcat w
 
 init :: FixmePerks m => FixmeM m ()
 init = do
@@ -503,28 +515,58 @@ list_ tpl a = do
 
     Just (Simple (SimpleTemplate simple)) -> do
       for_ fixmies $ \(FixmeThin attr) -> do
-        let subst = [ (mksym k, mkstr v) | (k,v) <- HM.toList attr ]
+        let subst = [ (mksym k, mkstr @C v) | (k,v) <- HM.toList attr ]
         let what = render (SimpleTemplate (inject  subst simple))
                       & fromRight "render error"
 
         liftIO $ hPutDoc stdout what
 
-  where
-    mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)
-    mkstr (s :: FixmeAttrVal)  = Literal cc (LitStr (coerce s))
-    cc = noContext :: Context C
 
 cat_ :: FixmePerks m => Text -> FixmeM m ()
-cat_ hash = void $ flip runContT pure do
-  callCC \exit -> do
+cat_ hash = do
 
-    mha <- lift $ selectFixmeHash hash
+  (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
+  gd  <- fixmeGetGitDirCLIOpt
 
-    ha <- ContT $ maybe1 mha (pure ())
+  CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
 
-    fme <- lift $ selectFixme ha
+  void $ flip runContT pure do
+    callCC \exit -> do
 
-    notice $ pretty fme
+      mha <- lift $ selectFixmeHash hash
+
+      ha <- ContT $ maybe1 mha (pure ())
+
+      fme' <- lift $ selectFixme ha
+
+      Fixme{..} <- ContT $ maybe1 fme' (pure ())
+
+      let gh' = HM.lookup "blob" fixmeAttr
+
+      -- FIXME: define-fallback-action
+      gh <- ContT $ maybe1 gh' none
+
+      let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
+
+      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
+      let bbefore = if start > before then before  + 1 else 1
+      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
+      let lno   = max 1 $ origLen + after + before
+
+      let dict = [ (mksym k, mkstr @C   v) | (k,v) <- HM.toList fixmeAttr ]
+                 <>
+                 [ (mksym "before", mkstr @C (FixmeAttrVal $ Text.pack $ show bbefore))
+                 ]
+
+      debug (pretty cmd)
+
+      w <- gitRunCommand cmd
+            <&> either (LBS8.pack . show) id
+            <&> LBS8.lines
+            <&> drop start
+            <&> take lno
+
+      liftIO $ action  dict (LBS8.unlines w)
 
 delete :: FixmePerks m => Text -> FixmeM m ()
 delete txt = do
@@ -579,6 +621,12 @@ printEnv = do
 
   for_ vals$ \(v, vs) -> do
       liftIO $ print $ "fixme-value-set" <+> pretty v <+> hsep (fmap pretty (HS.toList vs))
+
+
+  (before,after) <- asks fixmeEnvCatContext >>= readTVarIO
+
+  liftIO $ print $ "fixme-def-context" <+> pretty before <+> pretty after
+
 
 help :: FixmePerks m => m ()
 help = do
@@ -659,6 +707,30 @@ run what = do
           ta <- asks fixmeEnvAttribs
           atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
+        ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
+          t <- asks fixmeEnvCatContext
+          atomically $ writeTVar t (fromIntegral a, fromIntegral b)
+
+        ListVal [SymbolVal "fixme-pager", ListVal cmd0] -> do
+          t <- asks fixmeEnvCatAction
+          let action =  CatAction $ \dict lbs -> do
+
+                let ccmd = case inject dict cmd0 of
+                             (StringLike p : StringLikeList xs) -> Just (p, xs)
+                             _  -> Nothing
+
+
+                debug $ pretty ccmd
+
+                maybe1 ccmd none $ \(p, args) -> do
+
+                  let input = byteStringInput lbs
+                  let cmd = setStdin input $ setStderr closed
+                                           $ proc p args
+                  void $ runProcess cmd
+
+          atomically $ writeTVar t action
+
         ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
           t <- asks fixmeEnvAttribValues
           let name = fromString n
@@ -700,6 +772,12 @@ run what = do
           debug $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
           t <- asks fixmeEnvTemplates
           atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
+
+        ListVal [SymbolVal "set-template", SymbolVal who, SymbolVal w] -> do
+          templates <- asks fixmeEnvTemplates
+          t <- readTVarIO templates
+          for_ (HM.lookup w t) $ \tpl -> do
+            atomically $ modifyTVar templates (HM.insert who tpl)
 
         -- FIXME: maybe-rename-fixme-update-action
         ListVal (SymbolVal "fixme-update-action" : xs) -> do

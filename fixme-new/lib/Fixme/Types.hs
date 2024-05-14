@@ -14,6 +14,7 @@ import Data.Config.Suckless
 import Prettyprinter.Render.Terminal
 import Control.Applicative
 import Data.Aeson
+import Data.ByteString.Lazy (ByteString)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
@@ -91,6 +92,7 @@ newtype FixmeKey  = FixmeKey Text
 
 newtype FixmeOffset = FixmeOffset Word32
                      deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                     deriving newtype (Integral,Real,Enum)
                      deriving stock (Data,Generic)
 
 
@@ -134,7 +136,9 @@ data UpdateAction = forall c . IsContext c => UpdateAction { runUpdateAction :: 
 
 data ReadLogAction = forall c . IsContext c => ReadLogAction { runReadLog :: Syntax c -> IO () }
 
--- FIXME: fucking-context-hardcode-wtf
+-- FIXME: fucking-context-hardcode-wtf-1
+data CatAction = CatAction { catAction :: [(Id, Syntax C)] -> ByteString -> IO () }
+
 data SimpleTemplate = forall c . (IsContext c, Data (Context c), Data c) => SimpleTemplate [Syntax c]
 
 data FixmeTemplate =
@@ -159,7 +163,9 @@ data FixmeEnv =
   , fixmeEnvGitScanDays    :: TVar (Maybe Integer)
   , fixmeEnvUpdateActions  :: TVar [UpdateAction]
   , fixmeEnvReadLogActions :: TVar [ReadLogAction]
+  , fixmeEnvCatAction      :: TVar CatAction
   , fixmeEnvTemplates      :: TVar (HashMap Id FixmeTemplate)
+  , fixmeEnvCatContext     :: TVar (Int,Int)
   }
 
 
@@ -294,7 +300,18 @@ commentKey fp =
     "" -> takeFileName fp
     xs -> xs
 
-inject :: forall c  a . (IsContext c, Data c, Data (Context c), Data a) => [(Id,Syntax c)] -> a -> a
+type ContextShit c = (Data c, Data (Context c), IsContext c)
+
+mksym :: FixmeAttrName -> Id
+mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)
+
+mkstr :: forall c . (IsContext c) => FixmeAttrVal -> Syntax c
+mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
+
+cc0 :: forall c . ContextShit c => Context c
+cc0 = noContext :: Context c
+
+inject :: forall c  a . (ContextShit c, Data a) => [(Id,Syntax c)] -> a -> a
 inject repl target =
   flip transformBi target $ \case
    (SymbolVal x) | issubst x -> fromMaybe mt (Map.lookup x rmap)
@@ -341,7 +358,7 @@ instance FixmeRenderTemplate SimpleTemplate (Doc AnsiStyle) where
 
     where
 
-      evaluated :: (IsContext c, Data (Context c), Data c) => Syntax c -> Maybe  Text
+      evaluated :: (ContextShit c) => Syntax c -> Maybe  Text
       evaluated what = Just (deep' [what] & Text.concat)
 
       color_ = \case
@@ -377,10 +394,10 @@ instance FixmeRenderTemplate SimpleTemplate (Doc AnsiStyle) where
           n = fromIntegral n0
           s = mconcat s0
 
-      deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Doc AnsiStyle]
+      deep :: forall c . (ContextShit c) => [Syntax c] -> [Doc AnsiStyle]
       deep sy = either mempty List.singleton (render (SimpleTemplate sy))
 
-      deep' :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep' :: forall c . (ContextShit c) => [Syntax c] -> [Text]
       deep' sy = do
         let what = deep sy
         [ Text.pack (show x) | x <- what]
@@ -417,7 +434,7 @@ instance FixmeRenderTemplate SimpleTemplate Text where
           n = fromIntegral n0
           s = mconcat s0
 
-      deep :: forall c . (IsContext c, Data (Context c), Data c) => [Syntax c] -> [Text]
+      deep :: forall c . (ContextShit c) => [Syntax c] -> [Text]
       deep sy = either mempty List.singleton (render (SimpleTemplate sy))
 
       nl = [ "\n" ]

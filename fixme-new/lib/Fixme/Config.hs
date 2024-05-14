@@ -5,6 +5,7 @@ import Fixme.Types
 
 import HBS2.System.Dir
 import System.Environment
+import System.Directory
 
 binName :: FixmePerks m => m FilePath
 binName = liftIO getProgName
@@ -17,6 +18,17 @@ localConfigDir = do
 
 localConfig:: FixmePerks m => m FilePath
 localConfig = localConfigDir <&> (</> "config")
+
+userConfigs :: FixmePerks m => m [FilePath]
+userConfigs= do
+  bin <- binName
+  h <- home
+  xdg <- liftIO (getXdgDirectory XdgConfig bin)
+
+  let conf1 = h </> ("." <> bin)
+  let conf2 = xdg </> "config"
+
+  pure [conf2, conf1]
 
 localDBName :: FilePath
 localDBName = "state.db"
