@@ -9,7 +9,7 @@ fixme-prefix     TODO:
 fixme-prefix     PR:
 fixme-prefix     REVIEW:
 
-fixme-git-scan-filter-days 30
+fixme-git-scan-filter-days 600
 
 fixme-attribs assigned workflow
 
@@ -55,12 +55,12 @@ fixme-comments ";" "--"
 
      (align 8  ("[" $workflow "]"))  " "
      (align 12 $assigned)  " "
-     (trim 50  ($fixme-title))
+     (align 20 (trim 20 $committer-name)) " "
+     (trim 50  ($fixme-title)) " "
      (nl)
   )
 )
 
-
-update
+; update
 
 

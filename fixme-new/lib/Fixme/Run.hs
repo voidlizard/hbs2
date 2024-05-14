@@ -259,8 +259,6 @@ scanGitLocal args p =  do
 
   env <- ask
 
-  dbpath <- localDBPath
-
   flip runContT pure do
 
     (dbFn, _) <- ContT $ withSystemTempFile "fixme-db" . curry
@@ -343,7 +341,14 @@ scanGitLocal args p =  do
 
       liftIO $ IO.hSetBuffering ssin LineBuffering
 
-      for_ blobs $ \(h,fp) ->  do
+      for_ blobs $ \(h,fp) ->  callCC \next -> do
+
+        seen <-  lift (withState $ selectObjectHash h) <&> isJust
+
+        when seen do
+          trace $ red "ALREADY SEEN BLOB" <+> pretty h
+          next ()
+
         liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
         prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
 
@@ -384,7 +389,6 @@ scanGitLocal args p =  do
             WHERE RelevantCommits.hash = ?
                       |]
 
-
                       what <- select @(FixmeAttrName,FixmeAttrVal) q (Only h)
                                 <&> HM.fromList
                                 <&> (<> HM.fromList [ ("blob",fromString $ show (pretty h))
@@ -424,9 +428,6 @@ scanGitLocal args p =  do
                          ] & mconcat
                            & Map.fromList
 
-            debug $ red "fxpos1" <+> pretty h <> line <> pretty (Map.toList fxpos1)
-            debug $ red "fxpos2" <+> pretty h <> line <> pretty (Map.toList fxpos2)
-
             fixmies <- for (zip [0..] rich) $ \(i,fx) -> do
                          let title = fixmeTitle fx
                          let kb = Map.lookup (title,i) fxpos2
@@ -451,8 +452,8 @@ scanGitLocal args p =  do
             debug $ "actually-import-fixmies" <+> pretty h
 
             liftIO $ withFixmeEnv env $ withState $ transactional do
+              insertBlob h
               for_ fixmies insertFixme
-
 
           _ -> fucked ()
 

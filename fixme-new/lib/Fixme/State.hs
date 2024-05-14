@@ -9,7 +9,8 @@ module Fixme.State
   , selectFixme
   , deleteFixme
   , insertCommit
-  , selectCommit
+  , insertBlob
+  , selectObjectHash
   , newCommit
   , cleanupDatabase
   , updateIndexes
@@ -94,8 +95,9 @@ createTables = do
   -- в другую бд, если вдруг понадобится
 
   ddl [qc|
-        create table if not exists fixmecommit
+        create table if not exists fixmegitobject
           ( hash text not null
+          , type text null
           , primary key (hash)
           )
       |]
@@ -203,17 +205,24 @@ createTables = do
 insertCommit :: FixmePerks m => GitHash -> DBPipeM m ()
 insertCommit gh = do
   insert [qc|
-    insert into fixmecommit (hash) values(?)
+    insert into fixmegitobject (hash,type) values(?,'commit')
     on conflict (hash) do nothing
             |] (Only gh)
 
-selectCommit :: FixmePerks m => GitHash -> DBPipeM m (Maybe GitHash)
-selectCommit gh = do
-  select [qc|select hash from fixmecommit where hash = ?|] (Only gh)
+insertBlob :: FixmePerks m => GitHash -> DBPipeM m ()
+insertBlob gh = do
+  insert [qc|
+    insert into fixmegitobject (hash,type) values(?,'blob')
+    on conflict (hash) do nothing
+            |] (Only gh)
+
+selectObjectHash :: FixmePerks m => GitHash -> DBPipeM m (Maybe GitHash)
+selectObjectHash gh = do
+  select [qc|select hash from fixmegitobject where hash = ?|] (Only gh)
     <&> fmap fromOnly . listToMaybe
 
 newCommit :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m Bool
-newCommit gh = isNothing <$> withState (selectCommit gh)
+newCommit gh = isNothing <$> withState (selectObjectHash gh)
 
 insertFixme :: FixmePerks m => Fixme -> DBPipeM m ()
 insertFixme fx@Fixme{..} = do
@@ -418,7 +427,7 @@ cleanupDatabase = do
   withState $ transactional do
     update_ [qc|delete from fixme|]
     update_ [qc|delete from fixmeattr|]
-    update_ [qc|delete from fixmecommit|]
+    update_ [qc|delete from fixmegitobject|]
     update_ [qc|delete from fixmedeleted|]
     update_ [qc|delete from fixmerel|]
     update_ [qc|delete from fixmeactual|]
