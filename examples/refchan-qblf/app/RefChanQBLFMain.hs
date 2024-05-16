@@ -687,7 +687,7 @@ runMe conf = withLogging $ flip runReaderT conf do
                   Just val -> do
                     pure val
 
-type Config = [Syntax MegaParsec]
+type Config = [Syntax C]
 
 main :: IO ()
 main = join . customExecParser (prefs showHelpOnError) $

@@ -14,6 +14,7 @@ import Data.Config.Suckless
 import System.Directory
 import System.FilePath
 import Control.Exception
+import Data.Text.IO qualified as Text
 import Data.Either
 import Data.Set (Set)
 
@@ -32,12 +33,12 @@ getStatePath = liftIO (getXdgDirectory XdgData keymanAppName) <&> (</> "state.db
 
 readConfig :: MonadIO m => m [Syntax C]
 readConfig = do
- liftIO $ try @IOError (getConfigPath >>= readFile)
+ liftIO $ try @IOError (getConfigPath >>= Text.readFile)
   <&> fromRight ""
   <&> parseTop
   <&> fromRight mempty
 
 
-instance HasConf m => HasCfgKey KeyFilesOpt (Set String) m where
+instance HasCfgKey KeyFilesOpt (Set String) where
   key = "key-files"
 

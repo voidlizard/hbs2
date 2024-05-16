@@ -26,7 +26,7 @@ import UnliftIO
 
 data RPC2Context =
   RPC2Context
-  { rpcConfig             :: [Syntax MegaParsec]
+  { rpcConfig             :: [Syntax C]
   , rpcMessaging          :: MessagingUnix
   , rpcPokeAnswer         :: String
   , rpcPeerEnv            :: PeerEnv L4Proto

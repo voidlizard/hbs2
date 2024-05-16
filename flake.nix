@@ -9,11 +9,13 @@ inputs = {
     hspup.url = "github:voidlizard/hspup";
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
-    # fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
-    fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
+    fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
+    #fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
-    suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
+    suckless-conf.url =
+      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?tag=0.1.2.0";
+
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
     db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
@@ -55,7 +57,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    haskellFlakes = with inputs; [
      suckless-conf
      db-pipe
-     fixme
    ];
 
    inherit packageNames;

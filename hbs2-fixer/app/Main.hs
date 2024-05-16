@@ -135,7 +135,7 @@ instance MonadIO m => HasConf (FixerM m) where
 
 debugPrefix  = toStdout . logPrefix "[debug] "
 
-readConf :: MonadIO m => FilePath -> m [Syntax MegaParsec]
+readConf :: MonadIO m => FilePath -> m [Syntax C]
 readConf  fn = liftIO (readFile fn) <&> parseTop <&> fromRight mempty
 
 withConfig :: MonadUnliftIO m => Maybe FilePath -> FixerM m () -> FixerM m ()
