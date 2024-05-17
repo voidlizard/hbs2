@@ -42,31 +42,31 @@ data PeerBrainsDBPath
 instance Monad m => HasConf (ReaderT PeerConfig m) where
   getConf = asks (\(PeerConfig syn) -> syn)
 
-instance Monad m => HasCfgKey PeerListenTCPKey (Maybe String) m where
+instance HasCfgKey PeerListenTCPKey (Maybe String) where
   key = "listen-tcp"
 
-instance Monad m => HasCfgKey PeerHttpPortKey (Maybe Integer) m where
+instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
   key = "http-port"
 
-instance Monad m => HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) m where
+instance HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) where
   key = "tcp-probe-wait"
 
-instance Monad m => HasCfgKey PeerUseHttpDownload b m where
+instance HasCfgKey PeerUseHttpDownload b where
   key = "http-download"
 
-instance Monad m => HasCfgKey PeerBrainsDBPath b m where
+instance HasCfgKey PeerBrainsDBPath b where
   key = "brains-db"
 
-instance Monad m => HasCfgKey PeerDownloadLogKey (Maybe String) m where
+instance HasCfgKey PeerDownloadLogKey (Maybe String) where
   key = "download-log"
 
 data PeerKnownPeersFile
 
-instance Monad m => HasCfgKey PeerKnownPeersFile (Set String) m where
+instance HasCfgKey PeerKnownPeersFile (Set String) where
   key = "known-peers-file"
 
 
-instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b m) => HasCfgValue a FeatureSwitch m where
+instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b) => HasCfgValue a FeatureSwitch m where
   cfgValue = lastDef FeatureOff . val <$> getConf
     where
       val syn = [ if e == "on" then FeatureOn else FeatureOff

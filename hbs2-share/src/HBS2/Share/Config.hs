@@ -39,16 +39,16 @@ data RpcUnixOpt
 
 data SigilPathOpt
 
-instance Monad m => HasCfgKey IgnoreOpt (Set String) m where
+instance HasCfgKey IgnoreOpt (Set String) where
   key = "ignore"
 
-instance Monad m => HasCfgKey RefChanOpt (Maybe RChan) m where
+instance HasCfgKey RefChanOpt (Maybe RChan) where
   key = "refchan"
 
-instance Monad m => HasCfgKey RpcUnixOpt (Maybe String) m where
+instance HasCfgKey RpcUnixOpt (Maybe String) where
   key = "rpc.unix"
 
-instance Monad m => HasCfgKey SigilPathOpt (Maybe String) m where
+instance HasCfgKey SigilPathOpt (Maybe String) where
   key = "sigil"
 
 appName :: FilePath

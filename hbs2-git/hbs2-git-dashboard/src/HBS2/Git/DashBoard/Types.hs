@@ -23,11 +23,11 @@ data HttpPortOpt
 
 data DevelopAssetsOpt
 
-instance HasConf m => HasCfgKey HttpPortOpt a m where
+instance HasCfgKey HttpPortOpt a where
   key = "port"
 
 
-instance HasConf m => HasCfgKey DevelopAssetsOpt a m where
+instance HasCfgKey DevelopAssetsOpt a where
   key = "develop-assets"
 
 data RunDashBoardOpts = RunDashBoardOpts

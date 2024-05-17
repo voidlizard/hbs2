@@ -287,7 +287,7 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                       <*> pure (LBS.toStrict ext)
 
     where
-      parsed = parseTop str & fromRight mempty
+      parsed = parseTop (fromString str) & fromRight mempty
       version = lastMay [ n | (ListVal [SymbolVal "version", LitIntVal n] ) <- parsed ]
       quorum  = lastMay [ n | (ListVal [SymbolVal "quorum", LitIntVal n] ) <- parsed ]
       wait    = lastMay [ n | (ListVal [SymbolVal "wait", LitIntVal n] ) <- parsed ]

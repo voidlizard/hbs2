@@ -68,7 +68,7 @@ instance FromField HashRef where
   fromField = fmap fromString . fromField @String
 
 
-instance Monad m => HasCfgKey PeerBrainsDb (Maybe String) m where
+instance HasCfgKey PeerBrainsDb (Maybe String) where
   key = "brains"
 
 newtype CommitCmd = CommitCmd { onCommited :: IO () }
@@ -937,7 +937,7 @@ newBasicBrains cfg = liftIO do
 
 data PeerDownloadsDelOnStart
 
-instance Monad m => HasCfgKey PeerDownloadsDelOnStart b m where
+instance HasCfgKey PeerDownloadsDelOnStart b where
   key = "downloads-del-on-start"
 
 {- HLINT ignore "Use camelCase" -}

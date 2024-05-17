@@ -72,30 +72,30 @@ data StateRefOpt
 data QBLFRefKey
 type MyRefKey = AnyRefKey QBLFRefKey 'HBS2Basic
 
-instance Monad m => HasCfgKey HttpPortOpt (Maybe Int) m where
+instance HasCfgKey HttpPortOpt (Maybe Int) where
   key = "http"
 
 
-instance {-# OVERLAPPING #-} (HasConf m, HasCfgKey HttpPortOpt (Maybe Int) m) => HasCfgValue HttpPortOpt (Maybe Int) m where
+instance {-# OVERLAPPING #-} (HasConf m, HasCfgKey HttpPortOpt (Maybe Int)) => HasCfgValue HttpPortOpt (Maybe Int) m where
   cfgValue  = val <$> getConf
     where
       val syn = lastMay [ fromIntegral e
-                | ListVal (Key s [LitIntVal e]) <- syn, s == key @HttpPortOpt @(Maybe Int) @m
+                | ListVal (Key s [LitIntVal e]) <- syn, s == key @HttpPortOpt @(Maybe Int)
                 ]
 
-instance Monad m => HasCfgKey RefChanOpt (Maybe String) m where
+instance HasCfgKey RefChanOpt (Maybe String)  where
   key = "refchan"
 
-instance Monad m => HasCfgKey SocketOpt (Maybe String) m where
+instance HasCfgKey SocketOpt (Maybe String)  where
   key = "socket"
 
-instance Monad m => HasCfgKey ActorOpt (Maybe String) m where
+instance HasCfgKey ActorOpt (Maybe String)  where
   key = "actor"
 
-instance Monad m => HasCfgKey DefStateOpt (Maybe String) m where
+instance HasCfgKey DefStateOpt (Maybe String) where
   key = "default-state"
 
-instance Monad m => HasCfgKey StateRefOpt (Maybe String) m where
+instance HasCfgKey StateRefOpt (Maybe String) where
   key = "state-ref"
 
 class ToBalance s tx where

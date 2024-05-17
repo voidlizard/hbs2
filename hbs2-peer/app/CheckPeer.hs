@@ -16,10 +16,10 @@ import Lens.Micro.Platform
 data PeerBlackListKey
 data PeerWhiteListKey
 
-instance Monad m => HasCfgKey PeerBlackListKey (Set String) m where
+instance PeerBlackListKey (Set String) where
   key = "blacklist"
 
-instance Monad m => HasCfgKey PeerWhiteListKey (Set String) m where
+instance PeerWhiteListKey (Set String) where
   key = "whitelist"
 
 peerBanned :: forall e m . ( Monad m

@@ -38,7 +38,7 @@ instance Pretty AcceptAnnounce where
 
 
 
-instance Monad m => HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce m where
+instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce m where
   key = "accept-block-announce"
 
 instance (Monad m, HasConf m) => HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce m where
