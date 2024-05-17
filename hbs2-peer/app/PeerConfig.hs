@@ -70,7 +70,7 @@ instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b) => HasCfgValue a Featur
   cfgValue = lastDef FeatureOff . val <$> getConf
     where
       val syn = [ if e == "on" then FeatureOn else FeatureOff
-                | ListVal (Key s [SymbolVal e]) <- syn, s == key @a @b @m
+                | ListVal (Key s [SymbolVal e]) <- syn, s == key @a @b
                 ]
 
 cfgName :: FilePath

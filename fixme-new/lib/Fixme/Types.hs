@@ -300,7 +300,7 @@ commentKey fp =
     "" -> takeFileName fp
     xs -> xs
 
-type ContextShit c = (Data c, Data (Context c), IsContext c)
+type ContextShit c = (Data c, Data (Context c), IsContext c, Data (Syntax c))
 
 mksym :: FixmeAttrName -> Id
 mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)

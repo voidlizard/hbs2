@@ -484,7 +484,7 @@ where
   {fst predic}
   )
 
-order by f0.ts nulls first
+order by f0.ts asc nulls first
 
   |]
 

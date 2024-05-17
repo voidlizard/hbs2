@@ -206,19 +206,18 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1715856223,
-        "narHash": "sha256-Q9I6YbvzGuV9yHtxGxxU10LMQf9AdcsecSszPT7PDuc=",
-        "ref": "sexp-parser",
-        "rev": "b0a7f96d6569d16b0d27c2f9477d94e5ee39df66",
-        "revCount": 62,
+        "lastModified": 1715918584,
+        "narHash": "sha256-moioa3ixAZb0y/xxyxUVjSvXoSiDGXy/vAx6B70d2yM=",
+        "ref": "refs/heads/master",
+        "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
+        "revCount": 63,
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
       },
       "original": {
-        "ref": "sexp-parser",
-        "rev": "b0a7f96d6569d16b0d27c2f9477d94e5ee39df66",
+        "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
       }
     },
     "haskell-flake-utils": {
@@ -520,18 +519,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1715866786,
-        "narHash": "sha256-Pl4JDMBw1kzdcK/g2yA/BGu97dMRkQ2hJHi09PLbeq8=",
+        "lastModified": 1715919707,
+        "narHash": "sha256-lbvrCqJHC//NJgfvsy15+Evup5CS+CE50NolDwPIh94=",
         "ref": "refs/heads/master",
-        "rev": "864b359f44a4824f2a7b3dd49a37356c05f3ceff",
-        "revCount": 31,
+        "rev": "41830ea2f2e9bb589976f0433207a8f1b73b0b01",
+        "revCount": 35,
         "type": "git",
-        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?tag=0.1.2.6"
       },
       "original": {
-        "rev": "864b359f44a4824f2a7b3dd49a37356c05f3ceff",
+        "rev": "41830ea2f2e9bb589976f0433207a8f1b73b0b01",
         "type": "git",
-        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?tag=0.1.2.6"
       }
     }
   },
