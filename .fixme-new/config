@@ -38,7 +38,7 @@ fixme-comments ";" "--"
 )
 
 (fixme-play-log-action
-;  (hello kitty)
+  (hello kitty)
 )
 
 (define-template short

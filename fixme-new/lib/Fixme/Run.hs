@@ -583,6 +583,22 @@ delete txt = do
       liftIO $ what (Literal noContext syn)
 
 
+modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
+modify_ txt a b = do
+  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
+
+  void $ runMaybeT do
+
+    ha <- toMPlus =<< lift (selectFixmeHash txt)
+    let syn = mkLit @Text [qc|modified "{pretty ha}" "{a}" "{b}"|]
+
+    debug $ red $ pretty syn
+
+    for_ acts $ \(UpdateAction what) -> do
+      liftIO $ what (Literal noContext syn)
+
+
+
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
   g <- asks fixmeEnvGitDir
@@ -646,6 +662,7 @@ splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
 sanitizeLog :: [Syntax c] -> [Syntax c]
 sanitizeLog lls = flip filter lls $ \case
   ListVal (SymbolVal "deleted" : _) -> True
+  ListVal (SymbolVal "modified" : _) -> True
   _ -> False
 
 pattern Template :: forall {c}. Maybe Id -> [Syntax c] -> [Syntax c]
@@ -757,6 +774,17 @@ run what = do
         ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
           delete hash
 
+        ListVal [SymbolVal "modify", FixmeHashLike hash, StringLike a, StringLike b] -> do
+          modify_ hash a b
+
+        ListVal [SymbolVal "modified", TimeStampLike t, FixmeHashLike hash, StringLike a, StringLike b] -> do
+          debug $ green $ pretty s
+          updateFixme (Just t) hash (fromString a) (fromString b)
+
+        ListVal [SymbolVal "modified", FixmeHashLike hash, StringLike a, StringLike b] -> do
+          debug $ green $ pretty s
+          updateFixme Nothing hash (fromString a) (fromString b)
+
         ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
           deleteFixme hash
 
@@ -769,7 +797,7 @@ run what = do
           notice $ "hello" <+> pretty xs
 
         ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
-          debug $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
+          trace $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
           t <- asks fixmeEnvTemplates
           atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
 
@@ -785,7 +813,9 @@ run what = do
           env <- ask
           t <- asks fixmeEnvUpdateActions
           let repl syn = [ ( "$1", syn ) ]
-          let action = UpdateAction @c $ \syn -> liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
+          let action = UpdateAction @c $ \syn -> do
+                           liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
+
           atomically $ modifyTVar t (<> [action])
 
         ListVal (SymbolVal "fixme-play-log-action" : xs) -> do

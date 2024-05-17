@@ -8,6 +8,7 @@ module Fixme.State
   , selectFixmeHash
   , selectFixme
   , deleteFixme
+  , updateFixme
   , insertCommit
   , insertBlob
   , selectObjectHash
@@ -154,8 +155,8 @@ createTables = do
           row_number() over (partition by fixme, name order by ts desc nulls first) as rn
         from fixmeattr
         where not ({commits})
-      ),
-      ranked2 as (
+      )
+      , ranked2 as (
         select
           fixme,
           name,
@@ -519,6 +520,20 @@ deleteFixme hash = withState do
               on conflict(id,ts) do nothing
             |] (Only hash)
 
+
+updateFixme :: (FixmePerks m,MonadReader FixmeEnv m)
+            => Maybe FixmeTimestamp
+            -> Text
+            -> FixmeAttrName
+            ->  FixmeAttrVal
+            -> m ()
+
+updateFixme ts hash a b = withState do
+  warn $ red "updateFixme" <+> pretty hash
+  insert [qc| insert into fixmeattr (fixme,ts,name,value)
+              values (?,coalesce(?,strftime('%s', 'now')),?,?)
+              on conflict(fixme,ts,name) do update set value = excluded.value
+            |] (hash,ts,a,b)
 
 updateIndexes :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
 updateIndexes = withState $ transactional do

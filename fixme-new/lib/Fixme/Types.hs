@@ -24,11 +24,9 @@ import Data.Maybe
 import Data.Coerce
 import Data.Text qualified as Text
 import Data.List qualified as List
-import Data.Either
 import Data.Map qualified as Map
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
-import Lens.Micro.Platform
 
 
 pattern StringLike :: forall {c} . String -> Syntax c
@@ -39,6 +37,10 @@ pattern StringLikeList e <- (stringLikeList -> e)
 
 pattern FixmeHashLike :: forall {c} . Text -> Syntax c
 pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
+
+
+pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
+pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
@@ -56,6 +58,11 @@ fixmeHashFromSyn = \case
     Just $ Text.pack value
 
   _            -> Nothing
+
+tsFromFromSyn :: Syntax c -> Maybe FixmeTimestamp
+tsFromFromSyn = \case
+  LitIntVal n -> Just (fromIntegral n)
+  _ -> Nothing
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
                    deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
