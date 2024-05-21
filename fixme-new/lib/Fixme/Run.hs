@@ -522,8 +522,14 @@ list_ tpl a = do
         liftIO $ hPutDoc stdout what
 
 
-cat_ :: FixmePerks m => Text -> FixmeM m ()
-cat_ hash = do
+catFixmeMetadata :: FixmePerks m => Text -> FixmeM m ()
+catFixmeMetadata = cat_ True
+
+catFixme :: FixmePerks m => Text -> FixmeM m ()
+catFixme = cat_ False
+
+cat_ :: FixmePerks m => Bool -> Text -> FixmeM m ()
+cat_ metaOnly hash = do
 
   (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
   gd  <- fixmeGetGitDirCLIOpt
@@ -540,6 +546,11 @@ cat_ hash = do
       fme' <- lift $ selectFixme ha
 
       Fixme{..} <- ContT $ maybe1 fme' (pure ())
+
+      when metaOnly do
+        for_ (HM.toList fixmeAttr) $ \(k,v) -> do
+          liftIO $ print $ (pretty k <+> pretty v)
+        exit ()
 
       let gh' = HM.lookup "blob" fixmeAttr
 
@@ -768,8 +779,12 @@ run what = do
           debug $ "list" <+> pretty n
           list_ n whatever
 
+
+        ListVal [SymbolVal "cat", SymbolVal "metadata", FixmeHashLike hash] -> do
+          catFixmeMetadata hash
+
         ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
-          cat_ hash
+          catFixme hash
 
         ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
           delete hash
