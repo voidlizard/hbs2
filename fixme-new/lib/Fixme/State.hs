@@ -543,5 +543,10 @@ updateIndexes = withState $ transactional do
       select distinct fixme from fixmeactualview
     |]
   updateFixmeJson
+  -- FIXME: delete-table-grows
+  --   надо добавлять статус в fixmedeleted
+  --   только если он отличается от последнего
+  --   известного статуса
+  update_ [qc|delete from fixmejson where fixme in (select distinct id from fixmedeleted)|]
 
 

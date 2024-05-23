@@ -110,7 +110,6 @@ library
       Fixme.Prelude
       Fixme.State
       Fixme.Scan
-      Fixme.Scan.Git
       Fixme.Scan.Git.Local
 
     build-depends:    base

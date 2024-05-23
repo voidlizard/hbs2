@@ -271,10 +271,12 @@ modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
 modify_ txt a b = do
   acts <- asks fixmeEnvUpdateActions >>= readTVarIO
 
+  ts <- getEpoch
+
   void $ runMaybeT do
 
     ha <- toMPlus =<< lift (selectFixmeHash txt)
-    let syn = mkLit @Text [qc|modified "{pretty ha}" "{a}" "{b}"|]
+    let syn = mkLit @Text [qc|modified {ts} "{pretty ha}" "{a}" "{b}"|]
 
     debug $ red $ pretty syn
 
