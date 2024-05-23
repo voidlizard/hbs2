@@ -111,6 +111,7 @@ library
       Fixme.State
       Fixme.Scan
       Fixme.Scan.Git
+      Fixme.Scan.Git.Local
 
     build-depends:    base
                     , base16-bytestring
