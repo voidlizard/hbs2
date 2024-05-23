@@ -515,10 +515,19 @@ cleanupDatabase = do
 deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
 deleteFixme hash = withState do
   trace $ red "deleteFixme" <+> pretty hash
-  insert [qc| insert into fixmedeleted (id,ts,deleted)
-              values (?,(strftime('%s', 'now')),true)
-              on conflict(id,ts) do nothing
-            |] (Only hash)
+
+  here <- select [qc| select true
+                      from fixmedeleted
+                      where deleted and id = ?
+                      order by ts desc
+                      limit 1
+                     |] (Only hash) <&> isJust . listToMaybe . fmap (fromOnly @Bool)
+
+  unless here do
+    insert [qc| insert into fixmedeleted (id,ts,deleted)
+                values (?,(strftime('%s', 'now')),true)
+                on conflict(id,ts) do nothing
+              |] (Only hash)
 
 
 updateFixme :: (FixmePerks m,MonadReader FixmeEnv m)
