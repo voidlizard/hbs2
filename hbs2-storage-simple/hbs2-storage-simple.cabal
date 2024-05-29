@@ -59,6 +59,7 @@ library
     import:           shared-properties
     exposed-modules:  HBS2.Storage.Simple
                     , HBS2.Storage.Simple.Extra
+                    , HBS2.Storage.Compact
     -- other-modules:
     -- other-extensions:
     build-depends:    base, hbs2-core
@@ -84,6 +85,7 @@ library
                     , unordered-containers
                     , temporary
                     , filepattern
+                    , unliftio
 
 
     hs-source-dirs:   lib
