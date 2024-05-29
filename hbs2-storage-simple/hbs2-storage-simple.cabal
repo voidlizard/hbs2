@@ -67,6 +67,7 @@ library
                     , atomic-write
                     , bytestring
                     , bytestring-mmap
+                    , binary
                     , cache
                     , containers
                     , directory
