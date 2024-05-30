@@ -6,6 +6,7 @@ import HBS2.Hash
 import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Storage.Simple
+import HBS2.Storage.Compact
 
 import System.TimeIt
 
@@ -13,12 +14,14 @@ import DBPipe.SQLite
 
 import System.Environment
 import System.FilePath
+import System.IO.Temp
 
 import System.Random (randomRIO)
 import Control.Monad (replicateM)
 import Data.ByteString.Lazy  qualified as LBS
 import Data.Word (Word8)
 
+import Data.Coerce
 import Data.Function
 import Text.InterpolatedString.Perl6 (qc)
 import Control.Monad
@@ -63,9 +66,10 @@ main = do
   let s = readDef @Int 256 ss
   let p = pref
 
-  -- let bss = randomByteStrings n s
+  let bss = randomByteStrings n s
   let bss2 = randomByteStrings n s
   let bss3 = randomByteStrings n s
+  let bss4 = randomByteStrings n s
   -- let bss41 = randomByteStrings (n `div` 2) s
   -- let bss42 = randomByteStrings (n`div` 2) s
   -- let bss43 = randomByteStrings (n`div`4) s
@@ -91,8 +95,8 @@ main = do
 
   print $ "preparing to write" <+> pretty n <+> "chunks"
 
-  -- timeItNamed "write chunks test" do
-  --   S.mapM_ (enqueueBlock storage) bss
+  timeItNamed "write chunks to simple storage" do
+    S.mapM_ (enqueueBlock storage) bss
 
   timeItNamed "write chunks to sqlite test" do
     withDB env $ transactional do
@@ -123,6 +127,17 @@ main = do
     LBS.hPut fh (mconcat w)
     hClose fh
 
+  timeItNamed "write chunks to compact-storage" do
+
+    temp <- liftIO $ emptyTempFile "." "compact-storage"
+
+    sto <- compactStorageOpen mempty temp
+
+    flip S.mapM_  bss4 $ \bs -> do
+      let h = hashObject @HbSync bs
+      compactStoragePut sto (coerce h) (LBS.toStrict bs)
+
+    compactStorageClose sto
 
   timeItNamed "write chunks to LSM-mock" do
 

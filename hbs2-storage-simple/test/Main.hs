@@ -4,10 +4,11 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import TestSimpleStorage
+import TestCompactStorage
 
 main :: IO ()
 main =
-  defaultMain $
+  defaultMain do
     testGroup "root"
       [
         testCase "testSimpleStorageRandomReadWrite" testSimpleStorageRandomReadWrite
@@ -15,6 +16,10 @@ main =
       , testCase "testSimpleStorageRefs" testSimpleStorageRefs
       , testCase "testSimpleStorageBundles" testSimpleStorageBundles
       , testCase  "testSimpleStorageSymmEncryption" testSimpleStorageSymmEncryption
+      , testCase  "testCompactStorage" testCompactStorageBasic
       ]
+    -- testGroup "compact"
+    --   [ testCase  "testCompactStorage" testCompactStorageBasic
+    --   ]
 
 
