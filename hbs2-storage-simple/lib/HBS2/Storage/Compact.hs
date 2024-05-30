@@ -44,7 +44,7 @@ newtype EntrySize = EntrySize Word64
                     deriving stock Generic
 
 
-newtype EntryNum = EntryNum Word64
+newtype EntryNum = EntryNum Word32
                    deriving newtype (Ord,Eq,Num,Enum,Real,Integral,Show)
                    deriving stock Generic
 
@@ -70,6 +70,7 @@ data Header =
   , hdrVersion      :: Word16
   , hdrIndexOffset  :: EntryOffset
   , hdrIndexEntries :: EntryNum
+  , hdrGen          :: Word32
   , hdrPrev         :: EntryOffset
   }
   deriving stock (Show,Generic)
@@ -78,6 +79,7 @@ data CompactStorage =
   CompactStorage
   { csHandle     :: MVar Handle
   , csHeaderOff  :: IORef EntryOffset
+  , csHeaderGen  :: IORef Word32
   , csSeq        :: IORef Integer
   , csKeys       :: IORef (HashMap ByteString (Either (IndexEntry,Integer) (ByteString,Integer)))
   }
@@ -106,26 +108,38 @@ compactStorageOpen _ fp = do
 
   hoff0 <- newIORef 0
   keys0 <- newIORef mempty
-  ss   <- newIORef 0
+  ss    <- newIORef 0
+  gen0  <- newIORef 0
 
   if sz == 0 then
-    pure $ CompactStorage mha hoff0 ss keys0
+    pure $ CompactStorage mha hoff0 gen0 ss keys0
   else do
     (p,header) <- readHeader mha Nothing >>= maybe (throwIO InvalidHeader) pure
     traceM (show ("HEADER",header))
     hoff <- newIORef p
-    let sto = CompactStorage mha hoff ss keys0
+    let sto = CompactStorage mha hoff gen0 ss keys0
+    updateHeaderGen sto header
     readIndex sto (hdrIndexOffset header) (hdrIndexEntries header)
 
     flip fix (hdrPrev header) $ \next -> \case
       0   -> pure ()
       off ->  do
         (_,pHeader) <- readHeader mha (Just off) >>= maybe (throwIO InvalidHeader) pure
+        updateHeaderGen sto pHeader
         traceM (show ("PHEADER",pHeader))
         readIndex sto (hdrIndexOffset pHeader) (hdrIndexEntries pHeader)
         next (hdrPrev pHeader)
 
     pure sto
+
+  where
+
+    updateHeaderGen :: ForCompactStorage m
+                     => CompactStorage
+                     -> Header
+                     -> m ()
+    updateHeaderGen sto hdr = do
+      writeIORef (csHeaderGen sto) (hdrGen hdr)
 
 readIndex :: ForCompactStorage m
           => CompactStorage
@@ -196,8 +210,9 @@ compactStorageCommit sto = liftIO do
 
       offPrev <- readIORef (csHeaderOff sto)
 
+      pver <- atomicModifyIORef' (csHeaderGen sto) (\v -> (v+1, v))
       -- FIXME: maybe-slow-length-calc
-      appendHeader ha (Just offPrev) offIdx0 (fromIntegral $ length idxEntries)
+      appendHeader ha (Just offPrev) pver offIdx0 (fromIntegral $ length idxEntries)
       hFlush ha
 
       hSeek ha SeekFromEnd 0
@@ -245,16 +260,18 @@ compactStorageClose sto = do
 appendHeader :: ForCompactStorage m
              => Handle
              -> Maybe EntryOffset  -- prev. header
+             -> Word32             -- prev. header version
              -> EntryOffset
              -> EntryNum
              -> m ()
-appendHeader ha hoffset offset num = do
+appendHeader ha poffset v ioffset num = do
   let bs =   word16BE headerMagic
           <> word16BE headerVersion
-          <> word64BE (coerce offset)
-          <> word64BE (coerce num)
-          <> word64BE (coerce (fromMaybe 0 hoffset))
-          <> byteString (BS.replicate 4 0)
+          <> word64BE (coerce ioffset)
+          <> word32BE (coerce num)
+          <> word32BE v
+          <> word64BE (coerce $ fromMaybe 0 poffset)
+          <> word32BE 0 -- reserved
   liftIO $ LBS.hPut ha (B.toLazyByteString bs)
 
 readHeader :: ForCompactStorage m
@@ -279,13 +296,14 @@ readHeader mha moff = do
                        <*> getWord16be
                        <*> getOffset
                        <*> getNum
+                       <*> getWord32be
                        <*> getOffset
 
   pure $ either (const Nothing) (fmap (off,) . Just . view _3) what
 
   where
     getOffset = EntryOffset <$> getWord64be
-    getNum    = EntryNum    <$> getWord64be
+    getNum    = EntryNum    <$> getWord32be
 
 headerMagic :: Word16
 headerMagic = 32264
