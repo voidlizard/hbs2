@@ -76,6 +76,7 @@ library
                     , mtl
                     , prettyprinter
                     , random
+                    , safe
                     , stm
                     , stm-chans
                     , streaming
