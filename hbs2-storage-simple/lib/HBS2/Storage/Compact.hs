@@ -39,6 +39,10 @@ newtype EntryOffset = EntryOffset Word64
                       deriving newtype (Ord,Eq,Num,Enum,Real,Integral,Show)
                       deriving stock Generic
 
+newtype FwdEntryOffset = FwdEntryOffset Word64
+                         deriving newtype (Ord,Eq,Num,Enum,Real,Integral,Show)
+                         deriving stock Generic
+
 newtype EntrySize = EntrySize Word64
                     deriving newtype (Ord,Eq,Num,Enum,Real,Integral,Show)
                     deriving stock Generic
@@ -68,6 +72,7 @@ data Header =
   Header
   { hdrMagic        :: Word16
   , hdrVersion      :: Word16
+  , hdrFwdOffset    :: FwdEntryOffset
   , hdrIndexOffset  :: EntryOffset
   , hdrIndexEntries :: EntryNum
   , hdrGen          :: Word32
@@ -190,8 +195,13 @@ compactStorageCommit sto = liftIO do
 
     unless (List.null items) do
 
+      -- write fwd
+      offFwd <- hTell ha
+      LBS.hPut ha (toLazyByteString $ word64BE 0)
+
       off0 <- hTell ha
 
+      -- write data
       idxEntries <- flip fix (off0, items, mempty) $ \next (off, what, idx) -> do
          case what of
           [] -> pure idx
@@ -202,6 +212,7 @@ compactStorageCommit sto = liftIO do
 
       offIdx0 <- hTell ha <&> fromIntegral
 
+      -- write index
       for_ idxEntries $ \(e,_) -> do
         let lbs = serialise e
         LBS.hPut ha (B.toLazyByteString $
@@ -212,7 +223,14 @@ compactStorageCommit sto = liftIO do
 
       pver <- atomicModifyIORef' (csHeaderGen sto) (\v -> (v+1, v))
       -- FIXME: maybe-slow-length-calc
-      appendHeader ha (Just offPrev) pver offIdx0 (fromIntegral $ length idxEntries)
+      appendHeader ha (fromIntegral offFwd) (Just offPrev) pver offIdx0 (fromIntegral $ length idxEntries)
+
+      offCommitHead <- hTell ha
+
+      hSeek ha AbsoluteSeek offFwd
+
+      LBS.hPut ha (toLazyByteString $ word16BE (fromIntegral offCommitHead))
+
       hFlush ha
 
       hSeek ha SeekFromEnd 0
@@ -259,19 +277,21 @@ compactStorageClose sto = do
 
 appendHeader :: ForCompactStorage m
              => Handle
+             -> FwdEntryOffset     -- fwd section offset
              -> Maybe EntryOffset  -- prev. header
              -> Word32             -- prev. header version
              -> EntryOffset
              -> EntryNum
              -> m ()
-appendHeader ha poffset v ioffset num = do
-  let bs =   word16BE headerMagic
-          <> word16BE headerVersion
-          <> word64BE (coerce ioffset)
-          <> word32BE (coerce num)
-          <> word32BE v
-          <> word64BE (coerce $ fromMaybe 0 poffset)
-          <> word32BE 0 -- reserved
+appendHeader ha fwdOff poffset v ioffset num = do
+  let bs =   word16BE headerMagic                     -- 2
+          <> word16BE headerVersion                   -- 4
+          <> word64BE (coerce fwdOff)                 -- 12
+          <> word64BE (coerce ioffset)                -- 20
+          <> word32BE (coerce num)                    -- 24
+          <> word32BE v                               -- 28
+          <> word64BE (coerce $ fromMaybe 0 poffset)  -- 36
+          <> byteString (BS.replicate 4 0)            -- 40
   liftIO $ LBS.hPut ha (B.toLazyByteString bs)
 
 readHeader :: ForCompactStorage m
@@ -294,6 +314,7 @@ readHeader mha moff = do
   let what = flip runGetOrFail bs do
                 Header <$> getWord16be
                        <*> getWord16be
+                       <*> getFwdOffset
                        <*> getOffset
                        <*> getNum
                        <*> getWord32be
@@ -304,6 +325,7 @@ readHeader mha moff = do
   where
     getOffset = EntryOffset <$> getWord64be
     getNum    = EntryNum    <$> getWord32be
+    getFwdOffset = FwdEntryOffset <$> getWord64be
 
 headerMagic :: Word16
 headerMagic = 32264
@@ -312,7 +334,7 @@ headerVersion :: Word16
 headerVersion = 1
 
 headerSize :: Integral a => Word16 -> a
-headerSize 1 = fromIntegral (32 :: Integer)
+headerSize 1 = fromIntegral (40 :: Integer)
 headerSize _ = error "unsupported header version"
 
 
