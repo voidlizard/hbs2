@@ -88,6 +88,7 @@ library
                     , temporary
                     , filepattern
                     , unliftio
+                    , vector
 
 
     hs-source-dirs:   lib
@@ -172,6 +173,7 @@ executable hbs2-storage-simple-benchmarks
                     , safe
                     , serialise
                     , streaming
+                    , split
                     , text
                     , temporary
                     , transformers

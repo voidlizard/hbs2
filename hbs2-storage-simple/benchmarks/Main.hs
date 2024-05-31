@@ -30,6 +30,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.List.Split (chunksOf)
 
 import Streaming.Prelude (Of,Stream)
 import Streaming.Prelude qualified as S
@@ -66,10 +67,7 @@ main = do
   let s = readDef @Int 256 ss
   let p = pref
 
-  let bss = randomByteStrings n s
-  let bss2 = randomByteStrings n s
-  let bss3 = randomByteStrings n s
-  let bss4 = randomByteStrings n s
+  bss <- S.toList_ $ randomByteStrings n s
   -- let bss41 = randomByteStrings (n `div` 2) s
   -- let bss42 = randomByteStrings (n`div` 2) s
   -- let bss43 = randomByteStrings (n`div`4) s
@@ -95,27 +93,28 @@ main = do
 
   print $ "preparing to write" <+> pretty n <+> "chunks"
 
-  timeItNamed "write chunks to simple storage" do
-    S.mapM_ (enqueueBlock storage) bss
-
-  timeItNamed "write chunks to sqlite test" do
-    withDB env $ transactional do
-      flip S.mapM_  bss2 $ \bs -> do
-        let h = hashObject @HbSync bs & pretty & show
-        insert [qc|insert into wtf (hash,val) values(?,?)|] (h,bs)
-
   timeItNamed "write chunks to log" do
     fh <- openFile (path </> "lsm") AppendMode
-    flip S.mapM_  bss3 $ \bs -> do
+    forM_ bss $ \bs -> do
       let h = hashObject @HbSync bs & pretty & show
       LBS.hPut fh (serialise (h,bs))
     hClose fh
+
+  timeItNamed "write chunks to simple storage" do
+    mapM_ (enqueueBlock storage) bss
+
+  timeItNamed "write chunks to sqlite test" do
+    withDB env $ transactional do
+      forM_  bss $ \bs -> do
+        let h = hashObject @HbSync bs & pretty & show
+        insert [qc|insert into wtf (hash,val) values(?,?)|] (h,bs)
+
 
   timeItNamed "write chunks to log 2" do
     buf <- newIORef (mempty, 0 :: Int)
     fh <- openFile (path </> "lsm2") AppendMode
 
-    flip S.mapM_  bss3 $ \bs -> do
+    forM_ bss $ \bs -> do
       let h = hashObject @HbSync bs & pretty & show
       num <- atomicModifyIORef buf (\(chunks,sz) -> ((serialise (h,bs) : chunks,sz+1),sz+1))
 
@@ -127,16 +126,23 @@ main = do
     LBS.hPut fh (mconcat w)
     hClose fh
 
+
+  let cn = length bss `div` 2
+  let chu = chunksOf cn bss
+
   timeItNamed "write chunks to compact-storage" do
 
     temp <- liftIO $ emptyTempFile "." "compact-storage"
 
     sto <- compactStorageOpen mempty temp
 
-    flip S.mapM_  bss4 $ \bs -> do
-      let h = hashObject @HbSync bs
-      compactStoragePut sto (coerce h) (LBS.toStrict bs)
+    w <- for chu  $ \css -> do
+           async do
+            for_ css $ \bs -> do
+              let h = hashObject @HbSync bs
+              compactStoragePut sto (coerce h) (LBS.toStrict bs)
 
+    mapM_ wait w
     compactStorageClose sto
 
   timeItNamed "write chunks to LSM-mock" do

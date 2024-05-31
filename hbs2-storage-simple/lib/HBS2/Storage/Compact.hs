@@ -18,6 +18,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Foldable
 import Data.Traversable
+import Data.Vector (Vector,(!))
+import Data.Vector qualified as V
 import Codec.Serialise
 import GHC.Generics
 -- import System.IO
@@ -84,8 +86,9 @@ data CompactStorage =
   CompactStorage
   { csHandle     :: MVar Handle
   , csHeaderOff  :: IORef EntryOffset
-  , csSeq        :: IORef Integer
-  , csKeys       :: IORef (HashMap ByteString (Either (IndexEntry,Integer) (ByteString,Integer)))
+  -- , csSeq        :: IORef Integer
+  , csSeq        :: TVar Integer
+  , csKeys       :: Vector (TVar (HashMap ByteString (Either (IndexEntry,Integer) (ByteString,Integer))))
   }
 
 type ForCompactStorage m = MonadIO m
@@ -101,6 +104,15 @@ data CompactStorageOpenError =
 instance Exception CompactStorageOpenError
 
 
+
+buckets :: Int
+buckets = 8
+
+-- FIXME: buckets-hardcode
+getKeyPrefix :: ByteString -> Int
+getKeyPrefix bs = maybe 0 (fromIntegral.fst) (BS.uncons bs) `mod` buckets
+{-# INLINE getKeyPrefix  #-}
+
 compactStorageOpen :: ForCompactStorage m
                    => [CompactStorageOpenOpt]
                    -> FilePath
@@ -112,8 +124,11 @@ compactStorageOpen _ fp = do
   mha <- newMVar ha
 
   hoff0 <- newIORef 0
-  keys0 <- newIORef mempty
-  ss    <- newIORef 0
+
+  keys0 <- replicateM buckets (newTVarIO mempty) <&> V.fromList
+
+  -- ss    <- newIORef 0
+  ss   <- newTVarIO 0
 
   if sz == 0 then
     pure $ CompactStorage mha hoff0 ss keys0
@@ -169,16 +184,21 @@ readIndex sto offset num = liftIO do
     when (rn /= num) do
       throwIO BrokenIndex
 
-    let new = HM.fromList [ (idxEntryKey e,Left (e,0)) | e <- entries ]
+    let new = [ (idxEntryKey e,Left (e,0)) | e <- entries ]
       -- readIndex from newer to older
       -- so we keep only the newer values in map
-    modifyIORef' (csKeys sto) (HM.unionWith (\_ b -> b) new)
+    atomically do
+      for_ new $ \(k,v) -> do
+        let tv = csKeys sto ! getKeyPrefix k
+        modifyTVar tv (HM.insertWith (\_ o -> o) k v)
 
 compactStorageCommit :: ForCompactStorage m => CompactStorage -> m ()
 compactStorageCommit sto = liftIO do
   withMVar (csHandle sto) $ \ha -> do
     hSeek ha SeekFromEnd 0
-    kv <- readIORef (csKeys sto) <&> HM.toList
+
+    kv <- atomically do
+            mapM readTVar (csKeys sto) <&> mconcat . V.toList . fmap HM.toList
 
     let items = [ (k, v) | (k, Right v) <- kv ]
 
@@ -227,26 +247,36 @@ compactStorageCommit sto = liftIO do
 
       -- atomically do
       atomicWriteIORef (csHeaderOff sto) (offLast - headerSize 1)
-      atomicModifyIORef' (csKeys sto) $ \m -> do
-        let new = foldl merge m idxEntries
-        (new, ())
+
+      atomically do
+        for_ idxEntries $ \(e,i) -> do
+          let k = idxEntryKey e
+          let tv = csKeys sto ! getKeyPrefix k
+          modifyTVar tv (HM.insertWith merge k (Left (e, i)))
 
       where
-        merge m (el,i) = HM.insertWith mergeEl (idxEntryKey el) (Left (el,i)) m
-        mergeEl new old = if getSeq new >= getSeq old then new else old
+        merge new old = if getSeq new >= getSeq old then new else old
         getSeq = \case
           Left (_,i) -> i
           Right (_,i) -> i
 
+
 compactStoragePut :: ForCompactStorage m => CompactStorage -> ByteString -> ByteString -> m ()
 compactStoragePut sto k v = do
   -- TODO: ASAP-do-not-write-value-if-not-changed
-  c <- atomicModifyIORef' (csSeq sto) (\n -> (n+1,n))
-  atomicModifyIORef' (csKeys sto) (\m -> (HM.insert k (Right (v,c)) m, ()))
+
+  let tvar = csKeys sto ! getKeyPrefix k
+
+  atomically $ do
+    c <- stateTVar (csSeq sto) (\n -> (n+1,n))
+    modifyTVar tvar (HM.insert k (Right (v,c)))
 
 compactStorageGet :: ForCompactStorage m => CompactStorage -> ByteString -> m (Maybe ByteString)
 compactStorageGet sto key = do
-  val <- readIORef (csKeys sto) <&> HM.lookup key
+  let tvar = csKeys sto ! getKeyPrefix key
+
+  val <- readTVarIO tvar <&> HM.lookup key
+
   case val of
     Nothing -> pure Nothing
     Just (Right (s,_)) -> pure (Just s)
