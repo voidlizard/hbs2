@@ -1,4 +1,5 @@
 {-# Language PatternSynonyms #-}
+{-# Language RecordWildCards #-}
 module HBS2.Storage.Compact where
 
 
@@ -57,11 +58,11 @@ newtype EntryNum = EntryNum Word32
 
 data IndexEntry =
   IndexEntry
-  { idxEntryOffset :: EntryOffset
-  , idxEntrySize   :: EntrySize
-  , idxEntrySeq    :: Word64
-  , idxEntryTomb   :: Bool
-  , idxEntryKey    :: ByteString
+  { idxEntryOffset :: !EntryOffset
+  , idxEntrySize   :: !EntrySize
+  , idxEntrySeq    :: !Word64
+  , idxEntryTomb   :: !Bool
+  , idxEntryKey    :: !ByteString
   }
   deriving stock (Show,Generic)
 
@@ -86,7 +87,6 @@ data CompactStorage =
   CompactStorage
   { csHandle     :: MVar Handle
   , csHeaderOff  :: IORef EntryOffset
-  -- , csSeq        :: IORef Integer
   , csSeq        :: TVar Integer
   , csKeys       :: Vector (TVar (HashMap ByteString (Either (IndexEntry,Integer) (ByteString,Integer))))
   }
@@ -134,7 +134,6 @@ compactStorageOpen _ fp = do
     pure $ CompactStorage mha hoff0 ss keys0
   else do
     (p,header) <- readHeader mha Nothing >>= maybe (throwIO InvalidHeader) pure
-    traceM (show ("HEADER",header))
     hoff <- newIORef p
     let sto = CompactStorage mha hoff ss keys0
     readIndex sto (hdrIndexOffset header) (hdrIndexEntries header)
@@ -143,7 +142,6 @@ compactStorageOpen _ fp = do
       0   -> pure ()
       off ->  do
         (_,pHeader) <- readHeader mha (Just off) >>= maybe (throwIO InvalidHeader) pure
-        traceM (show ("PHEADER",pHeader))
         readIndex sto (hdrIndexOffset pHeader) (hdrIndexEntries pHeader)
         next (hdrPrev pHeader)
 
