@@ -12,6 +12,7 @@ import Data.ByteArray qualified as BA
 import Data.ByteArray (MemView(..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Builder as B
 import Data.Binary.Get
@@ -38,7 +39,8 @@ import Control.Concurrent.STM.TSem
 import Safe
 import UnliftIO
 
-import Foreign.Ptr
+import Foreign
+import Foreign.ForeignPtr
 import System.IO.MMap
 
 import Debug.Trace
@@ -116,7 +118,7 @@ isFresh e = case e of
 
 type Bucket = TVar (HashMap ByteString Entry)
 
-type MMaped = (Ptr Word8, Int, Int, Int)
+type MMaped = (ForeignPtr Word8, Int, Int)
 
 data CompactStorage k =
   CompactStorage
@@ -170,7 +172,7 @@ compactStorageOpen _ fp = do
 
   ss   <- newTVarIO 0
 
-  mmapped <- liftIO (mmapFilePtr fp ReadOnly Nothing)
+  mmapped <- liftIO (mmapFileForeignPtr fp ReadOnly Nothing)
                >>= newTVarIO
 
   if sz == 0 then
@@ -326,7 +328,7 @@ compactStorageCommit sto = liftIO do
         remapFile = do
           let fp = csFile sto
           unmapFile sto
-          mmapped <- liftIO (mmapFilePtr fp ReadOnly Nothing)
+          mmapped <- liftIO (mmapFileForeignPtr fp ReadOnly Nothing)
           atomically (writeTVar (csMMapped sto) mmapped)
 
 compactStorageDel :: ForCompactStorage m => CompactStorage k -> ByteString -> m ()
@@ -362,8 +364,6 @@ resetUncommitedSTM sto  = writeTVar (csUncommitted sto) 0
 
 compactStoragePut :: ForCompactStorage m => CompactStorage k -> ByteString -> ByteString -> m ()
 compactStoragePut sto k v = do
-  -- TODO: ASAP-do-not-write-value-if-not-changed
-
   let tvar = getBucket sto k
 
   atomically $ do
@@ -381,10 +381,9 @@ compactStorageGet sto key = do
     Just (Entry _ (Del _)) -> pure Nothing
     Just (Entry _ (New s)) -> pure (Just s)
     Just (Entry _ (Off e)) -> liftIO do
-      ma <- readTVarIO (csMMapped sto)
-      let ptr = plusPtr (view _1 ma) (fromIntegral $ idxEntryOffset e)
-      let mview = MemView ptr (fromIntegral $ idxEntrySize e)
-      pure $ Just $ BA.convert @_ @ByteString mview
+      ptr <- readTVarIO (csMMapped sto) <&> view _1
+      pure $ Just $ BS.fromForeignPtr ptr (fromIntegral $ idxEntryOffset e)
+                                          (fromIntegral $ idxEntrySize e)
 
 compactStorageExists :: ForCompactStorage m => CompactStorage k -> ByteString -> m (Maybe Integer)
 compactStorageExists sto key = do
@@ -399,7 +398,7 @@ compactStorageExists sto key = do
 unmapFile :: ForCompactStorage m => CompactStorage sto -> m ()
 unmapFile sto = do
   mmapped <- readTVarIO (csMMapped sto)
-  liftIO $ munmapFilePtr (view _1 mmapped) (view _2 mmapped)
+  liftIO $ finalizeForeignPtr (view _1 mmapped)
   -- NOTE: mmapped-is-invalid-now
   --   если теперь позвать что-то, что
   --   читает из этого мапинга -- то всё грохнется
