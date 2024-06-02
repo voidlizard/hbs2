@@ -88,6 +88,7 @@ library
                     , temporary
                     , filepattern
                     , unliftio
+                    , unix
                     , vector
 
 
