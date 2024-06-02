@@ -8,8 +8,6 @@ import HBS2.Hash
 import HBS2.Storage
 
 import Data.Word
-import Data.ByteArray qualified as BA
-import Data.ByteArray (MemView(..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Internal qualified as BS
@@ -25,7 +23,6 @@ import Data.Map qualified as Map
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Foldable
-import Data.Traversable
 import Data.Vector (Vector,(!))
 import Data.Vector qualified as V
 import Codec.Serialise
@@ -34,13 +31,9 @@ import GHC.Generics
 import Lens.Micro.Platform
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
-import Control.Monad
-import Control.Concurrent.STM.TSem
-import Safe
 import UnliftIO
 
 import Foreign
-import Foreign.ForeignPtr
 import System.IO.MMap
 
 import Debug.Trace
@@ -151,7 +144,7 @@ getBucket sto bs = do
 {-# INLINE getBucket #-}
 
 
-compactStorageOpen :: ForCompactStorage m
+compactStorageOpen :: forall k m . (ForCompactStorage m)
                    => [CompactStorageOpenOpt]
                    -> FilePath
                    -> m (CompactStorage k)
@@ -511,17 +504,17 @@ headerSize _ = error "unsupported header version"
 
 -- Storage instance
 
-translateKey :: Coercible (Hash hash) LBS.ByteString
+translateKey :: Coercible (Hash hash) ByteString
              => ByteString
              -> Hash hash
              -> ByteString
-translateKey prefix hash  = prefix <> LBS.toStrict (coerce hash)
+translateKey prefix hash  = prefix <> coerce hash
 
 {-# INLINE translateKey #-}
 
 instance ( MonadIO m, IsKey hash
          , Hashed hash LBS.ByteString
-         , Coercible (Hash hash) LBS.ByteString
+         , Coercible (Hash hash) ByteString
          , Serialise (Hash hash)
          , Key hash ~ Hash hash
          , Eq (Key hash)
@@ -538,9 +531,9 @@ instance ( MonadIO m, IsKey hash
   getBlock s hash = do
     compactStorageGet s (translateKey "V" hash) <&> fmap LBS.fromStrict
 
-  getChunk s k off size = do
-    undefined
-    -- liftIO $ simpleGetChunkLazy s k off size
+  getChunk s hash off size = runMaybeT do
+    bs <- MaybeT $ compactStorageGet s (translateKey "V" hash)
+    pure $ LBS.fromStrict $ BS.take (fromIntegral size) $ BS.drop (fromIntegral off) bs
 
   hasBlock sto k = do
     compactStorageExists sto (translateKey "V" k)
@@ -561,6 +554,6 @@ instance ( MonadIO m, IsKey hash
     compactStorageDel sto (translateKey "V" h)
 
   delRef sto ref = do
-    compactStorageDel sto (translateKey "V" (hashObject @hash ref))
+    compactStorageDel sto (translateKey "R" (hashObject @hash ref))
 
 
