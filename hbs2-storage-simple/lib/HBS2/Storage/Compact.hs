@@ -7,8 +7,9 @@ import HBS2.Clock
 import HBS2.Hash
 import HBS2.Storage
 
-
 import Data.Word
+import Data.ByteArray qualified as BA
+import Data.ByteArray (MemView(..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -39,10 +40,6 @@ import UnliftIO
 
 import Foreign.Ptr
 import System.IO.MMap
-
--- import System.Posix.IO
--- import System.Posix.Fcntl
-import System.Posix.Types
 
 import Debug.Trace
 
@@ -119,7 +116,7 @@ isFresh e = case e of
 
 type Bucket = TVar (HashMap ByteString Entry)
 
-type MMaped = (Ptr (), Int, Int, Int)
+type MMaped = (Ptr Word8, Int, Int, Int)
 
 data CompactStorage k =
   CompactStorage
@@ -173,7 +170,7 @@ compactStorageOpen _ fp = do
 
   ss   <- newTVarIO 0
 
-  mmapped <- liftIO (mmapFilePtr fp ReadOnly (Just (0, fromIntegral sz)))
+  mmapped <- liftIO (mmapFilePtr fp ReadOnly Nothing)
                >>= newTVarIO
 
   if sz == 0 then
@@ -301,7 +298,7 @@ compactStorageCommit sto = liftIO do
 
       sz <- hFileSize ha
 
-      remapFile sz
+      remapFile
 
       atomically do
         writeTVar (csHeaderOff sto) (offLast - headerSize 1)
@@ -325,11 +322,11 @@ compactStorageCommit sto = liftIO do
         getSeq = \case
           Entry i _ -> i
 
-        remapFile :: ForCompactStorage m => Integer -> m ()
-        remapFile sz = do
+        remapFile :: ForCompactStorage m => m ()
+        remapFile = do
           let fp = csFile sto
           unmapFile sto
-          mmapped <- liftIO (mmapFilePtr fp ReadOnly (Just (0, fromIntegral sz)))
+          mmapped <- liftIO (mmapFilePtr fp ReadOnly Nothing)
           atomically (writeTVar (csMMapped sto) mmapped)
 
 compactStorageDel :: ForCompactStorage m => CompactStorage k -> ByteString -> m ()
@@ -373,17 +370,6 @@ compactStoragePut sto k v = do
     c <- newSequenceSTM sto
     modifyTVar tvar (HM.insert k (Entry c (New v)))
 
--- TODO: slow-parallel-read-access
---   будет тормозить на конкурентном считывании уже
---   существующих (не новых), значений
---   так как будет в эксклюзивном режиме елозить
---   указателем по файлу.
---   Возможные варианты: маппить файл при доступе
---   на чтение (а что делать, если он растёт?)
---   Собирать операции чтения в батчи и читать батч
---   последовательно (будут некие задержки, и
---   чтение становится хитрожопой операцией, а не
---   просто из файла считать)
 compactStorageGet :: ForCompactStorage m => CompactStorage k -> ByteString -> m (Maybe ByteString)
 compactStorageGet sto key = do
   let tvar = getBucket sto key
@@ -395,12 +381,10 @@ compactStorageGet sto key = do
     Just (Entry _ (Del _)) -> pure Nothing
     Just (Entry _ (New s)) -> pure (Just s)
     Just (Entry _ (Off e)) -> liftIO do
-      r <- withMVar (csHandle sto) $ \ha -> do
-             try @_ @IOException do
-                  hSeek ha AbsoluteSeek (fromIntegral $ idxEntryOffset e)
-                  BS.hGet ha (fromIntegral $ idxEntrySize e)
-      either throwIO (pure . Just) r
-
+      ma <- readTVarIO (csMMapped sto)
+      let ptr = plusPtr (view _1 ma) (fromIntegral $ idxEntryOffset e)
+      let mview = MemView ptr (fromIntegral $ idxEntrySize e)
+      pure $ Just $ BA.convert @_ @ByteString mview
 
 compactStorageExists :: ForCompactStorage m => CompactStorage k -> ByteString -> m (Maybe Integer)
 compactStorageExists sto key = do
