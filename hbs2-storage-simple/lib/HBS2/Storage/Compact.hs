@@ -37,6 +37,9 @@ import Control.Concurrent.STM.TSem
 import Safe
 import UnliftIO
 
+import Foreign.Ptr
+import System.IO.MMap
+
 -- import System.Posix.IO
 -- import System.Posix.Fcntl
 import System.Posix.Types
@@ -116,14 +119,18 @@ isFresh e = case e of
 
 type Bucket = TVar (HashMap ByteString Entry)
 
+type MMaped = (Ptr (), Int, Int, Int)
+
 data CompactStorage k =
   CompactStorage
   { csBuckets     :: Int
+  , csFile        :: FilePath
   , csHandle      :: MVar Handle
   , csHeaderOff   :: TVar EntryOffset
   , csSeq         :: TVar Integer
   , csKeys        :: Vector Bucket
   , csUncommitted :: TVar Integer
+  , csMMapped     :: TVar MMaped
   }
 
 type ForCompactStorage m = MonadIO m
@@ -144,19 +151,6 @@ getBucket sto bs = do
   csKeys sto ! i
 {-# INLINE getBucket #-}
 
-
--- openFileForReadWrite :: FilePath -> IO (Fd, Fd)
--- openFileForReadWrite fp = do
---   fdW <- openFd fp ReadWrite (Just ownerModes) defaultFileFlags { nonBlock = True }
---   fdR <- openFd fp ReadOnly Nothing defaultFileFlags { nonBlock = True }
---   return (fdW, fdR)
-
--- -- Преобразование Fd в Handle
--- fdToHandleReadWrite :: (Fd, Fd) -> IO (Handle, Handle)
--- fdToHandleReadWrite (fdW, fdR) = do
---   haW <- fdToHandle fdW
---   haR <- fdToHandle fdR
---   return (haW, haR)
 
 compactStorageOpen :: ForCompactStorage m
                    => [CompactStorageOpenOpt]
@@ -179,12 +173,15 @@ compactStorageOpen _ fp = do
 
   ss   <- newTVarIO 0
 
+  mmapped <- liftIO (mmapFilePtr fp ReadOnly (Just (0, fromIntegral sz)))
+               >>= newTVarIO
+
   if sz == 0 then
-    pure $ CompactStorage buck mha hoff0 ss keys0 uncommitted
+    pure $ CompactStorage buck fp mha hoff0 ss keys0 uncommitted mmapped
   else do
     (p,header) <- readHeader mha Nothing >>= maybe (throwIO InvalidHeader) pure
     hoff <- newTVarIO p
-    let sto = CompactStorage buck mha hoff ss keys0 uncommitted
+    let sto = CompactStorage buck fp mha hoff ss keys0 uncommitted mmapped
     readIndex sto (hdrIndexOffset header) (hdrIndexEntries header)
 
     flip fix (hdrPrev header) $ \next -> \case
@@ -302,6 +299,10 @@ compactStorageCommit sto = liftIO do
 
       offLast <- hTell ha <&> fromIntegral
 
+      sz <- hFileSize ha
+
+      remapFile sz
+
       atomically do
         writeTVar (csHeaderOff sto) (offLast - headerSize 1)
         for_ idxEntries $ \(e,i) -> do
@@ -323,6 +324,13 @@ compactStorageCommit sto = liftIO do
 
         getSeq = \case
           Entry i _ -> i
+
+        remapFile :: ForCompactStorage m => Integer -> m ()
+        remapFile sz = do
+          let fp = csFile sto
+          unmapFile sto
+          mmapped <- liftIO (mmapFilePtr fp ReadOnly (Just (0, fromIntegral sz)))
+          atomically (writeTVar (csMMapped sto) mmapped)
 
 compactStorageDel :: ForCompactStorage m => CompactStorage k -> ByteString -> m ()
 compactStorageDel sto key  = do
@@ -404,11 +412,22 @@ compactStorageExists sto key = do
     Just (Entry _ (Off e)) -> pure (Just (fromIntegral $ idxEntrySize e))
     _ -> pure Nothing
 
+unmapFile :: ForCompactStorage m => CompactStorage sto -> m ()
+unmapFile sto = do
+  mmapped <- readTVarIO (csMMapped sto)
+  liftIO $ munmapFilePtr (view _1 mmapped) (view _2 mmapped)
+  -- NOTE: mmapped-is-invalid-now
+  --   если теперь позвать что-то, что
+  --   читает из этого мапинга -- то всё грохнется
+
+
 compactStorageClose :: ForCompactStorage m => CompactStorage k -> m ()
 compactStorageClose sto = do
   compactStorageCommit sto
   -- FIXME: hangs-forever-on-io-exception
-  liftIO $ withMVar (csHandle sto) hClose
+  liftIO $ do
+    unmapFile sto
+    withMVar (csHandle sto) hClose
 
 compactStorageFindLiveHeads :: ForCompactStorage m
                              => FilePath

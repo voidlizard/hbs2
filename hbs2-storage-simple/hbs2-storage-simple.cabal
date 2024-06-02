@@ -74,6 +74,7 @@ library
                     , filepath
                     , microlens-platform
                     , mtl
+                    , mmap
                     , prettyprinter
                     , random
                     , safe
