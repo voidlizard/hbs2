@@ -14,7 +14,8 @@ import Data.Config.Suckless
 import Prettyprinter.Render.Terminal
 import Control.Applicative
 import Data.Aeson
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
@@ -177,14 +178,24 @@ data UpdateAction = forall c . IsContext c => UpdateAction { runUpdateAction :: 
 data ReadLogAction = forall c . IsContext c => ReadLogAction { runReadLog :: Syntax c -> IO () }
 
 -- FIXME: fucking-context-hardcode-wtf-1
-data CatAction = CatAction { catAction :: [(Id, Syntax C)] -> ByteString -> IO () }
+data CatAction = CatAction { catAction :: [(Id, Syntax C)] -> LBS.ByteString -> IO () }
 
 data SimpleTemplate = forall c . (IsContext c, Data (Context c), Data c) => SimpleTemplate [Syntax c]
+
+class HasSequence w where
+  getSequence :: w -> Word64
 
 data CompactAction =
     Deleted  Word64 HashRef
   | Modified Word64 HashRef FixmeAttrName FixmeAttrVal
   deriving stock (Eq,Ord,Show,Generic)
+
+class MkKey a where
+  mkKey :: a -> ByteString
+
+instance MkKey CompactAction where
+  mkKey (Deleted _ h) = "D" <> LBS.toStrict (serialise h)
+  mkKey (Modified _ h _ _) = "M" <> LBS.toStrict (serialise h)
 
 instance Pretty CompactAction where
   pretty = \case
@@ -192,6 +203,19 @@ instance Pretty CompactAction where
     Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
 
 instance Serialise CompactAction
+
+pattern CompactActionSeq :: Word64 -> CompactAction
+pattern CompactActionSeq s <- (seqOf -> Just s)
+
+{-# COMPLETE CompactActionSeq #-}
+
+seqOf :: CompactAction -> Maybe Word64
+seqOf = \case
+  Deleted   w  _ -> Just w
+  Modified  w _ _ _ -> Just w
+
+instance HasSequence CompactAction where
+  getSequence x = fromMaybe 0 (seqOf x)
 
 data FixmeTemplate =
   Simple SimpleTemplate

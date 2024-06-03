@@ -516,53 +516,44 @@ run what = do
 
           env <- ask
 
-          warn  $ red "play-log-file WIP" <+> pretty  fn
-
-          warn  $ red "GENERATE FORMS? FROM STAGE"
+          debug $ red "play-log-file WIP" <+> pretty  fn
 
           what <- selectStage
 
+          sto <- compactStorageOpen @HbSync mempty fn
+
           for_ what $ \w -> do
-            warn $ pretty w
+            let k = mkKey w
+            v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
+            case v0 of
+              Nothing -> do
+                put sto k (LBS.toStrict $ serialise w)
 
-          warn  $ red "ADD RECORDS FROM STAGE TO BINARY LOG"
+              Just (Left{}) -> do
+                put sto k (LBS.toStrict $ serialise w)
 
-          -- sto <- compactStorageOpen @HbSync mempty fn
+              Just (Right prev) | getSequence w > getSequence prev -> do
+                put sto k (LBS.toStrict $ serialise w)
 
-          -- wtf <- S.toList_ $ runMaybeT do
-          --         rv <- MaybeT $ getRef sto logRootKey
-          --         walkMerkle rv (getBlock sto) $ \case
-          --           Left{} -> pure ()
-          --           Right (xs :: [Text]) -> do
-          --             let what = fmap parseTop xs & rights & mconcat
-          --             lift $ mapM_ S.yield (sanitizeLog what)
+              _ -> pure ()
 
-          -- let theLog = Set.fromList (wtf <> what) & Set.toList
-          -- -- FIXME: mtree-params-hardcode
+          compactStorageCommit sto
 
-          -- let new = theLog & fmap ( fromString @Text . show . pretty )
-          -- let pt = toPTree (MaxSize 1024) (MaxNum 256) new
+          ks <- keys sto
 
-          -- -- FIXME: fuck-the-fucking-scientific
-          -- --  сраный Scientiс не реализует Generic
-          -- --  и не открывает конструкторы, нельзя
-          -- --  сделать инстанс Serialise.
-          -- --  надо выпилить его к херам. а пока вот так
-          -- h <- makeMerkle 0 pt $ \(_,_,bss) -> do
-          --        void $ putBlock sto bss
+          entries <- mapM (get sto) ks
+                      <&> catMaybes
+                      <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
+                      <&> rights
 
-          -- updateRef sto logRootKey h
 
-          -- compactStorageClose sto
+          compactStorageClose sto
 
-          -- liftIO $ print $ vcat (fmap pretty new)
+          let top = show $ vcat (fmap pretty entries)
+          let theLog = parseTop top & fromRight mempty
 
-          warn  $ red "DELETE STAGE"
-          warn  $ red "SCAN BINARY LOG?"
-          warn  $ red "RUN NEW FORMS"
-
-          -- liftIO $ withFixmeEnv env (runForms theLog)
-          -- cleanStage
+          liftIO $ withFixmeEnv env (runForms theLog)
+          cleanStage
 
         ListVal [SymbolVal "no-debug"] -> do
           setLoggingOff @DEBUG
@@ -586,14 +577,14 @@ run what = do
         ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
           sto <- compactStorageOpen @HbSync readonly fn
 
-          -- FIXME: re-implement
-          -- void $ runMaybeT do
-          --   rv <- MaybeT $ getRef sto logRootKey
+          ks <- keys sto
 
-          --   walkMerkle rv (getBlock sto) $ \case
-          --     Left{} -> error "malformed log"
-          --     Right (xs :: [Text]) -> do
-          --       liftIO $ mapM_ (print  . pretty) xs
+          entries <- mapM (get sto) ks
+                      <&> catMaybes
+                      <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
+                      <&> rights
+
+          liftIO $ print $ vcat (fmap pretty entries)
 
           compactStorageClose sto
 
