@@ -44,6 +44,31 @@ pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
 pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
+
+mklist :: IsContext c => [Syntax c] -> Syntax c
+mklist = List noContext
+
+mkint :: (IsContext c, Integral a) => a -> Syntax c
+mkint  = Literal noContext . LitInt . fromIntegral
+
+mksym :: IsContext c => Id -> Syntax c
+mksym  = Symbol noContext
+
+class MkId a where
+  mkId :: a -> Id
+
+instance MkId FixmeAttrName where
+  mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
+
+class IsContext c => MkStr c a where
+  mkstr :: a -> Syntax c
+
+instance IsContext c => MkStr c FixmeAttrVal where
+  mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
+
+instance IsContext c => MkStr c Text where
+  mkstr = Literal noContext . LitStr
+
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
   LitStrVal s -> Just $ Text.unpack s
@@ -149,6 +174,16 @@ data ReadLogAction = forall c . IsContext c => ReadLogAction { runReadLog :: Syn
 data CatAction = CatAction { catAction :: [(Id, Syntax C)] -> ByteString -> IO () }
 
 data SimpleTemplate = forall c . (IsContext c, Data (Context c), Data c) => SimpleTemplate [Syntax c]
+
+data CompactAction =
+    Deleted  Word64 HashRef
+  | Modified Word64 HashRef FixmeAttrName FixmeAttrVal
+  deriving stock (Eq,Ord,Show,Generic)
+
+instance Pretty CompactAction where
+  pretty = \case
+    Deleted s r -> pretty $ mklist @C [ mksym "deleted"  ]
+
 
 data FixmeTemplate =
   Simple SimpleTemplate
@@ -311,14 +346,6 @@ commentKey fp =
 
 type ContextShit c = (Data c, Data (Context c), IsContext c, Data (Syntax c))
 
-class MkId a where
-  mkId :: a -> Id
-
-instance MkId FixmeAttrName where
-  mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
-
-mkstr :: forall c . (IsContext c) => FixmeAttrVal -> Syntax c
-mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
 
 cc0 :: forall c . ContextShit c => Context c
 cc0 = noContext :: Context c

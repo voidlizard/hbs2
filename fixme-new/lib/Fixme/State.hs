@@ -25,7 +25,7 @@ module Fixme.State
   ) where
 
 import Fixme.Prelude
-import Fixme.Types hiding (mkstr, mksym)
+import Fixme.Types
 import Fixme.Config
 
 import HBS2.System.Dir
@@ -367,17 +367,6 @@ instance IsContext c => HasPredicate [Syntax c] where
         ListVal [x] -> x
         x -> x
 
-mklist :: IsContext c => [Syntax c] -> Syntax c
-mklist ss = List noContext ss
-
-mksym :: IsContext c => Id -> Syntax c
-mksym  = Symbol noContext
-
-mkint :: (IsContext c, Integral a) => a -> Syntax c
-mkint  = Literal noContext . LitInt . fromIntegral
-
-mkstr :: IsContext c => Text -> Syntax c
-mkstr = Literal noContext . LitStr
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
