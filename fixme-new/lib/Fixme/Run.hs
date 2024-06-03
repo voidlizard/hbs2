@@ -466,6 +466,9 @@ run what = do
           debug $ green $ pretty s
           updateFixme Nothing hash (fromString a) (fromString b)
 
+        ListVal [SymbolVal "deleted", TimeStampLike _, FixmeHashLike hash] -> do
+          deleteFixme hash
+
         ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
           deleteFixme hash
 
@@ -547,13 +550,13 @@ run what = do
                       <&> rights
 
 
-          compactStorageClose sto
-
           let top = show $ vcat (fmap pretty entries)
           let theLog = parseTop top & fromRight mempty
 
           liftIO $ withFixmeEnv env (runForms theLog)
           cleanStage
+
+          compactStorageClose sto
 
         ListVal [SymbolVal "no-debug"] -> do
           setLoggingOff @DEBUG
