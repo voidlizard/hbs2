@@ -1,7 +1,23 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# Language ViewPatterns #-}
 {-# Language UndecidableInstances #-}
-module HBS2.Storage.Compact where
+module HBS2.Storage.Compact
+  ( Storage(..)
+  , CompactStorage
+  , compactStorageOpen
+  , compactStorageClose
+  , compactStorageCommit
+  , compactStoragePut
+  , compactStorageGet
+  , compactStorageDel
+  , compactStorageFindLiveHeads
+  , compactStorageRun
+  , HBS2.Storage.Compact.keys
+  , HBS2.Storage.Compact.member
+  , HBS2.Storage.Compact.put
+  , HBS2.Storage.Compact.get
+  , HBS2.Storage.Compact.del
+  ) where
 
 import HBS2.Clock
 import HBS2.Hash
@@ -18,16 +34,14 @@ import Data.Coerce
 import Data.Function
 import Data.List qualified as List
 import Data.Maybe
-import Data.Map (Map)
-import Data.Map qualified as Map
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Foldable
+import Data.Traversable
 import Data.Vector (Vector,(!))
 import Data.Vector qualified as V
 import Codec.Serialise
 import GHC.Generics
--- import System.IO
 import Lens.Micro.Platform
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
@@ -98,6 +112,12 @@ pattern Fresh e <- e@(Entry _ ( isFresh -> True ))
 
 pattern Tomb :: Entry -> Entry
 pattern Tomb e <- e@(Entry _ ( isTomb -> True ))
+
+isAlive :: Entry -> Bool
+isAlive = \case
+  Entry _ New{}     -> True
+  Entry _ e@(Off{}) -> not (isTomb e)
+  _                 -> False
 
 isTomb :: E -> Bool
 isTomb (Off e) = idxEntryTomb e
@@ -500,6 +520,43 @@ headerVersion = 1
 headerSize :: Integral a => Word16 -> a
 headerSize 1 = fromIntegral (32 :: Integer)
 headerSize _ = error "unsupported header version"
+
+
+-- Map-like interface
+
+keys :: ForCompactStorage m => CompactStorage k -> m [ ByteString ]
+keys sto = do
+  what <- atomically $ mapM readTVar (csKeys sto)
+  let w = foldMap HM.toList (V.toList what)
+  pure [ k | (k,x) <- w, isAlive x ]
+
+member :: ForCompactStorage m
+       => CompactStorage k
+       -> ByteString
+       -> m Bool
+member s k = isJust <$> compactStorageExists s k
+
+put :: ForCompactStorage m
+     => CompactStorage k
+     -> ByteString
+     -> ByteString
+     -> m ()
+
+put = compactStoragePut
+
+get  :: ForCompactStorage m
+     => CompactStorage k
+     -> ByteString
+     -> m (Maybe ByteString)
+
+get = compactStorageGet
+
+del :: ForCompactStorage m
+     => CompactStorage k
+     -> ByteString
+     -> m ()
+
+del = compactStorageDel
 
 
 -- Storage instance
