@@ -66,6 +66,12 @@ class IsContext c => MkStr c a where
 instance IsContext c => MkStr c FixmeAttrVal where
   mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
 
+instance IsContext c => MkStr c FixmeAttrName where
+  mkstr (s :: FixmeAttrName)  = Literal (noContext @c) (LitStr (coerce s))
+
+instance IsContext c => MkStr c HashRef where
+  mkstr s  = Literal (noContext @c) (LitStr (fromString $ show $ pretty s))
+
 instance IsContext c => MkStr c Text where
   mkstr = Literal noContext . LitStr
 
@@ -182,8 +188,10 @@ data CompactAction =
 
 instance Pretty CompactAction where
   pretty = \case
-    Deleted s r -> pretty $ mklist @C [ mksym "deleted"  ]
+    Deleted s r      -> pretty $ mklist @C [ mksym "deleted", mkint s, mkstr r  ]
+    Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
 
+instance Serialise CompactAction
 
 data FixmeTemplate =
   Simple SimpleTemplate

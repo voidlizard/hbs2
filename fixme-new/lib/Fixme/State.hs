@@ -570,22 +570,21 @@ insertFixmeDelStaged hash = withState do
             |] (hash,ts)
 
 
-type StageModRow = (Text,Integer,Text,Text)
+type StageModRow = (HashRef,Word64,Text,Text)
 
-selectStageModified :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStageModified :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
 selectStageModified = withState do
   what <- select_ @_ @StageModRow [qc|select hash,ts,attr,value from fixmestagemod|]
   for what $ \(h,t,k,v) -> do
-    pure $ mklist [mksym "modified", mkint t, mkstr h, mkstr k, mkstr v]
+    pure $ Modified t h (FixmeAttrName k) (FixmeAttrVal v)
 
-
-selectStageDeleted :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStageDeleted :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
 selectStageDeleted = withState do
-  what <- select_ @_ @(Text,Word64) [qc|select hash,ts from fixmestagedel|]
+  what <- select_ @_ @(HashRef,Word64) [qc|select hash,ts from fixmestagedel|]
   for what $ \(h,t) -> do
-    pure $ mklist [mksym "deleted", mkstr h]
+    pure $ Deleted t h
 
-selectStage :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStage :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
 selectStage = do
   a <- selectStageModified
   b <- selectStageDeleted

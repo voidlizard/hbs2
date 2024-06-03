@@ -520,50 +520,49 @@ run what = do
 
           warn  $ red "GENERATE FORMS? FROM STAGE"
 
-          what <- selectStage @C
+          what <- selectStage
 
           for_ what $ \w -> do
             warn $ pretty w
 
           warn  $ red "ADD RECORDS FROM STAGE TO BINARY LOG"
 
-          sto <- compactStorageOpen @HbSync mempty fn
+          -- sto <- compactStorageOpen @HbSync mempty fn
 
-          wtf <- S.toList_ $ runMaybeT do
-                  rv <- MaybeT $ getRef sto logRootKey
-                  walkMerkle rv (getBlock sto) $ \case
-                    Left{} -> pure ()
-                    Right (xs :: [Text]) -> do
-                      let what = fmap parseTop xs & rights & mconcat
-                      lift $ mapM_ S.yield (sanitizeLog what)
+          -- wtf <- S.toList_ $ runMaybeT do
+          --         rv <- MaybeT $ getRef sto logRootKey
+          --         walkMerkle rv (getBlock sto) $ \case
+          --           Left{} -> pure ()
+          --           Right (xs :: [Text]) -> do
+          --             let what = fmap parseTop xs & rights & mconcat
+          --             lift $ mapM_ S.yield (sanitizeLog what)
 
-          let theLog = Set.fromList (wtf <> what) & Set.toList
-          -- FIXME: mtree-params-hardcode
+          -- let theLog = Set.fromList (wtf <> what) & Set.toList
+          -- -- FIXME: mtree-params-hardcode
 
-          let new = theLog & fmap ( fromString @Text . show . pretty )
-          let pt = toPTree (MaxSize 1024) (MaxNum 256) new
+          -- let new = theLog & fmap ( fromString @Text . show . pretty )
+          -- let pt = toPTree (MaxSize 1024) (MaxNum 256) new
 
-          -- FIXME: fuck-the-fucking-scientific
-          --  сраный Scientiс не реализует Generic
-          --  и не открывает конструкторы, нельзя
-          --  сделать инстанс Serialise.
-          --  надо выпилить его к херам. а пока вот так
-          h <- makeMerkle 0 pt $ \(_,_,bss) -> do
-                 void $ putBlock sto bss
+          -- -- FIXME: fuck-the-fucking-scientific
+          -- --  сраный Scientiс не реализует Generic
+          -- --  и не открывает конструкторы, нельзя
+          -- --  сделать инстанс Serialise.
+          -- --  надо выпилить его к херам. а пока вот так
+          -- h <- makeMerkle 0 pt $ \(_,_,bss) -> do
+          --        void $ putBlock sto bss
 
-          updateRef sto logRootKey h
+          -- updateRef sto logRootKey h
 
-          compactStorageClose sto
+          -- compactStorageClose sto
 
-          liftIO $ print $ vcat (fmap pretty new)
+          -- liftIO $ print $ vcat (fmap pretty new)
 
           warn  $ red "DELETE STAGE"
           warn  $ red "SCAN BINARY LOG?"
           warn  $ red "RUN NEW FORMS"
 
-          liftIO $ withFixmeEnv env (runForms theLog)
-
-          cleanStage
+          -- liftIO $ withFixmeEnv env (runForms theLog)
+          -- cleanStage
 
         ListVal [SymbolVal "no-debug"] -> do
           setLoggingOff @DEBUG
@@ -581,19 +580,20 @@ run what = do
           cleanStage
 
         ListVal [SymbolVal "builtin:show-stage"] -> do
-          stage <- selectStage @C
+          stage <- selectStage
           liftIO $ print $ vcat (fmap pretty stage)
 
         ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
           sto <- compactStorageOpen @HbSync readonly fn
 
-          void $ runMaybeT do
-            rv <- MaybeT $ getRef sto logRootKey
+          -- FIXME: re-implement
+          -- void $ runMaybeT do
+          --   rv <- MaybeT $ getRef sto logRootKey
 
-            walkMerkle rv (getBlock sto) $ \case
-              Left{} -> error "malformed log"
-              Right (xs :: [Text]) -> do
-                liftIO $ mapM_ (print  . pretty) xs
+          --   walkMerkle rv (getBlock sto) $ \case
+          --     Left{} -> error "malformed log"
+          --     Right (xs :: [Text]) -> do
+          --       liftIO $ mapM_ (print  . pretty) xs
 
           compactStorageClose sto
 
