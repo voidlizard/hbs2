@@ -39,6 +39,8 @@ import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
+import System.IO.Temp as Temp
+
 
 import Streaming.Prelude qualified as S
 
@@ -557,6 +559,26 @@ run what = do
           cleanStage
 
           compactStorageClose sto
+
+        ListVal [SymbolVal "git:merge",StringLike o, StringLike target, StringLike b] -> do
+          debug $ red "git:merge" <+> pretty o <+> pretty target <+> pretty b
+
+          temp <- liftIO $ emptyTempFile "." "merge-result"
+          sa  <- compactStorageOpen @HbSync readonly o
+          sb  <- compactStorageOpen @HbSync readonly b
+          r   <- compactStorageOpen @HbSync mempty temp
+
+          for_ [sa,sb] $ \sto -> do
+            ks   <- keys sto
+            for_ ks $ \k -> runMaybeT do
+              v <- get sto k & MaybeT
+              put r k v
+
+          compactStorageClose r
+          compactStorageClose sa
+          compactStorageClose sb
+
+          mv temp target
 
         ListVal [SymbolVal "no-debug"] -> do
           setLoggingOff @DEBUG

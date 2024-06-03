@@ -117,7 +117,6 @@ scanBlob fpath lbs = do
                 next (S (Sf (succEln env bs)) xs)
 
         S _ [] -> pure ()
-
   -- debug $ vcat (fmap viaShow parts)
 
   S.toList_ do

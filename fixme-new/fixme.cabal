@@ -84,10 +84,10 @@ common shared-properties
       , streaming
       , stm
       , text
+      , temporary
       , time
       , timeit
       , transformers
-
       , typed-process
       , unordered-containers
       , unliftio
