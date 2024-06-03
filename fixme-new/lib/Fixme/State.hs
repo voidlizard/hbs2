@@ -15,11 +15,17 @@ module Fixme.State
   , newCommit
   , cleanupDatabase
   , updateIndexes
+  , insertFixmeDelStaged
+  , insertFixmeModStaged
+  , selectStageModified
+  , selectStageDeleted
+  , selectStage
+  , cleanStage
   , HasPredicate(..)
   ) where
 
 import Fixme.Prelude
-import Fixme.Types
+import Fixme.Types hiding (mkstr, mksym)
 import Fixme.Config
 
 import HBS2.System.Dir
@@ -29,7 +35,7 @@ import DBPipe.SQLite hiding (field)
 
 import Data.Aeson as Aeson
 import Data.HashMap.Strict qualified as HM
-import Text.InterpolatedString.Perl6 (qc)
+import Text.InterpolatedString.Perl6 (q,qc)
 import Data.Text qualified as Text
 import Data.Maybe
 import Data.Either
@@ -40,6 +46,7 @@ import Data.Generics.Product.Fields (field)
 import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Fixed
+import Data.Word (Word64)
 import System.TimeIt
 
 
@@ -239,6 +246,21 @@ createTables = do
         create index if not exists idx_fixmekey ON fixmejson(fixmekey)
       |]
 
+  ddl [qc| create table if not exists fixmestagedel
+           ( hash text    not null primary key
+           , ts   integer not null
+           )
+         |]
+
+  ddl [qc| create table if not exists fixmestagemod
+           ( hash   text    not null
+           , ts     integer not null
+           , attr   text    not null
+           , value  text
+           , primary key (hash,attr)
+           )
+         |]
+
 -- .fixme-new/state.db
 -- and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
 
@@ -345,9 +367,17 @@ instance IsContext c => HasPredicate [Syntax c] where
         ListVal [x] -> x
         x -> x
 
-      mklist = List (noContext :: Context c)
-      mksym  = Symbol (noContext :: Context c)
-      mkstr = Literal (noContext :: Context c) . LitStr
+mklist :: IsContext c => [Syntax c] -> Syntax c
+mklist ss = List noContext ss
+
+mksym :: IsContext c => Id -> Syntax c
+mksym  = Symbol noContext
+
+mkint :: (IsContext c, Integral a) => a -> Syntax c
+mkint  = Literal noContext . LitInt . fromIntegral
+
+mkstr :: IsContext c => Text -> Syntax c
+mkstr = Literal noContext . LitStr
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -466,18 +496,28 @@ updateFixmeJson = do
   |]
 
 
+-- TODO: predicate-for-stage-toggle
 selectFixmeThin :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [FixmeThin]
 selectFixmeThin a = withState do
 
   let predic = genPredQ "j" (predicate a)
 
+  let emptyObect = [q|'{}'|] :: String
+
   let sql = [qc|
 
-select j.json as blob
+with s1 as (
+  select  m.hash as hash
+        , cast(json_group_object(m.attr,m.value) as blob) as json
+  from fixmestagemod m
+)
+
+select  cast(json_patch(j.json, coalesce(s.json,{emptyObect})) as blob) as blob
 
 from
   fixmejson j join fixmeactual f on f.fixme = j.fixme
               join fixme f0 on f0.id = f.fixme
+              left join s1 s on s.hash = f0.id
 
 where
 
@@ -511,6 +551,63 @@ cleanupDatabase = do
     update_ [qc|delete from fixmerel|]
     update_ [qc|delete from fixmeactual|]
     update_ [qc|delete from fixmejson|]
+    update_ [qc|delete from fixmestagedel|]
+    update_ [qc|delete from fixmestagemod|]
+
+
+insertFixmeModStaged :: (FixmePerks m,MonadReader FixmeEnv m)
+                     => Text
+                     -> FixmeAttrName
+                     -> FixmeAttrVal
+                     -> m ()
+insertFixmeModStaged hash k v = withState do
+  ts <- getEpoch
+  insert [qc| insert into fixmestagemod (hash,ts,attr,value) values(?,?,?,?)
+              on conflict (hash,attr)
+                 do update set hash  = excluded.hash
+                             , ts    = excluded.ts
+                             , attr  = excluded.attr
+                             , value = excluded.value
+            |] (hash,ts,k,v)
+
+
+insertFixmeDelStaged :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
+insertFixmeDelStaged hash = withState do
+  ts <- getEpoch
+  insert [qc| insert into fixmestagedel (hash,ts) values(?,?)
+              on conflict (hash)
+                 do update set hash = excluded.hash
+                  , ts = excluded.ts
+            |] (hash,ts)
+
+
+type StageModRow = (Text,Integer,Text,Text)
+
+selectStageModified :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStageModified = withState do
+  what <- select_ @_ @StageModRow [qc|select hash,ts,attr,value from fixmestagemod|]
+  for what $ \(h,t,k,v) -> do
+    pure $ mklist [mksym "modified", mkint t, mkstr h, mkstr k, mkstr v]
+
+
+selectStageDeleted :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStageDeleted = withState do
+  what <- select_ @_ @(Text,Word64) [qc|select hash,ts from fixmestagedel|]
+  for what $ \(h,t) -> do
+    pure $ mklist [mksym "deleted", mkstr h]
+
+selectStage :: (IsContext c,FixmePerks m,MonadReader FixmeEnv m) => m [Syntax c]
+selectStage = do
+  a <- selectStageModified
+  b <- selectStageDeleted
+  pure (a<>b)
+
+cleanStage :: (FixmePerks m,MonadReader FixmeEnv m) => m ()
+cleanStage = withState do
+  transactional do
+    update_ [qc|delete from fixmestagedel|]
+    update_ [qc|delete from fixmestagemod|]
+    pure ()
 
 deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
 deleteFixme hash = withState do
@@ -556,5 +653,6 @@ updateIndexes = withState $ transactional do
   --   только если он отличается от последнего
   --   известного статуса
   update_ [qc|delete from fixmejson where fixme in (select distinct id from fixmedeleted)|]
+
 
 

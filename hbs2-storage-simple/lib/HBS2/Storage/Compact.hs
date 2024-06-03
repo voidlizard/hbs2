@@ -4,6 +4,8 @@
 module HBS2.Storage.Compact
   ( Storage(..)
   , CompactStorage
+  , CompactStorageOpenOpt(..)
+  , readonly
   , compactStorageOpen
   , compactStorageClose
   , compactStorageCommit
@@ -154,6 +156,7 @@ data CompactStorage k =
   CompactStorage
   { csBuckets     :: Int
   , csFile        :: FilePath
+  , csOpts        :: CompactStorageOpenOpt
   , csHandle      :: MVar Handle
   , csHeaderOff   :: TVar EntryOffset
   , csSeq         :: TVar Integer
@@ -164,7 +167,20 @@ data CompactStorage k =
 
 type ForCompactStorage m = MonadIO m
 
-data CompactStorageOpenOpt
+data CompactStorageOpenOpt =
+  CompactStorageOpenOpt
+  { csReadOnly :: Bool
+  }
+
+
+instance Monoid CompactStorageOpenOpt where
+  mempty = CompactStorageOpenOpt False
+
+instance Semigroup CompactStorageOpenOpt where
+  (<>) _ b = CompactStorageOpenOpt (csReadOnly b)
+
+readonly :: CompactStorageOpenOpt
+readonly = CompactStorageOpenOpt True
 
 data CompactStorageOpenError =
          InvalidHeader
@@ -182,11 +198,11 @@ getBucket sto bs = do
 
 
 compactStorageOpen :: forall k m . (ForCompactStorage m)
-                   => [CompactStorageOpenOpt]
+                   => CompactStorageOpenOpt
                    -> FilePath
                    -> m (CompactStorage k)
 
-compactStorageOpen _ fp = do
+compactStorageOpen opt fp = do
 
   let buck = 8
 
@@ -206,11 +222,11 @@ compactStorageOpen _ fp = do
                >>= newTVarIO
 
   if sz == 0 then
-    pure $ CompactStorage buck fp mha hoff0 ss keys0 uncommitted mmapped
+    pure $ CompactStorage buck fp opt mha hoff0 ss keys0 uncommitted mmapped
   else do
     (p,header) <- readHeader mha Nothing >>= maybe (throwIO InvalidHeader) pure
     hoff <- newTVarIO p
-    let sto = CompactStorage buck fp mha hoff ss keys0 uncommitted mmapped
+    let sto = CompactStorage buck fp opt mha hoff ss keys0 uncommitted mmapped
     readIndex sto (hdrIndexOffset header) (hdrIndexEntries header)
 
     flip fix (hdrPrev header) $ \next -> \case
@@ -475,7 +491,10 @@ unmapFile sto = do
 
 compactStorageClose :: ForCompactStorage m => CompactStorage k -> m ()
 compactStorageClose sto = do
-  compactStorageCommit sto
+
+  unless (csOpts sto & csReadOnly) do
+    compactStorageCommit sto
+
   -- FIXME: hangs-forever-on-io-exception
   liftIO $ do
     unmapFile sto

@@ -13,11 +13,15 @@ import Fixme.Scan as Scan
 
 import HBS2.Git.Local.CLI
 
+import HBS2.Merkle
+import HBS2.Data.Types.Refs
+import HBS2.Storage.Compact
 import HBS2.System.Dir
 import DBPipe.SQLite hiding (field)
 import Data.Config.Suckless
 
 import Data.Aeson.Encode.Pretty as Aeson
+import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Either
@@ -25,6 +29,8 @@ import Data.Maybe
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Set qualified as Set
+import Data.List qualified as List
 import Data.Text qualified as Text
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
@@ -35,6 +41,9 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 
 import Streaming.Prelude qualified as S
+
+-- FIXME: move-to-suckless-conf
+deriving stock instance Ord (Syntax C)
 
 {- HLINT ignore "Functor law" -}
 
@@ -61,6 +70,8 @@ pattern FixmeGitScanFilterDays :: forall {c}. Integer -> Syntax c
 pattern FixmeGitScanFilterDays d <- ListVal [ SymbolVal "fixme-git-scan-filter-days", LitIntVal d ]
 
 
+logRootKey :: SomeRefKey ByteString
+logRootKey = SomeRefKey "ROOT"
 
 scanGitArgs :: [Syntax c] -> [ScanGitArgs]
 scanGitArgs syn = [ w | ScanGitArgs w <- syn ]
@@ -255,35 +266,17 @@ cat_ metaOnly hash = do
 delete :: FixmePerks m => Text -> FixmeM m ()
 delete txt = do
   acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-
   void $ runMaybeT do
-
     ha <- toMPlus =<< lift (selectFixmeHash txt)
-    let syn = mkLit @Text [qc|deleted "{pretty ha}"|]
-
-    debug $ red "deleted" <+> pretty ha
-
-    for_ acts $ \(UpdateAction what) -> do
-      liftIO $ what (Literal noContext syn)
+    lift $ insertFixmeDelStaged ha
 
 
 modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
 modify_ txt a b = do
   acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-
-  ts <- getEpoch
-
   void $ runMaybeT do
-
     ha <- toMPlus =<< lift (selectFixmeHash txt)
-    let syn = mkLit @Text [qc|modified {ts} "{pretty ha}" "{a}" "{b}"|]
-
-    debug $ red $ pretty syn
-
-    for_ acts $ \(UpdateAction what) -> do
-      liftIO $ what (Literal noContext syn)
-
-
+    lift $ insertFixmeModStaged ha (fromString a) (fromString b)
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
@@ -522,17 +515,57 @@ run what = do
             appendFile fn "\n"
 
         ListVal [SymbolVal "play-log-file", StringLike fn] -> do
-          debug $ yellow "play-log-file" <+> pretty fn
-          -- FIXME: just-for-in-case-sanitize-input
-          --   $workflow: done
-          what <- try @_ @IOException (liftIO $ readFile fn)
-                    <&> fromRight mempty
-                    <&> parseTop
-                    <&> fromRight mempty
-                    <&> sanitizeLog
 
           env <- ask
-          liftIO $ withFixmeEnv env (runForms what)
+
+          warn  $ red "play-log-file WIP" <+> pretty  fn
+
+          warn  $ red "GENERATE FORMS? FROM STAGE"
+
+          what <- selectStage @C
+
+          for_ what $ \w -> do
+            warn $ pretty w
+
+          warn  $ red "ADD RECORDS FROM STAGE TO BINARY LOG"
+
+          sto <- compactStorageOpen @HbSync mempty fn
+
+          wtf <- S.toList_ $ runMaybeT do
+                  rv <- MaybeT $ getRef sto logRootKey
+                  walkMerkle rv (getBlock sto) $ \case
+                    Left{} -> pure ()
+                    Right (xs :: [Text]) -> do
+                      let what = fmap parseTop xs & rights & mconcat
+                      lift $ mapM_ S.yield (sanitizeLog what)
+
+          let theLog = Set.fromList (wtf <> what) & Set.toList
+          -- FIXME: mtree-params-hardcode
+
+          let new = theLog & fmap ( fromString @Text . show . pretty )
+          let pt = toPTree (MaxSize 1024) (MaxNum 256) new
+
+          -- FIXME: fuck-the-fucking-scientific
+          --  сраный Scientiс не реализует Generic
+          --  и не открывает конструкторы, нельзя
+          --  сделать инстанс Serialise.
+          --  надо выпилить его к херам. а пока вот так
+          h <- makeMerkle 0 pt $ \(_,_,bss) -> do
+                 void $ putBlock sto bss
+
+          updateRef sto logRootKey h
+
+          compactStorageClose sto
+
+          liftIO $ print $ vcat (fmap pretty new)
+
+          warn  $ red "DELETE STAGE"
+          warn  $ red "SCAN BINARY LOG?"
+          warn  $ red "RUN NEW FORMS"
+
+          liftIO $ withFixmeEnv env (runForms theLog)
+
+          cleanStage
 
         ListVal [SymbolVal "no-debug"] -> do
           setLoggingOff @DEBUG
@@ -545,6 +578,26 @@ run what = do
 
         ListVal [SymbolVal "builtin:cleanup-state"] -> do
           cleanupDatabase
+
+        ListVal [SymbolVal "builtin:clean-stage"] -> do
+          cleanStage
+
+        ListVal [SymbolVal "builtin:show-stage"] -> do
+          stage <- selectStage @C
+          liftIO $ print $ vcat (fmap pretty stage)
+
+        ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
+          sto <- compactStorageOpen @HbSync readonly fn
+
+          void $ runMaybeT do
+            rv <- MaybeT $ getRef sto logRootKey
+
+            walkMerkle rv (getBlock sto) $ \case
+              Left{} -> error "malformed log"
+              Right (xs :: [Text]) -> do
+                liftIO $ mapM_ (print  . pretty) xs
+
+          compactStorageClose sto
 
         ListVal [SymbolVal "builtin:update-indexes"] -> do
           updateIndexes

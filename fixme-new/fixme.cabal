@@ -80,6 +80,7 @@ common shared-properties
       , mtl
       , safe
       , serialise
+      , scientific
       , streaming
       , stm
       , text
