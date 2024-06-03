@@ -338,8 +338,6 @@ compactStorageCommit sto = liftIO do
 
       offLast <- hTell ha <&> fromIntegral
 
-      sz <- hFileSize ha
-
       remapFile
 
       atomically do

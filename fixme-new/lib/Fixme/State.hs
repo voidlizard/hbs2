@@ -529,7 +529,6 @@ deleteFixme hash = withState do
                 on conflict(id,ts) do nothing
               |] (Only hash)
 
-
 updateFixme :: (FixmePerks m,MonadReader FixmeEnv m)
             => Maybe FixmeTimestamp
             -> Text

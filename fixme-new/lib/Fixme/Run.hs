@@ -549,7 +549,6 @@ run what = do
         ListVal [SymbolVal "builtin:update-indexes"] -> do
           updateIndexes
 
-
         ListVal [SymbolVal "builtin:select-fixme-hash", FixmeHashLike x] -> do
           w <- selectFixmeHash x
           liftIO $ print $ pretty w
