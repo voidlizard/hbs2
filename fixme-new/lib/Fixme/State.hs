@@ -451,7 +451,7 @@ genPredQ tbl what = go what
       AttrLike name val -> do
         let x = val <> "%"
         let binds = [Bound x]
-        ([qc|(json_extract(json, '$."{name}"') like ?)|], binds)
+        ([qc|(json_extract({tbl}.json, '$."{name}"') like ?)|], binds)
 
       Not a -> do
         let (sql, bound) = go a
