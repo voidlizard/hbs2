@@ -119,7 +119,7 @@ pattern Tomb e <- e@(Entry _ ( isTomb -> True ))
 pattern Existed :: Entry -> IndexEntry -> Entry
 pattern Existed e w <- e@(Entry _ (existed -> Just w))
 
-{-# COMPLETE Existed #-}
+-- {-# COMPLETE Existed #-}
 
 isAlive :: Entry -> Bool
 isAlive = \case
@@ -277,7 +277,10 @@ compactStorageCommit sto = liftIO do
     kv <- atomically do
             mapM readTVar (csKeys sto) <&> mconcat . V.toList . fmap HM.toList
 
-    let items = [ (k, v) | (k, v@Fresh{}) <- kv ]
+    let items = [ (k, e)
+                | (k, e@Fresh{}) <- kv
+                , reallyUpdated mma e
+                ]
 
     unless (List.null items) do
 
@@ -295,14 +298,7 @@ compactStorageCommit sto = liftIO do
           ((_,Entry i (Del e)):rest) | not (idxEntryTomb e) -> do
             next (off + 0, rest, (e { idxEntryTomb = True },i) : idx)
 
-          -- NOTE: this-might-be-slow
-          --   но это правильно, поскольку
-          --   у нас **compact** storage и мы не хотим,
-          --   что бы его раздувало одинаковыми значениями
           ((k,Entry i (Upd v e)):rest) -> do
-            if readValue mma e == v then do
-              next (off + 0, rest, idx)
-            else do
               BS.hPut ha v
               let sz = fromIntegral $ BS.length v
               next (off + sz, rest, (IndexEntry (fromIntegral off) (fromIntegral sz) 0 False k,i) : idx)
@@ -375,6 +371,19 @@ compactStorageCommit sto = liftIO do
           mmapped <- liftIO (mmapFileForeignPtr fp ReadOnly Nothing)
           atomically (writeTVar (csMMapped sto) mmapped)
 
+        -- NOTE: this-might-be-slow
+        --   но это правильно, поскольку
+        --   у нас **compact** storage и мы не хотим,
+        --   что бы его раздувало одинаковыми значениями
+        --   Можно попробовать использовать siphash
+        --   при загрузке (?)... да ну нахрен, капец долго
+        --   будет. если только его не хранить (это можно)
+        reallyUpdated mma = \case
+          Entry _ (Upd v e) -> readValue mma e /= v
+
+          _ -> True
+
+
 compactStorageDel :: ForCompactStorage m => CompactStorage k -> ByteString -> m ()
 compactStorageDel sto key  = do
 
@@ -398,6 +407,9 @@ compactStorageDel sto key  = do
         modifyTVar tvar (HM.insert key (Entry j (Del what)))
         succUncommitedSTM sto 1
 
+    -- FIXME: fix-incomplete-pattern-warning
+    _ -> pure ()
+
 newSequenceSTM :: CompactStorage k -> STM Integer
 newSequenceSTM sto = stateTVar (csSeq sto) (\n -> (n+1,n))
 
@@ -419,7 +431,8 @@ compactStoragePut sto k v = do
     modifyTVar tvar (HM.insertWith check k (Entry c (New v)))
 
   where
-    check (Entry i (New v1)) (Entry _ (Off e)) = Entry i (Upd v1 e)
+    check (Entry i (New v1)) (Entry _ (Off e))    = Entry i (Upd v1 e)
+    check (Entry i (New v1)) (Entry _ (Upd v0 e)) = Entry i (Upd v1 e)
     check x _ = x
 
 readValue :: MMaped -> IndexEntry -> ByteString
@@ -450,6 +463,7 @@ compactStorageExists sto key = do
   case val of
     Just (Entry _ (New s)) -> pure (Just (fromIntegral (BS.length s)))
     Just (Entry _ (Off e)) -> pure (Just (fromIntegral $ idxEntrySize e))
+    Just (Entry _ (Upd v e)) -> pure (Just (fromIntegral $ BS.length v))
     _ -> pure Nothing
 
 unmapFile :: ForCompactStorage m => CompactStorage sto -> m ()

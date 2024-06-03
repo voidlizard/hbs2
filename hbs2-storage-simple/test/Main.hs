@@ -17,9 +17,7 @@ main =
       , testCase "testSimpleStorageBundles" testSimpleStorageBundles
       , testCase  "testSimpleStorageSymmEncryption" testSimpleStorageSymmEncryption
       , testCase  "testCompactStorage" testCompactStorageBasic
+      , testCase  "testCompactStorageNoDupes" testCompactStorageNoDupes
       ]
-    -- testGroup "compact"
-    --   [ testCase  "testCompactStorage" testCompactStorageBasic
-    --   ]
 
 

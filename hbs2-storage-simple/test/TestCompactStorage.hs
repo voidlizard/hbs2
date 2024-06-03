@@ -35,12 +35,12 @@ import Test.Tasty.HUnit
 testCompactStorageBasic :: IO ()
 testCompactStorageBasic = do
 
-  let elems = [ 0 .. 10_000 :: Int ]
+  let elems = [ 0 .. 100_000 :: Int ]
 
   let pt = toPTree (MaxSize 1000) (MaxNum 256) elems
 
   withSystemTempDirectory "simpleStorageTest1" $ \dir -> do
-    let db = "storage"
+    let db = dir </> "storage"
     sto <- compactStorageOpen @HbSync mempty db
 
     root <- makeMerkle 0 pt $ \(_,_,bss) -> do
@@ -55,4 +55,41 @@ testCompactStorageBasic = do
       Right xs -> mapM_ S.yield  xs
 
     assertEqual "elems-read-from-storage" elems elems2
+
+testCompactStorageNoDupes :: IO ()
+testCompactStorageNoDupes = do
+
+  let elems = [ 0 .. 1_000 :: Int ]
+
+  withSystemTempDirectory "simpleStorageTest2" $ \dir -> do
+    let db = dir </> "storage"
+    sto <- compactStorageOpen @HbSync mempty db
+
+    for_ elems $ \k -> do
+      put sto (LBS.toStrict $ serialise k) (LBS.toStrict $ serialise $ show $ pretty k)
+
+    commit sto
+
+    size1 <- compactStorageSize sto
+
+    here <- for elems $ \e -> do
+              let k = LBS.toStrict $ serialise e
+              member sto k
+
+    assertBool "all-members-here" (and here)
+
+    for_ elems $ \k -> do
+      put sto (LBS.toStrict $ serialise k) (LBS.toStrict $ serialise $ show $ pretty k)
+      commit sto
+
+    size2 <- compactStorageSize sto
+
+    assertEqual "no-dupes" size1 size2
+
+    here2 <- for elems $ \e -> do
+              let k = LBS.toStrict $ serialise e
+              member sto k
+
+    assertBool "all-members-here" (and here2)
+
 
