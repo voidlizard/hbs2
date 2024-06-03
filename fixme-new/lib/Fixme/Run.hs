@@ -42,8 +42,6 @@ import Control.Monad.Trans.Maybe
 
 import Streaming.Prelude qualified as S
 
--- FIXME: move-to-suckless-conf
-deriving stock instance Ord (Syntax C)
 
 {- HLINT ignore "Functor law" -}
 
@@ -199,7 +197,7 @@ list_ tpl a = do
 
     Just (Simple (SimpleTemplate simple)) -> do
       for_ fixmies $ \(FixmeThin attr) -> do
-        let subst = [ (mksym k, mkstr @C v) | (k,v) <- HM.toList attr ]
+        let subst = [ (mkId k, mkstr @C v) | (k,v) <- HM.toList attr ]
         let what = render (SimpleTemplate (inject  subst simple))
                       & fromRight "render error"
 
@@ -248,9 +246,9 @@ cat_ metaOnly hash = do
       let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
       let lno   = max 1 $ origLen + after + before
 
-      let dict = [ (mksym k, mkstr @C   v) | (k,v) <- HM.toList fixmeAttr ]
+      let dict = [ (mkId k, mkstr @C   v) | (k,v) <- HM.toList fixmeAttr ]
                  <>
-                 [ (mksym "before", mkstr @C (FixmeAttrVal $ Text.pack $ show bbefore))
+                 [ (mkId (FixmeAttrName "before"), mkstr @C (FixmeAttrVal $ Text.pack $ show bbefore))
                  ]
 
       debug (pretty cmd)

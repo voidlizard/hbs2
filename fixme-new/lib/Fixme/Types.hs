@@ -28,6 +28,8 @@ import Data.Map qualified as Map
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 
+-- FIXME: move-to-suckless-conf
+deriving stock instance Ord (Syntax C)
 
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
@@ -309,8 +311,11 @@ commentKey fp =
 
 type ContextShit c = (Data c, Data (Context c), IsContext c, Data (Syntax c))
 
-mksym :: FixmeAttrName -> Id
-mksym (k :: FixmeAttrName) = Id ("$" <> coerce k)
+class MkId a where
+  mkId :: a -> Id
+
+instance MkId FixmeAttrName where
+  mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
 
 mkstr :: forall c . (IsContext c) => FixmeAttrVal -> Syntax c
 mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
