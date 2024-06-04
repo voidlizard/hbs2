@@ -6,6 +6,7 @@ module Fixme.State
   , insertFixme
   , selectFixmeThin
   , selectFixmeHash
+  , selectFixmeHashes
   , selectFixme
   , deleteFixme
   , updateFixme
@@ -223,6 +224,14 @@ createTables = do
     )
     select id as fixme, fixmekey, ts from rn
       where rn = 1
+      and not exists (
+      select null
+        from fixmeattr a
+             join fixmedeleted d on d.id = a.fixme
+        where a.name = 'fixme-key'
+              and a.value = rn.fixmekey
+      )
+
     |]
 
 
@@ -372,11 +381,12 @@ instance IsContext c => HasPredicate [Syntax c] where
 {- HLINT ignore "Eta reduce" -}
 
 selectFixmeHash :: (FixmePerks m) => Text -> FixmeM m (Maybe Text)
-selectFixmeHash what = withState do
+selectFixmeHash what = listToMaybe <$> selectFixmeHashes what
 
+selectFixmeHashes :: (FixmePerks m) => Text -> FixmeM m [Text]
+selectFixmeHashes what = withState do
   let w = what <> "%"
-
-  r <- select @(Only Text)
+  select @(Only Text)
             [qc| select fixme
                  from fixmejson
                  where json_extract(json,'$."fixme-key"') like ?
@@ -386,18 +396,6 @@ selectFixmeHash what = withState do
                  where id like ?
             |] (w,w)
          <&> fmap fromOnly
-
-
-  let rs = listToMaybe r
-  -- catMaybes [ (x,) <$> Text.length . view _1 <$> Text.commonPrefixes what x
-  --                    | x <- r ]
-  --            & sortBy (comparing (Down . snd))
-  --            & headMay
-  --            & fmap fst
-  -- debug $ red "selectFixmeHash" <+> pretty r <+> pretty rs
-
-  pure rs
-
 
 selectFixme :: FixmePerks m => Text -> FixmeM m (Maybe Fixme)
 selectFixme txt = do
@@ -595,7 +593,6 @@ cleanStage = withState do
   transactional do
     update_ [qc|delete from fixmestagedel|]
     update_ [qc|delete from fixmestagemod|]
-    pure ()
 
 deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
 deleteFixme hash = withState do

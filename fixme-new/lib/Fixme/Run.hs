@@ -266,10 +266,9 @@ cat_ metaOnly hash = do
 delete :: FixmePerks m => Text -> FixmeM m ()
 delete txt = do
   acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-  void $ runMaybeT do
-    ha <- toMPlus =<< lift (selectFixmeHash txt)
-    lift $ insertFixmeDelStaged ha
-
+  hashes <- selectFixmeHashes txt
+  for_ hashes $ \ha -> do
+    insertFixmeDelStaged ha
 
 modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
 modify_ txt a b = do
@@ -560,8 +559,8 @@ run what = do
 
           compactStorageClose sto
 
-        ListVal [SymbolVal "git:merge",StringLike o, StringLike target, StringLike b] -> do
-          debug $ red "git:merge" <+> pretty o <+> pretty target <+> pretty b
+        ListVal [SymbolVal "git:merge-binary-log",StringLike o, StringLike target, StringLike b] -> do
+          debug $ red "git:merge-binary-log" <+> pretty o <+> pretty target <+> pretty b
 
           temp <- liftIO $ emptyTempFile "." "merge-result"
           sa  <- compactStorageOpen @HbSync readonly o
@@ -593,6 +592,9 @@ run what = do
           cleanupDatabase
 
         ListVal [SymbolVal "builtin:clean-stage"] -> do
+          cleanStage
+
+        ListVal [SymbolVal "builtin:drop-stage"] -> do
           cleanStage
 
         ListVal [SymbolVal "builtin:show-stage"] -> do
