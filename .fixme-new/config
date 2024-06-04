@@ -84,9 +84,9 @@ fixme-comments ";" "--"
               (else (align 6  $fixme-tag)) ) )
       )
 
-      " "
 
      (align 8  ("[" $workflow "]"))  " "
+     (align 8  $type)  " "
      (align 12 $assigned)  " "
      (align 20 (trim 20 $committer-name)) " "
      (trim 50  ($fixme-title)) " "
