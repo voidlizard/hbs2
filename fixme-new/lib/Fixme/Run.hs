@@ -113,6 +113,7 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO defaultCatAction
             <*>  newTVarIO defaultTemplate
+            <*>  newTVarIO mempty
             <*>  newTVarIO (1,3)
 
   runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
@@ -321,6 +322,11 @@ printEnv = do
 
   liftIO $ print $ "fixme-def-context" <+> pretty before <+> pretty after
 
+  ma <- asks fixmeEnvMacro >>= readTVarIO <&> HM.toList
+
+  for_ ma $ \(n, syn) -> do
+    liftIO $ print $ parens ("define-macro" <+> pretty n <+> pretty syn)
+
 
 help :: FixmePerks m => m ()
 help = do
@@ -372,9 +378,17 @@ run what = do
              -> FixmeM m ()
     runForms ss = for_  ss $ \s -> do
 
+      macros  <- asks fixmeEnvMacro >>= readTVarIO
+
       debug $ pretty s
 
       case s of
+
+        (ListVal (SymbolVal name : rest)) | HM.member name macros -> do
+          let repl = [ (mkId ("$",i), syn) | (i,syn) <- zip [1..] rest ]
+          maybe1 (inject repl (HM.lookup name macros)) none $ \macro -> do
+            debug $ yellow "run macro" <+> pretty macro
+            runForms [macro]
 
         FixmeFiles xs -> do
           t <- asks fixmeEnvFileMask
@@ -446,7 +460,6 @@ run what = do
           debug $ "list" <+> pretty n
           list_ n whatever
 
-
         ListVal [SymbolVal "cat", SymbolVal "metadata", FixmeHashLike hash] -> do
           catFixmeMetadata hash
 
@@ -480,6 +493,11 @@ run what = do
 
         ListVal (SymbolVal "hello" : xs) -> do
           notice $ "hello" <+> pretty xs
+
+        ListVal [SymbolVal "define-macro", SymbolVal name, macro@(ListVal{})] -> do
+          debug $ yellow "define-macro" <+> pretty name <+> pretty macro
+          macros <- asks fixmeEnvMacro
+          atomically $ modifyTVar macros (HM.insert name (fixContext macro))
 
         ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
           trace $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)

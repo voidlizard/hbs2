@@ -45,6 +45,13 @@ pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
 pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
+fixContext :: IsContext c => Syntax c -> Syntax C
+fixContext = go
+  where
+    go = \case
+      List    _ xs -> List noContext (fmap go xs)
+      Symbol  _ w  -> Symbol noContext w
+      Literal _ l  -> Literal noContext l
 
 mklist :: IsContext c => [Syntax c] -> Syntax c
 mklist = List noContext
@@ -60,6 +67,12 @@ class MkId a where
 
 instance MkId FixmeAttrName where
   mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
+
+instance MkId (Text,Int) where
+  mkId (p, i) = Id (p <> fromString (show i))
+
+instance MkId (String,Integer) where
+  mkId (p, i) = Id (fromString p <> fromString (show i))
 
 class IsContext c => MkStr c a where
   mkstr :: a -> Syntax c
@@ -241,6 +254,7 @@ data FixmeEnv =
   , fixmeEnvReadLogActions :: TVar [ReadLogAction]
   , fixmeEnvCatAction      :: TVar CatAction
   , fixmeEnvTemplates      :: TVar (HashMap Id FixmeTemplate)
+  , fixmeEnvMacro          :: TVar (HashMap Id (Syntax C))
   , fixmeEnvCatContext     :: TVar (Int,Int)
   }
 

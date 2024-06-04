@@ -41,6 +41,33 @@ fixme-comments ";" "--"
   (hello kitty)
 )
 
+(define-macro done
+  (modify $1 workflow done)
+)
+
+(define-macro wip
+  (modify $1 workflow wip)
+)
+
+(define-macro test
+  (modify $1 workflow test)
+)
+
+(define-macro backlog
+  (modify $1 workflow backlog)
+)
+
+(define-macro fixed
+  (modify $1 workflow fixed)
+)
+
+(define-macro new
+  (modify $1 workflow new)
+)
+
+(define-macro stage
+  (builtin:show-stage))
+
 (define-template short
   (simple
      (trim 10  $fixme-key) " "
