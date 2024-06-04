@@ -11,7 +11,7 @@ fixme-prefix     REVIEW:
 
 fixme-git-scan-filter-days 30
 
-fixme-attribs assigned workflow
+fixme-attribs assigned workflow type
 
 fixme-attribs resolution cat scope
 
@@ -21,9 +21,10 @@ fixme-value-set cat bug feat refactor
 
 fixme-value-set scope mvp-0 mvp-1 backlog
 
+fixme-value-set type bug feature code
+
 fixme-files **/*.txt docs/devlog.md
- fixme-files **/*.hs
-; fixme-files **/Run.hs
+fixme-files **/*.hs
 
 fixme-file-comments "*.scm" ";"
 
@@ -67,6 +68,10 @@ fixme-comments ";" "--"
 
 (define-macro stage
   (builtin:show-stage))
+
+(define-macro log
+  (builtin:show-log .fixme-new/log))
+
 
 (define-template short
   (simple
