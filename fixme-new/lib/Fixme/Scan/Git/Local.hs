@@ -183,15 +183,20 @@ scanGitLogLocal refMask play = do
   withState $ transactional do
 
     flip runContT pure do
-      for_ logz $ \(commitHash, h) -> do
-        warn $ blue "SCAN BLOB" <+> pretty h
-        tmp <- ContT $ bracket (liftIO (emptySystemTempFile "fixme-log")) rm
-        blob <- lift $ lift $ gitCatBlob h
-        liftIO (LBS8.writeFile tmp blob)
-        sto  <- ContT $ bracket (compactStorageOpen @HbSync readonly tmp) compactStorageClose
-        lift $ lift $ loadAllEntriesFromLog sto >>= play
-        lift $ insertProcessed (ViaSerialise commitHash)
+      for_ logz $ \(commitHash, h) -> callCC \shit -> do
+          warn $ blue "SCAN BLOB" <+> pretty h
+          tmp <- ContT $ bracket (liftIO (emptySystemTempFile "fixme-log")) rm
+          blob <- lift $ lift $ gitCatBlob h
+          liftIO (LBS8.writeFile tmp blob)
 
+          esto <- lift $ try @_ @CompactStorageOpenError $ compactStorageOpen @HbSync readonly tmp
+          either (const $ warn $ "skip malformed/unknown log" <+> pretty h) (const none) esto
+          sto <- either (const $ shit ()) pure esto
+
+          lift $ lift $ loadAllEntriesFromLog sto >>= play
+          lift $ insertProcessed (ViaSerialise commitHash)
+
+          compactStorageClose sto
 
 scanGitLocal :: FixmePerks m
              => [ScanGitArgs]

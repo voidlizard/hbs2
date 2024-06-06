@@ -3,6 +3,7 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Storage.Compact
   ( Storage(..)
+  , CompactStorageOpenError(..)
   , CompactStorage
   , CompactStorageOpenOpt(..)
   , readonly
