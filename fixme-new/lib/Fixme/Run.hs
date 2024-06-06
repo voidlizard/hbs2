@@ -571,6 +571,11 @@ runForms ss = for_  ss $ \s -> do
 
       compactStorageClose sto
 
+    ListVal [SymbolVal "git:list-refs"] -> do
+      refs <- listRefs False
+      for_ refs $ \(h,r) -> do
+        liftIO $ print $ pretty h <+> pretty r
+
     ListVal [SymbolVal "git:merge-binary-log",StringLike o, StringLike target, StringLike b] -> do
       debug $ red "git:merge-binary-log" <+> pretty o <+> pretty target <+> pretty b
 

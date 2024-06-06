@@ -24,6 +24,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Fixed
+import Data.List qualified as List
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -109,8 +110,8 @@ listCommits = do
     spec = sq <> delims " \t"
 
 
-listRefs :: FixmePerks m => FixmeM m [(GitHash, GitRef)]
-listRefs = do
+listRefs :: FixmePerks m => Bool -> FixmeM m [(GitHash, GitRef)]
+listRefs every = do
   gd <- fixmeGetGitDirCLIOpt
   gitRunCommand [qc|git {gd} show-ref --dereference|]
     <&> fromRight mempty
@@ -120,6 +121,14 @@ listRefs = do
              [h,b] -> (,) <$> fromStringMay @GitHash (LBS8.unpack h) <*> pure (GitRef (LBS8.toStrict b))
              _     -> Nothing
           )
+    >>= filterM filt
+
+  where
+    filt _ | every = pure True
+
+    filt (h,_) = do
+      done <- withState $ isProcessed $ ViaSerialise h
+      pure (not done)
 
 listBlobs :: FixmePerks m => GitHash -> m [(FilePath,GitHash)]
 listBlobs co = do
@@ -159,7 +168,7 @@ scanGitLogLocal :: FixmePerks m
 scanGitLogLocal refMask play = do
   warn $ red "scanGitLogLocal" <+> pretty refMask
 
-  (t,refs) <- timeItT listRefs
+  (t,refs) <- timeItT $ listRefs False
 
   let hashes = fmap fst refs
 
@@ -168,12 +177,15 @@ scanGitLogLocal refMask play = do
   let pat = [(True, refMask)]
 
   -- FIXME: use-cache-to-skip-already-processed-tips
-  logz <- S.toList_ $ for_ hashes $ \h -> do
-              done <- lift $ withState (isProcessed (ViaSerialise h))
-              unless done do
-                blobs <- lift (listBlobs h >>= filterBlobs0 pat)
-                for_ blobs $ \(_,b) -> do
-                  S.yield (h,b)
+  logz <- withState do
+      S.toList_ $ for_ hashes $ \h -> do
+          done <- lift $ isProcessed (ViaSerialise h)
+          unless done do
+            blobs <- lift $ lift $ (listBlobs h >>= filterBlobs0 pat)
+            when (List.null blobs) do
+              lift $ insertProcessed (ViaSerialise h)
+            for_ blobs $ \(_,b) -> do
+              S.yield (h,b)
 
   warn $ yellow "STEP 3" <+> "for each tree   --- find log"
 
