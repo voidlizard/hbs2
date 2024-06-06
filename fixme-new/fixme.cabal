@@ -107,6 +107,7 @@ library
       Fixme
       Fixme.Config
       Fixme.Run
+      Fixme.Log
       Fixme.Types
       Fixme.Prelude
       Fixme.State

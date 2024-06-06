@@ -9,7 +9,10 @@ import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.State
 import Fixme.Scan as Scan
+import Fixme.Log
 
+import HBS2.Storage.Compact
+import HBS2.System.Dir
 import HBS2.Git.Local.CLI
 
 import DBPipe.SQLite hiding (field)
@@ -34,9 +37,12 @@ import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
 import System.IO qualified as IO
+import System.IO.Temp (emptySystemTempFile)
+
 
 import Data.Map qualified as Map
 
+import Streaming.Prelude qualified as S
 
 data ScanGitArgs =
     PrintBlobs
@@ -101,6 +107,18 @@ listCommits = do
     spec = sq <> delims " \t"
 
 
+listRefs :: FixmePerks m => FixmeM m [(GitHash, GitRef)]
+listRefs = do
+  gd <- fixmeGetGitDirCLIOpt
+  gitRunCommand [qc|git {gd} show-ref --dereference|]
+    <&> fromRight mempty
+    <&> fmap LBS8.words . LBS8.lines
+    <&> mapMaybe
+          (\case
+             [h,b] -> (,) <$> fromStringMay @GitHash (LBS8.unpack h) <*> pure (GitRef (LBS8.toStrict b))
+             _     -> Nothing
+          )
+
 listBlobs :: FixmePerks m => GitHash -> m [(FilePath,GitHash)]
 listBlobs co = do
   -- FIXME: git-dir
@@ -112,16 +130,62 @@ listBlobs co = do
              [a,"blob",h,_,fn] -> (LBS8.unpack fn,) <$> fromStringMay @GitHash (LBS8.unpack h)
              _                 -> Nothing)
 
+filterBlobs0 :: FixmePerks m
+            => [(Bool,FilePattern)]
+            -> [(FilePath,GitHash)]
+            -> FixmeM m [(FilePath,GitHash)]
+
+filterBlobs0 pat xs = do
+  -- pat <- asks fixmeEnvFileMask >>= readTVarIO <&> fmap (True,)
+  let src = [ ((f,h),f) | (f,h) <- xs ]
+  let r = [(h,f) | (_,(f,h),_) <- matchMany pat src] & HM.fromList & HM.toList
+  pure $ [ (b,a) | (a,b) <- r ]
+
 filterBlobs :: FixmePerks m
             => [(FilePath,GitHash)]
             -> FixmeM m [(FilePath,GitHash)]
 
 filterBlobs xs = do
   pat <- asks fixmeEnvFileMask >>= readTVarIO <&> fmap (True,)
-  let src = [ ((f,h),f) | (f,h) <- xs ]
-  let r = [(h,f) | (_,(f,h),_) <- matchMany pat src] & HM.fromList & HM.toList
-  pure $ [ (b,a) | (a,b) <- r ]
+  filterBlobs0 pat xs
 
+
+scanGitLogLocal :: FixmePerks m
+                => FilePath
+                -> ( [Syntax C] -> FixmeM m () )
+                -> FixmeM m ()
+scanGitLogLocal refMask play = do
+  warn $ red "scanGitLogLocal" <+> pretty refMask
+  warn $ yellow "STEP 1" <+> "get all known branches including remote"
+
+  refs <- listRefs
+
+  let hashes = fmap fst refs
+
+  warn $ yellow "STEP 2" <+> "for each branch --- get tree"
+
+  let pat = [(True, refMask)]
+
+  -- FIXME: use-cache-to-skip-already-processed-tips
+  logz <- S.toList_ do
+            for_ hashes $ \h -> do
+                 blobs <- lift (listBlobs h >>= filterBlobs0 pat)
+                 for_ blobs $ \(b,h) -> do
+                  S.yield h
+
+  warn $ yellow "STEP 3" <+> "for each tree   --- find log"
+
+  warn $ vcat (fmap pretty logz)
+
+  warn $ yellow "STEP 4" <+> "for each log    --- scan log"
+
+  flip runContT pure do
+    for_ logz $ \h -> do
+      tmp <- ContT $ bracket (liftIO (emptySystemTempFile "fixme-log")) rm
+      blob <- lift $ gitCatBlob h
+      liftIO (LBS8.writeFile tmp blob)
+      sto  <- ContT $ bracket (compactStorageOpen @HbSync readonly tmp) compactStorageClose
+      lift $ loadAllEntriesFromLog sto >>= play
 
 
 scanGitLocal :: FixmePerks m
@@ -347,6 +411,12 @@ runLogActions = do
 
   updateIndexes
 
+
+gitCatBlob :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m ByteString
+gitCatBlob h = do
+  gd <- fixmeGetGitDirCLIOpt
+  (_,s,_)  <- readProcess $ shell [qc|git {gd} cat-file blob {pretty h}|]
+  pure s
 
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
 startGitCatFile = do

@@ -10,6 +10,7 @@ import Fixme.Config
 import Fixme.State
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
+import Fixme.Log
 
 import HBS2.Git.Local.CLI
 
@@ -371,286 +372,279 @@ run what = do
 
   runForms (sc <> s0)
 
-  where
 
-    runForms :: forall c m . (IsContext c, Data c, Data (Context c), FixmePerks m)
-             => [Syntax c]
-             -> FixmeM m ()
-    runForms ss = for_  ss $ \s -> do
+runForms :: forall c m . (IsContext c, Data c, Data (Context c), FixmePerks m)
+         => [Syntax c]
+         -> FixmeM m ()
+runForms ss = for_  ss $ \s -> do
 
-      macros  <- asks fixmeEnvMacro >>= readTVarIO
+  macros  <- asks fixmeEnvMacro >>= readTVarIO
 
-      debug $ pretty s
+  debug $ pretty s
 
-      case s of
+  case s of
 
-        (ListVal (SymbolVal name : rest)) | HM.member name macros -> do
-          let repl = [ (mkId ("$",i), syn) | (i,syn) <- zip [1..] rest ]
-          maybe1 (inject repl (HM.lookup name macros)) none $ \macro -> do
-            debug $ yellow "run macro" <+> pretty macro
-            runForms [macro]
+    (ListVal (SymbolVal name : rest)) | HM.member name macros -> do
+      let repl = [ (mkId ("$",i), syn) | (i,syn) <- zip [1..] rest ]
+      maybe1 (inject repl (HM.lookup name macros)) none $ \macro -> do
+        debug $ yellow "run macro" <+> pretty macro
+        runForms [macro]
 
-        FixmeFiles xs -> do
-          t <- asks fixmeEnvFileMask
-          atomically (modifyTVar t (<> xs))
+    FixmeFiles xs -> do
+      t <- asks fixmeEnvFileMask
+      atomically (modifyTVar t (<> xs))
 
-        FixmePrefix tag -> do
-          t <- asks fixmeEnvTags
-          atomically (modifyTVar t (HS.insert tag))
+    FixmePrefix tag -> do
+      t <- asks fixmeEnvTags
+      atomically (modifyTVar t (HS.insert tag))
 
-        FixmeGitScanFilterDays d -> do
-          t <- asks fixmeEnvGitScanDays
-          atomically (writeTVar t (Just d))
+    FixmeGitScanFilterDays d -> do
+      t <- asks fixmeEnvGitScanDays
+      atomically (writeTVar t (Just d))
 
-        ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
-          let co = Text.pack b & HS.singleton
-          t <- asks fixmeEnvFileComments
-          atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
+    ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
+      let co = Text.pack b & HS.singleton
+      t <- asks fixmeEnvFileComments
+      atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
 
-        ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
-          t <- asks fixmeEnvDefComments
-          let co = fmap Text.pack xs & HS.fromList
-          atomically $ modifyTVar t (<> co)
+    ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
+      t <- asks fixmeEnvDefComments
+      let co = fmap Text.pack xs & HS.fromList
+      atomically $ modifyTVar t (<> co)
 
-        ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
-          ta <- asks fixmeEnvAttribs
-          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
+    ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
+      ta <- asks fixmeEnvAttribs
+      atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
-        ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
-          t <- asks fixmeEnvCatContext
-          atomically $ writeTVar t (fromIntegral a, fromIntegral b)
+    ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
+      t <- asks fixmeEnvCatContext
+      atomically $ writeTVar t (fromIntegral a, fromIntegral b)
 
-        ListVal [SymbolVal "fixme-pager", ListVal cmd0] -> do
-          t <- asks fixmeEnvCatAction
-          let action =  CatAction $ \dict lbs -> do
+    ListVal [SymbolVal "fixme-pager", ListVal cmd0] -> do
+      t <- asks fixmeEnvCatAction
+      let action =  CatAction $ \dict lbs -> do
 
-                let ccmd = case inject dict cmd0 of
-                             (StringLike p : StringLikeList xs) -> Just (p, xs)
-                             _  -> Nothing
+            let ccmd = case inject dict cmd0 of
+                         (StringLike p : StringLikeList xs) -> Just (p, xs)
+                         _  -> Nothing
 
 
-                debug $ pretty ccmd
+            debug $ pretty ccmd
 
-                maybe1 ccmd none $ \(p, args) -> do
+            maybe1 ccmd none $ \(p, args) -> do
 
-                  let input = byteStringInput lbs
-                  let cmd = setStdin input $ setStderr closed
-                                           $ proc p args
-                  void $ runProcess cmd
+              let input = byteStringInput lbs
+              let cmd = setStdin input $ setStderr closed
+                                       $ proc p args
+              void $ runProcess cmd
 
-          atomically $ writeTVar t action
+      atomically $ writeTVar t action
 
-        ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
-          t <- asks fixmeEnvAttribValues
-          let name = fromString n
-          let vals = fmap fromString xs & HS.fromList
-          atomically $ modifyTVar t (HM.insertWith (<>) name vals)
+    ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
+      t <- asks fixmeEnvAttribValues
+      let name = fromString n
+      let vals = fmap fromString xs & HS.fromList
+      atomically $ modifyTVar t (HM.insertWith (<>) name vals)
 
-        Init         -> init
+    Init         -> init
 
-        ScanGitLocal args -> scanGitLocal args Nothing
+    ScanGitLocal args -> scanGitLocal args Nothing
 
-        Update args -> scanGitLocal args Nothing
+    Update args -> scanGitLocal args Nothing
 
-        ListVal (SymbolVal "list" : (Template n [])) -> do
-          debug $ "list" <+> pretty n
-          list_ n ()
+    ListVal (SymbolVal "list" : (Template n [])) -> do
+      debug $ "list" <+> pretty n
+      list_ n ()
 
-        ListVal (SymbolVal "list" : (Template n whatever)) -> do
-          debug $ "list" <+> pretty n
-          list_ n whatever
+    ListVal (SymbolVal "list" : (Template n whatever)) -> do
+      debug $ "list" <+> pretty n
+      list_ n whatever
 
-        ListVal [SymbolVal "cat", SymbolVal "metadata", FixmeHashLike hash] -> do
-          catFixmeMetadata hash
+    ListVal [SymbolVal "cat", SymbolVal "metadata", FixmeHashLike hash] -> do
+      catFixmeMetadata hash
 
-        ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
-          catFixme hash
+    ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
+      catFixme hash
 
-        ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
-          delete hash
+    ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
+      delete hash
 
-        ListVal [SymbolVal "modify", FixmeHashLike hash, StringLike a, StringLike b] -> do
-          modify_ hash a b
+    ListVal [SymbolVal "modify", FixmeHashLike hash, StringLike a, StringLike b] -> do
+      modify_ hash a b
 
-        ListVal [SymbolVal "modified", TimeStampLike t, FixmeHashLike hash, StringLike a, StringLike b] -> do
-          debug $ green $ pretty s
-          updateFixme (Just t) hash (fromString a) (fromString b)
+    ListVal [SymbolVal "modified", TimeStampLike t, FixmeHashLike hash, StringLike a, StringLike b] -> do
+      debug $ green $ pretty s
+      updateFixme (Just t) hash (fromString a) (fromString b)
 
-        ListVal [SymbolVal "modified", FixmeHashLike hash, StringLike a, StringLike b] -> do
-          debug $ green $ pretty s
-          updateFixme Nothing hash (fromString a) (fromString b)
+    ListVal [SymbolVal "modified", FixmeHashLike hash, StringLike a, StringLike b] -> do
+      debug $ green $ pretty s
+      updateFixme Nothing hash (fromString a) (fromString b)
 
-        ListVal [SymbolVal "deleted", TimeStampLike _, FixmeHashLike hash] -> do
-          deleteFixme hash
+    ListVal [SymbolVal "deleted", TimeStampLike _, FixmeHashLike hash] -> do
+      deleteFixme hash
 
-        ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
-          deleteFixme hash
+    ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
+      deleteFixme hash
 
-        ReadFixmeStdin -> readFixmeStdin
+    ReadFixmeStdin -> readFixmeStdin
 
-        ListVal [SymbolVal "print-env"] -> do
-          printEnv
+    ListVal [SymbolVal "print-env"] -> do
+      printEnv
 
-        ListVal (SymbolVal "hello" : xs) -> do
-          notice $ "hello" <+> pretty xs
+    ListVal (SymbolVal "hello" : xs) -> do
+      notice $ "hello" <+> pretty xs
 
-        ListVal [SymbolVal "define-macro", SymbolVal name, macro@(ListVal{})] -> do
-          debug $ yellow "define-macro" <+> pretty name <+> pretty macro
-          macros <- asks fixmeEnvMacro
-          atomically $ modifyTVar macros (HM.insert name (fixContext macro))
+    ListVal [SymbolVal "define-macro", SymbolVal name, macro@(ListVal{})] -> do
+      debug $ yellow "define-macro" <+> pretty name <+> pretty macro
+      macros <- asks fixmeEnvMacro
+      atomically $ modifyTVar macros (HM.insert name (fixContext macro))
 
-        ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
-          trace $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
-          t <- asks fixmeEnvTemplates
-          atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
+    ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
+      trace $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
+      t <- asks fixmeEnvTemplates
+      atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
 
-        ListVal [SymbolVal "set-template", SymbolVal who, SymbolVal w] -> do
-          templates <- asks fixmeEnvTemplates
-          t <- readTVarIO templates
-          for_ (HM.lookup w t) $ \tpl -> do
-            atomically $ modifyTVar templates (HM.insert who tpl)
+    ListVal [SymbolVal "set-template", SymbolVal who, SymbolVal w] -> do
+      templates <- asks fixmeEnvTemplates
+      t <- readTVarIO templates
+      for_ (HM.lookup w t) $ \tpl -> do
+        atomically $ modifyTVar templates (HM.insert who tpl)
 
-        -- FIXME: maybe-rename-fixme-update-action
-        ListVal (SymbolVal "fixme-update-action" : xs) -> do
-          debug $ "fixme-update-action" <+> pretty xs
-          env <- ask
-          t <- asks fixmeEnvUpdateActions
-          let repl syn = [ ( "$1", syn ) ]
-          let action = UpdateAction @c $ \syn -> do
-                           liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
+    -- FIXME: maybe-rename-fixme-update-action
+    ListVal (SymbolVal "fixme-update-action" : xs) -> do
+      debug $ "fixme-update-action" <+> pretty xs
+      env <- ask
+      t <- asks fixmeEnvUpdateActions
+      let repl syn = [ ( "$1", syn ) ]
+      let action = UpdateAction @c $ \syn -> do
+                       liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
 
-          atomically $ modifyTVar t (<> [action])
+      atomically $ modifyTVar t (<> [action])
 
-        ListVal (SymbolVal "fixme-play-log-action" : xs) -> do
-          debug $ "fixme-play-log-action" <+> pretty xs
-          env <- ask
-          t <- asks fixmeEnvReadLogActions
-          let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
-          atomically $ modifyTVar t (<> [action])
+    ListVal (SymbolVal "fixme-play-log-action" : xs) -> do
+      debug $ "fixme-play-log-action" <+> pretty xs
+      env <- ask
+      t <- asks fixmeEnvReadLogActions
+      let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
+      atomically $ modifyTVar t (<> [action])
 
-        ListVal (SymbolVal "append-file" : StringLike fn : StringLikeList xs) -> do
-          debug "append-file"
-          liftIO $ for_ xs $ \x -> do
-            appendFile  fn x
-            appendFile fn "\n"
+    ListVal (SymbolVal "append-file" : StringLike fn : StringLikeList xs) -> do
+      debug "append-file"
+      liftIO $ for_ xs $ \x -> do
+        appendFile  fn x
+        appendFile fn "\n"
 
-        ListVal [SymbolVal "play-log-file", StringLike fn] -> do
+    ListVal [SymbolVal "play-git-log-file-all", StringLike fn] -> do
+      warn $ red "play-git-log-file-all" <+> pretty fn
+      scanGitLogLocal fn runForms
 
-          env <- ask
+    ListVal [SymbolVal "play-log-file", StringLike fn] -> do
 
-          debug $ red "play-log-file WIP" <+> pretty  fn
+      env <- ask
 
-          what <- selectStage
+      debug $ red "play-log-file" <+> pretty  fn
 
-          sto <- compactStorageOpen @HbSync mempty fn
+      what <- selectStage
 
-          for_ what $ \w -> do
-            let k = mkKey w
-            v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
-            case v0 of
-              Nothing -> do
-                put sto k (LBS.toStrict $ serialise w)
+      sto <- compactStorageOpen @HbSync mempty fn
 
-              Just (Left{}) -> do
-                put sto k (LBS.toStrict $ serialise w)
+      for_ what $ \w -> do
+        let k = mkKey w
+        v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
+        case v0 of
+          Nothing -> do
+            put sto k (LBS.toStrict $ serialise w)
 
-              Just (Right prev) | getSequence w > getSequence prev -> do
-                put sto k (LBS.toStrict $ serialise w)
+          Just (Left{}) -> do
+            put sto k (LBS.toStrict $ serialise w)
 
-              _ -> pure ()
+          Just (Right prev) | getSequence w > getSequence prev -> do
+            put sto k (LBS.toStrict $ serialise w)
 
-          compactStorageCommit sto
+          _ -> pure ()
 
-          ks <- keys sto
+      compactStorageCommit sto
 
-          entries <- mapM (get sto) ks
-                      <&> catMaybes
-                      <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
-                      <&> rights
+      loadAllEntriesFromLog sto >>= runForms
 
+      cleanStage
 
-          let top = show $ vcat (fmap pretty entries)
-          let theLog = parseTop top & fromRight mempty
+      compactStorageClose sto
 
-          liftIO $ withFixmeEnv env (runForms theLog)
-          cleanStage
+    ListVal [SymbolVal "git:merge-binary-log",StringLike o, StringLike target, StringLike b] -> do
+      debug $ red "git:merge-binary-log" <+> pretty o <+> pretty target <+> pretty b
 
-          compactStorageClose sto
+      temp <- liftIO $ emptyTempFile "." "merge-result"
+      sa  <- compactStorageOpen @HbSync readonly o
+      sb  <- compactStorageOpen @HbSync readonly b
+      r   <- compactStorageOpen @HbSync mempty temp
 
-        ListVal [SymbolVal "git:merge-binary-log",StringLike o, StringLike target, StringLike b] -> do
-          debug $ red "git:merge-binary-log" <+> pretty o <+> pretty target <+> pretty b
+      for_ [sa,sb] $ \sto -> do
+        ks   <- keys sto
+        for_ ks $ \k -> runMaybeT do
+          v <- get sto k & MaybeT
+          put r k v
 
-          temp <- liftIO $ emptyTempFile "." "merge-result"
-          sa  <- compactStorageOpen @HbSync readonly o
-          sb  <- compactStorageOpen @HbSync readonly b
-          r   <- compactStorageOpen @HbSync mempty temp
+      compactStorageClose r
+      compactStorageClose sa
+      compactStorageClose sb
 
-          for_ [sa,sb] $ \sto -> do
-            ks   <- keys sto
-            for_ ks $ \k -> runMaybeT do
-              v <- get sto k & MaybeT
-              put r k v
+      mv temp target
 
-          compactStorageClose r
-          compactStorageClose sa
-          compactStorageClose sb
+    ListVal [SymbolVal "no-debug"] -> do
+      setLoggingOff @DEBUG
 
-          mv temp target
+    ListVal [SymbolVal "silence"] -> do
+      silence
 
-        ListVal [SymbolVal "no-debug"] -> do
-          setLoggingOff @DEBUG
+    ListVal [SymbolVal "builtin:evolve"] -> do
+      evolve
 
-        ListVal [SymbolVal "silence"] -> do
-          silence
+    ListVal [SymbolVal "builtin:cleanup-state"] -> do
+      cleanupDatabase
 
-        ListVal [SymbolVal "builtin:evolve"] -> do
-          evolve
+    ListVal [SymbolVal "builtin:clean-stage"] -> do
+      cleanStage
 
-        ListVal [SymbolVal "builtin:cleanup-state"] -> do
-          cleanupDatabase
+    ListVal [SymbolVal "builtin:drop-stage"] -> do
+      cleanStage
 
-        ListVal [SymbolVal "builtin:clean-stage"] -> do
-          cleanStage
+    ListVal [SymbolVal "builtin:show-stage"] -> do
+      stage <- selectStage
+      liftIO $ print $ vcat (fmap pretty stage)
 
-        ListVal [SymbolVal "builtin:drop-stage"] -> do
-          cleanStage
+    ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
+      sto <- compactStorageOpen @HbSync readonly fn
 
-        ListVal [SymbolVal "builtin:show-stage"] -> do
-          stage <- selectStage
-          liftIO $ print $ vcat (fmap pretty stage)
+      ks <- keys sto
 
-        ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
-          sto <- compactStorageOpen @HbSync readonly fn
+      entries <- mapM (get sto) ks
+                  <&> catMaybes
+                  <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
+                  <&> rights
 
-          ks <- keys sto
+      liftIO $ print $ vcat (fmap pretty entries)
 
-          entries <- mapM (get sto) ks
-                      <&> catMaybes
-                      <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
-                      <&> rights
+      compactStorageClose sto
 
-          liftIO $ print $ vcat (fmap pretty entries)
+    ListVal [SymbolVal "builtin:update-indexes"] -> do
+      updateIndexes
 
-          compactStorageClose sto
+    ListVal [SymbolVal "builtin:select-fixme-hash", FixmeHashLike x] -> do
+      w <- selectFixmeHash x
+      liftIO $ print $ pretty w
 
-        ListVal [SymbolVal "builtin:update-indexes"] -> do
-          updateIndexes
+    ListVal [SymbolVal "trace"] -> do
+      setLogging @TRACE (logPrefix "[trace] " . toStderr)
+      trace "trace on"
 
-        ListVal [SymbolVal "builtin:select-fixme-hash", FixmeHashLike x] -> do
-          w <- selectFixmeHash x
-          liftIO $ print $ pretty w
+    ListVal [SymbolVal "no-trace"] -> do
+      trace "trace off"
+      setLoggingOff @TRACE
 
-        ListVal [SymbolVal "trace"] -> do
-          setLogging @TRACE (logPrefix "[trace] " . toStderr)
-          trace "trace on"
+    ListVal [SymbolVal "debug"] -> do
+      setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
 
-        ListVal [SymbolVal "no-trace"] -> do
-          trace "trace off"
-          setLoggingOff @TRACE
-
-        ListVal [SymbolVal "debug"] -> do
-          setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
-
-        w         -> err (pretty w)
+    w         -> err (pretty w)
 
 

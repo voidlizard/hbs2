@@ -39,6 +39,10 @@ fixme-comments ";" "--"
 )
 
 (fixme-play-log-action
+  (play-git-log-file-all ".fixme-new/log")
+)
+
+(fixme-play-log-action
   (hello kitty)
 )
 

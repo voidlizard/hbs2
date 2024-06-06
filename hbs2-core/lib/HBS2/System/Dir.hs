@@ -75,6 +75,9 @@ fileSize = liftIO . D.getFileSize
 mv :: MonadIO m => FilePath -> FilePath -> m ()
 mv a b = liftIO $ D.renamePath a b
 
+rm :: MonadIO m => FilePath -> m ()
+rm fn = liftIO $ D.removePathForcibly fn
+
 home :: MonadIO m => m FilePath
 home = liftIO D.getHomeDirectory
 
