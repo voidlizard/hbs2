@@ -190,11 +190,14 @@ scanGitLogLocal refMask play = do
           liftIO (LBS8.writeFile tmp blob)
 
           esto <- lift $ try @_ @CompactStorageOpenError $ compactStorageOpen @HbSync readonly tmp
+
+          -- skip even problematic commit
+          lift $ insertProcessed (ViaSerialise commitHash)
+
           either (const $ warn $ "skip malformed/unknown log" <+> pretty h) (const none) esto
           sto <- either (const $ shit ()) pure esto
 
           lift $ lift $ loadAllEntriesFromLog sto >>= play
-          lift $ insertProcessed (ViaSerialise commitHash)
 
           compactStorageClose sto
 
