@@ -24,6 +24,7 @@ module Fixme.State
   , cleanStage
   , insertProcessed
   , isProcessed
+  , selectProcessed
   , HasPredicate(..)
   ) where
 
@@ -665,4 +666,11 @@ isProcessed what = do
   let k = show $ pretty $ hashObject @HbSync what
   select @(Only (Maybe Int)) [qc| select null from fixmeprocessed where hash = ? limit 1 |] (Only k)
    <&> isJust . listToMaybe
+
+selectProcessed :: (FixmePerks m, MonadReader FixmeEnv m)
+                 => m [HashRef]
+selectProcessed = withState do
+  select_ [qc|select hash from fixmeprocessed|]
+    <&> fmap fromOnly
+
 

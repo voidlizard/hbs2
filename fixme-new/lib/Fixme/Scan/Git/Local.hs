@@ -23,9 +23,11 @@ import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Data.Either
+import Data.Fixed
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
@@ -38,7 +40,7 @@ import System.Process.Typed
 import Control.Monad.Trans.Cont
 import System.IO qualified as IO
 import System.IO.Temp (emptySystemTempFile)
-
+import System.TimeIt
 
 import Data.Map qualified as Map
 
@@ -156,13 +158,12 @@ scanGitLogLocal :: FixmePerks m
                 -> FixmeM m ()
 scanGitLogLocal refMask play = do
   warn $ red "scanGitLogLocal" <+> pretty refMask
-  warn $ yellow "STEP 1" <+> "get all known branches including remote"
 
-  refs <- listRefs
+  (t,refs) <- timeItT listRefs
 
   let hashes = fmap fst refs
 
-  warn $ yellow "STEP 2" <+> "for each branch --- get tree"
+  warn $ yellow "listRefs in" <+> pretty (realToFrac t :: Fixed E6)
 
   let pat = [(True, refMask)]
 
