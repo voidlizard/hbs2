@@ -520,7 +520,7 @@ where
   {fst predic}
   )
 
-order by f0.ts asc nulls first
+order by json_extract(blob, '$.commit-time'), json_extract(blob, '$.title')
 
   |]
 
