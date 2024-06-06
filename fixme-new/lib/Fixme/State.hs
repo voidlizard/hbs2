@@ -22,6 +22,8 @@ module Fixme.State
   , selectStageDeleted
   , selectStage
   , cleanStage
+  , insertProcessed
+  , isProcessed
   , HasPredicate(..)
   ) where
 
@@ -267,6 +269,12 @@ createTables = do
            , attr   text    not null
            , value  text
            , primary key (hash,attr)
+           )
+         |]
+
+  ddl [qc| create table if not exists fixmeprocessed
+           ( hash   text  not null
+           , primary key (hash)
            )
          |]
 
@@ -640,4 +648,21 @@ updateIndexes = withState $ transactional do
   update_ [qc|delete from fixmejson where fixme in (select distinct id from fixmedeleted)|]
 
 
+
+insertProcessed :: (FixmePerks m, MonadReader FixmeEnv m, Hashed HbSync w)
+                => w
+                -> DBPipeM m ()
+insertProcessed what = do
+  insert [qc| insert into fixmeprocessed (hash) values(?)
+              on conflict (hash) do nothing
+            |] (Only (show $ pretty $ hashObject @HbSync what))
+
+
+isProcessed :: (FixmePerks m, MonadReader FixmeEnv m, Hashed HbSync w)
+             => w
+             -> DBPipeM m Bool
+isProcessed what = do
+  let k = show $ pretty $ hashObject @HbSync what
+  select @(Only (Maybe Int)) [qc| select null from fixmeprocessed where hash = ? limit 1 |] (Only k)
+   <&> isJust . listToMaybe
 

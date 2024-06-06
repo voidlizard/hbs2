@@ -527,3 +527,9 @@ instance FixmeRenderTemplate SimpleTemplate Text where
       p e = [Text.pack (show $ pretty e)]
 
 
+newtype ViaSerialise a = ViaSerialise a
+
+instance Serialise a => Hashed HbSync (ViaSerialise a) where
+  hashObject (ViaSerialise x) = hashObject (serialise x)
+
+

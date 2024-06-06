@@ -167,11 +167,12 @@ scanGitLogLocal refMask play = do
   let pat = [(True, refMask)]
 
   -- FIXME: use-cache-to-skip-already-processed-tips
-  logz <- S.toList_ do
-            for_ hashes $ \h -> do
-                 blobs <- lift (listBlobs h >>= filterBlobs0 pat)
-                 for_ blobs $ \(b,h) -> do
-                  S.yield h
+  logz <- S.toList_ $ for_ hashes $ \h -> do
+              done <- lift $ withState (isProcessed (ViaSerialise h))
+              unless done do
+                blobs <- lift (listBlobs h >>= filterBlobs0 pat)
+                for_ blobs $ \(_,b) -> do
+                  S.yield (h,b)
 
   warn $ yellow "STEP 3" <+> "for each tree   --- find log"
 
@@ -179,13 +180,17 @@ scanGitLogLocal refMask play = do
 
   warn $ yellow "STEP 4" <+> "for each log    --- scan log"
 
-  flip runContT pure do
-    for_ logz $ \h -> do
-      tmp <- ContT $ bracket (liftIO (emptySystemTempFile "fixme-log")) rm
-      blob <- lift $ gitCatBlob h
-      liftIO (LBS8.writeFile tmp blob)
-      sto  <- ContT $ bracket (compactStorageOpen @HbSync readonly tmp) compactStorageClose
-      lift $ loadAllEntriesFromLog sto >>= play
+  withState $ transactional do
+
+    flip runContT pure do
+      for_ logz $ \(commitHash, h) -> do
+        warn $ blue "SCAN BLOB" <+> pretty h
+        tmp <- ContT $ bracket (liftIO (emptySystemTempFile "fixme-log")) rm
+        blob <- lift $ lift $ gitCatBlob h
+        liftIO (LBS8.writeFile tmp blob)
+        sto  <- ContT $ bracket (compactStorageOpen @HbSync readonly tmp) compactStorageClose
+        lift $ lift $ loadAllEntriesFromLog sto >>= play
+        lift $ insertProcessed (ViaSerialise commitHash)
 
 
 scanGitLocal :: FixmePerks m
