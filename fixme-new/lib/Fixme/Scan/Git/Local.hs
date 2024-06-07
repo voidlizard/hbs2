@@ -80,6 +80,8 @@ listCommits = do
 
   let cmd = [qc|git {gd} log --all --format="%H '%cn' '%ce' %ct" {days}|]
 
+  debug $ yellow "listCommits" <+> pretty cmd
+
   gitRunCommand cmd
     <&> fromRight mempty
     <&> LBS8.lines

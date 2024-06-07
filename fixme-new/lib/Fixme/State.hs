@@ -108,6 +108,7 @@ withState what = do
               case newDb of
                 Left e   -> pure (Left e)
                 Right db -> do
+                  debug "set-new-db"
                   atomically $ writeTVar t (Just db)
                   pure $ Right db
 

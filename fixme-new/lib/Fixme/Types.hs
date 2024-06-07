@@ -295,7 +295,7 @@ fixmeGetGitDirCLIOpt :: (FixmePerks m, MonadReader FixmeEnv m) => m String
 fixmeGetGitDirCLIOpt = do
   asks fixmeEnvGitDir
           >>= readTVarIO
-          <&> fmap (\d -> [qc|--dir-dir {d}|])
+          <&> fmap (\d -> [qc|--git-dir {d}|])
           <&> fromMaybe ""
 
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }

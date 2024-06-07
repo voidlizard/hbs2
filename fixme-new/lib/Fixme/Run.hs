@@ -437,8 +437,9 @@ runForms ss = for_  ss $ \s -> do
       p <- asks fixmeEnvDbPath
       db <- asks fixmeEnvDb
       atomically do
-        writeTVar db Nothing
         writeTVar p g
+        writeTVar db Nothing
+
       evolve
 
     ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
@@ -641,6 +642,10 @@ runForms ss = for_  ss $ \s -> do
 
     ListVal [SymbolVal "builtin:evolve"] -> do
       evolve
+
+    ListVal [SymbolVal "builtin:list-commits"] -> do
+      co <- listCommits
+      liftIO $ print $ vcat (fmap (pretty . view _1) co)
 
     ListVal [SymbolVal "builtin:cleanup-state"] -> do
       cleanupDatabase
