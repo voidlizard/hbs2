@@ -53,6 +53,14 @@ import Data.Fixed
 import Data.Word (Word64)
 import System.TimeIt
 
+-- TODO: runPipe-omitted
+--   runPipe нигде не запускается, значит, все изменения
+--   будут закоммичены в БД только по явному вызову
+--   commitAll или transactional
+--   это может объясняеть некоторые артефакты.
+--   Но это и удобно: кажется, что можно менять БД
+--   на лету бесплатно
+
 
 pattern Operand :: forall {c} . Text -> Syntax c
 pattern Operand what <- (operand -> Just what)
@@ -83,21 +91,27 @@ instance FromField HashRef where
   fromField = fmap (fromString @HashRef) . fromField @String
 
 evolve :: FixmePerks m => FixmeM  m ()
-evolve = do
-  dbpath <- localDBPath
-  debug $ "evolve" <+> pretty dbpath
-  mkdir (takeDirectory dbpath)
-
-  db <- newDBPipeEnv dbPipeOptsDef dbpath
-
-  withDB db do
+evolve = withState do
     createTables
 
 withState :: forall m a . (FixmePerks m, MonadReader FixmeEnv m) => DBPipeM m a ->  m a
 withState what = do
-  db <- asks fixmeEnvDb
-  withDB db what
+  lock <- asks fixmeLock
+  db <- withMVar lock $ \_ -> do
+          t <- asks fixmeEnvDb
+          mdb <- readTVarIO t
+          case mdb of
+            Just d  -> pure (Right d)
+            Nothing -> do
+              path <- asks fixmeEnvDbPath >>= readTVarIO
+              newDb <- try @_ @IOException (newDBPipeEnv dbPipeOptsDef path)
+              case newDb of
+                Left e   -> pure (Left e)
+                Right db -> do
+                  atomically $ writeTVar t (Just db)
+                  pure $ Right db
 
+  either throwIO (`withDB` what) db
 
 createTables :: FixmePerks m => DBPipeM m ()
 createTables = do
@@ -513,7 +527,7 @@ select  cast(json_patch(j.json, coalesce(s.json,{emptyObect})) as blob) as blob
 from
   fixmejson j join fixmeactual f on f.fixme = j.fixme
               join fixme f0 on f0.id = f.fixme
-              left join s1 s on s.hash = f0.id
+              left join s1 s on s.hash = j.fixme
 
 where
 

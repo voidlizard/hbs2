@@ -239,9 +239,24 @@ data RenderError = RenderError String
 class FixmeRenderTemplate a b where
   render :: a -> Either RenderError b
 
+data FixmeOpts =
+  FixmeOpts
+  { fixmeOptNoEvolve :: Bool
+  }
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+instance Monoid FixmeOpts where
+  mempty = FixmeOpts False
+
+instance Semigroup FixmeOpts where
+  (<>) _ b = FixmeOpts (fixmeOptNoEvolve b)
+
 data FixmeEnv =
   FixmeEnv
-  { fixmeEnvDb             :: DBPipeEnv
+  { fixmeLock              :: MVar ()
+  , fixmeEnvOpts           :: TVar FixmeOpts
+  , fixmeEnvDbPath         :: TVar FilePath
+  , fixmeEnvDb             :: TVar (Maybe DBPipeEnv)
   , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
   , fixmeEnvTags           :: TVar (HashSet FixmeTag)

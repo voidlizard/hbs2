@@ -103,10 +103,14 @@ defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
 
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
-  db <- newDBPipeEnv dbPipeOptsDef =<< localDBPath
+  dbPath <- localDBPath
   git <- findGitDir
-  env <- FixmeEnv db
-            <$>  newTVarIO git
+  env <- FixmeEnv
+            <$>  newMVar ()
+            <*>  newTVarIO mempty
+            <*>  newTVarIO dbPath
+            <*>  newTVarIO Nothing
+            <*>  newTVarIO git
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
@@ -325,6 +329,9 @@ printEnv = do
   for_ g $ \git -> do
     liftIO $ print $ "fixme-git-dir" <+> dquotes (pretty git)
 
+  dbPath <- asks fixmeEnvDbPath >>= readTVarIO
+  liftIO $ print $ "fixme-state-path" <+> dquotes (pretty dbPath)
+
   (before,after) <- asks fixmeEnvCatContext >>= readTVarIO
 
   liftIO $ print $ "fixme-def-context" <+> pretty before <+> pretty after
@@ -425,6 +432,14 @@ runForms ss = for_  ss $ \s -> do
     ListVal [SymbolVal "fixme-git-dir", StringLike g] -> do
       ta <- asks fixmeEnvGitDir
       atomically $ writeTVar ta (Just g)
+
+    ListVal [SymbolVal "fixme-state-path", StringLike g] -> do
+      p <- asks fixmeEnvDbPath
+      db <- asks fixmeEnvDb
+      atomically do
+        writeTVar db Nothing
+        writeTVar p g
+      evolve
 
     ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
       t <- asks fixmeEnvCatContext
