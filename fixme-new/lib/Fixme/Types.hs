@@ -307,6 +307,29 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                                       , MonadReader FixmeEnv
                                       )
 
+
+fixmeEnvBare :: FixmePerks m => m FixmeEnv
+fixmeEnvBare =
+  FixmeEnv
+    <$>  newMVar ()
+    <*>  newTVarIO mempty
+    <*>  newTVarIO ":memory:"
+    <*>  newTVarIO Nothing
+    <*>  newTVarIO Nothing
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO defCommentMap
+    <*>  newTVarIO Nothing
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO (CatAction $ \_ _ -> pure ())
+    <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
+    <*>  newTVarIO (1,3)
+
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
 
