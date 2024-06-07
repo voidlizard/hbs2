@@ -33,6 +33,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.Set qualified as Set
 import Data.List qualified as List
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
@@ -41,6 +42,7 @@ import System.Process.Typed
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import System.IO.Temp as Temp
+import System.IO qualified as IO
 
 
 import Streaming.Prelude qualified as S
@@ -102,8 +104,10 @@ defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   db <- newDBPipeEnv dbPipeOptsDef =<< localDBPath
-  env <- FixmeEnv Nothing db
-            <$>  newTVarIO mempty
+  git <- findGitDir
+  env <- FixmeEnv db
+            <$>  newTVarIO git
+            <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
@@ -281,7 +285,7 @@ modify_ txt a b = do
 
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
-  g <- asks fixmeEnvGitDir
+  g <- asks fixmeEnvGitDir >>= readTVarIO
   masks <- asks fixmeEnvFileMask >>= readTVarIO
   tags  <- asks fixmeEnvTags >>= readTVarIO
   days  <- asks fixmeEnvGitScanDays >>= readTVarIO
@@ -318,6 +322,8 @@ printEnv = do
   for_ vals$ \(v, vs) -> do
       liftIO $ print $ "fixme-value-set" <+> pretty v <+> hsep (fmap pretty (HS.toList vs))
 
+  for_ g $ \git -> do
+    liftIO $ print $ "fixme-git-dir" <+> dquotes (pretty git)
 
   (before,after) <- asks fixmeEnvCatContext >>= readTVarIO
 
@@ -416,6 +422,10 @@ runForms ss = for_  ss $ \s -> do
       ta <- asks fixmeEnvAttribs
       atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
+    ListVal [SymbolVal "fixme-git-dir", StringLike g] -> do
+      ta <- asks fixmeEnvGitDir
+      atomically $ writeTVar ta (Just g)
+
     ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
       t <- asks fixmeEnvCatContext
       atomically $ writeTVar t (fromIntegral a, fromIntegral b)
@@ -488,8 +498,7 @@ runForms ss = for_  ss $ \s -> do
 
     ReadFixmeStdin -> readFixmeStdin
 
-    ListVal [SymbolVal "print-env"] -> do
-      printEnv
+    ListVal [SymbolVal "print-env"] -> printEnv
 
     ListVal (SymbolVal "hello" : xs) -> do
       notice $ "hello" <+> pretty xs
@@ -601,6 +610,19 @@ runForms ss = for_  ss $ \s -> do
 
     ListVal [SymbolVal "silence"] -> do
       silence
+
+    ListVal [SymbolVal "builtin:run-stdin"] -> do
+      let ini = mempty :: [Text]
+      flip fix ini $ \next acc -> do
+        eof <- liftIO IO.isEOF
+        s <-   if eof then pure "" else liftIO Text.getLine <&> Text.strip
+        if Text.null s then do
+          let code = parseTop (Text.unlines acc) & fromRight mempty
+          runForms code
+          unless eof do
+            next mempty
+        else do
+          next (acc <> [s])
 
     ListVal [SymbolVal "builtin:evolve"] -> do
       evolve

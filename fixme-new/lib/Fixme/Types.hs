@@ -241,8 +241,8 @@ class FixmeRenderTemplate a b where
 
 data FixmeEnv =
   FixmeEnv
-  { fixmeEnvGitDir         :: Maybe FilePath
-  , fixmeEnvDb             :: DBPipeEnv
+  { fixmeEnvDb             :: DBPipeEnv
+  , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
   , fixmeEnvTags           :: TVar (HashSet FixmeTag)
   , fixmeEnvAttribs        :: TVar (HashSet FixmeAttrName)
@@ -276,11 +276,12 @@ fixmeGetCommentsFor (Just fp) = do
 
 {- HLINT ignore "Functor law" -}
 
-fixmeGetGitDirCLIOpt :: MonadReader FixmeEnv m => m String
+fixmeGetGitDirCLIOpt :: (FixmePerks m, MonadReader FixmeEnv m) => m String
 fixmeGetGitDirCLIOpt = do
   asks fixmeEnvGitDir
-      <&> fmap (\d -> [qc|--dir-dir {d}|])
-      <&> fromMaybe ""
+          >>= readTVarIO
+          <&> fmap (\d -> [qc|--dir-dir {d}|])
+          <&> fromMaybe ""
 
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                      deriving newtype ( Applicative

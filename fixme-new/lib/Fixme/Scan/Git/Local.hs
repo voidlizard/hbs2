@@ -80,7 +80,6 @@ listCommits = do
 
   let cmd = [qc|git {gd} log --all --format="%H '%cn' '%ce' %ct" {days}|]
 
-  -- FIXME: git-dir
   gitRunCommand cmd
     <&> fromRight mempty
     <&> LBS8.lines
@@ -130,10 +129,10 @@ listRefs every = do
       done <- withState $ isProcessed $ ViaSerialise h
       pure (not done)
 
-listBlobs :: FixmePerks m => GitHash -> m [(FilePath,GitHash)]
+listBlobs :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m [(FilePath,GitHash)]
 listBlobs co = do
-  -- FIXME: git-dir
-  gitRunCommand [qc|git ls-tree -r -l -t {pretty co}|]
+  gd <- fixmeGetGitDirCLIOpt
+  gitRunCommand [qc|git {gd} ls-tree -r -l -t {pretty co}|]
     <&> fromRight mempty
     <&> fmap LBS8.words . LBS8.lines
     <&> mapMaybe
@@ -266,7 +265,7 @@ scanGitLocal args p =  do
 
           debug $ "commit" <+> pretty commit
 
-          blobs <- listBlobs commit >>= withFixmeEnv env . filterBlobs
+          blobs <- lift $ listBlobs commit >>= withFixmeEnv env . filterBlobs
 
           let ts = HM.lookup "commit-time" attr
                      >>= readMay @Word64 . Text.unpack . coerce
