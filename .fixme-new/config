@@ -74,7 +74,7 @@ fixme-comments ";" "--"
   (builtin:show-stage))
 
 (define-macro log
-  (builtin:show-log .fixme-new/log))
+  (builtin:show-log .fixme-new/fixme.log))
 
 
 (define-template short
