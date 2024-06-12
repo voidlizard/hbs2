@@ -26,6 +26,7 @@ module Fixme.State
   , isProcessed
   , selectProcessed
   , HasPredicate(..)
+  , SelectPredicate(..)
   ) where
 
 import Fixme.Prelude

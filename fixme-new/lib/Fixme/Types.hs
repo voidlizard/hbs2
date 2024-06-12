@@ -161,7 +161,7 @@ data Fixme =
   , fixmePlain     :: [FixmePlainLine]
   , fixmeAttr      :: HashMap FixmeAttrName FixmeAttrVal
   }
-  deriving stock (Show,Data,Generic)
+  deriving stock (Ord,Eq,Show,Data,Generic)
 
 instance Monoid Fixme where
   mempty = Fixme mempty mempty Nothing Nothing Nothing Nothing mempty mempty
@@ -201,6 +201,7 @@ class HasSequence w where
 data CompactAction =
     Deleted  Word64 HashRef
   | Modified Word64 HashRef FixmeAttrName FixmeAttrVal
+  | Added    Word64 Fixme
   deriving stock (Eq,Ord,Show,Generic)
 
 class MkKey a where
@@ -209,11 +210,14 @@ class MkKey a where
 instance MkKey CompactAction where
   mkKey (Deleted _ h) = "D" <> LBS.toStrict (serialise h)
   mkKey (Modified _ h _ _) = "M" <> LBS.toStrict (serialise h)
+  mkKey (Added _ fixme) = "A" <> LBS.toStrict (serialise fixme)
 
 instance Pretty CompactAction where
   pretty = \case
     Deleted s r      -> pretty $ mklist @C [ mksym "deleted", mkint s, mkstr r  ]
     Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
+    -- FIXME: normal-pretty-instance
+    Added  w fx -> pretty $ mklist @C [ mksym "added", mksym "..." ]
 
 instance Serialise CompactAction
 
@@ -226,6 +230,7 @@ seqOf :: CompactAction -> Maybe Word64
 seqOf = \case
   Deleted   w  _ -> Just w
   Modified  w _ _ _ -> Just w
+  Added w _ -> Just w
 
 instance HasSequence CompactAction where
   getSequence x = fromMaybe 0 (seqOf x)

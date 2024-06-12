@@ -43,6 +43,10 @@ fixme-comments ";" "--"
 )
 
 (fixme-play-log-action
+  (export-fixmies ".fixme-new/fixme.log")
+)
+
+(fixme-play-log-action
   (hello kitty)
 )
 

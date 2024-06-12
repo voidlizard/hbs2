@@ -553,15 +553,24 @@ runForms ss = for_  ss $ \s -> do
       let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
       atomically $ modifyTVar t (<> [action])
 
-    ListVal (SymbolVal "append-file" : StringLike fn : StringLikeList xs) -> do
-      debug "append-file"
-      liftIO $ for_ xs $ \x -> do
-        appendFile  fn x
-        appendFile fn "\n"
-
     ListVal [SymbolVal "play-git-log-file-all", StringLike fn] -> do
       warn $ red "play-git-log-file-all" <+> pretty fn
       scanGitLogLocal fn runForms
+
+    ListVal [SymbolVal "export-fixmies", StringLike fn] -> do
+      e <- getEpoch
+      warn $ red "EXPORT-FIXMIES" <+> pretty fn
+      sto <- compactStorageOpen @HbSync mempty fn
+      fx <- selectFixmeThin ()
+      for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
+        h <- HM.lookup "fixme-hash" m & toMPlus
+        loaded <- lift (selectFixme (coerce h)) >>= toMPlus
+        let what = Added e loaded
+        let k = mkKey what
+        get sto k >>= guard . isNothing
+        put sto (mkKey what) (LBS.toStrict $ serialise what)
+        warn $ red "export" <+> pretty h
+      compactStorageClose sto
 
     ListVal [SymbolVal "play-log-file", StringLike fn] -> do
 
