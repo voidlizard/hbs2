@@ -126,7 +126,11 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO (1,3)
 
-  runReaderT ( setupLogger >> fromFixmeM (evolve >> m) ) env
+  -- FIXME: defer-evolve
+  --   не все действия требуют БД,
+  --   хорошо бы, что бы она не создавалась,
+  --   если не требуется
+  runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
                  `finally` flushLoggers
   where
     setupLogger = do
@@ -168,6 +172,7 @@ readConfig = do
 
 init :: FixmePerks m => FixmeM m ()
 init = do
+
   lo <- localConfigDir
 
   let lo0 = takeFileName lo
