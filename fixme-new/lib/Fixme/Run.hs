@@ -328,6 +328,7 @@ exportToLog fn = do
 
   compactStorageClose sto
 
+  cleanStage
 
 importFromLog :: FixmePerks m => CompactStorage HbSync -> FixmeM m ()
 importFromLog sto = do
@@ -624,15 +625,15 @@ runForms ss = for_  ss $ \s -> do
 
       atomically $ modifyTVar t (<> [action])
 
-    ListVal (SymbolVal "fixme-play-log-action" : xs) -> do
-      debug $ "fixme-play-log-action" <+> pretty xs
+    ListVal (SymbolVal "update-action" : xs) -> do
+      debug $ "update-action" <+> pretty xs
       env <- ask
       t <- asks fixmeEnvReadLogActions
       let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
       atomically $ modifyTVar t (<> [action])
 
-    ListVal [SymbolVal "play-git-log-file-all", StringLike fn] -> do
-      warn $ red "play-git-log-file-all" <+> pretty fn
+    ListVal [SymbolVal "import-git-logs", StringLike fn] -> do
+      warn $ red "import-git-logs" <+> pretty fn
       scanGitLogLocal fn importFromLog
 
     ListVal [SymbolVal "import", StringLike fn] -> do
