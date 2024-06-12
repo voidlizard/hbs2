@@ -26,6 +26,7 @@ module Fixme.State
   , isProcessed
   , selectProcessed
   , checkFixmeExists
+  , listAllFixmeHashes
   , HasPredicate(..)
   , SelectPredicate(..)
   ) where
@@ -39,6 +40,8 @@ import Data.Config.Suckless
 import Data.Config.Suckless.Syntax
 import DBPipe.SQLite hiding (field)
 
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
 import Data.Aeson as Aeson
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (q,qc)
@@ -440,6 +443,11 @@ selectFixme txt = do
       >>= toMPlus
       <&> over (field @"fixmeAttr") (<> attrs)
 
+
+listAllFixmeHashes :: (FixmePerks m, MonadReader FixmeEnv m) => m (HashSet HashRef)
+listAllFixmeHashes = withState do
+  select_ @_ @(Only HashRef) [qc|select id from fixme|]
+    <&> HS.fromList . fmap fromOnly
 
 checkFixmeExists :: FixmePerks m => HashRef -> FixmeM m Bool
 checkFixmeExists what = withState do

@@ -514,7 +514,7 @@ runForms ss = for_  ss $ \s -> do
       deleteFixme hash
 
     ListVal [SymbolVal "added", FixmeHashLike _] -> do
-      -- we dont' add fixmies at that stage
+      -- we don't add fixmies at this stage
       -- but in fixme-import
       none
 
@@ -565,23 +565,33 @@ runForms ss = for_  ss $ \s -> do
 
     ListVal [SymbolVal "import-fixmies", StringLike fn] -> do
       warn $ red "IMPORT-FIXMIES" <+> pretty fn
-      sto <- compactStorageOpen @HbSync mempty fn
+
+      fset <- listAllFixmeHashes
+
+      sto <- compactStorageOpen @HbSync readonly fn
       ks   <- keys sto
 
       toImport <- S.toList_ do
         for_ ks $ \k -> runMaybeT do
           v <- get sto k & MaybeT
-          Added _ fx <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
-          let ha = hashObject @HbSync (serialise fx)
-          here <- lift $ lift $ checkFixmeExists (HashRef ha)
-          unless here do
-            warn $ red "import" <+> viaShow (pretty ha)
-            lift $ S.yield fx
+          what <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
+
+          case what of
+            Added _ fx  -> do
+              let ha = hashObject @HbSync (serialise fx) & HashRef
+              unless (HS.member ha fset) do
+                warn $ red "import" <+> viaShow (pretty ha)
+                lift $ S.yield (Right fx)
+            w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
 
       withState $ transactional do
-        for_ toImport insertFixme
+        for_ (rights  toImport) insertFixme
 
-      updateIndexes
+      let w = lefts toImport
+      runForms (mconcat w)
+
+      unless (List.null toImport) do
+        updateIndexes
 
       compactStorageClose sto
 
