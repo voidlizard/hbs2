@@ -25,6 +25,7 @@ module Fixme.State
   , insertProcessed
   , isProcessed
   , selectProcessed
+  , checkFixmeExists
   , HasPredicate(..)
   , SelectPredicate(..)
   ) where
@@ -43,6 +44,7 @@ import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (q,qc)
 import Data.Text qualified as Text
 import Data.Maybe
+import Data.List qualified as List
 import Data.Either
 import Data.List (sortBy,sortOn)
 import Data.Ord
@@ -438,6 +440,11 @@ selectFixme txt = do
       >>= toMPlus
       <&> over (field @"fixmeAttr") (<> attrs)
 
+
+checkFixmeExists :: FixmePerks m => HashRef -> FixmeM m Bool
+checkFixmeExists what = withState do
+  select @(Only (Maybe Int)) [qc|select 1 from fixme where id = ? limit 1|] (Only what)
+    <&> not . List.null
 
 data Bound = forall a . (ToField a, Show a) => Bound a
 

@@ -567,11 +567,21 @@ runForms ss = for_  ss $ \s -> do
       warn $ red "IMPORT-FIXMIES" <+> pretty fn
       sto <- compactStorageOpen @HbSync mempty fn
       ks   <- keys sto
-      for_ ks $ \k -> runMaybeT do
-        v <- get sto k & MaybeT
-        warn $ red "import" <+> viaShow (toBase58 k)
-        fx <- deserialiseOrFail @Fixme (LBS.fromStrict v) & toMPlus
-        lift $ withState $ insertFixme fx
+
+      toImport <- S.toList_ do
+        for_ ks $ \k -> runMaybeT do
+          v <- get sto k & MaybeT
+          Added _ fx <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
+          let ha = hashObject @HbSync (serialise fx)
+          here <- lift $ lift $ checkFixmeExists (HashRef ha)
+          unless here do
+            warn $ red "import" <+> viaShow (pretty ha)
+            lift $ S.yield fx
+
+      withState $ transactional do
+        for_ toImport insertFixme
+
+      updateIndexes
 
       compactStorageClose sto
 
