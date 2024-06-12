@@ -11,6 +11,7 @@ import Fixme.State
 import Fixme.Scan as Scan
 import Fixme.Log
 
+import HBS2.Storage
 import HBS2.Storage.Compact
 import HBS2.System.Dir
 import HBS2.Git.Local.CLI
@@ -164,7 +165,7 @@ filterBlobs xs = do
 
 scanGitLogLocal :: FixmePerks m
                 => FilePath
-                -> ( [Syntax C] -> FixmeM m () )
+                -> ( CompactStorage HbSync -> FixmeM m () )
                 -> FixmeM m ()
 scanGitLogLocal refMask play = do
   warn $ red "scanGitLogLocal" <+> pretty refMask
@@ -211,7 +212,7 @@ scanGitLogLocal refMask play = do
           either (const $ warn $ "skip malformed/unknown log" <+> pretty h) (const none) esto
           sto <- either (const $ shit ()) pure esto
 
-          lift $ lift $ loadAllEntriesFromLog sto >>= play
+          lift $ lift $ play sto
 
           compactStorageClose sto
 

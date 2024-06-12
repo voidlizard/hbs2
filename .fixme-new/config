@@ -31,20 +31,16 @@ fixme-file-comments "*.scm" ";"
 fixme-comments ";" "--"
 
 ;(fixme-play-log-action
-;  (import-fixmies ".fixme-new/fixme.log")
+;  (import ".fixme-new/log")
 ;)
-
-(fixme-play-log-action
-  (play-log-file ".fixme-new/log")
-)
 
 (fixme-play-log-action
   (play-git-log-file-all ".fixme-new/log")
 )
 
-;(fixme-play-log-action
-;  (export-fixmies ".fixme-new/fixme.log")
-;)
+(fixme-play-log-action
+  (export ".fixme-new/fixme.log")
+)
 
 (fixme-play-log-action
   (hello kitty)

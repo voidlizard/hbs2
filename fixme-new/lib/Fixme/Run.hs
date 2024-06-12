@@ -17,6 +17,7 @@ import HBS2.Git.Local.CLI
 import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
+import HBS2.Storage
 import HBS2.Storage.Compact
 import HBS2.System.Dir
 import DBPipe.SQLite hiding (field)
@@ -293,6 +294,72 @@ modify_ txt a b = do
     ha <- toMPlus =<< lift (selectFixmeHash txt)
     lift $ insertFixmeModStaged ha (fromString a) (fromString b)
 
+exportToLog :: FixmePerks m => FilePath -> FixmeM m ()
+exportToLog fn = do
+  e <- getEpoch
+  warn $ red "EXPORT-FIXMIES" <+> pretty fn
+  sto <- compactStorageOpen @HbSync mempty fn
+  fx <- selectFixmeThin ()
+  for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
+    h <- HM.lookup "fixme-hash" m & toMPlus
+    loaded <- lift (selectFixme (coerce h)) >>= toMPlus
+    let what = Added e loaded
+    let k = mkKey what
+    get sto k >>= guard . isNothing
+    put sto (mkKey what) (LBS.toStrict $ serialise what)
+    warn $ red "export" <+> pretty h
+
+  what <- selectStage
+
+  for_ what $ \w -> do
+    let k = mkKey w
+    v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
+    case v0 of
+      Nothing -> do
+        put sto k (LBS.toStrict $ serialise w)
+
+      Just (Left{}) -> do
+        put sto k (LBS.toStrict $ serialise w)
+
+      Just (Right prev) | getSequence w > getSequence prev -> do
+        put sto k (LBS.toStrict $ serialise w)
+
+      _ -> pure ()
+
+  compactStorageClose sto
+
+
+importFromLog :: FixmePerks m => CompactStorage HbSync -> FixmeM m ()
+importFromLog sto = do
+  fset <- listAllFixmeHashes
+
+  -- sto <- compactStorageOpen @HbSync readonly fn
+  ks   <- keys sto
+
+  toImport <- S.toList_ do
+    for_ ks $ \k -> runMaybeT do
+      v <- get sto k & MaybeT
+      what <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
+
+      case what of
+        Added _ fx  -> do
+          let ha = hashObject @HbSync (serialise fx) & HashRef
+          unless (HS.member ha fset) do
+            warn $ red "import" <+> viaShow (pretty ha)
+            lift $ S.yield (Right fx)
+        w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
+
+  withState $ transactional do
+    for_ (rights  toImport) insertFixme
+
+  let w = lefts toImport
+  runForms (mconcat w)
+
+  unless (List.null toImport) do
+    updateIndexes
+
+  -- compactStorageClose sto
+
 printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
   g <- asks fixmeEnvGitDir >>= readTVarIO
@@ -566,89 +633,17 @@ runForms ss = for_  ss $ \s -> do
 
     ListVal [SymbolVal "play-git-log-file-all", StringLike fn] -> do
       warn $ red "play-git-log-file-all" <+> pretty fn
-      scanGitLogLocal fn runForms
+      scanGitLogLocal fn importFromLog
 
-    ListVal [SymbolVal "import-fixmies", StringLike fn] -> do
-      warn $ red "IMPORT-FIXMIES" <+> pretty fn
-
-      fset <- listAllFixmeHashes
-
-      sto <- compactStorageOpen @HbSync readonly fn
-      ks   <- keys sto
-
-      toImport <- S.toList_ do
-        for_ ks $ \k -> runMaybeT do
-          v <- get sto k & MaybeT
-          what <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
-
-          case what of
-            Added _ fx  -> do
-              let ha = hashObject @HbSync (serialise fx) & HashRef
-              unless (HS.member ha fset) do
-                warn $ red "import" <+> viaShow (pretty ha)
-                lift $ S.yield (Right fx)
-            w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
-
-      withState $ transactional do
-        for_ (rights  toImport) insertFixme
-
-      let w = lefts toImport
-      runForms (mconcat w)
-
-      unless (List.null toImport) do
-        updateIndexes
-
+    ListVal [SymbolVal "import", StringLike fn] -> do
+      warn $ red "IMPORT" <+> pretty fn
+      sto <- compactStorageOpen  readonly fn
+      importFromLog sto
       compactStorageClose sto
 
-      pure ()
-
-    ListVal [SymbolVal "export-fixmies", StringLike fn] -> do
-      e <- getEpoch
-      warn $ red "EXPORT-FIXMIES" <+> pretty fn
-      sto <- compactStorageOpen @HbSync mempty fn
-      fx <- selectFixmeThin ()
-      for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
-        h <- HM.lookup "fixme-hash" m & toMPlus
-        loaded <- lift (selectFixme (coerce h)) >>= toMPlus
-        let what = Added e loaded
-        let k = mkKey what
-        get sto k >>= guard . isNothing
-        put sto (mkKey what) (LBS.toStrict $ serialise what)
-        warn $ red "export" <+> pretty h
-      compactStorageClose sto
-
-    ListVal [SymbolVal "play-log-file", StringLike fn] -> do
-
-      env <- ask
-
-      debug $ red "play-log-file" <+> pretty  fn
-
-      what <- selectStage
-
-      sto <- compactStorageOpen @HbSync mempty fn
-
-      for_ what $ \w -> do
-        let k = mkKey w
-        v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
-        case v0 of
-          Nothing -> do
-            put sto k (LBS.toStrict $ serialise w)
-
-          Just (Left{}) -> do
-            put sto k (LBS.toStrict $ serialise w)
-
-          Just (Right prev) | getSequence w > getSequence prev -> do
-            put sto k (LBS.toStrict $ serialise w)
-
-          _ -> pure ()
-
-      compactStorageCommit sto
-
-      loadAllEntriesFromLog sto >>= runForms
-
-      cleanStage
-
-      compactStorageClose sto
+    ListVal [SymbolVal "export", StringLike fn] -> do
+      warn $ red "EXPORT" <+> pretty fn
+      exportToLog fn
 
     ListVal [SymbolVal "git:list-refs"] -> do
       refs <- listRefs False
