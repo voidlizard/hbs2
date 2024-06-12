@@ -5,6 +5,7 @@ module Fixme.Types
   ) where
 
 import Fixme.Prelude hiding (align)
+import HBS2.Base58
 
 import DBPipe.SQLite
 import HBS2.Git.Local
@@ -15,6 +16,7 @@ import Prettyprinter.Render.Terminal
 import Control.Applicative
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -77,8 +79,24 @@ instance MkId (String,Integer) where
 class IsContext c => MkStr c a where
   mkstr :: a -> Syntax c
 
+
+instance IsContext c => MkStr c String where
+  mkstr s = Literal (noContext @c) (LitStr $ Text.pack s)
+
+instance IsContext c => MkStr c ByteString where
+  mkstr s = Literal (noContext @c) (LitStr $ Text.pack $ BS8.unpack s)
+
+instance IsContext c => MkStr c (Maybe FixmeKey) where
+  mkstr Nothing  = Literal (noContext @c) (LitStr "")
+  mkstr (Just k) = Literal (noContext @c) (LitStr (coerce k))
+
 instance IsContext c => MkStr c FixmeAttrVal where
   mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
+
+
+instance IsContext c => MkStr c (Maybe FixmeAttrVal) where
+  mkstr (Just v) = mkstr v
+  mkstr Nothing  = mkstr ( "" :: Text )
 
 instance IsContext c => MkStr c FixmeAttrName where
   mkstr (s :: FixmeAttrName)  = Literal (noContext @c) (LitStr (coerce s))
@@ -210,14 +228,15 @@ class MkKey a where
 instance MkKey CompactAction where
   mkKey (Deleted _ h) = "D" <> LBS.toStrict (serialise h)
   mkKey (Modified _ h _ _) = "M" <> LBS.toStrict (serialise h)
-  mkKey (Added _ fixme) = "A" <> LBS.toStrict (serialise fixme)
+  mkKey (Added _ fixme) = "A" <> coerce (hashObject @HbSync $ serialise fixme)
 
 instance Pretty CompactAction where
   pretty = \case
     Deleted s r      -> pretty $ mklist @C [ mksym "deleted", mkint s, mkstr r  ]
     Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
     -- FIXME: normal-pretty-instance
-    Added  w fx -> pretty $ mklist @C [ mksym "added", mksym "..." ]
+    e@(Added  w fx) -> do
+      pretty $ mklist @C [ mksym "added", mkstr (toBase58 $ mkKey e) ]
 
 instance Serialise CompactAction
 

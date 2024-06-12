@@ -30,8 +30,8 @@ fixme-file-comments "*.scm" ";"
 
 fixme-comments ";" "--"
 
-(fixme-update-action
-  (append-file ".fixme-new/log" $1)
+(fixme-play-log-action
+  (import-fixmies ".fixme-new/fixme.log")
 )
 
 (fixme-play-log-action

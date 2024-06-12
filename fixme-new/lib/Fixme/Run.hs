@@ -14,6 +14,7 @@ import Fixme.Log
 
 import HBS2.Git.Local.CLI
 
+import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
 import HBS2.Storage.Compact
@@ -512,6 +513,11 @@ runForms ss = for_  ss $ \s -> do
     ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
       deleteFixme hash
 
+    ListVal [SymbolVal "added", FixmeHashLike _] -> do
+      -- we dont' add fixmies at that stage
+      -- but in fixme-import
+      none
+
     ReadFixmeStdin -> readFixmeStdin
 
     ListVal [SymbolVal "print-env"] -> printEnv
@@ -556,6 +562,20 @@ runForms ss = for_  ss $ \s -> do
     ListVal [SymbolVal "play-git-log-file-all", StringLike fn] -> do
       warn $ red "play-git-log-file-all" <+> pretty fn
       scanGitLogLocal fn runForms
+
+    ListVal [SymbolVal "import-fixmies", StringLike fn] -> do
+      warn $ red "IMPORT-FIXMIES" <+> pretty fn
+      sto <- compactStorageOpen @HbSync mempty fn
+      ks   <- keys sto
+      for_ ks $ \k -> runMaybeT do
+        v <- get sto k & MaybeT
+        warn $ red "import" <+> viaShow (toBase58 k)
+        fx <- deserialiseOrFail @Fixme (LBS.fromStrict v) & toMPlus
+        lift $ withState $ insertFixme fx
+
+      compactStorageClose sto
+
+      pure ()
 
     ListVal [SymbolVal "export-fixmies", StringLike fn] -> do
       e <- getEpoch
