@@ -35,8 +35,13 @@ fixme-comments ";" "--"
 )
 
 (update-action
+  (import ".fixme-new/fixme.log")
+)
+
+(update-action
   (export ".fixme-new/fixme.log")
 )
+
 
 (update-action
   (hello kitty)
