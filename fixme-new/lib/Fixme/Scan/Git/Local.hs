@@ -26,6 +26,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Fixed
 import Data.List qualified as List
+import Data.List.Split (chunksOf)
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -466,6 +467,54 @@ gitListStage = do
   old1 <- filterBlobs old <&> fmap Right
 
   pure (old1 <> new1)
+
+
+gitExtractFileMetaData :: FixmePerks m => [FilePath] -> FixmeM m (HashMap FilePath Fixme)
+gitExtractFileMetaData fns = do
+  -- FIXME: magic-number
+  let chunks = chunksOf 64 fns
+
+  gd <- fixmeGetGitDirCLIOpt
+
+  commitz <- S.toList_ $ for_ chunks $ \chu -> do
+      let filez = unwords chu
+      let cmd = [qc|git {gd} log --diff-filter=AMR --pretty=format:'entry %H %at "%an" "%ae"' -- {filez}|]
+      ss <- gitRunCommand cmd
+             <&> fromRight mempty
+             <&> fmap LBS8.unpack . LBS8.lines
+
+      for_ ss $ \s -> do
+        let syn = parseTop s & fromRight mempty
+        case syn of
+          [ListVal [SymbolVal "entry", SymbolVal (Id e), LitIntVal t, StringLike n, StringLike m]] -> do
+            -- liftIO $ print $ pretty e <+> pretty syn
+            S.yield (fromString @GitHash (Text.unpack e), (t,n,m) )
+
+          _ -> pure ()
+
+  let co = HM.fromList commitz
+             & HM.toList
+
+  rich0 <- S.toList_ $ do
+    for_ co $ \(c, (t,n,m)) -> do
+      let pat = [ (True, f) | f <- fns ]
+      blobz <- lift $ listBlobs c >>= filterBlobs0 pat
+
+      for_ blobz $ \(f,h) -> do
+        let attr = HM.fromList [ ("commit",          FixmeAttrVal (fromString $ show $ pretty c))
+                               , ("commit-time",     FixmeAttrVal (fromString $ show $ pretty t))
+                               , ("committer-name",  FixmeAttrVal (fromString n))
+                               , ("committer-email", FixmeAttrVal (fromString m))
+                               , ("committer",       FixmeAttrVal (fromString $ [qc|{n} <{m}>|]))
+                               , ("file",            FixmeAttrVal (fromString f))
+                               , ("blob",            FixmeAttrVal (fromString $ show $ pretty $ h))
+                               ]
+        let what = mempty { fixmeAttr = attr }
+        S.yield (f,t,what)
+
+  let rich = List.sortBy (\a b -> compare (view _2 a) (view _2 b)) rich0
+
+  pure $ HM.fromList [ (view _1 w, view _3 w) | w <- rich ]
 
 -- TODO: move-outta-here
 runLogActions :: FixmePerks m => FixmeM m ()

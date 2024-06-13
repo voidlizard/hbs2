@@ -83,6 +83,7 @@ common shared-properties
       , scientific
       , streaming
       , stm
+      , split
       , text
       , temporary
       , time
