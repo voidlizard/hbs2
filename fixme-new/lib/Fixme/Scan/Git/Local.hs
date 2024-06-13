@@ -40,6 +40,7 @@ import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import System.IO qualified as IO
 import System.IO.Temp (emptySystemTempFile)
 import System.TimeIt
@@ -429,6 +430,44 @@ scanGitLocal args p =  do
         for_ co $ \w -> do
           insertCommit (view _1 w)
 
+
+gitListStage :: (FixmePerks m)
+             => FixmeM m [Either (FilePath, GitHash) (FilePath, GitHash)]
+gitListStage = do
+  gd <- fixmeGetGitDirCLIOpt
+  modified <- gitRunCommand [qc|git {gd} status --porcelain|]
+                <&> fromRight mempty
+                <&> fmap LBS8.words . LBS8.lines
+                <&> mapMaybe ( \case
+                       ["M", fn] -> Just (LBS8.unpack fn)
+                       _         -> Nothing
+                    )
+
+  new <- S.toList_ $ do
+            for_ modified $ \fn -> void $ runMaybeT do
+
+              e <- gitRunCommand [qc|git {gd} hash-object {fn}|]
+                     >>= toMPlus
+                     <&> maybe mempty LBS8.unpack . headMay . LBS8.words
+                     <&> fromStringMay @GitHash
+                     >>= toMPlus
+
+              lift (S.yield $ (fn,e))
+
+  old <- gitRunCommand [qc|git {gd} ls-files -s|]
+          <&> fromRight mempty
+          <&> fmap LBS8.words . LBS8.lines
+          <&> mapMaybe ( \case
+                [_, h, _, fn] -> (LBS8.unpack fn,) <$> fromStringMay @GitHash (LBS8.unpack h)
+                _             -> Nothing
+                )
+
+  new1 <- filterBlobs new <&> fmap Left
+  old1 <- filterBlobs old <&> fmap Right
+
+  pure (old1 <> new1)
+
+-- TODO: move-outta-here
 runLogActions :: FixmePerks m => FixmeM m ()
 runLogActions = do
   debug $ yellow "runLogActions"

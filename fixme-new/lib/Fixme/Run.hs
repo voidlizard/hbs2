@@ -731,6 +731,12 @@ runForms ss = for_  ss $ \s -> do
       w <- selectFixmeHash x
       liftIO $ print $ pretty w
 
+    ListVal [SymbolVal "builtin:git:list-stage"] -> do
+      stage <- gitListStage
+      for_ stage $ \case
+        Left (fn,h)  -> liftIO $ print $ "N" <+> pretty h <+> pretty fn
+        Right (fn,h) -> liftIO $ print $ "E" <+> pretty h <+> pretty fn
+
     ListVal [SymbolVal "trace"] -> do
       setLogging @TRACE (logPrefix "[trace] " . toStderr)
       trace "trace on"
