@@ -737,6 +737,40 @@ runForms ss = for_  ss $ \s -> do
         Left (fn,h)  -> liftIO $ print $ "N" <+> pretty h <+> pretty fn
         Right (fn,h) -> liftIO $ print $ "E" <+> pretty h <+> pretty fn
 
+
+    ListVal (SymbolVal "builtin:git:extract-file-meta-data" : StringLikeList fs) -> do
+      fxm <-  gitExtractFileMetaData fs <&> HM.toList
+      liftIO $ print $ vcat (fmap (pretty.snd) fxm)
+
+    ListVal [SymbolVal "builtin:calc-line", LitIntVal off] -> do
+      prefix <- liftIO $ LBS8.getContents <&> LBS8.lines <&> drop (fromIntegral off)
+      liftIO $ mapM_ LBS8.putStrLn prefix
+      -- let lfn = List.find (=='\n') (LBS8.unpack prefix)
+      -- liftIO $ print $ pretty lfn
+
+    ListVal [SymbolVal "builtin:extract-from-stage"] -> do
+      env <- ask
+      stage <- gitListStage
+
+      blobs  <- for stage $ \case
+          Left (fn, _) -> pure (fn, liftIO $ LBS8.readFile fn)
+          Right (fn,hash) -> pure (fn, liftIO (withFixmeEnv env $ gitCatBlob hash))
+
+      let fns = fmap fst blobs
+
+      meta <- gitExtractFileMetaData fns
+
+      for_ blobs $ \(fn, readBlob) -> do
+        lbs <- readBlob
+
+        fxs <- scanBlob (Just fn) lbs
+                 >>= \e -> for e $ \fx0 -> do
+                        let fxm = fromMaybe mempty $ HM.lookup fn meta
+                        pure (fxm <> fx0)
+
+        for_ fxs $ \fx -> do
+          liftIO $ print (pretty fx)
+
     ListVal [SymbolVal "trace"] -> do
       setLogging @TRACE (logPrefix "[trace] " . toStderr)
       trace "trace on"
