@@ -31,6 +31,7 @@ import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
+import Data.HashSet (HashSet)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
@@ -70,6 +71,7 @@ scanGitArg = \case
 
 
 {- HLINT ignore "Functor law" -}
+
 
 listCommits :: FixmePerks m => FixmeM m [(GitHash, HashMap FixmeAttrName FixmeAttrVal)]
 listCommits = do
@@ -469,6 +471,45 @@ gitListStage = do
   pure (old1 <> new1)
 
 
+getMetaDataFromGitBlame :: FixmePerks m => FilePath -> Fixme -> FixmeM m Fixme
+getMetaDataFromGitBlame f fx0 = do
+  gd <- fixmeGetGitDirCLIOpt
+  fromMaybe mempty <$> runMaybeT do
+    l0 <- fixmeStart fx0 & toMPlus <&> fromIntegral <&> succ
+    let cmd = [qc|git {gd} blame {f} -L{l0},{l0} -t -l -p|]
+
+    s0 <- gitRunCommand cmd
+             <&> LBS8.unpack . fromRight mempty
+
+    s <- parseTop s0 & toMPlus
+
+    let ko = headMay (words <$> lines s0)
+                   >>= headMay
+                   >>= (\z -> do
+                         if z == "0000000000000000000000000000000000000000"
+                           then Nothing
+                           else Just z )
+                   >>= fromStringMay @GitHash
+
+    pieces <- for s $ \case
+      ListVal (SymbolVal "committer" : StringLikeList  w) | isJust ko -> do
+        let co = FixmeAttrVal $ fromString $ unwords w
+        pure $ mempty { fixmeAttr = HM.singleton "committer-name" co }
+
+      ListVal (SymbolVal "committer-mail" : StringLikeList  w) | isJust ko -> do
+        let co = FixmeAttrVal $ fromString $ unwords w
+        pure $ mempty { fixmeAttr = HM.singleton "committer-email" co }
+
+      ListVal [SymbolVal "committer-time", TimeStampLike t] | isJust ko  -> do
+        let ct = FixmeAttrVal $ fromString $ show t
+        pure $ mempty { fixmeAttr = HM.singleton "commit-time" ct, fixmeTs = Just t }
+
+      _ -> pure mempty
+
+    let coco = mempty { fixmeAttr = maybe mempty (HM.singleton "commit" . fromString . show . pretty) ko }
+
+    pure $ mconcat pieces <> coco
+
 gitExtractFileMetaData :: FixmePerks m => [FilePath] -> FixmeM m (HashMap FilePath Fixme)
 gitExtractFileMetaData fns = do
   -- FIXME: magic-number
@@ -527,6 +568,40 @@ runLogActions = do
 
   updateIndexes
 
+data GitBlobInfo = GitBlobInfo FilePath GitHash
+                   deriving stock (Eq,Ord,Data,Generic,Show)
+
+instance Hashable GitBlobInfo
+
+data GitIndexEntry =
+       GitCommit Word64 (HashSet GitBlobInfo)
+       deriving stock (Eq,Ord,Data,Generic,Show)
+
+instance Serialise GitBlobInfo
+instance Serialise GitIndexEntry
+
+listCommitForIndex :: forall m . (FixmePerks m, MonadReader FixmeEnv m) => ( (GitHash, GitIndexEntry) -> m ()) -> m ()
+listCommitForIndex fn = do
+
+  gd <- fixmeGetGitDirCLIOpt
+  let cmd = [qc|git {gd} log --all --format="%H %ct"|]
+
+  debug $ yellow "listCommits" <+> pretty cmd
+
+  s0 <- gitRunCommand cmd
+    <&> fromRight mempty
+    <&> fmap (words . LBS8.unpack) . LBS8.lines
+    <&> mapMaybe ( \case
+         [a,b] -> (,) <$> fromStringMay @GitHash a <*> makeIndexEntry0 a b
+         _     -> Nothing
+         )
+
+  for_ s0 $ \(h, GitCommit w _) -> do
+    blobz <- listBlobs h <&> HS.fromList . fmap ( uncurry GitBlobInfo  )
+    fn (h, GitCommit w blobz)
+
+  where
+    makeIndexEntry0 _ t = GitCommit <$> readMay t <*> pure mempty
 
 gitCatBlob :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m ByteString
 gitCatBlob h = do
