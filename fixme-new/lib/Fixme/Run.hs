@@ -747,11 +747,14 @@ runForms ss = for_  ss $ \s -> do
       fxm <-  gitExtractFileMetaData fs <&> HM.toList
       liftIO $ print $ vcat (fmap (pretty.snd) fxm)
 
-    ListVal [SymbolVal "builtin:extract-from-stage"] -> do
+    ListVal (SymbolVal "builtin:git:extract-from-stage" : opts) -> do
       env <- ask
-      stage <- gitListStage
+      gitStage <- gitListStage
 
-      blobs  <- for stage $ \case
+      let dry = or [ True | StringLike "dry" <- opts ]
+      let verbose = or [ True | StringLike "verbose" <- opts ]
+
+      blobs  <- for gitStage $ \case
           Left (fn, hash) -> pure (fn, hash, liftIO $ LBS8.readFile fn)
           Right (fn,hash) -> pure (fn, hash, liftIO (withFixmeEnv env $ gitCatBlob hash))
 
@@ -759,6 +762,10 @@ runForms ss = for_  ss $ \s -> do
 
       -- TODO: extract-metadata-from-git-blame
       --   subj
+
+      stageFile <- localConfigDir <&> (</> "current-stage.log")
+
+      fmeStage <- compactStorageOpen mempty stageFile
 
       for_ blobs $ \(fn, bhash, readBlob) -> do
         nno <- newTVarIO (mempty :: HashMap FixmeTitle Integer)
@@ -788,8 +795,21 @@ runForms ss = for_  ss $ \s -> do
                              & over (field @"fixmeAttr")
                                     (mappend (kh<>kv))
 
-        for_ fxs $ \fx -> do
-          liftIO $ print (pretty fx)
+        unless dry do
+          for_ fxs $ \fx -> void $ runMaybeT do
+            e <- getEpoch
+            let what = Added e fx
+            let k = mkKey (FromFixmeKey fx)
+            get fmeStage k >>= guard . isNothing
+            put fmeStage k (LBS.toStrict $ serialise what)
+
+            when verbose do
+              liftIO $ print (pretty fx)
+
+      when dry do
+        warn $ red "FUCKING DRY!"
+
+      compactStorageClose fmeStage
 
     ListVal [SymbolVal "trace"] -> do
       setLogging @TRACE (logPrefix "[trace] " . toStderr)

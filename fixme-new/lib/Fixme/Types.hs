@@ -220,6 +220,8 @@ data SimpleTemplate = forall c . (IsContext c, Data (Context c), Data c) => Simp
 class HasSequence w where
   getSequence :: w -> Word64
 
+newtype FromFixmeKey a = FromFixmeKey a
+
 data CompactAction =
     Deleted  Word64 HashRef
   | Modified Word64 HashRef FixmeAttrName FixmeAttrVal
@@ -233,6 +235,11 @@ instance MkKey CompactAction where
   mkKey (Deleted _ h) = "D" <> LBS.toStrict (serialise h)
   mkKey (Modified _ h _ _) = "M" <> LBS.toStrict (serialise h)
   mkKey (Added _ fixme) = "A" <> coerce (hashObject @HbSync $ serialise fixme)
+
+instance MkKey (FromFixmeKey Fixme) where
+  mkKey (FromFixmeKey fx@Fixme{..}) =
+    maybe k2  (mappend "A" . LBS.toStrict . serialise) (HM.lookup "fixme-key" fixmeAttr)
+    where k2 = mappend "A" $ serialise fx & LBS.toStrict
 
 instance Pretty CompactAction where
   pretty = \case
