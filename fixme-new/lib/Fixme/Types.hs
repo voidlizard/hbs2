@@ -150,7 +150,7 @@ newtype FixmeAttrName = FixmeAttrName { fromFixmeAttrName :: Text }
 
 
 newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
-                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField,ToJSON,FromJSON)
+                        deriving newtype (Eq,Ord,Show,IsString,Hashable,ToField,FromField,ToJSON,FromJSON,Semigroup,Monoid)
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
@@ -186,6 +186,8 @@ instance Monoid Fixme where
 
 instance Semigroup Fixme where
   (<>) a b = b { fixmeTs  = fixmeTs b <|> fixmeTs a
+               , fixmeTitle = fixmeAttrNonEmpty (fixmeTitle a) (fixmeTitle b)
+               , fixmeTag   = fixmeAttrNonEmpty (fixmeTag a) (fixmeTag b)
                , fixmeStart = fixmeStart b <|> fixmeStart a
                , fixmeEnd = fixmeEnd b <|> fixmeEnd a
                , fixmePlain = fixmePlain b
@@ -594,5 +596,40 @@ newtype ViaSerialise a = ViaSerialise a
 
 instance Serialise a => Hashed HbSync (ViaSerialise a) where
   hashObject (ViaSerialise x) = hashObject (serialise x)
+
+
+fixmeTitleNonEmpty :: FixmeTitle -> FixmeTitle -> FixmeTitle
+fixmeTitleNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
+  (x,y) | Text.null x && not (Text.null y) -> FixmeTitle y
+  (x,y) | not (Text.null x) &&  Text.null y -> FixmeTitle x
+  (_,y) -> FixmeTitle y
+
+fixmeAttrNonEmpty :: Coercible a Text => a -> a -> a
+fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
+  (x,y) | Text.null x && not (Text.null y) -> b
+  (x,y) | not (Text.null x) &&  Text.null y -> a
+  (_,_) -> b
+
+fixmeDerivedFields :: Fixme -> Fixme
+fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno
+  where
+    email = HM.lookup "commiter-email" (fixmeAttr fx)
+              & maybe mempty (\x -> " <" <> x <> ">")
+
+    comitter = HM.lookup "commiter-name" (fixmeAttr fx)
+                 <&> (<> email)
+
+    tag = mempty { fixmeAttr = HM.singleton "fixme-tag" (FixmeAttrVal (coerce $ fixmeTag fx))  }
+
+    lno = succ <$> fixmeStart fx <&> FixmeAttrVal . fromString . show
+
+    fxLno = mempty { fixmeAttr = maybe mempty (HM.singleton "line") lno }
+
+    fxCo =
+      maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter
+
+mkFixmeFileName :: FilePath -> Fixme
+mkFixmeFileName fp =
+  mempty { fixmeAttr = HM.singleton "file" (FixmeAttrVal (fromString fp)) }
 
 
