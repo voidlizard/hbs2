@@ -1,5 +1,5 @@
 {-# Language MultiWayIf #-}
-module Fixme.Scan (scanBlob) where
+module Fixme.Scan (scanBlob,scanMagic) where
 
 import Fixme.Prelude hiding (indent)
 import Fixme.Types
@@ -51,6 +51,21 @@ data FixmeWhat = FixmeHead Int Int Text Text
                  deriving stock (Show,Data,Generic)
 
 data P = P0 [FixmePart] | P1 Int Fixme [FixmePart]
+
+
+scanMagic :: FixmePerks m => FixmeM m HashRef
+scanMagic = do
+  env <- ask
+  w <- atomically do
+         tagz <- fixmeEnvTags env         & readTVar
+         co   <- fixmeEnvDefComments  env & readTVar
+         fco  <- fixmeEnvFileComments env  & readTVar
+         m    <- fixmeEnvFileMask env      & readTVar
+         a    <- fixmeEnvAttribs env       & readTVar
+         v    <- fixmeEnvAttribValues env  & readTVar
+
+         pure $ serialise (tagz, co, fco, m, a, v)
+  pure $ HashRef $ hashObject w
 
 scanBlob :: forall m . FixmePerks m
          => Maybe FilePath   -- ^ filename to detect type

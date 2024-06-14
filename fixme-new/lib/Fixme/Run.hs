@@ -729,6 +729,10 @@ runForms ss = for_  ss $ \s -> do
     ListVal [SymbolVal "builtin:update-indexes"] -> do
       updateIndexes
 
+    ListVal [SymbolVal "builtin:scan-magic"] -> do
+      magic <- scanMagic
+      liftIO $ print $ pretty magic
+
     ListVal [SymbolVal "builtin:select-fixme-hash", FixmeHashLike x] -> do
       w <- selectFixmeHash x
       liftIO $ print $ pretty w
@@ -738,7 +742,6 @@ runForms ss = for_  ss $ \s -> do
       for_ stage $ \case
         Left (fn,h)  -> liftIO $ print $ "N" <+> pretty h <+> pretty fn
         Right (fn,h) -> liftIO $ print $ "E" <+> pretty h <+> pretty fn
-
 
     ListVal (SymbolVal "builtin:git:extract-file-meta-data" : StringLikeList fs) -> do
       fxm <-  gitExtractFileMetaData fs <&> HM.toList
