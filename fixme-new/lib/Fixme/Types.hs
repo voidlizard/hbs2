@@ -7,7 +7,7 @@ module Fixme.Types
 import Fixme.Prelude hiding (align)
 import HBS2.Base58
 
-import DBPipe.SQLite
+import DBPipe.SQLite hiding (field)
 import HBS2.Git.Local
 
 import Data.Config.Suckless
@@ -30,6 +30,8 @@ import Data.List qualified as List
 import Data.Map qualified as Map
 import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Generics.Product.Fields (field)
+import Lens.Micro.Platform
 
 -- FIXME: move-to-suckless-conf
 deriving stock instance Ord (Syntax C)
@@ -134,7 +136,7 @@ newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
-                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField)
+                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,Hashable)
                      deriving stock (Data,Generic)
 
 newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
@@ -611,7 +613,7 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno
+fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -627,6 +629,10 @@ fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno
 
     fxCo =
       maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter
+
+    fxMisc =
+      fx & over (field @"fixmeAttr")
+                (HM.insert "fixme-title" (FixmeAttrVal (coerce (fixmeTitle fx))))
 
 mkFixmeFileName :: FilePath -> Fixme
 mkFixmeFileName fp =

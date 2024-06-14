@@ -749,24 +749,41 @@ runForms ss = for_  ss $ \s -> do
       stage <- gitListStage
 
       blobs  <- for stage $ \case
-          Left (fn, _) -> pure (fn, liftIO $ LBS8.readFile fn)
-          Right (fn,hash) -> pure (fn, liftIO (withFixmeEnv env $ gitCatBlob hash))
+          Left (fn, hash) -> pure (fn, hash, liftIO $ LBS8.readFile fn)
+          Right (fn,hash) -> pure (fn, hash, liftIO (withFixmeEnv env $ gitCatBlob hash))
 
-      let fns = fmap fst blobs
+      let fns = fmap (view _1) blobs
 
       -- TODO: extract-metadata-from-git-blame
       --   subj
 
-      for_ blobs $ \(fn, readBlob) -> do
+      for_ blobs $ \(fn, bhash, readBlob) -> do
+        nno <- newTVarIO (mempty :: HashMap FixmeTitle Integer)
         lbs <- readBlob
         fxs <- scanBlob (Just fn) lbs
                  >>= \e -> do
                   for e $ \fx0 -> do
+                    n <- atomically $ stateTVar nno (\m -> do
+                            let what = HM.lookup (fixmeTitle fx0) m & fromMaybe 0
+                            (what, HM.insert (fixmeTitle fx0) (succ what) m)
+                         )
                     let ls = fixmePlain fx0
                     meta <- getMetaDataFromGitBlame fn fx0
-                    -- let fxm = fromMaybe mempty $ HM.lookup fn meta
+                    let tit = fixmeTitle fx0 & coerce @_ @Text
+
+                    -- FIXME: fix-this-copypaste
+                    let ks  = [qc|{fn}#{tit}:{n}|] :: Text
+                    let ksh = hashObject @HbSync (serialise ks) & pretty & show & Text.pack & FixmeAttrVal
+                    let kh = HM.singleton "fixme-key" ksh
+                    let kv = HM.singleton "fixme-key-string" (FixmeAttrVal ks) <> kh
+
                     pure $ fixmeDerivedFields (fx0 <> mkFixmeFileName fn <> meta)
-                             & set (field @"fixmePlain") ls
+                             & set  (field @"fixmePlain") ls
+
+                             & over (field @"fixmeAttr")
+                                    (HM.insert "blob" (fromString $ show $ pretty bhash))
+                             & over (field @"fixmeAttr")
+                                    (mappend (kh<>kv))
 
         for_ fxs $ \fx -> do
           liftIO $ print (pretty fx)
