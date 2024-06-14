@@ -13,6 +13,7 @@ import HBS2.OrDie
 
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.RepoHead
+import HBS2.Git.Web.Assets
 
 -- import Data.Text.Fuzzy.Tokenize as Fuzz
 
@@ -265,10 +266,18 @@ myCss = do
 hyper_ :: Text -> Attribute
 hyper_  = makeAttribute "_"
 
+ariaLabel_ :: Text -> Attribute
+ariaLabel_ = makeAttribute "aria-label"
 
 onClickCopy :: Text -> Attribute
 onClickCopy s =
-  hyper_ [qc|on click writeText('{s}') into the navigator's clipboard add .clicked to me wait 2s remove .clicked from me|]
+  hyper_ [qc|on click writeText('{s}') into the navigator's clipboard
+set my innerHTML to '{svgIconText IconCopyDone}'
+set @data-tooltip to 'Copied!'
+wait 2s
+set my innerHTML to '{svgIconText IconCopy}'
+set @data-tooltip to 'Copy'
+|]
 
 markdownToHtml :: Text -> Either PandocError String
 markdownToHtml markdown = runPure $ do
@@ -318,10 +327,10 @@ rootPage content  = do
       myCss
 
     body_ do
-      header_ do
-        div_ [class_ "header-title"] $ h1_ [] $ do
-          a_ [href_ (toURL RepoListPage)] "hbs2-peer dashboard"
 
+      header_ [class_ "container-fluid"] do
+        nav_ do
+          ul_ $ li_ $ a_ [href_ (toURL RepoListPage)] $ strong_ "hbs2-peer dashboard"
 
       content
 
@@ -333,80 +342,73 @@ dashboardRootPage = rootPage do
 
   now  <- liftIO getPOSIXTime <&> fromIntegral . round
 
-  div_ [class_ "container main"] $ do
-    nav_ [class_ "left"] $ do
-      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
-      div_ [class_ "info-block"] "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+  main_ [class_ "container-fluid"] $ do
+    div_ [class_ "wrapper"] $ do
+      aside_ [class_ "sidebar"] $ do
+        div_ [class_ "info-block"] $ small_ "Всякая разная рандомная информация хрен знает, что тут пока выводить"
+        div_ [class_ "info-block"] $ small_ "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
-    main_ do
+      div_ [class_ "content"] do
+        
+        section_ do
+          h2_ "Git repositories"
+          form_ [role_ "search"] do
+            input_ [name_ "search", type_ "search"]
+            input_ [type_ "submit", value_ "Search"]
+                      
+        section_ do
 
-      section_ do
-        h1_ "Git repositories"
-        form_ [class_ "search"] do
-            input_ [type_ "search", id_ "search"]
-            button_ [class_ "search"] mempty
+          for_ items $ \it@RepoListItem{..} -> do
 
+            let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
 
-      section_ [id_ "repo-search-results"] do
+            let url = toURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
+            -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
+            let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
 
-        for_ items $ \it@RepoListItem{..} -> do
+            let updated = agePure t now
 
-          let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
+            article_ [class_ "repo-list-item"] do
+              div_ do
 
-          let url = toURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
-          -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
-          let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
+                h5_ do
+                  toHtml rlRepoName
 
-          let updated = agePure t now
+                div_ [class_ "repo-list-item-link-wrapper"] $ do
+                  a_ [href_ url] (toHtml $ view rlRepoLwwAsText it)
+                  button_ [class_ "copy-button", onClickCopy (view rlRepoLwwAsText it), data_ "tooltip" "Copy"] do
+                    svgIcon IconCopy
 
-          div_ [class_ "repo-list-item"] do
-            div_ [class_ "repo-info", style_ "flex: 1; flex-basis: 70%;"] do
+                toHtml rlRepoBrief
 
-              h2_ [class_ "xclip", onClickCopy (view rlRepoLwwAsText it)] do
-                toHtml rlRepoName
-                -- when locked $ img_ [src_ "/icon/lock-closed.svg"]
+              div_ do
 
-              p_ $ a_ [href_ url] (toHtml $ view rlRepoLwwAsText it)
+                div_ [class_ "text-nowrap"] do
+                  small_ $ "Updated " <> toHtml updated
 
-              toHtml rlRepoBrief
+                when locked do
+                  div_ do
+                    small_ do
+                      span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLockClosed
+                      "Encrypted"
 
-            div_ [ ] do
+                div_ do
+                  small_ do
+                    span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitCommit
+                    strong_ $ toHtml $ show rlRepoCommits
+                    " commits"
 
-              div_ [ class_ "attr" ] do
-                div_ [ class_ "attrname"] ""
-                div_ [ class_ "attrval"]  (toHtml updated)
-
-              when locked do
-                div_ [ class_ "attr" ] do
-                  div_ [ class_ "attrname"]  "encrypted"
-                  div_ [ class_ "attrval"] do
-                    img_ [src_ "/icon/lock-closed.svg"]
-
-              div_ [ class_ "attr" ] do
-                div_ [ class_ "attrname"]  "commits"
-                div_ [ class_ "attrval"]  $ toHtml (show rlRepoCommits)
-
-              div_ [ class_ "attr" ] do
-                div_ [ class_ "attrname"]  "forks"
-                div_ [ class_ "attrval"]  $ toHtml (show rlRepoForks)
+                div_ do
+                  small_ do
+                    span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
+                    strong_ $ toHtml $ show rlRepoForks
+                    " forks"
 
 
 
 tabClick :: Attribute
 tabClick =
-  hyper_ "on click take .active from .tab for event's target"
-
--- repoMenu :: Monad m => HtmlT m () -> HtmlT m ()
-repoMenu :: Term [Attribute] (t1 -> t2) => t1 -> t2
-repoMenu = ul_ []
-
-
-repoMenuItem0 :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
-repoMenuItem0 misc name = li_ ([class_  "tab active"] <> misc <> [tabClick]) name
-
-repoMenuItem :: Term [Attribute] (t1 -> t2) => [Attribute] -> t1 -> t2
-repoMenuItem misc name = li_ ([class_  "tab"] <> misc <> [tabClick]) name
-
+  hyper_ "on click take .contrast from .tab for event's target"
 
 parsedManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem  -> m ([Syntax C], Text)
 parsedManifest RepoListItem{..} = do
@@ -459,9 +461,9 @@ repoRefs lww = do
           td_ do
 
             if | Text.isPrefixOf "refs/heads" r_ -> do
-                  img_ [src_ "/icon/git-branch.svg"]
+                  svgIcon IconGitBranch
                | Text.isPrefixOf "refs/tags" r_ -> do
-                  img_ [src_ "/icon/git-tag.svg"]
+                  svgIcon IconTag
                | otherwise -> mempty
 
           td_ (toHtml r_)
@@ -564,7 +566,7 @@ repoTree_ embed lww co root = do
 
           for_ back' $ \r -> do
             let rootLink = toURL (RepoTree lww co (coerce @_ @GitHash r))
-            td_ $ img_ [src_ "/icon/tree-up.svg"]
+            td_ $ svgIcon IconArrowUturnLeft
             td_ ".."
             td_ do a_ [ href_ "#"
                       , hxGet_ rootLink
@@ -578,25 +580,25 @@ repoTree_ embed lww co root = do
       tr_ mempty do
         td_  $ case tp of
           Commit -> mempty
-          Tree   -> img_ [src_ "/icon/tree.svg"]
+          Tree   -> svgIcon IconFolderFilled
           Blob   -> do
             let syn = Sky.syntaxesByFilename syntaxMap (Text.unpack name)
                         & headMay
                         <&> Text.toLower . Sky.sName
 
             let icon = case syn of
-                         Just "haskell"    -> [src_ "/icon/haskell.svg"]
-                         Just "markdown"   -> [src_ "/icon/markdown.svg"]
-                         Just "nix"        -> [src_ "/icon/nixos.svg"]
-                         Just "bash"       -> [src_ "/icon/terminal.svg"]
-                         Just "python"     -> [src_ "/icon/python.svg"]
-                         Just "javascript" -> [src_ "/icon/javascript.svg"]
-                         Just "sql"        -> [src_ "/icon/sql.svg"]
+                         Just "haskell"    -> IconHaskell
+                         Just "markdown"   -> IconMarkdown
+                         Just "nix"        -> IconNix
+                         Just "bash"       -> IconBash
+                         Just "python"     -> IconPython
+                         Just "javascript" -> IconJavaScript
+                         Just "sql"        -> IconSql
                          Just s | s `elem` ["cabal","makefile","toml","ini","yaml"]
-                                           -> [src_ "/icon/gear.svg"]
-                         _                 -> [src_ "/icon/blob-filled.svg"]
+                                           -> IconSettingsFilled
+                         _                 -> IconFileFilled
 
-            img_ ([alt_ (fromMaybe "blob" syn)] <> icon)
+            svgIcon icon
 
         -- debug $ red "PUSH URL" <+> pretty (path ["back", wtf])
 
@@ -719,7 +721,7 @@ repoForks lww  = do
       for_ forks $ \it@RepoListItem{..} -> do
         let lwwTo = coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww
         tr_ [class_ "commit-brief-title"] do
-          td_ $ img_ [src_ "/icon/git-fork.svg"]
+          td_ $ svgIcon IconGitFork
           td_ [class_ "mono"] $
             a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lwwTo))
                ] do
@@ -754,7 +756,7 @@ repoCommits lww predicate' = do
         for_ co $ \case
           CommitListItemBrief{..} -> do
             tr_ [class_ "commit-brief-title"] do
-              td_ [class_ "commit-icon"] $ img_ [src_ "/icon/git-commit.svg"]
+              td_ [class_ "commit-icon"] $ svgIcon IconGitCommit
 
               td_ [class_ "commit-hash mono"] do
                   let hash = coerce @_ @GitHash commitListHash
@@ -937,137 +939,137 @@ repoPage tab lww params = rootPage do
 
   debug $ red "META" <+> pretty meta
 
-  div_ [class_ "container main"] $ do
-    nav_ [class_ "left"] $ do
+  main_ [class_ "container-fluid"] do
+    div_ [class_ "wrapper"] do
+      aside_ [class_ "sidebar"] do
 
-      div_ [class_ "info-block" ] do
-        div_ [ class_ "attr" ] do
-          a_ [href_ (toURL (RepoPage (CommitsTab Nothing) lww))] $ toHtml (ShortRef lww)
+        div_ [class_ "info-block" ] do
+          toHtml (ShortRef lww)
 
-      div_ [class_ "info-block" ] do
-        div_ [ class_ "attr" ] do
-         img_ [src_ "/icon/tree-up.svg"]
-         a_ [ href_ "/"] "back to projects"
+        -- div_ [class_ "info-block" ] do
+        --   a_ [ href_ "/"] do
+        --     span_ [class_ "inline-icon-wrapper"] $ svgIcon IconArrowUturnLeft
+        --     "back to projects"
 
-      div_ [class_ "info-block" ] do
-        for_ author $ \a -> do
-            div_ [ class_ "attr" ] do
-              div_ [ class_ "attrname"] "author:"
-              div_ [ class_ "attrval"] $ toHtml a
+        div_ [class_ "info-block" ] do
 
-        for_ public $ \p -> do
-            div_ [ class_ "attr" ] do
-              div_ [ class_ "attrname"] "public:"
-              div_ [ class_ "attrval"] $ toHtml p
+          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "About"
+          ul_ [class_ "mb-0"] do
+            for_ author $ \a -> do
+              li_ $ small_ do
+                "Author: "
+                toHtml a
 
-      div_ [class_ "info-block" ] do
+            for_ public $ \p -> do
+              li_ $ small_ do
+                "Public: "
+                toHtml p
 
-        when (Text.length manifest > 100) do
-            div_ [ class_ "attr" ] do
-              div_ [ class_ "attrname"] do
-                a_ [ href_ (toURL (RepoPage ManifestTab lww))] do
-                  img_ [src_ "/icon/license.svg"]
+            when (Text.length manifest > 100) do
+              li_ $ small_ do
+                a_ [class_ "secondary", href_ (toURL (RepoPage ManifestTab lww))] do
+                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
                   "Manifest"
 
-        when (rlRepoForks > 0) do
-          div_ [ class_ "attr" ] do
-            div_ [ class_ "attrname"] do
-                a_ [ hxGet_ (toURL (RepoForksHtmx lww))
-                   , hxTarget_ "#repo-tab-data"
-                   ] do
-                      img_ [src_ "/icon/git-fork.svg"]
-                      "Forks"
+            when (rlRepoForks > 0) do
+              li_ $ small_ do
+                a_ [class_ "secondary"
+                  , href_ "#"
+                  , hxGet_ (toURL (RepoForksHtmx lww))
+                  , hxTarget_ "#repo-tab-data"
+                  ] do
+                    span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
+                    toHtml $ show rlRepoForks
+                    " forks"
 
-            div_ [ class_ "attrval"] $ toHtml (show $ rlRepoForks)
+            li_ $ small_ do
+              a_ [class_ "secondary"
+                , href_ (toURL (RepoPage (CommitsTab Nothing) lww))
+                ] do
+                span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitCommit
+                toHtml $ show rlRepoCommits
+                " commits"
 
-        div_ [ class_ "attr" ] do
-          div_ [ class_ "attrname"] do
-              a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lww))] do
-                img_ [src_ "/icon/git-commit.svg"]
-                "Commits"
-
-          div_ [ class_ "attrval"] $ toHtml (show $ rlRepoCommits)
-
-        for_ pinned $ \(_,ref) ->  do
-          div_ [ class_ "attr" ] do
+            for_ pinned $ \(_,ref) ->  do
               case ref of
-                PinnedRefBlob s n hash -> do
-                  div_ [ class_ "attrname"] $ do
-                      a_ [ href_ "#"
-                         , hxGet_ (toURL (RepoSomeBlob lww s hash))
-                         , hxTarget_ "#repo-tab-data"
-                         ] do
-                            img_ [src_ "/icon/pinned-light.svg"]
-                            toHtml (Text.take 12 n)
-
-                  div_ [ class_ "attrval"] $ toHtml $ ShortRef hash
-
-      for_ mbHead $ \rh -> do
-
-        let theHead = headMay [ v | (GitRef "HEAD", v) <- view repoHeadRefs rh ]
-
-        let checkHead v what | v == theHead = strong_ what
-                             | otherwise    = what
-
-        div_ [class_ "info-block" ] do
-            strong_ [] "heads"
-            for_ (view repoHeadHeads rh) $ \(branch,v) -> do
-              div_ [ class_ "attrval onleft"] do
-                  a_ [ href_ (toURL (RepoPage (CommitsTab (Just v))  lww ))
-                     ] do checkHead (Just v)
-                           $ toHtml branch
-
-        div_ [class_ "info-block" ] do
-            strong_ [] "tags"
-            for_ (view repoHeadTags rh) $ \(tag,v) -> do
-                div_ [ class_ "attrval onleft"] do
-                    a_ [href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))]
-                      do checkHead (Just v) $
-                           toHtml tag
-
-    main_ do
-
-      nav_ [ role_ "tab-control" ] do
-       repoMenu do
-
-        let menu t = if isActiveTab tab t then repoMenuItem0 else repoMenuItem
-
-        menu (CommitsTab Nothing)
-                       [ hxGet_ (toURL (RepoCommits lww))
-                       , hxTarget_ "#repo-tab-data"
-                       ] "commits"
-
-
-        menu (TreeTab Nothing)
-                    [ hxGet_ (toURL (RepoRefs lww))
+                PinnedRefBlob s n hash -> small_ do
+                  li_ $ a_ [class_ "secondary"
+                    , href_ "#"
+                    , hxGet_ (toURL (RepoSomeBlob lww s hash))
                     , hxTarget_ "#repo-tab-data"
-                    ] "tree"
+                    ] do
+                        span_ [class_ "inline-icon-wrapper"] $ svgIcon IconPinned
+                        toHtml (Text.take 12 n)
+                        " "
+                        toHtml $ ShortRef hash
 
-      section_ [id_ "repo-data"] do
-        strong_ (toHtml $ rlRepoName)
+        for_ mbHead $ \rh -> do
 
-      div_ [id_ "repo-tab-data"] do
+          let theHead = headMay [ v | (GitRef "HEAD", v) <- view repoHeadRefs rh ]
 
-        case tab of
+          let checkHead v what | v == theHead = strong_ what
+                               | otherwise    = what
 
-          TreeTab{} -> do
+          div_ [class_ "info-block" ] do
+            summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Heads"
+            ul_ [class_ "mb-0"] $ do
+              for_ (view repoHeadHeads rh) $ \(branch,v) -> do
+                li_ $ small_ do
+                  a_ [class_ "secondary", href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))] do
+                    checkHead (Just v) $ toHtml branch
 
-            let tree = [ fromStringMay @GitHash (Text.unpack v)
-                       | ("tree", v) <- params
-                       ] & catMaybes & headMay
+          div_ [class_ "info-block" ] do
+            summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Tags"
+            ul_ [class_ "mb-0"] $ do
+              for_ (view repoHeadTags rh) $ \(tag,v) -> do
+                li_ $ small_ do
+                  a_ [class_ "secondary", href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))] do
+                    checkHead (Just v) $ toHtml tag
 
-            maybe (repoRefs lww) (\t -> repoTree lww t t) tree
+      div_ [class_ "content"] $ do
 
-          ManifestTab -> do
-            thisRepoManifest it
+        article_ [class_ "py-0"] $ nav_ [ariaLabel_ "breadcrumb", class_ "repo-menu"] $ ul_ do
 
-          CommitsTab{} -> do
-            let predicate = Right (fromQueryParams params)
-            repoCommits lww predicate
+          let menuTabClasses isActive = if isActive then "tab contrast" else "tab"
+              menuTab t misc name = li_ do
+                a_ ([class_ $ menuTabClasses $ isActiveTab tab t] <> misc <> [tabClick]) do
+                  name
 
-          ForksTab -> do
-            repoForks lww
+          menuTab (CommitsTab Nothing)
+                         [ href_ "#"
+                         , hxGet_ (toURL (RepoCommits lww))
+                         , hxTarget_ "#repo-tab-data"
+                         ] "commits"
 
-      div_ [id_ "repo-tab-data-embedded"] mempty
+          menuTab (TreeTab Nothing)
+                      [ href_ "#"
+                      , hxGet_ (toURL (RepoRefs lww))
+                      , hxTarget_ "#repo-tab-data"
+                      ] "tree"
 
+        section_ do
+          strong_ $ toHtml rlRepoName
 
+        div_ [id_ "repo-tab-data"] do
+
+          case tab of
+
+            TreeTab{} -> do
+
+              let tree = [ fromStringMay @GitHash (Text.unpack v)
+                         | ("tree", v) <- params
+                         ] & catMaybes & headMay
+
+              maybe (repoRefs lww) (\t -> repoTree lww t t) tree
+
+            ManifestTab -> do
+              thisRepoManifest it
+
+            CommitsTab{} -> do
+              let predicate = Right (fromQueryParams params)
+              repoCommits lww predicate
+
+            ForksTab -> do
+              repoForks lww
+
+        div_ [id_ "repo-tab-data-embedded"] mempty

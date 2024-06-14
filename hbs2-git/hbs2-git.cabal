@@ -129,7 +129,7 @@ library hbs2-git-dashboard-assets
   import:           shared-properties
 
   build-depends:
-    base, file-embed
+    base, file-embed, lucid, text
 
   exposed-modules:
       HBS2.Git.Web.Assets
