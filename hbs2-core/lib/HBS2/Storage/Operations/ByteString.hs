@@ -21,6 +21,7 @@ import Streaming qualified as S
 import Data.Function
 
 import Control.Monad.Except
+import Control.Exception
 import Data.Bifunctor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -28,17 +29,22 @@ import Data.ByteString.Lazy qualified as LBS
 -- importimport Data.List.Split (chunksOf)
 
 
+data WriteMerkleIOError =
+  WriteMerkleIOError
+  deriving (Show,Typeable,Generic)
+
+instance Exception WriteMerkleIOError
+
+
 instance (MonadIO m, h ~ HbSync, Storage s h ByteString m) => MerkleWriter ByteString h s m where
   type instance ToBlockW ByteString = ByteString
   writeAsMerkle sto bs = do
 
-    hashes <- S.each (LBS.unpack bs)
-                & S.chunksOf (fromIntegral defBlockSize )
-                & S.mapped (fmap (first LBS.pack) . S.toList)
-                & S.mapM (\blk -> enqueueBlock sto blk >> pure blk)
-                -- & S.mapM (\blk -> putBlock sto blk >> pure blk)
-                & S.map (HashRef . hashObject)
-                & S.toList_
+    hashes <- do
+      chu <- S.toList_ (readChunkedBS bs defBlockSize)
+      for chu $ \chunk -> do
+        enqueueBlock sto chunk
+         >>= liftIO . maybe (throwIO WriteMerkleIOError) (pure . HashRef)
 
     -- FIXME: handle-hardcode
     let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) hashes -- FIXME: settings
