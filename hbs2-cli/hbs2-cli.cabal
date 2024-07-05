@@ -1,0 +1,124 @@
+cabal-version:      3.0
+name:               hbs2-git
+version:            0.24.1.2
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+-- copyright:
+category:           System
+build-type:         Simple
+-- extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -fno-warn-type-defaults
+        -threaded
+        -rtsopts
+        -O2
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+  default-language: GHC2021
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , RecordWildCards
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+
+  build-depends:
+        hbs2-core
+      , hbs2-peer
+      , hbs2-storage-simple
+      , hbs2-keyman
+      , db-pipe
+      , suckless-conf
+
+      , attoparsec
+      , atomic-write
+      , bytestring
+      , binary
+      , containers
+      , directory
+      , exceptions
+      , filepath
+      , filepattern
+      , interpolatedstring-perl6
+      , memory
+      , microlens-platform
+      , mtl
+      , safe
+      , serialise
+      , streaming
+      , stm
+      , text
+      , time
+      , timeit
+      , transformers
+      , typed-process
+      , unordered-containers
+      , unliftio
+      , unliftio-core
+      , zlib
+      , prettyprinter
+      , prettyprinter-ansi-terminal
+      , random
+      , vector
+      , unix
+
+
+library
+    import:           shared-properties
+
+    exposed-modules:
+      HBS2.CLI
+
+    build-depends:    base
+                    , text
+                    , suckless-conf
+                    , unix
+                    , unliftio
+
+    hs-source-dirs:   lib
+
+
+executable hbs2-cli
+    import:           shared-properties
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+          base
+        , suckless-conf
+        , text
+        , hbs2-cli
+        , unliftio
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+

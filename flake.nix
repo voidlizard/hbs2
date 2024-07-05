@@ -46,6 +46,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-keyman"
      "hbs2-share"
      "hbs2-fixer"
+     "hbs2-cli"
      "fixme-new"
     ];
   in
