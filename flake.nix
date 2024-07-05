@@ -72,6 +72,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
+     "hbs2-cli"    = "./hbs2-cli";
      "fixme-new"   = "./fixme-new";
    };
 

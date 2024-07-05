@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               hbs2-git
+name:               hbs2-cli
 version:            0.24.1.2
 -- synopsis:
 -- description:
@@ -99,10 +99,6 @@ library
       HBS2.CLI
 
     build-depends:    base
-                    , text
-                    , suckless-conf
-                    , unix
-                    , unliftio
 
     hs-source-dirs:   lib
 
@@ -113,11 +109,7 @@ executable hbs2-cli
     -- other-modules:
     -- other-extensions:
     build-depends:
-          base
-        , suckless-conf
-        , text
-        , hbs2-cli
-        , unliftio
+          base, hbs2-cli
 
     hs-source-dirs:   app
     default-language: GHC2021

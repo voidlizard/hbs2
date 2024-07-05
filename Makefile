@@ -16,6 +16,7 @@ BINS := \
 	hbs2-git-dashboard \
   git-remote-hbs2    \
   git-hbs2           \
+  hbs2-cli           \
   fixme-new          \
 	hbs2-storage-simple-benchmarks \
 
