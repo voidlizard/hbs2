@@ -1,29 +1,22 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
-{-# Language FunctionalDependencies #-}
 module Main where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
-import HBS2.CLI
 
 import Data.Config.Suckless
-import System.Environment
-import Data.Text qualified as Text
-import Data.Text.IO qualified as TIO
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.Maybe
 import Data.Kind
-import Control.Monad.State
+import Control.Monad.Reader
 import Control.Monad.Writer
 
 import Prettyprinter
 
+data BindAction c ( m :: Type -> Type)  = BindAction { getAction :: [Syntax c] -> RunM c m (Syntax c) }
 
-data BindAction c m = BindAction { getAction :: [Syntax c] -> m (Syntax c) }
-
-data BindMeta c m = BindMeta
+data Bind c ( m :: Type -> Type)  = Bind
   { bindAction      :: BindAction c m
   , bindName        :: Id
   , bindDescShort   :: Text
@@ -31,45 +24,48 @@ data BindMeta c m = BindMeta
 
 deriving newtype instance Hashable Id
 
-class IsContext c => Bindable c a m  where
-  bind :: Id -> a -> [BindMeta c m]
+newtype Dict c m = Dict { fromDict :: HashMap Id (Bind c m) }
+                   deriving newtype (Semigroup, Monoid)
 
-newtype PM c m = PM { unPM :: [Syntax c] -> m (Syntax c) }
+newtype RunM c m a = RunM { fromRunM :: ReaderT (Dict c m) m a }
+                     deriving newtype (Applicative, Functor, Monad, MonadIO, MonadReader (Dict c m))
 
-instance (MonadIO m, IsContext c) => Bindable c (PM c m) m where
-  bind i (PM f) = [BindMeta (BindAction f) i ""]
-
-run :: forall c m . (IsContext c, MonadIO m) => [BindMeta c m] -> [Syntax c] -> m ()
-run  meta syn = do
-  let binds = [ (bindName x,x) | x <- meta ] & HM.fromList
-  mapM_ (runExpr binds) syn
-
+run :: forall c m . (IsContext c, MonadIO m) => Dict c m -> [Syntax c] -> m ()
+run d sy = do
+  runReaderT (fromRunM (mapM_ runExpr sy)) d
   where
-    runExpr b = \case
-      ListVal (SymbolVal what : args) -> do
-        args' <- for args $ \a -> runExpr b a
-        let fn = HM.lookup what b <&> bindAction
-        case fn of
-          Just (BindAction e) -> e args'
-          _ -> error "not matched"
-      _ -> error "not matched"
+    runExpr :: Syntax c -> RunM c m (Syntax c)
+    runExpr = \case
+      ListVal (SymbolVal name : args') -> do
+        what <- asks (HM.lookup name . fromDict) `orDie` "JOPA"
+        case bindAction what of
+          BindAction e -> do
+            mapM runExpr args' >>= e
 
-nil = List (noContext @C) []
+      e -> pure e
+
+bindOne :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
+bindOne n fn = Dict (HM.singleton n (Bind (BindAction fn) n ""))
+
+nil = List noContext []
 
 main :: IO ()
 main = do
   wat <- getContents
            >>= either (error.show) pure . parseTop
 
-  let i = execWriter do
-            tell $ bind  "hello" $ PM $ \case
-              [SymbolVal s] -> print ("hello" <+> pretty s) >> pure nil
-              [LitStrVal s] -> print ("hello" <+> pretty s) >> pure nil
-              _ -> pure nil
-            tell $ bind  "fuck" $ PM $ \case
-              [] -> print "FUCK" >> pure nil
-              _ -> pure nil
+  let dict = execWriter do
+              tell $ bindOne "jopa" $ \case
+                 [] -> liftIO (print "JOPA") >> pure nil
+                 _ -> pure nil
 
-  run i wat
+              tell $ bindOne "help" $ \case
+                 [] -> do
+                  d <- asks (HM.keys . fromDict)
+                  liftIO $ mapM_ (print.pretty) d
+                  pure nil
 
+                 _ -> pure nil
+
+  run dict wat
 
