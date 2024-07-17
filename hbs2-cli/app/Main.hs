@@ -34,6 +34,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Kind
 import Data.List (isPrefixOf)
+import Data.List qualified as List
 import Data.ByteString qualified as BS
 import Data.ByteString (ByteString)
 import Data.Text qualified as Text
@@ -141,6 +142,10 @@ run d sy = do
   where
     runExpr :: Syntax c -> RunM c m (Syntax c)
     runExpr syn = handle (handleForm syn) $ case syn of
+
+      ListVal [ w, SymbolVal ".", b] -> do
+        pure  $ mkList  [w, b]
+
       ListVal (SymbolVal name : args') -> do
         what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
         case bindAction <$> what of
@@ -221,13 +226,19 @@ instance IsContext c => MkSym c Text where
 instance IsContext c => MkSym c Id where
   mkSym = Symbol noContext
 
-mkStr :: forall c . IsContext c => String -> Syntax c
-mkStr s = Literal noContext $ LitStr (Text.pack s)
+class IsContext c => MkStr c s where
+  mkStr :: s -> Syntax c
+
+instance IsContext c => MkStr c String where
+  mkStr s = Literal noContext $ LitStr (Text.pack s)
+
+instance IsContext c => MkStr c Text where
+  mkStr s = Literal noContext $ LitStr s
 
 mkForm :: forall c . IsContext c => String -> [Syntax c] -> Syntax c
 mkForm s sy = List noContext ( mkSym s :  sy )
 
-mkList :: [Syntax C] -> Syntax C
+mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
 mkList = List noContext
 
 getCredentialsForReflog :: MonadUnliftIO m => String -> m (PeerCredentials 'HBS2Basic)
@@ -260,7 +271,8 @@ main = do
         tell $ bindMatch "help" $ nil_ \case
            [] -> do
             d <- ask >>= readTVarIO <&> fromDict
-            mapM_ (display.bindName) d
+            let ks = List.sort (HM.keys d)
+            display_ $ vcat (fmap pretty ks)
 
            _ -> pure ()
 
@@ -270,10 +282,23 @@ main = do
           _ -> throwIO (BadFormException @C nil)
 
 
+        tell $ bindMatch "list" $ \case
+          es -> do
+            pure $ mkList es
+
+        tell $ bindMatch "dict" $ \case
+          es -> do
+            pure $ mkForm "dict" es
+
+          -- _ -> pure nil
+
         tell $ bindMatch "lookup" $ \case
           [StringLike s, ListVal (SymbolVal "dict" : es) ] -> do
             let val = headDef nil [ v | ListVal [StringLike k, v] <- es, k == s ]
             pure val
+
+          [StringLike s, ListVal [] ] -> do
+            pure nil
 
           _ -> throwIO (BadFormException @C nil)
 
@@ -318,6 +343,26 @@ main = do
             mkRefLogUpdateFrom ( pure (TE.encodeUtf8 s) ) reflog
 
           _ -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "str:read-stdin" $ \case
+          [] -> do
+            s <- liftIO getContents
+            pure $ mkStr s
+          _ -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "hbs2:tree:metadata:create" $ \case
+          [ what ] -> do
+            display "create fucking metadata"
+            pure nil
+
+          _ -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "cbor:base58" $ \case
+          [ LitStrVal x ] -> do
+            pure $ mkForm "cbor:base58" [mkStr x]
+
+          _ -> throwIO (BadFormException @C nil)
+
 
   case cli of
     [ListVal [SymbolVal "stdin"]] -> do
