@@ -8,9 +8,13 @@ import HBS2.OrDie
 import HBS2.Misc.PrettyStuff as All
 import HBS2.System.Logger.Simple.ANSI as All
 
+import HBS2.Storage
+import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2.Peer.Proto hiding (request)
 import HBS2.Peer.Proto.RefLog
@@ -37,8 +41,10 @@ import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.ByteString qualified as BS
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
 import Data.Maybe
 import Codec.Serialise
 import Control.Monad.Reader
@@ -206,8 +212,22 @@ silence = do
   setLoggingOff @WARN
   setLoggingOff @NOTICE
 
-display :: (MonadIO m, Pretty a) => a -> m ()
-display = liftIO . print . pretty
+class Display a where
+  display :: MonadIO m => a -> m ()
+
+instance  {-# OVERLAPPABLE #-} Pretty w => Display w  where
+  display = liftIO . print . pretty
+
+instance Display (Syntax c) where
+  display = \case
+    LitStrVal s -> liftIO $ TIO.putStr s
+    x           -> liftIO $ putStr (show $ pretty x)
+
+instance Display Text where
+  display = liftIO . TIO.putStr
+
+instance Display String where
+  display = liftIO . putStr
 
 display_ :: (MonadIO m, Show a) => a -> m ()
 display_ = liftIO . print
@@ -293,8 +313,8 @@ main = do
           -- _ -> pure nil
 
         tell $ bindMatch "lookup" $ \case
-          [StringLike s, ListVal (SymbolVal "dict" : es) ] -> do
-            let val = headDef nil [ v | ListVal [StringLike k, v] <- es, k == s ]
+          [s, ListVal (SymbolVal "dict" : es) ] -> do
+            let val = headDef nil [ v | ListVal [k, v] <- es, k == s ]
             pure val
 
           [StringLike s, ListVal [] ] -> do
@@ -345,14 +365,22 @@ main = do
           _ -> throwIO (BadFormException @C nil)
 
         tell $ bindMatch "str:read-stdin" $ \case
-          [] -> do
-            s <- liftIO getContents
-            pure $ mkStr s
+          [] -> liftIO getContents <&> mkStr @C
+
           _ -> throwIO (BadFormException @C nil)
 
         tell $ bindMatch "hbs2:tree:metadata:create" $ \case
-          [ what ] -> do
-            display "create fucking metadata"
+          (LitStrVal s : _) -> do
+            debug   "create fucking metadata"
+
+            -- TODO: set-hbs2-peer
+            so <- detectRPC `orDie` "hbs2-peer not found"
+            withRPC2 @StorageAPI  @UNIX so $ \caller -> do
+              let sto = AnyStorage (StorageClient caller)
+              let lbs = fromString (Text.unpack s) :: LBS.ByteString
+              root <- liftIO $ writeAsMerkle sto lbs
+              display root
+
             pure nil
 
           _ -> throwIO (BadFormException @C nil)
