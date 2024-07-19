@@ -164,6 +164,7 @@ apply :: forall c m . ( IsContext c
       -> [Syntax c]
       -> RunM c m (Syntax c)
 apply name args' = do
+  -- notice $ red "APPLY" <+> pretty name
   what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
   case bindAction <$> what of
     Just (BindLambda e) -> mapM runExpr args' >>= e
@@ -179,6 +180,23 @@ runExpr syn = handle (handleForm syn) $ case syn of
 
   ListVal [ w, SymbolVal ".", b] -> do
     pure  $ mkList  [w, b]
+
+  ListVal [ SymbolVal "quot", ListVal b] -> do
+    pure  $ mkList  b
+
+  ListVal [SymbolVal "lambda", arglist, body] -> do
+    pure $ mkForm @c "lambda" [ arglist, body ]
+
+  ListVal (ListVal [SymbolVal "lambda", ListVal decl, body] : args)  -> do
+    error "oopsie"
+    -- d <- ask
+    -- void $ liftIO do
+    --   dd <- readTVarIO d
+    --   undefined
+      -- runReaderT $ runExpr body
+    --   error "FUCK!"
+    -- -- liftIO (run d body)
+    pure nil
 
   ListVal (SymbolVal name : args') -> do
     apply name args'
@@ -403,6 +421,12 @@ main = do
         tell $ bindMatch "dict" $ \case
           es -> do
             pure $ mkForm "dict" es
+
+        tell $ bindMatch "lambda" $ \case
+          [a, b] -> do
+            pure $ mkForm @C "lamba" [ mkSym "_", mkSym "..." ]
+
+          _ -> error "SHIT"
 
         tell $ bindMatch "map" $ \syn -> do
           case syn of
