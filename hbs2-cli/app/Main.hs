@@ -404,7 +404,6 @@ main = do
           es -> do
             pure $ mkForm "dict" es
 
-
         tell $ bindMatch "map" $ \syn -> do
           case syn of
             [ListVal (SymbolVal "lambda" : SymbolVal fn : _), ListVal rs] -> do
@@ -437,6 +436,14 @@ main = do
         tell $ bindMatch "display" $ nil_ \case
           [ sy ] -> display sy
           ss     -> display (mkList ss)
+
+        tell $ bindMatch "newline" $ nil_ $ \case
+          [] -> liftIO (putStrLn "")
+          _  -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "print" $ nil_ $ \case
+          [ sy ] -> display sy >> liftIO (putStrLn "")
+          ss     -> mapM_ display ss >> liftIO (putStrLn "")
 
         tell $ bindMatch "debug:show-cli" $ nil_ \case
           _ -> display cli
