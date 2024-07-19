@@ -56,6 +56,7 @@ import Data.Either
 import Data.List qualified as List
 import Data.Maybe
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
 import Lens.Micro.Platform
 import Options.Applicative
 import Streaming.Prelude qualified as S
@@ -578,6 +579,9 @@ main = join . customExecParser (prefs showHelpOnError) $
         void $ runMaybeT do
           bs <- getBlock sto h >>= toMPlus
           case tryDetect h bs of
+            MerkleAnn (MTreeAnn { _mtaMeta = ShortMetadata s } ) -> do
+              liftIO $ TIO.putStr s
+
             MerkleAnn (MTreeAnn { _mtaMeta = AnnHashRef mh } ) -> do
 
               bs <- getBlock sto mh

@@ -5,6 +5,8 @@ module Main where
 import HBS2.Prelude.Plated
 import HBS2.OrDie
 
+import HBS2.Data.Types.Refs
+import HBS2.Merkle
 import HBS2.Misc.PrettyStuff as All
 import HBS2.System.Logger.Simple.ANSI as All
 
@@ -30,8 +32,6 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.KeyMan.State
 import HBS2.KeyMan.App.Types
 
-import HBS2.Misc.PrettyStuff
-
 import Data.Coerce
 import Data.Config.Suckless
 import Data.HashMap.Strict (HashMap)
@@ -40,16 +40,20 @@ import Data.Kind
 import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Data.Either
 import Data.Maybe
 import Codec.Serialise
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.Identity
+import Control.Monad.Trans.Maybe
 import UnliftIO
 import System.Environment
 import System.IO (hPrint)
@@ -64,6 +68,14 @@ pattern StringLike e <- (stringLike -> Just e)
 
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
+
+class OptionalVal c b where
+  optional :: b -> Syntax c -> b
+
+instance IsContext c => OptionalVal c Int where
+  optional d = \case
+    LitIntVal x -> fromIntegral x
+    _           -> d
 
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
@@ -99,6 +111,10 @@ instance Exception NotLambda
 
 data BadFormException c = BadFormException (Syntax c)
 
+newtype TypeCheckError c = TypeCheckError (Syntax c)
+
+instance Exception (TypeCheckError C)
+
 newtype BadValueException = BadValueException String
                             deriving stock Show
                             deriving newtype (Generic,Typeable)
@@ -107,6 +123,9 @@ instance Exception NameNotBoundException
 
 instance IsContext c => Show (BadFormException c) where
   show (BadFormException sy) = show $ "BadFormException" <+> pretty sy
+
+instance IsContext c => Show (TypeCheckError c) where
+  show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
 
 instance Exception (BadFormException C)
 
@@ -137,6 +156,51 @@ splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
 
     emit = S.yield . reverse
 
+apply :: forall c m . ( IsContext c
+                      , MonadUnliftIO m
+                      , Exception (BadFormException c)
+                      )
+      => Id
+      -> [Syntax c]
+      -> RunM c m (Syntax c)
+apply name args' = do
+  what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
+  case bindAction <$> what of
+    Just (BindLambda e) -> mapM runExpr args' >>= e
+    Just (BindValue v)  -> throwIO (NotLambda name)
+    Nothing -> throwIO (NameNotBound name)
+
+
+runExpr :: forall c m . ( IsContext c
+                        , MonadUnliftIO m
+                        , Exception (BadFormException c)
+                        ) => Syntax c -> RunM c m (Syntax c)
+runExpr syn = handle (handleForm syn) $ case syn of
+
+  ListVal [ w, SymbolVal ".", b] -> do
+    pure  $ mkList  [w, b]
+
+  ListVal (SymbolVal name : args') -> do
+    apply name args'
+
+  SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
+    pure (mkSym @c (Text.drop 1 s))
+
+  SymbolVal name -> do
+    what <- ask >>=  readTVarIO
+              <&> HM.lookup name . fromDict
+              <&> maybe (BindValue (mkSym name)) bindAction
+
+    case what of
+      BindValue e  -> pure e
+      BindLambda e -> pure $ mkForm "lambda" [mkSym name, mkSym "..."]
+
+  e -> pure e
+
+  where
+    handleForm syn = \case
+      (BadFormException _  :: BadFormException c) -> do
+        throwIO (BadFormException syn)
 
 run :: forall c m . ( IsContext c
                     , MonadUnliftIO m
@@ -145,36 +209,6 @@ run :: forall c m . ( IsContext c
 run d sy = do
   tvd <- newTVarIO d
   lastDef nil <$> runReaderT (fromRunM (mapM runExpr sy)) tvd
-  where
-    runExpr :: Syntax c -> RunM c m (Syntax c)
-    runExpr syn = handle (handleForm syn) $ case syn of
-
-      ListVal [ w, SymbolVal ".", b] -> do
-        pure  $ mkList  [w, b]
-
-      ListVal (SymbolVal name : args') -> do
-        what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
-        case bindAction <$> what of
-          Just (BindLambda e) -> mapM runExpr args' >>= e
-          Just (BindValue v)  -> throwIO (NotLambda name)
-          Nothing -> throwIO (NameNotBound name)
-
-      SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
-        pure (mkSym @c (Text.drop 1 s))
-
-      SymbolVal name -> do
-        what <- ask >>=  readTVarIO
-                  <&> HM.lookup name . fromDict
-                  <&> maybe (BindValue (mkSym name)) bindAction
-
-        case what of
-          BindValue e  -> pure e
-          BindLambda e -> pure $ mkForm "lambda" [mkSym "..."]
-
-      e -> pure e
-
-    handleForm syn (BadFormException _  :: BadFormException c) = do
-      throwIO (BadFormException syn)
 
 bindMatch :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
 bindMatch n fn = Dict (HM.singleton n (Bind (BindLambda fn) n ""))
@@ -195,7 +229,7 @@ bind name expr = do
 
 setupLogger :: MonadIO m => m ()
 setupLogger = do
-  setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+  -- setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
   setLogging @ERROR  $ toStderr . logPrefix "[error] "
   setLogging @WARN   $ toStderr . logPrefix "[warn] "
   setLogging @NOTICE $ toStdout . logPrefix ""
@@ -278,6 +312,53 @@ mkRefLogUpdateFrom mbs  reflog = do
   pure $ mkForm "cbor:base58" [ mkStr s ]
 
 
+metaFromSyntax :: [Syntax c] -> HashMap Text Text
+metaFromSyntax syn =
+  HM.fromList [ (t k, t v) | (ListVal [ k, v ]) <- syn ]
+  where
+    t x = Text.pack (show $ pretty x)
+
+createTreeWithMetadata :: (MonadUnliftIO m)
+                       => HashMap Text Text
+                       -> LBS.ByteString
+                       -> m HashRef
+createTreeWithMetadata meta lbs = do
+    debug   "create fucking metadata"
+    -- TODO: set-hbs2-peer
+    so <- detectRPC `orDie` "hbs2-peer not found"
+
+    let mt = vcat [ pretty k <> ":" <+> pretty v | (k,v) <- HM.toList meta ]
+               & show & Text.pack
+
+    withRPC2 @StorageAPI  @UNIX so $ \caller -> do
+      let sto = AnyStorage (StorageClient caller)
+
+      t0 <- writeAsMerkle sto lbs
+              >>= getBlock sto
+              >>= orThrowUser "can't read merkle tree just written"
+              <&> deserialiseOrFail @(MTree [HashRef])
+              >>= orThrowUser "merkle tree corrupted/invalid"
+
+      -- FIXME: support-encryption
+      let mann = MTreeAnn (ShortMetadata mt) NullEncryption t0
+
+      putBlock sto (serialise mann)
+        >>= orThrowUser "can't write tree"
+        <&> HashRef
+
+
+helpList :: MonadUnliftIO m => Maybe String -> RunM c m ()
+helpList p = do
+
+  let match = maybe (const True) (Text.isPrefixOf . Text.pack) p
+
+  d <- ask >>= readTVarIO <&> fromDict
+  let ks = [k | Id k <- List.sort (HM.keys d)
+           , match k
+           ]
+
+  display_ $ vcat (fmap pretty ks)
+
 main :: IO ()
 main = do
 
@@ -288,29 +369,60 @@ main = do
 
   let dict = execWriter do
 
-        tell $ bindMatch "help" $ nil_ \case
-           [] -> do
-            d <- ask >>= readTVarIO <&> fromDict
-            let ks = List.sort (HM.keys d)
-            display_ $ vcat (fmap pretty ks)
+        tell $ bindMatch "help" $ nil_ $ \syn -> do
 
-           _ -> pure ()
+            display_ $ "hbs2-cli tool" <> line
 
-        tell $ bindMatch "concat" $ \case
-          StringLikeList xs@(_:_) -> do
-            pure $ mkStr ( mconcat xs )
-          _ -> throwIO (BadFormException @C nil)
+            case syn of
+              (StringLike p : _) -> do
+                helpList (Just p)
 
+              [ListVal (SymbolVal "lambda" : SymbolVal what : _ )] -> do
+                liftIO $ hPutDoc stdout $
+                  "function" <+> ul (pretty what)
+                  <> line
+
+              _ -> helpList Nothing
+
+
+        tell $ bindMatch "concat" $ \syn -> do
+
+          case syn of
+            [ListVal (StringLikeList xs)] -> do
+              pure $ mkStr @C ( mconcat xs )
+
+            StringLikeList xs -> do
+              pure $ mkStr ( mconcat xs )
+
+            _ -> throwIO (BadFormException @C nil)
 
         tell $ bindMatch "list" $ \case
           es -> do
-            pure $ mkList es
+            pure $ mkList @C es
 
         tell $ bindMatch "dict" $ \case
           es -> do
             pure $ mkForm "dict" es
 
-          -- _ -> pure nil
+
+        tell $ bindMatch "map" $ \syn -> do
+          case syn of
+            [ListVal (SymbolVal "lambda" : SymbolVal fn : _), ListVal rs] -> do
+              mapM (apply fn . List.singleton) rs
+                <&> mkList
+
+            w -> do
+              throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "head" $ \case
+          [ ListVal es ] -> pure (head es)
+          _ -> throwIO (TypeCheckError @C nil)
+
+        tell $ bindMatch "tail" $ \case
+          [] -> pure nil
+          [ListVal []] -> pure nil
+          [ListVal es] -> pure $ mkList @C (tail es)
+          _ -> throwIO (BadFormException @C nil)
 
         tell $ bindMatch "lookup" $ \case
           [s, ListVal (SymbolVal "dict" : es) ] -> do
@@ -326,7 +438,7 @@ main = do
           [ sy ] -> display sy
           ss     -> display (mkList ss)
 
-        tell $ bindMatch "internal:show-cli" $ nil_ \case
+        tell $ bindMatch "debug:show-cli" $ nil_ \case
           _ -> display cli
 
         tell $ bindMatch "hbs2:peer:detect" $ nil_ \case
@@ -349,6 +461,34 @@ main = do
 
             readTVarIO r
 
+        tell $ bindMatch "hbs2:keyring:list-encryption" $ \syn -> do
+          lbs <- case syn of
+
+                [ ListVal [ SymbolVal "file", StringLike fn ] ] -> do
+                  liftIO $ BS.readFile fn
+
+                [ LitStrVal s ] -> do
+                  pure (BS8.pack (Text.unpack s))
+
+                _ -> throwIO (BadFormException @C nil)
+
+          cred <- pure (parseCredentials @'HBS2Basic (AsCredFile lbs))
+                    `orDie` "bad keyring file"
+
+          let e = [ mkStr @C (show (pretty (AsBase58 p))) | KeyringEntry p _ _ <- view peerKeyring cred ]
+
+          pure $ mkList @C e
+
+        tell $ bindMatch "hbs2:keyring:new" $ \syn -> do
+            n <- case syn of
+                  [LitIntVal k] -> pure k
+                  []            -> pure 1
+                  _ -> throwIO (BadFormException @C nil)
+
+            cred0 <- newCredentials @'HBS2Basic
+            cred <- foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
+            pure $ mkStr @C $ show $ pretty $ AsCredFile $ AsBase58 cred
+
         tell $ bindMatch "hbs2:keyman:list" $ nil_ \case
           _ -> do
             void $ runKeymanClient  $ KeyManClient $ do
@@ -369,21 +509,81 @@ main = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        tell $ bindMatch "hbs2:tree:metadata:create" $ \case
-          (LitStrVal s : _) -> do
-            debug   "create fucking metadata"
-
-            -- TODO: set-hbs2-peer
-            so <- detectRPC `orDie` "hbs2-peer not found"
-            withRPC2 @StorageAPI  @UNIX so $ \caller -> do
-              let sto = AnyStorage (StorageClient caller)
-              let lbs = fromString (Text.unpack s) :: LBS.ByteString
-              root <- liftIO $ writeAsMerkle sto lbs
-              display root
-
-            pure nil
+        tell $ bindMatch "str:read-file" $ \case
+          [StringLike fn] -> liftIO (readFile fn) <&> mkStr @C
 
           _ -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "str:save" $ nil_ \case
+          [StringLike fn, StringLike what] ->
+            liftIO (writeFile fn what)
+
+          _ -> throwIO (BadFormException @C nil)
+
+
+        tell $ bindMatch "hbs2:tree:metadata:get" $ \case
+          [ SymbolVal how, StringLike hash ] -> do
+
+            -- FIXME: put-to-the-state
+            so <- detectRPC `orDie` "hbs2-peer not found"
+
+            r <- withRPC2 @StorageAPI  @UNIX so $ \caller -> do
+              let sto = AnyStorage (StorageClient caller)
+
+              runMaybeT do
+
+                headBlock <- getBlock sto (fromString hash)
+                               >>= toMPlus
+                               <&> deserialiseOrFail @(MTreeAnn [HashRef])
+                               >>= toMPlus
+
+                case headBlock of
+                  MTreeAnn { _mtaMeta = ShortMetadata s } -> do
+                    pure $ mkStr @C s
+
+                  MTreeAnn { _mtaMeta = AnnHashRef h } -> do
+                    getBlock sto h
+                       >>= toMPlus
+                       <&> LBS.toStrict
+                       <&> TE.decodeUtf8
+                       <&> mkStr @C
+
+                  _ -> mzero
+
+
+            case (how, r) of
+              ("parsed", Just (LitStrVal r0)) -> do
+
+
+                let xs = parseTop r0
+                           & fromRight mempty
+
+                pure $ mkForm @C "dict" xs
+
+              _ -> pure $ fromMaybe nil r
+
+          _ -> throwIO (BadFormException @C nil)
+
+        tell $ bindMatch "hbs2:tree:metadata:create" $ \syn -> do
+
+          case syn of
+
+            (LitStrVal s : meta) -> do
+              let lbs = fromString (Text.unpack s) :: LBS.ByteString
+              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
+              pure $ mkStr (show $ pretty h)
+
+            (ListVal [SymbolVal "from-file", StringLike fn ] : meta) -> do
+              lbs <- liftIO $ LBS.readFile fn
+              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
+              pure $ mkStr (show $ pretty h)
+
+            (ListVal [SymbolVal "from-stdin"] : meta) -> do
+              lbs <- liftIO $ LBS.getContents
+              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
+              pure $ mkStr (show $ pretty h)
+
+            _ -> throwIO (BadFormException @C nil)
 
         tell $ bindMatch "cbor:base58" $ \case
           [ LitStrVal x ] -> do
@@ -397,6 +597,9 @@ main = do
       what <- getContents
                 >>= either (error.show) pure . parseTop
       void $ run dict what
+
+    [] -> do
+      void $ run dict [mkForm  "help" []]
 
     _ -> do
       void $ run dict cli
