@@ -1,11 +1,12 @@
 {-# Language UndecidableInstances #-}
 module Main where
 
-import HBS2.Git.Client.Prelude hiding (info)
+import HBS2.Git.Client.Prelude hiding (info, Input(..))
 import HBS2.Git.Client.App
 import HBS2.Git.Client.Export
 import HBS2.Git.Client.Import
 import HBS2.Git.Client.State
+import HBS2.Git.Client.Manifest
 
 import HBS2.Data.Types.SignedBox
 import HBS2.Git.Data.RepoHead
@@ -25,6 +26,8 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Data.HashSet qualified as HS
 import Data.Maybe
+import Data.List (nubBy)
+import Data.Function (on)
 import Data.Coerce
 import Options.Applicative as O
 import Data.ByteString.Lazy qualified as LBS
@@ -177,26 +180,28 @@ pShowRef = do
 pManifest :: GitPerks m => Parser (GitCLI m ())
 pManifest = hsubparser (   command "list" (info pManifestList (progDesc "list all manifest"))
                         <> command "show" (info pManifestShow (progDesc "show manifest"))
+                        <> command "update" (info pManifestUpdate (progDesc "update manifest"))
                        )
 
 pManifestList :: GitPerks m => Parser (GitCLI m ())
 pManifestList = do
   what <- argument pLwwKey (metavar "LWWREF")
   pure do
-    heads <- withState $ selectRepoHeadsFor ASC what
-    sto   <- getStorage
-    for_ heads $ \h -> runMaybeT do
-
-      rhead <- runExceptT (readFromMerkle sto (SimpleKey (coerce h)))
-                 >>= toMPlus
-                 <&> deserialiseOrFail @RepoHead
-                 >>= toMPlus
-
-      let mfsize = maybe 0 Text.length (_repoManifest rhead)
-      let mf = parens ( "manifest" <+> pretty mfsize)
-
-      liftIO $ print $ pretty (_repoHeadTime rhead)
-                         <+> pretty h
+    repoHeadRefs' <- withState $ selectRepoHeadsFor ASC what
+    sto <- getStorage
+    repoHeads <- for repoHeadRefs' $ \repoHeadRef -> runMaybeT $ do
+      repoHead <- runExceptT (readFromMerkle sto (SimpleKey (coerce repoHeadRef)))
+        >>= toMPlus
+        <&> deserialiseOrFail @RepoHead
+        >>= toMPlus
+      pure (repoHeadRef, repoHead)
+    let removeDuplicates = nubBy ((==) `on` (_repoManifest . snd))
+    let filteredRepoHeads = removeDuplicates $ catMaybes repoHeads
+    for_ filteredRepoHeads $ \(repoHeadRef, repoHead) -> do
+      let mfLen = maybe 0 Text.length (_repoManifest repoHead)
+      let mf = parens ("manifest length" <+> pretty mfLen)
+      liftIO $ print $ pretty (_repoHeadTime repoHead)
+                         <+> pretty repoHeadRef
                          <+> mf
 
 pManifestShow :: GitPerks m => Parser (GitCLI m ())
@@ -212,6 +217,71 @@ pManifestShow = do
 
       liftIO $ for_ (_repoManifest rhead) Text.putStrLn
 
+data Input
+  = FileInput FilePath
+  | StdInput
+
+manifestFileInput :: Parser Input
+manifestFileInput = FileInput <$> strOption
+  (  long "file"
+  <> short 'f'
+  <> metavar "FILENAME"
+  <> help "Read manifest from file" )
+
+manifestStdInput :: Parser Input
+manifestStdInput = flag' StdInput
+  (  long "stdin"
+  <> help "Read manifest from stdin" )
+
+pManifestUpdate :: (GitPerks m) => Parser (GitCLI m ())
+pManifestUpdate = do
+  what <- argument pLwwKey (metavar "LWWREF")
+  manifestInput <- manifestFileInput <|> manifestStdInput
+  et <-
+    flag
+      ExportInc
+      ExportNew
+      ( long "new" <> help "This flag is used for new repositories. It allows you to skip the step of downloading data from peers."
+      )
+  pure do
+    manifest <- case manifestInput of
+      FileInput f -> do
+         t <- liftIO $ Text.readFile f
+         addManifestBriefAndName $ Just t
+      StdInput -> do
+        t <- liftIO $ Text.getContents
+        addManifestBriefAndName $ Just t 
+    env <- ask
+    enc <- getRepoEnc
+    let manifestUpdateEnv = Just $ ManifestUpdateEnv {_manifest = manifest}
+    withGitEnv
+      ( env
+          & set gitApplyHeads False
+          & set gitExportType et
+          & set gitExportEnc enc
+          & set gitManifestUpdateEnv manifestUpdateEnv
+      )
+      do
+        unless (et == ExportNew) do
+          importRepoWait what
+        export what mempty
+        importRepoWait what
+
+getRepoEnc :: (GitPerks m) => GitCLI m ExportEncryption
+getRepoEnc = do
+  sto <- asks _storage
+  mgkh <- runMaybeT do
+    tx <- withState do
+      selectMaxAppliedTx >>= lift . toMPlus <&> fst
+    (_, rh) <-
+      TX.readRepoHeadFromTx sto tx
+        >>= toMPlus
+    toMPlus $ _repoHeadGK0 rh
+  case mgkh of
+    Nothing -> pure ExportPublic
+    Just gkh -> do
+      gk <- runExceptT (readGK0 sto gkh) >>= orThrowUser "failed to read encryption key"
+      pure $ ExportPrivateGK gk
 
 pKey :: GitPerks m => Parser (GitCLI m ())
 pKey = hsubparser (  command "show"   (info pKeyShow  (progDesc "show current key"))

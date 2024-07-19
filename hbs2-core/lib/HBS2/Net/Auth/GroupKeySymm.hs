@@ -77,6 +77,12 @@ data instance GroupKey 'Symm s =
   }
   deriving stock (Generic)
 
+deriving instance
+    ( Eq (PubKey 'Encrypt s)
+    , Eq (EncryptedBox GroupSecret)
+    )
+    => Eq (GroupKey 'Symm s)
+
 instance ForGroupKeySymm s => Monoid (GroupKey 'Symm s) where
   mempty = GroupKeySymm mempty
 

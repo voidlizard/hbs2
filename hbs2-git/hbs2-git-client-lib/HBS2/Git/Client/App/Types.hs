@@ -35,7 +35,7 @@ data GitOption = GitTrace
                | GitExport ExportType
                | GitEnc ExportEncryption
                | GitDontApplyHeads
-               deriving stock (Eq,Ord)
+               deriving stock (Eq)
 
 
 
@@ -93,6 +93,7 @@ newGitEnv :: GitPerks m
 newGitEnv p opts path cpath conf peer reflog rchan lww sto = do
   let dbfile  = cpath </> "state.db"
   let dOpt = dbPipeOptsDef { dbLogger = \x -> debug ("state:" <+> pretty x) }
+  let manifestUpdateEnv = Nothing
   db <- newDBPipeEnv dOpt dbfile
   cache <- newTVarIO mempty
   pure $ GitEnv
@@ -101,6 +102,7 @@ newGitEnv p opts path cpath conf peer reflog rchan lww sto = do
            applyHeadsOpt
            exportType
            exportEnc
+           manifestUpdateEnv
            path
            cpath
            conf

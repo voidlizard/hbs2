@@ -401,7 +401,7 @@ SELECT hash, seq, reflog FROM lww
 
 
 
-selectRepoHeadsFor :: (MonadIO m, HasStorage m)
+selectRepoHeadsFor :: (MonadIO m)
                     => SortOrder
                     -> LWWRefKey 'HBS2Basic
                     -> DBPipeM m [TaggedHashRef RepoHead]
@@ -417,6 +417,21 @@ ORDER BY t.seq {pretty (SQL order)}
   select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
    <&> fmap fromOnly
 
+selectLastRepoHeadFor :: (MonadIO m)
+                    => LWWRefKey 'HBS2Basic
+                    -> DBPipeM m (Maybe (TaggedHashRef RepoHead))
+
+selectLastRepoHeadFor what = do
+  let q = [qc|
+SELECT t.head
+FROM lww l join tx t on l.reflog = t.reflog
+WHERE l.hash = ?
+ORDER BY t.seq DESC
+LIMIT 1
+|]
+
+  select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
+   <&> (fmap fromOnly . listToMaybe)
 
 instance (Monad m, HasStorage m) => HasStorage (DBPipeM m) where
   getStorage = lift getStorage

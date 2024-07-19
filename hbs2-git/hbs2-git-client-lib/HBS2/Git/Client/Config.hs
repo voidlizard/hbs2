@@ -1,4 +1,4 @@
-module HBS2.Git.Client.Config (getConfigDir, readConfig, getManifest, hbs2Name) where
+module HBS2.Git.Client.Config (getConfigDir, readConfig, hbs2Name) where
 
 import HBS2.Git.Client.Prelude
 import HBS2.Git.Client.App.Types
@@ -6,8 +6,6 @@ import HBS2.Git.Client.App.Types
 import HBS2.System.Dir
 import HBS2.Git.Local.CLI
 
-import Data.List qualified as L
-import Data.Text qualified as Text
 import Data.Either
 import Text.InterpolatedString.Perl6 (qc)
 
@@ -33,31 +31,6 @@ getConfigDir = do
     pure $ joinPath $ reverse (".hbs2-git" : drop 1 p)
   else do
     pure $ git </> ".hbs2-git"
-
-getManifest :: GitPerks m => m (Text, Text, Maybe Text)
-getManifest = do
-  dir <- getConfigDir
-  let mf = dir </> "manifest"
-
-  let defname = takeFileName (takeDirectory dir) & Text.pack
-  let defbrief = "n/a"
-
-  content <- liftIO (try @_ @IOException $ readFile mf)
-               <&> fromRight ""
-
-  let txt = if L.null content then Nothing else Just (Text.pack content)
-
-  -- FIXME: size-hardcode
-  let header  = lines (take 1024 content)
-                   & takeWhile ( not . L.null )
-                   & unlines
-                   & parseTop
-                   & fromRight mempty
-
-  let name = lastDef defname [ n | ListVal [ SymbolVal "name:", LitStrVal n ] <- header ]
-  let brief = lastDef defbrief [ n | ListVal [ SymbolVal "brief:", LitStrVal n ] <- header ]
-
-  pure (name,brief,txt)
 
 readConfig :: (GitPerks m) => Bool -> m Config
 readConfig canTouch = do

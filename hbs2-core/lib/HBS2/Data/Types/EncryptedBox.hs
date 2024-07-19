@@ -8,7 +8,7 @@ import Data.ByteString (ByteString)
 -- TODO: encryption-type-into-tags
 -- FIXME: show-scrambled?
 newtype EncryptedBox t = EncryptedBox { unEncryptedBox :: ByteString }
-  deriving stock (Generic,Show,Data)
+  deriving stock (Eq,Generic,Show,Data)
 
 instance Serialise (EncryptedBox t)
 

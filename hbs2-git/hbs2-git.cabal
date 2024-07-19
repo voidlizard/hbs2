@@ -116,6 +116,7 @@ library
       HBS2.Git.Client.Export
       HBS2.Git.Client.Import
       HBS2.Git.Client.Progress
+      HBS2.Git.Client.Manifest
 
     build-depends:    base
                     , base16-bytestring

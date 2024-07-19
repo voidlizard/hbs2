@@ -3,7 +3,7 @@ module HBS2.Git.Client.Export (export) where
 
 import HBS2.Git.Client.Prelude hiding (info)
 import HBS2.Git.Client.App.Types
-import HBS2.Git.Client.Config
+import HBS2.Git.Client.Manifest
 import HBS2.Git.Client.RefLog
 import HBS2.Git.Client.State
 import HBS2.Git.Client.Progress
@@ -142,8 +142,10 @@ storeNewGK0 = do
   sto <- asks _storage
   enc <- asks _gitExportEnc
   runMaybeT do
-    gkf <- headMay [ f | ExportPrivate f <- [enc] ] & toMPlus
-    gk <- loadGK0FromFile gkf >>= toMPlus
+    gk <- case enc of
+      ExportPrivate f -> loadGK0FromFile f >>= toMPlus
+      ExportPrivateGK k -> toMPlus $ Just k
+      _ -> toMPlus Nothing
     epoch <- getEpoch
     writeAsMerkle sto (serialise gk) <&> HashRef <&> (,epoch)
 
@@ -160,6 +162,7 @@ export key refs  = do
   git <- asks _gitPath
   sto <- asks _storage
   new <- asks _gitExportType <&> (== ExportNew)
+  manifestUpdateEnv <- asks _gitManifestUpdateEnv
   reflog <- asks _refLogAPI
   ip <- asks _progress
 
@@ -194,7 +197,10 @@ export key refs  = do
 
       let rh0 = snd <$> rh
 
-      (name,brief,mf) <- lift getManifest
+      (name,brief,mf) <- case manifestUpdateEnv of
+        -- TODO: do not update manifest if not needed
+        Nothing -> lift $ getLastManifestFromStorage key
+        Just (ManifestUpdateEnv manifest) -> pure manifest
 
       gk0new0 <- loadNewGK0 puk tx0
 
@@ -226,7 +232,9 @@ export key refs  = do
       objs <- lift enumAllGitObjects
                 >>= withState . filterM (notInTx tx0)
 
-      when (null objs && not new && oldRefs == myrefs) do
+      let updateManifest = isJust manifestUpdateEnv
+
+      when (null objs && not new && oldRefs == myrefs && not updateManifest) do
         exit ()
 
       debug $ red "REFS-FOR-EXPORT:" <+> pretty myrefs
