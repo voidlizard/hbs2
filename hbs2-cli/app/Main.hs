@@ -100,40 +100,6 @@ mkRefLogUpdateFrom mbs  reflog = do
   pure $ mkForm "cbor:base58" [ mkStr s ]
 
 
-metaFromSyntax :: [Syntax c] -> HashMap Text Text
-metaFromSyntax syn =
-  HM.fromList [ (t k, t v) | (ListVal [ k, v ]) <- syn ]
-  where
-    t x = Text.pack (show $ pretty x)
-
-createTreeWithMetadata :: (MonadUnliftIO m)
-                       => HashMap Text Text
-                       -> LBS.ByteString
-                       -> m HashRef
-createTreeWithMetadata meta lbs = do
-    debug   "create fucking metadata"
-    -- TODO: set-hbs2-peer
-    so <- detectRPC `orDie` "hbs2-peer not found"
-
-    let mt = vcat [ pretty k <> ":" <+> pretty v | (k,v) <- HM.toList meta ]
-               & show & Text.pack
-
-    withRPC2 @StorageAPI  @UNIX so $ \caller -> do
-      let sto = AnyStorage (StorageClient caller)
-
-      t0 <- writeAsMerkle sto lbs
-              >>= getBlock sto
-              >>= orThrowUser "can't read merkle tree just written"
-              <&> deserialiseOrFail @(MTree [HashRef])
-              >>= orThrowUser "merkle tree corrupted/invalid"
-
-      -- FIXME: support-encryption
-      let mann = MTreeAnn (ShortMetadata mt) NullEncryption t0
-
-      putBlock sto (serialise mann)
-        >>= orThrowUser "can't write tree"
-        <&> HashRef
-
 
 helpList :: MonadUnliftIO m => Maybe String -> RunM c m ()
 helpList p = do
@@ -146,7 +112,6 @@ helpList p = do
            ]
 
   display_ $ vcat (fmap pretty ks)
-
 
 
 main :: IO ()
@@ -238,92 +203,6 @@ main = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "str:read-stdin" $ \case
-          [] -> liftIO getContents <&> mkStr @C
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "str:read-file" $ \case
-          [StringLike fn] -> liftIO (readFile fn) <&> mkStr @C
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "str:save" $ nil_ \case
-          [StringLike fn, StringLike what] ->
-            liftIO (writeFile fn what)
-
-          _ -> throwIO (BadFormException @C nil)
-
-
-        entry $ bindMatch "hbs2:tree:metadata:get" $ \case
-          [ SymbolVal how, StringLike hash ] -> do
-
-            -- FIXME: put-to-the-state
-            so <- detectRPC `orDie` "hbs2-peer not found"
-
-            r <- withRPC2 @StorageAPI  @UNIX so $ \caller -> do
-              let sto = AnyStorage (StorageClient caller)
-
-              runMaybeT do
-
-                headBlock <- getBlock sto (fromString hash)
-                               >>= toMPlus
-                               <&> deserialiseOrFail @(MTreeAnn [HashRef])
-                               >>= toMPlus
-
-                case headBlock of
-                  MTreeAnn { _mtaMeta = ShortMetadata s } -> do
-                    pure $ mkStr @C s
-
-                  MTreeAnn { _mtaMeta = AnnHashRef h } -> do
-                    getBlock sto h
-                       >>= toMPlus
-                       <&> LBS.toStrict
-                       <&> TE.decodeUtf8
-                       <&> mkStr @C
-
-                  _ -> mzero
-
-
-            case (how, r) of
-              ("parsed", Just (LitStrVal r0)) -> do
-
-
-                let xs = parseTop r0
-                           & fromRight mempty
-
-                pure $ mkForm @C "dict" xs
-
-              _ -> pure $ fromMaybe nil r
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "hbs2:tree:metadata:create" $ \syn -> do
-
-          case syn of
-
-            (LitStrVal s : meta) -> do
-              let lbs = fromString (Text.unpack s) :: LBS.ByteString
-              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-              pure $ mkStr (show $ pretty h)
-
-            (ListVal [SymbolVal "from-file", StringLike fn ] : meta) -> do
-              lbs <- liftIO $ LBS.readFile fn
-              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-              pure $ mkStr (show $ pretty h)
-
-            (ListVal [SymbolVal "from-stdin"] : meta) -> do
-              lbs <- liftIO $ LBS.getContents
-              h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-              pure $ mkStr (show $ pretty h)
-
-            _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "cbor:base58" $ \case
-          [ LitStrVal x ] -> do
-            pure $ mkForm "cbor:base58" [mkStr x]
-
-          _ -> throwIO (BadFormException @C nil)
 
 
   case cli of

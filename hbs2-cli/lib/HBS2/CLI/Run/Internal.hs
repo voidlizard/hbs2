@@ -329,5 +329,21 @@ internalEntries = do
       [ sy ] -> display sy >> liftIO (putStrLn "")
       ss     -> mapM_ display ss >> liftIO (putStrLn "")
 
+    entry $ bindMatch "str:read-stdin" $ \case
+      [] -> liftIO getContents <&> mkStr @C
+
+      _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "str:read-file" $ \case
+      [StringLike fn] -> liftIO (readFile fn) <&> mkStr @C
+
+      _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "str:save" $ nil_ \case
+      [StringLike fn, StringLike what] ->
+        liftIO (writeFile fn what)
+
+      _ -> throwIO (BadFormException @C nil)
+
 
 
