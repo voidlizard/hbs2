@@ -99,6 +99,12 @@ library
 
     exposed-modules:
       HBS2.CLI
+      HBS2.CLI.Prelude
+      HBS2.CLI.Bind
+      HBS2.CLI.Run
+      HBS2.CLI.Run.Internal
+      HBS2.CLI.Run.KeyMan
+      HBS2.CLI.Run.Help
 
     build-depends:    base
 
