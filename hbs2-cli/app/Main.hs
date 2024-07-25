@@ -6,6 +6,7 @@ import HBS2.CLI.Prelude
 import HBS2.CLI.Run
 import HBS2.CLI.Run.KeyMan
 import HBS2.CLI.Run.Keyring
+import HBS2.CLI.Run.GroupKey
 import HBS2.CLI.Run.MetaData
 
 import HBS2.OrDie
@@ -128,6 +129,8 @@ main = do
 
         internalEntries
         keymanEntries
+        keyringEntries
+        groupKeyEntries
         metaDataEntries
 
         entry $ bindMatch "help" $ nil_ $ \syn -> do

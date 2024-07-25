@@ -112,24 +112,15 @@ metaDataEntries = do
     case syn of
 
       args -> do
+        for_ args $ \case
+          SymbolVal "stdin"     -> notice "STDIN"
+          SymbolVal "auto"      -> notice "AUTO"
+          ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", key]])  -> notice ("ENCRYPTED" <+> pretty key)
+          ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, y]])  -> notice ("METADATA" <+> pretty x <+> pretty y)
+          StringLike rest  -> notice $ "FILE" <+> pretty rest
+          _ -> pure ()
+
         error $ show $ pretty args
-
-      (LitStrVal s : meta) -> do
-        let lbs = fromString (Text.unpack s) :: LBS.ByteString
-        h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-        pure $ mkStr (show $ pretty h)
-
-      (ListVal [SymbolVal "from-file", StringLike fn ] : meta) -> do
-        lbs <- liftIO $ LBS.readFile fn
-        h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-        pure $ mkStr (show $ pretty h)
-
-      (ListVal [SymbolVal "from-stdin"] : meta) -> do
-        lbs <- liftIO $ LBS.getContents
-        h <- createTreeWithMetadata (metaFromSyntax meta) lbs
-        pure $ mkStr (show $ pretty h)
-
-      _ -> throwIO (BadFormException @c nil)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do

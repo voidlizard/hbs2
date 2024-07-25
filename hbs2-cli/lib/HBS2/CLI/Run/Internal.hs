@@ -95,6 +95,14 @@ pattern PairList es <- (pairList -> es)
 pairList :: [Syntax c ] -> [Syntax c]
 pairList syn = [ isPair s | s <- syn ] & takeWhile isJust & catMaybes
 
+optlist :: IsContext c => [Syntax c] -> [(Id, Syntax c)]
+optlist = reverse . go []
+  where
+    go acc ( SymbolVal i : b : rest ) = go ((i, b) : acc) rest
+    go acc [ SymbolVal i ] = (i, nil) : acc
+    go acc _ = acc
+
+
 isPair :: Syntax c -> Maybe (Syntax c)
 isPair = \case
   e@(ListVal [_,_]) -> Just e
@@ -273,13 +281,13 @@ bind name expr = do
     writeTVar tv w
   pure nil
 
-internalEntries :: MonadUnliftIO m => MakeDictM C m ()
+internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
     entry $ bindMatch "concat" $ \syn -> do
 
       case syn of
         [ListVal (StringLikeList xs)] -> do
-          pure $ mkStr @C ( mconcat xs )
+          pure $ mkStr ( mconcat xs )
 
         StringLikeList xs -> do
           pure $ mkStr ( mconcat xs )
@@ -288,26 +296,29 @@ internalEntries = do
 
     entry $ bindMatch "list" $ \case
       es -> do
-        pure $ mkList @C es
+        pure $ mkList es
 
     entry $ bindMatch "dict" $ \case
+      (pairList -> es@(_:_)) -> do
+        pure $ mkForm "dict" es
       [a, b] -> do
         pure $ mkForm "dict" [ mkList [a, b] ]
-      PairList es -> do
-        pure $ mkForm "dict" es
-      _ -> do
-        throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "kw" $ \syn -> do
+      let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
+      pure $ mkForm "dict" wat
 
     entry $ bindMatch "lambda" $ \case
       [a, b] -> do
-        pure $ mkForm @C "lamba" [ mkSym "_", mkSym "..." ]
+        pure $ mkForm  "lamba" [ mkSym "_", mkSym "..." ]
 
       _ -> error "SHIT"
 
     entry $ bindMatch "map" $ \syn -> do
       case syn of
         [ListVal (SymbolVal "lambda" : SymbolVal fn : _), ListVal rs] -> do
-          mapM (apply fn . List.singleton) rs
+          mapM (apply @c fn . List.singleton) rs
             <&> mkList
 
         w -> do
@@ -320,8 +331,8 @@ internalEntries = do
     entry $ bindMatch "tail" $ \case
       [] -> pure nil
       [ListVal []] -> pure nil
-      [ListVal es] -> pure $ mkList @C (tail es)
-      _ -> throwIO (BadFormException @C nil)
+      [ListVal es] -> pure $ mkList  (tail es)
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "lookup" $ \case
       [s, ListVal (SymbolVal "dict" : es) ] -> do
@@ -331,7 +342,7 @@ internalEntries = do
       [StringLike s, ListVal [] ] -> do
         pure nil
 
-      _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "display" $ nil_ \case
       [ sy ] -> display sy
@@ -339,27 +350,27 @@ internalEntries = do
 
     entry $ bindMatch "newline" $ nil_ $ \case
       [] -> liftIO (putStrLn "")
-      _  -> throwIO (BadFormException @C nil)
+      _  -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "print" $ nil_ $ \case
       [ sy ] -> display sy >> liftIO (putStrLn "")
       ss     -> mapM_ display ss >> liftIO (putStrLn "")
 
     entry $ bindMatch "str:read-stdin" $ \case
-      [] -> liftIO getContents <&> mkStr @C
+      [] -> liftIO getContents <&> mkStr @c
 
-      _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "str:read-file" $ \case
-      [StringLike fn] -> liftIO (readFile fn) <&> mkStr @C
+      [StringLike fn] -> liftIO (readFile fn) <&> mkStr
 
-      _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "str:save" $ nil_ \case
       [StringLike fn, StringLike what] ->
         liftIO (writeFile fn what)
 
-      _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @c nil)
 
 
 
