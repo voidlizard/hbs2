@@ -1,4 +1,6 @@
-module HBS2.CLI.Run.MetaData where
+{-# Language MultiWayIf #-}
+
+module HBS2.CLI.Run.MetaData (metaDataEntries) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
@@ -6,7 +8,7 @@ import HBS2.CLI.Run.Internal
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.System.Logger.Simple.ANSI as All
-
+import HBS2.System.Dir
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.CLI.Detect
@@ -20,6 +22,7 @@ import Codec.Serialise
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either
+import Data.Set qualified as Set
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.Text.Encoding qualified as TE
@@ -30,6 +33,17 @@ import Magic.Init       (magicLoadDefault,magicOpen)
 import Magic.Operations (magicFile)
 
 {- HLINT ignore "Functor law" -}
+
+data CreateMetaDataOpt =
+    Auto
+  | Stdin
+  | Encrypted String
+  | MetaDataEntry Id String
+  | MetaDataFile FilePath
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+txt :: Pretty  a => a -> Text
+txt a = Text.pack (show $ pretty a)
 
 metaFromSyntax :: [Syntax c] -> HashMap Text Text
 metaFromSyntax syn =
@@ -46,7 +60,7 @@ createTreeWithMetadata meta lbs = do
     -- TODO: set-hbs2-peer
     so <- detectRPC `orDie` "hbs2-peer not found"
 
-    let mt = vcat [ pretty k <> ":" <+> pretty v | (k,v) <- HM.toList meta ]
+    let mt = vcat [ pretty k <> ":" <+> dquotes (pretty v) | (k,v) <- HM.toList meta ]
                & show & Text.pack
 
     withRPC2 @StorageAPI  @UNIX so $ \caller -> do
@@ -116,24 +130,46 @@ metaDataEntries = do
     case syn of
 
       args -> do
-        for_ args $ \case
-          SymbolVal "stdin"     -> notice "STDIN"
-          SymbolVal "auto"      -> notice "AUTO"
-          ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", key]])  -> notice ("ENCRYPTED" <+> pretty key)
-          ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, y]])  -> notice ("METADATA" <+> pretty x <+> pretty y)
-          StringLike rest  -> notice $ "FILE" <+> pretty rest
-          _ -> pure ()
+        opts' <- for args $ \case
+          SymbolVal "stdin"     -> pure [Stdin]
 
-        -- meta <- liftIO do
-        --           magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
-        --           magicLoadDefault magic
-        --           mime <- magicFile magic fn
+          SymbolVal "auto"      -> pure [Auto]
 
-        --           pure [ "file-name:" <+> dquotes (pretty $ takeFileName fn)
-        --                , "mime-type:" <+> dquotes (pretty mime)
-        --                ]
+          ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", StringLike key]])
+            -> pure [Encrypted key]
 
-        error $ show $ pretty args
+          ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, StringLike y]])  -> do
+            pure [MetaDataEntry x y]
+
+          StringLike rest  -> do
+            pure [MetaDataFile rest]
+
+          _ -> pure mempty
+
+        let opts = mconcat opts' & Set.fromList
+        let inFile = headMay [ x | MetaDataFile x <- universeBi opts ]
+
+        lbs <- case (Set.member Stdin opts, inFile) of
+                 (True, _) -> liftIO LBS.getContents
+                 (False, Just fn) -> liftIO (LBS.readFile fn)
+                 (_, Nothing) -> liftIO LBS.getContents
+
+        meta0 <- if not (Set.member Auto opts) || isNothing inFile then
+                   pure (mempty :: HashMap Text Text)
+                 else liftIO do
+                    let fn = fromJust inFile
+                    magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
+                    magicLoadDefault magic
+                    mime <- magicFile magic fn
+                    pure $ HM.fromList [ ("file-name", Text.pack (takeFileName fn))
+                                       , ("mime-type", Text.pack mime)
+                                       ]
+
+        let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
+
+        href <- createTreeWithMetadata (meta0 <> meta1) lbs
+
+        pure $ mkStr (show $ pretty href)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do
