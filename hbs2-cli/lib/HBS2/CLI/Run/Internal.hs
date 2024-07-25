@@ -80,6 +80,9 @@ instance IsContext c => OptionalVal c Int where
     LitIntVal x -> fromIntegral x
     _           -> d
 
+hasKey :: IsContext c => Id -> [Syntax c] -> Maybe (Syntax c)
+hasKey k ss = headMay [ e | ListVal [SymbolVal z, e] <- ss, z == k]
+
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
   LitStrVal s -> Just $ Text.unpack s

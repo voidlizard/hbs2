@@ -13,8 +13,22 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 
+
 sigilEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
 sigilEntries = do
+
+  entry $ bindMatch "hbs2:sigil:sign-pubkey" $ \case
+    [ ListVal (SymbolVal sigil : (hasKey "sign-pubkey" -> Just s)) ] -> do
+      pure s
+
+    _ -> throwIO $ BadFormException @C nil
+
+
+  entry $ bindMatch "hbs2:sigil:encrypt-pubkey" $ \case
+    [ ListVal (SymbolVal sigil : (hasKey "encrypt-pubkey" -> Just s)) ] -> do
+      pure s
+
+    _ -> throwIO $ BadFormException @C nil
 
   entry $ bindMatch "hbs2:sigil:parse" $ \case
     [StringLike s] -> do
