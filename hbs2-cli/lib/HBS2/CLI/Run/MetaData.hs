@@ -136,7 +136,8 @@ metaDataEntries = do
           SymbolVal "auto"      -> pure [Auto]
 
           ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", StringLike key]])
-            -> pure [Encrypted key]
+            -> do
+              pure [Encrypted key]
 
           ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, StringLike y]])  -> do
             pure [MetaDataEntry x y]
@@ -166,6 +167,8 @@ metaDataEntries = do
                                        ]
 
         let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
+
+        error $ show opts
 
         href <- createTreeWithMetadata (meta0 <> meta1) lbs
 
