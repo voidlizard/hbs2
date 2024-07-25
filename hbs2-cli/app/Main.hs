@@ -5,6 +5,7 @@ module Main where
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run
 import HBS2.CLI.Run.KeyMan
+import HBS2.CLI.Run.Keyring
 import HBS2.CLI.Run.MetaData
 
 import HBS2.OrDie
@@ -145,7 +146,7 @@ main = do
               _ -> helpList Nothing
 
 
-        entry $ bindMatch "debug:show-cli" $ nil_ \case
+        entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
         entry $ bindMatch "hbs2:peer:detect" $ nil_ \case
@@ -168,33 +169,6 @@ main = do
 
             readTVarIO r
 
-        entry $ bindMatch "hbs2:keyring:list-encryption" $ \syn -> do
-          lbs <- case syn of
-
-                [ ListVal [ SymbolVal "file", StringLike fn ] ] -> do
-                  liftIO $ BS.readFile fn
-
-                [ LitStrVal s ] -> do
-                  pure (BS8.pack (Text.unpack s))
-
-                _ -> throwIO (BadFormException @C nil)
-
-          cred <- pure (parseCredentials @'HBS2Basic (AsCredFile lbs))
-                    `orDie` "bad keyring file"
-
-          let e = [ mkStr @C (show (pretty (AsBase58 p))) | KeyringEntry p _ _ <- view peerKeyring cred ]
-
-          pure $ mkList @C e
-
-        entry $ bindMatch "hbs2:keyring:new" $ \syn -> do
-            n <- case syn of
-                  [LitIntVal k] -> pure k
-                  []            -> pure 1
-                  _ -> throwIO (BadFormException @C nil)
-
-            cred0 <- newCredentials @'HBS2Basic
-            cred <- foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
-            pure $ mkStr @C $ show $ pretty $ AsCredFile $ AsBase58 cred
 
         entry $ bindMatch "hbs2:reflog:tx:create-raw" $ \case
           [SymbolVal "stdin", StringLike reflog] -> do

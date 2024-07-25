@@ -25,6 +25,8 @@ import Data.Maybe
 import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 
+{- HLINT ignore "Functor law" -}
+
 metaFromSyntax :: [Syntax c] -> HashMap Text Text
 metaFromSyntax syn =
   HM.fromList [ (t k, t v) | (ListVal [ k, v ]) <- syn ]
@@ -58,8 +60,6 @@ createTreeWithMetadata meta lbs = do
       putBlock sto (serialise mann)
         >>= orThrowUser "can't write tree"
         <&> HashRef
-
-
 
 
 metaDataEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
