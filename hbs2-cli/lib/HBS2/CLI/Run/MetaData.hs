@@ -111,6 +111,9 @@ metaDataEntries = do
 
     case syn of
 
+      (ListVal o : what : args) -> do
+        error $ show $ pretty o <+> pretty what <+> pretty args
+
       (LitStrVal s : meta) -> do
         let lbs = fromString (Text.unpack s) :: LBS.ByteString
         h <- createTreeWithMetadata (metaFromSyntax meta) lbs
