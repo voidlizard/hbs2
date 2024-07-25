@@ -94,7 +94,6 @@ metaDataEntries = do
 
             _ -> mzero
 
-
       case (how, r) of
         ("parsed", Just (LitStrVal r0)) -> do
 
