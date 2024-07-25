@@ -21,6 +21,7 @@ pattern StringLike e <- (stringLike -> Just e)
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
 
+
 class Display a where
   display :: MonadIO m => a -> m ()
 
@@ -87,6 +88,17 @@ stringLike = \case
 
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
+
+pattern PairList :: [Syntax c] -> [Syntax c]
+pattern PairList es <- (pairList -> es)
+
+pairList :: [Syntax c ] -> [Syntax c]
+pairList syn = [ isPair s | s <- syn ] & takeWhile isJust & catMaybes
+
+isPair :: Syntax c -> Maybe (Syntax c)
+isPair = \case
+  e@(ListVal [_,_]) -> Just e
+  _ -> Nothing
 
 data BindAction c ( m :: Type -> Type)  =
     BindLambda { fromLambda :: [Syntax c] -> RunM c m (Syntax c) }
@@ -279,8 +291,12 @@ internalEntries = do
         pure $ mkList @C es
 
     entry $ bindMatch "dict" $ \case
-      es -> do
+      [a, b] -> do
+        pure $ mkForm "dict" [ mkList [a, b] ]
+      PairList es -> do
         pure $ mkForm "dict" es
+      _ -> do
+        throwIO (BadFormException @C nil)
 
     entry $ bindMatch "lambda" $ \case
       [a, b] -> do
