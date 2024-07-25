@@ -25,6 +25,10 @@ import Data.Maybe
 import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 
+import Magic.Data
+import Magic.Init       (magicLoadDefault,magicOpen)
+import Magic.Operations (magicFile)
+
 {- HLINT ignore "Functor law" -}
 
 metaFromSyntax :: [Syntax c] -> HashMap Text Text
@@ -119,6 +123,15 @@ metaDataEntries = do
           ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, y]])  -> notice ("METADATA" <+> pretty x <+> pretty y)
           StringLike rest  -> notice $ "FILE" <+> pretty rest
           _ -> pure ()
+
+        -- meta <- liftIO do
+        --           magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
+        --           magicLoadDefault magic
+        --           mime <- magicFile magic fn
+
+        --           pure [ "file-name:" <+> dquotes (pretty $ takeFileName fn)
+        --                , "mime-type:" <+> dquotes (pretty mime)
+        --                ]
 
         error $ show $ pretty args
 

@@ -111,6 +111,7 @@ library
       HBS2.CLI.Run.Help
 
     build-depends:    base
+                    , magic
 
     hs-source-dirs:   lib
 
