@@ -1,7 +1,9 @@
-module HBS2.CLI.Run.KeyMan where
+module HBS2.CLI.Run.KeyMan
+  (keymanEntries) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
+import HBS2.CLI.Run.Internal.KeyMan
 
 import HBS2.Hash
 import HBS2.System.Dir
@@ -18,28 +20,6 @@ import Data.Text.IO qualified as TIO
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 
-fixContext :: (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
-fixContext = go
-  where
-    go = \case
-      List    _ xs -> List noContext (fmap go xs)
-      Symbol  _ w  -> Symbol noContext w
-      Literal _ l  -> Literal noContext l
-
-
-keymanGetConfig :: (IsContext c, MonadUnliftIO m) => m [Syntax c]
-keymanGetConfig = do
-    (_,lbs,_) <- readProcess (shell [qc|hbs2-keyman config|] & setStderr closed)
-
-    let conf = TE.decodeUtf8 (LBS.toStrict lbs)
-                 & parseTop
-                 & fromRight mempty
-
-    pure $ fmap fixContext conf
-
-keymanUpdate :: MonadUnliftIO m => m ()
-keymanUpdate = do
-  void $ runProcess (shell [qc|hbs2-keyman update|])
 
 keymanEntries :: (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 keymanEntries = do

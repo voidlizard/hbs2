@@ -307,6 +307,13 @@ run d sy = do
   tvd <- newTVarIO d
   lastDef nil <$> runReaderT (fromRunM (mapM runExpr sy)) tvd
 
+evalTop :: forall c m . ( IsContext c
+                        , MonadUnliftIO m
+                        , Exception (BadFormException c))
+     => [Syntax c]
+     -> RunM c m (Syntax c)
+evalTop syn = lastDef nil <$> mapM runExpr syn
+
 bindMatch :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
 bindMatch n fn = Dict (HM.singleton n (Bind (BindLambda fn) n ""))
 
@@ -386,6 +393,11 @@ internalEntries = do
         pure nil
 
       _ -> throwIO (BadFormException @c nil)
+
+
+    entry $ bindMatch "now" $ \case
+      [] -> mkInt . round <$> liftIO getPOSIXTime
+      _  -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "display" $ nil_ \case
       [ sy ] -> display sy

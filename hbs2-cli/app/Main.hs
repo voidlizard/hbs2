@@ -10,29 +10,15 @@ import HBS2.CLI.Run.GroupKey
 import HBS2.CLI.Run.Sigil
 import HBS2.CLI.Run.MetaData
 import HBS2.CLI.Run.Peer
-
-
-import HBS2.Data.Types.Refs
-import HBS2.Misc.PrettyStuff as All
-import HBS2.System.Logger.Simple.ANSI as All
+import HBS2.CLI.Run.RefLog
 
 import HBS2.Peer.RPC.Client.Unix
 
-import HBS2.Peer.Proto hiding (request)
-import HBS2.Base58
-import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Schema()
 
-import HBS2.KeyMan.Keys.Direct
-import HBS2.KeyMan.App.Types
-
-import Data.Coerce
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
-import Data.ByteString qualified as BS
-import Data.ByteString (ByteString)
 import Data.Text qualified as Text
-import Data.Text.Encoding qualified as TE
 import System.Environment
 
 type RefLogId = PubKey 'Sign 'HBS2Basic
@@ -58,21 +44,6 @@ silence = do
   setLoggingOff @NOTICE
 
 
-getCredentialsForReflog :: MonadUnliftIO m => String -> m (PeerCredentials 'HBS2Basic)
-getCredentialsForReflog reflog = do
-  puk <- orThrow (BadValueException reflog) (fromStringMay @(RefLogKey HBS2Basic) reflog)
-  runKeymanClient (loadCredentials puk)
-     >>= orThrowUser "credentials not found"
-
-mkRefLogUpdateFrom :: MonadUnliftIO m => m ByteString -> String -> m (Syntax C)
-mkRefLogUpdateFrom mbs  reflog = do
-  what <- getCredentialsForReflog reflog
-  let puk = view peerSignPk what
-  let privk = view peerSignSk what
-  txraw <- mbs
-  w <- makeRefLogUpdate @L4Proto @'HBS2Basic (coerce puk) privk txraw
-  let s = show $ pretty $ AsBase58 (serialise w)
-  pure $ mkForm "cbor:base58" [ mkStr s ]
 
 
 
@@ -106,6 +77,7 @@ main = do
         sigilEntries
         metaDataEntries
         peerEntries
+        reflogEntries
 
         entry $ bindMatch "help" $ nil_ $ \syn -> do
 
@@ -125,16 +97,6 @@ main = do
 
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
-
-
-        entry $ bindMatch "hbs2:reflog:tx:create-raw" $ \case
-          [SymbolVal "stdin", StringLike reflog] -> do
-            mkRefLogUpdateFrom ( liftIO BS.getContents ) reflog
-
-          [LitStrVal s, StringLike reflog] -> do
-            mkRefLogUpdateFrom ( pure (TE.encodeUtf8 s) ) reflog
-
-          _ -> throwIO (BadFormException @C nil)
 
 
   case cli of

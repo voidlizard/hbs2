@@ -29,7 +29,7 @@ import Data.List.Split (chunksOf)
 import Data.List qualified as List
 import Lens.Micro.Platform
 import Data.Kind
-
+import Control.Monad
 
 instance Signatures 'HBS2Basic where
   type Signature 'HBS2Basic = Sign.Signature
@@ -127,6 +127,17 @@ newCredentials = do
   pair <- liftIO Sign.newKeypair
   pure $ PeerCredentials @s (secretKey pair) (publicKey pair) mempty
 
+
+newCredentialsEnc :: forall s m . ( MonadIO m
+                                  , Signatures s
+                                  , PrivKey 'Sign s ~ Sign.SecretKey
+                                  , PubKey 'Sign s ~ Sign.PublicKey
+                                  , PrivKey 'Encrypt s ~ Encrypt.SecretKey
+                                  , PubKey 'Encrypt s ~ Encrypt.PublicKey
+                                  ) => Int -> m (PeerCredentials s)
+newCredentialsEnc n = do
+  cred0 <- newCredentials @s
+  foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
 
 newKeypair :: forall s m . ( MonadIO m
                            , PrivKey 'Encrypt s ~ Encrypt.SecretKey
