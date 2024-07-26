@@ -10,13 +10,15 @@ import HBS2.Base58
 import Data.List qualified as L
 import Data.Maybe
 import HBS2.CLI.Run.Internal
-import HBS2.CLI.Run.Internal.GroupKey
+import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
 
 import HBS2.Net.Auth.Credentials
 
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 as LBS8
+import Data.ByteString.Lazy as LBS
+import Data.ByteString.Char8 as BS8
 import Data.HashMap.Strict qualified as HM
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
@@ -92,4 +94,30 @@ groupKeyEntries = do
       _ -> throwIO $ BadFormException @C nil
 
 
+  entry $ bindMatch "hbs2:groupkey:decrypt-block" $ \case
+    [BlobLike bs] -> flip runContT pure do
+
+      sto <- ContT withPeerStorage
+
+      let lbs = LBS.fromStrict bs
+
+      seb <- pure (deserialiseOrFail lbs)
+               `orDie` "invalid SmallEncryptedBlock"
+
+      decrypted <- lift $ G.decryptBlock sto seb
+
+      pure $ mkForm @c "blob" [mkStr (BS8.unpack decrypted)]
+
+    _ -> throwIO $ BadFormException @C nil
+
+  entry $ bindMatch "hbs2:groupkey:encrypt-block" $ \case
+    [StringLike gkh, BlobLike what] -> do
+      flip runContT pure do
+        sto <- ContT withPeerStorage
+        gk <- lift $ loadGroupKey (fromString gkh)
+                `orDie` "can't load group key"
+        seb <- lift $ G.encryptBlock sto gk what
+        pure $ mkForm "blob" [mkStr (LBS8.unpack (serialise seb))]
+
+    _ -> throwIO $ BadFormException @C nil
 

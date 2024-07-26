@@ -21,6 +21,7 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString (ByteString)
 import Control.Monad.Identity
 import Control.Monad.Writer
 
@@ -32,6 +33,8 @@ pattern StringLike e <- (stringLike -> Just e)
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
 
+pattern BlobLike :: forall {c} . ByteString -> Syntax c
+pattern BlobLike s <- (blobLike -> Just s)
 
 class Display a where
   display :: MonadIO m => a -> m ()
@@ -39,9 +42,12 @@ class Display a where
 instance  {-# OVERLAPPABLE #-} Pretty w => Display w  where
   display = liftIO . print . pretty
 
-instance Display (Syntax c) where
+instance IsContext c => Display (Syntax c) where
   display = \case
     LitStrVal s -> liftIO $ TIO.putStr s
+    ListVal [SymbolVal "small-encrypted-block", LitStrVal txt] -> do
+      let s = Text.unpack txt & BS8.pack & toBase58 & AsBase58 & pretty
+      liftIO $ print $ parens $ "small-encrypted-block" <+> parens ("blob" <+> dquotes s)
     ListVal [SymbolVal "blob", LitStrVal txt] -> do
       let s = Text.unpack txt & BS8.pack & toBase58 & AsBase58 & pretty
       liftIO $ print $ parens $ "blob:base58" <+> dquotes s
@@ -111,6 +117,12 @@ stringLike = \case
 
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
+
+blobLike :: Syntax c -> Maybe ByteString
+blobLike = \case
+  LitStrVal s -> Just $ BS8.pack (Text.unpack s)
+  ListVal [SymbolVal "blob", LitStrVal s] -> Just $ BS8.pack (Text.unpack s)
+  _ -> Nothing
 
 pattern PairList :: [Syntax c] -> [Syntax c]
 pattern PairList es <- (pairList -> es)
@@ -471,6 +483,7 @@ internalEntries = do
       e -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "base58:decode" $ \case
+
       [ListVal [SymbolVal "blob:base58", LitStrVal t]] -> do
         s <- decodeB58 t <&> BS8.unpack
         pure $ mkForm "blob" [mkStr @c s]

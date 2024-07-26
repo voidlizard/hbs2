@@ -403,16 +403,17 @@ decryptBlock :: forall t s sto h m . ( MonadIO m
                                      )
 
              => sto
-             -> [KeyringEntry s]
+             -> (GroupKey 'Symm s -> m (Maybe GroupSecret))
              -> SmallEncryptedBlock t
              -> m t
 
-decryptBlock sto keys (SmallEncryptedBlock{..}) = do
+decryptBlock sto findKey (SmallEncryptedBlock{..}) = do
 
   gkbs <- readFromMerkle sto (SimpleKey (fromHashRef sebGK0))
   gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm s) gkbs)
 
-  let gksec' = [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
+  gksec' <- findKey gk
+  -- [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
 
   gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
 
