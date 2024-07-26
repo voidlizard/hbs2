@@ -5,6 +5,7 @@ module HBS2.CLI.Run.MetaData (metaDataEntries) where
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.GroupKey
+import HBS2.CLI.Run.Internal.Merkle
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
@@ -157,7 +158,8 @@ metaDataEntries = do
 
           sto <- ContT withPeerStorage
 
-          href <- lift $ createTreeWithMetadata sto  gk (meta0 <> meta1) lbs
+          href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
+                    `orDie` "encryption error"
 
           pure $ mkStr (show $ pretty href)
 

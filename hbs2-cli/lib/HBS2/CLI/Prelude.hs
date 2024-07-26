@@ -6,12 +6,14 @@ module HBS2.CLI.Prelude
   , module Data.HashMap.Strict
   , module Control.Monad.Reader
   , module HBS2.System.Logger.Simple.ANSI
+  , module HBS2.Misc.PrettyStuff
   , Generic
   ) where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.System.Logger.Simple.ANSI
+import HBS2.Misc.PrettyStuff
 
 import Data.HashMap.Strict
 import Data.Config.Suckless
