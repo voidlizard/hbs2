@@ -86,6 +86,11 @@ mkForm s sy = List noContext ( mkSym s :  sy )
 mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
 mkList = List noContext
 
+class IsContext c => MkInt c s where
+  mkInt :: s -> Syntax c
+
+instance (Integral i, IsContext c) => MkInt c i where
+  mkInt n = Literal noContext $ LitInt (fromIntegral n)
 
 class OptionalVal c b where
   optional :: b -> Syntax c -> b
@@ -371,16 +376,20 @@ internalEntries = do
       _  -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "print" $ nil_ $ \case
-      [ sy ] -> display sy >> liftIO (putStrLn "")
-      ss     -> mapM_ display ss >> liftIO (putStrLn "")
+      [ sy ] -> display sy
+      ss     -> mapM_ display ss
 
     entry $ bindMatch "str:read-stdin" $ \case
       [] -> liftIO getContents <&> mkStr @c
 
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "str:put" $ nil_ $ \case
+      [LitStrVal s] -> liftIO $ TIO.putStr s
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "str:read-file" $ \case
-      [StringLike fn] -> liftIO (readFile fn) <&> mkStr
+      [StringLike fn] -> liftIO (TIO.readFile fn) <&> mkStr
 
       _ -> throwIO (BadFormException @c nil)
 
@@ -404,6 +413,21 @@ internalEntries = do
         pure (mkForm "blob" [mkStr @c blob])
 
       _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "blob:save" $ nil_ $ \case
+      [StringLike fn, ListVal [SymbolVal "blob", LitStrVal t]] -> do
+        let s = Text.unpack t & BS8.pack
+        liftIO $ BS8.writeFile fn s
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "blob:put" $ nil_ $ \case
+      [ListVal [SymbolVal "blob", LitStrVal t]] -> do
+        let s = Text.unpack t & BS8.pack
+        liftIO $ BS8.putStr s
+
+      _ -> throwIO (BadFormException @c nil)
+
 
     entry $ bindMatch "blob:base58" $ \case
       [LitStrVal t] -> do
@@ -441,26 +465,13 @@ internalEntries = do
 
       e -> throwIO (BadFormException @c nil)
 
-
-    entry $ bindMatch "base58:out-decoded" $ nil_ $ \case
+    entry $ bindMatch "base58:put" $ nil_ $ \case
       [ListVal [SymbolVal "blob:base58", LitStrVal t]] ->
         decodeAndOut t
 
       [LitStrVal t] -> decodeAndOut t
 
       e -> throwIO (BadFormException @c nil)
-
-    -- entry $ bindMatch "str:read-file" $ \case
-    --   [StringLike fn] -> liftIO (readFile fn) <&> mkStr
-
-    --   _ -> throwIO (BadFormException @c nil)
-
-    -- entry $ bindMatch "str:save" $ nil_ \case
-    --   [StringLike fn, StringLike what] ->
-    --     liftIO (writeFile fn what)
-
-    --   _ -> throwIO (BadFormException @c nil)
-
 
 
 withPeerStorage :: (IsContext c, MonadUnliftIO m) => (AnyStorage -> RunM c m a) -> RunM c m a
