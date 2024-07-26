@@ -279,6 +279,14 @@ runExpr syn = handle (handleForm syn) $ case syn of
       (BadFormException _  :: BadFormException c) -> do
         throwIO (BadFormException syn)
 
+runM :: forall c m a. ( IsContext c
+                      , MonadUnliftIO m
+                      , Exception (BadFormException c)
+                      ) => Dict c m -> RunM c m a ->  m a
+runM  d  m = do
+  tvd <- newTVarIO d
+  runReaderT (fromRunM m) tvd
+
 run :: forall c m . ( IsContext c
                     , MonadUnliftIO m
                     , Exception (BadFormException c)
@@ -378,6 +386,10 @@ internalEntries = do
     entry $ bindMatch "print" $ nil_ $ \case
       [ sy ] -> display sy
       ss     -> mapM_ display ss
+
+    entry $ bindMatch "println" $ nil_ $ \case
+      [ sy ] -> display sy >> liftIO (putStrLn "")
+      ss     -> mapM_ display ss >> liftIO (putStrLn "")
 
     entry $ bindMatch "str:read-stdin" $ \case
       [] -> liftIO getContents <&> mkStr @c

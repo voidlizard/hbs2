@@ -53,6 +53,8 @@ peerEntries = do
 
         pure $ mkForm "blob" [mkStr (LBS8.unpack lbs)]
 
+    _ -> throwIO $ BadFormException @C nil
+
   entry $ bindMatch "hbs2:peer:has-block" $ \case
     [StringLike s] -> do
       flip runContT pure do

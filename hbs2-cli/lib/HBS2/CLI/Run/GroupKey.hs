@@ -1,12 +1,16 @@
 module HBS2.CLI.Run.GroupKey where
 
-
 import HBS2.CLI.Prelude hiding (mapMaybe)
+
+import HBS2.Data.Types.Refs
 import HBS2.System.Logger.Simple.ANSI as All
+import HBS2.Storage.Operations.Class
+import HBS2.Storage.Operations.ByteString
 import HBS2.Base58
 import Data.List qualified as L
 import Data.Maybe
 import HBS2.CLI.Run.Internal
+import HBS2.CLI.Run.Internal.GroupKey
 import HBS2.Net.Auth.GroupKeySymm as Symm
 
 import HBS2.Net.Auth.Credentials
@@ -14,21 +18,43 @@ import HBS2.Net.Auth.Credentials
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 as LBS8
 import Data.HashMap.Strict qualified as HM
+import Control.Monad.Trans.Cont
+import Control.Monad.Except
+import Codec.Serialise
 import Lens.Micro.Platform
 
 {- HLINT ignore "Functor law" -}
 
-groupKeyFromKeyList :: MonadUnliftIO m => [String] -> m (GroupKey 'Symm HBS2Basic)
-groupKeyFromKeyList ks = do
-  let members = mapMaybe (fromStringMay @(PubKey 'Encrypt 'HBS2Basic)) ks
-  Symm.generateGroupKey @'HBS2Basic Nothing members
 
 groupKeyEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 groupKeyEntries = do
 
+  entry $ bindMatch "hbs2:groupkey:load" $ \case
+      [StringLike s] -> do
+        flip runContT pure do
+          sto <- ContT withPeerStorage
+
+          gk <- runExceptT (readFromMerkle sto (SimpleKey (fromString s)))
+                  >>= orThrowUser "can't load group key"
+                  <&> deserialiseOrFail @(GroupKey 'Symm 'HBS2Basic)
+                  >>= orThrowUser "invalid group key"
+
+          pure $ mkStr (show $ pretty $ AsGroupKeyFile gk)
+
+      _ -> throwIO $ BadFormException @C nil
+
+
   entry $ bindMatch "hbs2:groupkey:store" $ \case
       [LitStrVal s] -> do
-        error "FUCK"
+        flip runContT pure do
+
+          let lbs = LBS8.pack (Text.unpack s)
+          gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+                  `orDie` "invalid group key"
+
+          sto <- ContT withPeerStorage
+          ha <- writeAsMerkle sto (serialise gk)
+          pure $ mkStr (show $ pretty ha)
 
       _ -> throwIO $ BadFormException @C nil
 

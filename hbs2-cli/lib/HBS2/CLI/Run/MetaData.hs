@@ -4,6 +4,7 @@ module HBS2.CLI.Run.MetaData (metaDataEntries) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
+import HBS2.CLI.Run.Internal.GroupKey
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
@@ -53,10 +54,11 @@ metaFromSyntax syn =
     t x = Text.pack (show $ pretty x)
 
 createTreeWithMetadata :: (MonadUnliftIO m)
-                       => HashMap Text Text
+                       => Maybe (GroupKey 'Symm 'HBS2Basic)
+                       -> HashMap Text Text
                        -> LBS.ByteString
                        -> m HashRef
-createTreeWithMetadata meta lbs = do
+createTreeWithMetadata mgk meta lbs = do
     debug   "create fucking metadata"
     -- TODO: set-hbs2-peer
     so <- detectRPC `orDie` "hbs2-peer not found"
@@ -169,12 +171,17 @@ metaDataEntries = do
 
         let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
 
-        let enc = headMay [ x | x@(Encrypted _) <- universeBi opts ]
+        let enc = headMay [ e | x@(Encrypted e) <- universeBi opts ]
 
-        when (isJust enc) do
-          error "ENCRYPTION"
+        gk <- runMaybeT do
+                s <- toMPlus enc
+                g <- lift $ loadGroupKey (fromString s)
+                toMPlus g
 
-        href <- createTreeWithMetadata (meta0 <> meta1) lbs
+        when (isJust enc && isNothing gk) do
+          error $ show $  "Can't load group key" <+> pretty enc
+
+        href <- createTreeWithMetadata gk (meta0 <> meta1) lbs
 
         pure $ mkStr (show $ pretty href)
 
