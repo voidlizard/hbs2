@@ -6,6 +6,7 @@ module HBS2.CLI.Run.Internal.GroupKey
 import HBS2.CLI.Prelude hiding (mapMaybe)
 import HBS2.CLI.Run.Internal
 
+import HBS2.Hash
 import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SmallEncryptedBlock
@@ -33,10 +34,13 @@ encryptBlock :: (MonadUnliftIO m, Serialise t)
              -> m (SmallEncryptedBlock t)
 
 encryptBlock sto gk x = do
+
+  let HbSyncHash non = hashObject (serialise x)
+
   gks <- runKeymanClient (extractGroupKeySecret gk)
            >>= orThrowUser "can't extract group key secret"
 
-  Symm.encryptBlock sto gks (Right gk) Nothing x
+  Symm.encryptBlock sto gks (Right gk) (Just non) x
 
 decryptBlock :: (MonadUnliftIO m, Serialise t)
              => AnyStorage

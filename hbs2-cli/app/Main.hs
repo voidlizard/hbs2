@@ -127,7 +127,6 @@ main = do
           _ -> display cli
 
 
-
         entry $ bindMatch "hbs2:reflog:tx:create-raw" $ \case
           [SymbolVal "stdin", StringLike reflog] -> do
             mkRefLogUpdateFrom ( liftIO BS.getContents ) reflog
