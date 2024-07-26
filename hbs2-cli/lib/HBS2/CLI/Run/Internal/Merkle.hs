@@ -3,7 +3,7 @@ module HBS2.CLI.Run.Internal.Merkle where
 import HBS2.CLI.Prelude
 import HBS2.Defaults
 import HBS2.CLI.Run.Internal
-import HBS2.CLI.Run.Internal.GroupKey
+import HBS2.CLI.Run.Internal.GroupKey as G
 
 import HBS2.Hash
 import HBS2.Net.Auth.GroupKeySymm as Symm
@@ -80,7 +80,12 @@ createTreeWithMetadata sto mgk meta lbs = do -- flip runContT pure do
       --
       let segments = readChunkedBS lbs defBlockSize
 
-      let source = ToEncryptSymmBS gks (Right gk) nonce segments  (ShortMetadata mt) Nothing
+      seb <- G.encryptBlock sto gk (ShortMetadata mt)
+
+      hmeta <- putBlock sto (serialise seb)
+                 >>= orThrowUser "can't put block"
+
+      let source = ToEncryptSymmBS gks (Right gk) nonce segments  (AnnHashRef hmeta) Nothing
 
       runExceptT $ writeAsMerkle sto source <&> HashRef
 

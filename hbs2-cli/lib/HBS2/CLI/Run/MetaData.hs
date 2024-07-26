@@ -4,7 +4,7 @@ module HBS2.CLI.Run.MetaData (metaDataEntries) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
-import HBS2.CLI.Run.Internal.GroupKey
+import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.CLI.Run.Internal.Merkle
 
 import HBS2.Data.Types.Refs
@@ -79,12 +79,22 @@ metaDataEntries = do
             MTreeAnn { _mtaMeta = ShortMetadata s } -> do
               pure $ mkStr s
 
-            MTreeAnn { _mtaMeta = AnnHashRef h } -> do
+            MTreeAnn { _mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption } -> do
               getBlock sto h
                  >>= toMPlus
                  <&> LBS.toStrict
                  <&> TE.decodeUtf8
                  <&> mkStr
+
+            MTreeAnn { _mtaMeta = AnnHashRef h } -> do
+              getBlock sto h
+                 >>= toMPlus
+                 <&> deserialiseOrFail @(SmallEncryptedBlock AnnMetaData)
+                 >>= toMPlus
+                 >>= lift . G.decryptBlock sto
+                 <&> \case
+                  ShortMetadata s -> mkStr s
+                  _ -> nil
 
             _ -> mzero
 

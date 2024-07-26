@@ -26,22 +26,22 @@ groupKeyFromKeyList ks = do
   Symm.generateGroupKey @'HBS2Basic Nothing members
 
 
-encryptBlock :: MonadUnliftIO m
+encryptBlock :: (MonadUnliftIO m, Serialise t)
              => AnyStorage
              -> GroupKey 'Symm 'HBS2Basic
-             -> ByteString
-             -> m (SmallEncryptedBlock ByteString)
+             -> t
+             -> m (SmallEncryptedBlock t)
 
-encryptBlock sto gk bs = do
+encryptBlock sto gk x = do
   gks <- runKeymanClient (extractGroupKeySecret gk)
            >>= orThrowUser "can't extract group key secret"
 
-  Symm.encryptBlock sto gks (Right gk) Nothing bs
+  Symm.encryptBlock sto gks (Right gk) Nothing x
 
-decryptBlock :: MonadUnliftIO m
+decryptBlock :: (MonadUnliftIO m, Serialise t)
              => AnyStorage
-             -> SmallEncryptedBlock ByteString
-             -> m ByteString
+             -> SmallEncryptedBlock t
+             -> m t
 decryptBlock sto seb = do
   let find gk = runKeymanClient (extractGroupKeySecret gk)
 
