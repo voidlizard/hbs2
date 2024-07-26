@@ -59,14 +59,55 @@ metaFromSyntax syn =
 metaDataEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
 metaDataEntries = do
 
+  entry $ bindMatch "hbs2:tree:metadata:update-gk" $ \case
+    [StringLike tree, ListVal ins] -> do
+
+      ha <- orThrowUser "invalid hash" (fromStringMay tree)
+
+      -- 1. load-group-key
+      (gkh', headBlk) <- getGroupKeyHash ha
+
+      gkh <- orThrowUser "not encrypted" gkh'
+
+      gk <- loadGroupKey gkh
+              >>= orThrowUser "can't load gk"
+
+      gk1 <- modifyGroupKey gk ins
+
+      flip runContT pure do
+        sto <- ContT withPeerStorage
+        gk1h <- writeAsMerkle sto (serialise gk1)
+
+        case headBlk of
+          w@(MTreeAnn { _mtaCrypt = EncryptGroupNaClSymm _ nonce }) -> do
+            let w1 = w { _mtaCrypt = EncryptGroupNaClSymm gk1h nonce }
+
+            h <- putBlock sto (serialise w1)
+                   >>= orThrowUser "can't put block"
+
+            pure $ mkStr (show $ pretty h)
+
+          _ -> pure nil
+
+    _ -> throwIO (BadFormException @c nil)
+
+  entry $ bindMatch "hbs2:tree:metadata:get-gk" $ \case
+    [ StringLike hash ] -> flip runContT pure do
+
+      (gk,_) <- lift $ getGroupKeyHash (fromString hash)
+
+      case gk of
+        Just h -> pure $ mkStr (show $ pretty h)
+        _      -> pure nil
+
+    _ -> throwIO (BadFormException @c nil)
+
   entry $ bindMatch "hbs2:tree:metadata:get" $ \case
     [ SymbolVal how, StringLike hash ] -> do
 
-      -- FIXME: put-to-the-state
-      so <- detectRPC `orDie` "hbs2-peer not found"
+      r <- flip runContT pure do
 
-      r <- withRPC2 @StorageAPI  @UNIX so $ \caller -> do
-        let sto = AnyStorage (StorageClient caller)
+        sto <- ContT withPeerStorage
 
         runMaybeT do
 
@@ -91,7 +132,7 @@ metaDataEntries = do
                  >>= toMPlus
                  <&> deserialiseOrFail @(SmallEncryptedBlock AnnMetaData)
                  >>= toMPlus
-                 >>= lift . G.decryptBlock sto
+                 >>= lift . lift . G.decryptBlock sto
                  <&> \case
                   ShortMetadata s -> mkStr s
                   _ -> nil

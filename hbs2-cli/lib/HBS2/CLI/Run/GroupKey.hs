@@ -14,12 +14,14 @@ import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
 
 import HBS2.Net.Auth.Credentials
+import HBS2.KeyMan.Keys.Direct
 
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 as LBS8
 import Data.ByteString.Lazy as LBS
 import Data.ByteString.Char8 as BS8
 import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
 import Codec.Serialise
@@ -45,7 +47,6 @@ groupKeyEntries = do
 
       _ -> throwIO $ BadFormException @C nil
 
-
   entry $ bindMatch "hbs2:groupkey:store" $ \case
       [LitStrVal s] -> do
         flip runContT pure do
@@ -59,6 +60,28 @@ groupKeyEntries = do
           pure $ mkStr (show $ pretty ha)
 
       _ -> throwIO $ BadFormException @C nil
+
+
+-- $ hbs2-cli print [hbs2:groupkey:update [hbs2:groupkey:load 6XJGpJszP6f68fmhF17AtJ9PTgE7BKk8RMBHWQ2rXu6N] \
+--             [list [remove . CcRDzezX1XQdPxRMuMKzJkfHFB4yG7vGJeTYvScKkbP8] \
+--                   [add . 5sJXsw7qhmq521hwhE67jYvrD6ZNVazc89rFwfWaQPyY]] ]
+--
+  entry $ bindMatch "hbs2:groupkey:update" $ \case
+    [LitStrVal s, ListVal ins] -> do
+
+      flip runContT pure do
+
+        sto <- ContT withPeerStorage
+
+        let lbs = LBS8.pack (Text.unpack s)
+        gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+                `orDie` "invalid group key"
+
+        gk1 <- lift $ modifyGroupKey gk ins
+
+        pure $ mkStr (show $ pretty $ AsGroupKeyFile gk1)
+
+    _ -> throwIO $ BadFormException @C nil
 
   entry $ bindMatch "hbs2:groupkey:create" $ \syn -> do
     case syn of

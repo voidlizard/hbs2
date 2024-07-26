@@ -6,6 +6,7 @@ module HBS2.CLI.Run.Internal.GroupKey
 import HBS2.CLI.Prelude hiding (mapMaybe)
 import HBS2.CLI.Run.Internal
 
+import HBS2.Base58
 import HBS2.Hash
 import HBS2.Storage
 import HBS2.Data.Types.Refs
@@ -15,6 +16,8 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.KeyMan.Keys.Direct
 import HBS2.Net.Auth.GroupKeySymm as Symm
 
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
@@ -68,3 +71,29 @@ loadGroupKey h = do
               & either (const Nothing) Just
 
     pure gk
+
+modifyGroupKey :: (IsContext c, MonadUnliftIO m)
+               => GroupKey 'Symm 'HBS2Basic
+               -> [Syntax c]
+               -> m (GroupKey 'Symm HBS2Basic)
+modifyGroupKey gk ins = do
+
+  gks <- runKeymanClient do
+          extractGroupKeySecret gk
+         `orDie` "can't extract group key secret"
+
+  let r = catMaybes [ fromStringMay @(PubKey 'Encrypt HBS2Basic) k
+                    | ListVal [SymbolVal "remove", StringLike k] <- ins
+                    ] & HS.fromList
+
+  let a = catMaybes [ fromStringMay @(PubKey 'Encrypt HBS2Basic) k
+                    | ListVal [SymbolVal "add", StringLike k] <- ins
+                    ] & HS.fromList
+
+  let x = recipients gk & HM.keysSet
+
+  let new = x `HS.difference` r `mappend` a & HS.toList
+
+  generateGroupKey @'HBS2Basic (Just gks) new
+
+

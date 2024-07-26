@@ -651,7 +651,6 @@ main = join . customExecParser (prefs showHelpOnError) $
                                <> command "update" (info pGroupKeySymmUpdate (progDesc "update") )
                                )
 
-
     pGroupKeyFromSigils = do
       fns <- many $ strArgument ( metavar "SIGIL-FILES" <> help "sigil file list" )
       pure $ do

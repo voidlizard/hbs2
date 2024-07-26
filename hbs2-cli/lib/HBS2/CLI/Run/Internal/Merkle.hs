@@ -21,7 +21,25 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Cont
 import Control.Monad.Except
+
+getGroupKeyHash :: (IsContext c, MonadUnliftIO m)
+                => HashRef
+                -> RunM c m (Maybe HashRef, MTreeAnn [HashRef])
+getGroupKeyHash h = do
+  flip runContT pure do
+    sto <- ContT withPeerStorage
+
+    headBlock <- getBlock sto (fromHashRef h)
+                   >>= orThrowUser  "no-block"
+                   <&> deserialiseOrFail @(MTreeAnn [HashRef])
+                   >>= orThrowUser  "invalid block format"
+
+    case _mtaCrypt headBlock of
+      (EncryptGroupNaClSymm hash _) ->
+        pure $ (Just $ HashRef hash, headBlock)
+      _ -> pure (Nothing, headBlock)
 
 -- TODO: client-api-candidate
 createTreeWithMetadata :: (MonadUnliftIO m)
