@@ -57,11 +57,7 @@ createTreeWithMetadata sto mgk meta lbs = do -- flip runContT pure do
     createEncryptedTree gk mt = do
       -- 1. find key
       mgks <- runKeymanClient do
-        runMaybeT do
-          s <- forM (HM.toList $ recipients gk) $ \(pk,box) -> do
-            KeyringEntry pk sk _ <- MaybeT $ loadKeyRingEntry pk
-            MaybeT $ pure (Symm.lookupGroupKey sk pk gk)
-          MaybeT $ pure $ headMay s
+                extractGroupKeySecret gk
 
       gks <- orThrowUser "can't get groupkey's secret" mgks
 

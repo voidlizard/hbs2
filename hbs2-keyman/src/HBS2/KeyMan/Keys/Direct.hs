@@ -7,6 +7,7 @@ import HBS2.KeyMan.Config
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Net.Proto.Types
 
 
@@ -17,6 +18,7 @@ import UnliftIO
 import DBPipe.SQLite
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Maybe
+import Data.HashMap.Strict qualified as HM
 import Control.Monad.Trans.Maybe
 import Data.List qualified as List
 import Data.ByteString qualified as BS
@@ -105,4 +107,15 @@ loadKeyRingEntries pks = KeyManClient do
                                 , p == pk
                                 ]
     pure $ catMaybes r & List.sortOn (Down . fst)
+
+
+extractGroupKeySecret :: MonadIO m
+                      => GroupKey 'Symm 'HBS2Basic
+                      -> KeyManClient m (Maybe GroupSecret)
+extractGroupKeySecret gk = do
+  runMaybeT do
+    s <- forM (HM.toList $ recipients gk) $ \(pk,box) -> do
+      KeyringEntry pk sk _ <- MaybeT $ loadKeyRingEntry pk
+      MaybeT $ pure (Symm.lookupGroupKey sk pk gk)
+    MaybeT $ pure $ headMay s
 
