@@ -485,6 +485,11 @@ internalEntries = do
 
       e -> throwIO (BadFormException @c nil)
 
+instance MonadUnliftIO m => HasStorage (RunM c m) where
+  getStorage = do
+    so <- detectRPC `orDie` "hbs2-peer not found"
+    withRPC2 @StorageAPI  @UNIX so $ \caller -> do
+      pure $ AnyStorage (StorageClient caller)
 
 withPeerStorage :: (IsContext c, MonadUnliftIO m) => (AnyStorage -> RunM c m a) -> RunM c m a
 withPeerStorage m = do

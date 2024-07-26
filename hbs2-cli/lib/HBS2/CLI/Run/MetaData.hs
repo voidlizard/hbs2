@@ -16,6 +16,7 @@ import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Net.Auth.Schema()
 
@@ -52,35 +53,6 @@ metaFromSyntax syn =
   HM.fromList [ (t k, t v) | (ListVal [ k, v ]) <- syn ]
   where
     t x = Text.pack (show $ pretty x)
-
-createTreeWithMetadata :: (MonadUnliftIO m)
-                       => Maybe (GroupKey 'Symm 'HBS2Basic)
-                       -> HashMap Text Text
-                       -> LBS.ByteString
-                       -> m HashRef
-createTreeWithMetadata mgk meta lbs = do
-    debug   "create fucking metadata"
-    -- TODO: set-hbs2-peer
-    so <- detectRPC `orDie` "hbs2-peer not found"
-
-    let mt = vcat [ pretty k <> ":" <+> dquotes (pretty v) | (k,v) <- HM.toList meta ]
-               & show & Text.pack
-
-    withRPC2 @StorageAPI  @UNIX so $ \caller -> do
-      let sto = AnyStorage (StorageClient caller)
-
-      t0 <- writeAsMerkle sto lbs
-              >>= getBlock sto
-              >>= orThrowUser "can't read merkle tree just written"
-              <&> deserialiseOrFail @(MTree [HashRef])
-              >>= orThrowUser "merkle tree corrupted/invalid"
-
-      -- FIXME: support-encryption
-      let mann = MTreeAnn (ShortMetadata mt) NullEncryption t0
-
-      putBlock sto (serialise mann)
-        >>= orThrowUser "can't write tree"
-        <&> HashRef
 
 
 metaDataEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
@@ -181,9 +153,13 @@ metaDataEntries = do
         when (isJust enc && isNothing gk) do
           error $ show $  "Can't load group key" <+> pretty enc
 
-        href <- createTreeWithMetadata gk (meta0 <> meta1) lbs
+        flip runContT pure do
 
-        pure $ mkStr (show $ pretty href)
+          sto <- ContT withPeerStorage
+
+          href <- lift $ createTreeWithMetadata sto  gk (meta0 <> meta1) lbs
+
+          pure $ mkStr (show $ pretty href)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do

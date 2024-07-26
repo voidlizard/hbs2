@@ -104,6 +104,7 @@ library
       HBS2.CLI.Run
       HBS2.CLI.Run.Internal
       HBS2.CLI.Run.Internal.GroupKey
+      HBS2.CLI.Run.Internal.Merkle
       HBS2.CLI.Run.GroupKey
       HBS2.CLI.Run.KeyMan
       HBS2.CLI.Run.Keyring
