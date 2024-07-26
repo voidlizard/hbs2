@@ -20,6 +20,7 @@ import HBS2.Net.Auth.Schema()
 
 import Codec.Serialise
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Cont
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.Set qualified as Set
@@ -139,8 +140,8 @@ metaDataEntries = do
             -> do
               pure [Encrypted key]
 
-          ListVal (SymbolVal "dict" : [ListVal [SymbolVal x, StringLike y]])  -> do
-            pure [MetaDataEntry x y]
+          ListVal (SymbolVal "dict" : w)  -> do
+            pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- w ]
 
           StringLike rest  -> do
             pure [MetaDataFile rest]
@@ -168,7 +169,10 @@ metaDataEntries = do
 
         let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
 
-        error $ show opts
+        let enc = headMay [ x | x@(Encrypted _) <- universeBi opts ]
+
+        when (isJust enc) do
+          error "ENCRYPTION"
 
         href <- createTreeWithMetadata (meta0 <> meta1) lbs
 

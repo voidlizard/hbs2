@@ -9,60 +9,31 @@ import HBS2.CLI.Run.Keyring
 import HBS2.CLI.Run.GroupKey
 import HBS2.CLI.Run.Sigil
 import HBS2.CLI.Run.MetaData
+import HBS2.CLI.Run.Peer
 
-import HBS2.OrDie
 
 import HBS2.Data.Types.Refs
-import HBS2.Merkle
 import HBS2.Misc.PrettyStuff as All
 import HBS2.System.Logger.Simple.ANSI as All
 
-import HBS2.Storage
-import HBS2.Storage.Operations.ByteString
-import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
-import HBS2.Peer.RPC.API.Peer
-import HBS2.Peer.RPC.API.Storage
-import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2.Peer.Proto hiding (request)
 import HBS2.Base58
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Schema()
 
-
 import HBS2.KeyMan.Keys.Direct
-import HBS2.KeyMan.State
 import HBS2.KeyMan.App.Types
 
 import Data.Coerce
-import Data.Config.Suckless
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.Kind
-import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import Data.Text.IO qualified as TIO
-import Data.Either
-import Data.Maybe
-import Codec.Serialise
-import Control.Monad.Reader
-import Control.Monad.Writer
-import Control.Monad.Identity
-import Control.Monad.Trans.Maybe
-import UnliftIO
 import System.Environment
-import System.IO (hPrint)
-
-import Streaming.Prelude qualified as S
-import Prettyprinter
 
 type RefLogId = PubKey 'Sign 'HBS2Basic
 
@@ -134,6 +105,7 @@ main = do
         groupKeyEntries
         sigilEntries
         metaDataEntries
+        peerEntries
 
         entry $ bindMatch "help" $ nil_ $ \syn -> do
 
@@ -154,25 +126,6 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
-        entry $ bindMatch "hbs2:peer:detect" $ nil_ \case
-          _ -> do
-            so <- detectRPC
-            display so
-
-        entry $ bindMatch "hbs2:peer:poke" $ \case
-          _ -> do
-            so <- detectRPC `orDie` "hbs2-peer not found"
-            r <- newTVarIO nil
-            withRPC2 @PeerAPI  @UNIX so $ \caller -> do
-
-              what <- callRpcWaitMay @RpcPoke (TimeoutSec 1) caller ()
-                        <&> fromMaybe ""
-                        <&> parseTop
-                        <&> either (const nil) (mkForm "dict")
-
-              atomically $ writeTVar r what
-
-            readTVarIO r
 
 
         entry $ bindMatch "hbs2:reflog:tx:create-raw" $ \case
@@ -183,7 +136,6 @@ main = do
             mkRefLogUpdateFrom ( pure (TE.encodeUtf8 s) ) reflog
 
           _ -> throwIO (BadFormException @C nil)
-
 
 
   case cli of

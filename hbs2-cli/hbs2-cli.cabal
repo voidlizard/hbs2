@@ -107,7 +107,9 @@ library
       HBS2.CLI.Run.KeyMan
       HBS2.CLI.Run.Keyring
       HBS2.CLI.Run.MetaData
+      HBS2.CLI.Run.Peer
       HBS2.CLI.Run.Sigil
+
       HBS2.CLI.Run.Help
 
     build-depends:    base

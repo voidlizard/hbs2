@@ -25,6 +25,13 @@ groupKeyFromKeyList ks = do
 
 groupKeyEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 groupKeyEntries = do
+
+  entry $ bindMatch "hbs2:groupkey:store" $ \case
+      [LitStrVal s] -> do
+        error "FUCK"
+
+      _ -> throwIO $ BadFormException @C nil
+
   entry $ bindMatch "hbs2:groupkey:create" $ \syn -> do
     case syn of
       [ListVal (StringLikeList keys)] -> do
