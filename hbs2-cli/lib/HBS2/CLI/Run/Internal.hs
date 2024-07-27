@@ -120,19 +120,19 @@ stringLike = \case
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
-pattern Lambda :: forall {c}. [Syntax c] -> Syntax c -> Syntax c
+pattern Lambda :: forall {c}. [Id] -> Syntax c -> Syntax c
 pattern Lambda a e <- ListVal [SymbolVal "lambda", LambdaArgs a, e]
 
-pattern LambdaArgs :: [Syntax c] -> Syntax c
+pattern LambdaArgs :: [Id] -> Syntax c
 pattern LambdaArgs a <- (lambdaArgList -> Just a)
 
-lambdaArgList :: Syntax c -> Maybe [Syntax c]
+lambdaArgList :: Syntax c -> Maybe [Id]
 
 lambdaArgList (ListVal a) = sequence argz
   where
     argz = flip fmap a \case
-      x@(SymbolVal{}) -> Just x
-      _               -> Nothing
+      (SymbolVal x) -> Just x
+      _             -> Nothing
 
 lambdaArgList _ = Nothing
 
@@ -247,6 +247,32 @@ splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
 
     emit = S.yield . reverse
 
+applyLambda :: forall c m . ( IsContext c
+                            , MonadUnliftIO m
+                            , Exception (BadFormException c)
+                            )
+            => [Id]
+            -> Syntax c
+            -> [Syntax c]
+            -> RunM c m (Syntax c)
+applyLambda decl body args = do
+
+  when (length decl /= length args) do
+    throwIO (ArgsMismatch @c nil)
+
+  ev <- mapM runExpr args
+  tv <- ask
+  d0 <- readTVarIO tv
+
+  forM_ (zip decl ev) $ \(n,v) -> do
+    bind n v
+
+  e <- runExpr body
+
+  atomically $ writeTVar tv d0
+  pure e
+
+
 apply :: forall c m . ( IsContext c
                       , MonadUnliftIO m
                       , Exception (BadFormException c)
@@ -257,10 +283,37 @@ apply :: forall c m . ( IsContext c
 apply name args' = do
   -- notice $ red "APPLY" <+> pretty name
   what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
+
   case bindAction <$> what of
     Just (BindLambda e) -> mapM runExpr args' >>= e
-    Just (BindValue v)  -> throwIO (NotLambda name)
+
+    Just (BindValue (Lambda argz body) )  -> do
+      applyLambda argz body args'
+
+    Just (BindValue _) -> do
+      throwIO (NotLambda name)
+
     Nothing -> throwIO (NameNotBound name)
+
+bind :: forall c m . ( IsContext c
+                     , MonadUnliftIO m
+                     , Exception (BadFormException c)
+                     )
+     => Id
+     -> Syntax c
+     -> RunM c m ()
+bind name expr = do
+  t <- ask
+
+  what <- case expr of
+           ListVal [SymbolVal "builtin:lambda", SymbolVal n] -> do
+             Dict m <- readTVarIO t
+             HM.lookup n m & maybe (throwIO (NameNotBound n)) pure
+
+           e -> pure $ Bind (BindValue e) "" ""
+
+  atomically do
+    modifyTVar t (Dict . HM.insert name what . fromDict)
 
 runExpr :: forall c m . ( IsContext c
                         , MonadUnliftIO m
@@ -281,29 +334,19 @@ runExpr syn = handle (handleForm syn) $ do
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
 
+      ListVal [SymbolVal "define", SymbolVal what, e] -> do
+        ev <- runExpr e
+        bind what ev>> pure nil
+
+      ListVal [SymbolVal "define", LambdaArgs (name : args), e] -> do
+        bind name ( mkForm @c  "lambda" [ mkList [ mkSym s | s <- args], e ] )
+        pure nil
 
       ListVal (SymbolVal "begin" : what) -> do
         evalTop what
 
       lc@(ListVal (Lambda decl body : args))  -> do
-
-        when (length decl /= length args) do
-          throwIO (ArgsMismatch lc)
-
-        ev <- mapM runExpr args
-        tv <- ask
-        d0 <- readTVarIO tv
-        atomically do
-          forM_ (zip [ x | SymbolVal x <- decl ] ev) $ \(n,v) -> do
-            let what = case v of
-                        Lambda a b -> Bind (BindLambda (error "CALLIN FUCKING LAMBDA") ) "" ""
-                        x -> Bind (BindValue x) "runtime-value" ""
-            modifyTVar tv (Dict . HM.insert n what . fromDict)
-
-        e <- runExpr body
-
-        atomically $ writeTVar tv d0
-        pure e
+        applyLambda decl body args
 
       ListVal (SymbolVal name : args') -> do
         apply name args'
@@ -317,7 +360,7 @@ runExpr syn = handle (handleForm syn) $ do
 
         case what of
           BindValue e  -> pure e
-          BindLambda e -> pure $ mkForm "lambda" [mkSym name, mkSym "..."]
+          BindLambda e -> pure $ mkForm "builtin:lambda" [mkSym name]
 
       e@(SymbolVal name) | not (HM.member name dict) -> do
         pure e
@@ -364,14 +407,6 @@ nil = List noContext []
 
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
-
-bind :: (MonadUnliftIO m, IsContext c) => Id -> Syntax c -> RunM c m (Syntax c)
-bind name expr = do
-  tv <- ask -- >>=  readTVarIO
-  atomically do
-    w@(Dict x) <- readTVar tv
-    writeTVar tv w
-  pure nil
 
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
