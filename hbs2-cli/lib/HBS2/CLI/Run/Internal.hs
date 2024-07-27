@@ -16,6 +16,7 @@ import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.Kind
 import Data.Maybe
+import Data.Either
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
@@ -35,6 +36,7 @@ pattern StringLikeList e <- (stringLikeList -> e)
 
 pattern BlobLike :: forall {c} . ByteString -> Syntax c
 pattern BlobLike s <- (blobLike -> Just s)
+
 
 class Display a where
   display :: MonadIO m => a -> m ()
@@ -118,6 +120,22 @@ stringLike = \case
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
+pattern Lambda :: forall {c}. [Syntax c] -> Syntax c -> Syntax c
+pattern Lambda a e <- ListVal [SymbolVal "lambda", LambdaArgs a, e]
+
+pattern LambdaArgs :: [Syntax c] -> Syntax c
+pattern LambdaArgs a <- (lambdaArgList -> Just a)
+
+lambdaArgList :: Syntax c -> Maybe [Syntax c]
+
+lambdaArgList (ListVal a) = sequence argz
+  where
+    argz = flip fmap a \case
+      x@(SymbolVal{}) -> Just x
+      _               -> Nothing
+
+lambdaArgList _ = Nothing
+
 blobLike :: Syntax c -> Maybe ByteString
 blobLike = \case
   LitStrVal s -> Just $ BS8.pack (Text.unpack s)
@@ -167,6 +185,7 @@ newtype NotLambda = NotLambda Id
 instance Exception NotLambda
 
 data BadFormException c = BadFormException (Syntax c)
+                        | ArgsMismatch (Syntax c)
 
 newtype TypeCheckError c = TypeCheckError (Syntax c)
 
@@ -180,6 +199,7 @@ instance Exception NameNotBoundException
 
 instance IsContext c => Show (BadFormException c) where
   show (BadFormException sy) = show $ "BadFormException" <+> pretty sy
+  show (ArgsMismatch sy) = show $ "ArgsMismatch" <+> pretty sy
 
 instance IsContext c => Show (TypeCheckError c) where
   show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
@@ -242,54 +262,76 @@ apply name args' = do
     Just (BindValue v)  -> throwIO (NotLambda name)
     Nothing -> throwIO (NameNotBound name)
 
-
 runExpr :: forall c m . ( IsContext c
                         , MonadUnliftIO m
                         , Exception (BadFormException c)
                         ) => Syntax c -> RunM c m (Syntax c)
-runExpr syn = handle (handleForm syn) $ case syn of
+runExpr syn = handle (handleForm syn) $ do
 
-  ListVal [ w, SymbolVal ".", b] -> do
-    pure  $ mkList  [w, b]
+    dict <- ask >>= readTVarIO <&> fromDict
 
-  ListVal [ SymbolVal "quot", ListVal b] -> do
-    pure  $ mkList  b
+    case syn of
 
-  ListVal [SymbolVal "lambda", arglist, body] -> do
-    pure $ mkForm @c "lambda" [ arglist, body ]
+      ListVal [ w, SymbolVal ".", b] -> do
+        pure  $ mkList  [w, b]
 
-  ListVal (ListVal [SymbolVal "lambda", ListVal decl, body] : args)  -> do
-    error "oopsie"
-    -- d <- ask
-    -- void $ liftIO do
-    --   dd <- readTVarIO d
-    --   undefined
-      -- runReaderT $ runExpr body
-    --   error "FUCK!"
-    -- -- liftIO (run d body)
-    pure nil
+      ListVal [ SymbolVal "quot", ListVal b] -> do
+        pure  $ mkList  b
 
-  ListVal (SymbolVal name : args') -> do
-    apply name args'
+      ListVal [SymbolVal "lambda", arglist, body] -> do
+        pure $ mkForm @c "lambda" [ arglist, body ]
 
-  SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
-    pure (mkSym @c (Text.drop 1 s))
 
-  SymbolVal name -> do
-    what <- ask >>=  readTVarIO
-              <&> HM.lookup name . fromDict
-              <&> maybe (BindValue (mkSym name)) bindAction
+      ListVal (SymbolVal "begin" : what) -> do
+        evalTop what
 
-    case what of
-      BindValue e  -> pure e
-      BindLambda e -> pure $ mkForm "lambda" [mkSym name, mkSym "..."]
+      lc@(ListVal (Lambda decl body : args))  -> do
 
-  e -> pure e
+        when (length decl /= length args) do
+          throwIO (ArgsMismatch lc)
+
+        ev <- mapM runExpr args
+        tv <- ask
+        d0 <- readTVarIO tv
+        atomically do
+          forM_ (zip [ x | SymbolVal x <- decl ] ev) $ \(n,v) -> do
+            let what = case v of
+                        Lambda a b -> Bind (BindLambda (error "CALLIN FUCKING LAMBDA") ) "" ""
+                        x -> Bind (BindValue x) "runtime-value" ""
+            modifyTVar tv (Dict . HM.insert n what . fromDict)
+
+        e <- runExpr body
+
+        atomically $ writeTVar tv d0
+        pure e
+
+      ListVal (SymbolVal name : args') -> do
+        apply name args'
+
+      SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
+        pure (mkSym @c (Text.drop 1 s))
+
+      SymbolVal name | HM.member name dict -> do
+        let what = HM.lookup name dict
+                     & maybe (BindValue (mkSym name)) bindAction
+
+        case what of
+          BindValue e  -> pure e
+          BindLambda e -> pure $ mkForm "lambda" [mkSym name, mkSym "..."]
+
+      e@(SymbolVal name) | not (HM.member name dict) -> do
+        pure e
+
+      e@Literal{} -> pure e
+
+      e -> error (show $ "WTF:" <+> pretty e )
 
   where
     handleForm syn = \case
       (BadFormException _  :: BadFormException c) -> do
         throwIO (BadFormException syn)
+      (ArgsMismatch s  :: BadFormException c) -> do
+        throwIO (ArgsMismatch syn)
 
 runM :: forall c m a. ( IsContext c
                       , MonadUnliftIO m
