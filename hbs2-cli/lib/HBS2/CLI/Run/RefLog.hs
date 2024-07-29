@@ -60,6 +60,19 @@ reflogEntries = do
 
     _ -> throwIO (BadFormException @C nil)
 
+  entry $ bindMatch "hbs2:reflog:add" $ \case
+    [SignPubKeyLike reflog] -> do
+      -- reflog <- keymanNewCredentials (Just "reflog") 0
+
+      flip runContT pure do
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @PeerAPI  @UNIX so
+        void $ callService @RpcPollAdd api (reflog, "reflog", 31)
+        pure $ mkStr (show $ pretty (AsBase58 reflog))
+
+    _ -> throwIO (BadFormException @C nil)
+
+
 
   entry $ bindMatch "hbs2:reflog:tx:annhashref:create" $ \case
     [StringLike puk, StringLike hash] -> do
@@ -98,11 +111,10 @@ reflogEntries = do
 
     _ -> throwIO (BadFormException @C nil)
 
-  entry $ bindMatch "hbs2:reflog:tx:create-raw" $ \case
-    [SymbolVal "stdin", StringLike rlo] -> do
-      reflog <- orThrowUser "bad reflog" (fromStringMay rlo)
+  entry $ bindMatch "hbs2:reflog:tx:raw:create" $ \case
+    [SymbolVal "stdin", SignPubKeyLike reflog] -> do
 
-      rlu <- mkRefLogUpdateFrom reflog ( liftIO BS.getContents )
+      rlu <- mkRefLogUpdateFrom (RefLogKey reflog) ( liftIO BS.getContents )
                 <&> serialise
 
       pure $ mkForm "blob" [mkStr (LBS8.unpack rlu)]

@@ -43,6 +43,22 @@ pattern BlobLike s <- (blobLike -> Just s)
 pattern Nil :: forall {c} . Syntax c
 pattern Nil <- ListVal []
 
+
+pattern HashLike:: forall {c} . HashRef -> Syntax c
+pattern HashLike x <- (
+  \case
+    StringLike s -> fromStringMay @HashRef s
+    _            -> Nothing
+      -> Just x )
+
+
+pattern SignPubKeyLike :: forall {c} . (PubKey 'Sign 'HBS2Basic) -> Syntax c
+pattern SignPubKeyLike x <- (
+  \case
+    StringLike s -> fromStringMay s
+    _            -> Nothing
+      -> Just x )
+
 class Display a where
   display :: MonadIO m => a -> m ()
 

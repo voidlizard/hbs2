@@ -22,12 +22,6 @@ import HBS2.KeyMan.App.Types
 
 import Control.Monad.Trans.Cont
 
-pattern HashLike:: forall {c} . HashRef -> Syntax c
-pattern HashLike x <- (
-  \case
-    StringLike s -> fromStringMay @HashRef s
-    _            -> Nothing
-      -> Just x )
 
 lwwRefEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM  c m ()
 lwwRefEntries = do
