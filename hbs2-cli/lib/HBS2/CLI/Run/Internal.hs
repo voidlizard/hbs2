@@ -25,6 +25,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString (ByteString)
 import Control.Monad.Identity
 import Control.Monad.Writer
+import System.Environment
 
 import Streaming.Prelude qualified as S
 
@@ -88,11 +89,20 @@ instance IsContext c => MkStr c String where
 instance IsContext c => MkStr c Text where
   mkStr s = Literal noContext $ LitStr s
 
+mkBool :: forall c . IsContext c => Bool -> Syntax c
+mkBool v = Literal noContext (LitBool v)
+
 mkForm :: forall c . IsContext c => String -> [Syntax c] -> Syntax c
 mkForm s sy = List noContext ( mkSym s :  sy )
 
 mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
 mkList = List noContext
+
+isFalse :: forall c . IsContext c => Syntax c -> Bool
+isFalse = \case
+    Literal _ (LitBool False) -> True
+    ListVal [] -> True
+    _ -> False
 
 class IsContext c => MkInt c s where
   mkInt :: s -> Syntax c
@@ -185,7 +195,7 @@ newtype NotLambda = NotLambda Id
 instance Exception NotLambda
 
 data BadFormException c = BadFormException (Syntax c)
-                        | ArgsMismatch (Syntax c)
+                        | ArityMismatch (Syntax c)
 
 newtype TypeCheckError c = TypeCheckError (Syntax c)
 
@@ -199,7 +209,7 @@ instance Exception NameNotBoundException
 
 instance IsContext c => Show (BadFormException c) where
   show (BadFormException sy) = show $ "BadFormException" <+> pretty sy
-  show (ArgsMismatch sy) = show $ "ArgsMismatch" <+> pretty sy
+  show (ArityMismatch sy) = show $ "ArityMismatch" <+> pretty sy
 
 instance IsContext c => Show (TypeCheckError c) where
   show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
@@ -258,16 +268,16 @@ applyLambda :: forall c m . ( IsContext c
 applyLambda decl body args = do
 
   when (length decl /= length args) do
-    throwIO (ArgsMismatch @c nil)
+    throwIO (ArityMismatch @c nil)
 
-  ev <- mapM runExpr args
+  ev <- mapM eval args
   tv <- ask
   d0 <- readTVarIO tv
 
   forM_ (zip decl ev) $ \(n,v) -> do
     bind n v
 
-  e <- runExpr body
+  e <- eval body
 
   atomically $ writeTVar tv d0
   pure e
@@ -285,7 +295,7 @@ apply name args' = do
   what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
 
   case bindAction <$> what of
-    Just (BindLambda e) -> mapM runExpr args' >>= e
+    Just (BindLambda e) -> mapM eval args' >>= e
 
     Just (BindValue (Lambda argz body) )  -> do
       applyLambda argz body args'
@@ -315,11 +325,11 @@ bind name expr = do
   atomically do
     modifyTVar t (Dict . HM.insert name what . fromDict)
 
-runExpr :: forall c m . ( IsContext c
+eval :: forall c m . ( IsContext c
                         , MonadUnliftIO m
                         , Exception (BadFormException c)
                         ) => Syntax c -> RunM c m (Syntax c)
-runExpr syn = handle (handleForm syn) $ do
+eval syn = handle (handleForm syn) $ do
 
     dict <- ask >>= readTVarIO <&> fromDict
 
@@ -335,12 +345,20 @@ runExpr syn = handle (handleForm syn) $ do
         pure $ mkForm @c "lambda" [ arglist, body ]
 
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
-        ev <- runExpr e
+        ev <- eval e
         bind what ev>> pure nil
 
       ListVal [SymbolVal "define", LambdaArgs (name : args), e] -> do
         bind name ( mkForm @c  "lambda" [ mkList [ mkSym s | s <- args], e ] )
         pure nil
+
+      ListVal [SymbolVal "false?", e'] -> do
+        e <- eval e'
+        pure $ if isFalse e then mkBool True else mkBool False
+
+      ListVal [SymbolVal "if", w, e1, e2] -> do
+        what <- eval w
+        if isFalse what then eval e2 else eval e1
 
       ListVal (SymbolVal "begin" : what) -> do
         evalTop what
@@ -367,14 +385,14 @@ runExpr syn = handle (handleForm syn) $ do
 
       e@Literal{} -> pure e
 
-      e -> error (show $ "WTF:" <+> pretty e )
+      e -> throwIO $ BadFormException @c e
 
   where
     handleForm syn = \case
       (BadFormException _  :: BadFormException c) -> do
         throwIO (BadFormException syn)
-      (ArgsMismatch s  :: BadFormException c) -> do
-        throwIO (ArgsMismatch syn)
+      (ArityMismatch s  :: BadFormException c) -> do
+        throwIO (ArityMismatch syn)
 
 runM :: forall c m a. ( IsContext c
                       , MonadUnliftIO m
@@ -390,17 +408,20 @@ run :: forall c m . ( IsContext c
                     ) => Dict c m -> [Syntax c] -> m (Syntax c)
 run d sy = do
   tvd <- newTVarIO d
-  lastDef nil <$> runReaderT (fromRunM (mapM runExpr sy)) tvd
+  lastDef nil <$> runReaderT (fromRunM (mapM eval sy)) tvd
 
 evalTop :: forall c m . ( IsContext c
                         , MonadUnliftIO m
                         , Exception (BadFormException c))
      => [Syntax c]
      -> RunM c m (Syntax c)
-evalTop syn = lastDef nil <$> mapM runExpr syn
+evalTop syn = lastDef nil <$> mapM eval syn
 
 bindMatch :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
 bindMatch n fn = Dict (HM.singleton n (Bind (BindLambda fn) n ""))
+
+bindValue :: Id -> Syntax c -> Dict c m
+bindValue n e = Dict (HM.singleton n (Bind (BindValue e) "" ""))
 
 nil :: forall c . IsContext c => Syntax c
 nil = List noContext []
@@ -410,6 +431,10 @@ nil_ m w = m w >> pure (List noContext [])
 
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
+
+    entry $ bindValue "false" (Literal noContext (LitBool False))
+    entry $ bindValue "true"  (Literal noContext (LitBool True))
+
     entry $ bindMatch "concat" $ \syn -> do
 
       case syn of
@@ -510,6 +535,32 @@ internalEntries = do
       [StringLike fn, StringLike what] ->
         liftIO (writeFile fn what)
 
+      _ -> throwIO (BadFormException @c nil)
+
+
+    entry $ bindMatch "sym" $ \case
+      [StringLike s] -> pure (mkSym s)
+      e               -> pure (mkSym $ show $ pretty e)
+
+    entry $ bindMatch "atom" $ \case
+      [StringLike s] -> pure (mkSym s)
+      e               -> pure (mkSym $ show $ pretty e)
+
+    entry $ bindMatch "eq?" $ \case
+      [a, b] -> do
+        pure $ if a == b then mkBool True else mkBool False
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "not" $ \case
+      [v] -> do
+        w <- eval v
+        pure $ if isFalse w then mkBool True else mkBool False
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "env" $ \case
+      [StringLike s] -> do
+        liftIO (lookupEnv s)
+           <&> maybe nil mkStr
       _ -> throwIO (BadFormException @c nil)
 
     -- FIXME: we-need-opaque-type

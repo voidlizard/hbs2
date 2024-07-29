@@ -87,7 +87,7 @@ main = do
               (StringLike p : _) -> do
                 helpList (Just p)
 
-              [ListVal (SymbolVal "lambda" : SymbolVal what : _ )] -> do
+              [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )] -> do
                 liftIO $ hPutDoc stdout $
                   "function" <+> ul (pretty what)
                   <> line
