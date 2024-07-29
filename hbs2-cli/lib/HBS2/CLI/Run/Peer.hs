@@ -38,10 +38,8 @@ putTextLit sto s = do
 peerEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
 peerEntries = do
 
-  entry $ bindMatch "hbs2:peer:detect" $ nil_ \case
-    _ -> do
-      so <- detectRPC
-      display so
+  entry $ bindMatch "hbs2:peer:detect" $ \case
+    _ -> detectRPC <&> maybe (nil @c) mkStr
 
   entry $ bindMatch "hbs2:peer:get-block" $ \case
     [StringLike s] -> do
