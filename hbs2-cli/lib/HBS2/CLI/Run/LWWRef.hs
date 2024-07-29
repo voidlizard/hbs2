@@ -32,6 +32,12 @@ import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 import Control.Monad.Trans.Cont
 
+pattern HashLike:: forall {c} . HashRef -> Syntax c
+pattern HashLike x <- (
+  \case
+    StringLike s -> fromStringMay @HashRef s
+    _            -> Nothing
+      -> Just x )
 
 lwwRefEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM  c m ()
 lwwRefEntries = do
@@ -84,4 +90,45 @@ lwwRefEntries = do
         pure $ mkStr (show $ pretty what)
 
     _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:lwwref:update" $ \case
+    [StringLike puks, HashLike what] -> do
+
+      flip runContT pure do
+        puk <- orThrowUser "bad lwwref key" (fromStringMay @(PubKey 'Sign 'HBS2Basic) puks)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
+
+        (sk,pk) <- liftIO $ runKeymanClient do
+                     creds  <- loadCredentials puk
+                                 >>= orThrowUser "can't load credentials"
+                     pure ( view peerSignSk  creds, view peerSignPk creds )
+
+
+        error "YAY!"
+        -- what <- callService @RpcLWWRefGet api ref
+        --           >>= orThrowUser "can't get reflog"
+        -- pure $ mkStr (show $ pretty what)
+
+    _ -> throwIO (BadFormException @C nil)
+
+    -- (sk,pk) <- liftIO $ runKeymanClient do
+    --              creds  <- loadCredentials puk >>= orThrowUser "can't load credentials"
+    --              pure ( view peerSignSk  creds, view peerSignPk creds )
+
+    -- seq <- case seq' of
+    --          Just v -> pure v
+    --          Nothing -> do
+    --            let ref = LWWRefKey puk
+    --            callService @RpcLWWRefGet caller ref >>= \case
+    --              Left e  -> err (viaShow e) >> exitFailure
+    --              Right Nothing -> err ("not found value for" <+> pretty ref) >> exitFailure
+    --              Right (Just r) -> pure $ succ (lwwSeq r)
+
+    -- let box =  makeSignedBox pk sk (LWWRef seq val Nothing)
+    -- callService @RpcLWWRefUpdate caller box >>= \case
+    --   Left e  -> err (viaShow e) >> exitFailure
+    --   Right r -> print $ pretty r
+
 

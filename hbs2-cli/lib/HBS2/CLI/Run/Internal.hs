@@ -5,6 +5,7 @@ import HBS2.CLI.Prelude
 
 import HBS2.OrDie
 import HBS2.Base58
+import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
@@ -34,6 +35,7 @@ pattern StringLike e <- (stringLike -> Just e)
 
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
+
 
 pattern BlobLike :: forall {c} . ByteString -> Syntax c
 pattern BlobLike s <- (blobLike -> Just s)
