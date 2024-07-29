@@ -480,6 +480,15 @@ internalEntries = do
         _ -> do
           throwIO (BadFormException @C nil)
 
+    entry $ bindMatch "repeat" $ nil_ $ \case
+      [LitIntVal n, Lambda [] b] -> do
+        replicateM_ (fromIntegral n) (applyLambda [] b [])
+
+      [LitIntVal n, e@(ListVal _)] -> do
+        replicateM_ (fromIntegral n) (eval e)
+
+      z ->
+        throwIO (BadFormException @C nil)
 
     entry $ bindMatch "map" $ \syn -> do
       case syn of

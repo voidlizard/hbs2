@@ -61,8 +61,6 @@ reflogEntries = do
     _ -> throwIO (BadFormException @C nil)
 
 
-
-
   entry $ bindMatch "hbs2:reflog:tx:annhashref:create" $ \case
     [StringLike puk, StringLike hash] -> do
       flip runContT pure do
@@ -116,6 +114,42 @@ reflogEntries = do
                <&> serialise
 
       pure $ mkForm "blob" [mkStr (LBS8.unpack rlu)]
+
+    _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:reflog:get" $ \case
+    [StringLike puk] -> do
+
+      flip runContT pure do
+        reflog <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @RefLogAPI  @UNIX so
+        what <- callService @RpcRefLogGet api reflog
+                  >>= orThrowUser "can't get reflog"
+        pure $ mkStr (show $ pretty what)
+
+    _ -> throwIO (BadFormException @C nil)
+
+  entry $ bindMatch "hbs2:reflog:fetch" $ \case
+    [StringLike puk] -> do
+      flip runContT pure do
+        reflog <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @RefLogAPI  @UNIX so
+        void $ callService @RpcRefLogFetch api reflog
+        pure $ mkStr "okay"
+
+    _ -> throwIO (BadFormException @C nil)
+
+  entry $ bindMatch "hbs2:reflog:list" $ \case
+    [] -> do
+      flip runContT pure do
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @PeerAPI @UNIX so
+        r <- callService @RpcPollList2 api (Just "reflog", Nothing)
+               >>= orThrowUser "can't get reflog list"
+        pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
 
     _ -> throwIO (BadFormException @C nil)
 
