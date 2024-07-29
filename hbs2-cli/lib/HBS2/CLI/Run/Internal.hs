@@ -136,6 +136,7 @@ pattern Lambda a e <- ListVal [SymbolVal "lambda", LambdaArgs a, e]
 pattern LambdaArgs :: [Id] -> Syntax c
 pattern LambdaArgs a <- (lambdaArgList -> Just a)
 
+
 lambdaArgList :: Syntax c -> Maybe [Id]
 
 lambdaArgList (ListVal a) = sequence argz
@@ -341,12 +342,12 @@ eval syn = handle (handleForm syn) $ do
       ListVal [ SymbolVal "quot", ListVal b] -> do
         pure  $ mkList  b
 
-      ListVal [SymbolVal "lambda", arglist, body] -> do
-        pure $ mkForm @c "lambda" [ arglist, body ]
-
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
         ev <- eval e
         bind what ev>> pure nil
+
+      ListVal [SymbolVal "lambda", arglist, body] -> do
+        pure $ mkForm @c "lambda" [ arglist, body ]
 
       ListVal [SymbolVal "define", LambdaArgs (name : args), e] -> do
         bind name ( mkForm @c  "lambda" [ mkList [ mkSym s | s <- args], e ] )
@@ -460,12 +461,6 @@ internalEntries = do
     entry $ bindMatch "kw" $ \syn -> do
       let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
       pure $ mkForm "dict" wat
-
-    entry $ bindMatch "lambda" $ \case
-      [a, b] -> do
-        pure $ mkForm  "lamba" [ mkSym "_", mkSym "..." ]
-
-      _ -> error "SHIT"
 
     entry $ bindMatch "map" $ \syn -> do
       case syn of
