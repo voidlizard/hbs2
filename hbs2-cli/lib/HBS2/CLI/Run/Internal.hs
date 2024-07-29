@@ -464,11 +464,15 @@ internalEntries = do
 
     entry $ bindMatch "map" $ \syn -> do
       case syn of
-        [ListVal (SymbolVal "lambda" : SymbolVal fn : _), ListVal rs] -> do
+        [ListVal (SymbolVal "builtin:lambda" : SymbolVal fn : _), ListVal rs] -> do
           mapM (apply @c fn . List.singleton) rs
             <&> mkList
 
-        w -> do
+        [Lambda decl body,  ListVal args]  -> do
+          mapM (applyLambda decl body . List.singleton) args
+            <&> mkList
+
+        _ -> do
           throwIO (BadFormException @C nil)
 
     entry $ bindMatch "head" $ \case
@@ -532,6 +536,7 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindValue "space" $ mkStr " "
 
     entry $ bindMatch "sym" $ \case
       [StringLike s] -> pure (mkSym s)

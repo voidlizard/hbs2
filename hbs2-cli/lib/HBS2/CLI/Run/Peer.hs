@@ -4,11 +4,13 @@ import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
 
 import HBS2.Hash
+import HBS2.Base58
 import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Peer
+import HBS2.Peer.RPC.API.RefLog
 import HBS2.Net.Auth.Schema()
 
 import Data.List qualified as L
@@ -16,6 +18,7 @@ import Data.Maybe
 import Control.Monad.Trans.Cont
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Lens.Micro.Platform
 
 {- HLINT ignore "Functor law" -}
 
@@ -98,4 +101,38 @@ peerEntries = do
 
       readTVarIO r
 
+  entry $ bindMatch "hbs2:peer:reflog:get" $ \case
+    [StringLike puk] -> do
 
+      flip runContT pure do
+        reflog <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @RefLogAPI  @UNIX so
+        what <- callService @RpcRefLogGet api reflog
+                  >>= orThrowUser "can't get reflog"
+        pure $ mkStr (show $ pretty what)
+
+    _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:peer:reflog:fetch" $ \case
+    [StringLike puk] -> do
+      flip runContT pure do
+        reflog <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @RefLogAPI  @UNIX so
+        void $ callService @RpcRefLogFetch api reflog
+        pure $ mkStr "okay"
+
+    _ -> throwIO (BadFormException @C nil)
+
+  entry $ bindMatch "hbs2:peer:reflog:list" $ \case
+    [] -> do
+      flip runContT pure do
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @PeerAPI @UNIX so
+        r <- callService @RpcPollList2 api (Just "reflog", Nothing)
+               >>= orThrowUser "can't get reflog list"
+        pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
+
+    _ -> throwIO (BadFormException @C nil)
