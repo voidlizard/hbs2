@@ -34,11 +34,14 @@ import Data.Either
 import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Text qualified as Text
 import Control.Monad.Reader
 import Lens.Micro.Platform (view)
 import System.FilePath
 import Control.Monad.Except
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
+import Data.Coerce
 
 import UnliftIO (async)
 
@@ -46,11 +49,29 @@ import UnliftIO (async)
 
 -- TODO: introduce-http-of-off-feature
 
-extractMetadataHash :: Hash HbSync -> LBS.ByteString -> Maybe (Hash HbSync)
-extractMetadataHash what blob =
-  case tryDetect what blob of
-     MerkleAnn (MTreeAnn {_mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption}) -> Just h
-     _ -> Nothing
+extractMetadataHash :: MonadIO  m
+                    => AnyStorage
+                    -> HashRef
+                    -> m (Maybe [Syntax C])
+
+extractMetadataHash sto what = runMaybeT do
+
+  blob <- getBlock sto (coerce what)
+            >>= toMPlus
+
+  case tryDetect (coerce what) blob of
+     MerkleAnn (MTreeAnn {_mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption}) -> do
+
+        getBlock sto h
+          >>= toMPlus
+          <&> LBS8.unpack
+          <&> fromRight mempty . parseTop
+
+
+     MerkleAnn (MTreeAnn {_mtaMeta = ShortMetadata txt, _mtaCrypt = NullEncryption}) -> do
+       parseTop (Text.unpack txt) & toMPlus
+
+     _ -> mzero
 
 orElse :: m r -> Maybe a -> ContT r m a
 orElse a mb = ContT $ maybe1 mb a
@@ -174,14 +195,9 @@ httpWorker (PeerConfig syn) pmeta e = do
 
 getTreeHash :: AnyStorage -> HashRef -> ActionM ()
 getTreeHash sto what' = void $ flip runContT pure do
-  blob <- liftIO (getBlock sto what)
+
+  meta <- extractMetadataHash sto what'
             >>= orElse (status status404)
-
-  mh <- orElse (status status404) (extractMetadataHash what blob)
-
-  meta <- lift (getBlock sto mh) >>= orElse (status status404)
-             <&> LBS8.unpack
-             <&> fromRight mempty . parseTop
 
   let tp = headDef "application/octet-stream"
            [ show (pretty w)

@@ -13,9 +13,11 @@ import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.LWWRef
 
 import HBS2.Peer.Proto hiding (request)
+import HBS2.Peer.Proto.LWWRef
 import HBS2.Base58
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Schema()
+import HBS2.Data.Types.SignedBox
 
 import HBS2.KeyMan.Keys.Direct
 import HBS2.KeyMan.App.Types
@@ -86,17 +88,17 @@ lwwRefEntries = do
         so <- detectRPC `orDie` "rpc not found"
         api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
         what <- callService @RpcLWWRefGet api ref
-                  >>= orThrowUser "can't get reflog"
+                  >>= orThrowUser "can't get lwwref value"
         pure $ mkStr (show $ pretty what)
 
     _ -> throwIO (BadFormException @C nil)
 
 
   entry $ bindMatch "hbs2:lwwref:update" $ \case
-    [StringLike puks, HashLike what] -> do
+    [StringLike puks, HashLike new] -> do
 
       flip runContT pure do
-        puk <- orThrowUser "bad lwwref key" (fromStringMay @(PubKey 'Sign 'HBS2Basic) puks)
+        puk <- orThrowUser "bad lwwref key" (fromStringMay  puks)
         so <- detectRPC `orDie` "rpc not found"
         api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
 
@@ -105,11 +107,21 @@ lwwRefEntries = do
                                  >>= orThrowUser "can't load credentials"
                      pure ( view peerSignSk  creds, view peerSignPk creds )
 
+        what <- callService @RpcLWWRefGet api puk
+                  >>= orThrowUser "can't get lwwref value"
 
-        error "YAY!"
-        -- what <- callService @RpcLWWRefGet api ref
-        --           >>= orThrowUser "can't get reflog"
-        -- pure $ mkStr (show $ pretty what)
+        sno' <- case what of
+                 Nothing    -> pure 0
+                 Just lwwv  -> pure (lwwSeq lwwv)
+
+        let sno =  succ sno'
+
+        let box =  makeSignedBox pk sk (LWWRef sno new Nothing)
+
+        callService @RpcLWWRefUpdate api box
+          >>= orThrowUser "lww ref update error"
+
+        pure nil
 
     _ -> throwIO (BadFormException @C nil)
 
