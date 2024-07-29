@@ -11,6 +11,7 @@ import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Net.Auth.Schema()
 
 import Data.List qualified as L
@@ -21,7 +22,6 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Lens.Micro.Platform
 
 {- HLINT ignore "Functor law" -}
-
 
 putTextLit :: forall c m . (IsContext c, MonadUnliftIO m)
            => AnyStorage
@@ -112,7 +112,6 @@ peerEntries = do
 
     _ -> throwIO (BadFormException @C nil)
 
-
   entry $ bindMatch "hbs2:peer:reflog:fetch" $ \case
     [StringLike puk] -> do
       flip runContT pure do
@@ -134,3 +133,43 @@ peerEntries = do
         pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
 
     _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:peer:lwwref:list" $ \case
+    [] -> do
+      flip runContT pure do
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @PeerAPI @UNIX so
+        r <- callService @RpcPollList2 api (Just "lwwref", Nothing)
+               >>= orThrowUser "can't get lwwref list"
+        pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
+
+    _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:peer:lwwref:fetch" $ \case
+    [StringLike puk] -> do
+      flip runContT pure do
+        lww <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @LWWRefAPI @UNIX so
+        void $ callService @RpcLWWRefFetch api lww
+        pure $ mkStr "okay"
+
+    _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:peer:lwwref:get" $ \case
+    [StringLike puk] -> do
+
+      flip runContT pure do
+        ref <- orThrowUser "bad reflog key" (fromStringMay puk)
+        so <- detectRPC `orDie` "rpc not found"
+        api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
+        what <- callService @RpcLWWRefGet api ref
+                  >>= orThrowUser "can't get reflog"
+        pure $ mkStr (show $ pretty what)
+
+    _ -> throwIO (BadFormException @C nil)
+
+

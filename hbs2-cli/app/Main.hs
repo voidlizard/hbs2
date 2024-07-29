@@ -11,6 +11,7 @@ import HBS2.CLI.Run.Sigil
 import HBS2.CLI.Run.MetaData
 import HBS2.CLI.Run.Peer
 import HBS2.CLI.Run.RefLog
+import HBS2.CLI.Run.LWWRef
 
 import HBS2.Peer.RPC.Client.Unix
 
@@ -78,6 +79,7 @@ main = do
         metaDataEntries
         peerEntries
         reflogEntries
+        lwwRefEntries
 
         entry $ bindMatch "help" $ nil_ $ \syn -> do
 
@@ -103,11 +105,11 @@ main = do
     [ListVal [SymbolVal "stdin"]] -> do
       what <- getContents
                 >>= either (error.show) pure . parseTop
-      void $ run dict what
+      run dict what >>= eatNil display
 
     [] -> do
       void $ run dict [mkForm  "help" []]
 
     _ -> do
-      void $ run dict cli
+      run dict cli >>= eatNil display
 

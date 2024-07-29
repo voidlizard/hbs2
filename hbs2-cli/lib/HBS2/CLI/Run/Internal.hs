@@ -38,6 +38,8 @@ pattern StringLikeList e <- (stringLikeList -> e)
 pattern BlobLike :: forall {c} . ByteString -> Syntax c
 pattern BlobLike s <- (blobLike -> Just s)
 
+pattern Nil :: forall {c} . Syntax c
+pattern Nil <- ListVal []
 
 class Display a where
   display :: MonadIO m => a -> m ()
@@ -103,6 +105,11 @@ isFalse = \case
     Literal _ (LitBool False) -> True
     ListVal [] -> True
     _ -> False
+
+eatNil :: Monad m => (Syntax c -> m a) -> Syntax c -> m ()
+eatNil f = \case
+  Nil -> pure ()
+  x   -> void $ f x
 
 class IsContext c => MkInt c s where
   mkInt :: s -> Syntax c
@@ -461,6 +468,18 @@ internalEntries = do
     entry $ bindMatch "kw" $ \syn -> do
       let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
       pure $ mkForm "dict" wat
+
+    entry $ bindMatch "iterate" $ nil_ $ \syn -> do
+      case syn of
+        [ListVal (SymbolVal "builtin:lambda" : SymbolVal fn : _), ListVal rs] -> do
+          mapM_ (apply @c fn . List.singleton) rs
+
+        [Lambda decl body,  ListVal args]  -> do
+          mapM_ (applyLambda decl body . List.singleton) args
+
+        _ -> do
+          throwIO (BadFormException @C nil)
+
 
     entry $ bindMatch "map" $ \syn -> do
       case syn of
