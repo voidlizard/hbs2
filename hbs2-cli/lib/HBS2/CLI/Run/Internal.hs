@@ -112,8 +112,12 @@ instance IsContext c => MkStr c Text where
 mkBool :: forall c . IsContext c => Bool -> Syntax c
 mkBool v = Literal noContext (LitBool v)
 
-mkForm :: forall c . IsContext c => String -> [Syntax c] -> Syntax c
-mkForm s sy = List noContext ( mkSym s :  sy )
+
+class IsContext c => MkForm c a where
+ mkForm :: a-> [Syntax c] -> Syntax c
+
+instance (IsContext c, MkSym c s) => MkForm c s where
+ mkForm s sy = List noContext ( mkSym @c s :  sy )
 
 mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
 mkList = List noContext
@@ -455,6 +459,15 @@ nil = List noContext []
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
 
+fixContext :: (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
+fixContext = go
+  where
+    go = \case
+      List    _ xs -> List noContext (fmap go xs)
+      Symbol  _ w  -> Symbol noContext w
+      Literal _ l  -> Literal noContext l
+
+
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
 
@@ -583,6 +596,16 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindValue "space" $ mkStr " "
+
+    entry $ bindMatch "parse-top" $ \case
+
+      [SymbolVal w, LitStrVal s] -> do
+        pure $  parseTop s & either (const nil) (mkList . fmap (mkForm w . List.singleton) . fmap fixContext)
+
+      [LitStrVal s] -> do
+        pure $  parseTop s & either (const nil) (mkList . fmap fixContext)
+
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "sym" $ \case
       [StringLike s] -> pure (mkSym s)

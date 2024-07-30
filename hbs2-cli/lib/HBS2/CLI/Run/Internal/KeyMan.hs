@@ -19,13 +19,6 @@ import Data.Text.IO qualified as TIO
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 
-fixContext :: (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
-fixContext = go
-  where
-    go = \case
-      List    _ xs -> List noContext (fmap go xs)
-      Symbol  _ w  -> Symbol noContext w
-      Literal _ l  -> Literal noContext l
 
 
 keymanGetConfig :: (IsContext c, MonadUnliftIO m) => m [Syntax c]

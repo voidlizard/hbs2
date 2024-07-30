@@ -309,7 +309,6 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                             | (ListVal [SymbolVal "notifier", LitStrVal s] ) <- parsed
                             ]
 
-
       disclosed = catMaybes [ fromStringMay @HashRef (Text.unpack s)
                             | (ListVal [SymbolVal "disclosed", LitStrVal s] ) <- parsed
                             ]
