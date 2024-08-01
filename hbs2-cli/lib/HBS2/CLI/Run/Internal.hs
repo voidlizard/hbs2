@@ -1,4 +1,5 @@
 {-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.CLI.Run.Internal where
 
 import HBS2.CLI.Prelude
@@ -13,11 +14,13 @@ import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
+import Control.Applicative
 import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.Kind
 import Data.Maybe
 import Data.Either
+import Data.Coerce
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
@@ -27,15 +30,137 @@ import Data.ByteString (ByteString)
 import Control.Monad.Identity
 import Control.Monad.Writer
 import System.Environment
+import Text.InterpolatedString.Perl6 (qc)
+
+import Prettyprinter.Render.Terminal
 
 import Streaming.Prelude qualified as S
+
+
+data ManApplyArg = ManApplyArg Text Text
+                   deriving stock (Eq,Show,Data,Generic)
+
+newtype ManApply = ManApply [ ManApplyArg ]
+                   deriving stock (Eq,Show,Data,Generic)
+                   deriving newtype (Semigroup,Monoid)
+
+data ManSynopsis =
+  ManSynopsis ManApply
+  deriving stock (Eq,Show,Data,Generic)
+
+data ManDesc     = ManDescRaw Text
+  deriving stock (Eq,Show,Data,Generic)
+
+data ManRetVal   = ManRetVal
+  deriving stock (Eq,Show,Data,Generic)
+
+newtype ManName a = ManName Id
+  deriving stock (Eq,Show,Data,Generic)
+  deriving newtype (IsString,Pretty)
+
+newtype ManBrief = ManBrief Text
+  deriving stock (Eq,Show,Data,Generic)
+  deriving newtype (Pretty,IsString)
+
+data ManReturns = ManReturns Text Text
+  deriving stock (Eq,Show,Data,Generic)
+
+newtype ManExamples =
+  ManExamples Text
+  deriving stock (Eq,Show,Data,Generic)
+  deriving newtype (Pretty,IsString,Monoid,Semigroup)
+
+class ManNameOf a ann where
+  manNameOf :: a -> ManName ann
+
+data Man a =
+  Man
+  { manName     :: Maybe (ManName a)
+  , manBrief    :: Maybe ManBrief
+  , manSynopsis :: [ManSynopsis]
+  , manDesc     :: Maybe ManDesc
+  , manReturns  :: Maybe ManReturns
+  , manExamples :: [ManExamples]
+  }
+  deriving stock (Eq,Show,Generic)
+
+instance Monoid (Man a) where
+  mempty = Man Nothing Nothing mempty Nothing Nothing mempty
+
+instance Semigroup (Man a) where
+  (<>) a b = Man (manName b <|> manName a)
+                 (manBrief b <|> manBrief a)
+                 (manSynopsis a <> manSynopsis b)
+                 (manDesc b <|> manDesc a)
+                 (manReturns b <|> manReturns a)
+                 (manExamples a <> manExamples b)
+
+instance ManNameOf Id a where
+  manNameOf = ManName
+
+
+instance Pretty ManDesc where
+  pretty = \case
+    ManDescRaw t -> pretty t
+
+instance Pretty (Man a) where
+  pretty e =   "NAME"
+             <> line
+             <> indent 8 (pretty (manName e) <> fmtBrief e)
+             <> line
+             <> fmtSynopsis
+             <> fmtDescription
+             <> retval
+             <> fmtExamples
+   where
+    fmtBrief a = case manBrief a of
+      Nothing -> mempty
+      Just x  -> " - " <> pretty x
+
+    retval = case manReturns e of
+      Nothing -> mempty
+      Just (ManReturns t s) ->
+        line <> "RETURN VALUE" <> line
+        <> indent 8 (
+            pretty t <> line
+            <> pretty s) <> line
+
+    fmtDescription = line
+      <> "DESCRIPTION" <> line
+      <> indent 8 ( case manDesc e of
+           Nothing -> pretty (manBrief e)
+           Just x  -> pretty x)
+      <> line
+
+    fmtSynopsis = case manSynopsis e of
+      [] -> mempty
+      _  ->
+           line
+        <> "SYNOPSIS"
+        <> line
+        <> vcat (fmap synEntry (manSynopsis e))
+        <> line
+
+    fmtExamples = case manExamples e of
+      [] -> mempty
+      es -> line
+        <> "EXAMPLES"
+        <> line
+        <> indent 8 ( vcat (fmap pretty es) )
+
+    synEntry (ManSynopsis (ManApply [])) =
+      indent 8 ( parens (pretty (manName e)) ) <> line
+
+    synEntry (ManSynopsis (ManApply xs)) = do
+      indent 8 do
+        parens (pretty (manName e) <+>
+         hsep [ pretty n | ManApplyArg t n <- xs ]  )
 
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
 
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
-
 
 pattern BlobLike :: forall {c} . ByteString -> Syntax c
 pattern BlobLike s <- (blobLike -> Just s)
@@ -206,9 +331,8 @@ data BindAction c ( m :: Type -> Type)  =
   | BindValue  (Syntax c)
 
 data Bind c ( m :: Type -> Type)  = Bind
-  { bindAction      :: BindAction c m
-  , bindName        :: Id
-  , bindDescShort   :: Text
+  { bindMan         :: Maybe (Man AnsiStyle)
+  , bindAction      :: BindAction c m
   } deriving (Generic)
 
 deriving newtype instance Hashable Id
@@ -248,8 +372,7 @@ instance Exception (BadFormException C)
 
 instance Exception BadValueException
 
-newtype Dict c m = Dict { fromDict :: HashMap Id (Bind c m) }
-                   deriving newtype (Semigroup, Monoid)
+type Dict c m = HashMap Id (Bind c m)
 
 newtype RunM c m a = RunM { fromRunM :: ReaderT (TVar (Dict c m)) m a }
                      deriving newtype ( Applicative
@@ -274,6 +397,44 @@ makeDict w = execWriter ( fromMakeDict w )
 
 entry :: Dict c m  -> MakeDictM c m ()
 entry = tell
+
+
+brief :: ManBrief -> MakeDictM c m () -> MakeDictM c m ()
+brief txt = censor (HM.map setBrief)
+  where
+    w0 = mempty { manBrief = Just txt }
+    setBrief (Bind w x) = Bind (Just (maybe w0 (<> w0) w)) x
+
+returns :: Text -> Text -> MakeDictM c m () -> MakeDictM c m ()
+returns tp txt = censor (HM.map setReturns)
+  where
+    w0 = mempty { manReturns = Just (ManReturns tp txt) }
+    setReturns (Bind w x) = Bind (Just (maybe w0 (<>w0) w)) x
+
+
+addSynopsis :: ManSynopsis -> Bind c m -> Bind c m
+addSynopsis synopsis (Bind w x) = Bind (Just updatedMan) x
+  where
+    updatedMan = case w of
+      Nothing -> mempty { manSynopsis = [synopsis] }
+      Just man -> man { manSynopsis = manSynopsis man <> [synopsis] }
+
+noArgs :: MakeDictM c m () -> MakeDictM c m ()
+noArgs = censor (HM.map (addSynopsis (ManSynopsis (ManApply []))))
+
+arg :: Text -> Text -> ManApplyArg
+arg = ManApplyArg
+
+
+args :: [ManApplyArg] -> MakeDictM c m () -> MakeDictM c m ()
+args argList = censor (HM.map (addSynopsis (ManSynopsis (ManApply argList))))
+
+examples :: ManExamples -> MakeDictM c m () -> MakeDictM c m ()
+examples (ManExamples s) = censor (HM.map setExamples )
+  where
+    ex = ManExamples (Text.unlines $ Text.strip <$> Text.lines (Text.strip s))
+    ex0 = mempty { manExamples = [ex] }
+    setExamples (Bind w x) = Bind (Just (maybe ex0 (<>ex0) w)) x
 
 splitForms :: [String] -> [[String]]
 splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
@@ -322,7 +483,7 @@ apply :: forall c m . ( IsContext c
       -> RunM c m (Syntax c)
 apply name args' = do
   -- notice $ red "APPLY" <+> pretty name
-  what <- ask >>=  readTVarIO <&> HM.lookup name . fromDict
+  what <- ask >>=  readTVarIO <&> HM.lookup name
 
   case bindAction <$> what of
     Just (BindLambda e) -> mapM eval args' >>= e
@@ -347,13 +508,13 @@ bind name expr = do
 
   what <- case expr of
            ListVal [SymbolVal "builtin:lambda", SymbolVal n] -> do
-             Dict m <- readTVarIO t
+             m <- readTVarIO t
              HM.lookup n m & maybe (throwIO (NameNotBound n)) pure
 
-           e -> pure $ Bind (BindValue e) "" ""
+           e -> pure $ Bind mzero (BindValue e)
 
   atomically do
-    modifyTVar t (Dict . HM.insert name what . fromDict)
+    modifyTVar t (HM.insert name what)
 
 eval :: forall c m . ( IsContext c
                         , MonadUnliftIO m
@@ -361,7 +522,7 @@ eval :: forall c m . ( IsContext c
                         ) => Syntax c -> RunM c m (Syntax c)
 eval syn = handle (handleForm syn) $ do
 
-    dict <- ask >>= readTVarIO <&> fromDict
+    dict <- ask >>= readTVarIO
 
     case syn of
 
@@ -448,10 +609,12 @@ evalTop :: forall c m . ( IsContext c
 evalTop syn = lastDef nil <$> mapM eval syn
 
 bindMatch :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
-bindMatch n fn = Dict (HM.singleton n (Bind (BindLambda fn) n ""))
+bindMatch n fn = HM.singleton n (Bind man (BindLambda fn))
+  where
+    man = Just $ mempty { manName = Just (manNameOf n) }
 
 bindValue :: Id -> Syntax c -> Dict c m
-bindValue n e = Dict (HM.singleton n (Bind (BindValue e) "" ""))
+bindValue n e = HM.singleton n (Bind mzero (BindValue e))
 
 nil :: forall c . IsContext c => Syntax c
 nil = List noContext []
@@ -468,26 +631,47 @@ fixContext = go
       Literal _ l  -> Literal noContext l
 
 
+fmt :: Syntax c -> Doc ann
+fmt = \case
+  LitStrVal x -> pretty $ Text.unpack x
+  x -> pretty x
+
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
 
     entry $ bindValue "false" (Literal noContext (LitBool False))
     entry $ bindValue "true"  (Literal noContext (LitBool True))
 
-    entry $ bindMatch "concat" $ \syn -> do
+    brief "concatenates list of string-like elements into a string"
+      $ args [arg "list" "(list ...)"]
+      $ args [arg "..." "..."]
+      $ returns "string" ""
+      $ examples [qc|
+        (concat a b c d)
+        abcd|]
+      $ examples [qc|
+        (concat 1 2 3 4 5)
+        12345|]
 
-      case syn of
-        [ListVal (StringLikeList xs)] -> do
-          pure $ mkStr ( mconcat xs )
+      $ entry $ bindMatch "concat" $ \syn -> do
 
-        StringLikeList xs -> do
-          pure $ mkStr ( mconcat xs )
+        case syn of
+          [ListVal xs] -> do
+            pure $ mkStr ( show $ hcat (fmap fmt xs) )
 
-        _ -> throwIO (BadFormException @C nil)
+          xs -> do
+            pure $ mkStr ( show $ hcat (fmap fmt xs) )
 
-    entry $ bindMatch "list" $ \case
-      es -> do
-        pure $ mkList es
+    brief "creates a list of elements"
+      $ args [arg "..." "..."]
+      $ returns "list" ""
+      $ examples [qc|
+(list 1 2 3 fuu bar "baz")
+(1 2 3 fuu bar "baz")
+      |]
+      $ entry $ bindMatch "list" $ \case
+        es -> do
+          pure $ mkList es
 
     entry $ bindMatch "dict" $ \case
       (pairList -> es@(_:_)) -> do
@@ -554,22 +738,26 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
-
-    entry $ bindMatch "now" $ \case
-      [] -> mkInt . round <$> liftIO getPOSIXTime
-      _  -> throwIO (BadFormException @c nil)
+    brief "returns current unix time"
+      $ returns "int" "current unix time in seconds"
+      $ noArgs
+      $ entry $ bindMatch "now" $ \case
+        [] -> mkInt . round <$> liftIO getPOSIXTime
+        _  -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "display" $ nil_ \case
       [ sy ] -> display sy
       ss     -> display (mkList ss)
 
-    entry $ bindMatch "newline" $ nil_ $ \case
-      [] -> liftIO (putStrLn "")
-      _  -> throwIO (BadFormException @c nil)
+    brief "prints new line character to stdout"
+      $ entry $ bindMatch "newline" $ nil_ $ \case
+          [] -> liftIO (putStrLn "")
+          _  -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "print" $ nil_ $ \case
-      [ sy ] -> display sy
-      ss     -> mapM_ display ss
+    brief "prints a list of terms to stdout"
+      $ entry $ bindMatch "print" $ nil_ $ \case
+          [ sy ] -> display sy
+          ss     -> mapM_ display ss
 
     entry $ bindMatch "println" $ nil_ $ \case
       [ sy ] -> display sy >> liftIO (putStrLn "")
@@ -584,10 +772,11 @@ internalEntries = do
       [LitStrVal s] -> liftIO $ TIO.putStr s
       _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "str:read-file" $ \case
-      [StringLike fn] -> liftIO (TIO.readFile fn) <&> mkStr
+    brief "reads file as a string" do
+      entry $ bindMatch "str:read-file" $ \case
+        [StringLike fn] -> liftIO (TIO.readFile fn) <&> mkStr
 
-      _ -> throwIO (BadFormException @c nil)
+        _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "str:save" $ nil_ \case
       [StringLike fn, StringLike what] ->
@@ -615,22 +804,40 @@ internalEntries = do
       [StringLike s] -> pure (mkSym s)
       e               -> pure (mkSym $ show $ pretty e)
 
-    entry $ bindMatch "eq?" $ \case
-      [a, b] -> do
-        pure $ if a == b then mkBool True else mkBool False
-      _ -> throwIO (BadFormException @c nil)
+    brief "compares two terms" $
+      args [arg "term" "a", arg "term" "b"] $
+      returns "boolean" "#t if terms are equal, otherwise #f" $
+        entry $ bindMatch "eq?" $ \case
+          [a, b] -> do
+            pure $ if a == b then mkBool True else mkBool False
+          _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "not" $ \case
-      [v] -> do
-        w <- eval v
+      [w] -> do
         pure $ if isFalse w then mkBool True else mkBool False
       _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "env" $ \case
-      [StringLike s] -> do
-        liftIO (lookupEnv s)
-           <&> maybe nil mkStr
-      _ -> throwIO (BadFormException @c nil)
+    brief "get system environment"
+     $ args []
+     $ args [ arg "string" "string" ]
+     $ returns "env" "single var or dict of all vars"
+     $ examples [qc|
+      (env HOME)
+      /home/user
+
+      (env)
+      (dict
+         (HOME "/home/user") ... (CC "gcc") ...)
+     |]
+     $ entry $ bindMatch "env" $ \case
+         [] -> do
+           s <- liftIO getEnvironment
+           pure $ mkForm "dict" [ mkList [mkSym @c a, mkStr b] | (a,b) <- s ]
+
+         [StringLike s] -> do
+           liftIO (lookupEnv s)
+              <&> maybe nil mkStr
+         _ -> throwIO (BadFormException @c nil)
 
     -- FIXME: we-need-opaque-type
     entry $ bindMatch "blob:read-stdin" $ \case

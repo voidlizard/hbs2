@@ -4,6 +4,7 @@ module Main where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run
+import HBS2.CLI.Run.Help
 import HBS2.CLI.Run.KeyMan
 import HBS2.CLI.Run.Keyring
 import HBS2.CLI.Run.GroupKey
@@ -24,6 +25,8 @@ import Data.Text qualified as Text
 import System.Environment
 
 type RefLogId = PubKey 'Sign 'HBS2Basic
+
+{- HLINT ignore "Functor law" -}
 
 
 setupLogger :: MonadIO m => m ()
@@ -46,22 +49,6 @@ silence = do
   setLoggingOff @NOTICE
 
 
-
-
-
-helpList :: MonadUnliftIO m => Maybe String -> RunM c m ()
-helpList p = do
-
-  let match = maybe (const True) (Text.isPrefixOf . Text.pack) p
-
-  d <- ask >>= readTVarIO <&> fromDict
-  let ks = [k | Id k <- List.sort (HM.keys d)
-           , match k
-           ]
-
-  display_ $ vcat (fmap pretty ks)
-
-
 main :: IO ()
 main = do
 
@@ -82,22 +69,7 @@ main = do
         reflogEntries
         refchanEntries
         lwwRefEntries
-
-        entry $ bindMatch "help" $ nil_ $ \syn -> do
-
-            display_ $ "hbs2-cli tool" <> line
-
-            case syn of
-              (StringLike p : _) -> do
-                helpList (Just p)
-
-              [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )] -> do
-                liftIO $ hPutDoc stdout $
-                  "function" <+> ul (pretty what)
-                  <> line
-
-              _ -> helpList Nothing
-
+        helpEntries
 
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli

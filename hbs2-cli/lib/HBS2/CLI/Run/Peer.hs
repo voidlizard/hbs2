@@ -21,6 +21,8 @@ import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Lens.Micro.Platform
 
+import Text.InterpolatedString.Perl6 (qc)
+
 {- HLINT ignore "Functor law" -}
 
 putTextLit :: forall c m . (IsContext c, MonadUnliftIO m)
@@ -84,20 +86,33 @@ peerEntries = do
 
     _ -> throwIO $ BadFormException @C nil
 
-  entry $ bindMatch "hbs2:peer:poke" $ \case
-    _ -> do
-      so <- detectRPC `orDie` "hbs2-peer not found"
-      r <- newTVarIO nil
-      withRPC2 @PeerAPI  @UNIX so $ \caller -> do
+  brief "checks if peer available"
+    $ noArgs
+    $ returns "dict" "dictionary of peer attributes"
+    $ examples [qc|
+(hbs2:peer:poke)
 
-        what <- callRpcWaitMay @RpcPoke (TimeoutSec 1) caller ()
-                  <&> fromMaybe ""
-                  <&> parseTop
-                  <&> either (const nil) (mkForm "dict")
+(dict
+ (peer-key: "35gKUG1mwBTr3tQpjWwR2kBYEnDmHxesoJL5Lj7tMjq3")
+ (udp: "0.0.0.0:7354")
+ (tcp: "tcp://0.0.0.0:3001")
+ (local-multicast: "239.192.152.145:10153")
+ (rpc: "/tmp/hbs2-rpc.socket")
+ (http-port: 5000))
+    |]
+    $ entry $ bindMatch "hbs2:peer:poke" $ \case
+      _ -> do
+        so <- detectRPC `orDie` "hbs2-peer not found"
+        r <- newTVarIO nil
+        withRPC2 @PeerAPI  @UNIX so $ \caller -> do
 
-        atomically $ writeTVar r what
+          what <- callRpcWaitMay @RpcPoke (TimeoutSec 1) caller ()
+                    <&> fromMaybe ""
+                    <&> parseTop
+                    <&> either (const nil) (mkForm "dict")
 
-      readTVarIO r
+          atomically $ writeTVar r what
 
+        readTVarIO r
 
 
