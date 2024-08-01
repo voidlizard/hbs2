@@ -59,37 +59,53 @@ metaFromSyntax syn =
 metaDataEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
 metaDataEntries = do
 
-  entry $ bindMatch "hbs2:tree:metadata:update-gk" $ \case
-    [StringLike tree, ListVal ins] -> do
+  brief "update group key for tree"
+    $ args [arg "string" "tree", arg "list" "update-ops"]
+    $ desc ( "update-ops is a list of pairs, like" <> line
+               <> indent 4 ( parens ("list"
+                     <+> indent 2 (vcat [ parens "remove . PUBLIC-KEY-ID"
+                                        , parens "add . PUBLIC-KEY-ID"
+                        ]))))
+    $ returns "string" "new-tree-hash"
+    $ examples [qc|
 
-      ha <- orThrowUser "invalid hash" (fromStringMay tree)
+(define gk (hbs2:groupkey:load 6XJGpJszP6f68fmhF17AtJ9PTgE7BKk8RMBHWQ2rXu6N))
 
-      -- 1. load-group-key
-      (gkh', headBlk) <- getGroupKeyHash ha
+(hbs2:groupkey:update gk
+      (list (remove . CcRDzezX1XQdPxRMuMKzJkfHFB4yG7vGJeTYvScKkbP8)
+            (add . EiwWxY3xwTfnLKJdzzxNMZgA2ZvYAZd9e8B8pFeCtnrn)))
+    |]
+    $ entry $ bindMatch "hbs2:tree:metadata:update-gk" $ \case
+      [StringLike tree, ListVal ins] -> do
 
-      gkh <- orThrowUser "not encrypted" gkh'
+        ha <- orThrowUser "invalid hash" (fromStringMay tree)
 
-      gk <- loadGroupKey gkh
-              >>= orThrowUser "can't load gk"
+        -- 1. load-group-key
+        (gkh', headBlk) <- getGroupKeyHash ha
 
-      gk1 <- modifyGroupKey gk ins
+        gkh <- orThrowUser "not encrypted" gkh'
 
-      flip runContT pure do
-        sto <- ContT withPeerStorage
-        gk1h <- writeAsMerkle sto (serialise gk1)
+        gk <- loadGroupKey gkh
+                >>= orThrowUser "can't load gk"
 
-        case headBlk of
-          w@(MTreeAnn { _mtaCrypt = EncryptGroupNaClSymm _ nonce }) -> do
-            let w1 = w { _mtaCrypt = EncryptGroupNaClSymm gk1h nonce }
+        gk1 <- modifyGroupKey gk ins
 
-            h <- putBlock sto (serialise w1)
-                   >>= orThrowUser "can't put block"
+        flip runContT pure do
+          sto <- ContT withPeerStorage
+          gk1h <- writeAsMerkle sto (serialise gk1)
 
-            pure $ mkStr (show $ pretty h)
+          case headBlk of
+            w@(MTreeAnn { _mtaCrypt = EncryptGroupNaClSymm _ nonce }) -> do
+              let w1 = w { _mtaCrypt = EncryptGroupNaClSymm gk1h nonce }
 
-          _ -> pure nil
+              h <- putBlock sto (serialise w1)
+                     >>= orThrowUser "can't put block"
 
-    _ -> throwIO (BadFormException @c nil)
+              pure $ mkStr (show $ pretty h)
+
+            _ -> pure nil
+
+      _ -> throwIO (BadFormException @c nil)
 
   entry $ bindMatch "hbs2:tree:metadata:get-gk" $ \case
     [ StringLike hash ] -> flip runContT pure do
