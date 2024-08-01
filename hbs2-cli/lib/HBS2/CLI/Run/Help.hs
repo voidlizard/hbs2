@@ -9,17 +9,22 @@ import Data.Text qualified as Text
 
 {- HLINT ignore "Functor law" -}
 
-helpList :: MonadUnliftIO m => Maybe String -> RunM c m ()
-helpList p = do
+helpList :: MonadUnliftIO m => Bool -> Maybe String -> RunM c m ()
+helpList hasDoc p = do
 
   let match = maybe (const True) (Text.isPrefixOf . Text.pack) p
 
   d <- ask >>= readTVarIO
   let ks = [k | Id k <- List.sort (HM.keys d)
            , match k
+           , not hasDoc || docDefined (HM.lookup (Id k) d)
            ]
 
   display_ $ vcat (fmap pretty ks)
+
+  where
+    docDefined (Just (Bind (Just w) _)) = True
+    docDefined _ = False
 
 helpEntries :: (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 helpEntries = do
@@ -29,8 +34,12 @@ helpEntries = do
       display_ $ "hbs2-cli tool" <> line
 
       case syn of
+
+        [StringLike "--documented"] -> do
+          helpList True Nothing
+
         (StringLike p : _) -> do
-          helpList (Just p)
+          helpList False (Just p)
 
         [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )] -> do
           man <- ask >>= readTVarIO
@@ -39,5 +48,5 @@ helpEntries = do
 
           liftIO $ hPutDoc stdout (pretty man)
 
-        _ -> helpList Nothing
+        _ -> helpList False Nothing
 

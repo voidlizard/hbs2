@@ -152,67 +152,129 @@ metaDataEntries = do
 
     _ -> throwIO (BadFormException @c nil)
 
-  entry $ bindMatch "hbs2:tree:metadata:create" $ \syn -> do
+  brief "creates a merkle tree with metadata"
+    $ returns "string" "hash"
+    $ args [ arg "list-of-options" "..." ]
+    $ desc ( "options:" <> line
+             <> indent 4 (
+                  vcat [ opt ":stdin" "read data from stdin"
+                       , opt ":auto"  "create metadata from file using libmagic"
+                       , opt  "[kw [encrypted group-key-hash]]" "encrypt metadata with given group key"
+                       , opt  "dict" "custom metadata dictionary"
+                       , opt  "filename : string-like" "file name, ignored if stdin option set"
+                       ])
+             )
+    $ examples [qc|
+Create not encrypted merkle tree for string from stdin without metadata
 
-    case syn of
+$ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin
+7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
 
-      args -> do
-        opts' <- for args $ \case
-          SymbolVal "stdin"     -> pure [Stdin]
+;; empty metadata
 
-          SymbolVal "auto"      -> pure [Auto]
+hbs2-cli hbs2:tree:metadata:get :raw 7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
 
-          ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", StringLike key]])
-            -> do
-              pure [Encrypted key]
+Create merkle tree with custom metadata
 
-          ListVal (SymbolVal "dict" : w)  -> do
-            pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- w ]
+$ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin [kw hello world]
+2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
 
-          StringLike rest  -> do
-            pure [MetaDataFile rest]
+$ hbs2-cli hbs2:tree:metadata:get :raw 2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
+hello: "world"
 
-          _ -> pure mempty
+$ hbs2-cli hbs2:tree:metadata:create :auto ./lambda.svg
+3fv5ym8NhY8zat37NaTvY9PDcwJqMLUD73ewHxtHysWg
 
-        let opts = mconcat opts' & Set.fromList
-        let inFile = headMay [ x | MetaDataFile x <- universeBi opts ]
+$ hbs2-cli hbs2:tree:metadata:get :raw 3fv5ym8NhY8zat37NaTvY9PDcwJqMLUD73ewHxtHysWg
+mime-type: "image/svg+xml; charset=us-ascii"
+file-name: "lambda.svg"
 
-        lbs <- case (Set.member Stdin opts, inFile) of
-                 (True, _) -> liftIO LBS.getContents
-                 (False, Just fn) -> liftIO (LBS.readFile fn)
-                 (_, Nothing) -> liftIO LBS.getContents
+Create encrypted tree metadata with a new groupkey
 
-        meta0 <- if not (Set.member Auto opts) || isNothing inFile then
-                   pure (mempty :: HashMap Text Text)
-                 else liftIO do
-                    let fn = fromJust inFile
-                    magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
-                    magicLoadDefault magic
-                    mime <- magicFile magic fn
-                    pure $ HM.fromList [ ("file-name", Text.pack (takeFileName fn))
-                                       , ("mime-type", Text.pack mime)
-                                       ]
+$ hbs2-cli [define pks [list EiwWxY3xwTfnLKJdzzxNMZgA2ZvYAZd9e8B8pFeCtnrn]] \
+  and [define gk [hbs2:groupkey:store [hbs2:groupkey:create pks]]] \
+  and [hbs2:tree:metadata:create :auto [kw :encrypted gk] ./lambda.svg]
 
-        let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
+BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4
 
-        let enc = headMay [ e | x@(Encrypted e) <- universeBi opts ]
+Check group key
 
-        gk <- runMaybeT do
-                s <- toMPlus enc
-                g <- lift $ loadGroupKey (fromString s)
-                toMPlus g
+$ hbs2-cli hbs2:tree:metadata:get-gk BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
 
-        when (isJust enc && isNothing gk) do
-          error $ show $  "Can't load group key" <+> pretty enc
+GixS4wssCD4x7LzvHve2JhFCghW1Hwia2tiGTfTTef1u
 
-        flip runContT pure do
+Check metadata
 
-          sto <- ContT withPeerStorage
+$ hbs2-cli hbs2:tree:metadata:get :raw BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
 
-          href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
-                    `orDie` "encryption error"
+mime-type: "image/svg+xml; charset=us-ascii"
+file-name: "lambda.svg"
 
-          pure $ mkStr (show $ pretty href)
+List group key
+
+$ hbs2-cli hbs2:groupkey:list-public-keys [hbs2:groupkey:load GixS4wssCD4x7LzvHve2JhFCghW1Hwia2tiGTfTTef1u]
+("EiwWxY3xwTfnLKJdzzxNMZgA2ZvYAZd9e8B8pFeCtnrn")
+    |]
+    $ entry $ bindMatch "hbs2:tree:metadata:create" $ \syn -> do
+        case syn of
+
+          args -> do
+            opts' <- for args $ \case
+              SymbolVal "stdin"     -> pure [Stdin]
+
+              SymbolVal "auto"      -> pure [Auto]
+
+              ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", StringLike key]])
+                -> do
+                  pure [Encrypted key]
+
+              ListVal (SymbolVal "dict" : w)  -> do
+                pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- w ]
+
+              StringLike rest  -> do
+                pure [MetaDataFile rest]
+
+              _ -> pure mempty
+
+            let opts = mconcat opts' & Set.fromList
+            let inFile = headMay [ x | MetaDataFile x <- universeBi opts ]
+
+            lbs <- case (Set.member Stdin opts, inFile) of
+                     (True, _) -> liftIO LBS.getContents
+                     (False, Just fn) -> liftIO (LBS.readFile fn)
+                     (_, Nothing) -> liftIO LBS.getContents
+
+            meta0 <- if not (Set.member Auto opts) || isNothing inFile then
+                       pure (mempty :: HashMap Text Text)
+                     else liftIO do
+                        let fn = fromJust inFile
+                        magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
+                        magicLoadDefault magic
+                        mime <- magicFile magic fn
+                        pure $ HM.fromList [ ("file-name", Text.pack (takeFileName fn))
+                                           , ("mime-type", Text.pack mime)
+                                           ]
+
+            let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
+
+            let enc = headMay [ e | x@(Encrypted e) <- universeBi opts ]
+
+            gk <- runMaybeT do
+                    s <- toMPlus enc
+                    g <- lift $ loadGroupKey (fromString s)
+                    toMPlus g
+
+            when (isJust enc && isNothing gk) do
+              error $ show $  "Can't load group key" <+> pretty enc
+
+            flip runContT pure do
+
+              sto <- ContT withPeerStorage
+
+              href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
+                        `orDie` "encryption error"
+
+              pure $ mkStr (show $ pretty href)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do

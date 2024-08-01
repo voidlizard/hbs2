@@ -439,6 +439,9 @@ arg = ManApplyArg
 args :: [ManApplyArg] -> MakeDictM c m () -> MakeDictM c m ()
 args argList = censor (HM.map (addSynopsis (ManSynopsis (ManApply argList))))
 
+opt :: Doc a -> Doc a -> Doc a
+opt n d = n <+> "-" <+> d
+
 examples :: ManExamples -> MakeDictM c m () -> MakeDictM c m ()
 examples (ManExamples s) = censor (HM.map setExamples )
   where
