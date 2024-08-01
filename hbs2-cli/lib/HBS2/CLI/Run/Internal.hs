@@ -600,7 +600,7 @@ internalEntries = do
     entry $ bindMatch "parse-top" $ \case
 
       [SymbolVal w, LitStrVal s] -> do
-        pure $  parseTop s & either (const nil) (mkList . fmap (mkForm w . List.singleton) . fmap fixContext)
+        pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
 
       [LitStrVal s] -> do
         pure $  parseTop s & either (const nil) (mkList . fmap fixContext)
