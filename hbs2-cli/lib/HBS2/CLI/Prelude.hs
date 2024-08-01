@@ -7,6 +7,7 @@ module HBS2.CLI.Prelude
   , module Control.Monad.Reader
   , module HBS2.System.Logger.Simple.ANSI
   , module HBS2.Misc.PrettyStuff
+  , qc,qq,q
   , Generic
   ) where
 
@@ -21,4 +22,5 @@ import Data.Config.Suckless
 import Control.Monad.Reader
 import UnliftIO
 
+import Text.InterpolatedString.Perl6 (qc,q,qq)
 

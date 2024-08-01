@@ -26,84 +26,109 @@ import Control.Monad.Trans.Cont
 lwwRefEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM  c m ()
 lwwRefEntries = do
 
-  entry $ bindMatch "hbs2:lwwref:create" $ \case
-    [] -> do
-      reflog <- keymanNewCredentials (Just "lwwref") 0
+  brief "creates a new lwwref"
+    $ desc "Creates a new keyring; adds it to keyman and subsribes hbs2-peer to listen this lwwref"
+    $ returns "string" "lwwref public key"
+    $ entry $ bindMatch "hbs2:lwwref:create" $ \case
+        [] -> do
+          reflog <- keymanNewCredentials (Just "lwwref") 0
 
-      flip runContT pure do
-        so <- detectRPC `orDie` "rpc not found"
-        api <- ContT $ withRPC2 @PeerAPI  @UNIX so
-        void $ callService @RpcPollAdd api (reflog, "lwwref", 31)
-        pure $ mkStr (show $ pretty (AsBase58 reflog))
+          flip runContT pure do
+            so <- detectRPC `orDie` "rpc not found"
+            api <- ContT $ withRPC2 @PeerAPI  @UNIX so
+            void $ callService @RpcPollAdd api (reflog, "lwwref", 31)
+            pure $ mkStr (show $ pretty (AsBase58 reflog))
 
-    _ -> throwIO (BadFormException @C nil)
+        _ -> throwIO (BadFormException @C nil)
 
-  entry $ bindMatch "hbs2:lwwref:list" $ \case
-    [] -> do
-      flip runContT pure do
-        so <- detectRPC `orDie` "rpc not found"
-        api <- ContT $ withRPC2 @PeerAPI @UNIX so
-        r <- callService @RpcPollList2 api (Just "lwwref", Nothing)
-               >>= orThrowUser "can't get lwwref list"
-        pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
+  brief "lists all lwwref that hbs2-peer is subscribed to"
+    $ noArgs
+    $ returns "list of string" "lwwref list"
+    $ entry $ bindMatch "hbs2:lwwref:list" $ \case
+      [] -> do
+        flip runContT pure do
+          so <- detectRPC `orDie` "rpc not found"
+          api <- ContT $ withRPC2 @PeerAPI @UNIX so
+          r <- callService @RpcPollList2 api (Just "lwwref", Nothing)
+                 >>= orThrowUser "can't get lwwref list"
+          pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
 
-    _ -> throwIO (BadFormException @C nil)
-
-
-  entry $ bindMatch "hbs2:lwwref:fetch" $ \case
-    [StringLike puk] -> do
-      flip runContT pure do
-        lww <- orThrowUser "bad lwwref key" (fromStringMay puk)
-        so <- detectRPC `orDie` "rpc not found"
-        api <- ContT $ withRPC2 @LWWRefAPI @UNIX so
-        void $ callService @RpcLWWRefFetch api lww
-        pure $ mkStr "okay"
-
-    _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @C nil)
 
 
-  entry $ bindMatch "hbs2:lwwref:get" $ \case
-    [StringLike puk] -> do
+  brief "fetches lwwref value"
+    $ desc "makes peer to request lwwref from neighbors"
+    $ args [arg "string" "lwwref"]
+    $ returns "atom" "okay"
+    $ entry $ bindMatch "hbs2:lwwref:fetch" $ \case
+      [StringLike puk] -> do
+        flip runContT pure do
+          lww <- orThrowUser "bad lwwref key" (fromStringMay puk)
+          so <- detectRPC `orDie` "rpc not found"
+          api <- ContT $ withRPC2 @LWWRefAPI @UNIX so
+          void $ callService @RpcLWWRefFetch api lww
+          pure $ mkStr "okay"
 
-      flip runContT pure do
-        ref <- orThrowUser "bad lwwref key" (fromStringMay puk)
-        so <- detectRPC `orDie` "rpc not found"
-        api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
-        what <- callService @RpcLWWRefGet api ref
-                  >>= orThrowUser "can't get lwwref value"
-        pure $ mkStr (show $ pretty what)
-
-    _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @C nil)
 
 
-  entry $ bindMatch "hbs2:lwwref:update" $ \case
-    [StringLike puks, HashLike new] -> do
+  brief "get lwwref value"
+    $ args [arg "string" "lwwref"]
+    $ returns "string" "hashref"
+    $ examples [qc|
 
-      flip runContT pure do
-        puk <- orThrowUser "bad lwwref key" (fromStringMay  puks)
-        so <- detectRPC `orDie` "rpc not found"
-        api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
+(hbs2:lwwref:get BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP)
+(lwwref
+  (seq 4)
+  (value "74vDGwBYebH3oM6xPXC7kqpgu6deqi7E549QpvHvvQKf")
+  )
+    |]
+    $ entry $ bindMatch "hbs2:lwwref:get" $ \case
+      [StringLike puk] -> do
 
-        (sk,pk) <- liftIO $ runKeymanClient do
-                     creds  <- loadCredentials puk
-                                 >>= orThrowUser "can't load credentials"
-                     pure ( view peerSignSk  creds, view peerSignPk creds )
+        flip runContT pure do
+          ref <- orThrowUser "bad lwwref key" (fromStringMay puk)
+          so <- detectRPC `orDie` "rpc not found"
+          api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
+          what <- callService @RpcLWWRefGet api ref
+                    >>= orThrowUser "can't get lwwref value"
+          pure $ mkStr (show $ pretty what)
 
-        what <- callService @RpcLWWRefGet api puk
-                  >>= orThrowUser "can't get lwwref value"
+      _ -> throwIO (BadFormException @C nil)
 
-        sno' <- case what of
-                 Nothing    -> pure 0
-                 Just lwwv  -> pure (lwwSeq lwwv)
 
-        let sno =  succ sno'
+  brief "updates lwwref"
+    $ desc "updates lwwref value and increments it's counter"
+    $ args [arg "string" "lwwref", arg "string" "hash"]
+    $ returns "nil" ""
+    $ entry $ bindMatch "hbs2:lwwref:update" $ \case
+      [StringLike puks, HashLike new] -> do
 
-        let box =  makeSignedBox pk sk (LWWRef sno new Nothing)
+        flip runContT pure do
+          puk <- orThrowUser "bad lwwref key" (fromStringMay  puks)
+          so <- detectRPC `orDie` "rpc not found"
+          api <- ContT $ withRPC2 @LWWRefAPI  @UNIX so
 
-        callService @RpcLWWRefUpdate api box
-          >>= orThrowUser "lww ref update error"
+          (sk,pk) <- liftIO $ runKeymanClient do
+                       creds  <- loadCredentials puk
+                                   >>= orThrowUser "can't load credentials"
+                       pure ( view peerSignSk  creds, view peerSignPk creds )
 
-        pure nil
+          what <- callService @RpcLWWRefGet api puk
+                    >>= orThrowUser "can't get lwwref value"
 
-    _ -> throwIO (BadFormException @C nil)
+          sno' <- case what of
+                   Nothing    -> pure 0
+                   Just lwwv  -> pure (lwwSeq lwwv)
+
+          let sno =  succ sno'
+
+          let box =  makeSignedBox pk sk (LWWRef sno new Nothing)
+
+          callService @RpcLWWRefUpdate api box
+            >>= orThrowUser "lww ref update error"
+
+          pure nil
+
+      _ -> throwIO (BadFormException @C nil)
 

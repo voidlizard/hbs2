@@ -103,6 +103,9 @@ instance Pretty ManDesc where
   pretty = \case
     ManDescRaw t -> pretty t
 
+instance IsString ManDesc where
+  fromString s = ManDescRaw (Text.pack s)
+
 instance Pretty (Man a) where
   pretty e =   "NAME"
              <> line
@@ -122,8 +125,7 @@ instance Pretty (Man a) where
       Just (ManReturns t s) ->
         line <> "RETURN VALUE" <> line
         <> indent 8 (
-            pretty t <> line
-            <> pretty s) <> line
+            pretty t <> hsep ["","-",""] <> pretty s) <> line
 
     fmtDescription = line
       <> "DESCRIPTION" <> line
@@ -155,6 +157,9 @@ instance Pretty (Man a) where
       indent 8 do
         parens (pretty (manName e) <+>
          hsep [ pretty n | ManApplyArg t n <- xs ]  )
+         <> line
+         <> line
+         <> vcat [ pretty n <+> ":" <+> pretty t | ManApplyArg t n <- xs ]
 
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
@@ -398,6 +403,11 @@ makeDict w = execWriter ( fromMakeDict w )
 entry :: Dict c m  -> MakeDictM c m ()
 entry = tell
 
+desc :: Doc ann -> MakeDictM c m () -> MakeDictM c m ()
+desc txt = censor (HM.map setDesc)
+  where
+    w0 = mempty { manDesc = Just (ManDescRaw $ Text.pack $ show txt) }
+    setDesc (Bind w x) = Bind (Just (maybe w0 (<> w0) w)) x
 
 brief :: ManBrief -> MakeDictM c m () -> MakeDictM c m ()
 brief txt = censor (HM.map setBrief)
@@ -680,9 +690,32 @@ internalEntries = do
         pure $ mkForm "dict" [ mkList [a, b] ]
       _ -> throwIO (BadFormException @C nil)
 
-    entry $ bindMatch "kw" $ \syn -> do
-      let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
-      pure $ mkForm "dict" wat
+    brief "creates a dict from a linear list of string-like items"
+      $ args [arg "list-of-terms" "..."]
+      $ desc (    "macro; syntax sugar" <> line
+               <> "useful for creating function args" <> line
+               <> "leftover records are skipped"
+             )
+      $ returns "dict" ""
+      $ examples [qc|
+[kw a 1 b 2 c 3]
+(dict (a 1) (b 2) (c 3))
+
+[kw a]
+(dict (a ()))
+
+[kw a b]
+(dict (a b))
+
+[kw 1 2 3]
+(dict)
+
+[kw a b c]
+(dict (a b) (c ()))
+      |]
+      $ entry $ bindMatch "kw" $ \syn -> do
+         let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
+         pure $ mkForm "dict" wat
 
     entry $ bindMatch "iterate" $ nil_ $ \syn -> do
       case syn of
