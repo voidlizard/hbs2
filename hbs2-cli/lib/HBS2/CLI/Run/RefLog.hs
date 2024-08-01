@@ -165,4 +165,18 @@ reflogEntries = do
 
     _ -> throwIO (BadFormException @C nil)
 
+  brief "list transactions from reflog"
+    $ entry $ bindMatch "hbs2:reflog:tx:parse" $ \case
+        [StringLike hash] -> do
+
+        sto <- ContT withPeerStorage
+        hashref <- orThrowUser "bad hash" (fromStringMay @HashRef hash)
+        void $ hasBlock sto (fromHashRef hashref) `orDie` "no block"
+        let sref = AnnotatedHashRef Nothing hashref
+        rlu <- lift $ mkRefLogUpdateFrom reflog (pure $ LBS.toStrict $ serialise sref) <&> serialise
+        pure $ mkForm "blob" [mkStr (LBS8.unpack rlu)]
+
+        _ -> throwIO (BadFormException @C nil)
+
+
 
