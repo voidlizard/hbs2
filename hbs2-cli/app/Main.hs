@@ -15,6 +15,8 @@ import HBS2.CLI.Run.RefLog
 import HBS2.CLI.Run.RefChan
 import HBS2.CLI.Run.LWWRef
 
+import Data.Config.Suckless.Script.File as SF
+
 import HBS2.Peer.RPC.Client.Unix
 
 import HBS2.Net.Auth.Schema()
@@ -67,6 +69,8 @@ main = do
         refchanEntries
         lwwRefEntries
         helpEntries
+
+        SF.entries
 
         entry $ bindMatch "--help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
