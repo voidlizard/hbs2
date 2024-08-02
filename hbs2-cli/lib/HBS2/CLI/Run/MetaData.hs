@@ -9,15 +9,9 @@ import HBS2.CLI.Run.Internal.Merkle
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
-import HBS2.System.Logger.Simple.ANSI as All
 import HBS2.System.Dir
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
-import HBS2.Peer.CLI.Detect
-import HBS2.Peer.RPC.Client.Unix
-import HBS2.Peer.RPC.API.Storage
-import HBS2.Peer.RPC.Client.StorageClient
-import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Net.Auth.Schema()
 
@@ -107,66 +101,91 @@ metaDataEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
-  entry $ bindMatch "hbs2:tree:metadata:get-gk" $ \case
-    [ StringLike hash ] -> flip runContT pure do
+  brief "get group key from encrypted tree"
+    $ args [arg "string" "tree-hash"]
+    $ returns "group-key-hash" "string"
+    $ examples [qc|
 
-      (gk,_) <- lift $ getGroupKeyHash (fromString hash)
+(hbs2:tree:metadata:get-gk 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd)
+5fshZRucawt47YJLuD1rVXRez2dcvCbz17m69YyduTEm
 
-      case gk of
-        Just h -> pure $ mkStr (show $ pretty h)
-        _      -> pure nil
+    |]
+    $ entry $ bindMatch "hbs2:tree:metadata:get-gk" $ \case
+      [ StringLike hash ] -> flip runContT pure do
 
-    _ -> throwIO (BadFormException @c nil)
+        (gk,_) <- lift $ getGroupKeyHash (fromString hash)
 
-  entry $ bindMatch "hbs2:tree:metadata:get" $ \case
-    [ SymbolVal how, StringLike hash ] -> do
+        case gk of
+          Just h -> pure $ mkStr (show $ pretty h)
+          _      -> pure nil
 
-      r <- flip runContT pure do
+      _ -> throwIO (BadFormException @c nil)
 
-        sto <- ContT withPeerStorage
+  brief "get metadata from tree"
+    $ args [arg "symbol?" "method", arg "string" "tree-hash"]
+    $ returns "group-key-hash" "string"
+    $ desc ( opt "symbol?" ":parsed" <+> "return metadata as dict" <> line
+              <> "if other value or absense then return metadata as string"
+           )
+    $ examples [qc|
 
-        runMaybeT do
+(hbs2:tree:metadata:get :parsed 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd)
+(dict (mime-type: "text/plain; charset=us-ascii") (file-name: "qqq.txt"))
 
-          headBlock <- getBlock sto (fromString hash)
-                         >>= toMPlus
-                         <&> deserialiseOrFail @(MTreeAnn [HashRef])
-                         >>= toMPlus
+(hbs2:tree:metadata:get :raw 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd
+mime-type: "text/plain; charset=us-ascii"
+file-name: "qqq.txt"
+    |]
+    $ entry $ bindMatch "hbs2:tree:metadata:get"
+    $ \case
+      [ SymbolVal how, StringLike hash ] -> do
 
-          case headBlock of
-            MTreeAnn { _mtaMeta = ShortMetadata s } -> do
-              pure $ mkStr s
+        r <- flip runContT pure do
 
-            MTreeAnn { _mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption } -> do
-              getBlock sto h
-                 >>= toMPlus
-                 <&> LBS.toStrict
-                 <&> TE.decodeUtf8
-                 <&> mkStr
+          sto <- ContT withPeerStorage
 
-            MTreeAnn { _mtaMeta = AnnHashRef h } -> do
-              getBlock sto h
-                 >>= toMPlus
-                 <&> deserialiseOrFail @(SmallEncryptedBlock AnnMetaData)
-                 >>= toMPlus
-                 >>= lift . lift . G.decryptBlock sto
-                 <&> \case
-                  ShortMetadata s -> mkStr s
-                  _ -> nil
+          runMaybeT do
 
-            _ -> mzero
+            headBlock <- getBlock sto (fromString hash)
+                           >>= toMPlus
+                           <&> deserialiseOrFail @(MTreeAnn [HashRef])
+                           >>= toMPlus
 
-      case (how, r) of
-        ("parsed", Just (LitStrVal r0)) -> do
+            case headBlock of
+              MTreeAnn { _mtaMeta = ShortMetadata s } -> do
+                pure $ mkStr s
+
+              MTreeAnn { _mtaMeta = AnnHashRef h, _mtaCrypt = NullEncryption } -> do
+                getBlock sto h
+                   >>= toMPlus
+                   <&> LBS.toStrict
+                   <&> TE.decodeUtf8
+                   <&> mkStr
+
+              MTreeAnn { _mtaMeta = AnnHashRef h } -> do
+                getBlock sto h
+                   >>= toMPlus
+                   <&> deserialiseOrFail @(SmallEncryptedBlock AnnMetaData)
+                   >>= toMPlus
+                   >>= lift . lift . G.decryptBlock sto
+                   <&> \case
+                    ShortMetadata s -> mkStr s
+                    _ -> nil
+
+              _ -> mzero
+
+        case (how, r) of
+          ("parsed", Just (LitStrVal r0)) -> do
 
 
-          let xs = parseTop r0
-                     & fromRight mempty
+            let xs = parseTop r0
+                       & fromRight mempty
 
-          pure $ mkForm  "dict" xs
+            pure $ mkForm  "dict" xs
 
-        _ -> pure $ fromMaybe nil r
+          _ -> pure $ fromMaybe nil r
 
-    _ -> throwIO (BadFormException @c nil)
+      _ -> throwIO (BadFormException @c nil)
 
   brief "creates a merkle tree with metadata"
     $ returns "string" "hash"
