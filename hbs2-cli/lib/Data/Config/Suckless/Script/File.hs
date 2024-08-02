@@ -54,10 +54,9 @@ glob pat ignore dir action = do
         co' <- (try @_ @IOError $ listDirectory f)
                  <&> fromRight mempty
 
-        let co = [ normalise (f </> x)  | x <- co' ]
-                   & filter (not . skip)
-
-        forConcurrently_ co (go q)
+        forConcurrently_ co' $ \x -> do
+          let p = normalise (f </> x)
+          unless (skip p) (go q p)
 
 entries :: forall c m . ( IsContext c
                         , Exception (BadFormException c)
