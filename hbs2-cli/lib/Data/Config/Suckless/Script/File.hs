@@ -33,13 +33,22 @@ glob pat ignore dir action = do
 
   q <- newTQueueIO
 
-  w <- liftIO (async $ go q dir >> atomically (writeTQueue q Nothing))
+  void $ liftIO (async $ go q dir >> atomically (writeTQueue q Nothing))
 
-  fix $ \next -> do
-    e <- atomically (readTQueue q)
-    case e of
-      Nothing -> pure ()
-      Just x -> void (action x) >> next
+  flip runContT pure do
+    callCC \exit -> do
+      fix $ \next -> do
+        e <- atomically do
+                void (peekTQueue q)
+                STM.flushTQueue q
+
+        for_ e $ \case
+          Nothing -> exit ()
+          Just x -> do
+            r <- lift (action x)
+            unless r (exit ())
+
+        next
 
   where
 
