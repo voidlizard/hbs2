@@ -20,8 +20,6 @@ import UnliftIO
 import Control.Concurrent.STM qualified as STM
 import Streaming.Prelude qualified as S
 
-import Data.List.Split (chunksOf)
-
 glob :: forall m . MonadIO m
      => [FilePattern]           -- ^ search patterns
      -> [FilePattern]           -- ^ ignore patterns
@@ -30,25 +28,14 @@ glob :: forall m . MonadIO m
      -> m ()
 
 glob pat ignore dir action = do
-
   q <- newTQueueIO
-
   void $ liftIO (async $ go q dir >> atomically (writeTQueue q Nothing))
-
-  flip runContT pure do
-    callCC \exit -> do
-      fix $ \next -> do
-        e <- atomically do
-                void (peekTQueue q)
-                STM.flushTQueue q
-
-        for_ e $ \case
-          Nothing -> exit ()
-          Just x -> do
-            r <- lift (action x)
-            unless r (exit ())
-
-        next
+  fix $ \next -> do
+    atomically (readTQueue q) >>= \case
+      Nothing -> pure ()
+      Just x -> do
+        r <- action x
+        when r next
 
   where
 
@@ -71,7 +58,6 @@ glob pat ignore dir action = do
                    & filter (not . skip)
 
         forConcurrently_ co (go q)
-
 
 entries :: forall c m . ( IsContext c
                         , Exception (BadFormException c)
