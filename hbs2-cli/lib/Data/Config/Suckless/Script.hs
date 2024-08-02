@@ -75,6 +75,7 @@ class ManNameOf a ann where
 data Man a =
   Man
   { manName     :: Maybe (ManName a)
+  , manHidden   :: Bool
   , manBrief    :: Maybe ManBrief
   , manSynopsis :: [ManSynopsis]
   , manDesc     :: Maybe ManDesc
@@ -84,10 +85,11 @@ data Man a =
   deriving stock (Eq,Show,Generic)
 
 instance Monoid (Man a) where
-  mempty = Man Nothing Nothing mempty Nothing Nothing mempty
+  mempty = Man Nothing False Nothing mempty Nothing Nothing mempty
 
 instance Semigroup (Man a) where
   (<>) a b = Man (manName b <|> manName a)
+                 (manHidden b || manHidden a)
                  (manBrief b <|> manBrief a)
                  (manSynopsis a <> manSynopsis b)
                  (manDesc b <|> manDesc a)
@@ -388,6 +390,9 @@ makeDict w = execWriter ( fromMakeDict w )
 
 entry :: Dict c m  -> MakeDictM c m ()
 entry = tell
+
+hide :: MakeDictM c m ()
+hide = pure ()
 
 desc :: Doc ann -> MakeDictM c m () -> MakeDictM c m ()
 desc txt = censor (HM.map setDesc)
@@ -745,11 +750,19 @@ internalEntries = do
       [ ListVal es ] -> pure (head es)
       _ -> throwIO (TypeCheckError @C nil)
 
-    entry $ bindMatch "tail" $ \case
-      [] -> pure nil
-      [ListVal []] -> pure nil
-      [ListVal es] -> pure $ mkList  (tail es)
-      _ -> throwIO (BadFormException @c nil)
+    brief "get tail of list"
+      $ args [arg "list" "list"]
+      $ desc "nil if the list is empty; error if not list"
+      $ examples [qc|
+      (tail [list 1 2 3])
+      (2 3)
+      (tail [list])
+      |]
+      $ entry $ bindMatch "tail" $ \case
+        [] -> pure nil
+        [ListVal []] -> pure nil
+        [ListVal es] -> pure $ mkList  (tail es)
+        _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "lookup" $ \case
       [s, ListVal (SymbolVal "dict" : es) ] -> do
@@ -850,6 +863,10 @@ internalEntries = do
           [a, b] -> do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "nil?" $ \case
+      [ListVal []] -> pure $ mkBool True
+      _ -> pure $ mkBool False
 
     entry $ bindMatch "not" $ \case
       [w] -> do

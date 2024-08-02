@@ -26,7 +26,6 @@ helpList hasDoc p = do
     docDefined (Just (Bind (Just w) _)) = True
     docDefined _ = False
 
-
 helpEntry :: MonadUnliftIO m => Id -> RunM c m ()
 helpEntry what = do
   man <- ask >>= readTVarIO

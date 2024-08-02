@@ -19,9 +19,6 @@ import HBS2.Peer.RPC.Client.Unix
 
 import HBS2.Net.Auth.Schema()
 
-import Data.HashMap.Strict qualified as HM
-import Data.List qualified as List
-import Data.Text qualified as Text
 import System.Environment
 
 type RefLogId = PubKey 'Sign 'HBS2Basic
