@@ -40,8 +40,7 @@ glob pat ignore dir action = runContT (callCC $ \exit -> go exit dir) pure
             unless continue (exit ())
         else do
           isD <- liftIO $ doesDirectoryExist fn
-          if not isD then exit ()
-          else do
+          when isD do
             content <- liftIO (try @_ @IOError $ listDirectory  fn)
                          <&> fromRight mempty
             -- TODO: memory-hungry

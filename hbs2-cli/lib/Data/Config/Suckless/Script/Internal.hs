@@ -867,6 +867,11 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "length" $ \case
+      [ListVal es] -> pure $ mkInt (length es)
+      [StringLike es] -> pure $ mkInt (length es)
+      _ -> pure $ mkInt 0
+
     entry $ bindMatch "nil?" $ \case
       [ListVal []] -> pure $ mkBool True
       _ -> pure $ mkBool False
