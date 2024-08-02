@@ -35,33 +35,27 @@ glob pat ignore dir action = do
 
   where
 
-    ppat = zip (repeat True) pat
-    spat = zip (repeat True) ignore
+    matches p f = or [ i ?== f | i <- p ]
+    skip p = or [ i ?== p | i <- ignore ]
 
     go f = do
-      isF <- liftIO $ doesFileExist f
-
-      when isF do
-        liftIO $ print f
 
       isD <- liftIO $ doesDirectoryExist f
 
-      when isD do
-        co <- liftIO (try @_ @IOError $ listDirectory f)
+      if not isD then do
+        isF <- liftIO $ doesFileExist f
+        when (isF && matches pat f) do
+          liftIO $ print f
+        -- do shit with file
+      else do
+        co' <- liftIO (try @_ @IOError $ listDirectory f)
                <&> fromRight mempty
 
-        let fns  = matchMany ppat [ (f </> x, x) | x <- co ]
-        let stop = matchMany spat [ (f </> x, x) | x <- co ]
-        let ss = HS.fromList $ (fmap (view _2))  stop
+        let co = [ normalise (f </> x)  | x <- co' ]
+                   & filter (not . skip)
 
-        -- matchMany :: [(a, FilePattern)] -> [(b, FilePath)] -> [(a, b, [String])]
-
-        liftIO $ print spat
-        liftIO $ print stop
-        -- for_ co $ \p -> do
-          -- liftIO $ print p
-          -- unless (HS.member p ss) do
-            -- go (f </> p)
+        for_ co $ \p -> do
+          go p
 
   -- q <- newTQueueIO
 
@@ -98,8 +92,6 @@ glob pat ignore dir action = do
   --     Just e  -> void (action e) >> next
 
   -- where
-  --   matches p f = or [ i ?== f | i <- p ]
-  --   skip p = or [ i ?== p | i <- ignore ]
 
 entries :: forall c m . ( IsContext c
                         , Exception (BadFormException c)
