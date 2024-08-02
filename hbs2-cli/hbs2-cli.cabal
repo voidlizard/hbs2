@@ -70,6 +70,7 @@ common shared-properties
       , exceptions
       , filepath
       , filepattern
+      , hashable
       , interpolatedstring-perl6
       , memory
       , microlens-platform
@@ -117,6 +118,8 @@ library
       HBS2.CLI.Run.Sigil
 
       HBS2.CLI.Run.Help
+
+      Data.Config.Suckless.Script
 
     build-depends:    base
                     , magic

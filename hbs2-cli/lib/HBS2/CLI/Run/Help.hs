@@ -26,6 +26,18 @@ helpList hasDoc p = do
     docDefined (Just (Bind (Just w) _)) = True
     docDefined _ = False
 
+
+helpEntry :: MonadUnliftIO m => Id -> RunM c m ()
+helpEntry what = do
+  man <- ask >>= readTVarIO
+           <&> HM.lookup what
+           <&> maybe mzero bindMan
+
+  liftIO $ hPutDoc stdout (pretty man)
+
+pattern HelpEntryBound :: forall {c}. Id -> [Syntax c]
+pattern HelpEntryBound what <- [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )]
+
 helpEntries :: (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 helpEntries = do
 
@@ -41,12 +53,7 @@ helpEntries = do
         (StringLike p : _) -> do
           helpList False (Just p)
 
-        [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )] -> do
-          man <- ask >>= readTVarIO
-                   <&> HM.lookup what
-                   <&> maybe mzero bindMan
-
-          liftIO $ hPutDoc stdout (pretty man)
+        HelpEntryBound what -> helpEntry what
 
         _ -> helpList False Nothing
 

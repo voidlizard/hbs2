@@ -71,6 +71,11 @@ main = do
         lwwRefEntries
         helpEntries
 
+        entry $ bindMatch "--help" $ nil_ \case
+          HelpEntryBound what -> helpEntry what
+          [StringLike s]      -> helpList False (Just s)
+          _                   -> helpList False Nothing
+
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
