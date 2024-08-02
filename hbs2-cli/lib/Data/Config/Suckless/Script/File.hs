@@ -31,67 +31,38 @@ glob :: forall m . MonadIO m
 
 glob pat ignore dir action = do
 
-  go dir
+  q <- newTQueueIO
+
+  w <- liftIO (async $ go q dir >> atomically (writeTQueue q Nothing))
+
+  fix $ \next -> do
+    e <- atomically (readTQueue q)
+    case e of
+      Nothing -> pure ()
+      Just x -> void (action x) >> next
 
   where
 
     matches p f = or [ i ?== f | i <- p ]
     skip p = or [ i ?== p | i <- ignore ]
 
-    go f = do
+    go q f = do
 
-      isD <- liftIO $ doesDirectoryExist f
+      isD <- doesDirectoryExist f
 
       if not isD then do
-        isF <- liftIO $ doesFileExist f
+        isF <- doesFileExist f
         when (isF && matches pat f) do
-          liftIO $ print f
-        -- do shit with file
+          atomically $ writeTQueue q (Just f)
       else do
-        co' <- liftIO (try @_ @IOError $ listDirectory f)
-               <&> fromRight mempty
+        co' <- (try @_ @IOError $ listDirectory f)
+                 <&> fromRight mempty
 
         let co = [ normalise (f </> x)  | x <- co' ]
                    & filter (not . skip)
 
-        for_ co $ \p -> do
-          go p
+        forConcurrently_ co (go q)
 
-  -- q <- newTQueueIO
-
-  -- a <- liftIO $ async do
-  --       flip fix seed $ \next items -> do
-  --         case items of
-  --           [] -> atomically (writeTQueue q Nothing)
-  --           (p:rest) -> do
-  --             isD <- liftIO (doesDirectoryExist p)
-  --             if isD && not (skip p)  then do
-  --               content <- liftIO (try @_ @IOError $ listDirectory  p)
-  --                            <&> fromRight mempty
-
-  --               let found = [ p </> x | x <- content ]
-
-  --               forConcurrently_ found $ \f -> do
-  --                 glob pat ignore f $ \fn -> do
-  --                   atomically $ writeTQueue q (Just fn)
-  --                   pure True
-
-  --               next []
-
-  --             else do
-  --               isF <- liftIO (doesFileExist p)
-  --               when (isF && matches pat p ) do
-  --                 atomically (writeTQueue q (Just p))
-
-  --               next rest
-
-  -- fix \next -> do
-  --   r <- atomically (readTQueue q)
-  --   case r of
-  --     Nothing -> pure ()
-  --     Just e  -> void (action e) >> next
-
-  -- where
 
 entries :: forall c m . ( IsContext c
                         , Exception (BadFormException c)
@@ -102,9 +73,6 @@ entries = do
 
     (p,i,d) <- case syn of
                  [] -> pure (["*"], [], ".")
-
-                 [StringLike d, StringLike i] -> do
-                    pure ([i], [], d)
 
                  [StringLike d, StringLike i, StringLike e] -> do
                     pure ([i], [e], d)
