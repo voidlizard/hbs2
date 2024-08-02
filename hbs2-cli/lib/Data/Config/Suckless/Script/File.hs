@@ -13,7 +13,9 @@ import Data.Foldable
 import System.Directory
 import System.FilePath
 import System.FilePattern
+import Data.HashSet qualified as HS
 
+import Lens.Micro.Platform
 import UnliftIO
 import Control.Concurrent.STM qualified as STM
 import Streaming.Prelude qualified as S
@@ -28,45 +30,76 @@ glob :: forall m . MonadIO m
      -> m ()
 
 glob pat ignore dir action = do
-  let seed = [dir]
 
-  q <- newTQueueIO
-
-  a <- liftIO $ async do
-        flip fix seed $ \next items -> do
-          case items of
-            [] -> atomically (writeTQueue q Nothing)
-            (p:rest) -> do
-              isD <- liftIO (doesDirectoryExist p)
-              if isD && not (skip p)  then do
-                content <- liftIO (try @_ @IOError $ listDirectory  p)
-                             <&> fromRight mempty
-
-                let found = [ p </> x | x <- content ]
-
-                forConcurrently_ found $ \f -> do
-                  glob pat ignore f $ \fn -> do
-                    atomically $ writeTQueue q (Just fn)
-                    pure True
-
-                next []
-
-              else do
-                isF <- liftIO (doesFileExist p)
-                when (isF && matches pat p ) do
-                  atomically (writeTQueue q (Just p))
-
-                next rest
-
-  fix \next -> do
-    r <- atomically (readTQueue q)
-    case r of
-      Nothing -> pure ()
-      Just e  -> void (action e) >> next
+  go dir
 
   where
-    matches p f = or [ i ?== f | i <- p ]
-    skip p = or [ i ?== p | i <- ignore ]
+
+    ppat = zip (repeat True) pat
+    spat = zip (repeat True) ignore
+
+    go f = do
+      isF <- liftIO $ doesFileExist f
+
+      when isF do
+        liftIO $ print f
+
+      isD <- liftIO $ doesDirectoryExist f
+
+      when isD do
+        co <- liftIO (try @_ @IOError $ listDirectory f)
+               <&> fromRight mempty
+
+        let fns  = matchMany ppat [ (f </> x, x) | x <- co ]
+        let stop = matchMany spat [ (f </> x, x) | x <- co ]
+        let ss = HS.fromList $ (fmap (view _2))  stop
+
+        -- matchMany :: [(a, FilePattern)] -> [(b, FilePath)] -> [(a, b, [String])]
+
+        liftIO $ print spat
+        liftIO $ print stop
+        -- for_ co $ \p -> do
+          -- liftIO $ print p
+          -- unless (HS.member p ss) do
+            -- go (f </> p)
+
+  -- q <- newTQueueIO
+
+  -- a <- liftIO $ async do
+  --       flip fix seed $ \next items -> do
+  --         case items of
+  --           [] -> atomically (writeTQueue q Nothing)
+  --           (p:rest) -> do
+  --             isD <- liftIO (doesDirectoryExist p)
+  --             if isD && not (skip p)  then do
+  --               content <- liftIO (try @_ @IOError $ listDirectory  p)
+  --                            <&> fromRight mempty
+
+  --               let found = [ p </> x | x <- content ]
+
+  --               forConcurrently_ found $ \f -> do
+  --                 glob pat ignore f $ \fn -> do
+  --                   atomically $ writeTQueue q (Just fn)
+  --                   pure True
+
+  --               next []
+
+  --             else do
+  --               isF <- liftIO (doesFileExist p)
+  --               when (isF && matches pat p ) do
+  --                 atomically (writeTQueue q (Just p))
+
+  --               next rest
+
+  -- fix \next -> do
+  --   r <- atomically (readTQueue q)
+  --   case r of
+  --     Nothing -> pure ()
+  --     Just e  -> void (action e) >> next
+
+  -- where
+  --   matches p f = or [ i ?== f | i <- p ]
+  --   skip p = or [ i ?== p | i <- ignore ]
 
 entries :: forall c m . ( IsContext c
                         , Exception (BadFormException c)
