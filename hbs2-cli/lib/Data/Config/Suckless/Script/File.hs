@@ -33,14 +33,14 @@ glob pat ignore dir action = do
       [] -> pure ()
       (p:rest) -> do
         isD <- liftIO (doesDirectoryExist p)
-        if isD && not (skip p) then do
+        if isD && not (skip p)  then do
           content <- liftIO (try @_ @IOError $ listDirectory  p)
                        <&> fromRight mempty
           let found = [ p </> x | x <- content ]
           next (rest <> found)
         else do
           isF <- liftIO (doesFileExist p)
-          when (matches pat p && not (skip p) ) do
+          when (isF && matches pat p ) do
             void $ action p
           next rest
 
