@@ -480,6 +480,19 @@ applyLambda decl body args = do
   atomically $ writeTVar tv d0
   pure e
 
+apply_ :: forall c m . ( IsContext c
+                      , MonadUnliftIO m
+                      , Exception (BadFormException c)
+                      )
+      => Syntax c
+      -> [Syntax c]
+      -> RunM c m (Syntax c)
+
+apply_ s args = case s of
+  ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
+  SymbolVal   what  -> apply what args
+  Lambda d body     -> applyLambda d body args
+  e -> throwIO $ BadFormException @c s
 
 apply :: forall c m . ( IsContext c
                       , MonadUnliftIO m
@@ -561,6 +574,10 @@ eval syn = handle (handleForm syn) $ do
 
       ListVal (SymbolVal "begin" : what) -> do
         evalTop what
+
+      e@(ListVal (SymbolVal "blob" : what)) -> do
+        pure e
+        -- evalTop what
 
       lc@(ListVal (Lambda decl body : args))  -> do
         applyLambda decl body args

@@ -157,6 +157,8 @@ verifyRefLogUpdate msg = do
   let sign = view refLogUpdSign msg
   pure $ verifySign @s pubk sign noncebs
 
+-- unpackRef
+
 data RefLogRequestI e m =
   RefLogRequestI
   { onRefLogRequest :: (Peer e, PubKey 'Sign (Encryption e)) -> m (Maybe (Hash HbSync))

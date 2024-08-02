@@ -5,6 +5,7 @@ import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.KeyMan
 
 import HBS2.Data.Types.Refs
+import HBS2.Merkle
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
@@ -30,6 +31,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
 import Control.Monad.Trans.Cont
+
+import Streaming.Prelude qualified as S
 
 getCredentialsForReflog :: MonadUnliftIO m => RefLogKey 'HBS2Basic -> m (PeerCredentials 'HBS2Basic)
 getCredentialsForReflog reflog = do
@@ -164,6 +167,55 @@ reflogEntries = do
         pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
 
     _ -> throwIO (BadFormException @C nil)
+
+
+  entry $ bindMatch "hbs2:reflog:tx:seqref:decode" $ \case
+    [ListVal [SymbolVal "blob", LitStrVal s]] -> do
+      let lbs =  Text.unpack s & BS8.pack & LBS.fromStrict
+
+      SequentialRef n (AnnotatedHashRef _ h) <-  deserialiseOrFail @SequentialRef lbs
+                                                   & orThrowUser "FUCKED"
+
+      pure $ mkForm "seqref" [mkInt n, mkStr (show $ pretty h)]
+
+    e -> throwIO $ BadFormException @c nil
+
+  entry $ bindMatch "hbs2:reflog:tx:list" $ \case
+     [e, SignPubKeyLike puk] -> do
+
+      flip runContT pure do
+
+        callCC \exit -> do
+
+          so <- detectRPC `orDie` "rpc not found"
+          api <- ContT $ withRPC2 @RefLogAPI  @UNIX so
+          sto <- ContT withPeerStorage
+
+          r <- callService @RpcRefLogGet api puk
+                 >>= orThrowUser "can't get reflog value"
+
+          rlh <- ContT $ maybe1 r (pure nil)
+
+          hashes <- S.toList_ do
+                      walkMerkle @[HashRef] (fromHashRef rlh) (getBlock sto) $ \case
+                        (Left _) -> lift $ exit nil
+                        (Right (hs :: [HashRef]))  -> S.each hs
+
+          rr <- forM hashes $ \ha -> do
+
+            tx <- getBlock sto (coerce ha)
+                     >>= orThrowUser "missed-block"
+                     <&> deserialiseOrFail @(RefLogUpdate L4Proto)
+                     >>= orThrowUser "invalid-tx"
+
+            let bs = view refLogUpdData tx
+            let bs8 = BS8.unpack bs
+
+            lift $ apply_ e [mkForm "blob" [mkStr bs8]]
+
+          pure $ mkList rr
+
+     _ -> throwIO (BadFormException @C nil)
 
 
 
