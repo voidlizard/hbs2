@@ -537,11 +537,22 @@ bind name expr = do
   atomically do
     modifyTVar t (HM.insert name what)
 
+bindBuiltins ::  forall c m . ( IsContext c
+                              , MonadUnliftIO m
+                              , Exception (BadFormException c)
+                              )
+            => Dict c m
+            -> RunM c m ()
+
+bindBuiltins  dict = do
+  t <- ask
+  atomically do
+    modifyTVar t (<> dict)
 
 eval :: forall c m . ( IsContext c
-                        , MonadUnliftIO m
-                        , Exception (BadFormException c)
-                        ) => Syntax c -> RunM c m (Syntax c)
+                     , MonadUnliftIO m
+                     , Exception (BadFormException c)
+                     ) => Syntax c -> RunM c m (Syntax c)
 eval syn = handle (handleForm syn) $ do
 
     dict <- ask >>= readTVarIO

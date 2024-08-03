@@ -56,6 +56,10 @@ main = do
 
   let dict = makeDict do
         helpEntries
+        syncEntries
+
+        entry $ bindMatch "debug:cli:show" $ nil_ \case
+          _ -> display cli
 
         entry $ bindMatch "init"  $ nil_ $ const do
           pure ()
