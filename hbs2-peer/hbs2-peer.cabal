@@ -163,6 +163,7 @@ library
       HBS2.Peer.Proto.LWWRef.Internal
       HBS2.Peer.Proto.BrowserPlugin
 
+      HBS2.Peer.RPC.Client
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer
       HBS2.Peer.RPC.API.RefLog

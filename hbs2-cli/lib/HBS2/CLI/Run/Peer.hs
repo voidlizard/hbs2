@@ -7,10 +7,12 @@ import HBS2.Hash
 import HBS2.Base58
 import HBS2.Data.Types.Refs
 import HBS2.Storage
+import HBS2.Peer.RPC.Client
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
+import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Net.Auth.Schema()
 
@@ -37,7 +39,13 @@ putTextLit sto s = do
 
     pure (mkStr @c (show $ pretty h))
 
-peerEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
+peerEntries :: forall c m . ( IsContext c
+                            , MonadUnliftIO m
+                            , HasClientAPI PeerAPI UNIX m
+                            , HasClientAPI StorageAPI UNIX m
+                            , HasStorage m
+                            , Exception (BadFormException c)
+                            ) => MakeDictM c m ()
 peerEntries = do
 
   entry $ bindMatch "hbs2:peer:detect" $ \case
@@ -47,7 +55,7 @@ peerEntries = do
     [StringLike s] -> do
       flip runContT pure do
 
-        sto <- ContT withPeerStorage
+        sto <- getStorage
         ha <- pure (fromStringMay @HashRef s)
                `orDie` "invalid hash"
 
@@ -56,13 +64,14 @@ peerEntries = do
 
         pure $ mkForm "blob" [mkStr (LBS8.unpack lbs)]
 
-    _ -> throwIO $ BadFormException @C nil
+    _ -> throwIO $ BadFormException @c nil
 
   entry $ bindMatch "hbs2:peer:has-block" $ \case
     [StringLike s] -> do
       flip runContT pure do
 
-        sto <- ContT withPeerStorage
+        sto <- getStorage
+
         ha <- pure (fromStringMay @HashRef s)
                `orDie` "invalid hash"
 
@@ -70,21 +79,21 @@ peerEntries = do
 
         pure $ maybe (mkSym "no-block") mkInt mbsz
 
-    _ -> throwIO $ BadFormException @C nil
+    _ -> throwIO $ BadFormException @c nil
 
   -- stores *small* block
   entry $ bindMatch "hbs2:peer:put-block" $ \case
     [ListVal [SymbolVal "blob", LitStrVal s]] -> do
       flip runContT pure do
-        sto <- ContT withPeerStorage
+        sto <- getStorage
         lift $ putTextLit sto s
 
     [LitStrVal s] -> do
       flip runContT pure do
-        sto <- ContT withPeerStorage
+        sto <- getStorage
         lift $ putTextLit sto s
 
-    _ -> throwIO $ BadFormException @C nil
+    _ -> throwIO $ BadFormException @c nil
 
   brief "checks if peer available"
     $ noArgs
@@ -102,17 +111,11 @@ peerEntries = do
     |]
     $ entry $ bindMatch "hbs2:peer:poke" $ \case
       _ -> do
-        so <- detectRPC `orDie` "hbs2-peer not found"
-        r <- newTVarIO nil
-        withRPC2 @PeerAPI  @UNIX so $ \caller -> do
+        api <- getClientAPI @PeerAPI @UNIX
+        callRpcWaitMay @RpcPoke (TimeoutSec 1) api ()
+          <&> fromMaybe ""
+          <&> parseTop
+          <&> either (const nil) (mkForm "dict" . fmap fixContext)
 
-          what <- callRpcWaitMay @RpcPoke (TimeoutSec 1) caller ()
-                    <&> fromMaybe ""
-                    <&> parseTop
-                    <&> either (const nil) (mkForm "dict")
-
-          atomically $ writeTVar r what
-
-        readTVarIO r
 
 

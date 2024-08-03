@@ -15,6 +15,10 @@ import HBS2.Storage.Operations.ByteString
 
 import HBS2.Net.Auth.Schema()
 
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client
+import HBS2.Peer.RPC.Client.Unix
+
 import Codec.Serialise
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
@@ -50,7 +54,12 @@ metaFromSyntax syn =
     t x = Text.pack (show $ pretty x)
 
 
-metaDataEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM c m ()
+metaDataEntries :: forall c m . ( IsContext c
+                                , MonadUnliftIO m
+                                , Exception (BadFormException c)
+                                , HasStorage m
+                                , HasClientAPI StorageAPI UNIX m
+                                ) => MakeDictM c m ()
 metaDataEntries = do
 
   brief "update group key for tree"
@@ -84,20 +93,19 @@ metaDataEntries = do
 
         gk1 <- modifyGroupKey gk ins
 
-        flip runContT pure do
-          sto <- ContT withPeerStorage
-          gk1h <- writeAsMerkle sto (serialise gk1)
+        sto <- getStorage
+        gk1h <- writeAsMerkle sto (serialise gk1)
 
-          case headBlk of
-            w@(MTreeAnn { _mtaCrypt = EncryptGroupNaClSymm _ nonce }) -> do
-              let w1 = w { _mtaCrypt = EncryptGroupNaClSymm gk1h nonce }
+        case headBlk of
+          w@(MTreeAnn { _mtaCrypt = EncryptGroupNaClSymm _ nonce }) -> do
+            let w1 = w { _mtaCrypt = EncryptGroupNaClSymm gk1h nonce }
 
-              h <- putBlock sto (serialise w1)
-                     >>= orThrowUser "can't put block"
+            h <- putBlock sto (serialise w1)
+                   >>= orThrowUser "can't put block"
 
-              pure $ mkStr (show $ pretty h)
+            pure $ mkStr (show $ pretty h)
 
-            _ -> pure nil
+          _ -> pure nil
 
       _ -> throwIO (BadFormException @c nil)
 
@@ -142,7 +150,7 @@ file-name: "qqq.txt"
 
         r <- flip runContT pure do
 
-          sto <- ContT withPeerStorage
+          sto <- getStorage
 
           runMaybeT do
 
@@ -179,7 +187,7 @@ file-name: "qqq.txt"
 
 
             let xs = parseTop r0
-                       & fromRight mempty
+                       & either mempty (fmap fixContext)
 
             pure $ mkForm  "dict" xs
 
@@ -302,14 +310,12 @@ $ hbs2-cli hbs2:groupkey:list-public-keys [hbs2:groupkey:load GixS4wssCD4x7LzvHv
             when (isJust enc && isNothing gk) do
               error $ show $  "Can't load group key" <+> pretty enc
 
-            flip runContT pure do
+            sto <- getStorage
 
-              sto <- ContT withPeerStorage
+            href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
+                      `orDie` "encryption error"
 
-              href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
-                        `orDie` "encryption error"
-
-              pure $ mkStr (show $ pretty href)
+            pure $ mkStr (show $ pretty href)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do

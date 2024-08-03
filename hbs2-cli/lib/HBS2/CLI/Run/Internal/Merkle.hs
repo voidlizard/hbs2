@@ -12,6 +12,8 @@ import HBS2.Merkle
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.RPC.Client.Unix
+import HBS2.Peer.RPC.Client
+import HBS2.Peer.RPC.API.Storage
 import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Net.Auth.Schema()
@@ -24,12 +26,16 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
 
-getGroupKeyHash :: (IsContext c, MonadUnliftIO m)
+getGroupKeyHash :: ( IsContext c
+                   , MonadUnliftIO m
+                   , HasStorage m
+                   , HasClientAPI StorageAPI UNIX m
+                   )
                 => HashRef
                 -> RunM c m (Maybe HashRef, MTreeAnn [HashRef])
 getGroupKeyHash h = do
   flip runContT pure do
-    sto <- ContT withPeerStorage
+    sto <- getStorage
 
     headBlock <- getBlock sto (fromHashRef h)
                    >>= orThrowUser  "no-block"

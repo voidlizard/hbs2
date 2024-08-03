@@ -379,7 +379,8 @@ newtype RunM c m a = RunM { fromRunM :: ReaderT (TVar (Dict c m)) m a }
                                       , MonadReader (TVar (Dict c m))
                                       )
 
-
+instance MonadTrans (RunM c) where
+  lift = RunM . lift
 
 newtype MakeDictM c m a = MakeDictM { fromMakeDict :: Writer (Dict c m) a }
                           deriving newtype ( Applicative

@@ -7,15 +7,20 @@ import HBS2.System.Logger.Simple.ANSI as All
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Base58
-import Data.List qualified as L
-import Data.Maybe
 import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
+import HBS2.Storage
 
 import HBS2.Net.Auth.Credentials
 import HBS2.KeyMan.Keys.Direct
 
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client
+import HBS2.Peer.RPC.Client.Unix
+
+import Data.List qualified as L
+import Data.Maybe
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 as LBS8
 import Data.ByteString.Lazy as LBS
@@ -30,34 +35,35 @@ import Lens.Micro.Platform
 {- HLINT ignore "Functor law" -}
 
 
-groupKeyEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
+groupKeyEntries :: forall c m . ( MonadUnliftIO m
+                                , IsContext c
+                                , HasClientAPI StorageAPI UNIX m
+                                , HasStorage m
+                                ) => MakeDictM c m ()
 groupKeyEntries = do
 
   entry $ bindMatch "hbs2:groupkey:load" $ \case
       [StringLike s] -> do
-        flip runContT pure do
-          sto <- ContT withPeerStorage
+        sto <- getStorage
 
-          gk <- runExceptT (readFromMerkle sto (SimpleKey (fromString s)))
-                  >>= orThrowUser "can't load group key"
-                  <&> deserialiseOrFail @(GroupKey 'Symm 'HBS2Basic)
-                  >>= orThrowUser "invalid group key"
+        gk <- runExceptT (readFromMerkle sto (SimpleKey (fromString s)))
+                >>= orThrowUser "can't load group key"
+                <&> deserialiseOrFail @(GroupKey 'Symm 'HBS2Basic)
+                >>= orThrowUser "invalid group key"
 
-          pure $ mkStr (show $ pretty $ AsGroupKeyFile gk)
+        pure $ mkStr (show $ pretty $ AsGroupKeyFile gk)
 
       _ -> throwIO $ BadFormException @C nil
 
   entry $ bindMatch "hbs2:groupkey:store" $ \case
       [LitStrVal s] -> do
-        flip runContT pure do
+        let lbs = LBS8.pack (Text.unpack s)
+        gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+                `orDie` "invalid group key"
 
-          let lbs = LBS8.pack (Text.unpack s)
-          gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
-                  `orDie` "invalid group key"
-
-          sto <- ContT withPeerStorage
-          ha <- writeAsMerkle sto (serialise gk)
-          pure $ mkStr (show $ pretty ha)
+        sto <- getStorage
+        ha <- writeAsMerkle sto (serialise gk)
+        pure $ mkStr (show $ pretty ha)
 
       _ -> throwIO $ BadFormException @C nil
 
@@ -69,17 +75,15 @@ groupKeyEntries = do
   entry $ bindMatch "hbs2:groupkey:update" $ \case
     [LitStrVal s, ListVal ins] -> do
 
-      flip runContT pure do
+      sto <- getStorage
 
-        sto <- ContT withPeerStorage
+      let lbs = LBS8.pack (Text.unpack s)
+      gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+              `orDie` "invalid group key"
 
-        let lbs = LBS8.pack (Text.unpack s)
-        gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
-                `orDie` "invalid group key"
+      gk1 <- modifyGroupKey gk ins
 
-        gk1 <- lift $ modifyGroupKey gk ins
-
-        pure $ mkStr (show $ pretty $ AsGroupKeyFile gk1)
+      pure $ mkStr (show $ pretty $ AsGroupKeyFile gk1)
 
     _ -> throwIO $ BadFormException @C nil
 
@@ -118,16 +122,16 @@ groupKeyEntries = do
 
 
   entry $ bindMatch "hbs2:groupkey:decrypt-block" $ \case
-    [BlobLike bs] -> flip runContT pure do
+    [BlobLike bs] -> do
 
-      sto <- ContT withPeerStorage
+      sto <- getStorage
 
       let lbs = LBS.fromStrict bs
 
       seb <- pure (deserialiseOrFail lbs)
                `orDie` "invalid SmallEncryptedBlock"
 
-      decrypted <- lift $ G.decryptBlock sto seb
+      decrypted <- G.decryptBlock sto seb
 
       pure $ mkForm @c "blob" [mkStr (BS8.unpack decrypted)]
 
@@ -135,11 +139,10 @@ groupKeyEntries = do
 
   entry $ bindMatch "hbs2:groupkey:encrypt-block" $ \case
     [StringLike gkh, BlobLike what] -> do
-      flip runContT pure do
-        sto <- ContT withPeerStorage
-        gk <- lift $ loadGroupKey (fromString gkh)
+        sto <- getStorage
+        gk <- loadGroupKey (fromString gkh)
                 `orDie` "can't load group key"
-        seb <- lift $ G.encryptBlock sto gk what
+        seb <- G.encryptBlock sto gk what
         pure $ mkForm "blob" [mkStr (LBS8.unpack (serialise seb))]
 
     _ -> throwIO $ BadFormException @C nil

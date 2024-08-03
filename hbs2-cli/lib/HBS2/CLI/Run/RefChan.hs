@@ -30,6 +30,9 @@ import HBS2.Base58
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.Schema()
 import HBS2.Data.Types.SignedBox
+import HBS2.Peer.RPC.Client
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Storage
 
 import HBS2.KeyMan.Keys.Direct
 import HBS2.KeyMan.App.Types
@@ -42,7 +45,14 @@ import Control.Monad.Except
 
 import Text.InterpolatedString.Perl6 (qc)
 
-refchanEntries :: forall c m . (c ~ C, IsContext c, MonadUnliftIO m) => MakeDictM  c m ()
+refchanEntries :: forall c m . ( IsContext c
+                               , MonadUnliftIO m
+                               , Exception (BadFormException c)
+                               , HasClientAPI RefChanAPI UNIX m
+                               , HasClientAPI StorageAPI UNIX m
+                               , HasClientAPI PeerAPI UNIX m
+                               , HasStorage m
+                               ) => MakeDictM  c m ()
 refchanEntries = do
 
   brief "requests all rechans that peer is subcribed to"
@@ -98,8 +108,8 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
           callCC $ \exit -> do
 
             so <- detectRPC `orDie` "rpc not found"
-            api <- ContT $ withRPC2 @RefChanAPI @UNIX so
-            sto <- ContT $ withPeerStorage
+            api <- getClientAPI @RefChanAPI @UNIX
+            sto <- getStorage
 
             w <- callService @RpcRefChanHeadGet api puk
                     >>= orThrowUser "can't get refchan head"
@@ -124,6 +134,15 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
       _ -> throwIO (BadFormException @c nil)
 
+  entry $ bindMatch "hbs2:refchan:create" $ \case
+    [StringLike headFile] -> do
+      error "CREATES FUCKIN REFCHAN WITH HEAD BLOCK"
+
+    [] -> do
+     error "CREATES FUCKIN DEFAULT REFCHAN"
+
+    _ -> throwIO (BadFormException @c nil)
+
   brief "prints refchan head example"
     $ returns "nil" mempty
     $ entry $ bindMatch "hbs2:refchan:head:example" $ nil_ $ \case
@@ -131,10 +150,7 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
           let rch0 = refChanHeadDefault @L4Proto
 
-          so <- detectRPC
-                   >>= orThrowUser "hbs2-peer not found"
-
-          api <- ContT $ withRPC2 @PeerAPI  @UNIX so
+          api <- getClientAPI @PeerAPI  @UNIX
 
           pips <- callService @RpcPeers api ()
                     <&> either (const mempty) (HM.fromList . fmap ((,1) . fst) . take 3)

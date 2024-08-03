@@ -16,6 +16,10 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.KeyMan.Keys.Direct
 import HBS2.Net.Auth.GroupKeySymm as Symm
 
+import HBS2.Peer.RPC.Client.Unix
+import HBS2.Peer.RPC.Client
+import HBS2.Peer.RPC.API.Storage
+
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Maybe
@@ -56,11 +60,15 @@ decryptBlock sto seb = do
   runExceptT (Symm.decryptBlock sto find seb)
      >>= orThrowUser "can't decrypt block"
 
-loadGroupKey :: (IsContext c, MonadUnliftIO m) => HashRef -> RunM c m (Maybe (GroupKey 'Symm HBS2Basic))
+loadGroupKey :: ( IsContext c
+                , MonadUnliftIO m
+                , HasStorage m
+                , HasClientAPI StorageAPI UNIX m
+                ) => HashRef -> RunM c m (Maybe (GroupKey 'Symm HBS2Basic))
 loadGroupKey h = do
 
   flip runContT pure do
-    sto <- ContT withPeerStorage
+    sto <- getStorage
 
     raw <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef h)))
             <&> either (const Nothing) Just

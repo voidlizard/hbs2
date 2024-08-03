@@ -80,16 +80,18 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
+  runHBS2Cli do
 
-  case cli of
-    [ListVal [SymbolVal "stdin"]] -> do
-      what <- getContents
-                >>= either (error.show) pure . parseTop
-      run dict what >>= eatNil display
+    case cli of
+      [ListVal [SymbolVal "stdin"]] -> do
+        what <- liftIO getContents
+                  >>= either (error.show) pure . parseTop
 
-    [] -> do
-      void $ run dict [mkForm  "help" []]
+        recover $ run dict what >>= eatNil display
 
-    _ -> do
-      run dict cli >>= eatNil display
+      [] -> do
+        void $ run dict [mkForm  "help" []]
+
+      _ -> do
+        recover $ run dict cli >>= eatNil display
 
