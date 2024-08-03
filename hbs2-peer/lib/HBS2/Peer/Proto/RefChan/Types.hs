@@ -175,6 +175,10 @@ refChanHeadReaders = lens g s
     s x _ = x
 
 
+refChanHeadDefault :: ForRefChans e => RefChanHeadBlock e
+refChanHeadDefault =
+  RefChanHeadBlock2 1 1 10 mempty mempty mempty mempty mempty
+
 refChanHeadNotifiers :: ForRefChans e
                     => Lens (RefChanHeadBlock e)
                             (RefChanHeadBlock e)
