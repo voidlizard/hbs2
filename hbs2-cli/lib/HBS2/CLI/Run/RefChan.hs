@@ -68,8 +68,7 @@ refchanEntries = do
     $ entry $ bindMatch "hbs2:refchan:list" $ \case
         [] -> do
           flip runContT pure do
-            so <- detectRPC `orDie` "rpc not found"
-            api <- ContT $ withRPC2 @PeerAPI @UNIX so
+            api <- getClientAPI @PeerAPI @UNIX
             r <- callService @RpcPollList2 api (Just "refchan", Nothing)
                    >>= orThrowUser "can't get refchan list"
             pure $ mkList $ fmap (mkStr . show . pretty . AsBase58 . view _1) r
@@ -107,7 +106,6 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
           callCC $ \exit -> do
 
-            so <- detectRPC `orDie` "rpc not found"
             api <- getClientAPI @RefChanAPI @UNIX
             sto <- getStorage
 
