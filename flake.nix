@@ -47,6 +47,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-share"
      "hbs2-fixer"
      "hbs2-cli"
+     "hbs2-sync"
      "fixme-new"
     ];
   in
@@ -73,6 +74,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
      "hbs2-cli"    = "./hbs2-cli";
+     "hbs2-sync"   = "./hbs2-sync";
      "fixme-new"   = "./fixme-new";
    };
 

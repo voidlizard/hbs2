@@ -665,8 +665,8 @@ fmt = \case
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
 
-    entry $ bindValue "false"      (Literal noContext (LitBool False))
-    entry $ bindValue "true"       (Literal noContext (LitBool True))
+    entry $ bindValue "false"      (mkBool False)
+    entry $ bindValue "true"       (mkBool True)
     entry $ bindValue "chr:semi"   (mkStr ";")
     entry $ bindValue "chr:tilda"  (mkStr "~")
     entry $ bindValue "chr:colon"  (mkStr ":")

@@ -17,6 +17,7 @@ BINS := \
   git-remote-hbs2    \
   git-hbs2           \
   hbs2-cli           \
+  hbs2-sync          \
   fixme-new          \
 	hbs2-storage-simple-benchmarks \
 
