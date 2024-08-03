@@ -132,14 +132,55 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
       _ -> throwIO (BadFormException @c nil)
 
-  entry $ bindMatch "hbs2:refchan:create" $ \case
-    [StringLike headFile] -> do
-      error "CREATES FUCKIN REFCHAN WITH HEAD BLOCK"
+  entry $ bindMatch "hbs2:refchan:create" $ \syn -> do
 
-    [] -> do
-     error "CREATES FUCKIN DEFAULT REFCHAN"
+    peerApi  <- getClientAPI @PeerAPI @UNIX
+    rchanApi <- getClientAPI @RefChanAPI @UNIX
+    sto      <- getStorage
 
-    _ -> throwIO (BadFormException @c nil)
+    rch <- case syn of
+      [StringLike headFile] -> do
+        liftIO (readFile headFile)
+           <&> fromStringMay @(RefChanHeadBlock L4Proto)
+           >>= orThrowUser "can't parse RefChanHeadBlock"
+
+      [] -> do
+       poked <- callService @RpcPoke peerApi ()
+                   >>= orThrowUser "can't poke hbs2-peer"
+                   <&> parseTop
+                   >>= orThrowUser "invalid hbs2-peer attributes"
+
+       ke <- [ x
+             | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
+             ] & headMay & orThrowUser "hbs2-peer key not found"
+
+       let rch0 = refChanHeadDefault @L4Proto
+                   & set refChanHeadPeers (HM.singleton ke 1)
+                   & set refChanHeadAuthors (HS.singleton ke)
+
+       pure rch0
+
+      _ -> throwIO (BadFormException @c nil)
+
+    refchan <- keymanNewCredentials (Just "refchan") 0
+
+    creds <- runKeymanClient $ loadCredentials refchan
+                   >>= orThrowUser "can't load credentials"
+
+    let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch
+
+    href <- writeAsMerkle sto  (serialise box)
+
+    callService @RpcPollAdd peerApi (refchan, "refchan", 17)
+        >>= orThrowUser "can't subscribe to refchan"
+
+    callService @RpcRefChanHeadPost rchanApi (HashRef href)
+        >>= orThrowUser "can't post refchan head"
+
+    let r = mkStr @c $ show $ "; refchan " <+> pretty (AsBase58 refchan) <> line
+                           <> pretty rch
+
+    pure r
 
   brief "prints refchan head example"
     $ returns "nil" mempty
