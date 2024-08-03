@@ -117,8 +117,10 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
             case what of
               "parsed"  -> do
 
-                  lbs <- runExceptT (readFromMerkle sto (SimpleKey (coerce hx)))
-                            >>= orThrowUser "can't decode refchan head "
+                  lbz <- runExceptT (readFromMerkle sto (SimpleKey (coerce hx)))
+                           <&> either (const Nothing) Just
+
+                  lbs <- ContT $ maybe1 lbz (pure nil)
 
                   (_, hdblk) <- unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs
                                    & orThrowUser "can't unbox signed box"
@@ -131,6 +133,44 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
 
       _ -> throwIO (BadFormException @c nil)
+
+  entry $ bindMatch "hbs2:refchan:head:update" $ \case
+      [SignPubKeyLike rchan, StringLike headFile] -> do
+
+        sto <- getStorage
+
+        rchanApi <- getClientAPI @RefChanAPI @UNIX
+
+        rch <- liftIO (readFile headFile)
+                 <&> fromStringMay @(RefChanHeadBlock L4Proto)
+                 >>= orThrowUser "can't parse RefChanHeadBlock"
+
+        creds <- runKeymanClient $ loadCredentials rchan
+                       >>= orThrowUser "can't load credentials"
+
+        let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch
+
+        href <- writeAsMerkle sto  (serialise box)
+
+        callService @RpcRefChanHeadPost rchanApi (HashRef href)
+            >>= orThrowUser "can't post refchan head"
+
+        pure nil
+
+      _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:refchan:get" $ \case
+    [SignPubKeyLike rchan] -> do
+
+      api <- getClientAPI @RefChanAPI @UNIX
+
+      h <- callService @RpcRefChanGet api rchan
+             >>= orThrowUser "can't request refchan head"
+
+      pure $ maybe nil (mkStr . show . pretty . AsBase58) h
+
+    _ -> throwIO (BadFormException @c nil)
 
   entry $ bindMatch "hbs2:refchan:create" $ \syn -> do
 

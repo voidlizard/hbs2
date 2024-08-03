@@ -665,8 +665,19 @@ fmt = \case
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
 
-    entry $ bindValue "false" (Literal noContext (LitBool False))
-    entry $ bindValue "true"  (Literal noContext (LitBool True))
+    entry $ bindValue "false"      (Literal noContext (LitBool False))
+    entry $ bindValue "true"       (Literal noContext (LitBool True))
+    entry $ bindValue "chr:semi"   (mkStr ";")
+    entry $ bindValue "chr:tilda"  (mkStr "~")
+    entry $ bindValue "chr:colon"  (mkStr ":")
+    entry $ bindValue "chr:comma"  (mkStr ",")
+    entry $ bindValue "chr:q"      (mkStr "'")
+    entry $ bindValue "chr:minus"  (mkStr "-")
+    entry $ bindValue "chr:dq"     (mkStr "\"")
+    entry $ bindValue "chr:lf"     (mkStr "\n")
+    entry $ bindValue "chr:cr"     (mkStr "\r")
+    entry $ bindValue "chr:tab"    (mkStr "\t")
+    entry $ bindValue "chr:space"  (mkStr " ")
 
     brief "concatenates list of string-like elements into a string"
       $ args [arg "list" "(list ...)"]

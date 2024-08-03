@@ -10,7 +10,10 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text qualified as Text
 
-keyringEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
+keyringEntries :: forall c m . ( MonadUnliftIO m
+                               , IsContext c
+                               , Exception (BadFormException c)
+                               ) => MakeDictM c m ()
 keyringEntries = do
   entry $ bindMatch "hbs2:keyring:list-encryption" $ \syn -> do
     lbs <- case syn of
@@ -30,7 +33,10 @@ keyringEntries = do
 
     pure $ mkList @c e
 
-  entry $ bindMatch "hbs2:keyring:new" $ \syn -> do
+  brief "creates a new keyring (credentials)"
+    $ args [arg "int?" "encrypt-keys-num"]
+    $ returns "keyring" "string"
+    $ entry $ bindMatch "hbs2:keyring:new" $ \syn -> do
       n <- case syn of
             [LitIntVal k] -> pure k
             []            -> pure 1
@@ -39,4 +45,16 @@ keyringEntries = do
       cred0 <- newCredentials @'HBS2Basic
       cred <- foldM (\cred _ -> addKeyPair Nothing cred) cred0 [1..n]
       pure $ mkStr @c $ show $ pretty $ AsCredFile $ AsBase58 cred
+
+
+  entry $ bindMatch "hbs2:keyring:show" $ \case
+    [StringLike fn] -> do
+      bs <- liftIO $ BS.readFile fn
+      cred <- parseCredentials @'HBS2Basic (AsCredFile bs)
+                  & orThrowUser "bad credentials file"
+
+      pure $ mkStr $ show $ pretty (ListKeyringKeys cred)
+
+    _ -> throwIO $ BadFormException @c nil
+
 
