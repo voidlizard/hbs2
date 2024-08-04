@@ -1,9 +1,11 @@
-module HBS2.CLI.Run.GroupKey where
+module HBS2.CLI.Run.GroupKey
+  ( module HBS2.CLI.Run.GroupKey
+  , loadGroupKey
+  ) where
 
 import HBS2.CLI.Prelude hiding (mapMaybe)
 
 import HBS2.Data.Types.Refs
-import HBS2.System.Logger.Simple.ANSI as All
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Base58
@@ -12,25 +14,18 @@ import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Storage
 
-import HBS2.Net.Auth.Credentials
-import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
 
-import Data.List qualified as L
-import Data.Maybe
 import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 as LBS8
 import Data.ByteString.Lazy as LBS
 import Data.ByteString.Char8 as BS8
 import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
-import Control.Monad.Trans.Cont
 import Control.Monad.Except
 import Codec.Serialise
-import Lens.Micro.Platform
 
 {- HLINT ignore "Functor law" -}
 

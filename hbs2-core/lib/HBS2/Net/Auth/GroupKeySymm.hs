@@ -19,6 +19,7 @@ import HBS2.Merkle
 import HBS2.Data.Detect
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Types
+import HBS2.Storage hiding (Key)
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage(Storage(..))
@@ -432,4 +433,18 @@ deriveGroupSecret n bs = key0
     nonceS = nonceFrom @SK.Nonce n & Saltine.encode & hashObject @HbSync & fromHbSyncHash
     prk = HKDF.extractSkip @_ @HbSyncHash bs
     key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
+
+
+loadGroupKeyMaybe :: ( MonadIO m
+                     ) => AnyStorage -> HashRef -> m (Maybe (GroupKey 'Symm HBS2Basic))
+loadGroupKeyMaybe sto h = do
+
+  runMaybeT do
+
+    bs <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef h)))
+            <&> either (const Nothing) Just
+            >>= toMPlus
+
+    deserialiseOrFail bs
+      &  toMPlus
 

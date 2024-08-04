@@ -5,19 +5,22 @@ module HBS2.Sync.Prelude
 
 
 import HBS2.Prelude.Plated as Exported
+import HBS2.Clock
 import HBS2.Base58
+import HBS2.Data.Detect
 import HBS2.Merkle
 import HBS2.Merkle.MetaData
 import HBS2.OrDie as Exported
 import HBS2.Data.Types.Refs as Exported
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Auth.GroupKeySymm qualified as Symm
+import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Net.Auth.Schema
 import HBS2.Clock as Exported
 import HBS2.Net.Proto.Service
 import HBS2.Storage
 import HBS2.Storage.Operations.Class
+import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client
@@ -33,6 +36,7 @@ import HBS2.Misc.PrettyStuff as Exported
 
 import HBS2.CLI.Run hiding (PeerException(..))
 import HBS2.CLI.Run.MetaData
+-- import HBS2.CLI.Run.GroupKey
 
 import HBS2.KeyMan.Keys.Direct
 
@@ -66,9 +70,11 @@ import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
 import Data.Word
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
-import System.Directory (getModificationTime)
+import System.Directory (getModificationTime,setModificationTime)
 import System.FilePath.Posix
 import UnliftIO
+
+import UnliftIO.IO.File qualified as UIO
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -181,32 +187,37 @@ data EntryType = File | Dir | Tomb
 
 data EntryDesc =
   EntryDesc
-  { entryType      :: EntryType
-  , entryTimestamp :: Word64
+  { entryType        :: EntryType
+  , entryTimestamp   :: Word64
+  , entryRemoteHash  :: Maybe HashRef
   }
   deriving stock (Eq,Ord,Show,Data,Generic)
 
-data DirEntry = DirEntry EntryDesc FilePath
-                deriving stock (Eq,Ord,Show,Data,Generic)
+data Entry =
+  DirEntry EntryDesc FilePath
+  deriving stock (Eq,Ord,Show,Data,Generic)
 
-getEntryTimestamp :: DirEntry -> Word64
+getEntryTimestamp :: Entry -> Word64
 getEntryTimestamp (DirEntry d _) = entryTimestamp d
 
-isFile :: DirEntry -> Bool
+getEntryHash :: Entry -> Maybe HashRef
+getEntryHash (DirEntry d _) = entryRemoteHash d
+
+isFile :: Entry -> Bool
 isFile = \case
   DirEntry (EntryDesc { entryType = File}) _ -> True
   _ -> False
 
-entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m (Map FilePath DirEntry)
+entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m (Map FilePath Entry)
 entriesFromLocalFile prefix fn' = do
   let fn0 = removePrefix prefix fn
   ts <- getFileTimestamp fn
-  pure $ entriesFromFile ts fn0
+  pure $ entriesFromFile Nothing ts fn0
   where
     fn = normalise fn'
 
-entriesFromFile :: Word64 -> FilePath -> Map FilePath DirEntry
-entriesFromFile ts fn0 = do
+entriesFromFile :: Maybe HashRef -> Word64 -> FilePath -> Map FilePath Entry
+entriesFromFile h ts fn0 = do
   let dirs = splitDirectories (dropFileName fn0)
                & dropWhile (== ".")
   let es = flip L.unfoldr ("",dirs) $ \case
@@ -217,8 +228,8 @@ entriesFromFile ts fn0 = do
                | e@(DirEntry _ p) <- fileEntry fn0 : es
                ]
   where
-    dirEntry p   = DirEntry (EntryDesc Dir ts) p
-    fileEntry p  = DirEntry (EntryDesc File ts) p
+    dirEntry p   = DirEntry (EntryDesc Dir ts Nothing) p
+    fileEntry p  = DirEntry (EntryDesc File ts h) p
 
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
@@ -253,8 +264,14 @@ runDirectory path = do
 
   where
 
-    merge :: DirEntry -> DirEntry -> DirEntry
+    merge :: Entry -> Entry -> Entry
     merge a b = if getEntryTimestamp a > getEntryTimestamp b then a else b
+
+    freshIn :: FilePath -> Entry -> Map FilePath Entry -> Bool
+    freshIn p e state = do
+      let remote = Map.lookup p state
+      maybe1 remote True $ \r -> do
+        getEntryTimestamp e > getEntryTimestamp r
 
     runDir = do
 
@@ -306,6 +323,7 @@ runDirectory path = do
 
         _ -> pure ()
 
+      debug $ pretty ins
       evalTop ins
 
       incl <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
@@ -353,50 +371,67 @@ runDirectory path = do
 
       let merged = Map.unionWith merge local remote
 
-      for_ (Map.toList merged) $ \(p,e) -> do
-        debug $ yellow "entry" <+> pretty p <+> viaShow e
+      flip runContT pure do
 
-        -- warn $ red "POSTING IS SWITCHED OFF"
+        for_ (Map.toList merged) $ \(p,e) -> do
+          debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-        when (not (Map.member p remote) && isFile e) do
+          callCC $ \next -> do
 
-          -- FIXME: dangerous!
-          lbs <- liftIO (LBS.readFile (path </> p))
+            when (freshIn p e remote) do
 
-          let (dir,file) = splitFileName p
+              -- FIXME: dangerous!
+              lbs <- liftIO (LBS.readFile (path </> p))
 
-          let meta = HM.fromList [ ("file-name", fromString file)
-                                 ]
-                      <> case dir of
-                           "./" -> mempty
-                           d    -> HM.singleton "location" (fromString d)
+              let (dir,file) = splitFileName p
 
-          let members = view refChanHeadReaders rch & HS.toList
+              let meta = HM.fromList [ ("file-name", fromString file)
+                                     ]
+                          <> case dir of
+                               "./" -> mempty
+                               d    -> HM.singleton "location" (fromString d)
 
-          -- FIXME: support-unencrypted?
-          when (L.null members) do
-            throwIO EncryptionKeysNotDefined
+              let members = view refChanHeadReaders rch & HS.toList
 
-          gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+              -- FIXME: support-unencrypted?
+              when (L.null members) do
+                throwIO EncryptionKeysNotDefined
 
-          -- FIXME: survive-this-error?
-          href <- createTreeWithMetadata sto (Just gk) meta lbs
-                    >>= orThrowPassIO
+              gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
 
-          let tx = AnnotatedHashRef Nothing href
-          let spk = view peerSignPk creds
-          let ssk = view peerSignSk creds
+              -- FIXME: survive-this-error?
+              href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
+                        >>= orThrowPassIO
 
-          let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+              let tx = AnnotatedHashRef Nothing href
+              let spk = view peerSignPk creds
+              let ssk = view peerSignSk creds
 
-          postRefChanTx @UNIX refchan box
+              let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
 
-          notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+              notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
 
-        unless (Map.member p local) do
-          notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty p
+              lift $ postRefChanTx @UNIX refchan box
 
-      debug $ pretty ins
+            when (freshIn p e local) do
+              h <- ContT $ maybe1 (getEntryHash e) none
+              -- let h = getEntryHash e
+
+              notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty path <+> pretty p <+> pretty (getEntryHash e)
+
+              lbs' <- lift (runExceptT (getTreeContents sto h))
+                      <&> either (const Nothing) Just
+
+              lbs <- ContT $ maybe1 lbs' none
+
+              liftIO $ UIO.withBinaryFileAtomic (path </> p) WriteMode $ \fh -> do
+                LBS.hPutStr fh lbs
+
+              let ts  = getEntryTimestamp e
+              let timestamp = posixSecondsToUTCTime (fromIntegral ts)
+
+              liftIO $ setModificationTime (path </> p) timestamp
+
 
     getStateFromRefChan rchan = do
 
@@ -435,10 +470,43 @@ runDirectory path = do
           void $ runMaybeT do
             fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
             ts  <- toMPlus $ HM.lookup txh tsmap
-            let r = entriesFromFile ts (loc </> fn)
+            let r = entriesFromFile (Just tree) ts (loc </> fn)
             lift $ S.yield r
 
       pure $ Map.unionsWith merge ess0
+
+
+getTreeContents :: ( MonadUnliftIO m
+                   , MonadError OperationError m
+                   )
+                => AnyStorage
+                -> HashRef
+                -> m LBS.ByteString
+
+getTreeContents sto href = do
+
+  blk <- getBlock sto (coerce href)
+           >>= orThrowError MissedBlockError
+
+  let q = tryDetect (coerce href) blk
+
+  case q of
+
+    MerkleAnn (MTreeAnn {_mtaCrypt = NullEncryption }) -> do
+      readFromMerkle sto (SimpleKey (coerce href))
+
+    MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
+
+      rcpts  <- Symm.loadGroupKeyMaybe sto (HashRef gkh)
+                  >>= orThrowError (GroupKeyNotFound 11)
+                  <&> HM.keys . Symm.recipients
+
+      kre <- runKeymanClient do
+                loadKeyRingEntries rcpts <&> fmap snd
+
+      readFromMerkle sto (ToDecryptBS kre (coerce href))
+
+    _ -> throwError UnsupportedFormat
 
 
 syncEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
