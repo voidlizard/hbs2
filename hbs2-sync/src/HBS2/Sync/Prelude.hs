@@ -408,11 +408,11 @@ runDirectory path = do
 
         debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-        -- actuallyFile <- liftIO $ doesFileExist filePath
+        actuallyFile <- liftIO $ doesFileExist filePath
 
         debug $ red "FRESH:" <+> pretty p <+> pretty (freshIn p e local)
 
-        when (freshIn p e local) $ void $ runMaybeT do
+        when (freshIn p e local && actuallyFile) $ void $ runMaybeT do
 
           h <- getEntryHash e & toMPlus
 
