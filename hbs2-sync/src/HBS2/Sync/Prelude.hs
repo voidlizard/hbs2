@@ -6,9 +6,14 @@ module HBS2.Sync.Prelude
 
 import HBS2.Prelude.Plated as Exported
 import HBS2.Base58
+import HBS2.Merkle
+import HBS2.Merkle.MetaData
 import HBS2.OrDie as Exported
 import HBS2.Data.Types.Refs as Exported
+import HBS2.Data.Types.SignedBox
+import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
+import HBS2.Net.Auth.Schema
 import HBS2.Clock as Exported
 import HBS2.Net.Proto.Service
 import HBS2.Storage
@@ -29,6 +34,8 @@ import HBS2.Misc.PrettyStuff as Exported
 import HBS2.CLI.Run hiding (PeerException(..))
 import HBS2.CLI.Run.MetaData
 
+import HBS2.KeyMan.Keys.Direct
+
 import Data.Config.Suckless as Exported
 import Data.Config.Suckless.Script as Exported
 import Data.Config.Suckless.Script.File
@@ -37,7 +44,11 @@ import Codec.Serialise as Exported
 import Control.Concurrent.STM (flushTQueue)
 import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
+import Control.Monad.Trans.Maybe
+import Control.Monad.Except
+import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Coerce
 import Data.Either
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
@@ -93,6 +104,11 @@ instance MonadIO m => HasClientAPI PeerAPI UNIX (SyncApp m) where
   getClientAPI = ask >>= orThrow PeerNotConnectedException
                      <&> peerAPI
 
+instance MonadIO m => HasStorage (SyncApp m) where
+  getStorage = do
+    api <- getClientAPI @StorageAPI @UNIX
+    pure $ AnyStorage (StorageClient api)
+
 withSyncApp :: SyncAppPerks m => Maybe SyncEnv -> SyncApp m a -> m a
 withSyncApp env action = runReaderT (fromSyncApp action) env
 
@@ -143,6 +159,7 @@ data RunDirectoryException =
     RefChanNotSetException
   | RefChanHeadNotFoundException
   | EncryptionKeysNotDefined
+  | SignKeyNotSet
   deriving stock (Show,Typeable)
 
 instance Exception RunDirectoryException
@@ -159,7 +176,7 @@ getFileTimestamp filePath = do
   pure (round $ utcTimeToPOSIXSeconds t0)
 
 
-data EntryType = File | Dir
+data EntryType = File | Dir | Tomb
                  deriving stock (Eq,Ord,Show,Data,Generic)
 
 data EntryDesc =
@@ -182,32 +199,32 @@ isFile = \case
 
 entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m (Map FilePath DirEntry)
 entriesFromLocalFile prefix fn' = do
-
   let fn0 = removePrefix prefix fn
   ts <- getFileTimestamp fn
-
-  let dirs = splitDirectories (dropFileName fn0)
-               & dropWhile (== ".")
-
-  debug $ red "SOURCE" <+> pretty fn0 <+> pretty fn <+> pretty dirs
-
-  let es = flip L.unfoldr ("",dirs) $ \case
-              (_,[])   -> Nothing
-              (p,d:ds) -> Just (dirEntry ts (p </> d), (p </> d, ds) )
-
-  pure $ Map.fromList [ (p, e)
-                      | e@(DirEntry _ p) <- fileEntry ts fn0 : es
-                      ]
-
+  pure $ entriesFromFile ts fn0
   where
     fn = normalise fn'
-    dirEntry ts p   = DirEntry (EntryDesc Dir ts) p
-    fileEntry ts p  = DirEntry (EntryDesc File ts) p
+
+entriesFromFile :: Word64 -> FilePath -> Map FilePath DirEntry
+entriesFromFile ts fn0 = do
+  let dirs = splitDirectories (dropFileName fn0)
+               & dropWhile (== ".")
+  let es = flip L.unfoldr ("",dirs) $ \case
+              (_,[])   -> Nothing
+              (p,d:ds) -> Just (dirEntry (p </> d), (p </> d, ds) )
+
+  Map.fromList [ (p, e)
+               | e@(DirEntry _ p) <- fileEntry fn0 : es
+               ]
+  where
+    dirEntry p   = DirEntry (EntryDesc Dir ts) p
+    fileEntry p  = DirEntry (EntryDesc File ts) p
 
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
                 , HasClientAPI RefChanAPI UNIX m
                 , HasClientAPI StorageAPI UNIX m
+                , HasStorage m
                 , Exception (BadFormException c)
                 ) => FilePath -> RunM c m ()
 runDirectory path = do
@@ -223,6 +240,8 @@ runDirectory path = do
         err $ "no refchan head found for" <+> pretty path
       EncryptionKeysNotDefined -> do
         err $ "no readers defined in the refchan for " <+> pretty path
+      SignKeyNotSet -> do
+        err $ "sign key not set or not found " <+> pretty path
 
     `catch` \case
       (e :: OperationError) -> do
@@ -242,6 +261,7 @@ runDirectory path = do
       notice $ yellow "run directory" <+> pretty path
 
       trc    <- newTVarIO Nothing
+      tsign  <- newTVarIO Nothing
       texcl  <- newTQueueIO
       tincl  <- newTQueueIO
 
@@ -273,6 +293,19 @@ runDirectory path = do
 
         _ -> pure ()
 
+
+      bindBuiltins $ bindMatch "sign" $ nil_ $ \case
+        [SignPubKeyLike s] -> do
+          debug $ red "SIGN" <+> pretty (AsBase58 s)
+
+          runMaybeT do
+            creds <- MaybeT $ runKeymanClient $ loadCredentials s
+            atomically $ writeTVar tsign (Just creds)
+
+          pure ()
+
+        _ -> pure ()
+
       evalTop ins
 
       incl <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
@@ -281,8 +314,13 @@ runDirectory path = do
       refchan <- readTVarIO trc
                    >>= orThrow RefChanNotSetException
 
+      fetchRefChan @UNIX refchan
+
       rch <- Client.getRefChanHead @UNIX refchan
                    >>= orThrow RefChanHeadNotFoundException
+
+      creds <- readTVarIO tsign
+                  >>= orThrow SignKeyNotSet
 
       sto <- getClientAPI @StorageAPI @UNIX
               <&> AnyStorage . StorageClient
@@ -310,14 +348,18 @@ runDirectory path = do
       debug "FUCKING GOT REFCHAN HEAD"
 
       let local = Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
-      let remote = Map.empty
+
+      remote <- getStateFromRefChan refchan
 
       let merged = Map.unionWith merge local remote
 
       for_ (Map.toList merged) $ \(p,e) -> do
         debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-        when (not (Map.member p remote) && isFile e) do
+        warn $ red "POSTING IS SWITCHED OFF"
+
+
+        when (not (Map.member p remote) && isFile e && False) do
 
           -- FIXME: dangerous!
           lbs <- liftIO (LBS.readFile (path </> p))
@@ -342,6 +384,14 @@ runDirectory path = do
           href <- createTreeWithMetadata sto (Just gk) meta lbs
                     >>= orThrowPassIO
 
+          let tx = AnnotatedHashRef Nothing href
+          let spk = view peerSignPk creds
+          let ssk = view peerSignSk creds
+
+          let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+
+          postRefChanTx @UNIX refchan box
+
           notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
 
           pure ()
@@ -350,6 +400,53 @@ runDirectory path = do
           notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty p
 
       debug $ pretty ins
+
+    getStateFromRefChan rchan = do
+
+      debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
+
+      sto <- getStorage
+
+      outq <- newTQueueIO
+      tss <- newTVarIO mempty
+
+      walkRefChanTx @UNIX rchan $ \case
+        A (AcceptTran ts _ what) -> do
+          debug $ red "ACCEPT" <+> pretty ts <+> pretty what
+          for_ ts $ \w -> do
+            atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+
+        P orig (ProposeTran _ box) -> void $ runMaybeT do
+          (_, bs) <- unboxSignedBox0 box & toMPlus
+          AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                      & toMPlus . either (const Nothing) Just
+
+          let findKey gk = liftIO (runKeymanClient (extractGroupKeySecret gk))
+
+          runExceptT (extractMetaData @'HBS2Basic findKey sto href)
+           >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, (href, meta)) )
+
+      trees <- atomically (flushTQueue outq)
+
+      tsmap <- readTVarIO tss
+
+      ess0 <- S.toList_ do
+        for_ trees $ \(txh, (tree, meta)) -> do
+          let what = parseTop meta & fromRight mempty
+          let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
+
+          void $ runMaybeT do
+            fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+            ts  <- toMPlus $ HM.lookup txh tsmap
+            let r = entriesFromFile ts (loc </> fn)
+            lift $ S.yield r
+
+      let ess = Map.unionsWith merge ess0
+
+      for_ (Map.toList ess) $ \(p,e) -> do
+        debug $ "REMOTE ENTRY" <+> pretty p <+> viaShow e
+
+      pure mempty
 
 
 syncEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
@@ -362,6 +459,7 @@ syncEntries = do
     _ -> do
       setLogging @DEBUG  debugPrefix
 
+-- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
 
 setupLogger :: MonadIO m => m ()

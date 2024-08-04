@@ -396,8 +396,6 @@ decryptBlock :: forall t s sto h m . ( MonadIO m
                                      , MonadError OperationError m
                                      , Storage sto h ByteString m
                                      , ForGroupKeySymm s
-                                     , PubKey 'Encrypt s ~ AK.PublicKey
-                                     , PrivKey 'Encrypt s ~ AK.SecretKey
                                      , h ~ HbSync
                                      , Serialise t
                                      )

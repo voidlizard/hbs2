@@ -94,6 +94,7 @@ library
                     , HBS2.Polling
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Merkle.MetaData
                     , HBS2.Net.Auth.Schema
                     , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm

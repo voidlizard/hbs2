@@ -71,6 +71,7 @@ pattern AcceptTran t a b <- (unpackAcceptTran -> (t, a, b))
   where
     AcceptTran Nothing a b = AcceptTran1 a b
     AcceptTran (Just t) a b = AcceptTran2 (Just t) a b
+{-# COMPLETE AcceptTran #-}
 
 instance ForRefChans e => Serialise (ProposeTran e)
 instance ForRefChans e => Serialise (AcceptTran e)
