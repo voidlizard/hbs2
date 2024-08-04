@@ -129,6 +129,24 @@ getFileTimestamp filePath = do
   t0 <- liftIO $ getModificationTime filePath
   pure (round $ utcTimeToPOSIXSeconds t0)
 
+
+data EntryType = File | Dir
+                 deriving stock (Eq,Ord,Show,Data,Generic)
+
+data EntryDesc =
+  EntryDesc
+  { entryType      :: EntryType
+  , entryTimestamp :: Word64
+  }
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+data DirEntry = DirEntry EntryDesc FilePath
+                deriving stock (Eq,Ord,Show,Data,Generic)
+
+entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m [DirEntry]
+entriesFromLocalFile prefix fn = do
+  pure mempty
+
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
                 , Exception (BadFormException c)
