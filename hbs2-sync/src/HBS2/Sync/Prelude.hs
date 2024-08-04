@@ -431,7 +431,7 @@ runDirectory path = do
 
           liftIO $ setModificationTime (path </> p) timestamp
 
-        when (freshIn p e remote) do
+        when (freshIn p e remote && actuallyFile) do
 
           -- FIXME: dangerous!
           lbs <- liftIO (LBS.readFile (path </> p))
