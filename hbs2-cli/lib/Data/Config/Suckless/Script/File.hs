@@ -48,7 +48,7 @@ glob pat ignore dir action = do
 
       if not isD then do
         isF <- doesFileExist f
-        when (isF && matches pat f) do
+        when (isF && matches pat f && not (skip f)) do
           atomically $ writeTQueue q (Just f)
       else do
         co' <- (try @_ @IOError $ listDirectory f)

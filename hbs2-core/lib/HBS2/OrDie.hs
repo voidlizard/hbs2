@@ -74,4 +74,9 @@ orThrowUser :: (OrThrow a1, MonadIO m)
 
 orThrowUser p = orThrow (userError (show p))
 
+orThrowPassIO :: (MonadIO m, Exception e) => Either e a -> m a
+orThrowPassIO = \case
+  Left e -> throwIO e
+  Right x -> pure x
+
 

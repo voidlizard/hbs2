@@ -71,5 +71,5 @@ main = do
           _ -> do
             die "command not specified; run hbs2-sync help for details"
 
-  void $ runSyncApp $ run dict cli
+  void $ runSyncApp $ recover $ run dict cli
 

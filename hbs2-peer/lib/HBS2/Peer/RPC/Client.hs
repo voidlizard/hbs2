@@ -1,11 +1,11 @@
-module HBS2.Peer.RPC.Client where
+module HBS2.Peer.RPC.Client
+  ( module HBS2.Peer.RPC.Client
+  , module Exported
+  ) where
 
-import HBS2.Net.Proto.Service
+import HBS2.Net.Proto.Service as Exported
+import HBS2.Peer.RPC.Client.Internal as Exported
 
-import Data.Kind
-
-class Monad m => HasClientAPI (api :: [Type]) proto m where
-  getClientAPI :: m (ServiceCaller api proto)
 
 
 

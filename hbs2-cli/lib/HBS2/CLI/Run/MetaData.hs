@@ -1,6 +1,9 @@
 {-# Language MultiWayIf #-}
 
-module HBS2.CLI.Run.MetaData (metaDataEntries) where
+module HBS2.CLI.Run.MetaData
+  ( metaDataEntries
+  , createTreeWithMetadata
+  ) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal

@@ -8,11 +8,17 @@ import HBS2.Prelude.Plated as Exported
 import HBS2.Base58
 import HBS2.OrDie as Exported
 import HBS2.Data.Types.Refs as Exported
+import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Clock as Exported
 import HBS2.Net.Proto.Service
+import HBS2.Storage
+import HBS2.Storage.Operations.Class
+import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
+import HBS2.Peer.RPC.Client.RefChan as Client
+import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.RefLog
@@ -21,6 +27,7 @@ import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.Misc.PrettyStuff as Exported
 
 import HBS2.CLI.Run hiding (PeerException(..))
+import HBS2.CLI.Run.MetaData
 
 import Data.Config.Suckless as Exported
 import Data.Config.Suckless.Script as Exported
@@ -30,26 +37,34 @@ import Codec.Serialise as Exported
 import Control.Concurrent.STM (flushTQueue)
 import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.List (stripPrefix)
+import Data.Map (Map)
+import Data.Map qualified as Map
 import Data.Maybe
+import Data.Set qualified as Set
+import Data.Set (Set)
 import Data.Time.Clock.POSIX
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
 import Data.Word
+import Lens.Micro.Platform
+import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime)
 import System.FilePath.Posix
 import UnliftIO
 
 {- HLINT ignore "Functor law" -}
+{- HLINT ignore "Eta reduce" -}
 
 data SyncEnv =
   SyncEnv
-  { rechanAPI  :: ServiceCaller RefChanAPI UNIX
+  { refchanAPI :: ServiceCaller RefChanAPI UNIX
   , storageAPI :: ServiceCaller StorageAPI UNIX
   , peerAPI    :: ServiceCaller PeerAPI UNIX
   }
@@ -65,6 +80,18 @@ newtype SyncApp m a =
 
 
 type SyncAppPerks m = MonadUnliftIO m
+
+instance MonadIO m => HasClientAPI StorageAPI UNIX (SyncApp m) where
+  getClientAPI = ask >>= orThrow PeerNotConnectedException
+                     <&> storageAPI
+
+instance MonadIO m => HasClientAPI RefChanAPI UNIX (SyncApp m) where
+  getClientAPI = ask >>= orThrow PeerNotConnectedException
+                     <&> refchanAPI
+
+instance MonadIO m => HasClientAPI PeerAPI UNIX (SyncApp m) where
+  getClientAPI = ask >>= orThrow PeerNotConnectedException
+                     <&> peerAPI
 
 withSyncApp :: SyncAppPerks m => Maybe SyncEnv -> SyncApp m a -> m a
 withSyncApp env action = runReaderT (fromSyncApp action) env
@@ -113,7 +140,9 @@ data PeerException =
 instance Exception PeerException
 
 data RunDirectoryException =
-  RefChanNotSetException
+    RefChanNotSetException
+  | RefChanHeadNotFoundException
+  | EncryptionKeysNotDefined
   deriving stock (Show,Typeable)
 
 instance Exception RunDirectoryException
@@ -143,12 +172,42 @@ data EntryDesc =
 data DirEntry = DirEntry EntryDesc FilePath
                 deriving stock (Eq,Ord,Show,Data,Generic)
 
-entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m [DirEntry]
-entriesFromLocalFile prefix fn = do
-  pure mempty
+getEntryTimestamp :: DirEntry -> Word64
+getEntryTimestamp (DirEntry d _) = entryTimestamp d
+
+isFile :: DirEntry -> Bool
+isFile = \case
+  DirEntry (EntryDesc { entryType = File}) _ -> True
+  _ -> False
+
+entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m (Map FilePath DirEntry)
+entriesFromLocalFile prefix fn' = do
+
+  let fn0 = removePrefix prefix fn
+  ts <- getFileTimestamp fn
+
+  let dirs = splitDirectories (dropFileName fn0)
+               & dropWhile (== ".")
+
+  debug $ red "SOURCE" <+> pretty fn0 <+> pretty fn <+> pretty dirs
+
+  let es = flip L.unfoldr ("",dirs) $ \case
+              (_,[])   -> Nothing
+              (p,d:ds) -> Just (dirEntry ts (p </> d), (p </> d, ds) )
+
+  pure $ Map.fromList [ (p, e)
+                      | e@(DirEntry _ p) <- fileEntry ts fn0 : es
+                      ]
+
+  where
+    fn = normalise fn'
+    dirEntry ts p   = DirEntry (EntryDesc Dir ts) p
+    fileEntry ts p  = DirEntry (EntryDesc File ts) p
 
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
+                , HasClientAPI RefChanAPI UNIX m
+                , HasClientAPI StorageAPI UNIX m
                 , Exception (BadFormException c)
                 ) => FilePath -> RunM c m ()
 runDirectory path = do
@@ -159,12 +218,24 @@ runDirectory path = do
   runDir
     `catch` \case
       RefChanNotSetException -> do
-        warn $ "no refchan set for" <+> pretty path
+        err $ "no refchan set for" <+> pretty path
+      RefChanHeadNotFoundException -> do
+        err $ "no refchan head found for" <+> pretty path
+      EncryptionKeysNotDefined -> do
+        err $ "no readers defined in the refchan for " <+> pretty path
+
+    `catch` \case
+      (e :: OperationError) -> do
+        err $ viaShow e
+
     `finally` do
       warn "exiting"
       atomically (writeTVar t d0)
 
   where
+
+    merge :: DirEntry -> DirEntry -> DirEntry
+    merge a b = if getEntryTimestamp a > getEntryTimestamp b then a else b
 
     runDir = do
 
@@ -204,11 +275,17 @@ runDirectory path = do
 
       evalTop ins
 
-      i <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
-      e <- atomically (flushTQueue texcl) <&> HS.fromList <&> HS.toList
+      incl <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
+      excl <- atomically (flushTQueue texcl) <&> HS.fromList <&> HS.toList
 
-      rc <- readTVarIO trc
-             >>= orThrow RefChanNotSetException
+      refchan <- readTVarIO trc
+                   >>= orThrow RefChanNotSetException
+
+      rch <- Client.getRefChanHead @UNIX refchan
+                   >>= orThrow RefChanHeadNotFoundException
+
+      sto <- getClientAPI @StorageAPI @UNIX
+              <&> AnyStorage . StorageClient
 
       debug $ "step 1"   <+> "load state from refchan"
       debug $ "step 1.1" <+> "initial state is empty"
@@ -222,13 +299,58 @@ runDirectory path = do
 
       let p0 = normalise path
 
-      glob i e path  $ \fn -> do
-        let fn0 = removePrefix path fn
-        ts <- getFileTimestamp fn
-        debug $ yellow "file" <+> viaShow ts <+> pretty fn0
-        pure True
+      es' <- S.toList_ $ do
+        glob incl excl path  $ \fn -> do
+          let fn0 = removePrefix path fn
+          es <- liftIO (entriesFromLocalFile path fn)
+          -- debug $ yellow "file" <+> viaShow ts <+> pretty fn0
+          S.each es
+          pure True
+
+      debug "FUCKING GOT REFCHAN HEAD"
+
+      let local = Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
+      let remote = Map.empty
+
+      let merged = Map.unionWith merge local remote
+
+      for_ (Map.toList merged) $ \(p,e) -> do
+        debug $ yellow "entry" <+> pretty p <+> viaShow e
+
+        when (not (Map.member p remote) && isFile e) do
+
+          -- FIXME: dangerous!
+          lbs <- liftIO (LBS.readFile (path </> p))
+
+          let (dir,file) = splitFileName p
+
+          let meta = HM.fromList [ ("file-name", fromString file)
+                                 ]
+                      <> case dir of
+                           "./" -> mempty
+                           d    -> HM.singleton "location" (fromString d)
+
+          let members = view refChanHeadReaders rch & HS.toList
+
+          -- FIXME: support-unencrypted?
+          when (L.null members) do
+            throwIO EncryptionKeysNotDefined
+
+          gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+
+          -- FIXME: survive-this-error?
+          href <- createTreeWithMetadata sto (Just gk) meta lbs
+                    >>= orThrowPassIO
+
+          notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+
+          pure ()
+
+        unless (Map.member p local) do
+          notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty p
 
       debug $ pretty ins
+
 
 syncEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 syncEntries = do

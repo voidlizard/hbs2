@@ -9,6 +9,7 @@ import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.Client.RefChan as Client
 
 import HBS2.Storage.Operations.ByteString
 
@@ -106,24 +107,13 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
           callCC $ \exit -> do
 
-            api <- getClientAPI @RefChanAPI @UNIX
-            sto <- getStorage
-
-            w <- callService @RpcRefChanHeadGet api puk
-                    >>= orThrowUser "can't get refchan head"
+            w <- lift (getRefChanHeadHash @UNIX puk)
 
             hx <- ContT $ maybe1 w (pure nil)
 
             case what of
               "parsed"  -> do
-
-                  lbz <- runExceptT (readFromMerkle sto (SimpleKey (coerce hx)))
-                           <&> either (const Nothing) Just
-
-                  lbs <- ContT $ maybe1 lbz (pure nil)
-
-                  (_, hdblk) <- unboxSignedBox @(RefChanHeadBlock L4Proto) @'HBS2Basic lbs
-                                   & orThrowUser "can't unbox signed box"
+                  hdblk <- lift (Client.getRefChanHead @UNIX puk)
 
                   exit $ mkStr (show $ pretty hdblk)
 
