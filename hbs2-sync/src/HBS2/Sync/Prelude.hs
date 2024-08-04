@@ -70,7 +70,7 @@ import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
 import Data.Word
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
-import System.Directory (getModificationTime,setModificationTime)
+import System.Directory (getModificationTime,setModificationTime,doesFileExist)
 import System.FilePath.Posix
 import UnliftIO
 
@@ -371,12 +371,20 @@ runDirectory path = do
 
       let merged = Map.unionWith merge local remote
 
+      for_ (Map.toList merged) $ \(k,v) -> do
+        debug $ red "LOCAL MERGED" <+> pretty k <+> viaShow v
+
       flip runContT pure do
 
         for_ (Map.toList merged) $ \(p,e) -> do
+
+          let filePath = path </> p
+
           debug $ yellow "entry" <+> pretty p <+> viaShow e
 
           callCC $ \next -> do
+
+            -- actuallyFile <- liftIO $ doesFileExist filePath
 
             when (freshIn p e remote) do
 
@@ -471,9 +479,15 @@ runDirectory path = do
             fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
             ts  <- toMPlus $ HM.lookup txh tsmap
             let r = entriesFromFile (Just tree) ts (loc </> fn)
+            debug $ green "AAAA ZZZ" <+> pretty (loc </> fn) <+> pretty tree
             lift $ S.yield r
 
-      pure $ Map.unionsWith merge ess0
+      let ess1 = Map.unionsWith merge ess0
+
+      for_ (Map.toList ess1) $ \(k,v) -> do
+        debug $ blue "MERGED" <+> pretty k <+> viaShow v
+
+      pure ess1
 
 
 getTreeContents :: ( MonadUnliftIO m
