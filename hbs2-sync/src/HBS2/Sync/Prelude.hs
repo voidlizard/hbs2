@@ -32,6 +32,7 @@ import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.Storage
 import HBS2.System.Logger.Simple.ANSI as Exported
+import HBS2.System.Dir
 import HBS2.Misc.PrettyStuff as Exported
 
 import HBS2.CLI.Run hiding (PeerException(..))
@@ -197,6 +198,9 @@ data Entry =
   DirEntry EntryDesc FilePath
   deriving stock (Eq,Ord,Show,Data,Generic)
 
+entryPath :: Entry -> FilePath
+entryPath (DirEntry _ p) = p
+
 getEntryTimestamp :: Entry -> Word64
 getEntryTimestamp (DirEntry d _) = entryTimestamp d
 
@@ -265,7 +269,31 @@ runDirectory path = do
   where
 
     merge :: Entry -> Entry -> Entry
-    merge a b = if getEntryTimestamp a > getEntryTimestamp b then a else b
+
+    merge a b = do
+      if getEntryTimestamp a > getEntryTimestamp b then a else b
+
+    mergeNameConflicts a b = do
+      let (files1, dirs1) = Map.elems a & L.partition isFile
+      let (files2, dirs2) = Map.elems b & L.partition isFile
+
+      let files3 = [ (entryPath x, x) | x <- files1 <> files2 ]
+                    & Map.fromListWith merge
+
+      let dirs  = Map.fromListWith merge [ (entryPath x, x) | x <- dirs1 <> dirs2 ]
+      let files = [ (entryPath x, x) | x <- Map.elems files3 ]
+
+      tn <- newTVarIO ( mempty :: Map FilePath Int )
+      es <- forM files $ \(f, e) -> do
+
+              debug $  red "CHECK FILE" <+> pretty f
+
+              if Map.member f dirs then
+                error $ show $ "RENAME FILE" <+> pretty f
+              else
+                pure (f,e)
+
+      pure $ Map.unionWith merge (Map.fromListWith merge es)  dirs
 
     freshIn :: FilePath -> Entry -> Map FilePath Entry -> Bool
     freshIn p e state = do
@@ -369,76 +397,74 @@ runDirectory path = do
 
       remote <- getStateFromRefChan refchan
 
-      let merged = Map.unionWith merge local remote
+      merged <- mergeNameConflicts local remote
 
       for_ (Map.toList merged) $ \(k,v) -> do
         debug $ red "LOCAL MERGED" <+> pretty k <+> viaShow v
 
-      flip runContT pure do
+      for_ (Map.toList merged) $ \(p,e) -> do
 
-        for_ (Map.toList merged) $ \(p,e) -> do
+        let filePath = path </> p
 
-          let filePath = path </> p
+        debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-          debug $ yellow "entry" <+> pretty p <+> viaShow e
+        -- actuallyFile <- liftIO $ doesFileExist filePath
 
-          callCC $ \next -> do
+        debug $ red "FRESH:" <+> pretty p <+> pretty (freshIn p e local)
 
-            -- actuallyFile <- liftIO $ doesFileExist filePath
+        when (freshIn p e local) $ void $ runMaybeT do
 
-            when (freshIn p e remote) do
+          h <- getEntryHash e & toMPlus
 
-              -- FIXME: dangerous!
-              lbs <- liftIO (LBS.readFile (path </> p))
+          notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty path <+> pretty p <+> pretty (getEntryHash e)
 
-              let (dir,file) = splitFileName p
+          lbs <- lift (runExceptT (getTreeContents sto h))
+                   >>= toMPlus
 
-              let meta = HM.fromList [ ("file-name", fromString file)
-                                     ]
-                          <> case dir of
-                               "./" -> mempty
-                               d    -> HM.singleton "location" (fromString d)
+          mkdir (dropFileName filePath)
 
-              let members = view refChanHeadReaders rch & HS.toList
+          liftIO $ UIO.withBinaryFileAtomic filePath WriteMode $ \fh -> do
+            LBS.hPutStr fh lbs
 
-              -- FIXME: support-unencrypted?
-              when (L.null members) do
-                throwIO EncryptionKeysNotDefined
+          let ts  = getEntryTimestamp e
+          let timestamp = posixSecondsToUTCTime (fromIntegral ts)
 
-              gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+          liftIO $ setModificationTime (path </> p) timestamp
 
-              -- FIXME: survive-this-error?
-              href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
-                        >>= orThrowPassIO
+        when (freshIn p e remote) do
 
-              let tx = AnnotatedHashRef Nothing href
-              let spk = view peerSignPk creds
-              let ssk = view peerSignSk creds
+          -- FIXME: dangerous!
+          lbs <- liftIO (LBS.readFile (path </> p))
 
-              let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+          let (dir,file) = splitFileName p
 
-              notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+          let meta = HM.fromList [ ("file-name", fromString file)
+                                 ]
+                      <> case dir of
+                           "./" -> mempty
+                           d    -> HM.singleton "location" (fromString d)
 
-              lift $ postRefChanTx @UNIX refchan box
+          let members = view refChanHeadReaders rch & HS.toList
 
-            when (freshIn p e local) do
-              h <- ContT $ maybe1 (getEntryHash e) none
-              -- let h = getEntryHash e
+          -- FIXME: support-unencrypted?
+          when (L.null members) do
+            throwIO EncryptionKeysNotDefined
 
-              notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty path <+> pretty p <+> pretty (getEntryHash e)
+          gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
 
-              lbs' <- lift (runExceptT (getTreeContents sto h))
-                      <&> either (const Nothing) Just
+          -- FIXME: survive-this-error?
+          href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
+                    >>= orThrowPassIO
 
-              lbs <- ContT $ maybe1 lbs' none
+          let tx = AnnotatedHashRef Nothing href
+          let spk = view peerSignPk creds
+          let ssk = view peerSignSk creds
 
-              liftIO $ UIO.withBinaryFileAtomic (path </> p) WriteMode $ \fh -> do
-                LBS.hPutStr fh lbs
+          let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
 
-              let ts  = getEntryTimestamp e
-              let timestamp = posixSecondsToUTCTime (fromIntegral ts)
+          notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
 
-              liftIO $ setModificationTime (path </> p) timestamp
+          postRefChanTx @UNIX refchan box
 
 
     getStateFromRefChan rchan = do
