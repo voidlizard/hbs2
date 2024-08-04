@@ -356,10 +356,9 @@ runDirectory path = do
       for_ (Map.toList merged) $ \(p,e) -> do
         debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-        warn $ red "POSTING IS SWITCHED OFF"
+        -- warn $ red "POSTING IS SWITCHED OFF"
 
-
-        when (not (Map.member p remote) && isFile e && False) do
+        when (not (Map.member p remote) && isFile e) do
 
           -- FIXME: dangerous!
           lbs <- liftIO (LBS.readFile (path </> p))
@@ -393,8 +392,6 @@ runDirectory path = do
           postRefChanTx @UNIX refchan box
 
           notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
-
-          pure ()
 
         unless (Map.member p local) do
           notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty p
@@ -441,12 +438,7 @@ runDirectory path = do
             let r = entriesFromFile ts (loc </> fn)
             lift $ S.yield r
 
-      let ess = Map.unionsWith merge ess0
-
-      for_ (Map.toList ess) $ \(p,e) -> do
-        debug $ "REMOTE ENTRY" <+> pretty p <+> viaShow e
-
-      pure mempty
+      pure $ Map.unionsWith merge ess0
 
 
 syncEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
