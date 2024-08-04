@@ -33,8 +33,16 @@ import Control.Monad.Trans.Cont as Exported
 import Data.Either
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
-import System.FilePath
-
+import Data.List qualified as L
+import Data.List (stripPrefix)
+import Data.Maybe
+import Data.Time.Clock.POSIX
+import Data.Time.Clock (UTCTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
+import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
+import Data.Word
+import System.Directory (getModificationTime)
+import System.FilePath.Posix
 import UnliftIO
 
 {- HLINT ignore "Functor law" -}
@@ -110,6 +118,17 @@ data RunDirectoryException =
 
 instance Exception RunDirectoryException
 
+removePrefix :: FilePath -> FilePath -> FilePath
+removePrefix prefix path =
+  let prefixDirs = splitDirectories $ normalise prefix
+      pathDirs = splitDirectories $ normalise path
+  in joinPath $ fromMaybe pathDirs (stripPrefix prefixDirs pathDirs)
+
+getFileTimestamp :: MonadUnliftIO m => FilePath -> m Word64
+getFileTimestamp filePath = do
+  t0 <- liftIO $ getModificationTime filePath
+  pure (round $ utcTimeToPOSIXSeconds t0)
+
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
                 , Exception (BadFormException c)
@@ -139,7 +158,8 @@ runDirectory path = do
 
       atomically $ writeTQueue tincl "**"
 
-      ins <- liftIO $ readFile (path </> ".hbs2-sync/config")
+      ins <- liftIO (try @_ @IOError (readFile (path </> ".hbs2-sync/config")))
+               <&> fromRight mempty
                <&> parseTop
                <&> either mempty (fmap fixContext)
 
@@ -173,12 +193,21 @@ runDirectory path = do
              >>= orThrow RefChanNotSetException
 
       debug $ "step 1"   <+> "load state from refchan"
+      debug $ "step 1.1" <+> "initial state is empty"
       debug $ "step 2"   <+> "create local state"
+      debug $ "step 2.1" <+> "scan all files"
+      debug $ "step 2.2" <+> "extract all / directories"
+
       debug $ "step 3"   <+> "merge states"
       debug $ "step 3.1" <+> "generate merge actions"
       debug $ "step 3.2" <+> "apply actions"
 
+      let p0 = normalise path
+
       glob i e path  $ \fn -> do
+        let fn0 = removePrefix path fn
+        ts <- getFileTimestamp fn
+        debug $ yellow "file" <+> viaShow ts <+> pretty fn0
         pure True
 
       debug $ pretty ins
