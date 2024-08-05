@@ -503,12 +503,34 @@ merge :: Entry -> Entry -> Entry
 merge a b = do
   if getEntryTimestamp a > getEntryTimestamp b then a else b
 
-getStateFromDir :: MonadIO m
-                => FilePath       -- ^ dir
+-- NOTE: getStateFromDir
+--  что бы устранить противоречия в "удалённом" стейте и
+--  локальном, мы должны о них узнать
+--
+--  Основное противоречие это file <=> dir
+--  Так как мы не сохраняем каталоги, а только файлы
+--  Каталоги выводим из файлов (таким образом, пустые каталоги будут игнорироваться)
+--
+--  Допустим, у нас есть файл, совпадающий по имени с каталогом в remote state
+--  Мы должны тогда вывести этот каталог из remote state и проверить,
+--  чем он является тут (каталогом или файлом)
+--
+--  Тогда функция устранения противоречий сможет что-то с этим сделать
+--  впоследствии
+--
+
+getStateFromDir :: ( MonadIO m
+                   , HasClientAPI RefChanAPI UNIX m
+                   , HasClientAPI StorageAPI UNIX m
+                   , HasStorage m
+                   , HasRunDir m
+                   )
+                => Bool           -- ^ use remote state as seed
+                -> FilePath       -- ^ dir
                 -> [FilePattern]  -- ^ include pattern
                 -> [FilePattern]  -- ^ exclude pattern
-                -> m (Map FilePath Entry)
-getStateFromDir path incl excl = do
+                -> m [(FilePath, Entry)]
+getStateFromDir seed path incl excl = do
   es' <- S.toList_ $ do
     glob incl excl path  $ \fn -> do
       let fn0 = removePrefix path fn
@@ -516,7 +538,28 @@ getStateFromDir path incl excl = do
       -- debug $ yellow "file" <+> viaShow ts <+> pretty fn0
       S.each es
       pure True
-  pure $ Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
+
+  let es0 = [ (entryPath e, e) | e <- es' ]
+
+  if not seed then do
+    pure es0
+  else  do
+   dir   <- getRunDir
+   fromMaybe es0 <$> runMaybeT do
+     env <- getRunDirEnv dir >>= toMPlus
+     rchan <- view dirSyncRefChan env & toMPlus
+     es2 <- lift $ getStateFromRefChan rchan
+
+     S.toList_ do
+         S.each es0
+         for_ es2 $ \(p, e) -> do
+           isDir <- liftIO $ doesDirectoryExist (path </> p)
+           ts <- liftIO $ getFileTimestamp  (path </> p)
+
+           when isDir do
+            S.yield (p, DirEntry (EntryDesc Dir ts mzero) p)
+
+           S.yield (p,e)
 
 
 getStateFromRefChan :: forall m . ( MonadIO m
@@ -524,8 +567,8 @@ getStateFromRefChan :: forall m . ( MonadIO m
                                   , HasClientAPI StorageAPI UNIX m
                                   , HasStorage m
                                   )
-                    => PubKey 'Sign 'HBS2Basic
-                    -> m (Map FilePath Entry)
+                    => MyRefChan
+                    -> m [(FilePath, Entry)]
 getStateFromRefChan rchan = do
 
   debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
@@ -566,7 +609,7 @@ getStateFromRefChan rchan = do
         let r = entriesFromFile (Just tree) ts (loc </> fn)
         lift $ S.yield r
 
-  pure $ Map.unionsWith merge ess0
+  pure $ Map.toList $ Map.unionsWith merge ess0
 
 
 getTreeContents :: ( MonadUnliftIO m
@@ -723,7 +766,12 @@ syncEntries = do
         w -> err $ "invalid sign key" <+> pretty (mkList w)
 
 
-  entry $ bindMatch "dir:state:local:show" $ nil_ $ const do
+  entry $ bindMatch "dir:state:local:show" $ nil_ $ \syn -> do
+
+    let seed = case syn of
+              [StringLike "seed"] -> True
+              _                   -> False
+
     dir <- getRunDir
 
     env <- getRunDirEnv dir >>= orThrow DirNotSet
@@ -731,9 +779,9 @@ syncEntries = do
     let excl = view dirSyncExclude env
     let incl = view dirSyncInclude env
 
-    state <- getStateFromDir dir incl excl
+    state <- getStateFromDir seed dir incl excl
 
-    liftIO $ print $ vcat (fmap (pretty . AsSexp @C) (Map.elems state))
+    liftIO $ print $ vcat (fmap (pretty . AsSexp @C . snd) state)
 
 
   entry $ bindMatch "dir:state:remote:show" $ nil_ $ const do
@@ -748,7 +796,7 @@ syncEntries = do
 
       state <- lift $ getStateFromRefChan rchan
 
-      liftIO $ print $ vcat (fmap (pretty . AsSexp @C) (Map.elems state))
+      liftIO $ print $ vcat (fmap (pretty . AsSexp @C . snd) state)
 
 
   entry $ bindMatch "dir:config:show" $ nil_ $ const do
