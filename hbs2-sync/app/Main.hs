@@ -43,7 +43,7 @@ main = do
   cli <- liftIO getArgs <&> unlines . fmap unwords . splitForms
            >>= either (error.show) pure . parseTop
            <&> \case
-            [] -> [mkList [mkSym "run", mkSym "."]]
+            [] -> [mkList [mkSym "run"]]
             xs -> xs
 
   let dict = makeDict do
