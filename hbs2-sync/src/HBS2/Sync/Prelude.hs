@@ -59,6 +59,7 @@ import Control.Monad.Trans.Cont as Exported
 import Control.Monad.Trans.Maybe
 import Control.Monad.Except
 import Data.ByteString (ByteString)
+import Data.Ord
 import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce
 import Data.Either
@@ -79,8 +80,9 @@ import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
 import Data.Word
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
-import System.Directory (getModificationTime,setModificationTime,doesFileExist)
+import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
 import System.FilePath.Posix
+import System.FilePattern
 import System.Exit qualified as Exit
 import UnliftIO
 
@@ -255,6 +257,18 @@ data EntryDesc =
 
 newtype AsSexp c a = AsSexp a
 
+pattern TombLikeOpt :: forall {c} . Syntax c
+pattern TombLikeOpt <- ListVal [StringLike "tomb:", tombLikeValue -> True]
+
+tombLikeValue :: Syntax c -> Bool
+tombLikeValue = \case
+  StringLike "#t" -> True
+  StringLike "true" -> True
+  StringLike "yes" -> True
+  StringLike "tomb" -> True
+  LitBoolVal True -> True
+  _ -> False
+
 pattern TombEntry :: Entry -> Entry
 pattern TombEntry e <- e@(DirEntry (EntryDesc { entryType = Tomb }) _)
 
@@ -291,8 +305,8 @@ instance IsContext c => ToSexp c Entry where
   toSexp (DirEntry w p) = mkForm @c "entry" [toSexp w, mkStr p]
 
 
-makeTomb :: Word64 -> FilePath -> Entry
-makeTomb t n = DirEntry (EntryDesc Tomb t Nothing) n
+makeTomb :: Word64 -> FilePath -> Maybe HashRef -> Entry
+makeTomb t n h = DirEntry (EntryDesc Tomb t h) n
 
 entryPath :: Entry -> FilePath
 entryPath (DirEntry _ p) = p
@@ -306,6 +320,11 @@ getEntryHash (DirEntry d _) = entryRemoteHash d
 isFile :: Entry -> Bool
 isFile = \case
   DirEntry (EntryDesc { entryType = File}) _ -> True
+  _ -> False
+
+isTomb :: Entry -> Bool
+isTomb = \case
+  DirEntry (EntryDesc { entryType = Tomb}) _ -> True
   _ -> False
 
 isDir :: Entry -> Bool
@@ -370,50 +389,6 @@ runDirectory = do
 
   where
 
-    postEntryTx refchan path entry = do
-
-      sto <- getStorage
-
-      env <- getRunDirEnv path >>= orThrow DirNotSet
-
-      creds <- view dirSyncCreds env & orThrow DirNotSet
-
-      rch <- Client.getRefChanHead @UNIX refchan
-                   >>= orThrow RefChanHeadNotFoundException
-
-      let p = entryPath entry
-      -- FIXME: dangerous!
-      lbs <- liftIO (LBS.readFile (path </> p))
-
-      let (dir,file) = splitFileName p
-
-      let meta = HM.fromList [ ("file-name", fromString file)
-                             ]
-                  <> case dir of
-                       "./" -> mempty
-                       d    -> HM.singleton "location" (fromString d)
-
-      let members = view refChanHeadReaders rch & HS.toList
-
-      -- FIXME: support-unencrypted?
-      when (L.null members) do
-        throwIO EncryptionKeysNotDefined
-
-      gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
-
-      -- FIXME: survive-this-error?
-      href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
-                >>= orThrowPassIO
-
-      let tx = AnnotatedHashRef Nothing href
-      let spk = view peerSignPk creds
-      let ssk = view peerSignSk creds
-
-      let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
-
-      notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
-
-      postRefChanTx @UNIX refchan box
 
     writeEntry path e = do
 
@@ -497,8 +472,80 @@ runDirectory = do
             when (not here || older) do
               writeEntry path e
 
+          E (p,TombEntry e) -> do
+            let fullPath = path </> p
+            here <- liftIO $ doesFileExist fullPath
+            when here do
+              notice $ red "tomb entry" <+> pretty (path </> p)
+              rm fullPath
+
           E (p,_) -> do
             notice $ "skip entry" <+> pretty (path </> p)
+
+
+postEntryTx :: ( MonadUnliftIO m
+               , HasStorage m
+               , HasRunDir m
+               , HasClientAPI StorageAPI UNIX m
+               , HasClientAPI RefChanAPI UNIX m
+               )
+            => MyRefChan
+            -> FilePath
+            -> Entry
+            -> m ()
+postEntryTx refchan path entry = do
+
+  sto <- getStorage
+
+  env <- getRunDirEnv path >>= orThrow DirNotSet
+
+  creds <- view dirSyncCreds env & orThrow DirNotSet
+
+  rch <- Client.getRefChanHead @UNIX refchan
+               >>= orThrow RefChanHeadNotFoundException
+
+  void $ runMaybeT do
+
+    guard (isFile entry || isTomb entry)
+
+    let p = entryPath entry
+    -- FIXME: dangerous!
+    lbs <- if isTomb entry then do
+             pure ""
+           else
+             liftIO (LBS.readFile (path </> p))
+
+    let (dir,file) = splitFileName p
+
+    let meta = HM.fromList [ ("file-name", fromString file)
+                           ]
+                <> case dir of
+                     "./" -> mempty
+                     d    -> HM.singleton "location" (fromString d)
+                <> if not (isTomb entry) then HM.empty
+                   else HM.singleton "tomb" "#t"
+
+    let members = view refChanHeadReaders rch & HS.toList
+
+    -- FIXME: support-unencrypted?
+    when (L.null members) do
+      throwIO EncryptionKeysNotDefined
+
+    gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+
+    -- FIXME: survive-this-error?
+    href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
+               >>= orThrowPassIO
+
+    let tx = AnnotatedHashRef Nothing href
+    let spk = view peerSignPk creds
+    let ssk = view peerSignSk creds
+
+    let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+
+    notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+
+    lift $ postRefChanTx @UNIX refchan box
 
 
 merge :: Entry -> Entry -> Entry
@@ -549,18 +596,30 @@ mergeState orig = do
 
   let files  = [ (p,e) | (p,e) <- orig, isFile e ] & Map.fromListWith merge
 
+  let tombs  = [ (p,e) | (p,e) <- orig, isTomb e ] & Map.fromListWith merge
+
   let names = Map.keysSet (dirs <> files)
 
   now <- liftIO $ getPOSIXTime <&> round
 
   S.toList_ do
     for_ (Map.toList files) $ \(p,e@(DirEntry d _)) -> do
-      if Map.member p dirs then do
-        let new = uniqName names p
-        S.yield $ M (p, new, DirEntry d new)
-        S.yield $ N (p, makeTomb now p)
-      else
-        S.yield $ E (p,e)
+      if
+       | Map.member p dirs -> do
+           let new = uniqName names p
+           S.yield $ M (p, new, DirEntry d new)
+           S.yield $ N (p, makeTomb now p Nothing)
+
+       | Map.member p tombs -> do
+          let tomb = Map.lookup p tombs
+          case tomb of
+            Just t | getEntryTimestamp t >= getEntryTimestamp e -> do
+              S.yield $ E (p,t)
+
+            _ -> S.yield $ E (p,e)
+
+       | otherwise -> do
+          S.yield $ E (p,e)
 
   where
     uniqName names0 name = do
@@ -696,10 +755,19 @@ getStateFromRefChan rchan = do
       let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
 
       void $ runMaybeT do
-        fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
-        ts  <- toMPlus $ HM.lookup txh tsmap
-        let r = entriesFromFile (Just tree) ts (loc </> fn)
-        lift $ S.yield r
+        fn   <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+        ts   <- toMPlus $ HM.lookup txh tsmap
+        let tomb = or [ True | TombLikeOpt <- what  ]
+        let fullPath = loc </> fn
+
+        debug $ red $ "META" <+> pretty what
+
+        if tomb then do
+          lift $ S.yield $
+            Map.singleton fullPath (makeTomb ts fullPath (Just tree))
+        else do
+          let r = entriesFromFile (Just tree) ts fullPath
+          lift $ S.yield r
 
   pure $ Map.toList $ Map.unionsWith merge ess0
 
@@ -907,6 +975,63 @@ syncEntries = do
 
   entry $ bindMatch "run" $ nil_  \case
     _ -> runDirectory
+
+
+  entry $ bindMatch "prune" $ nil_ \case
+    [] -> do
+
+
+      path <- getRunDir
+
+      env <- getRunDirEnv path >>= orThrow DirNotSet
+
+      let excl = view dirSyncExclude env
+
+      let skip p = or [ i ?== p | i <- excl ]
+
+      dirs <- S.toList_ do
+                flip fix [path] $ \next -> \case
+                  (d:ds) -> do
+                    dirs <- liftIO (listDirectory d)
+                    let es =  [ path </> d </> x | x <- dirs, not (skip x) ]
+                    dd <- liftIO $ filterM doesDirectoryExist es
+                    S.each dd
+                    next (ds <> dd)
+
+                  [] -> pure ()
+
+      for_ (L.sortBy (comparing Down) dirs) $ \d -> do
+        pu <- liftIO (listDirectory d) <&> L.null
+        when pu do
+          notice $ red "prune" <+> pretty d
+          rm d
+
+    _ -> pure ()
+
+
+  entry $ bindMatch "tomb" $ nil_ \case
+    [StringLike p] -> do
+
+      path <- getRunDir
+      env <- getRunDirEnv path >>= orThrow DirNotSet
+
+      void $ runMaybeT do
+
+        let fullPath = path </> p
+
+        rchan <- view dirSyncRefChan env
+                   & toMPlus
+
+
+        here <- liftIO (doesFileExist fullPath)
+        guard here
+
+        now <- liftIO getPOSIXTime <&> round
+
+        notice $ red "ABOUT TO POST TOMB TX" <+> pretty p
+        lift $ postEntryTx rchan path (makeTomb now p mzero)
+
+    _ -> pure ()
 
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
