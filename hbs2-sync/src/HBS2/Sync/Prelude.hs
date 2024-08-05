@@ -268,10 +268,6 @@ runDirectory path = do
 
   where
 
-    merge :: Entry -> Entry -> Entry
-
-    merge a b = do
-      if getEntryTimestamp a > getEntryTimestamp b then a else b
 
     mergeNameConflicts a b = do
       let (files1, dirs1) = Map.elems a & L.partition isFile
@@ -280,8 +276,9 @@ runDirectory path = do
       let files3 = [ (entryPath x, x) | x <- files1 <> files2 ]
                     & Map.fromListWith merge
 
-      let dirs  = Map.fromListWith merge [ (entryPath x, x) | x <- dirs1 <> dirs2 ]
+      let dirs  = Map.fromList [ (entryPath x, x) | x <- dirs1 <> dirs2 ]
       let files = [ (entryPath x, x) | x <- Map.elems files3 ]
+
 
       tn <- newTVarIO ( mempty :: Map FilePath Int )
       es <- forM files $ \(f, e) -> do
@@ -292,6 +289,9 @@ runDirectory path = do
                 error $ show $ "RENAME FILE" <+> pretty f
               else
                 pure (f,e)
+
+
+      error $ show dirs
 
       pure $ Map.unionWith merge (Map.fromListWith merge es)  dirs
 
@@ -383,17 +383,8 @@ runDirectory path = do
 
       let p0 = normalise path
 
-      es' <- S.toList_ $ do
-        glob incl excl path  $ \fn -> do
-          let fn0 = removePrefix path fn
-          es <- liftIO (entriesFromLocalFile path fn)
-          -- debug $ yellow "file" <+> viaShow ts <+> pretty fn0
-          S.each es
-          pure True
 
-      debug "FUCKING GOT REFCHAN HEAD"
-
-      let local = Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
+      local <- getStateFromDir path incl excl
 
       remote <- getStateFromRefChan refchan
 
@@ -408,11 +399,10 @@ runDirectory path = do
 
         debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-        actuallyFile <- liftIO $ doesFileExist filePath
 
         debug $ red "FRESH:" <+> pretty p <+> pretty (freshIn p e local)
 
-        when (freshIn p e local && actuallyFile) $ void $ runMaybeT do
+        when (freshIn p e local && isFile e) $ void $ runMaybeT do
 
           h <- getEntryHash e & toMPlus
 
@@ -430,6 +420,8 @@ runDirectory path = do
           let timestamp = posixSecondsToUTCTime (fromIntegral ts)
 
           liftIO $ setModificationTime (path </> p) timestamp
+
+        actuallyFile <- liftIO $ doesFileExist filePath
 
         when (freshIn p e remote && actuallyFile) do
 
@@ -467,53 +459,74 @@ runDirectory path = do
           postRefChanTx @UNIX refchan box
 
 
-    getStateFromRefChan rchan = do
+merge :: Entry -> Entry -> Entry
+merge a b = do
+  if getEntryTimestamp a > getEntryTimestamp b then a else b
 
-      debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
+getStateFromDir :: MonadIO m
+                => FilePath       -- ^ dir
+                -> [FilePattern]  -- ^ include pattern
+                -> [FilePattern]  -- ^ exclude pattern
+                -> m (Map FilePath Entry)
+getStateFromDir path incl excl = do
+  es' <- S.toList_ $ do
+    glob incl excl path  $ \fn -> do
+      let fn0 = removePrefix path fn
+      es <- liftIO (entriesFromLocalFile path fn0)
+      -- debug $ yellow "file" <+> viaShow ts <+> pretty fn0
+      S.each es
+      pure True
+  pure $ Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
 
-      sto <- getStorage
 
-      outq <- newTQueueIO
-      tss <- newTVarIO mempty
+getStateFromRefChan :: forall m . ( SyncAppPerks m
+                                  , HasClientAPI RefChanAPI UNIX m
+                                  , HasClientAPI StorageAPI UNIX m
+                                  , HasStorage m
+                                  )
+                    => PubKey 'Sign 'HBS2Basic
+                    -> m (Map FilePath Entry)
+getStateFromRefChan rchan = do
 
-      walkRefChanTx @UNIX rchan $ \case
-        A (AcceptTran ts _ what) -> do
-          debug $ red "ACCEPT" <+> pretty ts <+> pretty what
-          for_ ts $ \w -> do
-            atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+  debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
 
-        P orig (ProposeTran _ box) -> void $ runMaybeT do
-          (_, bs) <- unboxSignedBox0 box & toMPlus
-          AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
-                                      & toMPlus . either (const Nothing) Just
+  sto <- getStorage
 
-          let findKey gk = liftIO (runKeymanClient (extractGroupKeySecret gk))
+  outq <- newTQueueIO
+  tss <- newTVarIO mempty
 
-          runExceptT (extractMetaData @'HBS2Basic findKey sto href)
-           >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, (href, meta)) )
+  walkRefChanTx @UNIX rchan $ \case
+    A (AcceptTran ts _ what) -> do
+      -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
+      for_ ts $ \w -> do
+        atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
 
-      trees <- atomically (flushTQueue outq)
+    P orig (ProposeTran _ box) -> void $ runMaybeT do
+      (_, bs) <- unboxSignedBox0 box & toMPlus
+      AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                  & toMPlus . either (const Nothing) Just
 
-      tsmap <- readTVarIO tss
+      let findKey gk = liftIO (runKeymanClient (extractGroupKeySecret gk))
 
-      ess0 <- S.toList_ do
-        for_ trees $ \(txh, (tree, meta)) -> do
-          let what = parseTop meta & fromRight mempty
-          let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
+      runExceptT (extractMetaData @'HBS2Basic findKey sto href)
+       >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, (href, meta)) )
 
-          void $ runMaybeT do
-            fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
-            ts  <- toMPlus $ HM.lookup txh tsmap
-            let r = entriesFromFile (Just tree) ts (loc </> fn)
-            debug $ green "AAAA ZZZ" <+> pretty (loc </> fn) <+> pretty tree
-            lift $ S.yield r
+  trees <- atomically (flushTQueue outq)
 
-      let ess1 = Map.unionsWith merge ess0
+  tsmap <- readTVarIO tss
 
-      for_ (Map.toList ess1) $ \(k,v) -> do
-        debug $ blue "MERGED" <+> pretty k <+> viaShow v
+  ess0 <- S.toList_ do
+    for_ trees $ \(txh, (tree, meta)) -> do
+      let what = parseTop meta & fromRight mempty
+      let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
 
-      pure ess1
+      void $ runMaybeT do
+        fn  <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+        ts  <- toMPlus $ HM.lookup txh tsmap
+        let r = entriesFromFile (Just tree) ts (loc </> fn)
+        lift $ S.yield r
+
+  pure $ Map.unionsWith merge ess0
 
 
 getTreeContents :: ( MonadUnliftIO m
