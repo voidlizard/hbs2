@@ -290,6 +290,11 @@ isFile = \case
   DirEntry (EntryDesc { entryType = File}) _ -> True
   _ -> False
 
+isDir :: Entry -> Bool
+isDir = \case
+  DirEntry (EntryDesc { entryType = Dir}) _ -> True
+  _ -> False
+
 entriesFromLocalFile :: MonadUnliftIO m => FilePath -> FilePath -> m (Map FilePath Entry)
 entriesFromLocalFile prefix fn' = do
   let fn0 = removePrefix prefix fn
@@ -503,6 +508,38 @@ merge :: Entry -> Entry -> Entry
 merge a b = do
   if getEntryTimestamp a > getEntryTimestamp b then a else b
 
+mergeState :: MonadUnliftIO m
+           => [(FilePath, Entry)]
+           -> m [(FilePath, Entry)]
+
+mergeState orig = do
+
+  let dirs = [ (p,e) | (p,e) <- orig, isDir e ] & Map.fromListWith merge
+
+  let files  = [ (p,e) | (p,e) <- orig, isFile e ] & Map.fromListWith merge
+
+  let names = Map.keysSet (dirs <> files)
+
+  S.toList_ do
+    for_ (Map.toList files) $ \(p,e@(DirEntry d _)) -> do
+      if Map.member p dirs then do
+        let new = uniqName names p
+        S.yield (new, DirEntry d new)
+      else
+        S.yield (p,e)
+
+  where
+    uniqName names0 name = do
+
+      flip fix (names0,0) $ \next (names,n) -> do
+        let suff = hashObject @HbSync (serialise (names, name, n))
+                    & pretty & show & drop 2 & take 4
+        let new = name <> "~" <> suff
+        if Set.member new names then
+          next (Set.insert new names, succ n)
+        else
+          new
+
 -- NOTE: getStateFromDir
 --  что бы устранить противоречия в "удалённом" стейте и
 --  локальном, мы должны о них узнать
@@ -518,6 +555,25 @@ merge a b = do
 --  Тогда функция устранения противоречий сможет что-то с этим сделать
 --  впоследствии
 --
+
+getStateFromDir0 :: ( MonadIO m
+                   , HasClientAPI RefChanAPI UNIX m
+                   , HasClientAPI StorageAPI UNIX m
+                   , HasStorage m
+                   , HasRunDir m
+                   )
+                => Bool
+                -> m [(FilePath, Entry)]
+getStateFromDir0 seed = do
+
+  dir <- getRunDir
+
+  env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+  let excl = view dirSyncExclude env
+  let incl = view dirSyncInclude env
+
+  getStateFromDir seed dir incl excl
 
 getStateFromDir :: ( MonadIO m
                    , HasClientAPI RefChanAPI UNIX m
@@ -766,23 +822,23 @@ syncEntries = do
         w -> err $ "invalid sign key" <+> pretty (mkList w)
 
 
-  entry $ bindMatch "dir:state:local:show" $ nil_ $ \syn -> do
+  entry $ bindMatch "dir:state:merged:show" $ nil_ $ \_ -> do
+    state <- getStateFromDir0 True
 
-    let seed = case syn of
-              [StringLike "seed"] -> True
-              _                   -> False
+    merged <- mergeState state
 
-    dir <- getRunDir
+    liftIO $ print $ vcat (fmap (pretty . AsSexp @C . snd) merged)
 
-    env <- getRunDirEnv dir >>= orThrow DirNotSet
+  entry $ bindMatch "dir:state:local:show" $ nil_ $ \sy -> do
 
-    let excl = view dirSyncExclude env
-    let incl = view dirSyncInclude env
+    let f = case sy of
+              [StringLike "F"] -> isFile
+              [StringLike "D"] -> isDir
+              _                -> const True
 
-    state <- getStateFromDir seed dir incl excl
+    state <- getStateFromDir0 False
 
-    liftIO $ print $ vcat (fmap (pretty . AsSexp @C . snd) state)
-
+    liftIO $ print $ vcat (fmap (pretty . AsSexp @C . snd) (filter (f . snd) state))
 
   entry $ bindMatch "dir:state:remote:show" $ nil_ $ const do
     dir <- getRunDir
