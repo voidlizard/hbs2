@@ -3,10 +3,11 @@
 module Main where
 
 import HBS2.Sync.Prelude
+import HBS2.System.Dir
 
 import System.Environment
+import System.Directory
 import UnliftIO
-import Control.Monad.Identity
 
 
 helpEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
@@ -43,7 +44,7 @@ main = do
   cli <- liftIO getArgs <&> unlines . fmap unwords . splitForms
            >>= either (error.show) pure . parseTop
            <&> \case
-            [] -> [mkList [mkSym "run"]]
+            [] -> [mkList [mkSym "run-config"]]
             xs -> xs
 
   let dict = makeDict do
@@ -53,6 +54,12 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
+  dir <- pwd
+  here <- liftIO $ doesFileExist (dir </> ".hbs2-sync/config")
 
-  void $ runSyncApp $ recover $ run dict cli
+  void $ runSyncApp $ recover $ do
+    when here $ runM dict do
+        void $ evalTop [ mkList [mkSym "dir", mkStr dir] ]
+
+    run dict cli
 

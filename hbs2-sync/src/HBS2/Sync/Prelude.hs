@@ -81,6 +81,7 @@ import Data.Word
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
+import System.Directory (XdgDirectory(..),getXdgDirectory)
 import System.FilePath.Posix
 import System.FilePattern
 import System.Exit qualified as Exit
@@ -385,7 +386,7 @@ runDirectory = do
         err $ viaShow e
 
     `finally` do
-      warn "exiting"
+      pure ()
 
   where
 
@@ -440,7 +441,6 @@ runDirectory = do
       for_ (L.sortOn filesLast merged) $ \w -> do
         case w of
           N (p,TombEntry e) -> do
-            let fullPath = path </> p
             notice $ green "removed entry" <+> pretty p
 
           N (_,_) -> none
@@ -760,7 +760,7 @@ getStateFromRefChan rchan = do
         let tomb = or [ True | TombLikeOpt <- what  ]
         let fullPath = loc </> fn
 
-        debug $ red $ "META" <+> pretty what
+        debug $ red "META" <+> pretty what
 
         if tomb then do
           lift $ S.yield $
@@ -861,6 +861,15 @@ syncEntries = do
   entry $ bindMatch "init"  $ nil_ $ const do
     pure ()
 
+  entry $ bindMatch "sync" $ nil_ $ \case
+    [StringLike d] -> do
+
+      void $ evalTop [ mkList [mkSym "dir", mkStr d]
+                     , mkList [mkSym "run"]
+                     ]
+
+    _ -> pure ()
+
   brief "sets current directory"
    $ args [ arg "string"  "dir" ]
    $ desc "useful for debugging"
@@ -932,6 +941,17 @@ syncEntries = do
     merged <- mergeState state
 
     liftIO $ print $ vcat (fmap (pretty . AsSexp @C) merged)
+
+
+  entry $ bindMatch "ls" $ nil_ $ \case
+    (StringLikeList _) -> do
+      state <- getStateFromDir0 False <&> Map.fromList
+
+      for_ (Map.toList state) $ \(f,e)  -> do
+        when (isFile e || isDir e ) do
+          liftIO $ putStrLn f
+
+    _ -> pure ()
 
   entry $ bindMatch "dir:state:local:show" $ nil_ $ \sy -> do
 
@@ -1009,29 +1029,43 @@ syncEntries = do
     _ -> pure ()
 
 
-  entry $ bindMatch "tomb" $ nil_ \case
-    [StringLike p] -> do
+  brief "posts tomb transaction for the current dir"
+    $ args [arg "string" "entry-path"]
+    $ desc (    "working dir must be set first" <> line
+             <> "see: dir, sync"
+           )
+    $ entry $ bindMatch "tomb" $ nil_ \case
+      [StringLike p] -> do
 
-      path <- getRunDir
-      env <- getRunDirEnv path >>= orThrow DirNotSet
+        path <- getRunDir
+        env <- getRunDirEnv path >>= orThrow DirNotSet
 
-      void $ runMaybeT do
+        void $ runMaybeT do
 
-        let fullPath = path </> p
+          let fullPath = path </> p
 
-        rchan <- view dirSyncRefChan env
-                   & toMPlus
+          rchan <- view dirSyncRefChan env
+                     & toMPlus
 
 
-        here <- liftIO (doesFileExist fullPath)
-        guard here
+          here <- liftIO (doesFileExist fullPath)
+          guard here
 
-        now <- liftIO getPOSIXTime <&> round
+          now <- liftIO getPOSIXTime <&> round
 
-        notice $ red "ABOUT TO POST TOMB TX" <+> pretty p
-        lift $ postEntryTx rchan path (makeTomb now p mzero)
+          notice $ red "ABOUT TO POST TOMB TX" <+> pretty p
+          lift $ postEntryTx rchan path (makeTomb now p mzero)
 
-    _ -> pure ()
+      _ -> pure ()
+
+  entry $ bindMatch "run-config" $ nil_ $ const do
+    cpath <- liftIO $ getXdgDirectory XdgConfig "hbs2-sync" <&> (</> "config")
+    debug $ "run-config" <+> pretty cpath
+    try @_ @IOError (liftIO $ readFile cpath)
+      <&> fromRight mempty
+      <&> parseTop
+      <&> either mempty (fmap fixContext)
+      >>= evalTop
 
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
