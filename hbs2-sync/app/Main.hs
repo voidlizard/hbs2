@@ -5,17 +5,9 @@ module Main where
 import HBS2.Sync.Prelude
 
 import System.Environment
-import System.Exit qualified as Exit
 import UnliftIO
 import Control.Monad.Identity
 
-quit :: forall m . MonadUnliftIO m => m ()
-quit = liftIO Exit.exitSuccess
-
-die :: forall a m . (MonadUnliftIO m, Pretty a) => a -> m ()
-die what = liftIO do
-  hPutDoc stderr (pretty what)
-  Exit.exitFailure
 
 helpEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 helpEntries = do
@@ -61,15 +53,6 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
-        entry $ bindMatch "init"  $ nil_ $ const do
-          pure ()
-
-        entry $ bindMatch "run" $ nil_  \case
-          [StringLike what] -> do
-            runDirectory what
-
-          _ -> do
-            die "command not specified; run hbs2-sync help for details"
 
   void $ runSyncApp $ recover $ run dict cli
 

@@ -1,3 +1,5 @@
+{-# Language UndecidableInstances #-}
+{-# Language TemplateHaskell #-}
 module HBS2.Sync.Prelude
   ( module HBS2.Sync.Prelude
   , module Exported
@@ -46,6 +48,7 @@ import Data.Config.Suckless.Script as Exported
 import Data.Config.Suckless.Script.File
 
 import Codec.Serialise as Exported
+import Control.Applicative
 import Control.Concurrent.STM (flushTQueue)
 import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
@@ -73,6 +76,7 @@ import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime,setModificationTime,doesFileExist)
 import System.FilePath.Posix
+import System.Exit qualified as Exit
 import UnliftIO
 
 import UnliftIO.IO.File qualified as UIO
@@ -80,11 +84,52 @@ import UnliftIO.IO.File qualified as UIO
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
 
+type MyRefChan = PubKey 'Sign 'HBS2Basic
+
+data DirSyncEnv =
+  DirSyncEnv
+  { _dirSyncPath     :: Maybe FilePath
+  , _dirSyncRefChan  :: Maybe MyRefChan
+  , _dirSyncCreds    :: Maybe (PeerCredentials 'HBS2Basic)
+  , _dirSyncInclude  :: [FilePattern]
+  , _dirSyncExclude  :: [FilePattern]
+  }
+  deriving stock (Generic)
+
+makeLenses 'DirSyncEnv
+
+instance Monoid DirSyncEnv where
+  mempty = DirSyncEnv Nothing Nothing Nothing mempty mempty
+
+instance Semigroup DirSyncEnv where
+  (<>) a b = DirSyncEnv ( view dirSyncPath b <|> view dirSyncPath a )
+                        ( view dirSyncRefChan b  <|> view dirSyncRefChan a )
+                        ( view dirSyncCreds b  <|> view dirSyncCreds a )
+                        ( view dirSyncInclude a <> view dirSyncInclude b )
+                        ( view dirSyncExclude a <> view dirSyncExclude b )
+
+instance Pretty DirSyncEnv where
+  pretty e = do
+    vcat $ catMaybes
+         [ pure ("; path" <+> pretty (view dirSyncPath e))
+         , view dirSyncRefChan e >>= \x -> pure $ pretty $ mkList  @C [mkSym "refchan", mkSym (show $ pretty (AsBase58 x))]
+         , view dirSyncCreds e >>=
+                 \x -> pure $ pretty
+                            $ mkList @C [mkSym "sign", mkSym (show $ pretty $ AsBase58 $ view peerSignPk  x)]
+         , pure $ vcat (fmap (mkPattern "include") (view dirSyncInclude e))
+         , pure $ vcat (fmap (mkPattern "exclude") (view dirSyncExclude e))
+         ]
+
+    where
+      mkPattern name p = pretty $ mkList @C [mkSym name, mkSym p]
+
 data SyncEnv =
   SyncEnv
-  { refchanAPI :: ServiceCaller RefChanAPI UNIX
-  , storageAPI :: ServiceCaller StorageAPI UNIX
-  , peerAPI    :: ServiceCaller PeerAPI UNIX
+  { refchanAPI  :: ServiceCaller RefChanAPI UNIX
+  , storageAPI  :: ServiceCaller StorageAPI UNIX
+  , peerAPI     :: ServiceCaller PeerAPI UNIX
+  , dirSyncEnv  :: TVar (Map FilePath DirSyncEnv)
+  , dirThis     :: TVar (Maybe FilePath)
   }
 
 newtype SyncApp m a =
@@ -152,7 +197,11 @@ recover what = do
 
         void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-        let env = Just (SyncEnv refChanAPI storageAPI peerAPI)
+        dsync <- newTVarIO mempty
+        this  <- newTVarIO Nothing
+
+        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this)
+
 
         liftIO $ withSyncApp env what
 
@@ -167,6 +216,7 @@ data RunDirectoryException =
   | RefChanHeadNotFoundException
   | EncryptionKeysNotDefined
   | SignKeyNotSet
+  | DirNotSet
   deriving stock (Show,Typeable)
 
 instance Exception RunDirectoryException
@@ -244,9 +294,6 @@ runDirectory :: ( IsContext c
                 ) => FilePath -> RunM c m ()
 runDirectory path = do
 
-  t <- ask
-  d0 <- readTVarIO t
-
   runDir
     `catch` \case
       RefChanNotSetException -> do
@@ -257,6 +304,8 @@ runDirectory path = do
         err $ "no readers defined in the refchan for " <+> pretty path
       SignKeyNotSet -> do
         err $ "sign key not set or not found " <+> pretty path
+      DirNotSet -> do
+        err $ "directory not set"
 
     `catch` \case
       (e :: OperationError) -> do
@@ -264,10 +313,8 @@ runDirectory path = do
 
     `finally` do
       warn "exiting"
-      atomically (writeTVar t d0)
 
   where
-
 
     mergeNameConflicts a b = do
       let (files1, dirs1) = Map.elems a & L.partition isFile
@@ -289,9 +336,6 @@ runDirectory path = do
                 error $ show $ "RENAME FILE" <+> pretty f
               else
                 pure (f,e)
-
-
-      error $ show dirs
 
       pure $ Map.unionWith merge (Map.fromListWith merge es)  dirs
 
@@ -317,39 +361,6 @@ runDirectory path = do
                <&> parseTop
                <&> either mempty (fmap fixContext)
 
-      bindBuiltins $ bindMatch "refchan" $ nil_ $ \case
-        [SignPubKeyLike puk] -> do
-          debug $ red "USE FUCKING REFCHAN!" <+> pretty (AsBase58 puk)
-          atomically $ writeTVar trc (Just puk)
-
-        _ -> pure ()
-
-      bindBuiltins $ bindMatch "exclude" $ nil_ $ \case
-        [StringLike excl] -> do
-          debug $ red "EXCLUDE!" <+> pretty excl
-          atomically $ writeTQueue texcl excl
-
-        _ -> pure ()
-
-      bindBuiltins $ bindMatch "include" $ nil_ $ \case
-        [StringLike s] -> do
-          debug $ red "INCLUDE!" <+> pretty s
-          atomically $ writeTQueue tincl s
-
-        _ -> pure ()
-
-
-      bindBuiltins $ bindMatch "sign" $ nil_ $ \case
-        [SignPubKeyLike s] -> do
-          debug $ red "SIGN" <+> pretty (AsBase58 s)
-
-          runMaybeT do
-            creds <- MaybeT $ runKeymanClient $ loadCredentials s
-            atomically $ writeTVar tsign (Just creds)
-
-          pure ()
-
-        _ -> pure ()
 
       debug $ pretty ins
       evalTop ins
@@ -452,11 +463,11 @@ runDirectory path = do
           let spk = view peerSignPk creds
           let ssk = view peerSignSk creds
 
-          let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+          -- let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
 
           notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
 
-          postRefChanTx @UNIX refchan box
+          -- postRefChanTx @UNIX refchan box
 
 
 merge :: Entry -> Entry -> Entry
@@ -561,8 +572,51 @@ getTreeContents sto href = do
 
     _ -> throwError UnsupportedFormat
 
+class MonadIO m => HasRunDir m where
+  getRunDir       :: m FilePath
+  getRunDirEnv    :: FilePath -> m (Maybe DirSyncEnv)
+  alterRunDirEnv  :: FilePath -> ( Maybe DirSyncEnv -> Maybe DirSyncEnv ) -> m ()
 
-syncEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
+instance (MonadIO m) => HasRunDir (SyncApp m) where
+  getRunDir = ask >>= orThrow PeerNotConnectedException
+                  >>= readTVarIO . dirThis
+                  >>= orThrow DirNotSet
+
+  getRunDirEnv dir =  do
+    env <- ask >>= orThrow PeerNotConnectedException
+               >>= readTVarIO . dirSyncEnv
+    pure $ Map.lookup dir env
+
+  alterRunDirEnv dir action = do
+    tenv <- ask >>= orThrow PeerNotConnectedException
+            <&> dirSyncEnv
+    atomically $ modifyTVar tenv (Map.alter action dir)
+
+instance HasRunDir m => HasRunDir (RunM c m) where
+  getRunDir = lift getRunDir
+  getRunDirEnv d = lift (getRunDirEnv d)
+  alterRunDirEnv d a = lift (alterRunDirEnv d a)
+
+instance HasRunDir m => HasRunDir (MaybeT m) where
+  getRunDir = lift getRunDir
+  getRunDirEnv d = lift (getRunDirEnv d)
+  alterRunDirEnv d a = lift (alterRunDirEnv d a)
+
+instance HasRunDir m => HasRunDir (ContT r m) where
+  getRunDir = lift getRunDir
+  getRunDirEnv d = lift (getRunDirEnv d)
+  alterRunDirEnv d a = lift (alterRunDirEnv d a)
+
+syncEntries :: forall c m . ( MonadUnliftIO m
+                            , IsContext c
+                            , Exception (BadFormException c)
+                            , HasClientAPI RefChanAPI UNIX m
+                            , HasClientAPI StorageAPI UNIX m
+                            , HasStorage m
+                            , HasRunDir m
+                            , MonadReader (Maybe SyncEnv) m
+                            )
+            => MakeDictM c m ()
 syncEntries = do
 
   entry $ bindMatch "--debug" $ nil_ $ \case
@@ -571,6 +625,88 @@ syncEntries = do
 
     _ -> do
       setLogging @DEBUG  debugPrefix
+
+  entry $ bindMatch "init"  $ nil_ $ const do
+    pure ()
+
+  brief "sets current directory"
+   $ args [ arg "string"  "dir" ]
+   $ desc "useful for debugging"
+   $ entry $ bindMatch "dir"  $ nil_ $ \case
+       [StringLike d] -> do
+         debug $ "set current directory" <+> pretty d
+         t <- lift ask >>= orThrow PeerNotConnectedException
+         atomically $ writeTVar (dirThis t) (Just d)
+
+         alterRunDirEnv d $ \case
+           Nothing -> Just (mempty & set dirSyncPath (Just d))
+           Just x  -> Just (x & set dirSyncPath (Just d))
+
+         ins <- try @_ @IOError (liftIO $ readFile (d </> ".hbs2-sync/config"))
+                 <&> fromRight mempty
+                 <&> parseTop
+                 <&> either mempty (fmap fixContext)
+
+         void $ evalTop ins
+
+       _ -> do
+        err "current dir not set"
+
+  entry $ bindMatch "refchan" $ nil_ $ \case
+    [SignPubKeyLike puk] -> do
+      dir <- getRunDir
+      debug $ red "refchan" <+> pretty dir <+> pretty (AsBase58 puk)
+      alterRunDirEnv dir $ \case
+        Nothing -> Just (mempty & set dirSyncRefChan (Just puk))
+        Just x  -> Just (x & set dirSyncRefChan (Just puk))
+
+    x -> err $ "invalid refchan" <+> pretty (mkList x)
+
+  entry $ bindMatch "exclude" $ nil_ $ \case
+        [StringLike excl] -> do
+          dir <- getRunDir
+          debug $ red "exclude" <+> pretty dir <+> pretty excl
+          alterRunDirEnv dir $ \case
+            Nothing -> Just (mempty & set dirSyncExclude [excl])
+            Just x  -> Just (x & over dirSyncExclude (mappend [excl]))
+
+        _ -> pure ()
+
+  entry $ bindMatch "include" $ nil_ $ \case
+        [StringLike pat] -> do
+          dir <- getRunDir
+          debug $ red "include" <+> pretty dir <+> pretty pat
+          alterRunDirEnv dir $ \case
+            Nothing -> Just (mempty & set dirSyncInclude [pat])
+            Just x  -> Just (x & over dirSyncInclude (mappend [pat]))
+
+        _ -> pure ()
+
+  entry $ bindMatch "sign" $ nil_ $ \case
+        [SignPubKeyLike s] -> do
+          dir <- getRunDir
+          debug $ red "sign" <+> pretty (AsBase58 s)
+          creds <- liftIO (runKeymanClient $ loadCredentials s)
+          alterRunDirEnv dir $ \case
+            Nothing -> Just (mempty & set dirSyncCreds creds)
+            Just x  -> Just (x & set dirSyncCreds creds)
+
+        w -> err $ "invalid sign key" <+> pretty (mkList w)
+
+  entry $ bindMatch "dir:config:show" $ nil_ $ const do
+    dir <- getRunDir
+
+    void $ runMaybeT do
+      env <- getRunDirEnv dir >>= toMPlus
+      liftIO $ print $ pretty env
+
+  entry $ bindMatch "run" $ nil_  \case
+    [StringLike what] -> do
+      runDirectory what
+
+    _ -> do
+      die "command not specified; run hbs2-sync help for details"
+
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
@@ -593,4 +729,14 @@ silence = do
   setLoggingOff @ERROR
   setLoggingOff @WARN
   setLoggingOff @NOTICE
+
+
+quit :: forall m . MonadUnliftIO m => m ()
+quit = liftIO Exit.exitSuccess
+
+die :: forall a m . (MonadUnliftIO m, Pretty a) => a -> m ()
+die what = liftIO do
+  hPutDoc stderr (pretty what)
+  Exit.exitFailure
+
 
