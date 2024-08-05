@@ -276,6 +276,10 @@ instance IsContext c => ToSexp c EntryDesc where
 instance IsContext c => ToSexp c Entry where
   toSexp (DirEntry w p) = mkForm @c "entry" [toSexp w, mkStr p]
 
+
+makeTomb :: Word64 -> FilePath -> Entry
+makeTomb t n = DirEntry (EntryDesc Tomb t Nothing) n
+
 entryPath :: Entry -> FilePath
 entryPath (DirEntry _ p) = p
 
@@ -520,11 +524,14 @@ mergeState orig = do
 
   let names = Map.keysSet (dirs <> files)
 
+  now <- liftIO $ getPOSIXTime <&> round
+
   S.toList_ do
     for_ (Map.toList files) $ \(p,e@(DirEntry d _)) -> do
       if Map.member p dirs then do
         let new = uniqName names p
         S.yield (new, DirEntry d new)
+        S.yield (p, makeTomb now p)
       else
         S.yield (p,e)
 
@@ -609,10 +616,9 @@ getStateFromDir seed path incl excl = do
      S.toList_ do
          S.each es0
          for_ es2 $ \(p, e) -> do
-           isDir <- liftIO $ doesDirectoryExist (path </> p)
-           ts <- liftIO $ getFileTimestamp  (path </> p)
-
-           when isDir do
+           d <- liftIO $ doesDirectoryExist (path </> p)
+           when d do
+            ts <- liftIO $ getFileTimestamp  (path </> p)
             S.yield (p, DirEntry (EntryDesc Dir ts mzero) p)
 
            S.yield (p,e)
