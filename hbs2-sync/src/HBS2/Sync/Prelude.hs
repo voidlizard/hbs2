@@ -1,4 +1,5 @@
 {-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
 {-# Language TemplateHaskell #-}
 module HBS2.Sync.Prelude
   ( module HBS2.Sync.Prelude
@@ -65,6 +66,7 @@ import Data.List (stripPrefix)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
+import Data.Text qualified as Text
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.Time.Clock.POSIX
@@ -232,6 +234,10 @@ getFileTimestamp filePath = do
   t0 <- liftIO $ getModificationTime filePath
   pure (round $ utcTimeToPOSIXSeconds t0)
 
+-- FIXME: move-to-suckless-conf
+class IsContext c => ToSexp c a where
+  toSexp :: a -> Syntax c
+
 
 data EntryType = File | Dir | Tomb
                  deriving stock (Eq,Ord,Show,Data,Generic)
@@ -244,9 +250,31 @@ data EntryDesc =
   }
   deriving stock (Eq,Ord,Show,Data,Generic)
 
+newtype AsSexp c a = AsSexp a
+
+instance (IsContext c, ToSexp c w) => Pretty (AsSexp c w) where
+  pretty (AsSexp s) = pretty (toSexp @c s)
+
 data Entry =
   DirEntry EntryDesc FilePath
   deriving stock (Eq,Ord,Show,Data,Generic)
+
+instance IsContext c => ToSexp c EntryType where
+  toSexp a = mkStr @c $ Text.toLower $ Text.pack $ show a
+
+instance IsContext c => ToSexp c EntryDesc where
+  toSexp EntryDesc{..} = case entryType of
+    File -> mkForm @c  "F"  [mkInt entryTimestamp, hash]
+    Dir  ->  mkForm @c "D " [mkInt entryTimestamp, hash]
+    Tomb ->  mkForm @c "T " [mkInt entryTimestamp, hash]
+
+    where
+      hash = case entryRemoteHash of
+        Nothing -> nil
+        Just x  -> mkStr (show $ pretty x)
+
+instance IsContext c => ToSexp c Entry where
+  toSexp (DirEntry w p) = mkForm @c "entry" [toSexp w, mkStr p]
 
 entryPath :: Entry -> FilePath
 entryPath (DirEntry _ p) = p
@@ -349,123 +377,124 @@ runDirectory path = do
 
       notice $ yellow "run directory" <+> pretty path
 
-      trc    <- newTVarIO Nothing
-      tsign  <- newTVarIO Nothing
-      texcl  <- newTQueueIO
-      tincl  <- newTQueueIO
+      error "NOT IMPLEMENTED YET"
 
-      atomically $ writeTQueue tincl "**"
+      -- trc    <- newTVarIO Nothing
+      -- tsign  <- newTVarIO Nothing
+      -- texcl  <- newTQueueIO
+      -- tincl  <- newTQueueIO
 
-      ins <- liftIO (try @_ @IOError (readFile (path </> ".hbs2-sync/config")))
-               <&> fromRight mempty
-               <&> parseTop
-               <&> either mempty (fmap fixContext)
+      -- atomically $ writeTQueue tincl "**"
 
+      -- ins <- liftIO (try @_ @IOError (readFile (path </> ".hbs2-sync/config")))
+      --          <&> fromRight mempty
+      --          <&> parseTop
+      --          <&> either mempty (fmap fixContext)
 
-      debug $ pretty ins
-      evalTop ins
+      -- debug $ pretty ins
+      -- evalTop ins
 
-      incl <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
-      excl <- atomically (flushTQueue texcl) <&> HS.fromList <&> HS.toList
+      -- incl <- atomically (flushTQueue tincl) <&> HS.fromList <&> HS.toList
+      -- excl <- atomically (flushTQueue texcl) <&> HS.fromList <&> HS.toList
 
-      refchan <- readTVarIO trc
-                   >>= orThrow RefChanNotSetException
+      -- refchan <- readTVarIO trc
+      --              >>= orThrow RefChanNotSetException
 
-      fetchRefChan @UNIX refchan
+      -- fetchRefChan @UNIX refchan
 
-      rch <- Client.getRefChanHead @UNIX refchan
-                   >>= orThrow RefChanHeadNotFoundException
+      -- rch <- Client.getRefChanHead @UNIX refchan
+      --              >>= orThrow RefChanHeadNotFoundException
 
-      creds <- readTVarIO tsign
-                  >>= orThrow SignKeyNotSet
+      -- creds <- readTVarIO tsign
+      --             >>= orThrow SignKeyNotSet
 
-      sto <- getClientAPI @StorageAPI @UNIX
-              <&> AnyStorage . StorageClient
+      -- sto <- getClientAPI @StorageAPI @UNIX
+      --         <&> AnyStorage . StorageClient
 
-      debug $ "step 1"   <+> "load state from refchan"
-      debug $ "step 1.1" <+> "initial state is empty"
-      debug $ "step 2"   <+> "create local state"
-      debug $ "step 2.1" <+> "scan all files"
-      debug $ "step 2.2" <+> "extract all / directories"
+      -- debug $ "step 1"   <+> "load state from refchan"
+      -- debug $ "step 1.1" <+> "initial state is empty"
+      -- debug $ "step 2"   <+> "create local state"
+      -- debug $ "step 2.1" <+> "scan all files"
+      -- debug $ "step 2.2" <+> "extract all / directories"
 
-      debug $ "step 3"   <+> "merge states"
-      debug $ "step 3.1" <+> "generate merge actions"
-      debug $ "step 3.2" <+> "apply actions"
+      -- debug $ "step 3"   <+> "merge states"
+      -- debug $ "step 3.1" <+> "generate merge actions"
+      -- debug $ "step 3.2" <+> "apply actions"
 
-      let p0 = normalise path
-
-
-      local <- getStateFromDir path incl excl
-
-      remote <- getStateFromRefChan refchan
-
-      merged <- mergeNameConflicts local remote
-
-      for_ (Map.toList merged) $ \(k,v) -> do
-        debug $ red "LOCAL MERGED" <+> pretty k <+> viaShow v
-
-      for_ (Map.toList merged) $ \(p,e) -> do
-
-        let filePath = path </> p
-
-        debug $ yellow "entry" <+> pretty p <+> viaShow e
+      -- let p0 = normalise path
 
 
-        debug $ red "FRESH:" <+> pretty p <+> pretty (freshIn p e local)
+      -- local <- getStateFromDir path incl excl
 
-        when (freshIn p e local && isFile e) $ void $ runMaybeT do
+      -- remote <- getStateFromRefChan refchan
 
-          h <- getEntryHash e & toMPlus
+      -- merged <- mergeNameConflicts local remote
 
-          notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty path <+> pretty p <+> pretty (getEntryHash e)
+      -- for_ (Map.toList merged) $ \(k,v) -> do
+      --   debug $ red "LOCAL MERGED" <+> pretty k <+> viaShow v
 
-          lbs <- lift (runExceptT (getTreeContents sto h))
-                   >>= toMPlus
+      -- for_ (Map.toList merged) $ \(p,e) -> do
 
-          mkdir (dropFileName filePath)
+      --   let filePath = path </> p
 
-          liftIO $ UIO.withBinaryFileAtomic filePath WriteMode $ \fh -> do
-            LBS.hPutStr fh lbs
+      --   debug $ yellow "entry" <+> pretty p <+> viaShow e
 
-          let ts  = getEntryTimestamp e
-          let timestamp = posixSecondsToUTCTime (fromIntegral ts)
 
-          liftIO $ setModificationTime (path </> p) timestamp
+      --   debug $ red "FRESH:" <+> pretty p <+> pretty (freshIn p e local)
 
-        actuallyFile <- liftIO $ doesFileExist filePath
+      --   when (freshIn p e local && isFile e) $ void $ runMaybeT do
 
-        when (freshIn p e remote && actuallyFile) do
+      --     h <- getEntryHash e & toMPlus
 
-          -- FIXME: dangerous!
-          lbs <- liftIO (LBS.readFile (path </> p))
+      --     notice $ red "WRITE NEW LOCAL ENTRY" <+> pretty path <+> pretty p <+> pretty (getEntryHash e)
 
-          let (dir,file) = splitFileName p
+      --     lbs <- lift (runExceptT (getTreeContents sto h))
+      --              >>= toMPlus
 
-          let meta = HM.fromList [ ("file-name", fromString file)
-                                 ]
-                      <> case dir of
-                           "./" -> mempty
-                           d    -> HM.singleton "location" (fromString d)
+      --     mkdir (dropFileName filePath)
 
-          let members = view refChanHeadReaders rch & HS.toList
+      --     liftIO $ UIO.withBinaryFileAtomic filePath WriteMode $ \fh -> do
+      --       LBS.hPutStr fh lbs
 
-          -- FIXME: support-unencrypted?
-          when (L.null members) do
-            throwIO EncryptionKeysNotDefined
+      --     let ts  = getEntryTimestamp e
+      --     let timestamp = posixSecondsToUTCTime (fromIntegral ts)
 
-          gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+      --     liftIO $ setModificationTime (path </> p) timestamp
 
-          -- FIXME: survive-this-error?
-          href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
-                    >>= orThrowPassIO
+      --   actuallyFile <- liftIO $ doesFileExist filePath
 
-          let tx = AnnotatedHashRef Nothing href
-          let spk = view peerSignPk creds
-          let ssk = view peerSignSk creds
+      --   when (freshIn p e remote && actuallyFile) do
 
-          -- let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+      --     -- FIXME: dangerous!
+      --     lbs <- liftIO (LBS.readFile (path </> p))
 
-          notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+      --     let (dir,file) = splitFileName p
+
+      --     let meta = HM.fromList [ ("file-name", fromString file)
+      --                            ]
+      --                 <> case dir of
+      --                      "./" -> mempty
+      --                      d    -> HM.singleton "location" (fromString d)
+
+      --     let members = view refChanHeadReaders rch & HS.toList
+
+      --     -- FIXME: support-unencrypted?
+      --     when (L.null members) do
+      --       throwIO EncryptionKeysNotDefined
+
+      --     gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+
+      --     -- FIXME: survive-this-error?
+      --     href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
+      --               >>= orThrowPassIO
+
+      --     let tx = AnnotatedHashRef Nothing href
+      --     let spk = view peerSignPk creds
+      --     let ssk = view peerSignSk creds
+
+      --     -- let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+
+      --     notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
 
           -- postRefChanTx @UNIX refchan box
 
@@ -483,14 +512,14 @@ getStateFromDir path incl excl = do
   es' <- S.toList_ $ do
     glob incl excl path  $ \fn -> do
       let fn0 = removePrefix path fn
-      es <- liftIO (entriesFromLocalFile path fn0)
+      es <- liftIO (entriesFromLocalFile path fn)
       -- debug $ yellow "file" <+> viaShow ts <+> pretty fn0
       S.each es
       pure True
   pure $ Map.fromList [ (p,e) | e@(DirEntry _ p) <- es' ]
 
 
-getStateFromRefChan :: forall m . ( SyncAppPerks m
+getStateFromRefChan :: forall m . ( MonadIO m
                                   , HasClientAPI RefChanAPI UNIX m
                                   , HasClientAPI StorageAPI UNIX m
                                   , HasStorage m
@@ -577,7 +606,7 @@ class MonadIO m => HasRunDir m where
   getRunDirEnv    :: FilePath -> m (Maybe DirSyncEnv)
   alterRunDirEnv  :: FilePath -> ( Maybe DirSyncEnv -> Maybe DirSyncEnv ) -> m ()
 
-instance (MonadIO m) => HasRunDir (SyncApp m) where
+instance (MonadUnliftIO m) => HasRunDir (SyncApp m) where
   getRunDir = ask >>= orThrow PeerNotConnectedException
                   >>= readTVarIO . dirThis
                   >>= orThrow DirNotSet
@@ -692,6 +721,35 @@ syncEntries = do
             Just x  -> Just (x & set dirSyncCreds creds)
 
         w -> err $ "invalid sign key" <+> pretty (mkList w)
+
+
+  entry $ bindMatch "dir:state:local:show" $ nil_ $ const do
+    dir <- getRunDir
+
+    env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+    let excl = view dirSyncExclude env
+    let incl = view dirSyncInclude env
+
+    state <- getStateFromDir dir incl excl
+
+    liftIO $ print $ vcat (fmap (pretty . AsSexp @C) (Map.elems state))
+
+
+  entry $ bindMatch "dir:state:remote:show" $ nil_ $ const do
+    dir <- getRunDir
+
+    env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+    runMaybeT do
+
+      rchan <- view dirSyncRefChan env
+                & toMPlus
+
+      state <- lift $ getStateFromRefChan rchan
+
+      liftIO $ print $ vcat (fmap (pretty . AsSexp @C) (Map.elems state))
+
 
   entry $ bindMatch "dir:config:show" $ nil_ $ const do
     dir <- getRunDir
