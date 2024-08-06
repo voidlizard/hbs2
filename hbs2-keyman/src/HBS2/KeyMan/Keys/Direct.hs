@@ -23,6 +23,7 @@ import Control.Monad.Trans.Maybe
 import Data.List qualified as List
 import Data.ByteString qualified as BS
 import Data.Ord
+import Streaming.Prelude qualified as S
 
 data KeyManClientError = KeyManClientSomeError
 
@@ -113,9 +114,11 @@ extractGroupKeySecret :: MonadIO m
                       => GroupKey 'Symm 'HBS2Basic
                       -> KeyManClient m (Maybe GroupSecret)
 extractGroupKeySecret gk = do
-  runMaybeT do
-    s <- forM (HM.toList $ recipients gk) $ \(pk,box) -> do
-      KeyringEntry pk sk _ <- MaybeT $ loadKeyRingEntry pk
-      MaybeT $ pure (Symm.lookupGroupKey sk pk gk)
-    MaybeT $ pure $ headMay s
+    r <- S.toList_ do
+          forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
+            (KeyringEntry ppk ssk _) <- MaybeT $ lift $ loadKeyRingEntry pk
+            let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
+            for_ s $ lift . S.yield
+
+    pure $ headMay r
 

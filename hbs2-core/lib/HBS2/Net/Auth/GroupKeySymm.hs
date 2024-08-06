@@ -171,9 +171,7 @@ lookupGroupKey :: forall s .  ( ForGroupKeySymm s
 
 lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
   (EncryptedBox bs) <- MaybeT $ pure $ HashMap.lookup pk (recipients gk)
-  -- error  "FOUND SHIT!"
   gkBs <- MaybeT $ pure $ AK.boxSealOpen pk sk bs
-  -- error $ "DECRYPTED SHIT!"
   MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict gkBs) & either (const Nothing) Just
 
 
