@@ -482,7 +482,7 @@ runDirectory = do
           D (p,e) n -> do
             notice $ "locally deleted file" <+> pretty p
 
-            when (n < Just 1) do
+            when (n < Just 2) do
               tombs <- getTombs
               postEntryTx refchan path e
               Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
@@ -679,7 +679,7 @@ mergeState :: MonadUnliftIO m
 
 mergeState seed orig = do
 
-  let deleted = [ (p,d) | d@(D (p,e) Nothing) <- seed, isTomb e ] & Map.fromList
+  let deleted = [ (p,d) | d@(D (p,e) c) <- seed, isTomb e, c < Just 1 ] & Map.fromList
 
   let dirs = [ (p,e) | (p,e) <- orig, isDir e ] & Map.fromListWith merge
 
