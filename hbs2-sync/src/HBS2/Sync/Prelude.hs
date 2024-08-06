@@ -865,6 +865,12 @@ syncEntries = do
                      , mkList [mkSym "run"]
                      ]
 
+    [] -> do
+
+      void $ evalTop [ mkList [mkSym "dir", mkStr "."]
+                     , mkList [mkSym "run"]
+                     ]
+
     _ -> pure ()
 
   brief "sets current directory"
