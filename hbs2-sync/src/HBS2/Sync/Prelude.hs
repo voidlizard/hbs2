@@ -668,9 +668,6 @@ getStateFromDir0 seed = do
 
   getStateFromDir seed dir incl excl
 
-  where
-    -- onlyLocal x = Map.toList $ Map.fromListWith merge x
-
 getStateFromDir :: ( MonadIO m
                    , HasClientAPI RefChanAPI UNIX m
                    , HasClientAPI StorageAPI UNIX m
@@ -1067,6 +1064,11 @@ syncEntries = do
       <&> either mempty (fmap fixContext)
       >>= evalTop
 
+  entry $ bindMatch "timestamp" $ nil_ $ \case
+    [StringLike fn] -> do
+      liftIO (getFileTimestamp fn >>=  print)
+    _ -> do
+      liftIO $ getPOSIXTime <&> round >>= print
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
