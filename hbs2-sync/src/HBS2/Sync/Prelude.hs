@@ -21,10 +21,9 @@ import HBS2.Data.Types.Refs as Exported
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.GroupKeySymm as Symm
-import HBS2.Net.Auth.Schema
-import HBS2.Clock as Exported
 import HBS2.Net.Proto.Service
 import HBS2.Storage
+import HBS2.Storage.Compact as Compact
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.Proto.RefChan
@@ -35,7 +34,6 @@ import HBS2.Peer.RPC.Client.RefChan as Client
 import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefChan
-import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.Storage
 import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.System.Dir
@@ -58,8 +56,8 @@ import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
 import Control.Monad.Trans.Maybe
 import Control.Monad.Except
-import Data.ByteString (ByteString)
 import Data.Ord
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce
 import Data.Either
@@ -72,20 +70,13 @@ import Data.Map qualified as Map
 import Data.Maybe
 import Data.Text qualified as Text
 import Data.Set qualified as Set
-import Data.Set (Set)
 import Data.Time.Clock.POSIX
-import Data.Time.Clock (UTCTime)
-import Data.Time.Format (defaultTimeLocale, formatTime)
-import Data.Time.LocalTime (utcToLocalTime, getCurrentTimeZone, utc)
 import Data.Word
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
 import System.Directory (XdgDirectory(..),getXdgDirectory)
-import System.FilePath.Posix
-import System.FilePattern
 import System.Exit qualified as Exit
-import UnliftIO
 
 import UnliftIO.IO.File qualified as UIO
 
@@ -107,14 +98,14 @@ data DirSyncEnv =
 makeLenses 'DirSyncEnv
 
 instance Monoid DirSyncEnv where
-  mempty = DirSyncEnv Nothing Nothing Nothing mempty mempty
+  mempty = DirSyncEnv Nothing Nothing Nothing mempty ["**/*.hbs2-sync/state"]
 
 instance Semigroup DirSyncEnv where
   (<>) a b = DirSyncEnv ( view dirSyncPath b <|> view dirSyncPath a )
                         ( view dirSyncRefChan b  <|> view dirSyncRefChan a )
                         ( view dirSyncCreds b  <|> view dirSyncCreds a )
-                        ( view dirSyncInclude a <> view dirSyncInclude b )
-                        ( view dirSyncExclude a <> view dirSyncExclude b )
+                        (L.nub $  view dirSyncInclude a <> view dirSyncInclude b )
+                        (L.nub $  view dirSyncExclude a <> view dirSyncExclude b )
 
 instance Pretty DirSyncEnv where
   pretty e = do
@@ -138,6 +129,7 @@ data SyncEnv =
   , peerAPI     :: ServiceCaller PeerAPI UNIX
   , dirSyncEnv  :: TVar (Map FilePath DirSyncEnv)
   , dirThis     :: TVar (Maybe FilePath)
+  , dirTombs    :: TVar (Map FilePath (CompactStorage HbSync))
   }
 
 newtype SyncApp m a =
@@ -151,6 +143,41 @@ newtype SyncApp m a =
 
 
 type SyncAppPerks m = MonadUnliftIO m
+
+class Monad m => HasTombs m where
+  getTombs :: m (CompactStorage HbSync)
+  closeTombs :: m ()
+
+instance MonadUnliftIO m => HasTombs (SyncApp m) where
+  getTombs = do
+    SyncEnv{..} <- ask >>= orThrow PeerNotConnectedException
+    path <- getRunDir
+
+    mbTomb <- dirTombs & readTVarIO
+               <&> Map.lookup path
+
+    case mbTomb of
+      Just tomb -> pure tomb
+      Nothing -> do
+        -- FIXME: path-hardcode
+        let tombsPath = path </> ".hbs2-sync" </> "state" </> "tombs"
+        mkdir (dropFileName tombsPath)
+        stoTombs <- compactStorageOpen mempty tombsPath
+        atomically (modifyTVar dirTombs (Map.insert path stoTombs))
+        pure stoTombs
+
+  closeTombs = do
+    path <- getRunDir
+
+    void $ runMaybeT do
+
+      SyncEnv{..} <- lift ask >>= toMPlus
+
+      tombs <- dirTombs & readTVarIO
+                   <&> Map.lookup path
+                   >>= toMPlus
+
+      compactStorageClose tombs
 
 instance MonadIO m => HasClientAPI StorageAPI UNIX (SyncApp m) where
   getClientAPI = ask >>= orThrow PeerNotConnectedException
@@ -207,9 +234,9 @@ recover what = do
 
         dsync <- newTVarIO mempty
         this  <- newTVarIO Nothing
+        tombs <- newTVarIO mempty
 
-        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this)
-
+        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this tombs)
 
         liftIO $ withSyncApp env what
 
@@ -362,6 +389,7 @@ runDirectory :: ( IsContext c
                 , HasClientAPI StorageAPI UNIX m
                 , HasStorage m
                 , HasRunDir m
+                , HasTombs m
                 , Exception (BadFormException c)
                 ) =>  RunM c m ()
 runDirectory = do
@@ -386,7 +414,7 @@ runDirectory = do
         err $ viaShow e
 
     `finally` do
-      pure ()
+      closeTombs
 
   where
 
@@ -397,6 +425,8 @@ runDirectory = do
       let filePath = path </> p
 
       sto <- getStorage
+
+      tombs <- getTombs
 
       void $ runMaybeT do
         h <- getEntryHash e & toMPlus
@@ -416,8 +446,12 @@ runDirectory = do
 
         liftIO $ setModificationTime (path </> p) timestamp
 
+        lift $ Compact.put tombs (fromString p) (LBS.toStrict (serialise (0 :: Integer)))
+
 
     runDir = do
+
+      now <- liftIO $ getPOSIXTime <&> round
 
       path <- getRunDir
 
@@ -427,21 +461,31 @@ runDirectory = do
 
       fetchRefChan @UNIX refchan
 
+      -- FIXME: multiple-directory-scans
+
       local  <- getStateFromDir0 True
 
-      merged <- mergeState local
+      deleted <- findDeleted
+
+      merged <- mergeState deleted local
 
       let filesLast m = case mergedEntryType m of
            Tomb -> 0
            Dir  -> 1
            File -> 2
 
-      -- liftIO $ print $ vcat (fmap (pretty . AsSexp @C) merged)
-
       for_ (L.sortOn filesLast merged) $ \w -> do
         case w of
           N (p,TombEntry e) -> do
             notice $ green "removed entry" <+> pretty p
+
+          D (p,e) n -> do
+            notice $ "locally deleted file" <+> pretty p
+
+            when (n < Just 1) do
+              tombs <- getTombs
+              postEntryTx refchan path e
+              Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
 
           N (_,_) -> none
 
@@ -463,6 +507,8 @@ runDirectory = do
             here <- liftIO $ doesFileExist fullPath
             d    <- liftIO $ doesDirectoryExist fullPath
 
+            -- getRef tombs (SomeRef (g
+
             older <- if here then do
                        s <- getFileTimestamp fullPath
                        pure $ s < getEntryTimestamp e
@@ -481,6 +527,35 @@ runDirectory = do
 
           E (p,_) -> do
             notice $ "skip entry" <+> pretty (path </> p)
+
+
+findDeleted :: (MonadIO m, HasRunDir m, HasTombs m) => m [Merged]
+findDeleted = do
+
+  dir <- getRunDir
+
+  now <- liftIO $ getPOSIXTime <&> round
+
+  tombs <- getTombs
+  -- TODO: check-if-non-latin-filenames-work
+  seen <- Compact.keys tombs
+            <&> fmap BS8.unpack
+
+  S.toList_ do
+    for_ seen $ \f0 -> do
+
+      let path = dir </> f0
+
+      here <- liftIO $ doesFileExist path
+
+      n <- Compact.get tombs (fromString f0)
+             <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
+             <&> fmap (either (const Nothing) Just)
+             <&> join
+
+      when (not here && isJust n) do
+        S.yield (D (f0, makeTomb now f0 Nothing) n)
+        debug $ "found deleted" <+> pretty n <+> pretty f0
 
 
 postEntryTx :: ( MonadUnliftIO m
@@ -568,33 +643,50 @@ merge a b = do
 
 data Merged = N (FilePath, Entry)
             | E (FilePath, Entry)
+            | D (FilePath, Entry) (Maybe Integer)
             | M (FilePath,FilePath,Entry)
-{-# COMPLETE N,E,M #-}
+{-# COMPLETE N,E,M,D #-}
 
 pattern MergedEntryType :: EntryType -> Merged
 pattern MergedEntryType t <- ( mergedEntryType -> t )
 
 mergedEntryType :: Merged -> EntryType
 mergedEntryType = \case
-  N (_,DirEntry d _) -> entryType d
-  E (_,DirEntry d _) -> entryType d
+  N (_,DirEntry d _)   -> entryType d
+  E (_,DirEntry d _)   -> entryType d
+  D (_,DirEntry d _) _ -> entryType d
   M (_,_,DirEntry d _) -> entryType d
+
+instance (IsContext c) => ToSexp c Integer where
+  toSexp i = mkInt i
+
+instance (IsContext c, ToSexp c a) => ToSexp c (Maybe a) where
+  toSexp = \case
+    Nothing -> nil
+    Just x -> toSexp x
 
 instance IsContext c => ToSexp c Merged where
   toSexp = \case
-    N (_, e) -> mkForm @c "N" [toSexp e]
-    E (_, e)  -> mkForm @c "E" [toSexp e]
+    N (_, e)     -> mkForm @c "N" [toSexp e]
+    E (_, e)     -> mkForm @c "E" [toSexp e]
+    D (_, e) i   -> mkForm @c "D" [toSexp e, toSexp i]
     M (o, t, e)  -> mkForm @c "M" [toSexp e,mkSym o,mkSym t]
 
 mergeState :: MonadUnliftIO m
-           => [(FilePath, Entry)]
+           => [Merged]
+           -> [(FilePath, Entry)]
            -> m [Merged]
 
-mergeState orig = do
+mergeState seed orig = do
+
+  let deleted = [ (p,d) | d@(D (p,e) Nothing) <- seed, isTomb e ] & Map.fromList
 
   let dirs = [ (p,e) | (p,e) <- orig, isDir e ] & Map.fromListWith merge
 
-  let files  = [ (p,e) | (p,e) <- orig, isFile e ] & Map.fromListWith merge
+  let files  = [ (p, e) | D (p,e) _ <- Map.elems deleted]
+               <> [ (p,e) | (p,e) <- orig, isFile e ]
+               & Map.fromListWith merge
+               -- & Map.filterWithKey (\k ( -> not (Map.member k deleted))
 
   let tombs  = [ (p,e) | (p,e) <- orig, isTomb e ] & Map.fromListWith merge
 
@@ -605,6 +697,9 @@ mergeState orig = do
   S.toList_ do
     for_ (Map.toList files) $ \(p,e@(DirEntry d _)) -> do
       if
+       | Map.member p deleted -> do
+           for_ (Map.lookup p deleted) S.yield
+
        | Map.member p dirs -> do
            let new = uniqName names p
            S.yield $ M (p, new, DirEntry d new)
@@ -618,8 +713,10 @@ mergeState orig = do
 
             _ -> S.yield $ E (p,e)
 
-       | otherwise -> do
+       | not (Map.member p deleted) -> do
           S.yield $ E (p,e)
+
+       | otherwise -> none
 
   where
     uniqName names0 name = do
@@ -836,6 +933,19 @@ instance HasRunDir m => HasRunDir (ContT r m) where
   getRunDirEnv d = lift (getRunDirEnv d)
   alterRunDirEnv d a = lift (alterRunDirEnv d a)
 
+
+instance HasTombs m => HasTombs (ContT r m) where
+  getTombs = lift getTombs
+  closeTombs = lift closeTombs
+
+instance HasTombs m => HasTombs (MaybeT m) where
+  getTombs = lift getTombs
+  closeTombs = lift closeTombs
+
+instance (Monad m, HasTombs m) => HasTombs (RunM c m) where
+  getTombs = lift getTombs
+  closeTombs = lift closeTombs
+
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
                             , Exception (BadFormException c)
@@ -843,6 +953,7 @@ syncEntries :: forall c m . ( MonadUnliftIO m
                             , HasClientAPI StorageAPI UNIX m
                             , HasStorage m
                             , HasRunDir m
+                            , HasTombs m
                             , MonadReader (Maybe SyncEnv) m
                             )
             => MakeDictM c m ()
@@ -941,7 +1052,8 @@ syncEntries = do
   entry $ bindMatch "dir:state:merged:show" $ nil_ $ \_ -> do
     state <- getStateFromDir0 True
 
-    merged <- mergeState state
+    deleted <- findDeleted
+    merged <- mergeState deleted state
 
     liftIO $ print $ vcat (fmap (pretty . AsSexp @C) merged)
 
