@@ -482,8 +482,14 @@ runDirectory = do
           D (p,e) n -> do
             notice $ "locally deleted file" <+> pretty p
 
+            -- FIXME: fix-copypaste
+            tombs <- getTombs
+            n <- Compact.get tombs (fromString p)
+                   <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
+                   <&> fmap (either (const Nothing) Just)
+                   <&> join
+
             when (n < Just 2) do
-              tombs <- getTombs
               postEntryTx refchan path e
               Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
 
@@ -522,6 +528,18 @@ runDirectory = do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             when here do
+
+              tombs <- getTombs
+              postEntryTx refchan path e
+
+              -- FIXME: fix-copypaste
+              n <- Compact.get tombs (fromString p)
+                     <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
+                     <&> fmap (either (const Nothing) Just)
+                     <&> join
+
+              Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
+
               notice $ red "tomb entry" <+> pretty (path </> p)
               rm fullPath
 
