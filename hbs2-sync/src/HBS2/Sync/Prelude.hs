@@ -497,7 +497,7 @@ runDirectory = do
                    <&> fromRight (Just 0)
 
             when (n < Just 2) do
-              postEntryTx Nothing refchan path e
+              postEntryTx (HM.lookup p hasGK0) refchan path e
               Compact.putVal tombs p (maybe 0 succ n)
 
           N (_,_) -> none
@@ -506,14 +506,14 @@ runDirectory = do
             notice $ green "move entry" <+> pretty f <+> pretty t
             mv (path </> f) (path </> t)
             notice $ green "post renamed entry tx" <+> pretty f
-            postEntryTx Nothing refchan path e
+            postEntryTx (HM.lookup f hasGK0) refchan path e
 
           E (p,UpdatedFileEntry _ e) -> do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             writeEntry path e
             notice $ red "updated file entry" <+> pretty here <+> pretty p <+> line <+> pretty (AsSexp @C e)
-            postEntryTx Nothing refchan path e
+            postEntryTx (HM.lookup p hasGK0) refchan path e
 
           E (p,e@(FileEntry _)) -> do
             let fullPath = path </> p
@@ -535,7 +535,7 @@ runDirectory = do
             when here do
 
               tombs <- getTombs
-              postEntryTx Nothing refchan path e
+              postEntryTx (HM.lookup p hasGK0) refchan path e
 
               n <- Compact.getValEither @Integer tombs p
                     <&> fromRight (Just 0)
@@ -623,13 +623,23 @@ postEntryTx mgk refchan path entry = do
 
     let members = view refChanHeadReaders rch & HS.toList
 
-    -- взять GK из дерева из стейта если там есть такая Entry
-
     -- FIXME: support-unencrypted?
     when (L.null members) do
       throwIO EncryptionKeysNotDefined
 
-    gk <- Symm.generateGroupKey @'HBS2Basic Nothing members
+    let rcpt    = maybe mempty (HM.keys . recipients) mgk
+
+    gk <- case (members == rcpt, mgk)  of
+            (True, Just g)  -> pure g
+            (False,_)  -> do
+               sec <- runMaybeT $
+                         toMPlus mgk >>=  liftIO . runKeymanClient . extractGroupKeySecret >>= toMPlus
+
+               case sec of
+                Just s  -> Symm.generateGroupKey @'HBS2Basic (Just s) members
+                Nothing -> Symm.generateGroupKey @'HBS2Basic Nothing members
+
+            _ -> Symm.generateGroupKey @'HBS2Basic Nothing members
 
     -- FIXME: survive-this-error?
     href <- lift $ createTreeWithMetadata sto (Just gk) meta lbs
