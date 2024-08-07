@@ -434,7 +434,7 @@ runDirectory = do
       void $ runMaybeT do
         h <- getEntryHash e & toMPlus
 
-        notice $ green "write  entry" <+> pretty h <+> pretty (path </> p)
+        notice $ green "write" <+> pretty h <+> pretty p
 
         lbs <- lift (runExceptT (getTreeContents sto h))
                  >>= toMPlus
@@ -478,6 +478,9 @@ runDirectory = do
 
       merged <- mergeState deleted local
 
+      rch <- Client.getRefChanHead @UNIX refchan
+                   >>= orThrow RefChanHeadNotFoundException
+
       let filesLast m = case mergedEntryType m of
            Tomb -> 0
            Dir  -> 1
@@ -486,10 +489,10 @@ runDirectory = do
       for_ (L.sortOn filesLast merged) $ \w -> do
         case w of
           N (p,TombEntry e) -> do
-            notice $ green "removed entry" <+> pretty p
+            notice $ green "removed" <+> pretty p
 
           D (p,e) _ -> do
-            notice $ "locally deleted file" <+> pretty p
+            notice $ "deleted locally" <+> pretty p
 
             tombs <- getTombs
 
@@ -500,10 +503,11 @@ runDirectory = do
               postEntryTx (HM.lookup p hasGK0) refchan path e
               Compact.putVal tombs p (maybe 0 succ n)
 
-          N (_,_) -> none
+          N (p,_) -> do
+            notice $ "?" <+> pretty p
 
           M (f,t,e) -> do
-            notice $ green "move entry" <+> pretty f <+> pretty t
+            notice $ green "move" <+> pretty f <+> pretty t
             mv (path </> f) (path </> t)
             notice $ green "post renamed entry tx" <+> pretty f
             postEntryTx (HM.lookup f hasGK0) refchan path e
@@ -512,7 +516,7 @@ runDirectory = do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             writeEntry path e
-            notice $ red "updated file entry" <+> pretty here <+> pretty p <+> line <+> pretty (AsSexp @C e)
+            notice $ red "updated" <+> pretty here <+> pretty p
             postEntryTx (HM.lookup p hasGK0) refchan path e
 
           E (p,e@(FileEntry _)) -> do
@@ -529,6 +533,14 @@ runDirectory = do
             when (not here || older) do
               writeEntry path e
 
+            void $ runMaybeT do
+              gk0 <- HM.lookup p hasGK0 & toMPlus
+              let rcpt = recipients gk0 & HM.keys
+              let members = view refChanHeadReaders rch & HS.toList
+              when (rcpt /= members) do
+                notice $ red "update group key" <+> pretty p
+                lift $ postEntryTx (Just gk0) refchan path e
+
           E (p,TombEntry e) -> do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
@@ -542,13 +554,11 @@ runDirectory = do
 
               Compact.putVal tombs p (maybe 0 succ n)
 
-              notice $ red "tomb entry" <+> pretty (path </> p)
+              notice $ red "deleted" <+> pretty p
               rm fullPath
 
           E (p,_) -> do
-            notice $ "skip entry" <+> pretty (path </> p)
-
-          _ -> none
+            notice $ "skip entry" <+> pretty p
 
 
 findDeleted :: (MonadIO m, HasRunDir m, HasTombs m) => m [Merged]
@@ -650,9 +660,13 @@ postEntryTx mgk refchan path entry = do
     let spk = view peerSignPk creds
     let ssk = view peerSignSk creds
 
-    let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx)
+    -- FIXME: remove-nonce
+    --   пока что будем постить транзакцию всегда.
+    --   в дальнейшем стоит избавиться от нонса
+    nonce <- liftIO getPOSIXTime <&> serialise . take 4 . reverse . show
+    let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx <> nonce)
 
-    notice $ red "POST NEW REMOTE ENTRY" <+> pretty p <+> pretty href
+    notice $ red "post tree tx" <+> pretty p <+> pretty href
 
     lift $ postRefChanTx @UNIX refchan box
 
@@ -1145,7 +1159,6 @@ syncEntries = do
 
   entry $ bindMatch "run" $ nil_  \case
     _ -> runDirectory
-
 
   entry $ bindMatch "prune" $ nil_ \case
     [] -> do
