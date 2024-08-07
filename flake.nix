@@ -10,13 +10,22 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
     fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
+    #fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
-    suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
+    suckless-conf.url =
+      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=41830ea2f2e9bb589976f0433207a8f1b73b0b01&tag=0.1.2.6";
+
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
-    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
+    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
+
+    lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
+    lsm.inputs.nixpkgs.follows = "nixpkgs";
+
+    fuzzy.url = "git+http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
+    fuzzy.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
@@ -35,8 +44,10 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-git"
      "hbs2-qblf"
      "hbs2-keyman"
-     "hbs2-share"
      "hbs2-fixer"
+     "hbs2-cli"
+     "hbs2-sync"
+     "fixme-new"
     ];
   in
  haskell-flake-utils.lib.simpleCabalProject2flake {
@@ -58,13 +69,16 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer"   = "./hbs2-peer";
      "hbs2-keyman" = "./hbs2-keyman";
-     "hbs2-share"  = "./hbs2-share";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
+     "hbs2-cli"    = "./hbs2-cli";
+     "hbs2-sync"   = "./hbs2-sync";
+     "fixme-new"   = "./fixme-new";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
      saltine = prev.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
+     scotty = final.callHackage "scotty" "0.21" { };
    };
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [

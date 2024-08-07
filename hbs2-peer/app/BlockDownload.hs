@@ -730,12 +730,13 @@ blockDownloadLoop env0 = do
             updatePeerInfo False p pinfo
 
 
-processBlock :: forall e m . ( MonadIO m
-                             , HasStorage m
-                             , MyPeer e
-                             , ForSignedBox e
-                             , HasPeerLocator e (BlockDownloadM e m)
-                             )
+processBlock :: forall e s m . ( MonadIO m
+                               , HasStorage m
+                               , MyPeer e
+                               , ForSignedBox s
+                               , s ~ Encryption e
+                               , HasPeerLocator e (BlockDownloadM e m)
+                               )
              => Hash HbSync
              -> BlockDownloadM e m ()
 
@@ -820,7 +821,7 @@ processBlock h = do
         bs <- MaybeT $ pure block
 
         -- TODO: check-if-we-somehow-trust-this-key
-        (pk, BundleRefSimple ref) <- MaybeT $ pure $ deserialiseOrFail @(BundleRefValue e) bs
+        (pk, BundleRefSimple ref) <- MaybeT $ pure $ deserialiseOrFail @(BundleRefValue s) bs
                                        & either (const Nothing) unboxBundleRef
 
         debug $ "GOT BundleRefValue" <+> parens (pretty ref)

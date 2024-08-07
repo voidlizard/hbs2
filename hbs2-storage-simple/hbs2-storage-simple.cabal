@@ -59,6 +59,7 @@ library
     import:           shared-properties
     exposed-modules:  HBS2.Storage.Simple
                     , HBS2.Storage.Simple.Extra
+                    , HBS2.Storage.Compact
     -- other-modules:
     -- other-extensions:
     build-depends:    base, hbs2-core
@@ -66,14 +67,18 @@ library
                     , atomic-write
                     , bytestring
                     , bytestring-mmap
+                    , binary
                     , cache
                     , containers
                     , directory
                     , filepath
+                    , memory
                     , microlens-platform
                     , mtl
+                    , mmap
                     , prettyprinter
                     , random
+                    , safe
                     , stm
                     , stm-chans
                     , streaming
@@ -84,6 +89,9 @@ library
                     , unordered-containers
                     , temporary
                     , filepattern
+                    , unliftio
+                    , unix
+                    , vector
 
 
     hs-source-dirs:   lib
@@ -96,6 +104,7 @@ test-suite test
 
     other-modules:
       TestSimpleStorage
+      TestCompactStorage
 
     -- other-extensions:
 
@@ -119,6 +128,7 @@ test-suite test
         , random
         , safe
         , serialise
+        , streaming
         , tasty
         , tasty-hunit
         , temporary
@@ -167,6 +177,7 @@ executable hbs2-storage-simple-benchmarks
                     , safe
                     , serialise
                     , streaming
+                    , split
                     , text
                     , temporary
                     , transformers

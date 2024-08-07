@@ -2,7 +2,6 @@ module Main where
 
 import TestFakeMessaging
 import TestActors
-import DialogSpec
 import TestFileLogger
 import TestScheduled
 import TestDerivedKey
@@ -20,9 +19,6 @@ main =
       , testCase "testFileLogger" testFileLogger
       , testCase "testScheduledActions" testScheduled
       , testCase "testDerivedKeys1" testDerivedKeys1
-
-      -- FIXME does-not-finish
-      -- , testDialog
       ]
 
 

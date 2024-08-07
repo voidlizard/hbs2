@@ -26,9 +26,9 @@ import Lens.Micro.Platform
 -- Contains an encryption public key, optional additional information,
 -- and a possible reference to an additional information block.
 
-data SigilData e =
+data SigilData s =
   SigilData
-  { sigilDataEncKey :: PubKey 'Encrypt (Encryption e)
+  { sigilDataEncKey :: PubKey 'Encrypt s
   , sigilDataInfo   :: Maybe Text
   , sigilDataExt    :: Maybe HashRef
   }
@@ -40,34 +40,34 @@ data SigilData e =
 -- Includes a signature public key and signed 'SigilData',
 -- ensuring user authentication and verification.
 
-data Sigil e =
+data Sigil s =
   Sigil
-  { sigilSignPk     :: PubKey 'Sign (Encryption e)
-  , sigilData       :: SignedBox (SigilData e) e
+  { sigilSignPk     :: PubKey 'Sign s
+  , sigilData       :: SignedBox (SigilData s) s
   }
   deriving stock (Generic)
 
 
-type ForSigil e = ( Serialise (PubKey 'Encrypt (Encryption e))
-                  , Serialise (PubKey 'Sign (Encryption e))
-                  , Serialise (Signature (Encryption e))
-                  , Signatures (Encryption e)
-                  , Hashable (PubKey 'Sign (Encryption e))
-                  , IsEncoding (PubKey 'Encrypt (Encryption e))
-                  , Eq (PubKey 'Encrypt (Encryption e))
-                  , FromStringMaybe (PubKey 'Sign (Encryption e))
+type ForSigil s = ( Serialise (PubKey 'Encrypt s)
+                  , Serialise (PubKey 'Sign s)
+                  , Serialise (Signature s)
+                  , Signatures s
+                  , Hashable (PubKey 'Sign s)
+                  , IsEncoding (PubKey 'Encrypt s)
+                  , Eq (PubKey 'Encrypt s)
+                  , FromStringMaybe (PubKey 'Sign s)
                   )
 
-type ForPrettySigil e =
-  ( IsEncoding (PubKey 'Encrypt (Encryption e))
-  , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
+type ForPrettySigil s =
+  ( IsEncoding (PubKey 'Encrypt s)
+  , Pretty (AsBase58 (PubKey 'Sign s))
   )
 
-instance ForSigil e => Serialise (SigilData e)
-instance ForSigil e => Serialise (Sigil e)
+instance ForSigil s => Serialise (SigilData s)
+instance ForSigil s => Serialise (Sigil s)
 
 
-instance ForPrettySigil e => Pretty (SigilData e) where
+instance ForPrettySigil s => Pretty (SigilData s) where
   pretty s = vcat $ [ parens ("encrypt-pubkey" <+> dquotes epk)
                     ] <> catMaybes [pinfo, pext]
     where
@@ -75,7 +75,7 @@ instance ForPrettySigil e => Pretty (SigilData e) where
       pinfo = sigilDataInfo s >>= \x -> pure $ parens ("info" <+> dquotes (pretty x))
       pext = sigilDataExt s >>= \x -> pure $ parens ("ext" <+> dquotes (pretty x))
 
-instance ForPrettySigil e => Pretty (Sigil e) where
+instance ForPrettySigil s => Pretty (Sigil s) where
   pretty s = vcat
              [ parens ("sign-pubkey" <+> psk)
              ]
@@ -83,12 +83,12 @@ instance ForPrettySigil e => Pretty (Sigil e) where
       psk = dquotes (pretty (AsBase58 (sigilSignPk s)))
 
 -- Nothing, если ключ отсутствует в Credentials
-makeSigilFromCredentials :: forall e . ForSigil e
-                         => PeerCredentials (Encryption e)
-                         -> PubKey 'Encrypt (Encryption e)
+makeSigilFromCredentials :: forall s . ForSigil s
+                         => PeerCredentials s
+                         -> PubKey 'Encrypt s
                          -> Maybe Text
                          -> Maybe HashRef
-                         -> Maybe (Sigil e)
+                         -> Maybe (Sigil s)
 
 makeSigilFromCredentials cred pk i ha = runIdentity $ runMaybeT do
 
@@ -102,7 +102,7 @@ makeSigilFromCredentials cred pk i ha = runIdentity $ runMaybeT do
 
   let sd = SigilData ke i ha
 
-  let box = makeSignedBox @e ppk psk sd
+  let box = makeSignedBox @s ppk psk sd
 
   let sigil = Sigil
               { sigilSignPk = view peerSignPk cred
@@ -112,7 +112,7 @@ makeSigilFromCredentials cred pk i ha = runIdentity $ runMaybeT do
   pure sigil
 
 
-instance ForSigil e => Pretty (AsBase58 (Sigil e)) where
+instance ForSigil s => Pretty (AsBase58 (Sigil s)) where
   pretty (AsBase58 s) = "# sigil file. public data" <> line <> sd
     where
       sd = vcat $ fmap pretty

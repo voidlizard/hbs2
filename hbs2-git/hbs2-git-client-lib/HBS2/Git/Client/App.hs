@@ -9,7 +9,7 @@ import HBS2.Git.Client.Config
 import HBS2.Git.Client.Progress
 import HBS2.Git.Client.State
 
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 
 import HBS2.Git.Local.CLI
 
@@ -136,11 +136,13 @@ runGitCLI o m = do
 
     peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
     refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+    refChanAPI <- makeServiceCaller @RefChanAPI (fromString soname)
     storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
     lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
 
     let endpoints = [ Endpoint @UNIX  peerAPI
                     , Endpoint @UNIX  refLogAPI
+                    , Endpoint @UNIX  refChanAPI
                     , Endpoint @UNIX  lwwAPI
                     , Endpoint @UNIX  storageAPI
                     ]
@@ -160,7 +162,7 @@ runGitCLI o m = do
 
     progress <- ContT $ withAsync (drawProgress q)
 
-    env <- lift $ newGitEnv ip o git cpath conf peerAPI refLogAPI lwwAPI storageAPI
+    env <- lift $ newGitEnv ip o git cpath conf peerAPI refLogAPI refChanAPI lwwAPI storageAPI
     lift $ runReaderT setupLogging env
     lift $ withGitEnv env (evolveDB >> m)
       `finally` do

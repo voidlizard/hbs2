@@ -19,13 +19,13 @@ import Data.Kind
 import Control.Monad.Reader
 import UnliftIO
 
-withRPC2 :: forall (api :: [Type]) e m . ( e ~ UNIX
+withRPC2 :: forall (api :: [Type]) e m r . ( e ~ UNIX
                              , HasProtocol e (ServiceProto api e)
                              , MonadUnliftIO m
                              )
          => FilePath
-         -> ( ServiceCaller api e -> m () )
-         -> m ()
+         -> ( ServiceCaller api e -> m r )
+         -> m r
 
 withRPC2 soname action = do
 
@@ -39,10 +39,13 @@ withRPC2 soname action = do
   caller <- makeServiceCaller @api @UNIX (fromString soname)
   p2 <- liftIO $ async $ runReaderT (runServiceClient @api @e caller) client1
 
-  action caller
+  r <- action caller
 
   pause @'Seconds 0.05
   cancel p2
 
   void $ waitAnyCatchCancel [m1, p2]
+
+  pure r
+
 

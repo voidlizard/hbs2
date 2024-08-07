@@ -148,7 +148,7 @@ instance HasProtocol L4Proto (RefChanNotify L4Proto) where
   -- возьмем пока 10 секунд
   requestPeriodLim = NoLimit
 
-instance ForLWWRefProto L4Proto => HasProtocol L4Proto (LWWRefProto L4Proto) where
+instance HasProtocol L4Proto (LWWRefProto L4Proto) where
   type instance ProtocolId (LWWRefProto L4Proto) = 12001
   type instance Encoded L4Proto = ByteString
   decode = either (const Nothing) Just . deserialiseOrFail

@@ -37,11 +37,11 @@ instance (RefLogContext m) => HandleMethod m RpcRefLogGet where
   handleMethod pk = do
     co <- getRpcContext @RefLogAPI
     debug $ "rpc.reflogGet:"  <+> pretty (AsBase58 pk)
-                               <+> pretty (hashObject @HbSync (RefLogKey @HBS2Basic pk))
+                               <+> pretty (hashObject @HbSync (RefLogKey @'HBS2Basic pk))
 
     liftIO $ withPeerM (rpcPeerEnv co) $ do
       let sto = rpcStorage co
-      liftIO (getRef sto (RefLogKey @HBS2Basic pk)) <&> fmap HashRef
+      liftIO (getRef sto (RefLogKey @'HBS2Basic pk)) <&> fmap HashRef
 
 instance (RefLogContext m) => HandleMethod m RpcRefLogFetch where
 

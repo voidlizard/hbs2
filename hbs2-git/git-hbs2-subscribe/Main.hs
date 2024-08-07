@@ -28,7 +28,7 @@ main = do
 
 
   where
-    pLww :: ReadM (LWWRefKey HBS2Basic)
+    pLww :: ReadM (LWWRefKey 'HBS2Basic)
     pLww = maybeReader fromStringMay
 
 
@@ -66,7 +66,7 @@ instance Monad m => HasAPI LWWRefAPI UNIX (MyApp m) where
 instance Monad m => HasAPI RefLogAPI UNIX (MyApp m) where
   getAPI = asks _refLogAPI
 
-subscribe :: forall m . MonadUnliftIO m => Maybe String -> LWWRefKey HBS2Basic  -> m ()
+subscribe :: forall m . MonadUnliftIO m => Maybe String -> LWWRefKey 'HBS2Basic  -> m ()
 subscribe soname' ref = do
 
   soname <- maybe1 soname' detectRPC (pure.Just) `orDie` "can't locate rpc"

@@ -11,15 +11,32 @@ import HBS2.Git.Client.App.Types
 import HBS2.Git.Client.Config
 
 import HBS2.Peer.Proto.RefLog
+import HBS2.Storage.Operations.ByteString
 
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
+import HBS2.Git.Data.Tx.Index
 
 import DBPipe.SQLite
 import Data.Maybe
 import Data.List qualified as List
 import Text.InterpolatedString.Perl6 (qc)
+import Data.Text qualified as Text
 import Data.Word
+import Data.Coerce
+
+import Streaming.Prelude qualified as S
+
+data Limit = Limit Integer
+
+data SortOrder = ASC | DESC
+
+newtype SQL a = SQL a
+
+instance Pretty (SQL SortOrder) where
+  pretty (SQL ASC) = "ASC"
+  pretty (SQL DESC) = "DESC"
 
 newtype Base58Field a = Base58Field { fromBase58Field :: a }
                         deriving stock (Eq,Ord,Generic)
@@ -30,7 +47,7 @@ instance Pretty (AsBase58 a) => ToField (Base58Field a) where
 instance IsString a => FromField (Base58Field a) where
   fromField = fmap (Base58Field . fromString) . fromField @String
 
-instance FromField (RefLogKey HBS2Basic) where
+instance FromField (RefLogKey 'HBS2Basic) where
   fromField = fmap fromString . fromField @String
 
 instance ToField HashRef where
@@ -38,6 +55,8 @@ instance ToField HashRef where
 
 instance FromField HashRef where
   fromField = fmap fromString . fromField @String
+
+deriving newtype instance FromField (TaggedHashRef t)
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -51,7 +70,7 @@ instance FromField GitRef where
 instance FromField GitHash where
   fromField = fmap fromString . fromField @String
 
-instance FromField (LWWRefKey HBS2Basic) where
+instance FromField (LWWRefKey 'HBS2Basic) where
   fromField = fmap fromString . fromField @String
 
 createStateDir :: (GitPerks m, MonadReader GitEnv m)  => m ()
@@ -367,16 +386,73 @@ limit 1
   |] (Only (Base58Field reflog)) <&> listToMaybe
 
 
-insertLww :: MonadIO m => LWWRefKey HBS2Basic -> Word64 -> RefLogId -> DBPipeM m ()
+insertLww :: MonadIO m => LWWRefKey 'HBS2Basic -> Word64 -> RefLogId -> DBPipeM m ()
 insertLww lww snum reflog = do
   insert [qc|
 INSERT INTO lww (hash, seq, reflog) VALUES (?, ?, ?)
 ON CONFLICT (hash,seq,reflog) DO NOTHING
   |] (Base58Field lww, snum, Base58Field reflog)
 
-selectAllLww :: MonadIO m => DBPipeM m [(LWWRefKey HBS2Basic, Word64, RefLogId)]
+selectAllLww :: MonadIO m => DBPipeM m [(LWWRefKey 'HBS2Basic, Word64, RefLogId)]
 selectAllLww = do
   select_  [qc|
 SELECT hash, seq, reflog FROM lww
-  |] <&> fmap (over _3 (fromRefLogKey @HBS2Basic))
+  |] <&> fmap (over _3 (fromRefLogKey @'HBS2Basic))
+
+
+
+selectRepoHeadsFor :: (MonadIO m, HasStorage m)
+                    => SortOrder
+                    -> LWWRefKey 'HBS2Basic
+                    -> DBPipeM m [TaggedHashRef RepoHead]
+
+selectRepoHeadsFor order what = do
+  let q = [qc|
+SELECT t.head
+FROM lww l join tx t on l.reflog = t.reflog
+WHERE l.hash = ?
+ORDER BY t.seq {pretty (SQL order)}
+|]
+
+  select @(Only (TaggedHashRef RepoHead)) q (Only $ Base58Field what)
+   <&> fmap fromOnly
+
+
+instance (Monad m, HasStorage m) => HasStorage (DBPipeM m) where
+  getStorage = lift getStorage
+
+selectRepoIndexEntryFor :: (MonadIO m, HasStorage m)
+                        => LWWRefKey 'HBS2Basic
+                        -> DBPipeM m (Maybe GitIndexRepoDefineData)
+
+selectRepoIndexEntryFor what = runMaybeT do
+
+  headz <- lift $ selectRepoHeadsFor DESC what
+
+  rhh <- S.head_ do
+            for_ headz $ \ha -> do
+              rh' <- lift $ loadRepoHead ha
+              for_ rh' $ \rh -> do
+                when (notEmpty $ _repoManifest  rh) do
+                  S.yield rh
+
+
+  repohead <- toMPlus rhh
+
+  pure $ GitIndexRepoDefineData (GitIndexRepoName $ _repoHeadName repohead)
+                                (GitIndexRepoBrief $ _repoHeadBrief repohead)
+
+
+  where
+    notEmpty s = maybe 0 Text.length s > 0
+
+loadRepoHead :: (HasStorage m, MonadIO m) => TaggedHashRef RepoHead -> m (Maybe RepoHead)
+loadRepoHead rh = do
+  sto <- getStorage
+  runMaybeT do
+    runExceptT (readFromMerkle sto (SimpleKey (coerce rh)))
+       >>= toMPlus
+       <&> deserialiseOrFail @RepoHead
+       >>= toMPlus
+
 

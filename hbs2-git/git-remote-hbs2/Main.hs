@@ -9,9 +9,10 @@ import HBS2.Git.Client.Export
 import HBS2.Git.Client.State
 import HBS2.Git.Client.Progress
 import HBS2.Git.Client.Config
+import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
-import HBS2.Git.Data.Tx qualified as TX
-import HBS2.Git.Data.Tx (RepoHead(..))
+import HBS2.Git.Data.Tx.Git qualified as TX
+import HBS2.Git.Data.Tx.Git (RepoHead(..))
 import HBS2.Git.Data.LWWBlock
 
 import HBS2.System.Dir
@@ -48,7 +49,7 @@ sendLine = liftIO . IO.putStrLn
 die :: (MonadIO m, Pretty a) => a -> m b
 die s = liftIO $ Exit.die (show $ pretty s)
 
-parseURL :: String -> Maybe (LWWRefKey HBS2Basic)
+parseURL :: String -> Maybe (LWWRefKey 'HBS2Basic)
 parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
   where
     p = do
@@ -56,7 +57,7 @@ parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
 
       Atto.takeWhile1 (`elem` getAlphabet)
        <&> BS8.unpack
-       <&> fromStringMay @(LWWRefKey HBS2Basic)
+       <&> fromStringMay @(LWWRefKey 'HBS2Basic)
        >>= maybe (fail "invalid reflog key") pure
 
 parsePush :: String -> Maybe (Maybe GitRef, GitRef)
@@ -177,8 +178,8 @@ main = do
                     r'  <- runMaybeT $ withState do
                             tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
-                            rh <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
-                            pure (_repoHeadRefs rh)
+                            (_,rh) <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
+                            pure (view repoHeadRefs rh)
 
                     let r = fromMaybe mempty r'
 

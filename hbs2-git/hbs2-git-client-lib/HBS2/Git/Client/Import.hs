@@ -7,8 +7,9 @@ import HBS2.Git.Client.RefLog
 import HBS2.Git.Client.Progress
 
 import HBS2.Git.Data.RefLog
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.LWWBlock
+import HBS2.Git.Data.RepoHead
 
 import Data.ByteString.Lazy qualified as LBS
 
@@ -66,7 +67,7 @@ merelySubscribeRepo :: forall e s m . ( GitPerks m
                                       , e ~ L4Proto
                                       , s ~ Encryption e
                                       )
-                    => LWWRefKey HBS2Basic
+                    => LWWRefKey 'HBS2Basic
                     -> m (Maybe (PubKey 'Sign s))
 merelySubscribeRepo lwwKey = do
 
@@ -108,7 +109,7 @@ importRepoWait :: ( GitPerks m
                   , HasAPI LWWRefAPI UNIX m
                   , HasAPI RefLogAPI UNIX m
                   )
-               => LWWRefKey HBS2Basic
+               => LWWRefKey 'HBS2Basic
                -> m ()
 
 importRepoWait lwwKey = do
@@ -291,7 +292,7 @@ applyTx h = do
 
     applyHeads rh = do
 
-      let refs = _repoHeadRefs rh
+      let refs = view repoHeadRefs rh
 
       withGitFastImport $ \ps -> do
         let psin = getStdin ps

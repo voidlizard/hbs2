@@ -13,8 +13,8 @@ import HBS2.Net.Proto.Types
 import PeerTypes
 import PeerConfig
 import CheckPeer (peerBanned)
-import BlockDownload
-import DownloadQ
+import BlockDownload()
+import DownloadQ()
 
 import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
@@ -38,7 +38,7 @@ instance Pretty AcceptAnnounce where
 
 
 
-instance Monad m => HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce m where
+instance HasCfgKey PeerAcceptAnnounceKey AcceptAnnounce where
   key = "accept-block-announce"
 
 instance (Monad m, HasConf m) => HasCfgValue PeerAcceptAnnounceKey AcceptAnnounce m where
@@ -51,7 +51,7 @@ instance (Monad m, HasConf m) => HasCfgValue PeerAcceptAnnounceKey AcceptAnnounc
                 catMaybes [ fromStringMay @(PubKey 'Sign (Encryption L4Proto)) (Text.unpack e)
                           | ListVal (Key s [LitStrVal e]) <- syn, s == kk
                           ]
-      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce @m
+      kk = key @PeerAcceptAnnounceKey @AcceptAnnounce
 
 
 acceptAnnouncesFromPeer :: forall e m . ( MonadIO m

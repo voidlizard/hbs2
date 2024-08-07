@@ -68,7 +68,7 @@ instance FromField HashRef where
   fromField = fmap fromString . fromField @String
 
 
-instance Monad m => HasCfgKey PeerBrainsDb (Maybe String) m where
+instance HasCfgKey PeerBrainsDb (Maybe String) where
   key = "brains"
 
 newtype CommitCmd = CommitCmd { onCommited :: IO () }
@@ -255,6 +255,22 @@ instance ( Hashable (Peer e)
           query conn [qc|select ref, type, interval from {poll_table} where type = ?|] (Only tp)
     where
       postprocess = mapMaybe (\(r,t,i) -> (,t,i) <$> fromStringMay r )
+
+  listPolledRefsFiltered brains (t, p)  = liftIO do
+    debug $ red "brains: listPolledRefsFiltered" <+> pretty (t,p)
+    let conn = view brainsDb brains
+    let sql = [qc|
+      select ref, type, interval
+      from {poll_table}
+      where coalesce(type = ?, true)
+      limit ?
+      offset ?
+    |]
+    query conn sql (t, lim, off ) <&> postprocess
+    where
+      postprocess = mapMaybe (\(r,t1,i) -> (,t1,i) <$> fromStringMay r )
+      off = maybe 0 fst p
+      lim = maybe 1000 snd p
 
   isPolledRef brains tp ref = do
 
@@ -921,7 +937,7 @@ newBasicBrains cfg = liftIO do
 
 data PeerDownloadsDelOnStart
 
-instance Monad m => HasCfgKey PeerDownloadsDelOnStart b m where
+instance HasCfgKey PeerDownloadsDelOnStart b where
   key = "downloads-del-on-start"
 
 {- HLINT ignore "Use camelCase" -}

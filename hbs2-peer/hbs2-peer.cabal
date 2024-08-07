@@ -18,7 +18,7 @@ common warnings
 
 common common-deps
     build-depends:
-          base, hbs2-core, hbs2-storage-simple, hbs2-keyman
+          base, hbs2-core, hbs2-storage-simple
         , aeson
         , async
         , bytestring
@@ -30,6 +30,7 @@ common common-deps
         , dns
         , filepath
         , generic-lens
+        , generic-data
         , hashable
         , microlens-platform
         , mtl
@@ -160,6 +161,11 @@ library
       HBS2.Peer.Proto.AnyRef
       HBS2.Peer.Proto.LWWRef
       HBS2.Peer.Proto.LWWRef.Internal
+      HBS2.Peer.Proto.BrowserPlugin
+
+      HBS2.Peer.RPC.Client
+      HBS2.Peer.RPC.Client.Internal
+      HBS2.Peer.RPC.Client.RefChan
 
       HBS2.Peer.RPC.Class
       HBS2.Peer.RPC.API.Peer

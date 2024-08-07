@@ -94,6 +94,7 @@ library
                     , HBS2.Polling
                     , HBS2.Hash
                     , HBS2.Merkle
+                    , HBS2.Merkle.MetaData
                     , HBS2.Net.Auth.Schema
                     , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm
@@ -105,6 +106,7 @@ library
                     , HBS2.Net.Messaging.UDP
                     , HBS2.Net.Messaging.TCP
                     , HBS2.Net.Messaging.Unix
+                    , HBS2.Net.Messaging.Pipe
                     , HBS2.Net.Messaging.Stream
                     , HBS2.Net.Messaging.Encrypted.RandomPrefix
                     , HBS2.Net.Messaging.Encrypted.ByPass
@@ -126,10 +128,6 @@ library
                     , HBS2.System.Logger.Simple.ANSI
                     , HBS2.System.Logger.Simple.Class
                     , HBS2.System.Dir
-                    , HBS2.Net.Dialog.Core
-                    , HBS2.Net.Dialog.Client
-                    , HBS2.Net.Dialog.Helpers.List
-                    , HBS2.Net.Dialog.Helpers.Streaming
                     , HBS2.Misc.PrettyStuff
                     , HBS2.Version
 
@@ -196,6 +194,7 @@ library
                     , time
                     , transformers
                     , uniplate
+                    , unix
                     , unordered-containers
                     , unliftio
                     , unliftio-core
@@ -216,7 +215,6 @@ test-suite test
                   -- , TestUniqProtoId
                   , FakeMessaging
                   , HasProtocol
-                  , DialogSpec
                   , TestScheduled
                   , TestDerivedKey
 

@@ -13,11 +13,13 @@ import HBS2.Base58
 import HBS2.Data.Types.EncryptedBox
 import HBS2.Data.Types.SmallEncryptedBlock
 import HBS2.Data.Types.Refs
+import HBS2.Net.Auth.Schema
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Data.Detect
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Proto.Types
+import HBS2.Storage hiding (Key)
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage(Storage(..))
@@ -96,14 +98,17 @@ data instance ToEncrypt 'Symm s LBS.ByteString =
   }
   deriving (Generic)
 
-type ForGroupKeySymm s = ( Eq (PubKey 'Encrypt s)
-                         , PubKey 'Encrypt s ~ AK.PublicKey
-                         , PrivKey 'Encrypt s ~ AK.SecretKey
-                         , Serialise (PubKey 'Encrypt s)
-                         , Serialise GroupSecret
-                         , Serialise SK.Nonce
-                         , FromStringMaybe (PubKey 'Encrypt s)
-                         )
+type ForGroupKeySymm (s :: CryptoScheme ) =
+  (
+    -- Eq (PubKey 'Encrypt s)
+  -- , PubKey 'Encrypt s
+  -- , PrivKey 'Encrypt s
+    Serialise (PubKey 'Encrypt s)
+  , Serialise GroupSecret
+  , Serialise SK.Nonce
+  , FromStringMaybe (PubKey 'Encrypt s)
+  , Hashable (PubKey 'Encrypt s)
+  )
 
 instance ForGroupKeySymm s => Serialise (GroupKey 'Symm s)
 
@@ -142,7 +147,7 @@ instance ( Serialise  (GroupKey 'Symm s)
     pretty . B8.unpack . toBase58 . LBS.toStrict . serialise $ c
 
 
-generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m)
+generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
                  => Maybe GroupSecret
                  -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
@@ -155,7 +160,10 @@ generateGroupKey mbk pks = GroupKeySymm <$> create
         box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
         pure (pk, box)
 
-lookupGroupKey :: ForGroupKeySymm s
+lookupGroupKey :: forall s .  ( ForGroupKeySymm s
+                              , PubKey 'Encrypt s ~ AK.PublicKey
+                              , PrivKey 'Encrypt s ~ AK.SecretKey
+                              )
                => PrivKey 'Encrypt s
                -> PubKey 'Encrypt s
                -> GroupKey 'Symm s
@@ -163,9 +171,7 @@ lookupGroupKey :: ForGroupKeySymm s
 
 lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
   (EncryptedBox bs) <- MaybeT $ pure $ HashMap.lookup pk (recipients gk)
-  -- error  "FOUND SHIT!"
   gkBs <- MaybeT $ pure $ AK.boxSealOpen pk sk bs
-  -- error $ "DECRYPTED SHIT!"
   MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict gkBs) & either (const Nothing) Just
 
 
@@ -278,8 +284,8 @@ instance ( MonadIO m
          , MonadError OperationError m
          , h ~ HbSync
          , Storage s h ByteString m
+         , sch ~ 'HBS2Basic
          -- TODO: why?
-         , sch ~ HBS2Basic
          ) => MerkleReader (ToDecrypt 'Symm sch ByteString) s h m where
 
   data instance TreeKey (ToDecrypt 'Symm sch ByteString) =
@@ -394,16 +400,17 @@ decryptBlock :: forall t s sto h m . ( MonadIO m
                                      )
 
              => sto
-             -> [KeyringEntry s]
+             -> (GroupKey 'Symm s -> m (Maybe GroupSecret))
              -> SmallEncryptedBlock t
              -> m t
 
-decryptBlock sto keys (SmallEncryptedBlock{..}) = do
+decryptBlock sto findKey (SmallEncryptedBlock{..}) = do
 
   gkbs <- readFromMerkle sto (SimpleKey (fromHashRef sebGK0))
   gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm s) gkbs)
 
-  let gksec' = [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
+  gksec' <- findKey gk
+  -- [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
 
   gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
 
@@ -424,4 +431,18 @@ deriveGroupSecret n bs = key0
     nonceS = nonceFrom @SK.Nonce n & Saltine.encode & hashObject @HbSync & fromHbSyncHash
     prk = HKDF.extractSkip @_ @HbSyncHash bs
     key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
+
+
+loadGroupKeyMaybe :: ( ForGroupKeySymm s, MonadIO m
+                     ) => AnyStorage -> HashRef -> m (Maybe (GroupKey 'Symm s))
+loadGroupKeyMaybe sto h = do
+
+  runMaybeT do
+
+    bs <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef h)))
+            <&> either (const Nothing) Just
+            >>= toMPlus
+
+    deserialiseOrFail bs
+      &  toMPlus
 

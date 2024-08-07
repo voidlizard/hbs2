@@ -4,6 +4,7 @@ module HBS2.Net.Messaging.Unix
   ( module HBS2.Net.Messaging.Unix
   , module HBS2.Net.Messaging
   , module HBS2.Net.Proto.Types
+  , SocketClosedException
   ) where
 
 import HBS2.Prelude.Plated
@@ -220,12 +221,23 @@ runMessagingUnix env = do
             atomically $ writeTVar seen now
             next
 
+
+    clientLoop m = fix \next -> do
+      m
+      if not (MUDontRetry `elem` msgUnixOpts env) then do
+        debug "LOOP!"
+        next
+      else do
+        debug "LOOP EXIT"
+
     handleClient | MUDontRetry `elem` msgUnixOpts env  = \_ w -> handleAny throwStopped w
-                 | otherwise = handleAny
+                 | otherwise =  handleAny
 
     throwStopped _ = throwIO UnixMessagingStopped
 
-    runClient = liftIO $ forever $ handleClient logAndRetry $ flip runContT pure $ do
+    runClient = liftIO $ clientLoop $ handleClient logAndRetry $ flip runContT pure $ do
+
+      debug "HERE WE GO AGAIN!"
 
       let sa   = SockAddrUnix (msgUnixSockPath env)
       let p  = msgUnixSockPath env
@@ -334,6 +346,7 @@ runMessagingUnix env = do
       dropQueues
 
       pause (msgUnixRetryTime env)
+
 
     logAndRetry :: SomeException -> IO ()
     logAndRetry e = do

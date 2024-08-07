@@ -7,6 +7,7 @@ import HBS2.KeyMan.Config
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Net.Proto.Types
 
 
@@ -17,10 +18,12 @@ import UnliftIO
 import DBPipe.SQLite
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Maybe
+import Data.HashMap.Strict qualified as HM
 import Control.Monad.Trans.Maybe
 import Data.List qualified as List
 import Data.ByteString qualified as BS
 import Data.Ord
+import Streaming.Prelude qualified as S
 
 data KeyManClientError = KeyManClientSomeError
 
@@ -51,16 +54,19 @@ runKeymanClient action = do
 loadCredentials :: forall a m .
                      ( MonadIO m
                      , SomePubKeyPerks a
-                     , SerialisedCredentials HBS2Basic
+                     , SerialisedCredentials 'HBS2Basic
                      )
                   => a
-                  -> KeyManClient m (Maybe (PeerCredentials HBS2Basic))
+                  -> KeyManClient m (Maybe (PeerCredentials 'HBS2Basic))
 loadCredentials k = KeyManClient do
 
   fnames <- select @(Only FilePath) [qc|
     select f.file
-    from keytype t join keyfile f on t.key = f.key
+    from keytype t
+            join keyfile f on t.key = f.key
+       left join keyweight w on w.key = f.key
     where t.key = ? and t.type = 'sign'
+    order by w.weight desc nulls last
     limit 1 |]  (Only (SomePubKey k))
 
   runMaybeT do
@@ -71,10 +77,10 @@ loadCredentials k = KeyManClient do
 
 loadKeyRingEntry :: forall m .
                     ( MonadIO m
-                    , SerialisedCredentials HBS2Basic
+                    , SerialisedCredentials 'HBS2Basic
                     )
-                 => PubKey 'Encrypt HBS2Basic
-                 -> KeyManClient m (Maybe (KeyringEntry HBS2Basic))
+                 => PubKey 'Encrypt 'HBS2Basic
+                 -> KeyManClient m (Maybe (KeyringEntry 'HBS2Basic))
 loadKeyRingEntry pk = KeyManClient do
   runMaybeT do
     fn <- toMPlus =<< lift (selectKeyFile pk)
@@ -87,10 +93,10 @@ loadKeyRingEntry pk = KeyManClient do
 
 loadKeyRingEntries :: forall m .
                     ( MonadIO m
-                    , SerialisedCredentials HBS2Basic
+                    , SerialisedCredentials 'HBS2Basic
                     )
-                 => [PubKey 'Encrypt HBS2Basic]
-                 -> KeyManClient m [(Word, KeyringEntry HBS2Basic)]
+                 => [PubKey 'Encrypt 'HBS2Basic]
+                 -> KeyManClient m [(Word, KeyringEntry 'HBS2Basic)]
 loadKeyRingEntries pks = KeyManClient do
     r <- for pks $ \pk -> runMaybeT do
               fn <- lift (selectKeyFile pk) >>= toMPlus
@@ -102,4 +108,17 @@ loadKeyRingEntries pks = KeyManClient do
                                 , p == pk
                                 ]
     pure $ catMaybes r & List.sortOn (Down . fst)
+
+
+extractGroupKeySecret :: MonadIO m
+                      => GroupKey 'Symm 'HBS2Basic
+                      -> KeyManClient m (Maybe GroupSecret)
+extractGroupKeySecret gk = do
+    r <- S.toList_ do
+          forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
+            (KeyringEntry ppk ssk _) <- MaybeT $ lift $ loadKeyRingEntry pk
+            let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
+            for_ s $ lift . S.yield
+
+    pure $ headMay r
 

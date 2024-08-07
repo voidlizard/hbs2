@@ -115,9 +115,9 @@ executable hbs2-keyman
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base,
-        hbs2-keyman,
-        optparse-applicative
+          base
+        , hbs2-keyman
+        , optparse-applicative
 
     hs-source-dirs:   app
     default-language: GHC2021

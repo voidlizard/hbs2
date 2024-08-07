@@ -9,7 +9,7 @@ import HBS2.Git.Client.State
 import HBS2.Git.Client.Progress
 
 import HBS2.Git.Data.RefLog
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.GK
 
@@ -109,9 +109,8 @@ refsForExport forPushL = do
     <&> mapMaybe \case
          [val,name] -> (GitRef (LBS8.toStrict name),) <$> fromStringMay @GitHash (LBS8.unpack val)
          _          -> Nothing
-    <&> filterPat incl excl
     <&> HashMap.fromList
-    <&> HashMap.filterWithKey (\k _ -> not (HashSet.member k deleted))
+    <&> HashMap.mapWithKey (\k v -> if k `HashSet.member` deleted then gitHashTomb else v)
     <&> mappend forPush
     <&> mappend (HashMap.singleton currentBranch currentVal)
     <&> HashMap.toList
@@ -153,7 +152,7 @@ export :: ( GitPerks m
           , GroupKeyOperations m
           , HasAPI PeerAPI UNIX m
           )
-       => LWWRefKey HBS2Basic
+       => LWWRefKey 'HBS2Basic
        -> [(GitRef,Maybe GitHash)]
        -> m ()
 export key refs  = do
@@ -177,7 +176,7 @@ export key refs  = do
                              >>= orThrowUser ("can't load credentials" <+> pretty (AsBase58 puk0))
                 pure ( view peerSignSk  creds, view peerSignPk creds )
 
-  (puk,sk) <- derivedKey @HBS2Basic @'Sign lwwRefSeed sk0
+  (puk,sk) <- derivedKey @'HBS2Basic @'Sign lwwRefSeed sk0
 
   subscribeRefLog puk
 
@@ -191,7 +190,9 @@ export key refs  = do
 
       tx0 <- getLastAppliedTx
 
-      rh0 <- runMaybeT ( toMPlus tx0 >>= readRepoHeadFromTx sto >>= toMPlus )
+      rh <- runMaybeT ( toMPlus tx0 >>= readRepoHeadFromTx sto >>= toMPlus )
+
+      let rh0 = snd <$> rh
 
       (name,brief,mf) <- lift getManifest
 
@@ -216,7 +217,7 @@ export key refs  = do
 
       repohead <- makeRepoHeadSimple name brief mf gk0 myrefs
 
-      let oldRefs = maybe mempty _repoHeadRefs rh0
+      let oldRefs = maybe mempty repoHeadRefs' rh0
 
       trace $ "TX0" <+> pretty  tx0
 

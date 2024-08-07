@@ -29,6 +29,7 @@ import Codec.Serialise
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
@@ -42,7 +43,7 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import UnliftIO
 
-data ProposeTran e = ProposeTran HashRef (SignedBox ByteString e) -- произвольная бинарная транзакция,
+data ProposeTran e = ProposeTran HashRef (SignedBox ByteString (Encryption e)) -- произвольная бинарная транзакция,
                      deriving stock (Generic)                     -- подписанная ключом **АВТОРА**, который её рассылает
 
 newtype AcceptTime = AcceptTime Word64
@@ -70,6 +71,7 @@ pattern AcceptTran t a b <- (unpackAcceptTran -> (t, a, b))
   where
     AcceptTran Nothing a b = AcceptTran1 a b
     AcceptTran (Just t) a b = AcceptTran2 (Just t) a b
+{-# COMPLETE AcceptTran #-}
 
 instance ForRefChans e => Serialise (ProposeTran e)
 instance ForRefChans e => Serialise (AcceptTran e)
@@ -126,8 +128,8 @@ instance Expires (EventKey e (RefChanRound e)) where
 --   черт его знает, какой там останется пайлоад.
 --   надо посмотреть. байт, небось, 400
 data RefChanUpdate e =
-    Propose (RefChanId e) (SignedBox (ProposeTran e) e) -- подписано ключом пира
-  | Accept  (RefChanId e) (SignedBox (AcceptTran e) e)  -- подписано ключом пира
+    Propose (RefChanId e) (SignedBox (ProposeTran e) (Encryption e)) -- подписано ключом пира
+  | Accept  (RefChanId e) (SignedBox (AcceptTran e) (Encryption e))  -- подписано ключом пира
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanUpdate e)
@@ -295,7 +297,7 @@ refChanUpdateProto self pc adapter msg = do
 
         let pips = view refChanHeadPeers headBlock
 
-        guard $ checkACL headBlock (Just peerKey) authorKey
+        guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
@@ -381,7 +383,7 @@ refChanUpdateProto self pc adapter msg = do
         let tran = AcceptTran ts headRef (HashRef hash)
 
         -- --  генерируем Accept
-        let accept = Accept chan (makeSignedBox @e pk sk tran)
+        let accept = Accept chan (makeSignedBox @s pk sk tran)
 
         -- -- и рассылаем всем
         debug "GOSSIP ACCEPT TRANSACTION"
@@ -443,7 +445,7 @@ refChanUpdateProto self pc adapter msg = do
                             _              -> Nothing
 
 
-             (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @e proposed
+             (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @s proposed
 
              debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey) <+> pretty h0
 
@@ -453,7 +455,7 @@ refChanUpdateProto self pc adapter msg = do
              (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
 
              -- может, и не надо второй раз проверять
-             guard $ checkACL headBlock (Just peerKey) authorKey
+             guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
              debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 
@@ -563,6 +565,33 @@ refChanRequestProto self adapter msg = do
         lift $ emit RefChanRequestEventKey (RefChanRequestEvent @e chan val)
         debug $ "RefChanResponse" <+> pretty peer <+> pretty (AsBase58 chan) <+> pretty val
 
+          -- case s of
+          --   Accept{} -> pure ()
+          --   Propose _ box -> do
+          --     (_, ProposeTran _ pbox :: ProposeTran L4Proto) <- toMPlus $ unboxSignedBox0 box
+          --     (_, bs2) <- toMPlus $ unboxSignedBox0 pbox
+          --     liftIO $ BS.putStr bs2
+
+readProposeTranMay :: forall p e s m . ( Monad m
+                                       , ForRefChans e
+                                       , Signatures (Encryption e)
+                                       , s ~ Encryption e
+                                       , Serialise p
+                                       )
+                => LBS.ByteString
+                -> m (Maybe p)
+readProposeTranMay lbs = runMaybeT do
+
+  updTx <- deserialiseOrFail @(RefChanUpdate e) lbs & toMPlus
+
+  box <- case updTx of
+           Accept{} -> mzero
+           Propose _ box -> pure box
+
+  (_, ProposeTran _ pbox :: ProposeTran e) <- toMPlus $ unboxSignedBox0 @_ @s box
+  (_, bs2) <- toMPlus $ unboxSignedBox0 pbox
+
+  deserialiseOrFail @p (LBS.fromStrict bs2) & toMPlus
 
 makeProposeTran :: forall e s m . ( MonadIO m
                                   , ForRefChans e
@@ -572,8 +601,8 @@ makeProposeTran :: forall e s m . ( MonadIO m
                                   )
                 => PeerCredentials s
                 -> RefChanId e
-                -> SignedBox ByteString e
-                -> m (Maybe (SignedBox (ProposeTran e) e))
+                -> SignedBox ByteString s
+                -> m (Maybe (SignedBox (ProposeTran e) s))
 
 makeProposeTran creds chan box1 = do
   sto <- getStorage
@@ -582,7 +611,7 @@ makeProposeTran creds chan box1 = do
     let tran = ProposeTran @e (HashRef h) box1
     let pk = view peerSignPk creds
     let sk = view peerSignSk creds
-    pure $ makeSignedBox @e pk sk tran
+    pure $ makeSignedBox @s pk sk tran
 
 -- FIXME: reconnect-validator-client-after-restart
 --  почему-то сейчас если рестартовать пира,

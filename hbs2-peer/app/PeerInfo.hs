@@ -41,7 +41,7 @@ import UnliftIO
 data PeerPingIntervalKey
 
 -- TODO: ping-interval-specifically-for-peer
-instance Monad m => HasCfgKey PeerPingIntervalKey (Maybe Integer) m where
+instance HasCfgKey PeerPingIntervalKey (Maybe Integer) where
   key = "ping-interval"
 
 

@@ -145,34 +145,34 @@ data PeerTcpSOCKS5
 data PeerDownloadThreadKey
 
 
-instance Monad m => HasCfgKey PeerDebugKey a m where
+instance HasCfgKey PeerDebugKey a where
   key = "debug"
 
-instance Monad m => HasCfgKey PeerTraceKey a m where
+instance HasCfgKey PeerTraceKey a where
   key = "trace"
 
-instance Monad m => HasCfgKey PeerTrace1Key a m where
+instance HasCfgKey PeerTrace1Key a where
   key = "trace1"
 
-instance Monad m => HasCfgKey PeerListenKey (Maybe String) m where
+instance HasCfgKey PeerListenKey (Maybe String) where
   key = "listen"
 
-instance Monad m => HasCfgKey PeerKeyFileKey (Maybe String) m where
+instance HasCfgKey PeerKeyFileKey (Maybe String) where
   key = "key"
 
-instance Monad m => HasCfgKey PeerStorageKey (Maybe String) m where
+instance HasCfgKey PeerStorageKey (Maybe String) where
   key = "storage"
 
-instance Monad m => HasCfgKey PeerProxyFetchKey (Set String) m where
+instance HasCfgKey PeerProxyFetchKey (Set String) where
   key = "proxy-fetch-for"
 
 -- NOTE: socks5-auth
 --   Network.Simple.TCP does not support
 --   SOCKS5 authentification
-instance Monad m => HasCfgKey PeerTcpSOCKS5 (Maybe String) m where
+instance HasCfgKey PeerTcpSOCKS5 (Maybe String) where
   key = "tcp.socks5"
 
-instance Monad m => HasCfgKey PeerDownloadThreadKey (Maybe Int) m where
+instance HasCfgKey PeerDownloadThreadKey (Maybe Int) where
   key = "download-threads"
 
 data PeerOpts =
@@ -284,7 +284,7 @@ runCLI = do
     pVersion = pure do
         LBS.putStr $ Aeson.encode $(inlineBuildVersion Pkg.version)
 
-    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign HBS2Basic))
+    pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
 
     pRun = do
       runPeer <$> common
@@ -586,7 +586,7 @@ runCLI = do
           void $ runMaybeT do
            void $ callService @RpcPerformGC caller ()
 
-    refP :: ReadM (PubKey 'Sign HBS2Basic)
+    refP :: ReadM (PubKey 'Sign 'HBS2Basic)
     refP = maybeReader fromStringMay
 
     hashP :: ReadM HashRef
@@ -1124,7 +1124,7 @@ runPeer opts = Exception.handle (\e -> myException e
                 blk1 <- liftIO $ getBlock sto ha
                 maybe1 blk1 none S.yield
 
-          let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) e) (LBS.concat chunks)
+          let box = deserialiseOrFail @(SignedBox (RefChanHeadBlock e) s) (LBS.concat chunks)
 
           case box of
             -- FIXME: proper-error-handling

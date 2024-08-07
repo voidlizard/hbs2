@@ -47,9 +47,7 @@ touch what = do
 
   when (not here || hard) do
     mkdir (takeDirectory fn)
-    liftIO $ print (takeDirectory fn)
     unless dir do
-      liftIO $ print fn
       liftIO $ LBS.appendFile fn mempty
 
   where
@@ -70,5 +68,17 @@ expandPath = liftIO . D.canonicalizePath
 
 doesDirectoryExist :: MonadIO m => FilePath -> m Bool
 doesDirectoryExist = liftIO . D.doesDirectoryExist
+
+fileSize :: MonadIO m => FilePath -> m Integer
+fileSize = liftIO . D.getFileSize
+
+mv :: MonadIO m => FilePath -> FilePath -> m ()
+mv a b = liftIO $ D.renamePath a b
+
+rm :: MonadIO m => FilePath -> m ()
+rm fn = liftIO $ D.removePathForcibly fn
+
+home :: MonadIO m => m FilePath
+home = liftIO D.getHomeDirectory
 
 

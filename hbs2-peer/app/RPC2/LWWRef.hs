@@ -41,7 +41,7 @@ instance (LWWRefContext m) => HandleMethod m RpcLWWRefGet where
       runMaybeT do
         rv <- getRef sto key >>= toMPlus
         val <- getBlock sto rv >>= toMPlus
-                <&> unboxSignedBox @(LWWRef L4Proto) @L4Proto
+                <&> unboxSignedBox @(LWWRef 'HBS2Basic) @HBS2Basic
                 >>= toMPlus
 
         pure $ snd val
@@ -72,6 +72,6 @@ instance LWWRefContext m => HandleMethod m RpcLWWRefUpdate where
       liftIO $ withPeerM penv do
         me <- ownPeer @L4Proto
         runResponseM me $ do
-          lwwRefProto nada (LWWRefProto1 (LWWProtoSet @L4Proto (LWWRefKey puk) box))
+          lwwRefProto nada (LWWRefProto1 @L4Proto (LWWProtoSet (LWWRefKey puk) box))
 
 

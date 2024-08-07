@@ -16,6 +16,9 @@ newtype GitHash = GitHash ByteString
                   deriving stock (Eq,Ord,Data,Generic,Show)
                   deriving newtype Hashable
 
+gitHashTomb :: GitHash
+gitHashTomb = fromString "0000000000000000000000000000000000"
+
 instance Serialise GitHash
 
 instance IsString GitHash where

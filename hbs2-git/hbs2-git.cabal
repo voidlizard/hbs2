@@ -6,7 +6,6 @@ version:            0.24.1.2
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Dmitry Zuikov
-maintainer:         dzuikov@gmail.com
 -- copyright:
 category:           System
 build-type:         Simple
@@ -100,7 +99,9 @@ library
       HBS2.Git.Local
       HBS2.Git.Local.CLI
 
-      HBS2.Git.Data.Tx
+      HBS2.Git.Data.Tx.Git
+      HBS2.Git.Data.Tx.Index
+      HBS2.Git.Data.RepoHead
       HBS2.Git.Data.GK
       HBS2.Git.Data.RefLog
       HBS2.Git.Data.LWWBlock
@@ -122,6 +123,66 @@ library
                     , unix
 
     hs-source-dirs:   hbs2-git-client-lib
+
+
+library hbs2-git-dashboard-assets
+  import:           shared-properties
+
+  build-depends:
+    base, file-embed, lucid, text
+
+  exposed-modules:
+      HBS2.Git.Web.Assets
+
+  hs-source-dirs:   hbs2-git-dashboard-assets
+
+  default-language: GHC2021
+
+
+executable hbs2-git-dashboard
+    import:           shared-properties
+    main-is:          GitDashBoard.hs
+
+    other-modules:
+      HBS2.Git.DashBoard.Prelude
+      HBS2.Git.DashBoard.Types
+      HBS2.Git.DashBoard.State
+      HBS2.Git.DashBoard.State.Commits
+      HBS2.Git.DashBoard.State.Index
+      HBS2.Git.DashBoard.State.Index.Channels
+      HBS2.Git.DashBoard.State.Index.Peer
+      HBS2.Git.Web.Html.Root
+
+    -- other-extensions:
+    build-depends:
+        base, hbs2-git-dashboard-assets, hbs2-peer, hbs2-git, suckless-conf
+        , fuzzy-parse
+        , binary
+        , generic-deriving
+        , generic-data
+        , deriving-compat
+        , vector
+        , optparse-applicative
+        , http-types
+        , file-embed
+        , network-uri
+        , wai
+        , wai-extra
+        , wai-middleware-static
+        , wai-middleware-static-embedded
+        , lucid
+        , lucid-htmx
+        , pandoc
+        , skylighting
+        , skylighting-core
+        , skylighting-lucid
+        , scotty >= 0.21
+
+    hs-source-dirs:
+      hbs2-git-dashboard
+      hbs2-git-dashboard/src
+
+    default-language: GHC2021
 
 
 executable hbs2-git-subscribe

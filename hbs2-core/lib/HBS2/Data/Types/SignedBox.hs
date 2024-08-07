@@ -11,62 +11,62 @@ import Data.Hashable
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Control.Monad.Trans.Maybe
-import Data.Function
 import Control.Monad.Identity
 
-data SignedBox p e =
-  SignedBox (PubKey 'Sign (Encryption e)) ByteString (Signature (Encryption e))
+data SignedBox p s =
+  SignedBox (PubKey 'Sign s) ByteString (Signature s)
   deriving stock (Generic)
 
 deriving stock instance
-  ( Eq (PubKey 'Sign (Encryption e))
-  , Eq (Signature (Encryption e))
-  ) => Eq (SignedBox p e)
+  ( Eq (PubKey 'Sign s)
+  , Eq (Signature s)
+  ) => Eq (SignedBox p s)
 
-instance ( Eq (PubKey 'Sign (Encryption e))
-         , Eq (Signature (Encryption e))
-         , Serialise (SignedBox p e)
-         ) =>  Hashable (SignedBox p e) where
+instance ( Eq (PubKey 'Sign s)
+         , Eq (Signature s)
+         , Serialise (SignedBox p s)
+         ) =>  Hashable (SignedBox p s) where
   hashWithSalt salt box = hashWithSalt salt (serialise box)
 
 
-type ForSignedBox e = ( Serialise ( PubKey 'Sign (Encryption e))
-                      , FromStringMaybe (PubKey 'Sign (Encryption e))
-                      , Serialise (Signature (Encryption e))
-                      , Signatures (Encryption e)
-                      , Hashable (PubKey 'Sign (Encryption e))
+type ForSignedBox s = ( Serialise ( PubKey 'Sign s)
+                      , FromStringMaybe (PubKey 'Sign s)
+                      , Serialise (Signature s)
+                      , Signatures s
+                      , Hashable (PubKey 'Sign s)
                       )
 
-instance ForSignedBox e => Serialise (SignedBox p e)
+instance ForSignedBox s => Serialise (SignedBox p s)
 
-makeSignedBox :: forall e p . (Serialise p, ForSignedBox e, Signatures (Encryption e))
-              => PubKey 'Sign (Encryption e)
-              -> PrivKey 'Sign (Encryption e)
+makeSignedBox :: forall s p . (Serialise p, ForSignedBox s, Signatures s)
+              => PubKey 'Sign s
+              -> PrivKey 'Sign s
               -> p
-              -> SignedBox p e
+              -> SignedBox p s
 
-makeSignedBox pk sk msg = SignedBox @p @e pk bs sign
+makeSignedBox pk sk msg = SignedBox @p @s pk bs sign
   where
     bs = LBS.toStrict (serialise msg)
-    sign = makeSign @(Encryption e) sk bs
+    sign = makeSign @s sk bs
 
 
-unboxSignedBox0 :: forall p e . (Serialise p, ForSignedBox e, Signatures (Encryption e))
-               => SignedBox p e
-               -> Maybe (PubKey 'Sign (Encryption e), p)
+unboxSignedBox0 :: forall p s . (Serialise p, ForSignedBox s, Signatures s)
+               => SignedBox p s
+               -> Maybe (PubKey 'Sign s, p)
 
 unboxSignedBox0 (SignedBox pk bs sign) = runIdentity $ runMaybeT do
-  guard $ verifySign @(Encryption e) pk sign bs
+  guard $ verifySign @s pk sign bs
   p <- MaybeT $ pure $ deserialiseOrFail @p (LBS.fromStrict bs) & either (const Nothing) Just
   pure (pk, p)
 
-unboxSignedBox :: forall p e . (Serialise p, ForSignedBox e, Signatures (Encryption e))
+unboxSignedBox :: forall p s . (Serialise p, ForSignedBox s, Signatures s)
                => LBS.ByteString
-               -> Maybe (PubKey 'Sign (Encryption e), p)
+               -> Maybe (PubKey 'Sign s, p)
 
 unboxSignedBox bs = runIdentity $ runMaybeT do
 
-  box <- MaybeT $ pure $ deserialiseOrFail @(SignedBox p e) bs
+  box <- MaybeT $ pure $ deserialiseOrFail @(SignedBox p s) bs
                           & either (pure Nothing) Just
 
   MaybeT $ pure $ unboxSignedBox0 box
+

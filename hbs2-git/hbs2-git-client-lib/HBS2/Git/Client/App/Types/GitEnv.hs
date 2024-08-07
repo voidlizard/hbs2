@@ -42,11 +42,12 @@ data GitEnv =
   , _config          :: Config
   , _peerAPI         :: ServiceCaller PeerAPI UNIX
   , _refLogAPI       :: ServiceCaller RefLogAPI UNIX
+  , _refChanAPI      :: ServiceCaller RefChanAPI UNIX
   , _lwwRefAPI       :: ServiceCaller LWWRefAPI UNIX
   , _storage         :: AnyStorage -- ServiceCaller StorageAPI UNIX
   , _db              :: DBPipeEnv
   , _progress        :: AnyProgress
-  , _keyringCache    :: TVar (HashMap HashRef [KeyringEntry HBS2Basic])
+  , _keyringCache    :: TVar (HashMap HashRef [KeyringEntry 'HBS2Basic])
   }
 
 

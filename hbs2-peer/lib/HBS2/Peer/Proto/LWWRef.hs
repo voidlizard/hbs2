@@ -8,13 +8,10 @@ import HBS2.Base58
 import HBS2.Storage
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Refs
-import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Schema()
 
-import Data.ByteString (ByteString)
 import Data.Hashable hiding (Hashed)
 import Data.Maybe
 import Data.Word
@@ -22,17 +19,17 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Except
 import Codec.Serialise
 
-data LWWRefProtoReq e =
-    LWWProtoGet (LWWRefKey (Encryption e))
-  | LWWProtoSet (LWWRefKey (Encryption e)) (SignedBox (LWWRef e) e)
+data LWWRefProtoReq (s :: CryptoScheme) =
+    LWWProtoGet (LWWRefKey s)
+  | LWWProtoSet (LWWRefKey s) (SignedBox (LWWRef s) s)
   deriving stock Generic
 
 
 data LWWRefProto e =
-  LWWRefProto1 (LWWRefProtoReq e)
+  LWWRefProto1 (LWWRefProtoReq (Encryption e))
   deriving stock (Generic)
 
-data LWWRef e =
+data LWWRef (s :: CryptoScheme) =
   LWWRef
   { lwwSeq      :: Word64
   , lwwValue    :: HashRef
@@ -40,12 +37,14 @@ data LWWRef e =
   }
   deriving stock (Generic)
 
+-- FIXME: move-to-a-right-place
+-- deriving instance Data e => Data (LWWRef e)
 
-type ForLWWRefProto e = (ForSignedBox e, Serialise (LWWRefKey (Encryption e)))
+type ForLWWRefProto (s :: CryptoScheme) = (ForSignedBox s, Serialise (LWWRefKey s))
 
-instance ForLWWRefProto e => Serialise (LWWRefProtoReq e)
-instance ForLWWRefProto e => Serialise (LWWRefProto e)
-instance ForLWWRefProto e => Serialise (LWWRef e)
+instance ForLWWRefProto s => Serialise (LWWRefProtoReq s)
+instance ForLWWRefProto (Encryption e) => Serialise (LWWRefProto e)
+instance ForLWWRefProto s => Serialise (LWWRef s)
 
 newtype LWWRefKey s =
   LWWRefKey
@@ -96,42 +95,40 @@ data ReadLWWRefError =
   | ReadLWWSignatureError
   deriving stock (Show,Typeable)
 
-readLWWRef :: forall e s m . ( MonadIO m
-                             , MonadError ReadLWWRefError m
-                             , Encryption e ~ s
-                             , ForLWWRefProto e
-                             , Signatures s
-                             , IsRefPubKey s
-                             )
+readLWWRef :: forall  s m . ( MonadIO m
+                            , MonadError ReadLWWRefError m
+                            , ForLWWRefProto s
+                            , Signatures s
+                            , IsRefPubKey s
+                            )
            => AnyStorage
            -> LWWRefKey s
-           -> m (Maybe (LWWRef e))
+           -> m (Maybe (LWWRef s))
 
 readLWWRef sto key = runMaybeT do
   getRef sto key
     >>= toMPlus
     >>= getBlock sto
     >>= toMPlus
-    <&> deserialiseOrFail @(SignedBox (LWWRef e) e)
+    <&> deserialiseOrFail @(SignedBox (LWWRef s) s)
     >>= orThrowError ReadLWWFormatError
     <&> unboxSignedBox0
     >>= orThrowError ReadLWWSignatureError
     <&> snd
 
-updateLWWRef :: forall s e m . ( Encryption e ~ s
-                               , ForLWWRefProto e
-                               , MonadIO m
-                               , Signatures s
-                               , IsRefPubKey s
-                               )
+updateLWWRef :: forall s  m . ( ForLWWRefProto s
+                              , MonadIO m
+                              , Signatures s
+                              , IsRefPubKey s
+                              )
              => AnyStorage
              -> LWWRefKey s
              -> PrivKey 'Sign s
-             -> LWWRef e
+             -> LWWRef s
              -> m (Maybe HashRef)
 
 updateLWWRef sto k sk v = do
-  let box = makeSignedBox @e (fromLwwRefKey k) sk v
+  let box = makeSignedBox @s (fromLwwRefKey k) sk v
   runMaybeT do
     hx <- putBlock sto (serialise box) >>= toMPlus
     updateRef sto k hx

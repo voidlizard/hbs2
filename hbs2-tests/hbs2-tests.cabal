@@ -19,6 +19,7 @@ common warnings
 common common-deps
     build-depends:
           base, hbs2-core, hbs2-storage-simple, hbs2-peer
+        , fuzzy-parse
         , async
         , bytestring
         , cache
@@ -914,6 +915,7 @@ executable test-playground
     main-is:          Main.hs
     build-depends:
           base, hbs2-core
+        , fuzzy-parse
         , async
         , bytestring
         , cache
@@ -946,4 +948,137 @@ executable test-playground
         , unordered-containers
         , resourcet
         , text-icu >= 0.8.0.3
+        , skylighting-core
+        , skylighting
+        , skylighting-lucid
+        , lucid
+        , text
+
+
+executable test-pipe-mess
+    import:           shared-properties
+    default-language: Haskell2010
+
+    -- other-extensions:
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestPipeMessaging.hs
+    build-depends:
+          base, hbs2-core
+        , async
+        , bytestring
+        , cache
+        , containers
+        , directory
+        , hashable
+        , microlens-platform
+        , mtl
+        , network-byte-order
+        , prettyprinter
+        , QuickCheck
+        , quickcheck-instances
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-quickcheck
+        , tasty-hunit
+        , tasty-quickcheck
+        , transformers
+        , uniplate
+        , vector
+        , saltine
+        , simple-logger
+        , string-conversions
+        , filepath
+        , temporary
+        , unliftio
+        , unordered-containers
+        , unix
+        , timeit
+
+
+
+executable test-merge-limits
+    import:           shared-properties
+    default-language: Haskell2010
+
+    -- other-extensions:
+
+    hs-source-dirs:   test
+    main-is:          TestMergeLimits.hs
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple
+        , async
+        , bytestring
+        , cache
+        , containers
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , quickcheck-instances
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-quickcheck
+        , tasty-hunit
+        , tasty-quickcheck
+        , transformers
+        , uniplate
+        , vector
+        , filepath
+        , temporary
+        , unliftio
+        , unordered-containers
+        , unix
+        , timeit
+
+
+executable test-lsw-write
+    import:           shared-properties
+    default-language: Haskell2010
+
+    -- other-extensions:
+
+    hs-source-dirs:   test
+    main-is:          TestLSMWrite.hs
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple
+        , async
+        , bytestring
+        , cache
+        , containers
+        , hashable
+        , microlens-platform
+        , mtl
+        , prettyprinter
+        , QuickCheck
+        , quickcheck-instances
+        , random
+        , safe
+        , serialise
+        , stm
+        , streaming
+        , tasty
+        , tasty-quickcheck
+        , tasty-hunit
+        , tasty-quickcheck
+        , transformers
+        , uniplate
+        , vector
+        , filepath
+        , temporary
+        , unliftio
+        , unordered-containers
+        , unix
+        , timeit
+
 

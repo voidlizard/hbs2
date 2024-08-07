@@ -26,8 +26,8 @@ import Streaming()
 
 {- HLINT ignore "Use newtype instead of data" -}
 
-data BundleRefValue e =
-  BundleRefValue (SignedBox BundleRef e)
+data BundleRefValue s =
+  BundleRefValue (SignedBox BundleRef s)
   deriving stock (Generic)
 
 instance ForSignedBox e => Serialise (BundleRefValue e)
@@ -39,13 +39,13 @@ data BundleRef =
 instance Serialise BundleRef
 
 
-makeBundleRefValue :: forall e . (ForSignedBox e, Signatures (Encryption e))
-                   => PubKey 'Sign (Encryption e)
-                   -> PrivKey 'Sign (Encryption e)
+makeBundleRefValue :: forall s . (ForSignedBox s, Signatures s)
+                   => PubKey 'Sign s
+                   -> PrivKey 'Sign s
                    -> BundleRef
-                   -> BundleRefValue e
+                   -> BundleRefValue s
 
-makeBundleRefValue pk sk ref = BundleRefValue $ makeSignedBox @e pk sk ref
+makeBundleRefValue pk sk ref = BundleRefValue $ makeSignedBox @s pk sk ref
 
 -- у нас может быть много способов хранить данные:
 --   сжимать целиком (эффективно, но медленно)

@@ -5,7 +5,6 @@ import HBS2.OrDie
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
 import HBS2.Data.Types.SignedBox
-import HBS2.Net.Auth.Schema
 import HBS2.Peer.Proto.LWWRef
 
 import HBS2.Peer.RPC.API.LWWRef
@@ -35,8 +34,8 @@ pLwwRefFetch = do
       Left e  -> err (viaShow e) >> exitFailure
       Right{} -> pure ()
 
-lwwRef :: ReadM (LWWRefKey HBS2Basic)
-lwwRef = maybeReader (fromStringMay @(LWWRefKey HBS2Basic))
+lwwRef :: ReadM (LWWRefKey 'HBS2Basic)
+lwwRef = maybeReader (fromStringMay @(LWWRefKey 'HBS2Basic))
 
 pLwwRefGet :: Parser (IO ())
 pLwwRefGet = do
@@ -69,7 +68,7 @@ pLwwRefUpdate = do
                  Right Nothing -> err ("not found value for" <+> pretty ref) >> exitFailure
                  Right (Just r) -> pure $ succ (lwwSeq r)
 
-    let box =  makeSignedBox @L4Proto pk sk (LWWRef @L4Proto seq val Nothing)
+    let box =  makeSignedBox pk sk (LWWRef seq val Nothing)
     callService @RpcLWWRefUpdate caller box >>= \case
       Left e  -> err (viaShow e) >> exitFailure
       Right r -> print $ pretty r

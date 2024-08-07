@@ -1,0 +1,110 @@
+cabal-version:      3.0
+name:               hbs2-sync
+version:            0.24.1.2
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           System
+build-type:         Simple
+-- extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -fno-warn-type-defaults
+        -threaded
+        -rtsopts
+        -O2
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+  default-language: GHC2021
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , RecordWildCards
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+
+  build-depends:
+        hbs2-core
+      , hbs2-peer
+      , hbs2-storage-simple
+      , hbs2-keyman
+      , db-pipe
+      , suckless-conf
+
+      , atomic-write
+      , bytestring
+      , containers
+      , directory
+      , filepath
+      , filepattern
+      , interpolatedstring-perl6
+      , memory
+      , microlens-platform
+      , mtl
+      , prettyprinter
+      , serialise
+      , streaming
+      , stm
+      , text
+      , time
+      , timeit
+      , transformers
+      , typed-process
+      , unordered-containers
+      , unliftio
+      , zlib
+
+
+library
+    import:           shared-properties
+
+    exposed-modules:
+      HBS2.Sync.Prelude
+
+    other-modules:
+
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base, hbs2-peer, hbs2-cli
+    hs-source-dirs:   src
+
+executable hbs2-sync
+    import:           shared-properties
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base, hbs2-sync, hbs2-peer
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+

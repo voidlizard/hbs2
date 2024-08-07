@@ -4,7 +4,10 @@
 {-# Language FunctionalDependencies #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
-module HBS2.Peer.Proto.RefChan.Types where
+module HBS2.Peer.Proto.RefChan.Types
+  ( module HBS2.Peer.Proto.RefChan.Types
+  , L4Proto
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
@@ -27,16 +30,20 @@ import HBS2.System.Logger.Simple
 
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe
+import Data.Either
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Data.Hashable hiding (Hashed)
-
+import Data.Coerce
+import Data.List qualified as List
+import Codec.Serialise
 
 {- HLINT ignore "Use newtype instead of data" -}
 
@@ -45,6 +52,9 @@ type RefChanOwner e = PubKey 'Sign (Encryption e)
 type RefChanAuthor e = PubKey 'Sign (Encryption e)
 
 type Weight = Integer
+
+data ACLType = ACLUpdate | ACLNotify
+              deriving stock (Eq,Ord,Generic,Data,Show)
 
 data RefChanHeadBlock e =
   RefChanHeadBlockSmall
@@ -63,6 +73,16 @@ data RefChanHeadBlock e =
    , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
    , _refChanHeadExt         :: ByteString
   }
+  | RefChanHeadBlock2
+  {  _refChanHeadVersion     :: Integer
+   , _refChanHeadQuorum      :: Integer
+   , _refChanHeadWaitAccept  :: Integer
+   , _refChanHeadPeers       :: HashMap (PubKey 'Sign (Encryption e)) Weight
+   , _refChanHeadAuthors     :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadReaders'    :: HashSet (PubKey 'Encrypt (Encryption e))
+   , _refChanHeadNotifiers'  :: HashSet (PubKey 'Sign (Encryption e))
+   , _refChanHeadExt         :: ByteString
+  }
   deriving stock (Generic)
 
 makeLenses ''RefChanHeadBlock
@@ -74,8 +94,29 @@ data RefChanActionRequest =
 
 instance Serialise RefChanActionRequest
 
+type DisclosedCredentialsRef e = PeerCredentials (Encryption e)
+
+newtype RefChanHeadExt e =
+  RefChanHeadExt [LBS.ByteString]
+  deriving stock Generic
+  deriving newtype (Semigroup, Monoid)
+
+newtype RefChanDisclosedCredentialsRef e =
+  RefChanDisclosedCredentialsRef (TaggedHashRef (DisclosedCredentialsRef e))
+  deriving stock (Eq,Generic)
+
+instance Pretty (AsBase58 (RefChanDisclosedCredentialsRef e)) where
+  pretty (AsBase58 (RefChanDisclosedCredentialsRef x)) = pretty x
+
+instance Pretty (RefChanDisclosedCredentialsRef e) where
+  pretty (RefChanDisclosedCredentialsRef x) = pretty x
+
+instance Serialise (RefChanHeadExt e)
+
+instance SerialisedCredentials (Encryption e) => Serialise (RefChanDisclosedCredentialsRef e)
+
 data RefChanNotify e =
-    Notify (RefChanId e) (SignedBox ByteString e) -- подписано ключом автора
+    Notify (RefChanId e) (SignedBox ByteString (Encryption e)) -- подписано ключом автора
   -- довольно уместно будет добавить эти команды сюда -
   -- они постоянно нужны, и это сильно упростит коммуникации
   | ActionRequest (RefChanId e) RefChanActionRequest
@@ -83,6 +124,7 @@ data RefChanNotify e =
   deriving stock (Generic)
 
 instance ForRefChans e => Serialise (RefChanNotify e)
+
 
 newtype instance EventKey e (RefChanNotify e) =
   RefChanNotifyEventKey (RefChanId e)
@@ -103,17 +145,18 @@ instance Expires (EventKey e (RefChanNotify e)) where
 
 
 
-type ForRefChans e = ( Serialise ( PubKey 'Sign (Encryption e))
+type ForRefChans e = ( Serialise (PubKey 'Sign (Encryption e))
+                     , Serialise (PrivKey 'Sign (Encryption e))
+                     , Serialise (Signature (Encryption e))
+                     , Serialise (PubKey 'Encrypt (Encryption e))
+                     , Serialise (PrivKey 'Encrypt (Encryption e))
                      , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
                      , FromStringMaybe (PubKey 'Sign (Encryption e))
                      , FromStringMaybe (PubKey 'Encrypt (Encryption e))
                      , Signatures (Encryption e)
-                     , Serialise (Signature (Encryption e))
-                     , Serialise (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Encrypt (Encryption e))
                      , Hashable (PubKey 'Sign (Encryption e))
                      )
-
 
 
 refChanHeadReaders :: ForRefChans e
@@ -126,8 +169,47 @@ refChanHeadReaders = lens g s
   where
     g (RefChanHeadBlockSmall{}) = mempty
     g (RefChanHeadBlock1{..})   = _refChanHeadReaders'
+    g (RefChanHeadBlock2{..})   = _refChanHeadReaders'
     s v@(RefChanHeadBlock1{}) x = v { _refChanHeadReaders' = x }
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadReaders' = x }
     s x _ = x
+
+
+refChanHeadDefault :: ForRefChans e => RefChanHeadBlock e
+refChanHeadDefault =
+  RefChanHeadBlock2 1 1 10 mempty mempty mempty mempty mempty
+
+refChanHeadNotifiers :: ForRefChans e
+                    => Lens (RefChanHeadBlock e)
+                            (RefChanHeadBlock e)
+                            (HashSet (PubKey 'Sign (Encryption e)))
+                            (HashSet (PubKey 'Sign (Encryption e)))
+
+refChanHeadNotifiers = lens g s
+  where
+    g (RefChanHeadBlockSmall{}) = mempty
+    g (RefChanHeadBlock1{})     = mempty
+    g (RefChanHeadBlock2{..})   = _refChanHeadNotifiers'
+
+    s v@(RefChanHeadBlock2{}) x = v { _refChanHeadNotifiers' = x }
+    s x _ = x
+
+refChanHeadDisclosed :: forall e . ForRefChans e
+                      => SimpleGetter (RefChanHeadBlock e) [RefChanDisclosedCredentialsRef e]
+
+refChanHeadDisclosed = to getDisclosed
+  where
+    getDisclosed :: ForRefChans e => RefChanHeadBlock e -> [RefChanDisclosedCredentialsRef e]
+    getDisclosed blk = case blk of
+      RefChanHeadBlockSmall{} -> []
+      RefChanHeadBlock1{}     -> []
+      RefChanHeadBlock2{..}   -> extractDisclosed _refChanHeadExt
+
+    extractDisclosed :: ByteString -> [RefChanDisclosedCredentialsRef e]
+    extractDisclosed ext = case deserialiseOrFail @(RefChanHeadExt e) (LBS.fromStrict ext) of
+      Right (RefChanHeadExt exts) -> rights $ fmap (deserialiseOrFail @(RefChanDisclosedCredentialsRef e)) exts
+      Left _                      -> []
+
 
 instance ForRefChans e => Serialise (RefChanHeadBlock e)
 
@@ -197,24 +279,19 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (RefChanLogKey s) where
 
 instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
 
+  -- NOTE: we-dont-support-old-head-formats-anymore
   fromStringMay str =
-    case readers of
-      [] -> RefChanHeadBlockSmall <$> version
-                                  <*> quorum
-                                  <*> wait
-                                  <*> pure (HashMap.fromList peers)
-                                  <*> pure (HashSet.fromList authors)
-
-      rs -> RefChanHeadBlock1 <$> version
-                              <*> quorum
-                              <*> wait
-                              <*> pure (HashMap.fromList peers)
-                              <*> pure (HashSet.fromList authors)
-                              <*> pure (HashSet.fromList rs)
-                              <*> pure mempty
+    RefChanHeadBlock2 <$> version
+                      <*> quorum
+                      <*> wait
+                      <*> pure (HashMap.fromList peers)
+                      <*> pure (HashSet.fromList authors)
+                      <*> pure (HashSet.fromList readers)
+                      <*> pure (HashSet.fromList notifiers)
+                      <*> pure (LBS.toStrict ext)
 
     where
-      parsed = parseTop str & fromRight mempty
+      parsed = parseTop (fromString str) & fromRight mempty
       version = lastMay [ n | (ListVal [SymbolVal "version", LitIntVal n] ) <- parsed ]
       quorum  = lastMay [ n | (ListVal [SymbolVal "quorum", LitIntVal n] ) <- parsed ]
       wait    = lastMay [ n | (ListVal [SymbolVal "wait", LitIntVal n] ) <- parsed ]
@@ -231,6 +308,18 @@ instance ForRefChans e => FromStringMaybe (RefChanHeadBlock e) where
                           | (ListVal [SymbolVal "reader", LitStrVal s] ) <- parsed
                           ]
 
+
+      notifiers = catMaybes [ fromStringMay @(PubKey 'Sign (Encryption e)) (Text.unpack s)
+                            | (ListVal [SymbolVal "notifier", LitStrVal s] ) <- parsed
+                            ]
+
+      disclosed = catMaybes [ fromStringMay @HashRef (Text.unpack s)
+                            | (ListVal [SymbolVal "disclosed", LitStrVal s] ) <- parsed
+                            ]
+
+      ext1 = fmap serialise [ RefChanDisclosedCredentialsRef @L4Proto (coerce c) | c <- disclosed ]
+      ext  = RefChanHeadExt ext1 & serialise
+
 instance (ForRefChans e
          , Pretty (AsBase58 (PubKey 'Sign (Encryption e)))
          , Pretty (AsBase58 (PubKey 'Encrypt (Encryption e)))
@@ -241,16 +330,41 @@ instance (ForRefChans e
                <>
                parens ("wait" <+> pretty (view refChanHeadWaitAccept blk)) <> line
                <>
-               vcat (fmap peer (HashMap.toList $ view refChanHeadPeers blk)) <> line
+               lstOf peer   (HashMap.toList $ view refChanHeadPeers blk)
                <>
-               vcat (fmap author (HashSet.toList $ view refChanHeadAuthors blk)) <> line
+               lstOf author (HashSet.toList $ view refChanHeadAuthors blk)
                <>
-               vcat (fmap reader (HashSet.toList $ view refChanHeadReaders blk)) <> line
+               lstOf reader (HashSet.toList $ view refChanHeadReaders blk)
+               <>
+               lstOf notifier (HashSet.toList $ view refChanHeadNotifiers blk)
+               <>
+               lstOf disclosed_ disclosed
+               <> semi <+> parens ("head-extensions:"
+                                      <+> parens ("count:" <+> pretty (length exs))
+                                      <+> parens ("size"   <+> pretty (LBS.length extLbs))
+                                  )
 
     where
+
+      extLbs  = LBS.fromStrict $ view refChanHeadExt blk
+
+      RefChanHeadExt exs = deserialiseOrFail @(RefChanHeadExt L4Proto) extLbs
+                                & fromRight mempty
+
+      disclosed = [ deserialiseOrFail @(RefChanDisclosedCredentialsRef L4Proto) s
+                  | s <- exs
+                  ] & rights
+
       peer (p,w) = parens ("peer" <+> dquotes (pretty (AsBase58 p)) <+> pretty w)
       author p   = parens ("author" <+> dquotes (pretty (AsBase58 p)))
       reader p   = parens ("reader" <+> dquotes (pretty (AsBase58 p)))
+      notifier p = parens ("notifier" <+> dquotes (pretty (AsBase58 p)))
+      disclosed_ p = parens ("disclosed" <+> dquotes (pretty (AsBase58 p)))
+
+      -- disclosed p =
+
+      lstOf f e | null e = mempty
+                | otherwise = vcat (fmap f e) <> line
 
 
 -- блок головы может быть довольно большой.
@@ -310,13 +424,10 @@ getActualRefChanHead key = do
 
     case mbHead of
       Just hd -> do
-        debug "HEAD DISCOVERED"
         pure hd
 
       Nothing -> do
-        headblk <- MaybeT $ getRefChanHead sto key
-        debug "HEAD FOUND"
-        pure headblk
+        MaybeT $ getRefChanHead sto key
 
 getRefChanHead :: forall e s m . ( MonadIO m
                                  , s ~ Encryption e
@@ -330,20 +441,24 @@ getRefChanHead :: forall e s m . ( MonadIO m
 getRefChanHead sto k = runMaybeT do
     h <- MaybeT $ liftIO $ getRef sto k
     hdblob <- MaybeT $ readBlobFromTree ( getBlock sto ) (HashRef h)
-    (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @e hdblob
+    (_, headblk) <- MaybeT $ pure $ unboxSignedBox @(RefChanHeadBlock e) @s hdblob
     pure headblk
 
 
 checkACL :: forall e s . (Encryption e ~ s, ForRefChans e)
-         => RefChanHeadBlock e
+         => ACLType
+         -> RefChanHeadBlock e
          -> Maybe (PubKey 'Sign s)
          -> PubKey 'Sign s
          -> Bool
 
-checkACL theHead mbPeerKey authorKey = match
+checkACL acl theHead mbPeerKey authorKey = match
   where
     pips = view refChanHeadPeers theHead
     aus  = view refChanHeadAuthors theHead
+    notifiers = view refChanHeadNotifiers theHead
     match = maybe True (`HashMap.member` pips) mbPeerKey
-           && authorKey `HashSet.member` aus
+           && ( authorKey `HashSet.member` aus
+              || acl == ACLNotify && authorKey `HashSet.member` notifiers
+              )
 

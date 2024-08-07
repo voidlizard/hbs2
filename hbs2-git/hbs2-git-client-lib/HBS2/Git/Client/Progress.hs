@@ -6,7 +6,7 @@ import HBS2.Git.Client.Prelude
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
 
-import HBS2.Git.Data.Tx
+import HBS2.Git.Data.Tx.Git
 
 data Progress a =
   Progress
@@ -22,7 +22,7 @@ class HasProgress a where
 
 data ProgressEvent =
     ImportIdle
-  | ImportWaitLWW Int (LWWRefKey HBS2Basic)
+  | ImportWaitLWW Int (LWWRefKey 'HBS2Basic)
   | ImportRefLogStart RefLogId
   | ImportRefLogDone  RefLogId (Maybe HashRef)
   | ImportWaitTx HashRef

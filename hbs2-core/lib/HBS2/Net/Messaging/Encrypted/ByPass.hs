@@ -76,10 +76,10 @@ mySipHash s = BA.sipHash (SipKey a b) s
 --
 
 
-data ByPassOpts e =
+data ByPassOpts s =
   ByPassOpts
   { byPassEnabled    :: Bool
-  , byPassKeyAllowed :: PubKey 'Sign (Encryption e) -> IO Bool
+  , byPassKeyAllowed :: PubKey 'Sign s -> IO Bool
   , byPassTimeRange  :: Maybe (Int, Int)
   }
 
@@ -101,7 +101,7 @@ instance Serialise ByPassStat
 
 data ByPass e them =
   ByPass
-  { opts         :: ByPassOpts e
+  { opts         :: ByPassOpts (Encryption e)
   , self         :: Peer e
   , pks          :: PubKey 'Sign (Encryption e)
   , sks          :: PrivKey 'Sign (Encryption e)
@@ -128,7 +128,7 @@ type ForByPass e   = ( Hashable (Peer e)
                      , Serialise (PubKey 'Sign (Encryption e))
                      , PrivKey 'Encrypt (Encryption e) ~ PKE.SecretKey
                      , PubKey 'Encrypt (Encryption e) ~ PKE.PublicKey
-                     , ForSignedBox e
+                     , ForSignedBox (Encryption e)
                      )
 
 
@@ -136,12 +136,12 @@ data HEYBox e =
   HEYBox Int (PubKey 'Encrypt (Encryption e))
   deriving stock Generic
 
-instance ForByPass e => Serialise (HEYBox e)
+instance ForByPass s => Serialise (HEYBox s)
 
 data EncryptHandshake e =
     HEY
     { heyNonceA :: NonceA
-    , heyBox    :: SignedBox (HEYBox e) e
+    , heyBox    :: SignedBox (HEYBox e) (Encryption e)
     }
   deriving stock (Generic)
 
@@ -210,7 +210,7 @@ newByPassMessaging :: forall e w m . ( ForByPass e
                                      , MonadIO m
                                      , Messaging w e ByteString
                                      )
-                   => ByPassOpts e
+                   => ByPassOpts (Encryption e)
                    -> w
                    -> Peer e
                    -> PubKey 'Sign (Encryption e)
@@ -370,10 +370,11 @@ makeKey a b = runIdentity do
   pure $ (f0 `shiftL` 16) .|. f1
 
 
-sendHey :: forall e w m . ( ForByPass e
-                          , Messaging w e ByteString
-                          , MonadIO m
-                          )
+sendHey :: forall e w m s . ( ForByPass e
+                            , Messaging w e ByteString
+                            , MonadIO m
+                            , s ~ Encryption e
+                            )
         => ByPass e w
         -> Peer e
         -> m ()
@@ -387,7 +388,7 @@ sendHey bus whom = do
   ts <- liftIO getPOSIXTime <&> round
 
   let hbox = HEYBox @e ts (pke bus)
-  let box = makeSignedBox @e (pks bus) (sks bus) hbox
+  let box = makeSignedBox @s (pks bus) (sks bus) hbox
   let hey = HEY @e (nonceA bus) box
   let msg = pref <> serialise hey
 

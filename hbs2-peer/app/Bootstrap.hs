@@ -28,10 +28,10 @@ data PeerDnsBootStrapKey
 
 data PeerKnownPeer
 
-instance Monad m => HasCfgKey PeerDnsBootStrapKey (Set String) m where
+instance HasCfgKey PeerDnsBootStrapKey (Set String) where
   key = "bootstrap-dns"
 
-instance Monad m => HasCfgKey PeerKnownPeer (Set String) m where
+instance HasCfgKey PeerKnownPeer (Set String) where
   key = "known-peer"
 
 -- FIXME: tcp-addr-support-bootstrap

@@ -27,10 +27,10 @@ instance HasProtocol UNIX  (ServiceProto RefLogAPI UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
-type instance Input RpcRefLogGet = PubKey 'Sign HBS2Basic
+type instance Input RpcRefLogGet = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefLogGet = Maybe HashRef
 
-type instance Input RpcRefLogFetch = PubKey  'Sign HBS2Basic
+type instance Input RpcRefLogFetch = PubKey  'Sign 'HBS2Basic
 type instance Output RpcRefLogFetch = ()
 
 type instance Input RpcRefLogPost = RefLogUpdate L4Proto

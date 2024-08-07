@@ -13,8 +13,13 @@ BINS := \
   hbs2-keyman        \
 	hbs2-fixer         \
 	hbs2-git-subscribe \
+	hbs2-git-dashboard \
   git-remote-hbs2    \
   git-hbs2           \
+  hbs2-cli           \
+  hbs2-sync          \
+  fixme-new          \
+	hbs2-storage-simple-benchmarks \
 
 ifeq ($(origin .RECIPEPREFIX), undefined)
   $(error This Make does not support .RECIPEPREFIX. Please use GNU Make 4.0 or later)

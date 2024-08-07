@@ -1,0 +1,106 @@
+
+; fixme-files **/*.hs docs/devlog.md
+
+; no-debug
+; debug
+
+fixme-prefix     FIXME:
+fixme-prefix     TODO:
+fixme-prefix     PR:
+fixme-prefix     REVIEW:
+
+fixme-git-scan-filter-days 30
+
+fixme-attribs assigned workflow type
+
+fixme-attribs resolution cat scope
+
+fixme-value-set workflow new backlog wip test fixed done
+
+fixme-value-set cat bug feat refactor
+
+fixme-value-set scope mvp-0 mvp-1 backlog
+
+fixme-value-set type bug feature code
+
+fixme-files **/*.txt docs/devlog.md
+fixme-files **/*.hs
+
+fixme-file-comments "*.scm" ";"
+
+fixme-comments ";" "--"
+
+(update-action
+  (import-git-logs ".fixme-new/log")
+)
+
+(update-action
+  (import ".fixme-new/fixme.log")
+)
+
+(update-action
+  (export ".fixme-new/fixme.log")
+)
+
+
+(update-action
+  (hello kitty)
+)
+
+(define-macro done
+  (modify $1 workflow done)
+)
+
+(define-macro wip
+  (modify $1 workflow wip)
+)
+
+(define-macro test
+  (modify $1 workflow test)
+)
+
+(define-macro backlog
+  (modify $1 workflow backlog)
+)
+
+(define-macro fixed
+  (modify $1 workflow fixed)
+)
+
+(define-macro new
+  (modify $1 workflow new)
+)
+
+(define-macro stage
+  (builtin:show-stage))
+
+(define-macro log
+  (builtin:show-log .fixme-new/fixme.log))
+
+
+(define-template short
+  (simple
+     (trim 10  $fixme-key) " "
+
+     (if (~ FIXME $fixme-tag)
+      (then (fgd red (align 6  $fixme-tag))  )
+      (else (if (~ TODO $fixme-tag)
+              (then (fgd green (align 6  $fixme-tag)))
+              (else (align 6  $fixme-tag)) ) )
+      )
+
+
+     (align 10  ("[" $workflow "]"))  " "
+     (align 8  $type)  " "
+     (align 12 $assigned)  " "
+     (align 20 (trim 20 $committer-name)) " "
+     (trim 50  ($fixme-title)) " "
+     (nl)
+  )
+)
+
+(set-template default short)
+
+; update
+
+
