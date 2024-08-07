@@ -488,7 +488,7 @@ runDirectory = do
           N (p,TombEntry e) -> do
             notice $ green "removed entry" <+> pretty p
 
-          D (p,e) _ | isTomb e -> do
+          D (p,e) _ -> do
             notice $ "locally deleted file" <+> pretty p
 
             tombs <- getTombs
@@ -562,7 +562,8 @@ findDeleted = do
   -- TODO: check-if-non-latin-filenames-work
   --   resolved: ok
   seen <- Compact.keys tombs
-            <&> fmap BS8.unpack
+            <&> fmap (deserialiseOrFail @FilePath . LBS.fromStrict)
+            <&> rights
 
   S.toList_ do
     for_ seen $ \f0 -> do
@@ -576,7 +577,7 @@ findDeleted = do
 
       when (not here && isJust n) do
         S.yield (D (f0, makeTomb now f0 Nothing) n)
-        debug $ "found deleted" <+> pretty n <+> pretty f0
+        trace $ "found deleted" <+> pretty n <+> pretty f0
 
 
 postEntryTx :: ( MonadUnliftIO m
