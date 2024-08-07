@@ -20,6 +20,7 @@ import UnliftIO
 import Control.Concurrent.STM qualified as STM
 import Streaming.Prelude qualified as S
 
+-- FIXME: skip-symlink
 glob :: forall m . MonadIO m
      => [FilePattern]           -- ^ search patterns
      -> [FilePattern]           -- ^ ignore patterns
