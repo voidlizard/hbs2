@@ -14,6 +14,9 @@ import Data.ByteString.Lazy qualified as LBS
 import Codec.Serialise
 import Data.Text.Encoding qualified as TE
 import Control.Monad.Except
+import Control.Monad.Trans.Maybe
+
+import UnliftIO
 
 {- HLINT ignore "Functor law" -}
 
@@ -51,5 +54,28 @@ extractMetaData fk sto hash = do
             _ -> throwError UnsupportedFormat
 
       _ -> throwError UnsupportedFormat
+
+
+loadGroupKeyForTree :: ( ForGroupKeySymm s
+                       , MonadIO m
+                       )
+                  => AnyStorage
+                  -> HashRef
+                  -> m (Maybe (GroupKey 'Symm s))
+
+loadGroupKeyForTree sto h = do
+
+  runMaybeT do
+
+    headBlock <- getBlock sto (fromHashRef h)
+                  >>= toMPlus
+                  <&> deserialiseOrFail @(MTreeAnn [HashRef])
+                  >>= toMPlus
+
+    gkh <- case _mtaCrypt headBlock of
+             (EncryptGroupNaClSymm h1 _) -> pure (HashRef h1)
+             _ -> mzero
+
+    G.loadGroupKeyMaybe sto gkh >>= toMPlus
 
 

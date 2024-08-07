@@ -38,13 +38,11 @@ groupKeyEntries :: forall c m . ( MonadUnliftIO m
 groupKeyEntries = do
 
   entry $ bindMatch "hbs2:groupkey:load" $ \case
-      [StringLike s] -> do
+      [HashLike h] -> do
         sto <- getStorage
 
-        gk <- runExceptT (readFromMerkle sto (SimpleKey (fromString s)))
-                >>= orThrowUser "can't load group key"
-                <&> deserialiseOrFail @(GroupKey 'Symm 'HBS2Basic)
-                >>= orThrowUser "invalid group key"
+        gk <- loadGroupKey h
+                >>= orThrowUser "can not load groupkey"
 
         pure $ mkStr (show $ pretty $ AsGroupKeyFile gk)
 

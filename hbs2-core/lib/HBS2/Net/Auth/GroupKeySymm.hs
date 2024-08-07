@@ -433,8 +433,8 @@ deriveGroupSecret n bs = key0
     key0 = HKDF.expand prk nonceS typicalKeyLength & Saltine.decode & fromJust
 
 
-loadGroupKeyMaybe :: ( MonadIO m
-                     ) => AnyStorage -> HashRef -> m (Maybe (GroupKey 'Symm HBS2Basic))
+loadGroupKeyMaybe :: ( ForGroupKeySymm s, MonadIO m
+                     ) => AnyStorage -> HashRef -> m (Maybe (GroupKey 'Symm s))
 loadGroupKeyMaybe sto h = do
 
   runMaybeT do

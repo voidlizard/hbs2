@@ -26,6 +26,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
 
+--FIXME: move-somewhere-else
 getGroupKeyHash :: ( IsContext c
                    , MonadUnliftIO m
                    , HasStorage m

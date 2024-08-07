@@ -297,6 +297,9 @@ tombLikeValue = \case
   LitBoolVal True -> True
   _ -> False
 
+pattern WithRemoteHash :: Entry -> HashRef -> Entry
+pattern WithRemoteHash e h <- e@(DirEntry (EntryDesc {entryRemoteHash = Just h}) _)
+
 pattern TombEntry :: Entry -> Entry
 pattern TombEntry e <- e@(DirEntry (EntryDesc { entryType = Tomb }) _)
 
@@ -450,6 +453,8 @@ runDirectory = do
 
     runDir = do
 
+      sto <- getStorage
+
       path <- getRunDir
 
       env <- getRunDirEnv path >>= orThrow DirNotSet
@@ -461,6 +466,13 @@ runDirectory = do
       -- FIXME: multiple-directory-scans
 
       local  <- getStateFromDir0 True
+
+      let hasRemoteHash = [ (p, h) | (p, WithRemoteHash e h)  <- local]
+
+      hasGK0 <- HM.fromList <$> S.toList_ do
+                  for_ hasRemoteHash $ \(p,h) -> do
+                     mgk0 <- lift $ loadGroupKeyForTree @HBS2Basic sto h
+                     for_ mgk0 $ \gk0 -> S.yield (p,gk0)
 
       deleted <- findDeleted
 
@@ -476,7 +488,7 @@ runDirectory = do
           N (p,TombEntry e) -> do
             notice $ green "removed entry" <+> pretty p
 
-          D (p,e) _ -> do
+          D (p,e) _ | isTomb e -> do
             notice $ "locally deleted file" <+> pretty p
 
             tombs <- getTombs
@@ -485,7 +497,7 @@ runDirectory = do
                    <&> fromRight (Just 0)
 
             when (n < Just 2) do
-              postEntryTx refchan path e
+              postEntryTx Nothing refchan path e
               Compact.putVal tombs p (maybe 0 succ n)
 
           N (_,_) -> none
@@ -494,21 +506,19 @@ runDirectory = do
             notice $ green "move entry" <+> pretty f <+> pretty t
             mv (path </> f) (path </> t)
             notice $ green "post renamed entry tx" <+> pretty f
-            postEntryTx refchan path e
+            postEntryTx Nothing refchan path e
 
           E (p,UpdatedFileEntry _ e) -> do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             writeEntry path e
-            notice $ red "updated file entry" <+> pretty here <+> pretty p
-            postEntryTx refchan path e
+            notice $ red "updated file entry" <+> pretty here <+> pretty p <+> line <+> pretty (AsSexp @C e)
+            postEntryTx Nothing refchan path e
 
           E (p,e@(FileEntry _)) -> do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             d    <- liftIO $ doesDirectoryExist fullPath
-
-            -- getRef tombs (SomeRef (g
 
             older <- if here then do
                        s <- getFileTimestamp fullPath
@@ -525,7 +535,7 @@ runDirectory = do
             when here do
 
               tombs <- getTombs
-              postEntryTx refchan path e
+              postEntryTx Nothing refchan path e
 
               n <- Compact.getValEither @Integer tombs p
                     <&> fromRight (Just 0)
@@ -537,6 +547,8 @@ runDirectory = do
 
           E (p,_) -> do
             notice $ "skip entry" <+> pretty (path </> p)
+
+          _ -> none
 
 
 findDeleted :: (MonadIO m, HasRunDir m, HasTombs m) => m [Merged]
@@ -573,11 +585,12 @@ postEntryTx :: ( MonadUnliftIO m
                , HasClientAPI StorageAPI UNIX m
                , HasClientAPI RefChanAPI UNIX m
                )
-            => MyRefChan
+            => Maybe (GroupKey 'Symm 'HBS2Basic)
+            -> MyRefChan
             -> FilePath
             -> Entry
             -> m ()
-postEntryTx refchan path entry = do
+postEntryTx mgk refchan path entry = do
 
   sto <- getStorage
 
@@ -609,6 +622,8 @@ postEntryTx refchan path entry = do
                    else HM.singleton "tomb" "#t"
 
     let members = view refChanHeadReaders rch & HS.toList
+
+    -- взять GK из дерева из стейта если там есть такая Entry
 
     -- FIXME: support-unencrypted?
     when (L.null members) do
@@ -862,7 +877,7 @@ getStateFromRefChan rchan = do
         let tomb = or [ True | TombLikeOpt <- what  ]
         let fullPath = loc </> fn
 
-        debug $ red "META" <+> pretty what
+        trace $ red "META" <+> pretty what
 
         if tomb then do
           lift $ S.yield $
@@ -895,7 +910,7 @@ getTreeContents sto href = do
 
     MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
 
-      rcpts  <- Symm.loadGroupKeyMaybe sto (HashRef gkh)
+      rcpts  <- Symm.loadGroupKeyMaybe @'HBS2Basic sto (HashRef gkh)
                   >>= orThrowError (GroupKeyNotFound 11)
                   <&> HM.keys . Symm.recipients
 
@@ -1170,14 +1185,13 @@ syncEntries = do
           rchan <- view dirSyncRefChan env
                      & toMPlus
 
-
           here <- liftIO (doesFileExist fullPath)
           guard here
 
           now <- liftIO getPOSIXTime <&> round
 
           notice $ red "ABOUT TO POST TOMB TX" <+> pretty p
-          lift $ postEntryTx rchan path (makeTomb now p mzero)
+          lift $ postEntryTx Nothing rchan path (makeTomb now p mzero)
 
       _ -> pure ()
 
