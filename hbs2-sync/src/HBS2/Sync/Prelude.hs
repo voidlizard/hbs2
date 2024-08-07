@@ -1098,6 +1098,26 @@ syncEntries = do
         w -> err $ "invalid sign key" <+> pretty (mkList w)
 
 
+  brief "output file from remote state"
+    $ args [arg "string" "refchan", arg "string" "file"]
+    $ entry $ bindMatch "cat" $ nil_ $ \case
+      [SignPubKeyLike rchan, StringLike fn] -> do
+        sto <- getStorage
+        void $ runMaybeT do
+          h <- lift (getStateFromRefChan rchan)
+                 <&> Map.fromList
+                 <&> Map.lookup fn
+                 >>= toMPlus
+                 <&> getEntryHash
+                 >>= toMPlus
+
+          lbs <- lift $ runExceptT (getTreeContents sto h)
+                   >>= orThrowPassIO
+
+          liftIO $ LBS.putStr lbs
+
+      _ -> none
+
   entry $ bindMatch "dir:state:merged:show" $ nil_ $ \_ -> do
     state <- getStateFromDir0 True
 
