@@ -141,10 +141,11 @@ walkRefChanTx :: forall proto m . ( MonadIO m
                                   , HasProtocol proto (ServiceProto RefChanAPI proto)
                                   , HasStorage m
                                   )
-            => PubKey 'Sign 'HBS2Basic
-            -> (RefChanUpdateUnpacked L4Proto -> m ())
+            => (HashRef -> m Bool)
+            -> PubKey 'Sign 'HBS2Basic
+            -> (HashRef -> RefChanUpdateUnpacked L4Proto -> m ())
             -> m ()
-walkRefChanTx puk action = do
+walkRefChanTx filt puk action = do
   sto <- getStorage
   api <- getClientAPI @RefChanAPI @proto
 
@@ -162,21 +163,23 @@ walkRefChanTx puk action = do
 
       Right (hs :: [HashRef]) -> do
         for_ hs $ \h -> do
-          lbs' <- getBlock sto (coerce h)
-          lbs  <- ContT $ maybe1 lbs' none
+          want <- lift (filt h)
+          when want do
+            lbs' <- getBlock sto (coerce h)
+            lbs  <- ContT $ maybe1 lbs' none
 
-          let txraw = deserialiseOrFail @(RefChanUpdate L4Proto) lbs
-                        & either (const Nothing) Just
+            let txraw = deserialiseOrFail @(RefChanUpdate L4Proto) lbs
+                          & either (const Nothing) Just
 
-          tx <- ContT $ maybe1 txraw none
+            tx <- ContT $ maybe1 txraw none
 
-          case tx of
+            case tx of
 
-            Accept _ box  -> do
-              (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
-              lift $ action (A txx)
+              Accept _ box  -> do
+                (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
+                lift $ action h (A  txx)
 
-            Propose _ box -> do
-              (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
-              lift $ action (P h txx)
+              Propose _ box -> do
+                (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
+                lift $ action h (P h txx)
 

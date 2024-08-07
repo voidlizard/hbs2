@@ -857,7 +857,8 @@ getStateFromRefChan rchan = do
   outq <- newTQueueIO
   tss <- newTVarIO mempty
 
-  walkRefChanTx @UNIX rchan $ \case
+  -- FIXME: may-be-slow
+  walkRefChanTx @UNIX (const $ pure True) rchan $ \txh -> \case
     A (AcceptTran ts _ what) -> do
       -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
       for_ ts $ \w -> do
