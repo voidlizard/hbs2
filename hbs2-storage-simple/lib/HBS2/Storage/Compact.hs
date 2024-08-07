@@ -6,6 +6,7 @@ module HBS2.Storage.Compact
   , CompactStorageOpenError(..)
   , CompactStorage
   , CompactStorageOpenOpt(..)
+  , CompactStorageError(..)
   , readonly
   , compactStorageOpen
   , compactStorageClose
@@ -19,7 +20,9 @@ module HBS2.Storage.Compact
   , HBS2.Storage.Compact.keys
   , HBS2.Storage.Compact.member
   , HBS2.Storage.Compact.put
+  , HBS2.Storage.Compact.putVal
   , HBS2.Storage.Compact.get
+  , HBS2.Storage.Compact.getValEither
   , HBS2.Storage.Compact.del
   , HBS2.Storage.Compact.commit
   ) where
@@ -620,12 +623,41 @@ put :: ForCompactStorage m
 
 put = compactStoragePut
 
+putVal :: forall k v m h . (ForCompactStorage m, Serialise k, Serialise v)
+       => CompactStorage h
+       -> k
+       -> v
+       -> m ()
+putVal sto k v = do
+  put sto (LBS.toStrict $ serialise k) (LBS.toStrict $ serialise v)
+
 get  :: ForCompactStorage m
      => CompactStorage k
      -> ByteString
      -> m (Maybe ByteString)
 
 get = compactStorageGet
+
+data CompactStorageError =
+  DeserealiseError
+  deriving (Typeable,Show)
+
+instance Exception CompactStorageError
+
+getValEither :: forall v k m h . ( ForCompactStorage m
+                                 , Serialise k, Serialise v
+                                 )
+              => CompactStorage h
+              -> k
+              -> m (Either CompactStorageError (Maybe v))
+
+getValEither sto k = do
+  bs <- get sto (LBS.toStrict (serialise k))
+  let v = fmap (deserialiseOrFail @v . LBS.fromStrict) bs
+  case v of
+    Just (Left _)  -> pure $ Left DeserealiseError
+    Just (Right x) -> pure $ Right (Just x)
+    Nothing -> pure (Right Nothing)
 
 del :: ForCompactStorage m
      => CompactStorage k

@@ -446,12 +446,9 @@ runDirectory = do
 
         liftIO $ setModificationTime (path </> p) timestamp
 
-        lift $ Compact.put tombs (fromString p) (LBS.toStrict (serialise (0 :: Integer)))
-
+        lift $ Compact.putVal tombs p (0 :: Integer)
 
     runDir = do
-
-      now <- liftIO $ getPOSIXTime <&> round
 
       path <- getRunDir
 
@@ -479,19 +476,17 @@ runDirectory = do
           N (p,TombEntry e) -> do
             notice $ green "removed entry" <+> pretty p
 
-          D (p,e) n -> do
+          D (p,e) _ -> do
             notice $ "locally deleted file" <+> pretty p
 
-            -- FIXME: fix-copypaste
             tombs <- getTombs
-            n <- Compact.get tombs (fromString p)
-                   <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
-                   <&> fmap (either (const Nothing) Just)
-                   <&> join
+
+            n <- Compact.getValEither @Integer tombs p
+                   <&> fromRight (Just 0)
 
             when (n < Just 2) do
               postEntryTx refchan path e
-              Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
+              Compact.putVal tombs p (maybe 0 succ n)
 
           N (_,_) -> none
 
@@ -532,13 +527,10 @@ runDirectory = do
               tombs <- getTombs
               postEntryTx refchan path e
 
-              -- FIXME: fix-copypaste
-              n <- Compact.get tombs (fromString p)
-                     <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
-                     <&> fmap (either (const Nothing) Just)
-                     <&> join
+              n <- Compact.getValEither @Integer tombs p
+                    <&> fromRight (Just 0)
 
-              Compact.put tombs (fromString p) (LBS.toStrict $ serialise $ maybe 0 succ n)
+              Compact.putVal tombs p (maybe 0 succ n)
 
               notice $ red "tomb entry" <+> pretty (path </> p)
               rm fullPath
@@ -556,6 +548,7 @@ findDeleted = do
 
   tombs <- getTombs
   -- TODO: check-if-non-latin-filenames-work
+  --   resolved: ok
   seen <- Compact.keys tombs
             <&> fmap BS8.unpack
 
@@ -566,10 +559,8 @@ findDeleted = do
 
       here <- liftIO $ doesFileExist path
 
-      n <- Compact.get tombs (fromString f0)
-             <&> fmap (deserialiseOrFail @Integer . LBS.fromStrict)
-             <&> fmap (either (const Nothing) Just)
-             <&> join
+      n <- Compact.getValEither @Integer tombs f0
+            <&> fromRight (Just 0)
 
       when (not here && isJust n) do
         S.yield (D (f0, makeTomb now f0 Nothing) n)
@@ -602,10 +593,9 @@ postEntryTx refchan path entry = do
     guard (isFile entry || isTomb entry)
 
     let p = entryPath entry
-    -- FIXME: dangerous!
-    lbs <- if isTomb entry then do
-             pure ""
+    lbs <- if isTomb entry then do pure mempty
            else
+             -- FIXME: dangerous!
              liftIO (LBS.readFile (path </> p))
 
     let (dir,file) = splitFileName p
