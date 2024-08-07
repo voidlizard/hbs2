@@ -187,17 +187,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1711855026,
-        "narHash": "sha256-uO2dNqFiio46cuZURBC00k17uKGAtUgP7bZAYZ9HlOU=",
+        "lastModified": 1715919110,
+        "narHash": "sha256-moioa3ixAZb0y/xxyxUVjSvXoSiDGXy/vAx6B70d2yM=",
         "ref": "refs/heads/master",
-        "rev": "a579201f0672f90eec7c42e65d6828978dddb816",
-        "revCount": 39,
+        "rev": "5a55c22750589b357e50b759d2a754df058446d6",
+        "revCount": 40,
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
       },
       "original": {
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
       }
     },
     "fuzzy_2": {
