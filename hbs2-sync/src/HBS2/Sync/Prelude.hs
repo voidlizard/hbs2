@@ -822,7 +822,7 @@ mergeState seed orig = do
 --  впоследствии
 --
 
-getStateFromDir0 :: ( MonadIO m
+getStateFromDir0 :: ( MonadUnliftIO m
                    , HasClientAPI RefChanAPI UNIX m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
@@ -841,7 +841,7 @@ getStateFromDir0 seed = do
 
   getStateFromDir seed dir incl excl
 
-getStateFromDir :: ( MonadIO m
+getStateFromDir :: ( MonadUnliftIO m
                    , HasClientAPI RefChanAPI UNIX m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
@@ -883,10 +883,11 @@ getStateFromDir seed path incl excl = do
            S.yield (p,e)
 
 
-getStateFromRefChan :: forall m . ( MonadIO m
+getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasClientAPI RefChanAPI UNIX m
                                   , HasClientAPI StorageAPI UNIX m
                                   , HasStorage m
+                                  , HasRunDir m
                                   )
                     => MyRefChan
                     -> m [(FilePath, Entry)]
@@ -899,6 +900,25 @@ getStateFromRefChan rchan = do
   outq <- newTQueueIO
   tss <- newTVarIO mempty
 
+  rch <- Client.getRefChanHead @UNIX rchan
+               >>= orThrow RefChanHeadNotFoundException
+
+  let members = view refChanHeadReaders rch & HS.toList
+
+  krl <- liftIO $ runKeymanClient $ loadKeyRingEntries members
+              <&> L.sortOn (Down . fst)
+              <&> fmap snd
+
+  let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
+
+  let findKey gk = do
+        r <- S.toList_ do
+              forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
+                (KeyringEntry ppk ssk _) <- toMPlus $ HM.lookup pk krs
+                let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
+                for_ s $ lift . S.yield
+        pure $ headMay r
+
   -- FIXME: may-be-slow
   walkRefChanTx @UNIX (const $ pure True) rchan $ \txh -> \case
     A (AcceptTran ts _ what) -> do
@@ -910,8 +930,6 @@ getStateFromRefChan rchan = do
       (_, bs) <- unboxSignedBox0 box & toMPlus
       AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
                                   & toMPlus . either (const Nothing) Just
-
-      let findKey gk = liftIO (runKeymanClient (extractGroupKeySecret gk))
 
       runExceptT (extractMetaData @'HBS2Basic findKey sto href)
        >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, (href, meta)) )
