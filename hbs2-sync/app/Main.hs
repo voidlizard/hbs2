@@ -1,14 +1,10 @@
-{-# Language ViewPatterns #-}
-{-# Language PatternSynonyms #-}
 module Main where
 
 import HBS2.Sync.Prelude
+import HBS2.Sync
 import HBS2.System.Dir
 
 import System.Environment
-import System.Directory
-import UnliftIO
-
 
 helpEntries :: forall c m . (MonadUnliftIO m, IsContext c) => MakeDictM c m ()
 helpEntries = do

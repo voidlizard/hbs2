@@ -89,6 +89,9 @@ library
 
     exposed-modules:
       HBS2.Sync.Prelude
+      HBS2.Sync.State
+      HBS2.Sync.Internal
+      HBS2.Sync
 
     other-modules:
 

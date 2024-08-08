@@ -13,3 +13,4 @@ cabal.project.local
 .hbs2-git/
 bin/
 .fixme-new/current-stage.log
+.hbs2-sync/
