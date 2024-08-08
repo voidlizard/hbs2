@@ -92,18 +92,13 @@ data DirSyncEnv =
   , _dirSyncCreds    :: Maybe (PeerCredentials 'HBS2Basic)
   , _dirSyncInclude  :: [FilePattern]
   , _dirSyncExclude  :: [FilePattern]
-  , _dirSyncBackup   :: Bool
-  , _dirSyncFollowSymlinks :: Bool
   }
   deriving stock (Generic)
 
 makeLenses 'DirSyncEnv
 
 instance Monoid DirSyncEnv where
-  mempty = DirSyncEnv Nothing Nothing Nothing mempty defExcl False False
-    where
-      defExcl = ["**/.hbs2-sync/*"]
-
+  mempty = DirSyncEnv Nothing Nothing Nothing mempty ["**/*.hbs2-sync/state"]
 
 instance Semigroup DirSyncEnv where
   (<>) a b = DirSyncEnv ( view dirSyncPath b <|> view dirSyncPath a )
@@ -111,8 +106,6 @@ instance Semigroup DirSyncEnv where
                         ( view dirSyncCreds b  <|> view dirSyncCreds a )
                         (L.nub $  view dirSyncInclude a <> view dirSyncInclude b )
                         (L.nub $  view dirSyncExclude a <> view dirSyncExclude b )
-                        ( view dirSyncBackup b  || view dirSyncBackup a )
-                        ( view dirSyncFollowSymlinks b  || view dirSyncFollowSymlinks a )
 
 instance Pretty DirSyncEnv where
   pretty e = do
@@ -393,16 +386,6 @@ entriesFromFile h ts fn0 = do
     dirEntry p   = DirEntry (EntryDesc Dir ts Nothing) p
     fileEntry p  = DirEntry (EntryDesc File ts h) p
 
-backupMode :: (MonadUnliftIO m, HasRunDir m) => m Bool
-backupMode = do
-  d <- getRunDir
-
-  b <- runMaybeT do
-         env <- getRunDirEnv d >>= toMPlus
-         pure $ view dirSyncBackup env
-
-  pure $ fromMaybe False b
-
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
                 , HasClientAPI RefChanAPI UNIX m
@@ -449,30 +432,22 @@ runDirectory = do
       tombs <- getTombs
 
       void $ runMaybeT do
-
-        dir <- getRunDir
-        backup <- getRunDirEnv dir
-                     <&> fmap (view dirSyncBackup)
-                     <&> fromMaybe False
-
         h <- getEntryHash e & toMPlus
 
-        unless backup do
+        notice $ green "write" <+> pretty h <+> pretty p
 
-          notice $ green "write" <+> pretty h <+> pretty p
+        lbs <- lift (runExceptT (getTreeContents sto h))
+                 >>= toMPlus
 
-          lbs <- lift (runExceptT (getTreeContents sto h))
-                   >>= toMPlus
+        mkdir (dropFileName filePath)
 
-          mkdir (dropFileName filePath)
+        liftIO $ UIO.withBinaryFileAtomic filePath WriteMode $ \fh -> do
+          LBS.hPutStr fh lbs >> hFlush fh
 
-          liftIO $ UIO.withBinaryFileAtomic filePath WriteMode $ \fh -> do
-            LBS.hPutStr fh lbs >> hFlush fh
+        let ts  = getEntryTimestamp e
+        let timestamp = posixSecondsToUTCTime (fromIntegral ts)
 
-          let ts  = getEntryTimestamp e
-          let timestamp = posixSecondsToUTCTime (fromIntegral ts)
-
-          liftIO $ setModificationTime (path </> p) timestamp
+        liftIO $ setModificationTime (path </> p) timestamp
 
         lift $ Compact.putVal tombs p (0 :: Integer)
 
@@ -579,11 +554,8 @@ runDirectory = do
 
               Compact.putVal tombs p (maybe 0 succ n)
 
-              b <- backupMode
-
-              unless b do
-                notice $ red "deleted" <+> pretty p
-                rm fullPath
+              notice $ red "deleted" <+> pretty p
+              rm fullPath
 
           E (p,_) -> do
             notice $ "skip entry" <+> pretty p
@@ -1131,26 +1103,6 @@ syncEntries = do
           alterRunDirEnv dir $ \case
             Nothing -> Just (mempty & set dirSyncInclude [pat])
             Just x  -> Just (x & over dirSyncInclude (mappend [pat]))
-
-        _ -> pure ()
-
-  entry $ bindMatch "backup-mode" $ nil_ $ \case
-        [] -> do
-          dir <- getRunDir
-          debug $ red "backup-mode" <+> pretty dir
-          alterRunDirEnv dir $ \case
-            Nothing -> Just (mempty & set dirSyncBackup True)
-            Just x  -> Just (x & set dirSyncBackup True)
-
-        _ -> pure ()
-
-  entry $ bindMatch "follow-symlinks" $ nil_ $ \case
-        [] -> do
-          dir <- getRunDir
-          debug $ red "follow-symlinks" <+> pretty dir
-          alterRunDirEnv dir $ \case
-            Nothing -> Just (mempty & set dirSyncFollowSymlinks True)
-            Just x  -> Just (x & set dirSyncFollowSymlinks True)
 
         _ -> pure ()
 
