@@ -137,6 +137,7 @@ data SyncEnv =
   , dirSyncEnv  :: TVar (Map FilePath DirSyncEnv)
   , dirThis     :: TVar (Maybe FilePath)
   , dirTombs    :: TVar (Map FilePath (CompactStorage HbSync))
+  , dirCache    :: TVar (Map FilePath (CompactStorage HbSync))
   }
 
 newtype SyncApp m a =
@@ -154,6 +155,11 @@ type SyncAppPerks m = MonadUnliftIO m
 class Monad m => HasTombs m where
   getTombs :: m (CompactStorage HbSync)
   closeTombs :: m ()
+
+
+class Monad m => HasCache m where
+  getCache :: m (CompactStorage HbSync)
+  closeCache :: m ()
 
 instance MonadUnliftIO m => HasTombs (SyncApp m) where
   getTombs = do
@@ -185,6 +191,38 @@ instance MonadUnliftIO m => HasTombs (SyncApp m) where
                    >>= toMPlus
 
       compactStorageClose tombs
+
+instance MonadUnliftIO m => HasCache (SyncApp m) where
+  getCache = do
+    SyncEnv{..} <- ask >>= orThrow PeerNotConnectedException
+    path <- getRunDir
+
+    mbCache <- dirCache & readTVarIO
+               <&> Map.lookup path
+
+    case mbCache of
+      Just tomb -> pure tomb
+      Nothing -> do
+        -- FIXME: path-hardcode
+        let cachePath = path </> ".hbs2-sync" </> "state" </> "txcache"
+        mkdir (dropFileName cachePath)
+        stoCache <- compactStorageOpen mempty cachePath
+        atomically (modifyTVar dirCache (Map.insert path stoCache))
+        pure stoCache
+
+  closeCache = do
+    path <- getRunDir
+
+    void $ runMaybeT do
+
+      SyncEnv{..} <- lift ask >>= toMPlus
+
+      cache <- dirCache & readTVarIO
+                   <&> Map.lookup path
+                   >>= toMPlus
+
+      compactStorageClose cache
+
 
 instance MonadIO m => HasClientAPI StorageAPI UNIX (SyncApp m) where
   getClientAPI = ask >>= orThrow PeerNotConnectedException
@@ -242,8 +280,9 @@ recover what = do
         dsync <- newTVarIO mempty
         this  <- newTVarIO Nothing
         tombs <- newTVarIO mempty
+        cache <- newTVarIO mempty
 
-        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this tombs)
+        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this tombs cache)
 
         liftIO $ withSyncApp env what
 
@@ -324,6 +363,11 @@ instance (IsContext c, ToSexp c w) => Pretty (AsSexp c w) where
 data Entry =
   DirEntry EntryDesc FilePath
   deriving stock (Eq,Ord,Show,Data,Generic)
+
+
+instance Serialise Entry
+instance Serialise EntryType
+instance Serialise EntryDesc
 
 instance IsContext c => ToSexp c EntryType where
   toSexp a = mkStr @c $ Text.toLower $ Text.pack $ show a
@@ -410,6 +454,7 @@ runDirectory :: ( IsContext c
                 , HasStorage m
                 , HasRunDir m
                 , HasTombs m
+                , HasCache m
                 , Exception (BadFormException c)
                 ) =>  RunM c m ()
 runDirectory = do
@@ -435,6 +480,7 @@ runDirectory = do
 
     `finally` do
       closeTombs
+      closeCache
 
   where
 
@@ -517,16 +563,19 @@ runDirectory = do
             notice $ green "removed" <+> pretty p
 
           D (p,e) _ -> do
-            notice $ "deleted locally" <+> pretty p
 
             tombs <- getTombs
 
             n <- Compact.getValEither @Integer tombs p
                    <&> fromRight (Just 0)
 
-            when (n < Just 2) do
-              postEntryTx (HM.lookup p hasGK0) refchan path e
-              Compact.putVal tombs p (maybe 0 succ n)
+            notice $ "deleted locally" <+> pretty n <+> pretty p
+
+            when (n < Just 1) do
+              notice $ "FUCKING POST TOMB TX" <+> pretty n <+> pretty p
+              now  <- liftIO $ getPOSIXTime <&> round <&> LBS.take 6 . serialise
+              postEntryTx (Just now) (HM.lookup p hasGK0) refchan path e
+              Compact.putVal tombs p (maybe 1 succ n)
 
           N (p,_) -> do
             notice $ "?" <+> pretty p
@@ -535,14 +584,14 @@ runDirectory = do
             notice $ green "move" <+> pretty f <+> pretty t
             mv (path </> f) (path </> t)
             notice $ green "post renamed entry tx" <+> pretty f
-            postEntryTx (HM.lookup f hasGK0) refchan path e
+            postEntryTx Nothing (HM.lookup f hasGK0) refchan path e
 
           E (p,UpdatedFileEntry _ e) -> do
             let fullPath = path </> p
             here <- liftIO $ doesFileExist fullPath
             writeEntry path e
             notice $ red "updated" <+> pretty here <+> pretty p
-            postEntryTx (HM.lookup p hasGK0) refchan path e
+            postEntryTx Nothing (HM.lookup p hasGK0) refchan path e
 
           E (p,e@(FileEntry _)) -> do
             let fullPath = path </> p
@@ -564,7 +613,7 @@ runDirectory = do
               let members = view refChanHeadReaders rch & HS.toList
               when (rcpt /= members) do
                 notice $ red "update group key" <+> pretty p
-                lift $ postEntryTx (Just gk0) refchan path e
+                lift $ postEntryTx Nothing (Just gk0) refchan path e
 
           E (p,TombEntry e) -> do
             let fullPath = path </> p
@@ -572,11 +621,12 @@ runDirectory = do
             when here do
 
               tombs <- getTombs
-              postEntryTx (HM.lookup p hasGK0) refchan path e
+              postEntryTx Nothing (HM.lookup p hasGK0) refchan path e
 
               n <- Compact.getValEither @Integer tombs p
                     <&> fromRight (Just 0)
 
+              notice $ red "YEAH, mttf!"
               Compact.putVal tombs p (maybe 0 succ n)
 
               b <- backupMode
@@ -624,12 +674,13 @@ postEntryTx :: ( MonadUnliftIO m
                , HasClientAPI StorageAPI UNIX m
                , HasClientAPI RefChanAPI UNIX m
                )
-            => Maybe (GroupKey 'Symm 'HBS2Basic)
+            => Maybe (LBS.ByteString)
+            -> Maybe (GroupKey 'Symm 'HBS2Basic)
             -> MyRefChan
             -> FilePath
             -> Entry
             -> m ()
-postEntryTx mgk refchan path entry = do
+postEntryTx nonce' mgk refchan path entry = do
 
   sto <- getStorage
 
@@ -691,7 +742,7 @@ postEntryTx mgk refchan path entry = do
     -- FIXME: remove-nonce
     --   пока что будем постить транзакцию всегда.
     --   в дальнейшем стоит избавиться от нонса
-    nonce <- liftIO getPOSIXTime <&> serialise . take 4 . reverse . show
+    let nonce = fromMaybe mempty nonce'
     let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx <> nonce)
 
     notice $ red "post tree tx" <+> pretty p <+> pretty href
@@ -827,6 +878,7 @@ getStateFromDir0 :: ( MonadUnliftIO m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
                    , HasRunDir m
+                   , HasCache m
                    )
                 => Bool
                 -> m [(FilePath, Entry)]
@@ -846,6 +898,7 @@ getStateFromDir :: ( MonadUnliftIO m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
                    , HasRunDir m
+                   , HasCache m
                    )
                 => Bool           -- ^ use remote state as seed
                 -> FilePath       -- ^ dir
@@ -888,12 +941,15 @@ getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasClientAPI StorageAPI UNIX m
                                   , HasStorage m
                                   , HasRunDir m
+                                  , HasCache m
                                   )
                     => MyRefChan
                     -> m [(FilePath, Entry)]
 getStateFromRefChan rchan = do
 
   debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
+
+  cache <- getCache
 
   sto <- getStorage
 
@@ -919,27 +975,31 @@ getStateFromRefChan rchan = do
                 for_ s $ lift . S.yield
         pure $ headMay r
 
+
   -- FIXME: may-be-slow
-  walkRefChanTx @UNIX (const $ pure True) rchan $ \txh -> \case
-    A (AcceptTran ts _ what) -> do
-      -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
-      for_ ts $ \w -> do
-        atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+  walkRefChanTx @UNIX (\t -> pure True) rchan $ \txh u -> do
 
-    P orig (ProposeTran _ box) -> void $ runMaybeT do
-      (_, bs) <- unboxSignedBox0 box & toMPlus
-      AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
-                                  & toMPlus . either (const Nothing) Just
+    case  u of
 
-      runExceptT (extractMetaData @'HBS2Basic findKey sto href)
-       >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, (href, meta)) )
+      A (AcceptTran ts _ what) -> do
+        -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
+        for_ ts $ \w -> do
+          atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+
+      P orig (ProposeTran _ box) -> void $ runMaybeT do
+        (_, bs) <- unboxSignedBox0 box & toMPlus
+        AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                    & toMPlus . either (const Nothing) Just
+
+        runExceptT (extractMetaData @'HBS2Basic findKey sto href)
+         >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
 
   trees <- atomically (flushTQueue outq)
 
   tsmap <- readTVarIO tss
 
   ess0 <- S.toList_ do
-    for_ trees $ \(txh, (tree, meta)) -> do
+    for_ trees $ \(txh, ((tree, meta),txxx)) -> do
       let what = parseTop meta & fromRight mempty
       let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
 
@@ -958,7 +1018,13 @@ getStateFromRefChan rchan = do
           let r = entriesFromFile (Just tree) ts fullPath
           lift $ S.yield r
 
-  pure $ Map.toList $ Map.unionsWith merge ess0
+  let r = Map.unionsWith merge ess0
+
+  liftIO $ LBS.writeFile ".GOVNOSTATE" (serialise r)
+
+  pure (Map.toList r)
+
+  -- pure $ Map.toList $ Map.unionsWith merge ess0
 
 
 getTreeContents :: ( MonadUnliftIO m
@@ -1041,6 +1107,19 @@ instance (Monad m, HasTombs m) => HasTombs (RunM c m) where
   getTombs = lift getTombs
   closeTombs = lift closeTombs
 
+instance HasCache m => HasCache (ContT r m) where
+  getCache = lift getCache
+  closeCache = lift closeCache
+
+instance HasCache m => HasCache (MaybeT m) where
+  getCache = lift getCache
+  closeCache = lift closeCache
+
+instance (Monad m, HasCache m) => HasCache (RunM c m) where
+  getCache = lift getCache
+  closeCache = lift closeCache
+
+
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
                             , Exception (BadFormException c)
@@ -1049,6 +1128,7 @@ syncEntries :: forall c m . ( MonadUnliftIO m
                             , HasStorage m
                             , HasRunDir m
                             , HasTombs m
+                            , HasCache m
                             , MonadReader (Maybe SyncEnv) m
                             )
             => MakeDictM c m ()
@@ -1302,7 +1382,7 @@ syncEntries = do
           now <- liftIO getPOSIXTime <&> round
 
           notice $ red "ABOUT TO POST TOMB TX" <+> pretty p
-          lift $ postEntryTx Nothing rchan path (makeTomb now p mzero)
+          lift $ postEntryTx Nothing Nothing rchan path (makeTomb now p mzero)
 
       _ -> pure ()
 
