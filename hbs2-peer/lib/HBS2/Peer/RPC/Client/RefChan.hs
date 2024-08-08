@@ -1,5 +1,4 @@
 {-# Language AllowAmbiguousTypes #-}
-{-# Language UndecidableInstances #-}
 module HBS2.Peer.RPC.Client.RefChan where
 
 import HBS2.OrDie
@@ -134,8 +133,6 @@ instance Monad m => HasClientAPI RefChanAPI proto (ReaderT (RScanEnv proto) m) w
 data RefChanUpdateUnpacked e =
   A (AcceptTran e) | P HashRef (ProposeTran e)
   deriving stock (Generic)
-
-instance ForRefChans e => Serialise (RefChanUpdateUnpacked e)
 
 {-# COMPLETE A,P #-}
 

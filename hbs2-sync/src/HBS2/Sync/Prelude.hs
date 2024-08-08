@@ -822,7 +822,7 @@ mergeState seed orig = do
 --  впоследствии
 --
 
-getStateFromDir0 :: ( MonadUnliftIO m
+getStateFromDir0 :: ( MonadIO m
                    , HasClientAPI RefChanAPI UNIX m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
@@ -841,7 +841,7 @@ getStateFromDir0 seed = do
 
   getStateFromDir seed dir incl excl
 
-getStateFromDir :: ( MonadUnliftIO m
+getStateFromDir :: ( MonadIO m
                    , HasClientAPI RefChanAPI UNIX m
                    , HasClientAPI StorageAPI UNIX m
                    , HasStorage m
@@ -883,44 +883,24 @@ getStateFromDir seed path incl excl = do
            S.yield (p,e)
 
 
-getStateFromRefChan :: forall m . ( MonadUnliftIO m
+getStateFromRefChan :: forall m . ( MonadIO m
                                   , HasClientAPI RefChanAPI UNIX m
                                   , HasClientAPI StorageAPI UNIX m
                                   , HasStorage m
-                                  , HasRunDir m
                                   )
                     => MyRefChan
                     -> m [(FilePath, Entry)]
-getStateFromRefChan rchan = flip runContT pure do
-
-  cacheFile <- getRunDir <&> (</> ".hbs2-sync/state/txcache")
+getStateFromRefChan rchan = do
 
   debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
 
-  cache <- ContT $ bracket (compactStorageOpen mempty cacheFile) compactStorageClose
-
-  sto <- lift getStorage
+  sto <- getStorage
 
   outq <- newTQueueIO
   tss <- newTVarIO mempty
 
-  let check h = Compact.getValEither @(RefChanUpdateUnpacked L4Proto) cache h
-                  <&> either (const True) isNothing
-
-  lift $ walkRefChanTx @UNIX check rchan $ \txh -> \case
-    tx  -> Compact.putVal cache txh tx
-
-  txhashes <- Compact.keys cache
-                <&> fmap (deserialiseOrFail @HashRef .  LBS.fromStrict)
-                <&> rights
-
-  vals <- mapM (Compact.getValEither @(RefChanUpdateUnpacked L4Proto) cache) txhashes
-            <&> rights
-            <&> catMaybes
-
   -- FIXME: may-be-slow
-  for_ vals $ \case
-
+  walkRefChanTx @UNIX (const $ pure True) rchan $ \txh -> \case
     A (AcceptTran ts _ what) -> do
       -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
       for_ ts $ \w -> do
