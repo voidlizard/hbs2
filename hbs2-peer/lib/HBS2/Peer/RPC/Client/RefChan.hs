@@ -14,12 +14,14 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Internal
 import HBS2.Peer.RPC.Client.StorageClient
 
+import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString (ByteString)
 import Data.Coerce
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
+import Control.Monad.Identity
 import Codec.Serialise
 import UnliftIO
 
@@ -136,6 +138,24 @@ data RefChanUpdateUnpacked e =
 
 {-# COMPLETE A,P #-}
 
+unpackRefChanUpdate :: forall e . ForRefChans e
+                    => HashRef
+                    -> LBS.ByteString
+                    -> Maybe (RefChanUpdateUnpacked e)
+unpackRefChanUpdate href lbs = runIdentity $ runMaybeT do
+
+  tx <- deserialiseOrFail @(RefChanUpdate e) lbs
+             & toMPlus
+  case tx of
+
+    Accept _ box  -> do
+      (_, txx) <- MaybeT $ pure $ unboxSignedBox0 box
+      pure (A txx)
+
+    Propose _ box -> do
+      (_, txx) <- MaybeT $ pure $ unboxSignedBox0 box
+      pure (P href txx)
+
 walkRefChanTx :: forall proto m . ( MonadIO m
                                   , HasClientAPI RefChanAPI proto m
                                   , HasProtocol proto (ServiceProto RefChanAPI proto)
@@ -167,19 +187,6 @@ walkRefChanTx filt puk action = do
           when want do
             lbs' <- getBlock sto (coerce h)
             lbs  <- ContT $ maybe1 lbs' none
-
-            let txraw = deserialiseOrFail @(RefChanUpdate L4Proto) lbs
-                          & either (const Nothing) Just
-
-            tx <- ContT $ maybe1 txraw none
-
-            case tx of
-
-              Accept _ box  -> do
-                (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
-                lift $ action h (A  txx)
-
-              Propose _ box -> do
-                (_, txx) <- ContT $ maybe1 (unboxSignedBox0 box) none
-                lift $ action h (P h txx)
+            tx   <- ContT $ maybe1 (unpackRefChanUpdate h lbs) none
+            lift $ action h tx
 
