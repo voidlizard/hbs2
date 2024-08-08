@@ -49,6 +49,8 @@ import Data.Config.Suckless as Exported
 import Data.Config.Suckless.Script as Exported
 import Data.Config.Suckless.Script.File
 
+import DBPipe.SQLite
+
 import Codec.Serialise as Exported
 import Control.Applicative
 import Control.Concurrent.STM (flushTQueue)
@@ -57,8 +59,10 @@ import Control.Monad.Trans.Cont as Exported
 import Control.Monad.Trans.Maybe
 import Control.Monad.Except
 import Data.Ord
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString (ByteString)
 import Data.Coerce
 import Data.Either
 import Data.HashMap.Strict qualified as HM
@@ -77,6 +81,7 @@ import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
 import System.Directory (XdgDirectory(..),getXdgDirectory)
 import System.Exit qualified as Exit
+import Text.InterpolatedString.Perl6 (qc)
 
 import UnliftIO.IO.File qualified as UIO
 
@@ -742,8 +747,8 @@ postEntryTx nonce' mgk refchan path entry = do
     -- FIXME: remove-nonce
     --   пока что будем постить транзакцию всегда.
     --   в дальнейшем стоит избавиться от нонса
-    let nonce = fromMaybe mempty nonce'
-    let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx <> nonce)
+    nonce <- liftIO $ getPOSIXTime <&> round <&> BS.take 6 . coerce  . hashObject @HbSync . serialise
+    let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx <> LBS.fromStrict nonce)
 
     notice $ red "post tree tx" <+> pretty p <+> pretty href
 
@@ -936,6 +941,19 @@ getStateFromDir seed path incl excl = do
            S.yield (p,e)
 
 
+
+  -- dbPath <- getStatePath
+  -- env <- liftIO newAppEnv
+  -- let db = appDb env
+  -- flip runContT pure $ do
+  --   void $ ContT $ bracket (async (runPipe db)) cancel
+
+  --   here <- doesPathExist dbPath
+
+  --   unless here do
+  --     withDB db $ populateState
+
+
 getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasClientAPI RefChanAPI UNIX m
                                   , HasClientAPI StorageAPI UNIX m
@@ -947,82 +965,126 @@ getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                     -> m [(FilePath, Entry)]
 getStateFromRefChan rchan = do
 
-  debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
-
-  cache <- getCache
+  dir <- getRunDir
 
   sto <- getStorage
-
-  outq <- newTQueueIO
-  tss <- newTVarIO mempty
 
   rch <- Client.getRefChanHead @UNIX rchan
                >>= orThrow RefChanHeadNotFoundException
 
-  let members = view refChanHeadReaders rch & HS.toList
+  let statePath = dir </> ".hbs2-sync" </> "state"
 
-  krl <- liftIO $ runKeymanClient $ loadKeyRingEntries members
-              <&> L.sortOn (Down . fst)
-              <&> fmap snd
+  db <- newDBPipeEnv dbPipeOptsDef (statePath </> "state.db")
 
-  let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
+  flip runContT pure do
 
-  let findKey gk = do
-        r <- S.toList_ do
-              forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
-                (KeyringEntry ppk ssk _) <- toMPlus $ HM.lookup pk krs
-                let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
-                for_ s $ lift . S.yield
-        pure $ headMay r
+    void $ ContT $ bracket (async (runPipe db)) cancel
+
+    withDB db $ do
+      ddl [qc|create table if not exists entry (txhash text not null primary key, s blob not null)|]
+      ddl [qc|create table if not exists seen (txhash text not null primary key)|]
+      commitAll
+
+    debug $ red "getStateFromRefChan" <+> pretty (AsBase58 rchan)
+
+    outq <- newTQueueIO
+    seen <- newTQueueIO
+    tss <- newTVarIO mempty
+
+    let members = view refChanHeadReaders rch & HS.toList
+
+    krl <- liftIO $ runKeymanClient $ loadKeyRingEntries members
+                <&> L.sortOn (Down . fst)
+                <&> fmap snd
+
+    let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
+
+    let findKey gk = do
+          r <- S.toList_ do
+                forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
+                  (KeyringEntry ppk ssk _) <- toMPlus $ HM.lookup pk krs
+                  let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
+                  for_ s $ lift . S.yield
+          pure $ headMay r
+
+    -- let check hx = pure True
+
+    let check hx = do
+         withDB db do
+          r <- select @(Only Int) [qc|select 1 from seen where txhash = ? limit 1|] (Only (show $ pretty $ hx))
+          pure $ L.null r
+
+    -- FIXME: may-be-slow
+    lift $ walkRefChanTx @UNIX check rchan $ \txh u -> do
+
+      atomically $ writeTQueue seen txh
+
+      case  u of
+
+        A (AcceptTran ts _ what) -> do
+          -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
+          for_ ts $ \w -> do
+            atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+
+        P orig (ProposeTran _ box) -> void $ runMaybeT do
+          (_, bs) <- unboxSignedBox0 box & toMPlus
+          AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                      & toMPlus . either (const Nothing) Just
 
 
-  -- FIXME: may-be-slow
-  walkRefChanTx @UNIX (\t -> pure True) rchan $ \txh u -> do
+          runExceptT (extractMetaData @'HBS2Basic findKey sto href)
+           >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
 
-    case  u of
 
-      A (AcceptTran ts _ what) -> do
-        -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
-        for_ ts $ \w -> do
-          atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
 
-      P orig (ProposeTran _ box) -> void $ runMaybeT do
-        (_, bs) <- unboxSignedBox0 box & toMPlus
-        AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
-                                    & toMPlus . either (const Nothing) Just
+    trees <- atomically (flushTQueue outq)
 
-        runExceptT (extractMetaData @'HBS2Basic findKey sto href)
-         >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
+    tsmap <- readTVarIO tss
 
-  trees <- atomically (flushTQueue outq)
+    lift $ withDB db $ transactional do
 
-  tsmap <- readTVarIO tss
+      -- ess0 <- S.toList_ do
+      for_ trees $ \(txh, ((tree, meta),txxx)) -> do
+        let what = parseTop meta & fromRight mempty
+        let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
 
-  ess0 <- S.toList_ do
-    for_ trees $ \(txh, ((tree, meta),txxx)) -> do
-      let what = parseTop meta & fromRight mempty
-      let loc  = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
+        void $ runMaybeT do
+          fn   <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+          ts   <- toMPlus $ HM.lookup txh tsmap
+          let tomb = or [ True | TombLikeOpt <- what  ]
+          let fullPath = loc </> fn
 
-      void $ runMaybeT do
-        fn   <- toMPlus $ headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
-        ts   <- toMPlus $ HM.lookup txh tsmap
-        let tomb = or [ True | TombLikeOpt <- what  ]
-        let fullPath = loc </> fn
+          trace $ red "META" <+> pretty what
 
-        trace $ red "META" <+> pretty what
+          if tomb then do
+            let r = Map.singleton fullPath (makeTomb ts fullPath (Just tree))
+            withDB db do
+              insert [qc| insert into entry (txhash,s) values(?,?)
+                          on conflict (txhash) do update set s = excluded.s
+                        |] (show $ pretty $ txxx, serialise r)
 
-        if tomb then do
-          lift $ S.yield $
-            Map.singleton fullPath (makeTomb ts fullPath (Just tree))
-        else do
-          let r = entriesFromFile (Just tree) ts fullPath
-          lift $ S.yield r
+          else do
+            let r = entriesFromFile (Just tree) ts fullPath
 
-  let r = Map.unionsWith merge ess0
+            withDB db do
+              insert [qc| insert into entry (txhash,s) values(?,?)
+                          on conflict (txhash) do update set s = excluded.s
+                        |] (show $ pretty $ txxx, serialise r)
 
-  liftIO $ LBS.writeFile ".GOVNOSTATE" (serialise r)
+              -- lift $ S.yield r
 
-  pure (Map.toList r)
+      seenTx <- atomically $ flushTQueue seen
+      for_ seenTx $ \txh -> do
+        insert [qc|insert into seen (txhash) values(?)|] (Only (show $ pretty $ txh))
+
+    ess0 <- withDB db do
+           select_ [qc|select s from entry|]
+             <&> fmap (deserialiseOrFail @(Map FilePath Entry) . LBS.fromStrict . fromOnly)
+             <&> rights
+
+    let r = Map.unionsWith merge ess0
+
+    pure (Map.toList r)
 
   -- pure $ Map.toList $ Map.unionsWith merge ess0
 
@@ -1093,7 +1155,6 @@ instance HasRunDir m => HasRunDir (ContT r m) where
   getRunDir = lift getRunDir
   getRunDirEnv d = lift (getRunDirEnv d)
   alterRunDirEnv d a = lift (alterRunDirEnv d a)
-
 
 instance HasTombs m => HasTombs (ContT r m) where
   getTombs = lift getTombs
