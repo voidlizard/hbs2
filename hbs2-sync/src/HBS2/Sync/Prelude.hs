@@ -65,6 +65,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString (ByteString)
 import Data.Coerce
 import Data.Either
+import Data.Fixed
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.List qualified as L
@@ -81,6 +82,7 @@ import Streaming.Prelude qualified as S
 import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
 import System.Directory (XdgDirectory(..),getXdgDirectory)
 import System.Exit qualified as Exit
+import System.TimeIt
 import Text.InterpolatedString.Perl6 (qc)
 
 import UnliftIO.IO.File qualified as UIO
@@ -1011,34 +1013,35 @@ getStateFromRefChan rchan = do
           pure $ headMay r
 
     -- let check hx = pure True
+    hseen <- withDB db (select_ [qc|select txhash from seen|])
+               <&> fmap ((fromStringMay @HashRef) . fromOnly)
+               <&> HS.fromList . catMaybes
 
-    let check hx = do
-         withDB db do
-          r <- select @(Only Int) [qc|select 1 from seen where txhash = ? limit 1|] (Only (show $ pretty $ hx))
-          pure $ L.null r
+    let check hx = pure $ not $ HS.member hx hseen
 
     -- FIXME: may-be-slow
-    lift $ walkRefChanTx @UNIX check rchan $ \txh u -> do
+    (a, _) <- timeItT do
+      lift $ walkRefChanTx @UNIX check rchan $ \txh u -> do
 
-      atomically $ writeTQueue seen txh
+        atomically $ writeTQueue seen txh
 
-      case  u of
+        case  u of
 
-        A (AcceptTran ts _ what) -> do
-          -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
-          for_ ts $ \w -> do
-            atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
+          A (AcceptTran ts _ what) -> do
+            -- debug $ red "ACCEPT" <+> pretty ts <+> pretty what
+            for_ ts $ \w -> do
+              atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 w))
 
-        P orig (ProposeTran _ box) -> void $ runMaybeT do
-          (_, bs) <- unboxSignedBox0 box & toMPlus
-          AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
-                                      & toMPlus . either (const Nothing) Just
-
-
-          runExceptT (extractMetaData @'HBS2Basic findKey sto href)
-           >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
+          P orig (ProposeTran _ box) -> void $ runMaybeT do
+            (_, bs) <- unboxSignedBox0 box & toMPlus
+            AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                        & toMPlus . either (const Nothing) Just
 
 
+            runExceptT (extractMetaData @'HBS2Basic findKey sto href)
+             >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
+
+    notice $ "walkRefChanTx complete in" <+> pretty (realToFrac a :: Fixed E6)
 
     trees <- atomically (flushTQueue outq)
 
@@ -1078,7 +1081,7 @@ getStateFromRefChan rchan = do
 
       seenTx <- atomically $ flushTQueue seen
       for_ seenTx $ \txh -> do
-        insert [qc|insert into seen (txhash) values(?)|] (Only (show $ pretty $ txh))
+        insert [qc|insert into seen (txhash) values(?) on conflict do nothing|] (Only (show $ pretty $ txh))
 
     ess0 <- withDB db do
            select_ [qc|select s from entry|]
