@@ -626,12 +626,15 @@ runDirectory = do
             when here do
 
               tombs <- getTombs
-              postEntryTx Nothing (HM.lookup p hasGK0) refchan path e
 
               n <- Compact.getValEither @Integer tombs p
                     <&> fromRight (Just 0)
 
-              notice $ red "YEAH, mttf!"
+
+              when (n < Just 1) do
+                notice $ red "YEAH, mttf!" <+> pretty n
+                postEntryTx Nothing (HM.lookup p hasGK0) refchan path e
+
               Compact.putVal tombs p (maybe 0 succ n)
 
               b <- backupMode
