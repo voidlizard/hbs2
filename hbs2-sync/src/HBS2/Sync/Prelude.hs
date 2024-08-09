@@ -41,43 +41,24 @@ import HBS2.KeyMan.Keys.Direct as Exported ( runKeymanClient
 
 import Data.Config.Suckless as Exported
 import Data.Config.Suckless.Script as Exported
-import Data.Config.Suckless.Script.File
-
-import DBPipe.SQLite
 
 import Codec.Serialise as Exported
 import Control.Applicative
-import Control.Concurrent.STM (flushTQueue)
 import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
 import Control.Monad.Trans.Maybe
-import Control.Monad.Except
-import Data.Ord
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce as Exported
 import Data.Either as Exported
-import Data.Fixed
-import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.List (stripPrefix)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe as Exported
-import Data.Text qualified as Text
-import Data.Set qualified as Set
 import Data.Time.Clock.POSIX
 import Data.Word
 import Lens.Micro.Platform
-import Streaming.Prelude qualified as S
-import System.Directory (getModificationTime,setModificationTime,doesFileExist,listDirectory)
-import System.Directory (XdgDirectory(..),getXdgDirectory)
 import System.Exit qualified as Exit
-import System.TimeIt
-import Text.InterpolatedString.Perl6 (qc)
-
-import UnliftIO.IO.File qualified as UIO
+import System.Directory
 import UnliftIO as Exported
 
 {- HLINT ignore "Functor law" -}
