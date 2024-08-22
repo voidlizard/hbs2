@@ -15,6 +15,8 @@ import HBS2.Net.Auth.Schema
 import HBS2.Base58
 import HBS2.Hash
 
+import Data.Config.Suckless
+
 import Control.Applicative
 import Codec.Serialise
 import Crypto.Saltine.Core.Sign (Keypair(..))
@@ -263,4 +265,10 @@ instance Hashed HbSync Sign.PublicKey where
   hashObject pk = hashObject (Crypto.encode pk)
 
 
+pattern SignPubKeyLike :: forall {c} . PubKey 'Sign 'HBS2Basic -> Syntax c
+pattern SignPubKeyLike x <- (
+  \case
+    StringLike s -> fromStringMay s
+    _            -> Nothing
+      -> Just x )
 

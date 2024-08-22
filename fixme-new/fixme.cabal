@@ -58,7 +58,7 @@ common shared-properties
       , hbs2-keyman
       , hbs2-git
       , db-pipe
-      , suckless-conf >= 0.1.2.6
+      , suckless-conf
       , fuzzy-parse
 
       , aeson

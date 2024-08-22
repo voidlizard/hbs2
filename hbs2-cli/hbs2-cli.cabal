@@ -120,10 +120,6 @@ library
 
       HBS2.CLI.Run.Help
 
-      Data.Config.Suckless.Script
-      Data.Config.Suckless.Script.Internal
-      Data.Config.Suckless.Script.File
-
     build-depends:    base
                     , magic
 

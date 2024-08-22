@@ -84,6 +84,23 @@ populateState = do
     )
     |]
 
+  ddl [qc|
+    create table if not exists gktrack
+    ( secret  text not null
+    , gkhash  text not null
+    , primary key (secret,gkhash)
+    )
+    |]
+
+  ddl [qc|
+    create table if not exists gkaccess
+    ( gkhash  text not null
+    , key     text not null
+    , primary key (gkhash,key)
+    )
+    |]
+
+
   commitAll
 
 instance ToField (SomePubKey a) where
@@ -203,4 +220,5 @@ selectKeyWeight key = do
     where key = ?
     limit 1
     |] (Only (SomePubKey key)) <&> maybe 0 fromOnly . listToMaybe
+
 

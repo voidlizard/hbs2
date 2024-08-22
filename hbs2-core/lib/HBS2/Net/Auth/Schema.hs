@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language UndecidableInstances #-}
+{-# Language PatternSynonyms #-}
 module HBS2.Net.Auth.Schema
   ( module HBS2.Net.Auth.Schema
   , module HBS2.Net.Proto.Types
@@ -10,6 +11,8 @@ import HBS2.OrDie
 import HBS2.Net.Proto.Types
 import HBS2.Hash
 import HBS2.Net.Messaging.Unix
+
+import Data.Config.Suckless
 
 import Data.Word
 import Crypto.Error
@@ -68,4 +71,7 @@ instance (MonadIO m, ForDerivedKey s, s ~ 'HBS2Basic) => HasDerivedKey s 'Sign W
        salt = LBS.toStrict (serialise nonce)
        prk = HKDF.extract @(HashType HbSync) salt ikm
        k0  = HKDF.expand @_ @_ @ByteString prk salt Ed.secretKeySize
+
+
+
 

@@ -32,20 +32,6 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 
-pattern HashLike:: forall {c} . HashRef -> Syntax c
-pattern HashLike x <- (
-  \case
-    StringLike s -> fromStringMay @HashRef s
-    _            -> Nothing
-      -> Just x )
-
-pattern SignPubKeyLike :: forall {c} . (PubKey 'Sign 'HBS2Basic) -> Syntax c
-pattern SignPubKeyLike x <- (
-  \case
-    StringLike s -> fromStringMay s
-    _            -> Nothing
-      -> Just x )
-
 
 data HBS2CliEnv =
   HBS2CliEnv

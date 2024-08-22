@@ -1,4 +1,6 @@
 {-# Language FunctionalDependencies #-}
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -170,4 +172,9 @@ instance Hashable a => Hashable (ByFirst a b) where
 
 
 -- asyncLinked :: forall m . MonadUnliftIO m =>
+
+
+
+
+
 
