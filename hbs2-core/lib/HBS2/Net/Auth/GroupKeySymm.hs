@@ -107,9 +107,10 @@ data instance GroupKey 'Symm s =
     { recipients :: Recipients s
     }
   | GroupKeySymmFancy
-    { recipients       :: Recipients s
-    , groupKeyIdScheme :: Maybe GroupKeyIdScheme
-    , groupKeyId       :: Maybe GroupKeyId
+    { recipients         :: Recipients s
+    , groupKeyIdScheme   :: Maybe GroupKeyIdScheme
+    , groupKeyId         :: Maybe GroupKeyId
+    , groupKeyTimestamp  :: Maybe Word64
     }
   deriving stock (Generic)
 
@@ -119,14 +120,19 @@ deriving instance
     )
     => Eq (GroupKey 'Symm s)
 
+getGroupKeyTimestamp :: GroupKey 'Symm s -> Maybe Word64
+getGroupKeyTimestamp = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyTimestamp
+
 instance ForGroupKeySymm s => Monoid (GroupKey 'Symm s) where
-  mempty = GroupKeySymmFancy mempty mzero mzero
+  mempty = GroupKeySymmFancy mempty mzero mzero mzero
 
 instance ForGroupKeySymm s => Semigroup (GroupKey 'Symm s) where
-  (<>) (GroupKeySymmPlain a) (GroupKeySymmPlain b) = GroupKeySymmFancy (a <> b) mzero mzero
-  (<>) (GroupKeySymmPlain r0) (GroupKeySymmFancy r s k) = GroupKeySymmFancy (r0 <> r) s k
-  (<>) (GroupKeySymmFancy r s k) (GroupKeySymmPlain r0) = GroupKeySymmFancy (r0 <> r) s k
-  (<>) (GroupKeySymmFancy r0 s0 k0) (GroupKeySymmFancy r1 s1 k1) = GroupKeySymmFancy (r0 <> r1) (s1 <|> s0) (k1 <|> k0)
+  (<>) (GroupKeySymmPlain a) (GroupKeySymmPlain b) = GroupKeySymmFancy (a <> b) mzero mzero mzero
+  (<>) (GroupKeySymmPlain r0) (GroupKeySymmFancy r s k t) = GroupKeySymmFancy (r0 <> r) s k t
+  (<>) (GroupKeySymmFancy r s k t) (GroupKeySymmPlain r0) = GroupKeySymmFancy (r0 <> r) s k t
+  (<>) (GroupKeySymmFancy r0 s0 k0 t0) (GroupKeySymmFancy r1 s1 k1 t1) = GroupKeySymmFancy (r0 <> r1) (s1 <|> s0) (k1 <|> k0) (max t0 t1)
 
 instance Serialise GroupKeyIdScheme
 instance Serialise GroupKeyId
@@ -175,7 +181,7 @@ instance (ForGroupKeySymm s) => Serialise (GroupKey 'Symm s) where
     let compat = GroupKeySymmV1 @s (recipients x)
     let compatEncoded = Serialise.encode compat
     let version = 2
-    let ext     = (getGroupKeyIdScheme x, getGroupKeyId x)
+    let ext     = (getGroupKeyIdScheme x, getGroupKeyId x, getGroupKeyTimestamp x)
     compatEncoded  <> Serialise.encode version <> Serialise.encode ext
 
   decode = do
@@ -190,8 +196,8 @@ instance (ForGroupKeySymm s) => Serialise (GroupKey 'Symm s) where
 
       case version of
         2 -> do
-          (s,kid) <- Serialise.decode @(Maybe GroupKeyIdScheme, Maybe GroupKeyId)
-          pure $ GroupKeySymmFancy recipientsV1 s kid
+          (s,kid, t) <- Serialise.decode @(Maybe GroupKeyIdScheme, Maybe GroupKeyId, Maybe Word64)
+          pure $ GroupKeySymmFancy recipientsV1 s kid t
 
         _ -> pure $ GroupKeySymmPlain recipientsV1
 
@@ -253,15 +259,23 @@ generateGroupKeyFancy :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Enc
                  -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
 
-generateGroupKeyFancy mbk pks = create -- GroupKeySymmFancy <$> create <*> pure schema <*> pure keyId
+generateGroupKeyFancy mbk pks = create
   where
     create = do
+      now <- liftIO getPOSIXTime <&> Just . round
       sk <- maybe1 mbk (liftIO SK.newKey) pure
       rcpt <- forM pks $ \pk -> do
                 box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
                 pure (pk, box)
-      let ha = hashObject @HbSync (serialise sk)
-      pure $ GroupKeySymmFancy (HashMap.fromList rcpt) (Just GroupKeyIdJustHash) (Just (GroupKeyId (coerce ha)))
+      -- TODO: GroupKeyIdJustHash-implies-timestamp
+      --   теперь просто хэш = хэш (ключ, таймстемп)
+      --   так лучше
+      let ha = hashObject @HbSync (serialise (sk,now))
+      pure $ GroupKeySymmFancy
+                (HashMap.fromList rcpt)
+                (Just GroupKeyIdJustHash)
+                (Just (GroupKeyId (coerce ha)))
+                now
 
 lookupGroupKey :: forall s .  ( ForGroupKeySymm s
                               , PubKey 'Encrypt s ~ AK.PublicKey
