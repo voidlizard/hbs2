@@ -13,6 +13,7 @@ import HBS2.System.Dir
 import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.KeyValue
+import Data.Config.Suckless
 
 import Options.Applicative qualified as O
 import Data.Text qualified as Text
@@ -77,6 +78,8 @@ updateKeys = do
   prune <- flag False True ( long "prune" <> short 'p' <> help "prune keys for missed files")
   pure do
 
+    conf <- getConf
+
     masks <- cfgValue @KeyFilesOpt @(Set String) <&> Set.toList
     files <- KeyRing.findFilesBy masks
 
@@ -110,6 +113,13 @@ updateKeys = do
           updateKeyType (SomePubKey @'Encrypt pk)
 
         commitAll
+
+    -- scanning refchans for group keys
+
+    let rchans = [ r | ListVal [SymbolVal "refchan", SignPubKeyLike r] <- conf ]
+
+    pure ()
+
 
 setWeightCmd :: (AppPerks m) => Parser (Command m)
 setWeightCmd = do

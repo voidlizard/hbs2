@@ -36,12 +36,6 @@ import Lens.Micro.Platform
 -- FIXME: move-to-suckless-conf
 deriving stock instance Ord (Syntax C)
 
-pattern StringLike :: forall {c} . String -> Syntax c
-pattern StringLike e <- (stringLike -> Just e)
-
-pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
-pattern StringLikeList e <- (stringLikeList -> e)
-
 pattern FixmeHashLike :: forall {c} . Text -> Syntax c
 pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 

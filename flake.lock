@@ -519,18 +519,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1715919707,
-        "narHash": "sha256-lbvrCqJHC//NJgfvsy15+Evup5CS+CE50NolDwPIh94=",
-        "ref": "refs/heads/master",
-        "rev": "41830ea2f2e9bb589976f0433207a8f1b73b0b01",
-        "revCount": 35,
+        "lastModified": 1724324873,
+        "narHash": "sha256-FfhaOF/22/QRwGe2lHr8a2kl5nGSJiHIFA1J5KLqIAI=",
+        "rev": "6802f96076ffc984c9b9f44adbf3e9648bb369a0",
+        "revCount": 36,
         "type": "git",
-        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?tag=0.1.2.6"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       },
       "original": {
-        "rev": "41830ea2f2e9bb589976f0433207a8f1b73b0b01",
+        "rev": "6802f96076ffc984c9b9f44adbf3e9648bb369a0",
         "type": "git",
-        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?tag=0.1.2.6"
+        "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       }
     }
   },

@@ -14,7 +14,7 @@ inputs = {
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url =
-      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=41830ea2f2e9bb589976f0433207a8f1b73b0b01&tag=0.1.2.6";
+      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=6802f96076ffc984c9b9f44adbf3e9648bb369a0";
 
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 

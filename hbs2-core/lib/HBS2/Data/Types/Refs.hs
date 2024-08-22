@@ -1,8 +1,10 @@
 {-# Language DuplicateRecordFields #-}
 {-# Language UndecidableInstances #-}
+{-# Language PatternSynonyms #-}
 module HBS2.Data.Types.Refs
   ( module HBS2.Data.Types.Refs
   , serialise
+  , pattern HashLike
   ) where
 
 import HBS2.Base58
@@ -10,10 +12,13 @@ import HBS2.Hash
 import HBS2.Net.Proto.Types
 import HBS2.Prelude
 
+import Data.Config.Suckless.Syntax
+
 import Codec.Serialise(serialise)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Data
+import Data.Text qualified as Text
 
 class RefMetaData a where
   refMetaData :: a -> [(String, String)]
@@ -125,4 +130,16 @@ instance RefMetaData RefAlias2 where
   refMetaData x = Map.toList (unRefAliasMeta x)
 
 type LoadedRef a = Either HashRef a
+
+
+-- TODO: move-outta-here
+pattern HashLike:: forall {c} . HashRef -> Syntax c
+pattern HashLike x <- (
+  \case
+    LitStrVal s      -> fromStringMay @HashRef (Text.unpack s)
+    SymbolVal (Id s) -> fromStringMay @HashRef (Text.unpack s)
+    _                -> Nothing
+      -> Just x )
+
+
 
