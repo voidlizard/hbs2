@@ -17,8 +17,7 @@ import HBS2.Base58
 import HBS2.Net.Auth.Credentials()
 import HBS2.Net.Proto.Types
 
-
-import HBS2.System.Logger.Simple
+import HBS2.System.Logger.Simple.ANSI
 import Data.Config.Suckless
 import DBPipe.SQLite
 

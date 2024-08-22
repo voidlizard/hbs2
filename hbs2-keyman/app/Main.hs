@@ -10,7 +10,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Data.KeyRing qualified as KeyRing
 
 import HBS2.System.Dir
-import HBS2.System.Logger.Simple
+
 
 import Data.Config.Suckless.KeyValue
 import Data.Config.Suckless
@@ -118,7 +118,8 @@ updateKeys = do
 
     let rchans = [ r | ListVal [SymbolVal "refchan", SignPubKeyLike r] <- conf ]
 
-    pure ()
+    for_ rchans $ \rchan -> do
+      notice $ yellow "scanning refchan" <+> pretty (AsBase58 rchan)
 
 
 setWeightCmd :: (AppPerks m) => Parser (Command m)
