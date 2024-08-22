@@ -32,6 +32,7 @@ import Codec.Serialise
 
 groupKeyEntries :: forall c m . ( MonadUnliftIO m
                                 , IsContext c
+                                , Exception (BadFormException c)
                                 , HasClientAPI StorageAPI UNIX m
                                 , HasStorage m
                                 ) => MakeDictM c m ()
@@ -48,17 +49,40 @@ groupKeyEntries = do
 
       _ -> throwIO $ BadFormException @C nil
 
-  entry $ bindMatch "hbs2:groupkey:store" $ \case
-      [LitStrVal s] -> do
-        let lbs = LBS8.pack (Text.unpack s)
-        gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
-                `orDie` "invalid group key"
 
-        sto <- getStorage
-        ha <- writeAsMerkle sto (serialise gk)
-        pure $ mkStr (show $ pretty ha)
+  brief "stores groupkey to the peer's storage" $
+   args [arg "string" "groupkey"] $
+   returns "string" "hash" $
+    entry $ bindMatch "hbs2:groupkey:store" $ \case
+        [LitStrVal s] -> do
+          let lbs = LBS8.pack (Text.unpack s)
+          gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+                  `orDie` "invalid group key"
 
-      _ -> throwIO $ BadFormException @C nil
+          sto <- getStorage
+          ha <- writeAsMerkle sto (serialise gk)
+          pure $ mkStr (show $ pretty ha)
+
+        _ -> throwIO $ BadFormException @c nil
+
+
+  brief "publish groupkey to the given refchan" $
+    args [arg "string" "refchan", arg "string" "groupkey-blob|groupkey-hash"] $
+    desc "groupkey may be also hash of te stored groupkey" $
+      entry $ bindMatch "hbs2:groupkey:publish" $ nil_ $ \case
+
+      [SignPubKeyLike rchan, LitStrVal gk] -> do
+        -- get
+        -- check
+        -- store
+        -- find refchan
+        -- post tx as metadata
+        notice $ red "not implemented yet"
+
+      [SignPubKeyLike rchan, HashLike gkh] -> do
+        notice $ red "not implemented yet"
+
+      _ -> throwIO $ BadFormException @c nil
 
 
 -- $ hbs2-cli print [hbs2:groupkey:update [hbs2:groupkey:load 6XJGpJszP6f68fmhF17AtJ9PTgE7BKk8RMBHWQ2rXu6N] \
