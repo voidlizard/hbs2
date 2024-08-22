@@ -123,6 +123,25 @@ groupKeyEntries = do
       _ -> throwIO $ BadFormException @C nil
 
 
+  entry $ bindMatch "hbs2:groupkey:dump" $ nil_ $ \syn -> do
+    case syn of
+
+      [StringLike "--file", StringLike fn] -> do
+        notice "READ-FROM-FILE"
+
+      [HashLike gkh] -> do
+        sto <- getStorage
+
+        lbs <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef gkh)))
+                 >>= orThrowUser "can't read merkle tree"
+
+        gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) lbs & orThrowUser "invalid group key"
+
+        liftIO $ print $ pretty gk
+
+      _ -> do
+        notice "READ-FROM-STDIN"
+
   entry $ bindMatch "hbs2:groupkey:list-public-keys" $ \syn -> do
     case syn of
       [LitStrVal s] -> do

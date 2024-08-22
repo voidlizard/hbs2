@@ -97,6 +97,10 @@ newtype GroupKeyId = GroupKeyId N.ByteString
 instance Pretty GroupKeyId where
   pretty what = pretty (AsBase58 (coerce @_ @N.ByteString what))
 
+instance Pretty GroupKeyIdScheme where
+  pretty = \case
+    GroupKeyIdJustHash -> "just-hash"
+
 -- NOTE: not-a-monoid
 --  это моноид, но опасный, потому, что секретные ключи у двух разных
 --  групповых ключей могут быть разными, и если
@@ -207,9 +211,14 @@ instance (ForGroupKeySymm s) => Serialise (GroupKey 'Symm s) where
 
 
 instance (Pretty (AsBase58 (PubKey 'Encrypt s)) ) => Pretty (GroupKey 'Symm s) where
-  pretty g = vcat (fmap prettyEntry (HashMap.toList (recipients @s g)))
+  pretty g = gkType <> line <> vcat (fmap prettyEntry (HashMap.toList (recipients @s g)))
     where
       prettyEntry (pk, _) = "member" <+> dquotes (pretty (AsBase58 pk))
+      gkType = case g of
+        GroupKeySymmPlain{} -> ";" <+> "plain group key" <> line
+        GroupKeySymmFancy{} -> ";" <+> "fancy group key" <> line
+                               <> "group-key-id" <+> pretty (getGroupKeyId g) <> line
+                               <> "group-key-id-scheme" <+> pretty (getGroupKeyIdScheme g) <> line
 
 
 instance ForGroupKeySymm s => FromStringMaybe (GroupKey 'Symm s) where
