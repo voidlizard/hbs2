@@ -408,6 +408,17 @@ instance ( MonadIO m
 
 data EncMethod = Method1 | Method2
 
+-- findSecretDefault :: MonadIO m =>
+
+
+findSecretDefault :: forall s m . (s ~ 'HBS2Basic, Monad  m)
+                  => [KeyringEntry s]
+                  -> GroupKey 'Symm s
+                  -> m (Maybe GroupSecret)
+
+findSecretDefault keys gk = do
+  pure $ [ lookupGroupKey sk pk gk | KeyringEntry pk sk  _ <- keys ] & catMaybes & headMay
+
 instance ( MonadIO m
          , MonadError OperationError m
          , h ~ HbSync
@@ -417,17 +428,20 @@ instance ( MonadIO m
          ) => MerkleReader (ToDecrypt 'Symm sch ByteString) s h m where
 
   data instance TreeKey (ToDecrypt 'Symm sch ByteString) =
-      ToDecryptBS   [KeyringEntry sch] (Hash HbSync)
-    | ToDecryptBS2  (GroupKey 'Symm sch) B8.ByteString [KeyringEntry sch] (MTreeAnn [HashRef])
+      -- ToDecryptBS   [KeyringEntry sch] (Hash HbSync)
+    ToDecryptBS { treeHash   :: Hash HbSync
+                , findSecret :: forall m1 . MonadIO m1 => GroupKey 'Symm sch -> m1 (Maybe GroupSecret)
+                }
 
   type instance ToBlockR  (ToDecrypt 'Symm sch ByteString) = ByteString
   type instance ReadResult (ToDecrypt 'Symm sch ByteString) = ByteString
 
-  readFromMerkle sto decrypt  = do
+  readFromMerkle sto decrypt@ToDecryptBS{..}  = do
 
-    (keys, gk, nonceS, tree) <- decryptDataFrom decrypt
+    (gk, nonceS, tree) <- decryptDataFrom decrypt
 
-    let gksec' = [ lookupGroupKey sk pk gk | (pk,sk) <- keys ] & catMaybes & headMay
+    gksec' <- findSecret gk
+     -- [ lookupGroupKey sk pk gk | (pk,sk) <- keys ] & catMaybes & headMay
 
     gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
 
@@ -466,12 +480,8 @@ instance ( MonadIO m
     where
 
       decryptDataFrom = \case
-        ToDecryptBS2 gk nonce ke tree  -> do
-          let keys = [ (view krPk x, view krSk x) | x <- ke ]
-          pure (keys, gk, nonce, tree)
 
-        ToDecryptBS ke h  -> do
-          let keys = [ (view krPk x, view krSk x) | x <- ke ]
+        ToDecryptBS h _  -> do
 
           bs <- getBlock sto h >>= maybe (throwError MissedBlockError) pure
           let what = tryDetect h bs
@@ -486,8 +496,7 @@ instance ( MonadIO m
 
           gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm sch) gkbs)
 
-          pure (keys, gk, nonceS, tree)
-
+          pure (gk, nonceS, tree)
 
 
 encryptBlock :: ( MonadIO m

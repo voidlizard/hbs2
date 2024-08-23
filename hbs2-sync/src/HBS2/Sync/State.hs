@@ -620,7 +620,7 @@ getTreeContents sto href = do
       kre <- runKeymanClient do
                 loadKeyRingEntries rcpts <&> fmap snd
 
-      readFromMerkle sto (ToDecryptBS kre (coerce href))
+      readFromMerkle sto (ToDecryptBS (coerce href) (findSecretDefault kre))
 
     _ -> throwError UnsupportedFormat
 

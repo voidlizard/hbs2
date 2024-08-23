@@ -253,7 +253,7 @@ readBundle sto rh ref = do
     MerkleAnn (MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
       ke <- loadKeyrings (HashRef gkh)
       let meta = BundleMeta ref True
-      BundleWithMeta meta <$> readFromMerkle sto (ToDecryptBS ke key)
+      BundleWithMeta meta <$> readFromMerkle sto (ToDecryptBS key (findSecretDefault ke))
 
     _ -> throwError UnsupportedFormat
 
