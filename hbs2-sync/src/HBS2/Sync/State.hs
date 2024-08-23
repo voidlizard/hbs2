@@ -22,6 +22,8 @@ import HBS2.Peer.RPC.Client.Unix (UNIX)
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.RefChan as Client
 
+import HBS2.KeyMan.Keys.Direct
+
 import HBS2.CLI.Run.MetaData (createTreeWithMetadata)
 
 import DBPipe.SQLite
@@ -592,8 +594,9 @@ mergeState seed orig = do
         else
           new
 
-getTreeContents :: ( MonadUnliftIO m
-                   , MonadError OperationError m
+getTreeContents :: forall m . ( MonadUnliftIO m
+                              , MonadIO m
+                              , MonadError OperationError m
                    )
                 => AnyStorage
                 -> HashRef
@@ -617,10 +620,10 @@ getTreeContents sto href = do
                   >>= orThrowError (GroupKeyNotFound 11)
                   <&> HM.keys . Symm.recipients
 
-      kre <- runKeymanClient do
-                loadKeyRingEntries rcpts <&> fmap snd
+      let findStuff g = do
+            runKeymanClientRO @IO $ findMatchedGroupKeySecret sto g
 
-      readFromMerkle sto (ToDecryptBS (coerce href) (findSecretDefault kre))
+      readFromMerkle sto (ToDecryptBS (coerce href) (liftIO . findStuff))
 
     _ -> throwError UnsupportedFormat
 
