@@ -44,6 +44,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-git"
      "hbs2-qblf"
      "hbs2-keyman"
+     "hbs2-keyman-direct-lib"
      "hbs2-fixer"
      "hbs2-cli"
      "hbs2-sync"
@@ -68,7 +69,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"   = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer"   = "./hbs2-peer";
-     "hbs2-keyman" = "./hbs2-keyman";
+     "hbs2-keyman" = "./hbs2-keyman/hbs2-keyman";
+     "hbs2-keyman-direct-lib" = "./hbs2-keyman/hbs2-keyman-direct-lib";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
      "hbs2-cli"    = "./hbs2-cli";

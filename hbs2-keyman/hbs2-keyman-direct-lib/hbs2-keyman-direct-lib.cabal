@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               hbs2-sync
+name:               hbs2-keyman-direct-lib
 version:            0.24.1.2
 -- synopsis:
 -- description:
@@ -8,21 +8,54 @@ license-file:       LICENSE
 author:             Dmitry Zuikov
 maintainer:         dzuikov@gmail.com
 -- copyright:
-category:           System
+category:           Data
 build-type:         Simple
 -- extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
-common shared-properties
-  ghc-options:
-        -Wall
-        -fno-warn-type-defaults
-        -threaded
-        -rtsopts
-        -O2
-        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+common warnings
+    ghc-options: -Wall -fno-warn-type-defaults
 
-  default-language: GHC2021
+common common-deps
+    build-depends:
+          base, hbs2-core, hbs2-storage-simple, suckless-conf, db-pipe
+        , async
+        , bytestring
+        , cache
+        , containers
+        , data-default
+        , deepseq
+        , directory
+        , filepath
+        , filepattern
+        , generic-lens
+        , hashable
+        , heaps
+        , microlens-platform
+        , mtl
+        , mwc-random
+        , prettyprinter
+        , QuickCheck
+        , random
+        , random-shuffle
+        , resourcet
+        , safe
+        , serialise
+        , split
+        , stm
+        , streaming
+        , tasty
+        , tasty-hunit
+        , temporary
+        , text
+        , timeit
+        , transformers
+        , uniplate
+        , unordered-containers
+        , vector
+        , prettyprinter-ansi-terminal
+        , interpolatedstring-perl6
+        , unliftio
 
   default-extensions:
                        ApplicativeDo
@@ -43,71 +76,34 @@ common shared-properties
                      , LambdaCase
                      , MultiParamTypeClasses
                      , OverloadedStrings
+                     , OverloadedLabels
                      , QuasiQuotes
+                     , RankNTypes
                      , RecordWildCards
+                     , RecursiveDo
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , TypeOperators
 
-
-  build-depends:
-        hbs2-core
-      , hbs2-peer
-      , hbs2-storage-simple
-      , hbs2-keyman-direct-lib
-      , db-pipe
-      , suckless-conf
-
-      , atomic-write
-      , bytestring
-      , containers
-      , directory
-      , filepath
-      , filepattern
-      , interpolatedstring-perl6
-      , memory
-      , microlens-platform
-      , mtl
-      , prettyprinter
-      , serialise
-      , streaming
-      , stm
-      , text
-      , time
-      , timeit
-      , transformers
-      , typed-process
-      , unordered-containers
-      , unliftio
-      , zlib
 
 
 library
-    import:           shared-properties
+    import:           warnings
+    import:           common-deps
 
     exposed-modules:
-      HBS2.Sync.Prelude
-      HBS2.Sync.State
-      HBS2.Sync.Internal
-      HBS2.Sync
-
-    other-modules:
+      HBS2.KeyMan.App.Types
+      HBS2.KeyMan.Prelude
+      HBS2.KeyMan.Config
+      HBS2.KeyMan.State
+      HBS2.KeyMan.Keys.Direct
 
     -- other-modules:
     -- other-extensions:
-    build-depends:    base, hbs2-peer, hbs2-cli
-    hs-source-dirs:   src
-
-executable hbs2-sync
-    import:           shared-properties
-    main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
-    build-depends:
-        base, hbs2-sync, hbs2-peer
-
-    hs-source-dirs:   app
+    build-depends:    base
+    hs-source-dirs:   .
     default-language: GHC2021
 

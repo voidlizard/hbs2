@@ -18,6 +18,7 @@ import HBS2.System.Logger.Simple
 import Data.Kind
 import Control.Monad.Reader
 import UnliftIO
+import Control.Monad.Trans.Cont
 
 withRPC2 :: forall (api :: [Type]) e m r . ( e ~ UNIX
                              , HasProtocol e (ServiceProto api e)
@@ -29,23 +30,24 @@ withRPC2 :: forall (api :: [Type]) e m r . ( e ~ UNIX
 
 withRPC2 soname action = do
 
-  debug $ "withRPC2" <+> pretty soname
+  flip runContT pure do
 
-  client1 <- newMessagingUnix False 1.0 soname
+    trace $ "withRPC2" <+> pretty soname
 
-  m1 <- async $ runMessagingUnix client1
-  -- link m1
+    client1 <- newMessagingUnix False 1.0 soname
 
-  caller <- makeServiceCaller @api @UNIX (fromString soname)
-  p2 <- liftIO $ async $ runReaderT (runServiceClient @api @e caller) client1
+    m1 <- ContT $ withAsync (runMessagingUnix client1)
+    -- link m1
 
-  r <- action caller
+    caller <- makeServiceCaller @api @UNIX (fromString soname)
+    p2 <- ContT $ withAsync (liftIO $ runReaderT (runServiceClient @api @e caller) client1)
 
-  pause @'Seconds 0.05
-  cancel p2
+    r <- lift $ action caller
 
-  void $ waitAnyCatchCancel [m1, p2]
+    pause @'Seconds 0.05
+    cancel p2
 
-  pure r
+    void $ waitAnyCatchCancel [m1, p2]
 
+    pure r
 

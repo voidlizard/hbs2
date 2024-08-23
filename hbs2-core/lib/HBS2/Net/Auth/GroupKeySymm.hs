@@ -88,7 +88,7 @@ type Recipients s = HashMap (PubKey 'Encrypt s) (EncryptedBox GroupSecret)
 
 -- NOTE: breaking-change
 
-data GroupKeyIdScheme = GroupKeyIdJustHash
+data GroupKeyIdScheme = GroupKeyIdBasic1 -- encrypt zeroes then hash
                         deriving stock (Eq,Ord,Generic,Show)
 
 newtype GroupKeyId = GroupKeyId N.ByteString
@@ -99,7 +99,7 @@ instance Pretty GroupKeyId where
 
 instance Pretty GroupKeyIdScheme where
   pretty = \case
-    GroupKeyIdJustHash -> "just-hash"
+    GroupKeyIdBasic1  -> "basic1"
 
 -- NOTE: not-a-monoid
 --  это моноид, но опасный, потому, что секретные ключи у двух разных
@@ -215,6 +215,7 @@ instance (Pretty (AsBase58 (PubKey 'Encrypt s)) ) => Pretty (GroupKey 'Symm s) w
         GroupKeySymmFancy{} -> ";" <+> "fancy group key" <> line
                                <> "group-key-id" <+> pretty (getGroupKeyId g) <> line
                                <> "group-key-id-scheme" <+> pretty (getGroupKeyIdScheme g) <> line
+                               <> "group-key-timestamp" <+> pretty (getGroupKeyTimestamp g) <> line
 
 
 instance ForGroupKeySymm s => FromStringMaybe (GroupKey 'Symm s) where
@@ -263,6 +264,9 @@ generateGroupKeyPlain mbk rcpt = do
   what <- generateGroupKeyFancy @s mbk rcpt
   pure $ GroupKeySymmPlain (recipients what)
 
+groupKeyCheckSeed :: N.ByteString
+groupKeyCheckSeed = BS.replicate 32 0
+
 generateGroupKeyFancy :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
                  => Maybe GroupSecret
                  -> [PubKey 'Encrypt s]
@@ -276,11 +280,11 @@ generateGroupKeyFancy mbk pks = create
       rcpt <- forM pks $ \pk -> do
                 box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
                 pure (pk, box)
-      let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) (LBS.toStrict $ serialise sk)
+      let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) groupKeyCheckSeed
       let ha = hashObject @HbSync enc
       pure $ GroupKeySymmFancy
                 (HashMap.fromList rcpt)
-                (Just GroupKeyIdJustHash)
+                (Just GroupKeyIdBasic1)
                 (Just (GroupKeyId (coerce ha)))
                 now
 
