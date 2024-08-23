@@ -39,6 +39,13 @@ newtype KeyManClient m a = KeyManClient { fromKeyManClient :: DBPipeM m a }
                                             , MonadUnliftIO
                                             )
 
+runKeymanClientRO :: MonadUnliftIO m => KeyManClient m a -> m a
+runKeymanClientRO action = do
+  dbPath <- getStatePath
+  env <- liftIO newAppEnv
+  let db = appDb env
+  withDB db (fromKeyManClient action)
+
 runKeymanClient :: MonadUnliftIO m => KeyManClient m a -> m a
 runKeymanClient action = do
   dbPath <- getStatePath
