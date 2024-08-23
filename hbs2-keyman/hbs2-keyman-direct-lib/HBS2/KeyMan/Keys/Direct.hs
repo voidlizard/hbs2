@@ -155,7 +155,7 @@ findMatchedGroupKeySecret sto gk = do
            , t.gkhash
            , f.key
            , f.file
-           , kw.weight
+           , coalesce(kw.weight, 0) as weight
       from  gkaccess gka
             join gktrack t on gka.gkhash = t.gkhash
             join keyfile f on f.key = gka.key
