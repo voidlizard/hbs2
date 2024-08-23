@@ -225,10 +225,10 @@ runMessagingUnix env = do
     clientLoop m = fix \next -> do
       m
       if not (MUDontRetry `elem` msgUnixOpts env) then do
-        debug "LOOP!"
+        trace "LOOP!"
         next
       else do
-        debug "LOOP EXIT"
+        trace "LOOP EXIT"
 
     handleClient | MUDontRetry `elem` msgUnixOpts env  = \_ w -> handleAny throwStopped w
                  | otherwise =  handleAny
@@ -236,8 +236,6 @@ runMessagingUnix env = do
     throwStopped _ = throwIO UnixMessagingStopped
 
     runClient = liftIO $ clientLoop $ handleClient logAndRetry $ flip runContT pure $ do
-
-      debug "HERE WE GO AGAIN!"
 
       let sa   = SockAddrUnix (msgUnixSockPath env)
       let p  = msgUnixSockPath env

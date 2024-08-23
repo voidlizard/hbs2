@@ -64,7 +64,7 @@ executable hbs2
     other-modules:
       Paths_hbs2
     -- other-extensions:
-    build-depends:    base, hbs2-core, hbs2-peer, hbs2-storage-simple, hbs2-keyman
+    build-depends:    base, hbs2-core, hbs2-peer, hbs2-storage-simple, hbs2-keyman-direct-lib
                     , aeson
                     , async
                     , base58-bytestring
