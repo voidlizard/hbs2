@@ -10,8 +10,8 @@ module HBS2.KeyMan.State
 
 import HBS2.Prelude.Plated
 import HBS2.Base58
+import HBS2.Hash
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.GroupKeySymm as Exported
 
@@ -23,7 +23,6 @@ import DBPipe.SQLite
 -- import Crypto.Saltine.Core.Box qualified as Encrypt
 import System.Directory
 import System.FilePath
-import Control.Monad.Trans.Maybe
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Maybe
 import Data.HashSet (HashSet)
@@ -46,11 +45,17 @@ instance FromField (SomeHash HashRef) where
 instance ToField (SomeHash GroupKeyId) where
   toField (SomeHash x) = toField $ show $ pretty x
 
+instance FromField (SomeHash GroupKeyId) where
+  fromField = do
+    fmap (SomeHash . convert . fromString @HashRef) . fromField @String
+    where
+      convert ha = GroupKeyId (coerce ha)
+
 -- newtype ToDB a = ToDB a
 class SomePubKeyType a where
   somePubKeyType :: a -> String
 
-type SomePubKeyPerks a = (Pretty (AsBase58 a))
+type SomePubKeyPerks a = (Pretty (AsBase58 a), FromStringMaybe a)
 
 data SomePubKey (c :: CryptoAction) = forall a . SomePubKeyPerks a => SomePubKey a
 
@@ -134,7 +139,6 @@ populateState = do
 
 instance ToField (SomePubKey a) where
   toField (SomePubKey s) = toField $ show $ pretty (AsBase58 s)
-
 
 updateKeyFile :: forall a m . (SomePubKeyType (SomePubKey a), MonadIO m)
               => SomePubKey a
@@ -284,4 +288,8 @@ insertGKAccess gkh gk = do
       values(?,?)
       on conflict (gkhash,key) do nothing
               |] (SomeHash gkh, SomePubKey k)
+
+
+
+
 

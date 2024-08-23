@@ -14,6 +14,7 @@ import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Storage
 
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
@@ -125,22 +126,14 @@ groupKeyEntries = do
 
   entry $ bindMatch "hbs2:groupkey:dump" $ nil_ $ \syn -> do
     case syn of
-
-      [StringLike "--file", StringLike fn] -> do
-        notice "READ-FROM-FILE"
-
+      -- TODO: from-file
+      -- TODO: from-stdin
+      -- TODO: base58 file
       [HashLike gkh] -> do
-        sto <- getStorage
-
-        lbs <- runExceptT (readFromMerkle sto (SimpleKey (fromHashRef gkh)))
-                 >>= orThrowUser "can't read merkle tree"
-
-        gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) lbs & orThrowUser "invalid group key"
-
+        gk <- loadGroupKey gkh
         liftIO $ print $ pretty gk
 
-      _ -> do
-        notice "READ-FROM-STDIN"
+      _ -> throwIO $ BadFormException @C nil
 
   entry $ bindMatch "hbs2:groupkey:list-public-keys" $ \syn -> do
     case syn of
@@ -155,6 +148,25 @@ groupKeyEntries = do
         pure $ mkList @c rcpt
 
       _ -> throwIO $ BadFormException @C nil
+
+  brief "find groupkey secret in hbs2-keyman" $
+    args [arg "string" "group-key-hash"] $
+    returns "secret-key-id" "string" $
+    entry $ bindMatch "hbs2:groupkey:find-secret" $ \case
+      [HashLike gkh] -> do
+
+        sto <- getStorage
+
+        gk <- loadGroupKey gkh >>= orThrowUser "can't load groupkey"
+
+        what <- runKeymanClient $ findMatchedGroupKeySecret sto gk
+                   >>= orThrowUser "groupkey secret not found"
+
+        let gid = generateGroupKeyId GroupKeyIdBasic1 what
+
+        pure $ mkStr (show $ pretty gid)
+
+      _ -> throwIO $ BadFormException @c nil
 
 
   entry $ bindMatch "hbs2:groupkey:decrypt-block" $ \case

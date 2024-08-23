@@ -267,6 +267,12 @@ generateGroupKeyPlain mbk rcpt = do
 groupKeyCheckSeed :: N.ByteString
 groupKeyCheckSeed = BS.replicate 32 0
 
+generateGroupKeyId :: GroupKeyIdScheme -> GroupSecret -> GroupKeyId
+generateGroupKeyId _ sk = do
+    let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) groupKeyCheckSeed
+    let ha = hashObject @HbSync enc
+    GroupKeyId (coerce ha)
+
 generateGroupKeyFancy :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
                  => Maybe GroupSecret
                  -> [PubKey 'Encrypt s]
@@ -274,18 +280,18 @@ generateGroupKeyFancy :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Enc
 
 generateGroupKeyFancy mbk pks = create
   where
+    scheme = GroupKeyIdBasic1
     create = do
       now <- liftIO getPOSIXTime <&> Just . round
       sk <- maybe1 mbk (liftIO SK.newKey) pure
       rcpt <- forM pks $ \pk -> do
                 box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
                 pure (pk, box)
-      let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) groupKeyCheckSeed
-      let ha = hashObject @HbSync enc
+      let theId = generateGroupKeyId scheme sk
       pure $ GroupKeySymmFancy
                 (HashMap.fromList rcpt)
-                (Just GroupKeyIdBasic1)
-                (Just (GroupKeyId (coerce ha)))
+                (Just scheme)
+                (Just theId)
                 now
 
 lookupGroupKey :: forall s .  ( ForGroupKeySymm s
