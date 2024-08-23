@@ -276,10 +276,8 @@ generateGroupKeyFancy mbk pks = create
       rcpt <- forM pks $ \pk -> do
                 box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
                 pure (pk, box)
-      -- TODO: GroupKeyIdJustHash-implies-timestamp
-      --   теперь просто хэш = хэш (ключ, таймстемп)
-      --   так лучше
-      let ha = hashObject @HbSync (serialise (sk,now))
+      let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) (LBS.toStrict $ serialise sk)
+      let ha = hashObject @HbSync enc
       pure $ GroupKeySymmFancy
                 (HashMap.fromList rcpt)
                 (Just GroupKeyIdJustHash)
