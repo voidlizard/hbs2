@@ -11,7 +11,6 @@ import HBS2.Data.KeyRing qualified as KeyRing
 
 import HBS2.System.Dir
 
-import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
 import HBS2.Data.Types.SignedBox
@@ -32,9 +31,11 @@ import Options.Applicative qualified as O
 import Data.Text qualified as Text
 import Options.Applicative hiding (info,action)
 import Data.Set qualified as Set
+import Data.HashSet qualified as HS
 import Data.ByteString qualified as BS
 import Data.ByteString qualified as LBS
 import Data.Maybe
+import Data.Either
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
@@ -135,6 +136,8 @@ updateKeys = do
       conf <- getConf
       let rchans = [ r | ListVal [SymbolVal "refchan", SignPubKeyLike r] <- conf ]
 
+      seen <- withState selectAllSeenGKTx
+
       flip runContT pure $ callCC \exit -> do
         when (List.null rchans) $ exit ()
         so' <- detectRPC
@@ -143,15 +146,16 @@ updateKeys = do
         rpc <- ContT $ withRPC2 @RefChanAPI so
         sto <- ContT (withRPC2 @StorageAPI so) <&> AnyStorage . StorageClient
 
+
         txs <- S.toList_ do
           runScan (RChanScanEnv sto rpc) do
 
             for_ rchans $ \r -> do
 
-              walkRefChanTx @proto (const $ pure True) r $ \tx0 -> \case
+              walkRefChanTx @proto (pure . not . flip HS.member seen) r $ \tx0 -> \case
                 P _  (ProposeTran _ box) -> do
 
-                  notice $ green "got the fucking tx" <+> pretty tx0
+                  trace $ "got the fucking tx" <+> pretty tx0
 
                   void $ runMaybeT do
                     (_,bs) <- unboxSignedBox0 box & toMPlus
@@ -176,17 +180,18 @@ updateKeys = do
 
                     --TODO: verify-group-key-id-if-possible
 
-                    notice $ green "found gk0" <+> pretty gkId <+> pretty gkh
+                    notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
 
-                    pure ()
-                    -- here <- hasBlock sto (coerce gkh)
-
-                    -- when (isJust here) do
-                    --   notice $ green "got the fucking GK" <+> pretty gkh
+                    lift $ lift $ S.yield (Right (gkId, gkh, gk) )
 
                 _ -> do
                   lift $ S.yield (Left tx0)
-                  trace $ "ignore accept tx" <+> pretty tx0
+
+        lift $ withState $ transactional do
+          for_ (lefts txs) insertSeenGKTx
+          for_ (rights txs)  $ \(gkId, h, gh) -> do
+            insertGKTrack gkId h
+            insertGKAccess h gh
 
         pure ()
 
