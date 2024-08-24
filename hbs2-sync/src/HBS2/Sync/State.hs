@@ -284,6 +284,7 @@ getStateFromRefChan rchan = do
 
     let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
 
+    -- FIXME: asap-insert-findMatchedGroupKey
     let findKey gk = do
           r <- S.toList_ do
                 forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
