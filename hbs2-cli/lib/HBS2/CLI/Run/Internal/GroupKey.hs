@@ -54,7 +54,7 @@ decryptBlock :: (MonadUnliftIO m, Serialise t)
              -> SmallEncryptedBlock t
              -> m t
 decryptBlock sto seb = do
-  let find gk = runKeymanClient (extractGroupKeySecret gk)
+  let find gk = runKeymanClientRO (findMatchedGroupKeySecret sto gk)
 
   -- FIXME: improve-error-diagnostics
   runExceptT (Symm.decryptBlock sto find seb)
