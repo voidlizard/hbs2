@@ -261,6 +261,10 @@ getStateFromRefChan rchan = do
 
   db <- newDBPipeEnv dbPipeOptsDef (statePath </> "state.db")
 
+  here <- doesDirectoryExist statePath
+
+  unless here $ mkdir statePath
+
   flip runContT pure do
 
     void $ ContT $ bracket (async (runPipe db)) cancel
@@ -278,7 +282,7 @@ getStateFromRefChan rchan = do
 
     let members = view refChanHeadReaders rch & HS.toList
 
-    krl <- liftIO $ runKeymanClient $ loadKeyRingEntries members
+    krl <- liftIO $ runKeymanClientRO $ loadKeyRingEntries members
                 <&> L.sortOn (Down . fst)
                 <&> fmap snd
 
