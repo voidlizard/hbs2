@@ -7,16 +7,13 @@ import HBS2.KeyMan.Config
 
 import HBS2.Storage
 import HBS2.Data.Types.Refs
-import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.GroupKeySymm as Symm
-import HBS2.Net.Proto.Types
 
 
 import HBS2.System.Dir
 
 import Control.Monad.Cont
-import UnliftIO
 import DBPipe.SQLite
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Maybe
@@ -31,6 +28,8 @@ import Streaming.Prelude qualified as S
 
 data KeyManClientError = KeyManClientSomeError
 
+newtype KeyManClientEnv = KeyManClientEnv AppEnv
+
 newtype KeyManClient m a = KeyManClient { fromKeyManClient :: DBPipeM m a }
                            deriving newtype ( Applicative
                                             , Functor
@@ -39,28 +38,37 @@ newtype KeyManClient m a = KeyManClient { fromKeyManClient :: DBPipeM m a }
                                             , MonadUnliftIO
                                             )
 
+newKeymanClientEnv :: MonadUnliftIO m => m KeyManClientEnv
+newKeymanClientEnv = KeyManClientEnv <$> liftIO newAppEnv
+
+withKeymanClientRO :: MonadUnliftIO m => KeyManClientEnv -> KeyManClient m a -> m a
+withKeymanClientRO env action = do
+  let db = appDb (coerce env)
+  withDB db (fromKeyManClient action)
+
 runKeymanClientRO :: MonadUnliftIO m => KeyManClient m a -> m a
 runKeymanClientRO action = do
-  dbPath <- getStatePath
-  env <- liftIO newAppEnv
-  let db = appDb env
-  withDB db (fromKeyManClient action)
+  env <- newKeymanClientEnv
+  withKeymanClientRO env action
 
 runKeymanClient :: MonadUnliftIO m => KeyManClient m a -> m a
 runKeymanClient action = do
+  KeyManClientEnv env <- newKeymanClientEnv
+  -- FIXME: dbpath-to-appstatenv
+  --  сейчас dbPath берётся из конфига, а db из стейта
+  --  и хотя они должны быть одинаковы, это не гарантируется
   dbPath <- getStatePath
-  env <- liftIO newAppEnv
+
   let db = appDb env
+
+  here <- doesPathExist dbPath
+
+  unless here do
+    withDB db $ populateState
+
   flip runContT pure $ do
     void $ ContT $ bracket (async (runPipe db)) cancel
-
-    here <- doesPathExist dbPath
-
-    unless here do
-      withDB db $ populateState
-
     lift $ withDB db (fromKeyManClient action)
-
 
 loadCredentials :: forall a m .
                      ( MonadIO m

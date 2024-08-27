@@ -182,6 +182,7 @@ getStateFromDir0 :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasRunDir m
                    , HasCache m
+                   , HasKeyManClient m
                    )
                 => Bool
                 -> m [(FilePath, Entry)]
@@ -202,6 +203,7 @@ getStateFromDir :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasRunDir m
                    , HasCache m
+                   , HasKeyManClient m
                    )
                 => Bool           -- ^ use remote state as seed
                 -> FilePath       -- ^ dir
@@ -245,6 +247,7 @@ getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasStorage m
                                   , HasRunDir m
                                   , HasCache m
+                                  , HasKeyManClient m
                                   )
                     => MyRefChan
                     -> m [(FilePath, Entry)]
@@ -265,6 +268,8 @@ getStateFromRefChan rchan = do
 
   unless here $ mkdir statePath
 
+  keEnv <- getKeyManClientEnv
+
   flip runContT pure do
 
     void $ ContT $ bracket (async (runPipe db)) cancel
@@ -282,20 +287,15 @@ getStateFromRefChan rchan = do
 
     let members = view refChanHeadReaders rch & HS.toList
 
-    krl <- liftIO $ runKeymanClientRO $ loadKeyRingEntries members
+    krl <- liftIO $ withKeymanClientRO keEnv $ loadKeyRingEntries members
                 <&> L.sortOn (Down . fst)
                 <&> fmap snd
 
     let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
 
     -- FIXME: asap-insert-findMatchedGroupKey
-    let findKey gk = do
-          r <- S.toList_ do
-                forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
-                  (KeyringEntry ppk ssk _) <- toMPlus $ HM.lookup pk krs
-                  let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
-                  for_ s $ lift . S.yield
-          pure $ headMay r
+    let findKey gk = lift $ lift $ withKeymanClientRO keEnv do
+          findMatchedGroupKeySecret sto gk
 
     -- let check hx = pure True
     hseen <- withDB db (select_ [qc|select txhash from seen|])
@@ -641,6 +641,7 @@ runDirectory :: ( IsContext c
                 , HasRunDir m
                 , HasTombs m
                 , HasCache m
+                , HasKeyManClient m
                 , Exception (BadFormException c)
                 ) =>  RunM c m ()
 runDirectory = do
