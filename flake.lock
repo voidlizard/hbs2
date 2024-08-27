@@ -208,16 +208,15 @@
       "locked": {
         "lastModified": 1715918584,
         "narHash": "sha256-moioa3ixAZb0y/xxyxUVjSvXoSiDGXy/vAx6B70d2yM=",
-        "ref": "refs/heads/master",
         "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
         "revCount": 63,
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
+        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
       },
       "original": {
         "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
         "type": "git",
-        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
+        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
       }
     },
     "haskell-flake-utils": {
@@ -519,15 +518,15 @@
         ]
       },
       "locked": {
-        "lastModified": 1724324873,
-        "narHash": "sha256-FfhaOF/22/QRwGe2lHr8a2kl5nGSJiHIFA1J5KLqIAI=",
-        "rev": "6802f96076ffc984c9b9f44adbf3e9648bb369a0",
-        "revCount": 36,
+        "lastModified": 1724740155,
+        "narHash": "sha256-dHAWLoQ0uZ2FckV/93qbXo6aYCTY+jARXiiTgUt6fcA=",
+        "rev": "b6c5087312e6c09e5c27082da47846f377f73756",
+        "revCount": 38,
         "type": "git",
         "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       },
       "original": {
-        "rev": "6802f96076ffc984c9b9f44adbf3e9648bb369a0",
+        "rev": "b6c5087312e6c09e5c27082da47846f377f73756",
         "type": "git",
         "url": "https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ"
       }
