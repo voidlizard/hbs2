@@ -124,6 +124,17 @@ deriving instance
     )
     => Eq (GroupKey 'Symm s)
 
+
+getGroupKeyIdScheme :: GroupKey 'Symm s -> Maybe GroupKeyIdScheme
+getGroupKeyIdScheme = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyIdScheme
+
+getGroupKeyId :: GroupKey 'Symm s -> Maybe GroupKeyId
+getGroupKeyId = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyId
+
 getGroupKeyTimestamp :: GroupKey 'Symm s -> Maybe Word64
 getGroupKeyTimestamp = \case
   GroupKeySymmPlain{} -> Nothing
