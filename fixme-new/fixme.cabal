@@ -55,10 +55,10 @@ common shared-properties
         hbs2-core
       , hbs2-peer
       , hbs2-storage-simple
-      , hbs2-keyman
+      , hbs2-keyman-direct-lib
       , hbs2-git
       , db-pipe
-      , suckless-conf >= 0.1.2.6
+      , suckless-conf
       , fuzzy-parse
 
       , aeson

@@ -14,7 +14,7 @@ inputs = {
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url =
-      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=41830ea2f2e9bb589976f0433207a8f1b73b0b01&tag=0.1.2.6";
+      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=6802f96076ffc984c9b9f44adbf3e9648bb369a0";
 
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -44,6 +44,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-git"
      "hbs2-qblf"
      "hbs2-keyman"
+     "hbs2-keyman-direct-lib"
      "hbs2-fixer"
      "hbs2-cli"
      "hbs2-sync"
@@ -68,7 +69,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"   = "./hbs2-core";
      "hbs2-storage-simple" = "./hbs2-storage-simple";
      "hbs2-peer"   = "./hbs2-peer";
-     "hbs2-keyman" = "./hbs2-keyman";
+     "hbs2-keyman" = "./hbs2-keyman/hbs2-keyman";
+     "hbs2-keyman-direct-lib" = "./hbs2-keyman/hbs2-keyman-direct-lib";
      "hbs2-git"    = "./hbs2-git";
      "hbs2-fixer"  = "./hbs2-fixer";
      "hbs2-cli"    = "./hbs2-cli";

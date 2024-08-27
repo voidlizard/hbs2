@@ -14,6 +14,7 @@ import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Storage
 
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
@@ -32,6 +33,7 @@ import Codec.Serialise
 
 groupKeyEntries :: forall c m . ( MonadUnliftIO m
                                 , IsContext c
+                                , Exception (BadFormException c)
                                 , HasClientAPI StorageAPI UNIX m
                                 , HasStorage m
                                 ) => MakeDictM c m ()
@@ -48,17 +50,40 @@ groupKeyEntries = do
 
       _ -> throwIO $ BadFormException @C nil
 
-  entry $ bindMatch "hbs2:groupkey:store" $ \case
-      [LitStrVal s] -> do
-        let lbs = LBS8.pack (Text.unpack s)
-        gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
-                `orDie` "invalid group key"
 
-        sto <- getStorage
-        ha <- writeAsMerkle sto (serialise gk)
-        pure $ mkStr (show $ pretty ha)
+  brief "stores groupkey to the peer's storage" $
+   args [arg "string" "groupkey"] $
+   returns "string" "hash" $
+    entry $ bindMatch "hbs2:groupkey:store" $ \case
+        [LitStrVal s] -> do
+          let lbs = LBS8.pack (Text.unpack s)
+          gk <- pure (Symm.parseGroupKey @'HBS2Basic $ AsGroupKeyFile lbs)
+                  `orDie` "invalid group key"
 
-      _ -> throwIO $ BadFormException @C nil
+          sto <- getStorage
+          ha <- writeAsMerkle sto (serialise gk)
+          pure $ mkStr (show $ pretty ha)
+
+        _ -> throwIO $ BadFormException @c nil
+
+
+  brief "publish groupkey to the given refchan" $
+    args [arg "string" "refchan", arg "string" "groupkey-blob|groupkey-hash"] $
+    desc "groupkey may be also hash of te stored groupkey" $
+      entry $ bindMatch "hbs2:groupkey:publish" $ nil_ $ \case
+
+      [SignPubKeyLike rchan, LitStrVal gk] -> do
+        -- get
+        -- check
+        -- store
+        -- find refchan
+        -- post tx as metadata
+        notice $ red "not implemented yet"
+
+      [SignPubKeyLike rchan, HashLike gkh] -> do
+        notice $ red "not implemented yet"
+
+      _ -> throwIO $ BadFormException @c nil
 
 
 -- $ hbs2-cli print [hbs2:groupkey:update [hbs2:groupkey:load 6XJGpJszP6f68fmhF17AtJ9PTgE7BKk8RMBHWQ2rXu6N] \
@@ -99,6 +124,17 @@ groupKeyEntries = do
       _ -> throwIO $ BadFormException @C nil
 
 
+  entry $ bindMatch "hbs2:groupkey:dump" $ nil_ $ \syn -> do
+    case syn of
+      -- TODO: from-file
+      -- TODO: from-stdin
+      -- TODO: base58 file
+      [HashLike gkh] -> do
+        gk <- loadGroupKey gkh
+        liftIO $ print $ pretty gk
+
+      _ -> throwIO $ BadFormException @C nil
+
   entry $ bindMatch "hbs2:groupkey:list-public-keys" $ \syn -> do
     case syn of
       [LitStrVal s] -> do
@@ -112,6 +148,25 @@ groupKeyEntries = do
         pure $ mkList @c rcpt
 
       _ -> throwIO $ BadFormException @C nil
+
+  brief "find groupkey secret in hbs2-keyman" $
+    args [arg "string" "group-key-hash"] $
+    returns "secret-key-id" "string" $
+    entry $ bindMatch "hbs2:groupkey:find-secret" $ \case
+      [HashLike gkh] -> do
+
+        sto <- getStorage
+
+        gk <- loadGroupKey gkh >>= orThrowUser "can't load groupkey"
+
+        what <- runKeymanClient $ findMatchedGroupKeySecret sto gk
+                   >>= orThrowUser "groupkey secret not found"
+
+        let gid = generateGroupKeyId GroupKeyIdBasic1 what
+
+        pure $ mkStr (show $ pretty gid)
+
+      _ -> throwIO $ BadFormException @c nil
 
 
   entry $ bindMatch "hbs2:groupkey:decrypt-block" $ \case

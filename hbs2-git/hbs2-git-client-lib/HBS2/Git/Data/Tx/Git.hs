@@ -244,6 +244,8 @@ readBundle sto rh ref = do
 
   let q = tryDetect (fromHashRef ref) obj
 
+  let findSec = runKeymanClientRO . findMatchedGroupKeySecret sto
+
   case q of
     Merkle t -> do
       let meta = BundleMeta ref False
@@ -251,9 +253,8 @@ readBundle sto rh ref = do
         readFromMerkle sto (SimpleKey key)
 
     MerkleAnn (MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
-      ke <- loadKeyrings (HashRef gkh)
       let meta = BundleMeta ref True
-      BundleWithMeta meta <$> readFromMerkle sto (ToDecryptBS ke key)
+      BundleWithMeta meta <$> readFromMerkle sto (ToDecryptBS key (liftIO . findSec))
 
     _ -> throwError UnsupportedFormat
 

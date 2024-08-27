@@ -37,7 +37,10 @@ import HBS2.KeyMan.Keys.Direct as Exported ( runKeymanClient
                                            , loadCredentials
                                            , loadKeyRingEntries
                                            , extractGroupKeySecret
+                                           , KeyManClientEnv
                                            )
+
+import HBS2.KeyMan.Keys.Direct qualified as KE
 
 import Data.Config.Suckless as Exported
 import Data.Config.Suckless.Script as Exported
@@ -112,13 +115,14 @@ instance Pretty DirSyncEnv where
 
 data SyncEnv =
   SyncEnv
-  { refchanAPI  :: ServiceCaller RefChanAPI UNIX
-  , storageAPI  :: ServiceCaller StorageAPI UNIX
-  , peerAPI     :: ServiceCaller PeerAPI UNIX
-  , dirSyncEnv  :: TVar (Map FilePath DirSyncEnv)
-  , dirThis     :: TVar (Maybe FilePath)
-  , dirTombs    :: TVar (Map FilePath (CompactStorage HbSync))
-  , dirCache    :: TVar (Map FilePath (CompactStorage HbSync))
+  { refchanAPI      :: ServiceCaller RefChanAPI UNIX
+  , storageAPI      :: ServiceCaller StorageAPI UNIX
+  , peerAPI         :: ServiceCaller PeerAPI UNIX
+  , dirSyncEnv      :: TVar (Map FilePath DirSyncEnv)
+  , dirThis         :: TVar (Maybe FilePath)
+  , dirTombs        :: TVar (Map FilePath (CompactStorage HbSync))
+  , dirCache        :: TVar (Map FilePath (CompactStorage HbSync))
+  , keymanClientEnv :: TVar (Maybe KeyManClientEnv)
   }
 
 newtype SyncApp m a =
@@ -141,6 +145,9 @@ class Monad m => HasTombs m where
 class Monad m => HasCache m where
   getCache :: m (CompactStorage HbSync)
   closeCache :: m ()
+
+class Monad m => HasKeyManClient m where
+  getKeyManClientEnv :: m KeyManClientEnv
 
 instance MonadUnliftIO m => HasTombs (SyncApp m) where
   getTombs = do
@@ -205,6 +212,23 @@ instance MonadUnliftIO m => HasCache (SyncApp m) where
       compactStorageClose cache
 
 
+instance MonadUnliftIO m => HasKeyManClient (SyncApp m) where
+  getKeyManClientEnv = do
+    SyncEnv{..} <- ask >>= orThrow PeerNotConnectedException
+    e <- readTVarIO keymanClientEnv
+
+    case e of
+      Just env -> pure env
+      -- NOTE: race-but-harmless
+      --   если у нас в двух потоках позовут этот метод,
+      --   то будет открыто два соединения, и сохранено
+      --   последнее. Поскольку соединение readonly это
+      --   безобидно. В целом, надо навести с этим порядок
+      Nothing -> do
+        env <- KE.newKeymanClientEnv
+        atomically  $ writeTVar keymanClientEnv (Just env)
+        pure env
+
 instance MonadIO m => HasClientAPI StorageAPI UNIX (SyncApp m) where
   getClientAPI = ask >>= orThrow PeerNotConnectedException
                      <&> storageAPI
@@ -262,8 +286,9 @@ recover what = do
         this  <- newTVarIO Nothing
         tombs <- newTVarIO mempty
         cache <- newTVarIO mempty
+        dummyKeyman <- newTVarIO Nothing
 
-        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this tombs cache)
+        let env = Just (SyncEnv refChanAPI storageAPI peerAPI dsync this tombs cache dummyKeyman)
 
         liftIO $ withSyncApp env what
 
@@ -391,7 +416,8 @@ instance (Monad m, HasCache m) => HasCache (RunM c m) where
   getCache = lift getCache
   closeCache = lift closeCache
 
-
+instance (MonadUnliftIO m, HasKeyManClient m) => HasKeyManClient (RunM c m) where
+  getKeyManClientEnv = lift getKeyManClientEnv
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "

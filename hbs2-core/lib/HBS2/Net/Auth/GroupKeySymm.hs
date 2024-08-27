@@ -2,6 +2,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language ConstraintKinds #-}
+{-# Language FunctionalDependencies #-}
 module HBS2.Net.Auth.GroupKeySymm
   ( module HBS2.Net.Auth.GroupKeySymm
   , module HBS2.Net.Proto.Types
@@ -26,9 +27,11 @@ import HBS2.Storage(Storage(..))
 import HBS2.Defaults
 
 
+import Control.Applicative
 import Data.ByteArray.Hash qualified as BA
 import Data.ByteArray.Hash (SipHash(..), SipKey(..))
-import Codec.Serialise
+import Codec.Serialise as Serialise
+import Codec.Serialise.Decoding qualified as Serialise
 import Crypto.KDF.HKDF qualified as HKDF
 import Control.Monad
 import Control.Monad.Except
@@ -39,6 +42,7 @@ import Crypto.Saltine.Class qualified as Saltine
 import Crypto.Saltine.Core.Box qualified as AK
 import Crypto.Saltine.Core.SecretBox (Key)
 import Crypto.Saltine.Core.SecretBox qualified as SK
+import Data.ByteString qualified as N
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString qualified as BS
@@ -53,6 +57,9 @@ import Data.ByteArray()
 import Network.ByteOrder qualified as N
 import Streaming.Prelude qualified as S
 import Lens.Micro.Platform
+import Data.Coerce
+import Data.Typeable (TypeRep, typeRep)
+import Type.Reflection (SomeTypeRep(..), someTypeRep)
 
 import Streaming qualified as S
 import Streaming (Stream(..), Of(..))
@@ -63,8 +70,36 @@ import Data.Bits (xor)
 
 type GroupSecret = Key
 
+-- NOTE: non-breaking-change
+--   Что тут произошло: нам нужно добавить уникальный идентификатор
+--   секрета, что автоматически публиковать и искать секреты
+--   Мы добавляем его в тип ключа, однако хотим оставить совместимость
+--   в обе стороны -- что бы старые версии могли работать с новыми
+--   ключами. Таким образом, этот идентификатор является опциональным.
+--   Для этого мы оставляем конструктор "без всего", который структурно
+--   эквивалентен "старому" типу ключа. При сериализации мы пишем
+--   сначала "старый" конструктор, потом в эту строку дописываем новый (без реципиентов)
+--   Поскольку ключ является моноидом, при десереализации мы складываем "старый" и "новый"
+--   конструктор и получаем "новый", с Id и всеми делами (если они не Nothing).
+--   Таким образом, старые ключи не будут индексироваться (но будут работать в старых версиях),
+--   а "новые" ключи будут иметь возможность индексации и валидации.
+
+type Recipients s = HashMap (PubKey 'Encrypt s) (EncryptedBox GroupSecret)
 
 -- NOTE: breaking-change
+
+data GroupKeyIdScheme = GroupKeyIdBasic1 -- encrypt zeroes then hash
+                        deriving stock (Eq,Ord,Generic,Show)
+
+newtype GroupKeyId = GroupKeyId N.ByteString
+                     deriving stock (Eq,Ord,Generic,Show)
+
+instance Pretty GroupKeyId where
+  pretty what = pretty (AsBase58 (coerce @_ @N.ByteString what))
+
+instance Pretty GroupKeyIdScheme where
+  pretty = \case
+    GroupKeyIdBasic1  -> "basic1"
 
 -- NOTE: not-a-monoid
 --  это моноид, но опасный, потому, что секретные ключи у двух разных
@@ -72,9 +107,15 @@ type GroupSecret = Key
 --  просто объединить два словаря - какой-то секретный
 --  ключ может быть потерян. а что делать-то, с другой стороны?
 data instance GroupKey 'Symm s =
-  GroupKeySymm
-  { recipients :: HashMap (PubKey 'Encrypt s) (EncryptedBox GroupSecret)
-  }
+    GroupKeySymmPlain
+    { recipients :: Recipients s
+    }
+  | GroupKeySymmFancy
+    { recipients         :: Recipients s
+    , groupKeyIdScheme   :: Maybe GroupKeyIdScheme
+    , groupKeyId         :: Maybe GroupKeyId
+    , groupKeyTimestamp  :: Maybe Word64
+    }
   deriving stock (Generic)
 
 deriving instance
@@ -83,14 +124,36 @@ deriving instance
     )
     => Eq (GroupKey 'Symm s)
 
+
+getGroupKeyIdScheme :: GroupKey 'Symm s -> Maybe GroupKeyIdScheme
+getGroupKeyIdScheme = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyIdScheme
+
+getGroupKeyId :: GroupKey 'Symm s -> Maybe GroupKeyId
+getGroupKeyId = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyId
+
+getGroupKeyTimestamp :: GroupKey 'Symm s -> Maybe Word64
+getGroupKeyTimestamp = \case
+  GroupKeySymmPlain{} -> Nothing
+  GroupKeySymmFancy{..} -> groupKeyTimestamp
+
 instance ForGroupKeySymm s => Monoid (GroupKey 'Symm s) where
-  mempty = GroupKeySymm mempty
+  mempty = GroupKeySymmFancy mempty mzero mzero mzero
 
 instance ForGroupKeySymm s => Semigroup (GroupKey 'Symm s) where
-  (<>) (GroupKeySymm a) (GroupKeySymm b) = GroupKeySymm (a <> b)
+  (<>) (GroupKeySymmPlain a) (GroupKeySymmPlain b) = GroupKeySymmFancy (a <> b) mzero mzero mzero
+  (<>) (GroupKeySymmPlain r0) (GroupKeySymmFancy r s k t) = GroupKeySymmFancy (r0 <> r) s k t
+  (<>) (GroupKeySymmFancy r s k t) (GroupKeySymmPlain r0) = GroupKeySymmFancy (r0 <> r) s k t
+  (<>) (GroupKeySymmFancy r0 s0 k0 t0) (GroupKeySymmFancy r1 s1 k1 t1) = GroupKeySymmFancy (r0 <> r1) (s1 <|> s0) (k1 <|> k0) (max t0 t1)
 
+instance Serialise GroupKeyIdScheme
+instance Serialise GroupKeyId
 instance Serialise Key
 instance Serialise SK.Nonce
+
 
 -- NOTE: hardcoded-hbs2-basic-auth-type
 data instance ToEncrypt 'Symm s LBS.ByteString =
@@ -116,12 +179,54 @@ type ForGroupKeySymm (s :: CryptoScheme ) =
   , Hashable (PubKey 'Encrypt s)
   )
 
-instance ForGroupKeySymm s => Serialise (GroupKey 'Symm s)
 
-instance Pretty (AsBase58 (PubKey 'Encrypt s)) => Pretty (GroupKey 'Symm s) where
-  pretty g = vcat (fmap prettyEntry (HashMap.toList (recipients g)))
+newtype GroupKeyExtension s = GroupKeyExtension (GroupKey 'Symm s)
+                              deriving stock (Generic)
+
+data GroupKeySymmV1 s = GroupKeySymmV1 { recipientsV1 :: Recipients s }
+                        deriving stock Generic
+
+instance ForGroupKeySymm s => Serialise (GroupKeyExtension s)
+
+instance ForGroupKeySymm s => Serialise (GroupKeySymmV1 s)
+
+instance (ForGroupKeySymm s) => Serialise (GroupKey 'Symm s) where
+
+  encode x = do
+    let compat = GroupKeySymmV1 @s (recipients x)
+    let compatEncoded = Serialise.encode compat
+    let version = 2
+    let ext     = (getGroupKeyIdScheme x, getGroupKeyId x, getGroupKeyTimestamp x)
+    compatEncoded  <> Serialise.encode version <> Serialise.encode ext
+
+  decode = do
+    GroupKeySymmV1{..}  <- Serialise.decode @(GroupKeySymmV1 s)
+
+    avail <- Serialise.peekAvailable
+
+    if avail == 0 then
+      pure $ GroupKeySymmPlain recipientsV1
+    else do
+      version <- Serialise.decode @Int
+
+      case version of
+        2 -> do
+          (s,kid, t) <- Serialise.decode @(Maybe GroupKeyIdScheme, Maybe GroupKeyId, Maybe Word64)
+          pure $ GroupKeySymmFancy recipientsV1 s kid t
+
+        _ -> pure $ GroupKeySymmPlain recipientsV1
+
+
+instance (Pretty (AsBase58 (PubKey 'Encrypt s)) ) => Pretty (GroupKey 'Symm s) where
+  pretty g = gkType <> line <> vcat (fmap prettyEntry (HashMap.toList (recipients @s g)))
     where
       prettyEntry (pk, _) = "member" <+> dquotes (pretty (AsBase58 pk))
+      gkType = case g of
+        GroupKeySymmPlain{} -> ";" <+> "plain group key" <> line
+        GroupKeySymmFancy{} -> ";" <+> "fancy group key" <> line
+                               <> "group-key-id" <+> pretty (getGroupKeyId g) <> line
+                               <> "group-key-id-scheme" <+> pretty (getGroupKeyIdScheme g) <> line
+                               <> "group-key-timestamp" <+> pretty (getGroupKeyTimestamp g) <> line
 
 
 instance ForGroupKeySymm s => FromStringMaybe (GroupKey 'Symm s) where
@@ -130,7 +235,7 @@ instance ForGroupKeySymm s => FromStringMaybe (GroupKey 'Symm s) where
     toMPlus $ deserialiseOrFail @(GroupKey 'Symm s) (LBS.fromStrict bs)
 
 instance ForGroupKeySymm s => Pretty (AsGroupKeyFile (GroupKey 'Symm s)) where
-  pretty (AsGroupKeyFile pc) =  "# hbs2 symmetric group key file"
+  pretty (AsGroupKeyFile pc) =  "# hbs2 symmetric group key file v2"
                                 <> line <> co
     where
       co = vcat $ fmap pretty
@@ -158,13 +263,47 @@ generateGroupKey :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt 
                  -> [PubKey 'Encrypt s]
                  -> m (GroupKey 'Symm s)
 
-generateGroupKey mbk pks = GroupKeySymm <$> create
+generateGroupKey = generateGroupKeyFancy
+
+
+generateGroupKeyPlain :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
+                 => Maybe GroupSecret
+                 -> [PubKey 'Encrypt s]
+                 -> m (GroupKey 'Symm s)
+
+generateGroupKeyPlain mbk rcpt = do
+  what <- generateGroupKeyFancy @s mbk rcpt
+  pure $ GroupKeySymmPlain (recipients what)
+
+groupKeyCheckSeed :: N.ByteString
+groupKeyCheckSeed = BS.replicate 32 0
+
+generateGroupKeyId :: GroupKeyIdScheme -> GroupSecret -> GroupKeyId
+generateGroupKeyId _ sk = do
+    let enc = SK.secretbox sk (nonceFrom (mempty :: ByteString)) groupKeyCheckSeed
+    let ha = hashObject @HbSync enc
+    GroupKeyId (coerce ha)
+
+generateGroupKeyFancy :: forall s m . (ForGroupKeySymm s, MonadIO m, PubKey 'Encrypt s ~ AK.PublicKey)
+                 => Maybe GroupSecret
+                 -> [PubKey 'Encrypt s]
+                 -> m (GroupKey 'Symm s)
+
+generateGroupKeyFancy mbk pks = create
   where
-    create = HashMap.fromList <$> do
+    scheme = GroupKeyIdBasic1
+    create = do
+      now <- liftIO getPOSIXTime <&> Just . round
       sk <- maybe1 mbk (liftIO SK.newKey) pure
-      forM pks $ \pk -> do
-        box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
-        pure (pk, box)
+      rcpt <- forM pks $ \pk -> do
+                box <- liftIO $ AK.boxSeal pk (LBS.toStrict $ serialise sk) <&> EncryptedBox
+                pure (pk, box)
+      let theId = generateGroupKeyId scheme sk
+      pure $ GroupKeySymmFancy
+                (HashMap.fromList rcpt)
+                (Just scheme)
+                (Just theId)
+                now
 
 lookupGroupKey :: forall s .  ( ForGroupKeySymm s
                               , PubKey 'Encrypt s ~ AK.PublicKey
@@ -176,7 +315,7 @@ lookupGroupKey :: forall s .  ( ForGroupKeySymm s
                -> Maybe GroupSecret
 
 lookupGroupKey sk pk gk = runIdentity $ runMaybeT do
-  (EncryptedBox bs) <- MaybeT $ pure $ HashMap.lookup pk (recipients gk)
+  (EncryptedBox bs) <- MaybeT $ pure $ HashMap.lookup pk (recipients @s gk)
   gkBs <- MaybeT $ pure $ AK.boxSealOpen pk sk bs
   MaybeT $ pure $ deserialiseOrFail (LBS.fromStrict gkBs) & either (const Nothing) Just
 
@@ -286,6 +425,17 @@ instance ( MonadIO m
 
 data EncMethod = Method1 | Method2
 
+-- findSecretDefault :: MonadIO m =>
+
+
+findSecretDefault :: forall s m . (s ~ 'HBS2Basic, Monad  m)
+                  => [KeyringEntry s]
+                  -> GroupKey 'Symm s
+                  -> m (Maybe GroupSecret)
+
+findSecretDefault keys gk = do
+  pure $ [ lookupGroupKey sk pk gk | KeyringEntry pk sk  _ <- keys ] & catMaybes & headMay
+
 instance ( MonadIO m
          , MonadError OperationError m
          , h ~ HbSync
@@ -295,17 +445,20 @@ instance ( MonadIO m
          ) => MerkleReader (ToDecrypt 'Symm sch ByteString) s h m where
 
   data instance TreeKey (ToDecrypt 'Symm sch ByteString) =
-      ToDecryptBS   [KeyringEntry sch] (Hash HbSync)
-    | ToDecryptBS2  (GroupKey 'Symm sch) B8.ByteString [KeyringEntry sch] (MTreeAnn [HashRef])
+      -- ToDecryptBS   [KeyringEntry sch] (Hash HbSync)
+    ToDecryptBS { treeHash   :: Hash HbSync
+                , findSecret :: forall m1 . MonadIO m1 => GroupKey 'Symm sch -> m1 (Maybe GroupSecret)
+                }
 
   type instance ToBlockR  (ToDecrypt 'Symm sch ByteString) = ByteString
   type instance ReadResult (ToDecrypt 'Symm sch ByteString) = ByteString
 
-  readFromMerkle sto decrypt  = do
+  readFromMerkle sto decrypt@ToDecryptBS{..}  = do
 
-    (keys, gk, nonceS, tree) <- decryptDataFrom decrypt
+    (gk, nonceS, tree) <- decryptDataFrom decrypt
 
-    let gksec' = [ lookupGroupKey sk pk gk | (pk,sk) <- keys ] & catMaybes & headMay
+    gksec' <- findSecret gk
+     -- [ lookupGroupKey sk pk gk | (pk,sk) <- keys ] & catMaybes & headMay
 
     gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
 
@@ -344,12 +497,8 @@ instance ( MonadIO m
     where
 
       decryptDataFrom = \case
-        ToDecryptBS2 gk nonce ke tree  -> do
-          let keys = [ (view krPk x, view krSk x) | x <- ke ]
-          pure (keys, gk, nonce, tree)
 
-        ToDecryptBS ke h  -> do
-          let keys = [ (view krPk x, view krSk x) | x <- ke ]
+        ToDecryptBS h _  -> do
 
           bs <- getBlock sto h >>= maybe (throwError MissedBlockError) pure
           let what = tryDetect h bs
@@ -364,8 +513,7 @@ instance ( MonadIO m
 
           gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm sch) gkbs)
 
-          pure (keys, gk, nonceS, tree)
-
+          pure (gk, nonceS, tree)
 
 
 encryptBlock :: ( MonadIO m

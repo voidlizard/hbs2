@@ -4,12 +4,16 @@
 module HBS2.KeyMan.State
   ( module HBS2.KeyMan.State
   , commitAll
+  , transactional
+  , module Exported
   ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Base58
+import HBS2.Hash
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
+import HBS2.Data.Types.Refs
+import HBS2.Net.Auth.GroupKeySymm as Exported
 
 import HBS2.KeyMan.Config
 
@@ -19,17 +23,39 @@ import DBPipe.SQLite
 -- import Crypto.Saltine.Core.Box qualified as Encrypt
 import System.Directory
 import System.FilePath
-import Control.Monad.Trans.Maybe
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Maybe
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
+import Data.Coerce
 
 import UnliftIO
+
+
+newtype SomeHash a = SomeHash a
+                     deriving stock Generic
+
+instance ToField (SomeHash HashRef) where
+  toField (SomeHash x) = toField $ show $ pretty x
+
+instance FromField (SomeHash HashRef) where
+  fromField = fmap (SomeHash . fromString @HashRef) . fromField @String
+
+instance ToField (SomeHash GroupKeyId) where
+  toField (SomeHash x) = toField $ show $ pretty x
+
+instance FromField (SomeHash GroupKeyId) where
+  fromField = do
+    fmap (SomeHash . convert . fromString @HashRef) . fromField @String
+    where
+      convert ha = GroupKeyId (coerce ha)
 
 -- newtype ToDB a = ToDB a
 class SomePubKeyType a where
   somePubKeyType :: a -> String
 
-type SomePubKeyPerks a = (Pretty (AsBase58 a))
+type SomePubKeyPerks a = (Pretty (AsBase58 a), FromStringMaybe a)
 
 data SomePubKey (c :: CryptoAction) = forall a . SomePubKeyPerks a => SomePubKey a
 
@@ -84,11 +110,35 @@ populateState = do
     )
     |]
 
+
+  ddl [qc|
+    create table if not exists gkseentx
+    ( hash  text not null
+    , primary key (hash)
+    )
+    |]
+
+  ddl [qc|
+    create table if not exists gktrack
+    ( secret  text not null
+    , gkhash  text not null
+    , primary key (secret,gkhash)
+    )
+    |]
+
+  ddl [qc|
+    create table if not exists gkaccess
+    ( gkhash  text not null
+    , key     text not null
+    , primary key (gkhash,key)
+    )
+    |]
+
+
   commitAll
 
 instance ToField (SomePubKey a) where
   toField (SomePubKey s) = toField $ show $ pretty (AsBase58 s)
-
 
 updateKeyFile :: forall a m . (SomePubKeyType (SomePubKey a), MonadIO m)
               => SomePubKey a
@@ -203,4 +253,43 @@ selectKeyWeight key = do
     where key = ?
     limit 1
     |] (Only (SomePubKey key)) <&> maybe 0 fromOnly . listToMaybe
+
+
+deleteAllSeenGKTx :: MonadIO m => DBPipeM m ()
+deleteAllSeenGKTx = do
+  insert_ [qc|delete from gkseentx|]
+
+insertSeenGKTx :: (MonadIO m) => HashRef  -> DBPipeM m ()
+insertSeenGKTx hash = do
+  insert [qc|
+    insert into gkseentx (hash) values(?)
+       on conflict (hash) do nothing
+           |] (Only (SomeHash hash))
+
+selectAllSeenGKTx :: (MonadIO m) => DBPipeM m (HashSet HashRef)
+selectAllSeenGKTx = do
+  select_ [qc|select hash from gkseentx|] <&> HS.fromList . fmap (coerce . fromOnly @(SomeHash HashRef))
+
+
+insertGKTrack :: MonadIO m => GroupKeyId -> HashRef -> DBPipeM m ()
+insertGKTrack s g = do
+  insert [qc|
+    insert into gktrack (secret,gkhash)
+    values(?,?)
+    on conflict (secret,gkhash) do nothing
+    |] (SomeHash s, SomeHash g)
+
+insertGKAccess:: MonadIO m => HashRef -> GroupKey 'Symm 'HBS2Basic -> DBPipeM m ()
+insertGKAccess gkh gk = do
+  let rcpt = recipients gk & HM.keys
+  for_ rcpt $ \k -> do
+    insert [qc|
+      insert into gkaccess (gkhash,key)
+      values(?,?)
+      on conflict (gkhash,key) do nothing
+              |] (SomeHash gkh, SomePubKey k)
+
+
+
+
 

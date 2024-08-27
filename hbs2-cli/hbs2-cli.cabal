@@ -57,7 +57,7 @@ common shared-properties
         hbs2-core
       , hbs2-peer
       , hbs2-storage-simple
-      , hbs2-keyman
+      , hbs2-keyman-direct-lib
       , db-pipe
       , suckless-conf
 
@@ -119,10 +119,6 @@ library
       HBS2.CLI.Run.Sigil
 
       HBS2.CLI.Run.Help
-
-      Data.Config.Suckless.Script
-      Data.Config.Suckless.Script.Internal
-      Data.Config.Suckless.Script.File
 
     build-depends:    base
                     , magic

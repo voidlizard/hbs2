@@ -268,7 +268,8 @@ runCat opts ss = do
                          lift $ runKeymanClient do
                            loadKeyRingEntries rcpts <&> fmap snd
 
-          elbs <- runExceptT $ readFromMerkle ss (ToDecryptBS keyring mhash)
+          let sto = AnyStorage ss
+          elbs <- runExceptT $ readFromMerkle ss (ToDecryptBS mhash (liftIO . runKeymanClientRO . findMatchedGroupKeySecret sto))
           case elbs of
             Right lbs -> LBS.putStr lbs
             Left e    -> die (show e)

@@ -1,9 +1,10 @@
 packages: **/*.cabal
   examples/*/*.cabal
+  **/*/*.cabal
 
 allow-newer: all
 
-constraints: pandoc >=3.1.11, suckless-conf >= 0.1.2.6
+constraints: pandoc >=3.1.11, suckless-conf >= 0.1.2.7
 
 
 -- executable-static: True

@@ -35,6 +35,7 @@ syncEntries :: forall c m . ( MonadUnliftIO m
                             , HasRunDir m
                             , HasTombs m
                             , HasCache m
+                            , HasKeyManClient m
                             , MonadReader (Maybe SyncEnv) m
                             )
             => MakeDictM c m ()

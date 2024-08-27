@@ -22,6 +22,8 @@ import HBS2.Peer.RPC.Client.Unix (UNIX)
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.RefChan as Client
 
+import HBS2.KeyMan.Keys.Direct
+
 import HBS2.CLI.Run.MetaData (createTreeWithMetadata)
 
 import DBPipe.SQLite
@@ -180,6 +182,7 @@ getStateFromDir0 :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasRunDir m
                    , HasCache m
+                   , HasKeyManClient m
                    )
                 => Bool
                 -> m [(FilePath, Entry)]
@@ -200,6 +203,7 @@ getStateFromDir :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasRunDir m
                    , HasCache m
+                   , HasKeyManClient m
                    )
                 => Bool           -- ^ use remote state as seed
                 -> FilePath       -- ^ dir
@@ -243,6 +247,7 @@ getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasStorage m
                                   , HasRunDir m
                                   , HasCache m
+                                  , HasKeyManClient m
                                   )
                     => MyRefChan
                     -> m [(FilePath, Entry)]
@@ -258,6 +263,12 @@ getStateFromRefChan rchan = do
   let statePath = dir </> ".hbs2-sync" </> "state"
 
   db <- newDBPipeEnv dbPipeOptsDef (statePath </> "state.db")
+
+  here <- doesDirectoryExist statePath
+
+  unless here $ mkdir statePath
+
+  keEnv <- getKeyManClientEnv
 
   flip runContT pure do
 
@@ -276,19 +287,15 @@ getStateFromRefChan rchan = do
 
     let members = view refChanHeadReaders rch & HS.toList
 
-    krl <- liftIO $ runKeymanClient $ loadKeyRingEntries members
+    krl <- liftIO $ withKeymanClientRO keEnv $ loadKeyRingEntries members
                 <&> L.sortOn (Down . fst)
                 <&> fmap snd
 
     let krs = HM.fromList [ (pk,e) | e@(KeyringEntry pk _ _) <- krl ]
 
-    let findKey gk = do
-          r <- S.toList_ do
-                forM_ (HM.toList $ recipients gk) $ \(pk,box) -> runMaybeT do
-                  (KeyringEntry ppk ssk _) <- toMPlus $ HM.lookup pk krs
-                  let s = Symm.lookupGroupKey @'HBS2Basic ssk ppk gk
-                  for_ s $ lift . S.yield
-          pure $ headMay r
+    -- FIXME: asap-insert-findMatchedGroupKey
+    let findKey gk = lift $ lift $ withKeymanClientRO keEnv do
+          findMatchedGroupKeySecret sto gk
 
     -- let check hx = pure True
     hseen <- withDB db (select_ [qc|select txhash from seen|])
@@ -592,8 +599,9 @@ mergeState seed orig = do
         else
           new
 
-getTreeContents :: ( MonadUnliftIO m
-                   , MonadError OperationError m
+getTreeContents :: forall m . ( MonadUnliftIO m
+                              , MonadIO m
+                              , MonadError OperationError m
                    )
                 => AnyStorage
                 -> HashRef
@@ -617,10 +625,10 @@ getTreeContents sto href = do
                   >>= orThrowError (GroupKeyNotFound 11)
                   <&> HM.keys . Symm.recipients
 
-      kre <- runKeymanClient do
-                loadKeyRingEntries rcpts <&> fmap snd
+      let findStuff g = do
+            runKeymanClientRO @IO $ findMatchedGroupKeySecret sto g
 
-      readFromMerkle sto (ToDecryptBS kre (coerce href))
+      readFromMerkle sto (ToDecryptBS (coerce href) (liftIO . findStuff))
 
     _ -> throwError UnsupportedFormat
 
@@ -633,6 +641,7 @@ runDirectory :: ( IsContext c
                 , HasRunDir m
                 , HasTombs m
                 , HasCache m
+                , HasKeyManClient m
                 , Exception (BadFormException c)
                 ) =>  RunM c m ()
 runDirectory = do

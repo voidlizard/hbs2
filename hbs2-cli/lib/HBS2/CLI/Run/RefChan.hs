@@ -43,6 +43,10 @@ import Data.HashSet qualified as HS
 import Data.Coerce
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
+import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Text qualified as Text
+import Codec.Serialise
 
 import Text.InterpolatedString.Perl6 (qc)
 
@@ -293,5 +297,29 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
             <> pretty rch
 
-        _ -> throwIO (BadFormException @C nil)
+        _ -> throwIO (BadFormException @c nil)
+
+
+  brief "creates RefChanUpdate/AnnotatedHashRef transaction for refchan" $
+    args [arg "string" "sign-key", arg "string" "payload-tree-hash"] $
+    entry $ bindMatch "hbs2:refchan:tx:annref:create" $ \case
+      [SignPubKeyLike signpk, HashLike hash] -> do
+         sto <- getStorage
+         void $ hasBlock sto (fromHashRef hash) `orDie` "no block found"
+         let lbs = AnnotatedHashRef Nothing hash & serialise
+         creds  <- runKeymanClient $ loadCredentials signpk >>= orThrowUser "can't find credentials"
+         let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs) & serialise
+         pure $ mkForm @c "blob" [mkStr (LBS8.unpack box)]
+
+      _ -> throwIO (BadFormException @c nil)
+
+  brief "posts Propose transaction to the refchan" $
+    args [arg "string" "refchan", arg "blob" "signed-box"] $
+    entry $ bindMatch "hbs2:refchan:tx:propose" $ nil_ $ \case
+      [SignPubKeyLike rchan, ListVal [SymbolVal "blob", LitStrVal box]] -> do
+        api <- getClientAPI @RefChanAPI @UNIX
+        bbox <- Text.unpack box & LBS8.pack & deserialiseOrFail & orThrowUser "bad transaction"
+        void $ callService @RpcRefChanPropose api (rchan, bbox)
+
+      _ -> throwIO (BadFormException @c nil)
 
