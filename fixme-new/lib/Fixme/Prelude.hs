@@ -4,6 +4,7 @@ module Fixme.Prelude
   , GitRef(..)
   , Serialise(..)
   , serialise, deserialiseOrFail, deserialise
+  , module Exported
   ) where
 
 import HBS2.Prelude.Plated as All
@@ -18,3 +19,6 @@ import Data.Function as All
 import UnliftIO as All
 import System.FilePattern as All
 import Control.Monad.Reader as All
+
+import Data.Config.Suckless.Script as Exported
+

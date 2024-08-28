@@ -1,6 +1,7 @@
 module Main where
 
 import Fixme
+-- import Fixme.Run
 import Fixme.Run
 import System.Environment
 
@@ -62,7 +63,7 @@ main = do
   -- TODO: scan-all-sources
   --   for-source-from-con
 
-  runFixmeCLI (run =<< liftIO getArgs)
+  runFixmeCLI (runTop =<< liftIO getArgs)
 
 -- FIXME: test-fixme
 --   $workflow: wip

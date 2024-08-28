@@ -43,23 +43,6 @@ pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
 pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
-fixContext :: IsContext c => Syntax c -> Syntax C
-fixContext = go
-  where
-    go = \case
-      List    _ xs -> List noContext (fmap go xs)
-      Symbol  _ w  -> Symbol noContext w
-      Literal _ l  -> Literal noContext l
-
-mklist :: IsContext c => [Syntax c] -> Syntax c
-mklist = List noContext
-
-mkint :: (IsContext c, Integral a) => a -> Syntax c
-mkint  = Literal noContext . LitInt . fromIntegral
-
-mksym :: IsContext c => Id -> Syntax c
-mksym  = Symbol noContext
-
 class MkId a where
   mkId :: a -> Id
 
@@ -72,45 +55,6 @@ instance MkId (Text,Int) where
 instance MkId (String,Integer) where
   mkId (p, i) = Id (fromString p <> fromString (show i))
 
-class IsContext c => MkStr c a where
-  mkstr :: a -> Syntax c
-
-
-instance IsContext c => MkStr c String where
-  mkstr s = Literal (noContext @c) (LitStr $ Text.pack s)
-
-instance IsContext c => MkStr c ByteString where
-  mkstr s = Literal (noContext @c) (LitStr $ Text.pack $ BS8.unpack s)
-
-instance IsContext c => MkStr c (Maybe FixmeKey) where
-  mkstr Nothing  = Literal (noContext @c) (LitStr "")
-  mkstr (Just k) = Literal (noContext @c) (LitStr (coerce k))
-
-instance IsContext c => MkStr c FixmeAttrVal where
-  mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
-
-
-instance IsContext c => MkStr c (Maybe FixmeAttrVal) where
-  mkstr (Just v) = mkstr v
-  mkstr Nothing  = mkstr ( "" :: Text )
-
-instance IsContext c => MkStr c FixmeAttrName where
-  mkstr (s :: FixmeAttrName)  = Literal (noContext @c) (LitStr (coerce s))
-
-instance IsContext c => MkStr c HashRef where
-  mkstr s  = Literal (noContext @c) (LitStr (fromString $ show $ pretty s))
-
-instance IsContext c => MkStr c Text where
-  mkstr = Literal noContext . LitStr
-
-stringLike :: Syntax c -> Maybe String
-stringLike = \case
-  LitStrVal s -> Just $ Text.unpack s
-  SymbolVal (Id s) -> Just $ Text.unpack s
-  _ -> Nothing
-
-stringLikeList :: [Syntax c] -> [String]
-stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 fixmeHashFromSyn :: Syntax c -> Maybe Text
 fixmeHashFromSyn = \case
@@ -235,13 +179,25 @@ instance MkKey (FromFixmeKey Fixme) where
     maybe k2  (mappend "A" . LBS.toStrict . serialise) (HM.lookup "fixme-key" fixmeAttr)
     where k2 = mappend "A" $ serialise fx & LBS.toStrict
 
+instance IsContext c => MkStr c HashRef  where
+  mkStr ha = mkStr (show $ pretty ha)
+
+instance IsContext c => MkStr c FixmeAttrVal  where
+  mkStr v = mkStr (coerce @_ @Text v)
+
+instance IsContext c => MkStr c (AsBase58 ByteString) where
+  mkStr v = mkStr (show $ pretty v)
+
+instance IsContext c => MkStr c FixmeAttrName  where
+  mkStr v = mkStr (coerce @_ @Text v)
+
 instance Pretty CompactAction where
   pretty = \case
-    Deleted s r      -> pretty $ mklist @C [ mksym "deleted", mkint s, mkstr r  ]
-    Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
+    Deleted s r      -> pretty $ mkList @C [ mkSym "deleted", mkInt s, mkStr r  ]
+    Modified s r k v -> pretty $ mkList @C [ mkSym "modified", mkInt s, mkStr r, mkStr k, mkStr v ]
     -- FIXME: normal-pretty-instance
     e@(Added  w fx) -> do
-      pretty $ mklist @C [ mksym "added", mkstr (toBase58 $ mkKey e) ]
+      pretty $ mkList @C [ mkSym "added", mkStr (AsBase58 $ mkKey e) ]
 
 instance Serialise CompactAction
 
@@ -361,9 +317,6 @@ fixmeEnvBare =
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
-
--- FIXME: move-to-suckless-conf-library
-deriving newtype instance Hashable Id
 
 instance Serialise FixmeTag
 instance Serialise FixmeTitle

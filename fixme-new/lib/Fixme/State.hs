@@ -389,18 +389,18 @@ instance IsContext c => HasPredicate [Syntax c] where
       go = \case
 
         ( SymbolVal "!" : rest ) -> do
-            mklist [mksym "not", unlist (go rest)]
+            mkList [mkSym "not", unlist (go rest)]
 
         ( Operand a : SymbolVal "~" : Operand b  : rest ) -> do
-          go (mklist [mksym "like", mkstr a, mkstr b] : rest)
+          go (mkList [mkSym "like", mkStr a, mkStr b] : rest)
 
         ( w : SymbolVal "&&" : rest ) -> do
-          mklist [mksym "and", unlist w, unlist (go rest)]
+          mkList [mkSym "and", unlist w, unlist (go rest)]
 
         ( w : SymbolVal "||" : rest ) -> do
-          mklist [mksym "or", unlist w, unlist (go rest)]
+          mkList [mkSym "or", unlist w, unlist (go rest)]
 
-        w -> mklist w
+        w -> mkList w
 
       unlist = \case
         ListVal [x] -> x
