@@ -1,7 +1,7 @@
 {-# Language MultiWayIf #-}
 {-# Language PatternSynonyms #-}
 {-# Language ViewPatterns #-}
-module Fixme.Run where
+module Fixme.RunOld where
 
 import Prelude hiding (init)
 import Fixme.Prelude hiding (indent)

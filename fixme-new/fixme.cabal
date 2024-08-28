@@ -104,6 +104,9 @@ common shared-properties
 library
     import:           shared-properties
 
+    other-modules:
+      Fixme.Run.Internal
+
     exposed-modules:
       Fixme
       Fixme.Config

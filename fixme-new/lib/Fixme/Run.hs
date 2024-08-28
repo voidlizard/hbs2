@@ -5,6 +5,7 @@ import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.Config
 import Fixme.State
+import Fixme.Run.Internal
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
 import Fixme.Log
@@ -126,34 +127,11 @@ readConfig = do
 
   pure $ mconcat w
 
-init :: FixmePerks m => FixmeM m ()
-init = do
-
-  lo <- localConfigDir
-
-  let lo0 = takeFileName lo
-
-  mkdir lo
-  touch (lo </> "config")
-
-  let gitignore = lo </> ".gitignore"
-  here <- doesPathExist gitignore
-
-  unless here do
-    liftIO $ writeFile gitignore $ show $
-      vcat [ pretty ("." </> localDBName)
-           ]
-
-  notice $ yellow "run" <> line <> vcat [
-      "git add" <+> pretty (lo0  </> ".gitignore")
-    , "git add" <+> pretty (lo0  </> "config")
-    ]
-
 
 runTop :: FixmePerks m => [String] -> FixmeM m ()
-runTop args = do
+runTop argz = do
 
-  forms <- parseTop (unlines $ unwords <$> splitForms args)
+  forms <- parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
 
   -- pure ((unlines . fmap unwords . splitForms) what)
@@ -167,6 +145,78 @@ runTop args = do
          HelpEntryBound what -> helpEntry what
          [StringLike s]      -> helpList False (Just s)
          _                   -> helpList False Nothing
+
+       entry $ bindMatch "fixme-prefix" $ nil_ \case
+        [StringLike pref] -> do
+
+          t <- lift $ asks fixmeEnvTags
+          atomically (modifyTVar t (HS.insert (FixmeTag $ fromString pref)))
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "fixme-git-scan-filter-days" $ nil_ \case
+        [LitIntVal d] -> do
+          t <- lift $ asks fixmeEnvGitScanDays
+          atomically (writeTVar t (Just d))
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-attribs" $ nil_ \case
+        StringLikeList xs -> do
+          ta <- lift $ asks fixmeEnvAttribs
+          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "fixme-files" $ nil_ \case
+        StringLikeList xs -> do
+          t <- lift $ asks fixmeEnvFileMask
+          atomically (modifyTVar t (<> xs))
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-file-comments" $ nil_ $ \case
+         [StringLike ft, StringLike b] -> do
+            let co = Text.pack b & HS.singleton
+            t <- lift $ asks fixmeEnvFileComments
+            atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-comments" $ nil_  \case
+         (StringLikeList xs) -> do
+            t <- lift $ asks fixmeEnvDefComments
+            let co = fmap Text.pack xs & HS.fromList
+            atomically $ modifyTVar t (<> co)
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch  "fixme-value-set" $ nil_ \case
+         (StringLikeList (n:xs))  -> do
+           t <- lift $ asks fixmeEnvAttribValues
+           let name = fromString n
+           let vals = fmap fromString xs & HS.fromList
+           atomically $ modifyTVar t (HM.insertWith (<>) name vals)
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-pager" $ nil_ \case
+        _ -> warn $ yellow "fixme-pager" <+> "instruction is not supported yet"
+
+       entry $ bindMatch "fixme-def-context" $ nil_ \case
+        [LitIntVal a, LitIntVal b] -> do
+          t <- lift $ asks fixmeEnvCatContext
+          atomically $ writeTVar t (fromIntegral a, fromIntegral b)
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "env:show" $ nil_ $ const $ do
+        lift printEnv
+
+       entry $ bindMatch "init" $ nil_ $ const $ do
+        lift init
 
   conf <- readConfig
 
