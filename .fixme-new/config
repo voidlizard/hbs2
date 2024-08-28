@@ -21,8 +21,6 @@ fixme-value-set cat bug feat refactor
 
 fixme-value-set scope mvp-0 mvp-1 backlog
 
-fixme-value-set type bug feature code
-
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
 

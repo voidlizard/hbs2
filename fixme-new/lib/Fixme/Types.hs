@@ -179,6 +179,9 @@ instance MkKey (FromFixmeKey Fixme) where
     maybe k2  (mappend "A" . LBS.toStrict . serialise) (HM.lookup "fixme-key" fixmeAttr)
     where k2 = mappend "A" $ serialise fx & LBS.toStrict
 
+instance IsContext c => MkStr c GitHash  where
+  mkStr ha = mkStr (show $ pretty ha)
+
 instance IsContext c => MkStr c HashRef  where
   mkStr ha = mkStr (show $ pretty ha)
 

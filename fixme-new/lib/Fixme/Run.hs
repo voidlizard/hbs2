@@ -139,7 +139,7 @@ runTop argz = do
 
   let dict = makeDict @C do
 
-       -- internalEntries
+       internalEntries
 
        entry $ bindMatch "--help" $ nil_ \case
          HelpEntryBound what -> helpEntry what
@@ -194,7 +194,7 @@ runTop argz = do
          _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch  "fixme-value-set" $ nil_ \case
-         (StringLikeList (n:xs))  -> do
+         (StringLike n : StringLikeList xs)  -> do
            t <- lift $ asks fixmeEnvAttribValues
            let name = fromString n
            let vals = fmap fromString xs & HS.fromList
@@ -214,6 +214,10 @@ runTop argz = do
 
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
+
+       entry $ bindMatch "git:commits" $ const $ do
+        co <- lift listCommits <&> fmap (mkStr @C . view _1)
+        pure $ mkList co
 
        entry $ bindMatch "init" $ nil_ $ const $ do
         lift init
