@@ -6,11 +6,6 @@ inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
-    hspup.url = "github:voidlizard/hspup";
-    hspup.inputs.nixpkgs.follows = "nixpkgs";
-
-    fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
-    fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
@@ -118,8 +113,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
           ])
           ++
           [ pkgs.pkg-config
-            inputs.hspup.packages.${pkgs.system}.default
-            inputs.fixme.packages.${pkgs.system}.default
           ]
         );
 
