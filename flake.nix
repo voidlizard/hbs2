@@ -13,9 +13,7 @@ inputs = {
     #fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
-    suckless-conf.url =
-      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=b6c5087312e6c09e5c27082da47846f377f73756";
-
+    suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
     db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
