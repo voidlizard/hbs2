@@ -40,6 +40,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
 import Lens.Micro.Platform
+import System.Environment
 import System.Process.Typed
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
@@ -47,6 +48,7 @@ import System.IO.Temp as Temp
 import System.IO qualified as IO
 
 
+{- HLINT Ignore "Functor law" -}
 
 runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
@@ -128,14 +130,16 @@ readConfig = do
   pure $ mconcat w
 
 
-runTop :: FixmePerks m => [String] -> FixmeM m ()
-runTop argz = do
-
+runCLI :: FixmePerks m => FixmeM m ()
+runCLI = do
+  argz <- liftIO getArgs
   forms <- parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
 
-  -- pure ((unlines . fmap unwords . splitForms) what)
-  --          >>= either (error.show) pure . parseTop
+  runTop forms
+
+runTop :: FixmePerks m => [Syntax C] -> FixmeM m ()
+runTop forms = do
 
   let dict = makeDict @C do
 
@@ -219,29 +223,45 @@ runTop argz = do
         co <- lift listCommits <&> fmap (mkStr @C . view _1)
         pure $ mkList co
 
+       entry $ bindMatch "git:refs" $ const do
+         refs <- lift $ listRefs False
+
+         elems <- for refs $ \(h,r) -> do
+          pure $ mkList @C [mkStr h, mkSym ".", mkStr r]
+
+         pure $ mkList elems
+
+       entry $ bindMatch "fixme:log:export" $ nil_ \case
+        [StringLike fn] -> do
+           lift $ exportToLog fn
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme:log:import" $ nil_ \case
+        [StringLike fn] -> do
+           lift $ importFromLog fn
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme:list" $ nil_ $ const do
+        fme <- lift listFixmies
+        pure ()
+
+       entry $ bindMatch "fixme:scan-git-local" $ nil_ $ const do
+        lift $ scanGitLocal mempty Nothing
+
+       entry $ bindMatch "git:blobs" $  \_ -> do
+        blobs <- lift listRelevantBlobs
+
+        elems <- for blobs $ \(f,h) -> do
+                    pure $ mkList @C [ mkStr f, mkSym ".", mkStr h ]
+
+        pure $ mkList @C elems
+
        entry $ bindMatch "init" $ nil_ $ const $ do
         lift init
 
   conf <- readConfig
 
   run dict (conf <> forms) >>= eatNil display
-
-  -- notice $ red "re-implementing fixme-new"
-  -- read refchan
-  -- execute settings from refchan
-  -- read config
-
-
-  -- execute config
-  -- execute cli
-  pure ()
-  -- sc <- readConfig
-
-  -- let s0 = fmap (parseTop . unwords) (splitForms what)
-  --            & rights
-  --            & mconcat
-
-  -- runForms (sc <> s0)
-
-
 

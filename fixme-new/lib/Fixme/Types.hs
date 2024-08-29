@@ -182,6 +182,9 @@ instance MkKey (FromFixmeKey Fixme) where
 instance IsContext c => MkStr c GitHash  where
   mkStr ha = mkStr (show $ pretty ha)
 
+instance IsContext c => MkStr c GitRef  where
+  mkStr ha = mkStr (show $ pretty ha)
+
 instance IsContext c => MkStr c HashRef  where
   mkStr ha = mkStr (show $ pretty ha)
 

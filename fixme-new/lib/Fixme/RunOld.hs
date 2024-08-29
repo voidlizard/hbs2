@@ -296,41 +296,6 @@ modify_ txt a b = do
     ha <- toMPlus =<< lift (selectFixmeHash txt)
     lift $ insertFixmeModStaged ha (fromString a) (fromString b)
 
-exportToLog :: FixmePerks m => FilePath -> FixmeM m ()
-exportToLog fn = do
-  e <- getEpoch
-  warn $ red "EXPORT-FIXMIES" <+> pretty fn
-  sto <- compactStorageOpen @HbSync mempty fn
-  fx <- selectFixmeThin ()
-  for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
-    h <- HM.lookup "fixme-hash" m & toMPlus
-    loaded <- lift (selectFixme (coerce h)) >>= toMPlus
-    let what = Added e loaded
-    let k = mkKey what
-    get sto k >>= guard . isNothing
-    put sto (mkKey what) (LBS.toStrict $ serialise what)
-    warn $ red "export" <+> pretty h
-
-  what <- selectStage
-
-  for_ what $ \w -> do
-    let k = mkKey w
-    v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
-    case v0 of
-      Nothing -> do
-        put sto k (LBS.toStrict $ serialise w)
-
-      Just (Left{}) -> do
-        put sto k (LBS.toStrict $ serialise w)
-
-      Just (Right prev) | getSequence w > getSequence prev -> do
-        put sto k (LBS.toStrict $ serialise w)
-
-      _ -> pure ()
-
-  compactStorageClose sto
-
-  cleanStage
 
 importFromLog :: FixmePerks m => CompactStorage HbSync -> FixmeM m ()
 importFromLog sto = do
@@ -356,7 +321,7 @@ importFromLog sto = do
     for_ (rights  toImport) insertFixme
 
   let w = lefts toImport
-  runForms (mconcat w)
+  eval (mconcat w)
 
   unless (List.null toImport) do
     updateIndexes

@@ -220,6 +220,51 @@ scanGitLogLocal refMask play = do
 
           compactStorageClose sto
 
+listRelevantBlobs :: FixmePerks m
+                  => FixmeM m [(FilePath, GitHash)]
+listRelevantBlobs =  do
+  commits <- listCommits
+  S.toList_ $ do
+    for_ commits $ \(co, _) -> do
+      found <- lift $ listBlobs co >>= filterBlobs
+      S.each found
+
+listFixmies :: FixmePerks m
+            => FixmeM m [Fixme]
+listFixmies = do
+
+  flip runContT pure do
+
+      blobs <- lift listRelevantBlobs
+
+      gitCat <- ContT $ bracket startGitCatFile (hClose . getStdin)
+
+      let ssin   = getStdin gitCat
+      let ssout  = getStdout gitCat
+
+      liftIO $ IO.hSetBuffering ssin LineBuffering
+
+      for_ blobs $ \(fp,h) -> do
+        liftIO $ IO.hPrint ssin (pretty h) >> IO.hFlush ssin
+        prefix <- liftIO (BS.hGetLine ssout) <&> BS.words
+
+        case prefix of
+          [bh, "blob", ssize] -> do
+            let mslen = readMay @Int (BS.unpack ssize)
+            len <- ContT $ maybe1 mslen (pure ())
+            blob <- liftIO $ LBS8.hGet ssout len
+            void $ liftIO $ BS.hGetLine ssout
+
+            poor <- lift (Scan.scanBlob (Just fp) blob)
+
+            liftIO $ mapM_ (print . pretty) poor
+
+          _ -> pure ()
+
+
+
+  pure mempty
+
 scanGitLocal :: FixmePerks m
              => [ScanGitArgs]
              -> Maybe FilePath

@@ -63,7 +63,7 @@ main = do
   -- TODO: scan-all-sources
   --   for-source-from-con
 
-  runFixmeCLI (runTop =<< liftIO getArgs)
+  runFixmeCLI runCLI
 
 -- FIXME: test-fixme
 --   $workflow: wip
