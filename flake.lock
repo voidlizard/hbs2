@@ -83,9 +83,24 @@
         "type": "github"
       }
     },
+    "flake-utils_5": {
+      "locked": {
+        "lastModified": 1644229661,
+        "narHash": "sha256-1YdnJAsNy69bpcjuoKdOYQX0YxZBiCYZo4Twxerqv7k=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "3cecb5b042f7f209c56ffd8371b2711a290ec797",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "fuzzy": {
       "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_3",
+        "haskell-flake-utils": "haskell-flake-utils_4",
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
@@ -100,6 +115,28 @@
         "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
         "type": "git",
         "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
+      }
+    },
+    "fuzzy-parse": {
+      "inputs": {
+        "haskell-flake-utils": "haskell-flake-utils_2",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "dir": "deps/fuzzy-parse",
+        "dirtyRev": "5602d256ec57345df5967aa069860593772557db-dirty",
+        "dirtyShortRev": "5602d256-dirty",
+        "lastModified": 1724898068,
+        "narHash": "sha256-Km3RWmxqG96M9/joId6ANDpRF8MN+N8ZFA5Xa7ocTzA=",
+        "type": "git",
+        "url": "file:.?dir=deps/fuzzy-parse"
+      },
+      "original": {
+        "dir": "deps/fuzzy-parse",
+        "type": "git",
+        "url": "file:.?dir=deps/fuzzy-parse"
       }
     },
     "haskell-flake-utils": {
@@ -125,6 +162,24 @@
         "flake-utils": "flake-utils_2"
       },
       "locked": {
+        "lastModified": 1707809372,
+        "narHash": "sha256-wfTL9PlCSOqSSyU4eenFFI7pHrV21gba4GEILnI4nAU=",
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "rev": "3cbdc5d6093e8b4464ae64097e0c8c61e4414ff2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ivanovs-4",
+        "repo": "haskell-flake-utils",
+        "type": "github"
+      }
+    },
+    "haskell-flake-utils_3": {
+      "inputs": {
+        "flake-utils": "flake-utils_3"
+      },
+      "locked": {
         "lastModified": 1698938553,
         "narHash": "sha256-oXpTKXioqFbl2mhhvpJIAvgNd+wYyv4ekI+YnJHEJ6s=",
         "owner": "ivanovs-4",
@@ -139,9 +194,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_3": {
+    "haskell-flake-utils_4": {
       "inputs": {
-        "flake-utils": "flake-utils_3"
+        "flake-utils": "flake-utils_4"
       },
       "locked": {
         "lastModified": 1707809372,
@@ -157,9 +212,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_4": {
+    "haskell-flake-utils_5": {
       "inputs": {
-        "flake-utils": "flake-utils_4"
+        "flake-utils": "flake-utils_5"
       },
       "locked": {
         "lastModified": 1672412555,
@@ -210,7 +265,8 @@
     "root": {
       "inputs": {
         "db-pipe": "db-pipe",
-        "haskell-flake-utils": "haskell-flake-utils_2",
+        "fuzzy-parse": "fuzzy-parse",
+        "haskell-flake-utils": "haskell-flake-utils_3",
         "nixpkgs": "nixpkgs",
         "saltine": "saltine",
         "suckless-conf": "suckless-conf"
@@ -236,7 +292,7 @@
     "suckless-conf": {
       "inputs": {
         "fuzzy": "fuzzy",
-        "haskell-flake-utils": "haskell-flake-utils_4",
+        "haskell-flake-utils": "haskell-flake-utils_5",
         "nixpkgs": [
           "nixpkgs"
         ]

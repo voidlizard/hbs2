@@ -7,6 +7,9 @@ inputs = {
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
 
+    fuzzy-parse.url =  "git+file:.?dir=deps/fuzzy-parse";
+    fuzzy-parse.inputs.nixpkgs.follows = "nixpkgs";
+
     suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -67,6 +70,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
      saltine = prev.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
      scotty = final.callHackage "scotty" "0.21" { };
+     fuzzy-parse = prev.callCabal2nix "fuzzy-parse" inputs.fuzzy-parse {  };
    };
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
