@@ -1,0 +1,71 @@
+cabal-version:      3.0
+name:               db-pipe
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuykov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           Database
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common common-properties
+    ghc-options: -Wall
+
+  default-language:   GHC2021
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , OverloadedLabels
+                     , QuasiQuotes
+                     , RankNTypes
+                     , RecordWildCards
+                     , RecursiveDo
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+                     , TypeOperators
+
+library
+    import:           common-properties
+    exposed-modules:
+      DBPipe.SQLite
+      DBPipe.SQLite.Types
+      DBPipe.SQLite.Generic
+
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base >=4.17.2.0
+                    , clock
+                    , interpolatedstring-perl6
+                    , mtl
+                    , stm
+                    , sqlite-simple
+                    , text
+                    , unliftio
+
+    hs-source-dirs:   lib
+    default-language: GHC2021
