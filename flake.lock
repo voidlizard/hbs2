@@ -9,10 +9,10 @@
       },
       "locked": {
         "dir": "deps/db-pipe",
-        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
-        "dirtyShortRev": "d8530de6-dirty",
-        "lastModified": 1724897162,
-        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "dirtyRev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99-dirty",
+        "dirtyShortRev": "e4c24d8f-dirty",
+        "lastModified": 1724897465,
+        "narHash": "sha256-IiUvnYJpbPykqkfdE531qovQyPJPIlyxS/7XVyEZoMk=",
         "type": "git",
         "url": "file:.?dir=deps/db-pipe"
       },
@@ -106,10 +106,10 @@
       },
       "locked": {
         "dir": "deps/fuzzy-parse",
-        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
-        "dirtyShortRev": "d8530de6-dirty",
-        "lastModified": 1724897162,
-        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "dirtyRev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99-dirty",
+        "dirtyShortRev": "e4c24d8f-dirty",
+        "lastModified": 1724897465,
+        "narHash": "sha256-A+uXFehpFsohLYNuerk8YvqRlvuHJM9UzF80F35HRrM=",
         "type": "git",
         "url": "file:.?dir=deps/fuzzy-parse"
       },
@@ -298,10 +298,11 @@
       },
       "locked": {
         "dir": "deps/suckless-conf",
-        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
-        "dirtyShortRev": "d8530de6-dirty",
-        "lastModified": 1724897162,
-        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "lastModified": 1724897465,
+        "narHash": "sha256-ppaJhtFIrgJ+dyHuw1hbRKZfRcQyDzdyipf2JjVLrjM=",
+        "ref": "refs/heads/dependencies",
+        "rev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99",
+        "revCount": 1014,
         "type": "git",
         "url": "file:.?dir=deps/suckless-conf"
       },
