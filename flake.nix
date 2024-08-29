@@ -7,13 +7,13 @@ inputs = {
     # haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
 
-    suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
+    suckless-conf.url =  "path:deps/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
-    db-pipe.url =  "git+file:.?dir=deps/db-pipe";
+    db-pipe.url =  "path:deps/db-pipe";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
 
-    fuzzy.url = "git+file:.?dir=deps/fuzzy-parse";
+    fuzzy.url = "path:deps/fuzzy-parse";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
