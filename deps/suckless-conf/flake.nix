@@ -5,9 +5,9 @@ inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=442d407992384ed9c0e6d352de75b69079904e4e";
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils";
 
-    fuzzy.url =
+    # fuzzy.url =
       # "git+http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?ref=sexp-parser&rev=bd3a38904864d5cc333974e7b029412607b46871";
-      "git+http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1&rev=831879978213a1aed15ac70aa116c33bcbe964b8";
+      # "git+http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1&rev=831879978213a1aed15ac70aa116c33bcbe964b8";
 
 };
 
@@ -54,7 +54,7 @@ outputs = { self, fuzzy, nixpkgs, haskell-flake-utils, ... }@inputs:
       # Maps to the devShell output. Pass in a shell.nix file or function
 
       haskellFlakes = with inputs; [
-        fuzzy
+        # fuzzy
       ];
 
       # Additional build intputs of the default shell

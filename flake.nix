@@ -13,9 +13,6 @@ inputs = {
     db-pipe.url =  "git+file:.?dir=deps/db-pipe";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
 
-    fuzzy.url = "git+file:.?dir=deps/fuzzy-parse";
-    fuzzy.inputs.nixpkgs.follows = "nixpkgs";
-
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
       flake = false;
