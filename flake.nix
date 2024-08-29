@@ -10,7 +10,6 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
 
     fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
-    #fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
     fixme.inputs.nixpkgs.follows = "nixpkgs";
 
     suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
@@ -19,7 +18,7 @@ inputs = {
     db-pipe.url =  "git+file:.?dir=deps/db-pipe";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
 
-    fuzzy.url = "git+http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
+    fuzzy.url = "git+file:.?dir=deps/fuzzy-parse";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
