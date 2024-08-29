@@ -1,0 +1,6 @@
+*.swp
+dist-newstyle/
+Setup.hs
+
+.direnv
+.hbs2-git/

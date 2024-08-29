@@ -1,0 +1,6 @@
+packages: *.cabal
+
+allow-newer: all
+
+tests: True
+

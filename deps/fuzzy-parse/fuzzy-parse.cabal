@@ -1,0 +1,160 @@
+cabal-version:       3.0
+
+name:                fuzzy-parse
+version:             0.1.3.1
+synopsis:            Tools for processing unstructured text data
+
+description:
+  The lightweight and easy to use functions for text tokenizing and parsing.  It aimed for
+  parsing mostly unstructured data, but the structured formats may be parsed as well.
+
+  It may be used in different sutiations, for DSL, tex markups or even for parsing simple
+  grammars easier and sometimes faster than in case of usage mainstream parsing combinators
+  or parser generators.
+
+  See the README.markdown, examples and modules documentation for more.
+
+license:             MIT
+license-file:        LICENSE
+author:              Dmitry Zuikov
+maintainer:          dzuikov@gmail.com
+
+category:            Text, Parsing
+extra-source-files:  CHANGELOG.md
+
+homepage:            https://github.com/hexresearch/fuzzy-parse
+bug-reports:         https://github.com/hexresearch/fuzzy-parse/issues
+
+extra-source-files:
+    README.markdown
+
+common shared-properties
+
+  default-language:    GHC2021
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , RecordWildCards
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TemplateHaskell
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+
+
+
+library
+
+  import:           shared-properties
+
+  ghc-options:
+        -Wall
+        -fno-warn-type-defaults
+        -O2
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+
+  exposed-modules:     Data.Text.Fuzzy.Tokenize
+                     , Data.Text.Fuzzy.Dates
+                     , Data.Text.Fuzzy.Section
+                     , Data.Text.Fuzzy.SExp
+                     , Data.Text.Fuzzy.Attoparsec.Day
+                     , Data.Text.Fuzzy.Attoparsec.Month
+
+  build-depends:       base
+                     , attoparsec
+                     , containers
+                     , mtl
+                     , prettyprinter
+                     , safe
+                     , streaming
+                     , scientific
+                     , text
+                     , time
+                     , microlens-platform
+                     , uniplate
+                     , unliftio
+                     , unordered-containers
+                     , timeit
+
+  hs-source-dirs:      src
+
+
+executable fuzzy-sexp-parse
+
+    import:           shared-properties
+    default-language:   GHC2021
+
+    ghc-options:
+          -Wall
+          -fno-warn-type-defaults
+          -O2
+
+
+    main-is: FuzzySexpParse.hs
+
+    hs-source-dirs: misc
+
+    build-depends: base, fuzzy-parse
+                 , containers
+                 , hspec
+                 , hspec-discover
+                 , interpolatedstring-perl6
+                 , text
+                 , mtl
+                 , streaming
+                 , transformers
+                 , exceptions
+                 , uniplate
+                 , microlens-platform
+                 , safe
+                 , timeit
+                 , prettyprinter
+
+
+test-suite fuzzy-parse-test
+    import:           shared-properties
+    default-language:   GHC2021
+
+
+    type:       exitcode-stdio-1.0
+    main-is:    Spec.hs
+    other-modules: FuzzyParseSpec
+    hs-source-dirs: test
+    build-depends: base, fuzzy-parse
+                 , containers
+                 , hspec
+                 , hspec-discover
+                 , interpolatedstring-perl6
+                 , text
+                 , mtl
+                 , streaming
+                 , transformers
+                 , exceptions
+                 , uniplate
+                 , microlens-platform
+                 , safe
+                 , timeit
+
+    build-tool-depends: hspec-discover:hspec-discover == 2.*
+
+
