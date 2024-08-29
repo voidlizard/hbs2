@@ -1,0 +1,34 @@
+; comment
+foo "a"
+bar "a"
+bar "b"
+
+int1 122
+int2  0
+int3 -22
+int4 0xFAFA
+int5 0b11111111
+int6 -0xFAFA
+
+(jopa-kita)
+
+(sci1 1e9)
+(sci2 0.003)
+(sci3 -0.001)
+(sci4 -2e11)
+(sci5 -2e-3)
+
+(wtf1 .001)
+
+some-object {object ( key : 42) }
+
+{another-object
+  (object
+    ( key1 : 42 )
+    ( key2 : #f )
+    ( key3 : [ 1 2 3 4 ] )
+  )
+}
+
+
+
