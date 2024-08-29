@@ -16,11 +16,8 @@ inputs = {
     suckless-conf.url =  "git+file:.?dir=deps/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
 
-    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
+    db-pipe.url =  "git+file:.?dir=deps/db-pipe";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
-
-    lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
-    lsm.inputs.nixpkgs.follows = "nixpkgs";
 
     fuzzy.url = "git+http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";

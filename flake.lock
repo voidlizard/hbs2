@@ -8,18 +8,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1713359411,
-        "narHash": "sha256-BzOZ6xU+Li5nIe71Wy4p+lOEQlYK/e94T0gBcP8IKgE=",
-        "ref": "generic-sql",
-        "rev": "03635c54b2e2bd809ec1196bc9082447279f6f24",
-        "revCount": 9,
+        "dir": "deps/db-pipe",
+        "dirtyRev": "61f283847d891f927d0a1a24e3ca0ad6efa9d6b9-dirty",
+        "dirtyShortRev": "61f28384-dirty",
+        "lastModified": 1724894007,
+        "narHash": "sha256-Ymnjp0r+cZnkwMxlZVsYlcc99q4eMPvlJXQV+Olcp2E=",
         "type": "git",
-        "url": "https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft"
+        "url": "file:.?dir=deps/db-pipe"
       },
       "original": {
-        "ref": "generic-sql",
+        "dir": "deps/db-pipe",
         "type": "git",
-        "url": "https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft"
+        "url": "file:.?dir=deps/db-pipe"
       }
     },
     "fixme": {
@@ -164,21 +164,6 @@
         "type": "github"
       }
     },
-    "flake-utils_9": {
-      "locked": {
-        "lastModified": 1644229661,
-        "narHash": "sha256-1YdnJAsNy69bpcjuoKdOYQX0YxZBiCYZo4Twxerqv7k=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "3cecb5b042f7f209c56ffd8371b2711a290ec797",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
     "fuzzy": {
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils_4",
@@ -202,7 +187,7 @@
     },
     "fuzzy_2": {
       "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_8",
+        "haskell-flake-utils": "haskell-flake-utils_7",
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
@@ -334,24 +319,6 @@
         "flake-utils": "flake-utils_7"
       },
       "locked": {
-        "lastModified": 1698938553,
-        "narHash": "sha256-oXpTKXioqFbl2mhhvpJIAvgNd+wYyv4ekI+YnJHEJ6s=",
-        "owner": "ivanovs-4",
-        "repo": "haskell-flake-utils",
-        "rev": "19b273b5dc401a0a565e7f75cf50a593871b80c9",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ivanovs-4",
-        "repo": "haskell-flake-utils",
-        "type": "github"
-      }
-    },
-    "haskell-flake-utils_8": {
-      "inputs": {
-        "flake-utils": "flake-utils_8"
-      },
-      "locked": {
         "lastModified": 1707809372,
         "narHash": "sha256-wfTL9PlCSOqSSyU4eenFFI7pHrV21gba4GEILnI4nAU=",
         "owner": "ivanovs-4",
@@ -365,9 +332,9 @@
         "type": "github"
       }
     },
-    "haskell-flake-utils_9": {
+    "haskell-flake-utils_8": {
       "inputs": {
-        "flake-utils": "flake-utils_9"
+        "flake-utils": "flake-utils_8"
       },
       "locked": {
         "lastModified": 1672412555,
@@ -402,27 +369,6 @@
         "owner": "voidlizard",
         "repo": "hspup",
         "type": "github"
-      }
-    },
-    "lsm": {
-      "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_7",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1711033804,
-        "narHash": "sha256-z9cb5yuWfuZmGukxsZebXhc6KUZoPVT60oXxQ6j6ML8=",
-        "ref": "refs/heads/master",
-        "rev": "0e8286a43da5b9e54c4f3ecdb994173fe77351db",
-        "revCount": 26,
-        "type": "git",
-        "url": "https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls"
-      },
-      "original": {
-        "type": "git",
-        "url": "https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls"
       }
     },
     "nixpkgs": {
@@ -464,7 +410,6 @@
         "fuzzy": "fuzzy",
         "haskell-flake-utils": "haskell-flake-utils_5",
         "hspup": "hspup",
-        "lsm": "lsm",
         "nixpkgs": "nixpkgs",
         "saltine": "saltine",
         "suckless-conf": "suckless-conf_2"
@@ -512,7 +457,7 @@
     "suckless-conf_2": {
       "inputs": {
         "fuzzy": "fuzzy_2",
-        "haskell-flake-utils": "haskell-flake-utils_9",
+        "haskell-flake-utils": "haskell-flake-utils_8",
         "nixpkgs": [
           "nixpkgs"
         ]
