@@ -8,14 +8,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1,
-        "narHash": "sha256-BzOZ6xU+Li5nIe71Wy4p+lOEQlYK/e94T0gBcP8IKgE=",
-        "path": "deps/db-pipe",
-        "type": "path"
+        "dir": "deps/db-pipe",
+        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
+        "dirtyShortRev": "d8530de6-dirty",
+        "lastModified": 1724897162,
+        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "type": "git",
+        "url": "file:.?dir=deps/db-pipe"
       },
       "original": {
-        "path": "deps/db-pipe",
-        "type": "path"
+        "dir": "deps/db-pipe",
+        "type": "git",
+        "url": "file:.?dir=deps/db-pipe"
       }
     },
     "flake-utils": {
@@ -101,14 +105,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1,
-        "narHash": "sha256-moioa3ixAZb0y/xxyxUVjSvXoSiDGXy/vAx6B70d2yM=",
-        "path": "deps/fuzzy-parse",
-        "type": "path"
+        "dir": "deps/fuzzy-parse",
+        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
+        "dirtyShortRev": "d8530de6-dirty",
+        "lastModified": 1724897162,
+        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "type": "git",
+        "url": "file:.?dir=deps/fuzzy-parse"
       },
       "original": {
-        "path": "deps/fuzzy-parse",
-        "type": "path"
+        "dir": "deps/fuzzy-parse",
+        "type": "git",
+        "url": "file:.?dir=deps/fuzzy-parse"
       }
     },
     "fuzzy_2": {
@@ -289,14 +297,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1,
-        "narHash": "sha256-dHAWLoQ0uZ2FckV/93qbXo6aYCTY+jARXiiTgUt6fcA=",
-        "path": "deps/suckless-conf",
-        "type": "path"
+        "dir": "deps/suckless-conf",
+        "dirtyRev": "d8530de69fac26cdbe8b073d558fe6ec5bb65d8e-dirty",
+        "dirtyShortRev": "d8530de6-dirty",
+        "lastModified": 1724897162,
+        "narHash": "sha256-zRSNkGp2+i1N+Q9d8B3GsFUkLzCtQ5XfFgqz6hCEpDk=",
+        "type": "git",
+        "url": "file:.?dir=deps/suckless-conf"
       },
       "original": {
-        "path": "deps/suckless-conf",
-        "type": "path"
+        "dir": "deps/suckless-conf",
+        "type": "git",
+        "url": "file:.?dir=deps/suckless-conf"
       }
     }
   },
