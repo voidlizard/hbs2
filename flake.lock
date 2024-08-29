@@ -107,10 +107,11 @@
       },
       "locked": {
         "dir": "deps/fuzzy-parse",
-        "dirtyRev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99-dirty",
-        "dirtyShortRev": "e4c24d8f-dirty",
-        "lastModified": 1724897465,
-        "narHash": "sha256-A+uXFehpFsohLYNuerk8YvqRlvuHJM9UzF80F35HRrM=",
+        "lastModified": 1724897815,
+        "narHash": "sha256-yTW1DODA6b0AUUHtkFIfJ7SOqNr4KyBkHaogQ4xpEvM=",
+        "ref": "refs/heads/dependencies",
+        "rev": "1bab20307144f959a89401e13a4a98a1bb306a0e",
+        "revCount": 1016,
         "type": "git",
         "url": "file:.?dir=deps/fuzzy-parse"
       },
