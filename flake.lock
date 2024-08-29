@@ -9,10 +9,11 @@
       },
       "locked": {
         "dir": "deps/db-pipe",
-        "dirtyRev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99-dirty",
-        "dirtyShortRev": "e4c24d8f-dirty",
-        "lastModified": 1724897465,
-        "narHash": "sha256-IiUvnYJpbPykqkfdE531qovQyPJPIlyxS/7XVyEZoMk=",
+        "lastModified": 1724897598,
+        "narHash": "sha256-K/0wIIOj9KlhVFSp+IBmYwbVCb6dL/NDdIt7Jbu3qWY=",
+        "ref": "refs/heads/dependencies",
+        "rev": "55e636b8ef655998ec83eeb0b3cedfa9e4f1ffde",
+        "revCount": 1015,
         "type": "git",
         "url": "file:.?dir=deps/db-pipe"
       },
