@@ -98,25 +98,6 @@
         "type": "github"
       }
     },
-    "fuzzy": {
-      "inputs": {
-        "haskell-flake-utils": "haskell-flake-utils_4",
-        "nixpkgs": "nixpkgs_2"
-      },
-      "locked": {
-        "lastModified": 1715918584,
-        "narHash": "sha256-moioa3ixAZb0y/xxyxUVjSvXoSiDGXy/vAx6B70d2yM=",
-        "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
-        "revCount": 63,
-        "type": "git",
-        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
-      },
-      "original": {
-        "rev": "831879978213a1aed15ac70aa116c33bcbe964b8",
-        "type": "git",
-        "url": "http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA?tag=0.1.3.1"
-      }
-    },
     "fuzzy-parse": {
       "inputs": {
         "haskell-flake-utils": "haskell-flake-utils_2",
@@ -126,10 +107,10 @@
       },
       "locked": {
         "dir": "deps/fuzzy-parse",
-        "dirtyRev": "5602d256ec57345df5967aa069860593772557db-dirty",
-        "dirtyShortRev": "5602d256-dirty",
-        "lastModified": 1724898068,
-        "narHash": "sha256-Km3RWmxqG96M9/joId6ANDpRF8MN+N8ZFA5Xa7ocTzA=",
+        "dirtyRev": "ba0f3b9aab3dcde28eb81874420d56a4cdf207ec-dirty",
+        "dirtyShortRev": "ba0f3b9a-dirty",
+        "lastModified": 1724898843,
+        "narHash": "sha256-CflAi+gG/Z4St8KZKbK8X3ZYxFHL73oWr9gWiNEqaY8=",
         "type": "git",
         "url": "file:.?dir=deps/fuzzy-parse"
       },
@@ -137,6 +118,27 @@
         "dir": "deps/fuzzy-parse",
         "type": "git",
         "url": "file:.?dir=deps/fuzzy-parse"
+      }
+    },
+    "fuzzy-parse_2": {
+      "inputs": {
+        "haskell-flake-utils": "haskell-flake-utils_4",
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1715854761,
+        "narHash": "sha256-Q9I6YbvzGuV9yHtxGxxU10LMQf9AdcsecSszPT7PDuc=",
+        "ref": "sexp-parser",
+        "rev": "bd3a38904864d5cc333974e7b029412607b46871",
+        "revCount": 60,
+        "type": "git",
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+      },
+      "original": {
+        "ref": "sexp-parser",
+        "rev": "bd3a38904864d5cc333974e7b029412607b46871",
+        "type": "git",
+        "url": "http://git.hbs2/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
       }
     },
     "haskell-flake-utils": {
@@ -291,7 +293,7 @@
     },
     "suckless-conf": {
       "inputs": {
-        "fuzzy": "fuzzy",
+        "fuzzy-parse": "fuzzy-parse_2",
         "haskell-flake-utils": "haskell-flake-utils_5",
         "nixpkgs": [
           "nixpkgs"
@@ -299,11 +301,10 @@
       },
       "locked": {
         "dir": "deps/suckless-conf",
-        "lastModified": 1724897465,
-        "narHash": "sha256-ppaJhtFIrgJ+dyHuw1hbRKZfRcQyDzdyipf2JjVLrjM=",
-        "ref": "refs/heads/dependencies",
-        "rev": "e4c24d8f0b241eb6d46f702a25024e21d3c65e99",
-        "revCount": 1014,
+        "dirtyRev": "ba0f3b9aab3dcde28eb81874420d56a4cdf207ec-dirty",
+        "dirtyShortRev": "ba0f3b9a-dirty",
+        "lastModified": 1724898843,
+        "narHash": "sha256-rJV1xCj+7vkIydveX3RMLHW09kiA1j1rD/2Cu0R8QSY=",
         "type": "git",
         "url": "file:.?dir=deps/suckless-conf"
       },

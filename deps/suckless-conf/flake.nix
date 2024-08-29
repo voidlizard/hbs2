@@ -10,7 +10,7 @@ inputs = {
 
 };
 
-outputs = { self, fuzzy, nixpkgs, haskell-flake-utils, ... }@inputs:
+outputs = { self, fuzzy-parse, nixpkgs, haskell-flake-utils, ... }@inputs:
 
 
     haskell-flake-utils.lib.simpleCabal2flake {
