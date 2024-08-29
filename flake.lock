@@ -107,10 +107,10 @@
       },
       "locked": {
         "dir": "deps/fuzzy-parse",
-        "dirtyRev": "ba0f3b9aab3dcde28eb81874420d56a4cdf207ec-dirty",
-        "dirtyShortRev": "ba0f3b9a-dirty",
-        "lastModified": 1724898843,
-        "narHash": "sha256-CflAi+gG/Z4St8KZKbK8X3ZYxFHL73oWr9gWiNEqaY8=",
+        "dirtyRev": "06d8b60a4fb6cbe6886b36b5e73ba89ed23cdd6c-dirty",
+        "dirtyShortRev": "06d8b60a-dirty",
+        "lastModified": 1724899396,
+        "narHash": "sha256-jpKeeszYlaZXZMqD9reismeJPhV2IUDxO4OuraldLLA=",
         "type": "git",
         "url": "file:.?dir=deps/fuzzy-parse"
       },
@@ -301,10 +301,10 @@
       },
       "locked": {
         "dir": "deps/suckless-conf",
-        "dirtyRev": "ba0f3b9aab3dcde28eb81874420d56a4cdf207ec-dirty",
-        "dirtyShortRev": "ba0f3b9a-dirty",
-        "lastModified": 1724898843,
-        "narHash": "sha256-rJV1xCj+7vkIydveX3RMLHW09kiA1j1rD/2Cu0R8QSY=",
+        "dirtyRev": "06d8b60a4fb6cbe6886b36b5e73ba89ed23cdd6c-dirty",
+        "dirtyShortRev": "06d8b60a-dirty",
+        "lastModified": 1724899396,
+        "narHash": "sha256-hO8VRg3Dy1+Gm3XPbveVeEDWFkIcqvsaD8zJQieU8xM=",
         "type": "git",
         "url": "file:.?dir=deps/suckless-conf"
       },

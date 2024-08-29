@@ -53,7 +53,6 @@ outputs = { self, fuzzy-parse, nixpkgs, haskell-flake-utils, ... }@inputs:
       # Maps to the devShell output. Pass in a shell.nix file or function
 
       haskellFlakes = with inputs; [
-        fuzzy-parse
       ];
 
       # Additional build intputs of the default shell
