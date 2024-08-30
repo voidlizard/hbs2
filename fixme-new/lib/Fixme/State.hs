@@ -469,16 +469,16 @@ genPredQ tbl what = go what
       All -> ("true", mempty)
 
       FixmeHashExactly x ->
-        ([qc|({tbl}.fixme = ?)|], [Bound x])
+        ([qc|(s2.fixme = ?)|], [Bound x])
 
       AttrLike "fixme-hash" val -> do
         let binds = [Bound (val <> "%")]
-        ([qc|({tbl}.fixme like ?)|], binds)
+        ([qc|(s2.fixme like ?)|], binds)
 
       AttrLike name val -> do
         let x = val <> "%"
         let binds = [Bound x]
-        ([qc|(json_extract({tbl}.json, '$."{name}"') like ?)|], binds)
+        ([qc|(json_extract({tbl}, '$."{name}"') like ?)|], binds)
 
       Not a -> do
         let (sql, bound) = go a
@@ -527,7 +527,7 @@ updateFixmeJson = do
 selectFixmeThin :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [FixmeThin]
 selectFixmeThin a = withState do
 
-  let predic = genPredQ "j" (predicate a)
+  let predic = genPredQ "blob" (predicate a)
 
   let emptyObect = [q|'{}'|] :: String
 
@@ -537,14 +537,18 @@ with s1 as (
   select  m.hash as hash
         , cast(json_group_object(m.attr,m.value) as blob) as json
   from fixmestagemod m
-)
+),
 
-select  cast(json_patch(j.json, coalesce(s.json,{emptyObect})) as blob) as blob
+s2 as
+  ( select  cast(json_patch(j.json, coalesce(s.json,{emptyObect})) as blob) as blob, j.fixme as fixme
 
-from
-  fixmejson j join fixmeactual f on f.fixme = j.fixme
-              join fixme f0 on f0.id = f.fixme
-              left join s1 s on s.hash = j.fixme
+    from
+     fixmejson j join fixmeactual f on f.fixme = j.fixme
+                join fixme f0 on f0.id = f.fixme
+                left join s1 s on s.hash = j.fixme
+  )
+
+select s2.blob from s2
 
 where
 

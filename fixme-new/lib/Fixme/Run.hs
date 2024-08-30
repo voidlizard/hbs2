@@ -101,6 +101,7 @@ silence = do
   setLoggingOff @ERROR
   setLoggingOff @WARN
   setLoggingOff @NOTICE
+  setLoggingOff @TRACE
 
 
 readConfig :: FixmePerks m => FixmeM m [Syntax C]
@@ -323,11 +324,17 @@ runTop forms = do
 
          _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "log:trace:on" $ nil_ $ const do
+          lift $ setLogging @TRACE $ toStderr . logPrefix ""
+
+       entry $ bindMatch "log:trace:off" $ nil_ $ const do
+          lift $ setLoggingOff @TRACE
+
   conf <- readConfig
 
   argz <- liftIO getArgs
 
-  let args = zipWith (\i s -> bindValue (mkId ("%" <> show i)) (mkStr @C s )) [1..] argz
+  let args = zipWith (\i s -> bindValue (mkId ("$_" <> show i)) (mkStr @C s )) [1..] argz
                & HM.unions
 
   run (dict <> args) (conf <> forms) >>= eatNil display
