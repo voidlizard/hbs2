@@ -327,7 +327,6 @@ newCommit gh = isNothing <$> withState (selectObjectHash gh)
 
 insertFixme :: FixmePerks m => Fixme -> DBPipeM m ()
 insertFixme fx@Fixme{..} = do
-  notice $ red "insertFixme!!!"
   let fixme = serialise fx
   let fxId = hashObject @HbSync fixme & HashRef
   insert [qc|insert into fixme (id, ts, fixme) values (?,?,?)

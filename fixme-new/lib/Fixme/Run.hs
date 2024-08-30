@@ -103,18 +103,6 @@ silence = do
   setLoggingOff @NOTICE
 
 
-defaultTemplate :: HashMap Id FixmeTemplate
-defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
-  where
-    short = parseTop s & fromRight mempty
-    s = [qc|
-(trim 10  $fixme-key) " "
-(align 6  $fixme-tag) " "
-(trim 50  ($fixme-title))
-(nl)
-    |]
-
-
 readConfig :: FixmePerks m => FixmeM m [Syntax C]
 readConfig = do
 
@@ -216,6 +204,14 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+        -- ListVal (SymbolVal "list" : (Template n [])) -> do
+        --   debug $ "list" <+> pretty n
+        --   list_ n ()
+
+       entry $ bindMatch "report" $ nil_ $ const $ do
+         lift $ list_ Nothing ()
+
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
 
@@ -243,7 +239,7 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
-       entry $ bindMatch "fixme:list" $ nil_ $ const do
+       entry $ bindMatch "fixme:list:poor" $ nil_ $ const do
         fme <- lift listFixmies
         pure ()
 

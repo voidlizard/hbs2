@@ -49,6 +49,17 @@ import System.IO qualified as IO
 import Streaming.Prelude qualified as S
 
 
+defaultTemplate :: HashMap Id FixmeTemplate
+defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
+  where
+    short = parseTop s & fromRight mempty
+    s = [qc|
+(trim 10  $fixme-key) " "
+(align 6  $fixme-tag) " "
+(trim 50  ($fixme-title))
+(nl)
+    |]
+
 
 init :: FixmePerks m => FixmeM m ()
 init = do
@@ -198,4 +209,24 @@ importFromLog fn = do
     updateIndexes
 
   compactStorageClose sto
+
+
+list_ :: (FixmePerks m, HasPredicate a) => Maybe Id -> a -> FixmeM m ()
+list_ tpl a = do
+  tpl <- asks fixmeEnvTemplates >>= readTVarIO
+            <&> HM.lookup (fromMaybe "default" tpl)
+
+  fixmies <- selectFixmeThin a
+
+  case tpl of
+    Nothing-> do
+      liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
+
+    Just (Simple (SimpleTemplate simple)) -> do
+      for_ fixmies $ \(FixmeThin attr) -> do
+        let subst = [ (mkId k, mkStr @C v) | (k,v) <- HM.toList attr ]
+        let what = render (SimpleTemplate (inject  subst simple))
+                      & fromRight "render error"
+
+        liftIO $ hPutDoc stdout what
 
