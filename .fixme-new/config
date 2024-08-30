@@ -54,5 +54,8 @@ fixme-comments ";" "--"
 
 (define (ls) (report))
 
+(define (ls:wip) (report workflow ~ wip))
+
 (define (stage) (fixme:stage:show))
+
 

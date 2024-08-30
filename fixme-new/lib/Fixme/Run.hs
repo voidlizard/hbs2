@@ -114,7 +114,7 @@ readConfig = do
     try @_ @IOException (liftIO $ readFile conf)
       <&> fromRight mempty
       <&> parseTop
-      <&> fromRight mempty
+      >>= either (error.show) pure
 
   pure $ mconcat w
 
@@ -318,7 +318,6 @@ runTop forms = do
 
        entry $ bindMatch "define-template" $ nil_ $ \case
          [SymbolVal who, IsSimpleTemplate body ] -> do
-          -- notice $ red "define-template" <+> pretty who <+> pretty what
           t <- lift $ asks fixmeEnvTemplates
           atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate body)))
 

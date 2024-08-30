@@ -217,6 +217,7 @@ importFromLog fn = do
 
 list_ :: (FixmePerks m, HasPredicate a) => Maybe Id -> a -> FixmeM m ()
 list_ tpl a = do
+
   tpl <- asks fixmeEnvTemplates >>= readTVarIO
             <&> HM.lookup (fromMaybe "default" tpl)
 

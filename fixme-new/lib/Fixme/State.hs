@@ -537,6 +537,7 @@ with s1 as (
   select  m.hash as hash
         , cast(json_group_object(m.attr,m.value) as blob) as json
   from fixmestagemod m
+  where not exists (select null from fixmestagedel d where d.hash = m.hash)
 ),
 
 s2 as

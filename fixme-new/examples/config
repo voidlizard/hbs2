@@ -52,3 +52,10 @@ fixme-comments ";" "--"
 
 (set-template default short)
 
+(define (ls) (report))
+
+(define (ls:wip) (report workflow ~ wip))
+
+(define (stage) (fixme:stage:show))
+
+
