@@ -1,0 +1,6 @@
+
+fixme-pager (quot (bat  "--file-name" $file "-H" $before))
+
+fixme-def-context 2 5
+
+

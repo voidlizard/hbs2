@@ -234,3 +234,60 @@ list_ tpl a = do
 
         liftIO $ hPutDoc stdout what
 
+catFixmeMetadata :: FixmePerks m => Text -> FixmeM m ()
+catFixmeMetadata = cat_ True
+
+catFixme :: FixmePerks m => Text -> FixmeM m ()
+catFixme = cat_ False
+
+cat_ :: FixmePerks m => Bool -> Text -> FixmeM m ()
+cat_ metaOnly hash = do
+
+  (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
+  gd  <- fixmeGetGitDirCLIOpt
+
+  CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
+
+  void $ flip runContT pure do
+    callCC \exit -> do
+
+      mha <- lift $ selectFixmeHash hash
+
+      ha <- ContT $ maybe1 mha (pure ())
+
+      fme' <- lift $ selectFixme ha
+
+      Fixme{..} <- ContT $ maybe1 fme' (pure ())
+
+      when metaOnly do
+        for_ (HM.toList fixmeAttr) $ \(k,v) -> do
+          liftIO $ print $ (pretty k <+> pretty v)
+        exit ()
+
+      let gh' = HM.lookup "blob" fixmeAttr
+
+      -- FIXME: define-fallback-action
+      gh <- ContT $ maybe1 gh' none
+
+      let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
+
+      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
+      let bbefore = if start > before then before  + 1 else 1
+      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
+      let lno   = max 1 $ origLen + after + before
+
+      let dict = [ (mkId k, mkStr @C   v) | (k,v) <- HM.toList fixmeAttr ]
+                 <>
+                 [ (mkId (FixmeAttrName "before"), mkStr @C (FixmeAttrVal $ Text.pack $ show bbefore))
+                 ]
+
+      debug (pretty cmd)
+
+      w <- gitRunCommand cmd
+            <&> either (LBS8.pack . show) id
+            <&> LBS8.lines
+            <&> drop start
+            <&> take lno
+
+      liftIO $ action  dict (LBS8.unlines w)
+

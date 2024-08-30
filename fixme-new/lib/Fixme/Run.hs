@@ -195,12 +195,39 @@ runTop forms = do
          _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "fixme-pager" $ nil_ \case
-        _ -> warn $ yellow "fixme-pager" <+> "instruction is not supported yet"
+         [ListVal cmd0] -> do
+            t <- lift $ asks fixmeEnvCatAction
+            let action =  CatAction $ \dict lbs -> do
+
+                  let ccmd = case inject dict cmd0 of
+                               (StringLike p : StringLikeList xs) -> Just (p, xs)
+                               _  -> Nothing
+
+
+                  debug $ pretty ccmd
+
+                  maybe1 ccmd none $ \(p, args) -> do
+
+                    let input = byteStringInput lbs
+                    let cmd = setStdin input $ setStderr closed
+                                             $ proc p args
+                    void $ runProcess cmd
+
+            atomically $ writeTVar t action
 
        entry $ bindMatch "fixme-def-context" $ nil_ \case
         [LitIntVal a, LitIntVal b] -> do
           t <- lift $ asks fixmeEnvCatContext
           atomically $ writeTVar t (fromIntegral a, fromIntegral b)
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "cat" $ nil_ \case
+        [SymbolVal "metadata", FixmeHashLike hash] -> do
+          lift $ catFixmeMetadata hash
+
+        [FixmeHashLike hash] -> do
+          lift $ catFixme hash
 
         _ -> throwIO $ BadFormException @C nil
 
