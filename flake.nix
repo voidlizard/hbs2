@@ -105,6 +105,8 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
 
    ];
 
+  shellWithHoogle = true;
+
    shell = {pkgs, ...}:
       pkgs.haskellPackages.shellFor {
         packages = _: pkgs.lib.attrsets.attrVals packageNames pkgs.haskellPackages;

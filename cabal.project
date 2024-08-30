@@ -9,6 +9,10 @@ constraints:
   , suckless-conf >= 0.1.2.7
   , http-client >=0.7.16 && <0.8
 
+haddock-hoogle: true
+
+haddock-html: true
+
 -- executable-static: True
 -- profiling: True
 -- library-profiling: False

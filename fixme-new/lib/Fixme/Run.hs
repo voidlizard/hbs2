@@ -48,7 +48,7 @@ import System.IO.Temp as Temp
 import System.IO qualified as IO
 
 
-{- HLINT Ignore "Functor law" -}
+{- HLINT ignore "Functor law" -}
 
 withFixmeCLI :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeCLI env m = do
@@ -221,6 +221,8 @@ runTop forms = do
                     void $ runProcess cmd
 
             atomically $ writeTVar t action
+
+         _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "fixme-def-context" $ nil_ \case
         [LitIntVal a, LitIntVal b] -> do
