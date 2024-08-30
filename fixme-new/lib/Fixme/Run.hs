@@ -204,13 +204,14 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "report" $ nil_ \case
+        [] -> lift $ list_ Nothing ()
 
-        -- ListVal (SymbolVal "list" : (Template n [])) -> do
-        --   debug $ "list" <+> pretty n
-        --   list_ n ()
+        (SymbolVal "--template" : StringLike name : query) -> do
+          lift $ list_ (Just (fromString name)) query
 
-       entry $ bindMatch "report" $ nil_ $ const $ do
-         lift $ list_ Nothing ()
+        query -> do
+          lift $ list_ mzero query
 
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
@@ -256,6 +257,23 @@ runTop forms = do
 
        entry $ bindMatch "init" $ nil_ $ const $ do
         lift init
+
+       entry $ bindMatch "set-template" $ nil_ \case
+         [SymbolVal who, SymbolVal w] -> do
+           templates <- lift $ asks fixmeEnvTemplates
+           t <- readTVarIO templates
+           for_ (HM.lookup w t) $ \tpl -> do
+             atomically $ modifyTVar templates (HM.insert who tpl)
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "define-template" $ nil_ $ \case
+         [SymbolVal who, IsSimpleTemplate body ] -> do
+          -- notice $ red "define-template" <+> pretty who <+> pretty what
+          t <- lift $ asks fixmeEnvTemplates
+          atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate body)))
+
+         _ -> throwIO $ BadFormException @C nil
 
   conf <- readConfig
 

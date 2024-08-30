@@ -1,3 +1,5 @@
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 module Fixme.Run.Internal where
 
 import Prelude hiding (init)
@@ -48,6 +50,8 @@ import System.IO qualified as IO
 
 import Streaming.Prelude qualified as S
 
+pattern IsSimpleTemplate ::  forall {c} . [Syntax c] -> Syntax c
+pattern IsSimpleTemplate xs <- ListVal (SymbolVal "simple" : xs)
 
 defaultTemplate :: HashMap Id FixmeTemplate
 defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]

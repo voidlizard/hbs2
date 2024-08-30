@@ -28,3 +28,27 @@ fixme-file-comments "*.scm" ";"
 
 fixme-comments ";" "--"
 
+(define-template short
+  (quot
+    (simple
+         (trim 10  $fixme-key) " "
+
+         (if (~ FIXME $fixme-tag)
+          (then (fgd red (align 6  $fixme-tag))  )
+          (else (if (~ TODO $fixme-tag)
+                  (then (fgd green (align 6  $fixme-tag)))
+                  (else (align 6  $fixme-tag)) ) )
+          )
+
+
+         (align 10  ("[" $workflow "]"))  " "
+         (align 8  $type)  " "
+         (align 12 $assigned)  " "
+         (align 20 (trim 20 $committer-name)) " "
+         (trim 50  ($fixme-title)) " "
+         (nl))
+    )
+)
+
+(set-template default short)
+
