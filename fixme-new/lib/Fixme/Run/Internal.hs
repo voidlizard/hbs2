@@ -180,8 +180,18 @@ exportToLog fn = do
 
   cleanStage
 
-importFromLog :: FixmePerks m => FilePath -> FixmeM m ()
-importFromLog fn = do
+
+sanitizeLog :: [Syntax c] -> [Syntax c]
+sanitizeLog lls = flip filter lls $ \case
+  ListVal (SymbolVal "deleted" : _) -> True
+  ListVal (SymbolVal "modified" : _) -> True
+  _ -> False
+
+importFromLog :: FixmePerks m
+              => FilePath
+              -> ([Syntax C] -> FixmeM m ())
+              -> FixmeM m ()
+importFromLog fn runIns = do
   fset <- listAllFixmeHashes
 
   sto <- compactStorageOpen @HbSync readonly fn
@@ -196,7 +206,7 @@ importFromLog fn = do
         Added _ fx  -> do
           let ha = hashObject @HbSync (serialise fx) & HashRef
           unless (HS.member ha fset) do
-            warn $ red "import" <+> viaShow (pretty ha)
+            debug $ red "import" <+> viaShow (pretty ha)
             lift $ S.yield (Right fx)
         w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
 
@@ -205,9 +215,7 @@ importFromLog fn = do
 
   let w = lefts toImport
 
-  for_ w $ \x -> do
-    liftIO $ print $ pretty x
-  -- runTop (mconcat w)
+  runIns (sanitizeLog $ mconcat w)
 
   unless (List.null toImport) do
     updateIndexes

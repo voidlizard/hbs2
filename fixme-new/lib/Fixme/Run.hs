@@ -50,7 +50,11 @@ import System.IO qualified as IO
 
 {- HLINT Ignore "Functor law" -}
 
-runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
+withFixmeCLI :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
+withFixmeCLI env m = do
+  runReaderT (fromFixmeM m) env
+
+runFixmeCLI :: forall a m . FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   dbPath <- localDBPath
   git <- findGitDir
@@ -127,8 +131,10 @@ runCLI = do
 
   runTop forms
 
-runTop :: FixmePerks m => [Syntax C] -> FixmeM m ()
+runTop :: forall m . FixmePerks m => [Syntax C] -> FixmeM m ()
 runTop forms = do
+
+  tvd  <- newTVarIO mempty
 
   let dict = makeDict @C do
 
@@ -263,14 +269,32 @@ runTop forms = do
         _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "fixme:log:import" $ nil_ \case
-        [StringLike fn] -> do
-           lift $ importFromLog fn
+        [StringLike fn] -> lift do
+           env <- ask
+           d   <- readTVarIO tvd
+           importFromLog fn $ \ins -> do
+              void $ run d ins
+           updateIndexes
 
         _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "fixme:list:poor" $ nil_ $ const do
         fme <- lift listFixmies
         pure ()
+
+       entry $ bindMatch "deleted" $ nil_ $ \case
+         [TimeStampLike _, FixmeHashLike hash] -> lift do
+           trace $ red "deleted" <+> pretty hash
+           deleteFixme hash
+
+         _ -> pure ()
+
+       entry $ bindMatch  "modified" $ nil_ $ \case
+        [TimeStampLike _, FixmeHashLike hash, StringLike a, StringLike b] -> do
+          trace $ red "modified!" <+> pretty hash <+> pretty a <+> pretty b
+          lift $ updateFixme Nothing hash (fromString a) (fromString b)
+
+        _ -> pure ()
 
        entry $ bindMatch "delete" $ nil_ \case
          [FixmeHashLike hash] -> lift $ delete hash
@@ -286,6 +310,12 @@ runTop forms = do
        entry $ bindMatch "fixme:stage:show" $ nil_ $ const do
           stage <- lift selectStage
           liftIO $ print $ vcat (fmap pretty stage)
+
+       entry $ bindMatch "fixme:state:drop" $ nil_ $ const do
+          lift cleanupDatabase
+
+       entry $ bindMatch "fixme:state:clean" $ nil_ $ const do
+          lift cleanupDatabase
 
        entry $ bindMatch "fixme:stage:drop" $ nil_ $ const do
           lift cleanStage
@@ -336,5 +366,9 @@ runTop forms = do
   let args = zipWith (\i s -> bindValue (mkId ("$_" <> show i)) (mkStr @C s )) [1..] argz
                & HM.unions
 
-  run (dict <> args) (conf <> forms) >>= eatNil display
+  let finalDict = dict <> args -- :: Dict C (FixmeM m)
+
+  atomically $ writeTVar tvd finalDict
+
+  run finalDict (conf <> forms) >>= eatNil display
 

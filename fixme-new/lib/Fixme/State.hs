@@ -685,7 +685,6 @@ updateIndexes = withState $ transactional do
   update_ [qc|delete from fixmejson where fixme in (select distinct id from fixmedeleted)|]
 
 
-
 insertProcessed :: (FixmePerks m, MonadReader FixmeEnv m, Hashed HbSync w)
                 => w
                 -> DBPipeM m ()

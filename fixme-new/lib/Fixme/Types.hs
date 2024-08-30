@@ -302,7 +302,7 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                                       )
 
 
-fixmeEnvBare :: FixmePerks m => m FixmeEnv
+fixmeEnvBare :: forall m .  FixmePerks m => m FixmeEnv
 fixmeEnvBare =
   FixmeEnv
     <$>  newMVar ()
