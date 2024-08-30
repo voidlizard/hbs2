@@ -271,6 +271,27 @@ runTop forms = do
         fme <- lift listFixmies
         pure ()
 
+       entry $ bindMatch "delete" $ nil_ \case
+         [FixmeHashLike hash] -> lift $ delete hash
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "modify" $ nil_ \case
+         [FixmeHashLike hash, StringLike a, StringLike b] -> do
+           lift $ modify_ hash a b
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme:stage:show" $ nil_ $ const do
+          stage <- lift selectStage
+          liftIO $ print $ vcat (fmap pretty stage)
+
+       entry $ bindMatch "fixme:stage:drop" $ nil_ $ const do
+          lift cleanStage
+
+       entry $ bindMatch "fixme:stage:clean" $ nil_ $ const do
+          lift cleanStage
+
        entry $ bindMatch "fixme:scan-git-local" $ nil_ $ const do
         lift $ scanGitLocal mempty Nothing
 
@@ -304,5 +325,10 @@ runTop forms = do
 
   conf <- readConfig
 
-  run dict (conf <> forms) >>= eatNil display
+  argz <- liftIO getArgs
+
+  let args = zipWith (\i s -> bindValue (mkId ("%" <> show i)) (mkStr @C s )) [1..] argz
+               & HM.unions
+
+  run (dict <> args) (conf <> forms) >>= eatNil display
 

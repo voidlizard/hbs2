@@ -291,3 +291,18 @@ cat_ metaOnly hash = do
 
       liftIO $ action  dict (LBS8.unlines w)
 
+
+delete :: FixmePerks m => Text -> FixmeM m ()
+delete txt = do
+  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
+  hashes <- selectFixmeHashes txt
+  for_ hashes $ \ha -> do
+    insertFixmeDelStaged ha
+
+modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
+modify_ txt a b = do
+  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
+  void $ runMaybeT do
+    ha <- toMPlus =<< lift (selectFixmeHash txt)
+    lift $ insertFixmeModStaged ha (fromString a) (fromString b)
+

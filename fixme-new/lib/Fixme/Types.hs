@@ -46,6 +46,9 @@ pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 class MkId a where
   mkId :: a -> Id
 
+instance MkId String where
+  mkId s = fromString s
+
 instance MkId FixmeAttrName where
   mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
 
