@@ -4,8 +4,10 @@ packages: **/*.cabal
 
 allow-newer: all
 
-constraints: pandoc >=3.1.11, suckless-conf >= 0.1.2.7
-
+constraints:
+    pandoc >=3.1.11
+  , suckless-conf >= 0.1.2.7
+  , http-client >=0.7.16 && <0.8
 
 -- executable-static: True
 -- profiling: True
