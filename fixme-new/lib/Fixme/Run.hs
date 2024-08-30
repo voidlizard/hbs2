@@ -229,6 +229,12 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "dump" $ nil_ \case
+        [FixmeHashLike h] -> do
+          lift $ dumpFixme h
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "cat" $ nil_ \case
         [SymbolVal "metadata", FixmeHashLike hash] -> do
           lift $ catFixmeMetadata hash

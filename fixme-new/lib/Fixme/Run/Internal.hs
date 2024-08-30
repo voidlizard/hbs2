@@ -249,6 +249,14 @@ catFixmeMetadata = cat_ True
 catFixme :: FixmePerks m => Text -> FixmeM m ()
 catFixme = cat_ False
 
+dumpFixme :: FixmePerks m => Text -> FixmeM m ()
+dumpFixme hash = do
+  flip runContT pure do
+    mha <- lift $ selectFixmeHash hash
+    ha <- ContT $ maybe1 mha (pure ())
+    fme' <- lift $ selectFixme ha
+    liftIO $ print $ pretty fme'
+
 cat_ :: FixmePerks m => Bool -> Text -> FixmeM m ()
 cat_ metaOnly hash = do
 
