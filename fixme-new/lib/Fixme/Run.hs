@@ -270,6 +270,12 @@ runTop forms = do
 
          pure $ mkList elems
 
+       -- TODO: implement-fixme:refchan:export
+       entry $ bindMatch "fixme:refchan:export" $ nil_ \case
+        _ -> none
+
+       -- TODO: implement-fixme:refchan:import
+
        entry $ bindMatch "fixme:log:export" $ nil_ \case
         [StringLike fn] -> do
            lift $ exportToLog fn
@@ -331,7 +337,7 @@ runTop forms = do
        entry $ bindMatch "fixme:stage:clean" $ nil_ $ const do
           lift cleanStage
 
-       entry $ bindMatch "fixme:scan-git-local" $ nil_ $ const do
+       entry $ bindMatch "git:import" $ nil_ $ const do
         lift $ scanGitLocal mempty Nothing
 
        entry $ bindMatch "git:blobs" $  \_ -> do
