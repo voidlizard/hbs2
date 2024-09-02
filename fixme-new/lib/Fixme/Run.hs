@@ -427,6 +427,27 @@ runTop forms = do
        entry $ bindMatch "init" $ nil_ $ const $ do
         lift init
 
+       entry $ bindMatch  "refchan:sync" $ nil_ $ const  do
+        notice "running export to refchan"
+
+        rchan <- lift $ asks fixmeEnvRefChan
+                    >>= readTVarIO
+                    >>= orThrowUser "refchan is not set"
+
+        notice $ "1. read refchan" <+> pretty (AsBase58 rchan)
+
+        fxs <- lift $ selectFixmeThin ()
+
+        for_ fxs $ \(FixmeThin x) -> void $ runMaybeT do
+          h <- HM.lookup "fixme-hash" x & toMPlus
+          notice $ pretty h
+
+        notice "2. read issues from state"
+        notice "3. discover new issues"
+        notice "3. save merkle tree of new issues"
+        notice "4. post refchan tx"
+        pure ()
+
        brief "initializes a new refchan" $
          desc ( vcat [
                    "Refchan is an ACL-controlled CRDT channel useful for syncronizing"
@@ -531,14 +552,6 @@ runTop forms = do
                      show $ pretty ( mkList @C [ mkSym "refchan"
                                                , mkSym (show $ pretty (AsBase58 refchan)) ]
                                    )
-
-                pure ()
-
-             -- notice $ yellow "2. generate refchan head"
-             -- notice $ yellow "3. subscribe peer to this refchan"
-             -- notice $ yellow "4. post refcha head"
-             -- notice $ yellow "5. add def-refchan ins to the config"
-             -- notice $ green  "6. we're done"
 
 
        entry $ bindMatch "set-template" $ nil_ \case
