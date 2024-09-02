@@ -465,7 +465,7 @@ scanGitLocal args p =  do
 
             debug $ "actually-import-fixmies" <+> pretty h
 
-            liftIO $ withFixmeEnv env $ withState $ transactional do
+            lift $ withFixmeEnv env $ withState $ transactional do
               insertBlob h
               for_ fixmies insertFixme
 
@@ -474,7 +474,7 @@ scanGitLocal args p =  do
       unless ( ScanRunDry `elem` args ) do
         lift runLogActions
 
-      liftIO $ withFixmeEnv env $ withState $ transactional do
+      lift $ withFixmeEnv env $ withState $ transactional do
         for_ co $ \w -> do
           insertCommit (view _1 w)
 

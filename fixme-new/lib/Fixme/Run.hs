@@ -11,7 +11,10 @@ import Fixme.Scan as Scan
 import Fixme.Log
 
 import HBS2.Git.Local.CLI
+import HBS2.Peer.Proto.RefChan.Types
 
+import HBS2.OrDie
+import HBS2.Peer.CLI.Detect
 import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
@@ -50,9 +53,50 @@ import System.IO qualified as IO
 
 {- HLINT ignore "Functor law" -}
 
-withFixmeCLI :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
+
+recover :: (FixmePerks m) => FixmeEnv -> m a -> m a
+recover env m = flip fix 0 $ \next attempt
+    -> do m
+        `catch` (\PeerNotConnected  -> do
+                    if attempt < 1 then do
+                      runWithRPC env $ next (succ attempt)
+                    else do
+                      throwIO PeerNotConnected
+               )
+
+withFixmeCLI :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeEnv -> FixmeM m a -> m a
 withFixmeCLI env m = do
-  runReaderT (fromFixmeM m) env
+  recover env do
+    withFixmeEnv env m
+
+runWithRPC :: (FixmePerks m) => FixmeEnv ->  m a -> m a
+runWithRPC FixmeEnv{..} m = do
+
+  soname <- detectRPC
+              `orDie` "can't locate hbs2-peer rpc"
+
+  flip runContT pure do
+
+    client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+                >>= orThrowUser ("can't connect to" <+> pretty soname)
+
+    void $ ContT $ withAsync $ runMessagingUnix client
+
+    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+    refChanAPI <- makeServiceCaller @RefChanAPI (fromString soname)
+    storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+
+    let endpoints = [ Endpoint @UNIX  peerAPI
+                    , Endpoint @UNIX  refChanAPI
+                    , Endpoint @UNIX  storageAPI
+                    ]
+
+    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+
+
+    let newEnv = Just (MyPeerClientEndpoints soname peerAPI refChanAPI storageAPI)
+    liftIO $ atomically $ writeTVar fixmeEnvMyEndpoints newEnv
+    lift m
 
 runFixmeCLI :: forall a m . FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
@@ -77,13 +121,15 @@ runFixmeCLI m = do
             <*>  newTVarIO defaultTemplate
             <*>  newTVarIO mempty
             <*>  newTVarIO (1,3)
+            <*>  newTVarIO mzero
 
   -- FIXME: defer-evolve
   --   не все действия требуют БД,
   --   хорошо бы, что бы она не создавалась,
   --   если не требуется
-  runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
-                 `finally` flushLoggers
+  recover env do
+    runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
+                   `finally` flushLoggers
   where
     setupLogger = do
       setLogging @ERROR  $ toStderr . logPrefix "[error] "
@@ -351,6 +397,38 @@ runTop forms = do
        entry $ bindMatch "init" $ nil_ $ const $ do
         lift init
 
+       brief "initializes a new refchan" $
+         desc ( vcat [
+                   "Refchan is an ACL-controlled CRDT channel useful for syncronizing"
+                 , "fixme-new state amongst the different remote setups/peers/directories"
+                 , "use it if you want to use fixme-new in a distributed fashion"
+                 ]
+              ) $
+         args [] $
+         returns "string" "refchan-key" $ do
+         entry $ bindMatch "refchan:init" $ nil_ $ const $ do
+
+           let rch0 = refChanHeadDefault @L4Proto
+
+           rch <- flip runContT pure do
+
+               notice $ yellow "1. find group key"
+
+               -- TODO: use-hbs2-git-api?
+               (e, gkh, _) <- readProcess (shell [qc|git hbs2 key|])
+                                <&> over _2 (fromStringMay @HashRef . headDef "" . lines . LBS8.unpack)
+
+               notice $ "gkh:" <+> pretty gkh
+
+               notice $ yellow "2. generate refchan head"
+               notice $ yellow "3. subscribe peer to this refchan"
+               notice $ yellow "4. post refcha head"
+               notice $ yellow "5. add def-refchan ins to the config"
+               notice $ green  "6. we're done"
+
+           pure ()
+
+
        entry $ bindMatch "set-template" $ nil_ \case
          [SymbolVal who, SymbolVal w] -> do
            templates <- lift $ asks fixmeEnvTemplates
@@ -372,6 +450,13 @@ runTop forms = do
 
        entry $ bindMatch "log:trace:off" $ nil_ $ const do
           lift $ setLoggingOff @TRACE
+
+
+       entry $ bindMatch "debug:peer:check" $ nil_ $ const do
+        peer <- lift $ getClientAPI @PeerAPI @UNIX
+        poked <- callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
+                   <&> fromMaybe "hbs2-peer not connected"
+        liftIO $ putStrLn poked
 
   conf <- readConfig
 

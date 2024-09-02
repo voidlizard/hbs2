@@ -1,7 +1,8 @@
-{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns, TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.Types
   ( module Fixme.Types
+  , module Exported
   ) where
 
 import Fixme.Prelude hiding (align)
@@ -9,6 +10,17 @@ import HBS2.Base58
 
 import DBPipe.SQLite hiding (field)
 import HBS2.Git.Local
+
+import HBS2.OrDie
+import HBS2.Storage as Exported
+import HBS2.Peer.CLI.Detect
+import HBS2.Peer.RPC.Client as Exported hiding (encode,decode)
+import HBS2.Peer.RPC.Client.Unix as Exported  hiding (encode,decode)
+import HBS2.Peer.RPC.API.Peer as Exported
+import HBS2.Peer.RPC.API.RefChan as Exported
+import HBS2.Peer.RPC.API.Storage as Exported
+import HBS2.Peer.RPC.Client.StorageClient as Exported
+
 
 import Data.Config.Suckless
 
@@ -32,6 +44,17 @@ import System.FilePath
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
+
+
+data MyPeerClientEndpoints =
+  MyPeerClientEndpoints
+  { _peerSocket      :: FilePath
+  , _peerPeerAPI     :: ServiceCaller PeerAPI UNIX
+  , _peerRefChanAPI  :: ServiceCaller RefChanAPI UNIX
+  , _peerStorageAPI  :: ServiceCaller StorageAPI UNIX
+  }
+
+makeLenses 'MyPeerClientEndpoints
 
 -- FIXME: move-to-suckless-conf
 deriving stock instance Ord (Syntax C)
@@ -143,7 +166,6 @@ newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
 
 
 
-
 type FixmePerks m = ( MonadUnliftIO m
                     , MonadIO m
                     )
@@ -245,6 +267,11 @@ instance Monoid FixmeOpts where
 instance Semigroup FixmeOpts where
   (<>) _ b = FixmeOpts (fixmeOptNoEvolve b)
 
+data PeerNotConnected = PeerNotConnected
+     deriving (Show,Typeable)
+
+instance Exception PeerNotConnected
+
 data FixmeEnv =
   FixmeEnv
   { fixmeLock              :: MVar ()
@@ -265,6 +292,7 @@ data FixmeEnv =
   , fixmeEnvTemplates      :: TVar (HashMap Id FixmeTemplate)
   , fixmeEnvMacro          :: TVar (HashMap Id (Syntax C))
   , fixmeEnvCatContext     :: TVar (Int,Int)
+  , fixmeEnvMyEndpoints    :: TVar (Maybe MyPeerClientEndpoints)
   }
 
 
@@ -323,6 +351,7 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO (1,3)
+    <*>  newTVarIO mzero
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
@@ -337,6 +366,23 @@ instance Serialise FixmeOffset
 instance Serialise FixmeKey
 instance Serialise Fixme
 
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI PeerAPI UNIX m where
+  getClientAPI = getApiOrThrow peerPeerAPI
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI RefChanAPI UNIX m where
+  getClientAPI = getApiOrThrow peerRefChanAPI
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI StorageAPI UNIX m where
+  getClientAPI = getApiOrThrow peerStorageAPI
+
+getApiOrThrow :: (MonadReader FixmeEnv m, MonadIO m)
+              => Getting b MyPeerClientEndpoints b -> m b
+getApiOrThrow getter =
+    asks fixmeEnvMyEndpoints
+      >>= readTVarIO
+      >>= orThrow PeerNotConnected
+      <&> view getter
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
