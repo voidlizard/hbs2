@@ -1,5 +1,7 @@
 module HBS2.CLI.Run.KeyMan
-  (keymanEntries) where
+  ( module HBS2.CLI.Run.KeyMan
+  , keymanNewCredentials
+  ) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal

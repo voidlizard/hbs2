@@ -10,12 +10,20 @@ import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
 import Fixme.Log
 
+import HBS2.KeyMan.Keys.Direct
+
 import HBS2.Git.Local.CLI
 import HBS2.Peer.Proto.RefChan.Types
 
+import HBS2.CLI.Run.KeyMan (keymanNewCredentials)
+
 import HBS2.OrDie
 import HBS2.Peer.CLI.Detect
+import HBS2.Net.Auth.GroupKeySymm
+import HBS2.Data.Types.SignedBox
 import HBS2.Base58
+import HBS2.Storage.Operations.ByteString
+import HBS2.Net.Auth.Credentials
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
 import HBS2.Storage
@@ -45,11 +53,11 @@ import Control.Monad.Identity
 import Lens.Micro.Platform
 import System.Environment
 import System.Process.Typed
+import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import System.IO.Temp as Temp
 import System.IO qualified as IO
-
 
 {- HLINT ignore "Functor law" -}
 
@@ -122,6 +130,7 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO (1,3)
             <*>  newTVarIO mzero
+            <*>  newTVarIO mzero
 
   -- FIXME: defer-evolve
   --   не все действия требуют БД,
@@ -176,6 +185,11 @@ runCLI = do
            & either  (error.show) pure
 
   runTop forms
+
+notEmpty :: [a] -> Maybe [a]
+notEmpty = \case
+  [] -> Nothing
+  x  -> Just x
 
 runTop :: forall m . FixmePerks m => [Syntax C] -> FixmeM m ()
 runTop forms = do
@@ -304,6 +318,18 @@ runTop forms = do
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
 
+       entry $ bindMatch "refchan:show" $ nil_ $ const do
+          tref <- lift $ asks fixmeEnvRefChan
+          r <- readTVarIO tref
+          liftIO $ print $ pretty (fmap AsBase58 r)
+
+       entry $ bindMatch "refchan" $ nil_ \case
+        [SignPubKeyLike rchan] -> do
+          tref<- lift $ asks fixmeEnvRefChan
+          atomically  $ writeTVar tref (Just rchan)
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "git:commits" $ const $ do
         co <- lift listCommits <&> fmap (mkStr @C . view _1)
         pure $ mkList co
@@ -383,6 +409,10 @@ runTop forms = do
        entry $ bindMatch "fixme:stage:clean" $ nil_ $ const do
           lift cleanStage
 
+       entry $ bindMatch "fixme:config:path" $ const do
+        co <- localConfig
+        pure $ mkStr @C co
+
        entry $ bindMatch "git:import" $ nil_ $ const do
         lift $ scanGitLocal mempty Nothing
 
@@ -409,24 +439,106 @@ runTop forms = do
          entry $ bindMatch "refchan:init" $ nil_ $ const $ do
 
            let rch0 = refChanHeadDefault @L4Proto
+           sto <- lift getStorage
+           peer <- lift $ getClientAPI @PeerAPI @UNIX
+           rchanApi <- lift $ getClientAPI @RefChanAPI @UNIX
 
-           rch <- flip runContT pure do
+           confFile <- localConfig
+           conf <- liftIO (readFile confFile)
+                      <&> parseTop
+                      <&> either (error.show) (fmap (fixContext @_ @C))
 
-               notice $ yellow "1. find group key"
+           let already = headMay [ x
+                                 | ListVal [StringLike "refchan", SignPubKeyLike x] <- conf
+                                 ]
 
-               -- TODO: use-hbs2-git-api?
-               (e, gkh, _) <- readProcess (shell [qc|git hbs2 key|])
-                                <&> over _2 (fromStringMay @HashRef . headDef "" . lines . LBS8.unpack)
+           flip runContT pure $ callCC \done -> do
 
-               notice $ "gkh:" <+> pretty gkh
+             when (isJust already) do
+              warn $ red "refchan is already set" <+> pretty (fmap AsBase58 already)
 
-               notice $ yellow "2. generate refchan head"
-               notice $ yellow "3. subscribe peer to this refchan"
-               notice $ yellow "4. post refcha head"
-               notice $ yellow "5. add def-refchan ins to the config"
-               notice $ green  "6. we're done"
+             poked <- lift $ callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
+                        >>= orThrowUser "hbs2-peer not connected"
+                        <&> parseTop
+                        <&> fromRight mempty
 
-           pure ()
+             pkey <- [ fromStringMay @(PubKey 'Sign 'HBS2Basic) x
+                     | ListVal [SymbolVal "peer-key:", StringLike x ] <- poked
+                     ] & headMay . catMaybes & orThrowUser "hbs2-peer key not set"
+
+
+             notice $ green "default peer" <+> pretty (AsBase58 pkey)
+
+
+             signK' <- lift $ runKeymanClientRO $ listCredentials
+                     <&> headMay
+
+             signK <- ContT $ maybe1 signK' (throwIO $ userError "no default author key found in hbs2-keyman")
+
+             notice $ green "default author" <+> pretty (AsBase58 signK)
+
+             -- TODO: use-hbs2-git-api?
+             (_, gkh', _) <- readProcess (shell [qc|git hbs2 key|])
+                              <&> over _2 (  (fromStringMay @HashRef)  <=< (notEmpty . headDef "" . lines . LBS8.unpack) )
+                              <&> \x ->  case view _1 x of
+                                    ExitFailure _ -> set _2 Nothing x
+                                    ExitSuccess   -> x
+
+             notice $ green "group key" <+> maybe "none" pretty gkh'
+
+             readers <- fromMaybe mempty <$> runMaybeT do
+                          gh <- toMPlus gkh'
+                          gk <- loadGroupKeyMaybe @'HBS2Basic sto gh
+                                   >>= toMPlus
+                          pure $ HM.keys (recipients gk)
+
+             notice $ green "readers" <+> pretty (length readers)
+
+             let rch1 = rch0 & set refChanHeadReaders (HS.fromList readers)
+                             & set refChanHeadAuthors (HS.singleton signK)
+                             & set refChanHeadPeers   (HM.singleton pkey 1)
+
+
+             let unlucky =    HM.null (view refChanHeadPeers rch1)
+                           || HS.null (view refChanHeadAuthors rch1)
+
+
+             liftIO $ print $ pretty rch1
+
+             if unlucky then do
+                warn $ red $ "refchan definition is not complete;" <+>
+                             "you may add missed keys, edit the"   <+>
+                             "defition and add if manually or repeat init attempt"
+                             <> line
+             else do
+                notice "refchan definition seems okay, adding new refchan"
+                refchan <- lift $ keymanNewCredentials (Just "refchan") 0
+
+                creds <- lift $ runKeymanClientRO $ loadCredentials refchan
+                               >>= orThrowUser "can't load credentials"
+
+                let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch1
+
+                href <- writeAsMerkle sto  (serialise box)
+
+                callService @RpcPollAdd peer (refchan, "refchan", 17)
+                    >>= orThrowUser "can't subscribe to refchan"
+
+                callService @RpcRefChanHeadPost rchanApi (HashRef href)
+                    >>= orThrowUser "can't post refchan head"
+
+                liftIO $ appendFile confFile $
+                     show $ pretty ( mkList @C [ mkSym "refchan"
+                                               , mkSym (show $ pretty (AsBase58 refchan)) ]
+                                   )
+
+                pure ()
+
+             -- notice $ yellow "2. generate refchan head"
+             -- notice $ yellow "3. subscribe peer to this refchan"
+             -- notice $ yellow "4. post refcha head"
+             -- notice $ yellow "5. add def-refchan ins to the config"
+             -- notice $ green  "6. we're done"
 
 
        entry $ bindMatch "set-template" $ nil_ \case

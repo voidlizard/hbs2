@@ -1,4 +1,7 @@
-module HBS2.CLI.Run.RefChan where
+module HBS2.CLI.Run.RefChan
+  ( module HBS2.CLI.Run.RefChan
+  , keymanNewCredentials
+  ) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal

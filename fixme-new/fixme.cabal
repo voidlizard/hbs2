@@ -57,6 +57,7 @@ common shared-properties
       , hbs2-storage-simple
       , hbs2-keyman-direct-lib
       , hbs2-git
+      , hbs2-cli
       , db-pipe
       , suckless-conf
       , fuzzy-parse

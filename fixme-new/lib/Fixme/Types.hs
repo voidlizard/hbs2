@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms, ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.Types
   ( module Fixme.Types
@@ -293,6 +294,7 @@ data FixmeEnv =
   , fixmeEnvMacro          :: TVar (HashMap Id (Syntax C))
   , fixmeEnvCatContext     :: TVar (Int,Int)
   , fixmeEnvMyEndpoints    :: TVar (Maybe MyPeerClientEndpoints)
+  , fixmeEnvRefChan        :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
   }
 
 
@@ -352,6 +354,7 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO (1,3)
     <*>  newTVarIO mzero
+    <*>  newTVarIO mzero
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
@@ -375,6 +378,12 @@ instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI RefChanAPI UNIX 
 
 instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI StorageAPI UNIX m where
   getClientAPI = getApiOrThrow peerStorageAPI
+
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasStorage m where
+  getStorage = do
+    api <- getClientAPI @StorageAPI @UNIX
+    pure $ AnyStorage (StorageClient api)
 
 getApiOrThrow :: (MonadReader FixmeEnv m, MonadIO m)
               => Getting b MyPeerClientEndpoints b -> m b
