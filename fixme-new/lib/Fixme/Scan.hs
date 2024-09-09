@@ -179,7 +179,7 @@ scanBlob fpath lbs = do
       FixmeHead lno  _ tag title ->
           Fixme (FixmeTag tag)
                 (FixmeTitle title)
-                Nothing
+                mempty
                 Nothing
                 (Just (FixmeOffset (fromIntegral lno)))
                 Nothing

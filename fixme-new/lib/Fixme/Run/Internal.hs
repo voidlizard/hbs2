@@ -182,7 +182,7 @@ scanFiles = do
         let keyText = key <> fromString (show no)
         let keyHash = FixmeKey $ fromString $ show $ pretty $ hashObject @HbSync (serialise keyText)
         let f2 = mempty { fixmeTs = Just (fromIntegral ts)
-                        , fixmeKey = Just keyHash
+                        , fixmeKey = keyHash
                         , fixmeAttr = HM.fromList
                             [   ( "fixme-key-string", FixmeAttrVal keyText)
                               , ( "file", FixmeAttrVal (fromString fnShort))

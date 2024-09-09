@@ -7,22 +7,25 @@ module Fixme.State
   , insertFixme
   , insertScanned
   , selectIsAlreadyScanned
+  , selectFixmeKey
+  , getFixme
   , HasPredicate(..)
   , SelectPredicate(..)
   ) where
 
-import Fixme.Prelude
+import Fixme.Prelude hiding (key)
 import Fixme.Types
 import Fixme.Config
 
 import HBS2.System.Dir
-import Data.Config.Suckless
+import Data.Config.Suckless hiding (key)
 import Data.Config.Suckless.Syntax
 import DBPipe.SQLite hiding (field)
 
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Aeson as Aeson
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (q,qc)
 import Data.Text qualified as Text
@@ -256,12 +259,37 @@ insertScanned file = do
               on conflict (hash) do nothing|]
          (Only k)
 
+selectFixmeKey :: (FixmePerks m, MonadReader FixmeEnv m) => Text -> m (Maybe FixmeKey)
+selectFixmeKey s = do
+  withState do
+    select @(Only FixmeKey) [qc|select distinct(o) from object where o like ? order by w desc|] (Only (s<>"%"))
+       <&> fmap fromOnly
+       <&> headMay
+
+getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme)
+getFixme key = do
+
+  let sql = [qc|
+    select (cast (json_group_object(o.k, o.v) as blob)) as blob from object o
+    where o.o = ?
+    group by o.o
+    limit 1
+    |]
+
+  runMaybeT do
+
+    lift (withState $ select @(Only LBS.ByteString) sql (Only key))
+      <&> fmap (Aeson.decode @Fixme . fromOnly)
+      <&> catMaybes
+      <&> headMay
+      >>= toMPlus
+
 insertFixme :: (FixmePerks m, MonadReader FixmeEnv m) => Fixme -> DBPipeM m ()
 insertFixme fme = do
 
   void $ runMaybeT do
 
-    o   <- fixmeKey fme & toMPlus
+    let o = fixmeKey fme
     w   <-  fixmeTs fme & toMPlus
     let attrs   = fixmeAttr fme
     let txt = fixmePlain fme & Text.unlines . fmap coerce
@@ -280,6 +308,12 @@ insertFixme fme = do
               else object.w
             end
       |]
+
+    for_ (fixmeStart fme) $ \s -> do
+      lift $ insert sql (o,w,"fixme-start",s)
+
+    for_ (fixmeEnd fme) $ \s -> do
+      lift $ insert sql (o,w,"fixme-end",s)
 
     for_ (HM.toList attrs) $ \(k,v) -> do
       lift $ insert sql (o,w,k,v)

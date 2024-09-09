@@ -27,7 +27,10 @@ import Data.Config.Suckless
 
 import Prettyprinter.Render.Terminal
 import Control.Applicative
-import Data.Aeson
+import Data.Aeson as Aeson
+import Data.Aeson.KeyMap as Aeson hiding (null)
+import Data.Aeson.Key qualified as Aeson
+import Data.Aeson.Types as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
@@ -97,15 +100,15 @@ tsFromFromSyn = \case
   _ -> Nothing
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
-                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
+                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField,FromJSON,ToJSON)
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
-                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,Hashable)
+                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,Hashable,FromJSON,ToJSON)
                      deriving stock (Data,Generic)
 
 newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
-                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField)
+                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,FromJSON,ToJSON)
                          deriving stock (Data,Generic)
 
 
@@ -121,16 +124,16 @@ newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                         deriving stock (Data,Generic)
 
 
 newtype FixmeKey  = FixmeKey Text
-                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty)
+                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid)
                     deriving stock (Data,Generic)
 
 newtype FixmeOffset = FixmeOffset Word32
-                     deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                     deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                      deriving newtype (Integral,Real,Enum)
                      deriving stock (Data,Generic)
 
@@ -139,7 +142,7 @@ data Fixme =
   Fixme
   { fixmeTag       :: FixmeTag
   , fixmeTitle     :: FixmeTitle
-  , fixmeKey       :: Maybe FixmeKey
+  , fixmeKey       :: FixmeKey
   , fixmeTs        :: Maybe FixmeTimestamp
   , fixmeStart     :: Maybe FixmeOffset
   , fixmeEnd       :: Maybe FixmeOffset
@@ -149,7 +152,7 @@ data Fixme =
   deriving stock (Ord,Eq,Show,Data,Generic)
 
 instance Monoid Fixme where
-  mempty = Fixme mempty mempty Nothing Nothing Nothing Nothing mempty mempty
+  mempty = Fixme mempty mempty mempty Nothing Nothing Nothing mempty mempty
 
 instance Semigroup Fixme where
   (<>) a b = b { fixmeTs  = fixmeTs b <|> fixmeTs a
@@ -160,6 +163,57 @@ instance Semigroup Fixme where
                , fixmePlain = fixmePlain b
                , fixmeAttr = fixmeAttr a <> fixmeAttr b
                }
+
+
+instance FromJSON FixmeOffset where
+  parseJSON = \case
+    Number x -> pure (FixmeOffset  (ceiling x))
+
+    String s  -> do
+      n <- maybe (fail "invalid FixmeOffset value") pure (readMay (Text.unpack s))
+      pure $ FixmeOffset n
+
+    _ -> fail "invalid FixmeOffset value"
+
+
+instance FromJSON FixmeTimestamp where
+  parseJSON = \case
+    Number x -> pure (FixmeTimestamp (ceiling x))
+
+    String s  -> do
+      n <- maybe (fail "invalid FixmeOffset value") pure (readMay (Text.unpack s))
+      pure $ FixmeTimestamp n
+
+    _ -> fail "invalid FixmeTimestamp value"
+
+
+instance FromJSON Fixme where
+  parseJSON = withObject "Fixme" $ \o -> do
+    fixmeKey   <- o .:  "fixme-key"
+    fixmeTag   <- o .:  "fixme-tag"
+    fixmeTitle <- o .:  "fixme-title"
+    fixmeStart <- o .:? "fixme-start"
+    fixmeEnd   <- o .:? "fixme-end"
+    fixmeTs    <- o .:? "fixme-timestamp"
+
+    fixmePlainTxt <- o .:? "fixme-text" <&> fromMaybe mempty
+    let fixmePlain = fmap FixmePlainLine (Text.lines fixmePlainTxt)
+
+    let wtf = [ unpackItem k v
+              | (k,v) <- Aeson.toList o
+              , k /= "fixme-text"
+              ] & catMaybes
+
+    let fixmeAttr = HM.fromList wtf
+
+    return Fixme{..}
+
+    where
+      unpackItem k v = do
+        (FixmeAttrName (Aeson.toText k),) <$>
+          case v of
+           String x -> pure (FixmeAttrVal x)
+           _        -> Nothing
 
 newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
                     deriving newtype (Semigroup,Monoid,Eq,Ord,Show,ToJSON,FromJSON)
@@ -635,7 +689,7 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
+fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -645,13 +699,18 @@ fixmeDerivedFields fx = fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
 
     tag = mempty { fixmeAttr = HM.singleton "fixme-tag" (FixmeAttrVal (coerce $ fixmeTag fx))  }
 
-    key = maybe mempty (  HM.singleton "fixme-key" . FixmeAttrVal . coerce) (fixmeKey fx)
+    key = HM.singleton "fixme-key" (FixmeAttrVal $ coerce $ (fixmeKey fx))
 
     fxKey = mempty { fixmeAttr = key }
 
     lno = succ <$> fixmeStart fx <&> FixmeAttrVal . fromString . show
 
     fxLno = mempty { fixmeAttr = maybe mempty (HM.singleton "line") lno }
+
+    fxE = join $ for (fixmeStart fx) $ \n -> do
+            Just $ FixmeOffset $ fromIntegral $ fromIntegral n + length (fixmePlain fx)
+
+    fxEnd = mempty { fixmeEnd = fxE }
 
     fxCo =
       maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter

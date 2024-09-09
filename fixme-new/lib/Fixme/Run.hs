@@ -309,6 +309,24 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+       entry $ bindMatch "dump" $ nil_ $ \case
+        [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
+          key <- lift (selectFixmeKey w) >>= toMPlus
+          fme <- lift $ getFixme key
+          liftIO $ print $ pretty fme
+
+        _ -> throwIO $ BadFormException @C nil
+          -- magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
+          -- liftIO $ print $ pretty magic
+
+       entry $ bindMatch "fixme:key:show" $ nil_ \case
+        [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
+          key <- lift (selectFixmeKey w) >>= toMPlus
+          liftIO $ print $ pretty key
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "fixme:scan-magic" $ nil_ $ const do
           magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
           liftIO $ print $ pretty magic
