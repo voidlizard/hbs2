@@ -5,6 +5,7 @@ module Fixme.State
   , withState
   , cleanupDatabase
   , insertFixme
+  , modifyFixme
   , insertScanned
   , selectIsAlreadyScanned
   , selectFixmeKey
@@ -283,6 +284,28 @@ getFixme key = do
       <&> catMaybes
       <&> headMay
       >>= toMPlus
+
+
+modifyFixme :: (FixmePerks m)
+            => FixmeKey
+            -> [(FixmeAttrName, FixmeAttrVal)]
+            -> FixmeM m ()
+modifyFixme o a' = do
+  FixmeEnv{..} <- ask
+
+  attrNames <- readTVarIO fixmeEnvAttribs
+  values    <- readTVarIO fixmeEnvAttribValues
+
+  now <- liftIO getPOSIXTime <&> fromIntegral . round
+
+  let a = [ (k,v) | (k,v) <- a'
+          , k `HS.member` attrNames
+          , not (HM.member k values) || v `HS.member` fromMaybe mempty (HM.lookup k values)
+          ]
+
+  let w = mempty { fixmeAttr = HM.fromList a, fixmeKey = o, fixmeTs = Just now }
+
+  withState $ insertFixme w
 
 insertFixme :: (FixmePerks m, MonadReader FixmeEnv m) => Fixme -> DBPipeM m ()
 insertFixme fme = do

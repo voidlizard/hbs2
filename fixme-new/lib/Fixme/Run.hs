@@ -231,9 +231,8 @@ runTop forms = do
 
        entry $ bindMatch "fixme-attribs" $ nil_ \case
         StringLikeList xs -> do
-          w <- fixmeWorkDir
           ta <- lift $ asks fixmeEnvAttribs
-          atomically $ modifyTVar ta (<> HS.fromList (fmap (fromString . (</> w)) xs))
+          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
         _ -> throwIO $ BadFormException @C nil
 
@@ -309,6 +308,14 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+       entry $ bindMatch "modify" $ nil_ \case
+        [ FixmeHashLike w, StringLike k, StringLike v ] -> lift do
+          void $ runMaybeT do
+            key <- lift (selectFixmeKey w) >>= toMPlus
+            lift $ modifyFixme key [(fromString k, fromString v)]
+
+        _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "dump" $ nil_ $ \case
         [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
