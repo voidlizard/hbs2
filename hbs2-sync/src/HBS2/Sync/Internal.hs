@@ -6,7 +6,9 @@ import HBS2.Sync.Prelude
 import HBS2.Sync.State
 
 import HBS2.System.Dir
+import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.RPC.API.RefChan
+import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix (UNIX)
 import HBS2.Peer.RPC.Client
@@ -15,12 +17,17 @@ import HBS2.CLI.Run.MetaData (getTreeContents)
 
 import HBS2.CLI.Run.Internal hiding (PeerNotConnectedException)
 
+import HBS2.Data.Types.SignedBox
+import HBS2.CLI.Run.Internal.KeyMan
+
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.Map qualified as Map
 import Lens.Micro.Platform
-import System.Directory (setModificationTime,listDirectory)
+import System.Directory (setModificationTime,listDirectory,createDirectoryIfMissing)
 import System.Directory (XdgDirectory(..),getXdgDirectory)
 import Control.Monad.Except
 import Data.Ord
@@ -31,6 +38,7 @@ import Streaming.Prelude qualified as S
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
                             , Exception (BadFormException c)
+                            , HasClientAPI PeerAPI UNIX m
                             , HasClientAPI RefChanAPI UNIX m
                             , HasClientAPI StorageAPI UNIX m
                             , HasStorage m
@@ -50,8 +58,58 @@ syncEntries = do
     _ -> do
       setLogging @DEBUG  debugPrefix
 
-  entry $ bindMatch "init"  $ nil_ $ const do
-    pure ()
+  entry $ bindMatch "init" $ nil_ $ \case
+    [StringLike "--auto", SignPubKeyLike author, StringLike readerRaw] -> do
+      peerApi  <- getClientAPI @PeerAPI @UNIX
+      rchanApi <- getClientAPI @RefChanAPI @UNIX
+      storage  <- getStorage
+
+      poked <- callService @RpcPoke peerApi ()
+               >>= orThrowUser "can't poke hbs2-peer"
+               <&> parseTop
+               >>= orThrowUser "invalid hbs2-peer attributes"
+
+      key <- [ x
+             | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
+             ] & headMay & orThrowUser "hbs2-peer key not found"
+
+      reader <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerRaw & orThrowUser "reader not found"
+      let chanData = refChanHeadDefault @L4Proto
+                     & set refChanHeadPeers (HM.singleton key 1)
+                     & set refChanHeadAuthors (HS.singleton author)
+                     & set refChanHeadReaders (HS.singleton reader)
+      refchan <- keymanNewCredentials (Just "refchan") 0
+
+      creds <- runKeymanClient $ loadCredentials refchan
+               >>= orThrowUser "can't load credentials"
+
+      let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) chanData
+
+      href <- writeAsMerkle storage (serialise box)
+
+      callService @RpcPollAdd peerApi (refchan, "refchan", 17)
+        >>= orThrowUser "can't subscribe to refchan"
+
+      callService @RpcRefChanHeadPost rchanApi (HashRef href)
+        >>= orThrowUser "can't post refchan head"
+
+      let signString = show $ pretty $ AsBase58 author
+      let refchanString = show $ pretty $ AsBase58 refchan
+      let configForms :: [Syntax c] = [ mkList [mkSym "exclude", mkStr "**/.*"]
+                                      , mkList [mkSym "include", mkStr "**"]
+                                      , mkList [mkSym "sign", mkStr signString]
+                                      , mkList [mkSym "refchan", mkStr refchanString]
+                                      ] 
+      let config = unlines $ map (show . pretty) configForms
+      display config
+      let path = ".hbs-sync/config"
+      liftIO $ do
+        createDirectoryIfMissing True $ takeDirectory path
+        writeFile path config
+      pure ()
+
+    _ -> do
+      err "bad form"
 
   entry $ bindMatch "sync" $ nil_ $ \case
     [StringLike d] -> do
@@ -309,6 +367,3 @@ syncEntries = do
       liftIO (getFileTimestamp fn >>=  print)
     _ -> do
       liftIO $ getPOSIXTime <&> round >>= print
-
-
-
