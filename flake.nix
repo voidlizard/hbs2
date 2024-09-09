@@ -24,7 +24,7 @@ inputs = {
     lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
     lsm.inputs.nixpkgs.follows = "nixpkgs";
 
-    fuzzy.url = "git+http://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
+    fuzzy.url = "git+https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";
 
     saltine = {
@@ -104,8 +104,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
       }))
 
    ];
-
-  shellWithHoogle = true;
 
    shell = {pkgs, ...}:
       pkgs.haskellPackages.shellFor {

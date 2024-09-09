@@ -126,7 +126,7 @@ newtype FixmeTimestamp = FixmeTimestamp Word64
 
 
 newtype FixmeKey  = FixmeKey Text
-                    deriving newtype (Eq,Ord,Show,ToField,FromField)
+                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty)
                     deriving stock (Data,Generic)
 
 newtype FixmeOffset = FixmeOffset Word32
@@ -281,12 +281,14 @@ data FixmeEnv =
   , fixmeEnvDb             :: TVar (Maybe DBPipeEnv)
   , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
+  , fixmeEnvFileExclude    :: TVar [FilePattern]
   , fixmeEnvTags           :: TVar (HashSet FixmeTag)
   , fixmeEnvAttribs        :: TVar (HashSet FixmeAttrName)
   , fixmeEnvAttribValues   :: TVar (HashMap FixmeAttrName (HashSet FixmeAttrVal))
   , fixmeEnvDefComments    :: TVar (HashSet Text)
   , fixmeEnvFileComments   :: TVar (HashMap FilePath (HashSet Text))
   , fixmeEnvGitScanDays    :: TVar (Maybe Integer)
+  , fixmeEnvScanMagic      :: TVar (Maybe HashRef)
   , fixmeEnvUpdateActions  :: TVar [UpdateAction]
   , fixmeEnvReadLogActions :: TVar [ReadLogAction]
   , fixmeEnvCatAction      :: TVar CatAction
@@ -345,8 +347,10 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
+    <*>  newTVarIO mempty
     <*>  newTVarIO defCommentMap
     <*>  newTVarIO Nothing
+    <*>  newTVarIO mzero
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO (CatAction $ \_ _ -> pure ())
@@ -631,7 +635,7 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno <> fxMisc
+fixmeDerivedFields fx = fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -640,6 +644,10 @@ fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno <> fxMisc
                  <&> (<> email)
 
     tag = mempty { fixmeAttr = HM.singleton "fixme-tag" (FixmeAttrVal (coerce $ fixmeTag fx))  }
+
+    key = maybe mempty (  HM.singleton "fixme-key" . FixmeAttrVal . coerce) (fixmeKey fx)
+
+    fxKey = mempty { fixmeAttr = key }
 
     lno = succ <$> fixmeStart fx <&> FixmeAttrVal . fromString . show
 

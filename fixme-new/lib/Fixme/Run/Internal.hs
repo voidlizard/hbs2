@@ -20,7 +20,9 @@ import HBS2.Storage
 import HBS2.Storage.Compact
 import HBS2.System.Dir
 import DBPipe.SQLite hiding (field)
+
 import Data.Config.Suckless
+import Data.Config.Suckless.Script.File
 
 import Data.Aeson.Encode.Pretty as Aeson
 import Data.ByteString (ByteString)
@@ -46,12 +48,16 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import System.IO.Temp as Temp
 import System.IO qualified as IO
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import System.Directory (getModificationTime)
 
 
 import Streaming.Prelude qualified as S
 
 pattern IsSimpleTemplate ::  forall {c} . [Syntax c] -> Syntax c
 pattern IsSimpleTemplate xs <- ListVal (SymbolVal "simple" : xs)
+
+{- HLINT ignore "Functor law" -}
 
 defaultTemplate :: HashMap Id FixmeTemplate
 defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
@@ -93,6 +99,7 @@ printEnv :: FixmePerks m => FixmeM m ()
 printEnv = do
   g <- asks fixmeEnvGitDir >>= readTVarIO
   masks <- asks fixmeEnvFileMask >>= readTVarIO
+  excl  <- asks fixmeEnvFileExclude >>= readTVarIO
   tags  <- asks fixmeEnvTags >>= readTVarIO
   days  <- asks fixmeEnvGitScanDays >>= readTVarIO
   comments1 <- asks fixmeEnvDefComments >>= readTVarIO <&> HS.toList
@@ -109,6 +116,9 @@ printEnv = do
 
   for_ masks $ \m -> do
     liftIO $ print $ "fixme-files" <+> dquotes (pretty m)
+
+  for_ excl $ \m -> do
+    liftIO $ print $ "fixme-exclude" <+> dquotes (pretty m)
 
   for_ days $ \d -> do
     liftIO $ print $ "fixme-git-scan-filter-days" <+> pretty d
@@ -144,182 +154,44 @@ printEnv = do
     liftIO $ print $ parens ("define-macro" <+> pretty n <+> pretty syn)
 
 
-exportToLog :: FixmePerks m => FilePath -> FixmeM m ()
-exportToLog fn = do
-  e <- getEpoch
-  warn $ red "EXPORT-FIXMIES" <+> pretty fn
-  sto <- compactStorageOpen @HbSync mempty fn
-  fx <- selectFixmeThin ()
-  for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
-    h <- HM.lookup "fixme-hash" m & toMPlus
-    loaded <- lift (selectFixme (coerce h)) >>= toMPlus
-    let what = Added e loaded
-    let k = mkKey what
-    get sto k >>= guard . isNothing
-    put sto (mkKey what) (LBS.toStrict $ serialise what)
-    warn $ red "export" <+> pretty h
+scanFiles :: FixmePerks m => FixmeM m [Fixme]
+scanFiles = do
+  w <- fixmeWorkDir
+  incl <- asks fixmeEnvFileMask >>= readTVarIO
+  excl <- asks fixmeEnvFileExclude >>= readTVarIO
 
-  what <- selectStage
+  keys <- newTVarIO (mempty :: HashMap Text Integer)
 
-  for_ what $ \w -> do
-    let k = mkKey w
-    v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
-    case v0 of
-      Nothing -> do
-        put sto k (LBS.toStrict $ serialise w)
+  S.toList_ do
 
-      Just (Left{}) -> do
-        put sto k (LBS.toStrict $ serialise w)
+    glob incl excl w  $ \fn -> do
 
-      Just (Right prev) | getSequence w > getSequence prev -> do
-        put sto k (LBS.toStrict $ serialise w)
+      ts <- liftIO $ getModificationTime fn <&> round . utcTimeToPOSIXSeconds
 
-      _ -> pure ()
+      let fnShort = makeRelative w fn
 
-  compactStorageClose sto
+      lbs <- liftIO (try @_ @IOException $ LBS.readFile fn)
+               <&> fromRight mempty
 
-  cleanStage
+      fxs0 <- lift $ scanBlob (Just fn) lbs
 
+      for_ fxs0 $ \fme -> do
+        let key = fromString (fnShort <> "#") <> coerce (fixmeTitle fme) <> ":" :: Text
+        atomically $ modifyTVar keys (HM.insertWith (+) key 1)
+        no <- readTVarIO keys <&> HM.lookup key <&> fromMaybe 0
+        let keyText = key <> fromString (show no)
+        let keyHash = FixmeKey $ fromString $ show $ pretty $ hashObject @HbSync (serialise keyText)
+        let f2 = mempty { fixmeTs = Just (fromIntegral ts)
+                        , fixmeKey = Just keyHash
+                        , fixmeAttr = HM.fromList
+                            [   ( "fixme-key-string", FixmeAttrVal keyText)
+                              , ( "file", FixmeAttrVal (fromString fnShort))
+                            ]
+                        , fixmePlain = fixmePlain fme
+                        }
+        let fmeNew = (fme <> f2) & fixmeDerivedFields
+        S.yield fmeNew
 
-sanitizeLog :: [Syntax c] -> [Syntax c]
-sanitizeLog lls = flip filter lls $ \case
-  ListVal (SymbolVal "deleted" : _) -> True
-  ListVal (SymbolVal "modified" : _) -> True
-  _ -> False
+      pure True
 
-importFromLog :: FixmePerks m
-              => FilePath
-              -> ([Syntax C] -> FixmeM m ())
-              -> FixmeM m ()
-importFromLog fn runIns = do
-  fset <- listAllFixmeHashes
-
-  sto <- compactStorageOpen @HbSync readonly fn
-  ks   <- keys sto
-
-  toImport <- S.toList_ do
-    for_ ks $ \k -> runMaybeT do
-      v <- get sto k & MaybeT
-      what <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
-
-      case what of
-        Added _ fx  -> do
-          let ha = hashObject @HbSync (serialise fx) & HashRef
-          unless (HS.member ha fset) do
-            debug $ red "import" <+> viaShow (pretty ha)
-            lift $ S.yield (Right fx)
-        w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
-
-  withState $ transactional do
-    for_ (rights  toImport) insertFixme
-
-  let w = lefts toImport
-
-  runIns (sanitizeLog $ mconcat w)
-
-  unless (List.null toImport) do
-    updateIndexes
-
-  compactStorageClose sto
-
-
-list_ :: (FixmePerks m, HasPredicate a) => Maybe Id -> a -> FixmeM m ()
-list_ tpl a = do
-
-  tpl <- asks fixmeEnvTemplates >>= readTVarIO
-            <&> HM.lookup (fromMaybe "default" tpl)
-
-  fixmies <- selectFixmeThin a
-
-  case tpl of
-    Nothing-> do
-      liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
-
-    Just (Simple (SimpleTemplate simple)) -> do
-      for_ fixmies $ \(FixmeThin attr) -> do
-        let subst = [ (mkId k, mkStr @C v) | (k,v) <- HM.toList attr ]
-        let what = render (SimpleTemplate (inject  subst simple))
-                      & fromRight "render error"
-
-        liftIO $ hPutDoc stdout what
-
-catFixmeMetadata :: FixmePerks m => Text -> FixmeM m ()
-catFixmeMetadata = cat_ True
-
-catFixme :: FixmePerks m => Text -> FixmeM m ()
-catFixme = cat_ False
-
-dumpFixme :: FixmePerks m => Text -> FixmeM m ()
-dumpFixme hash = do
-  flip runContT pure do
-    mha <- lift $ selectFixmeHash hash
-    ha <- ContT $ maybe1 mha (pure ())
-    fme' <- lift $ selectFixme ha
-    liftIO $ print $ pretty fme'
-
-cat_ :: FixmePerks m => Bool -> Text -> FixmeM m ()
-cat_ metaOnly hash = do
-
-  (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
-  gd  <- fixmeGetGitDirCLIOpt
-
-  CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
-
-  void $ flip runContT pure do
-    callCC \exit -> do
-
-      mha <- lift $ selectFixmeHash hash
-
-      ha <- ContT $ maybe1 mha (pure ())
-
-      fme' <- lift $ selectFixme ha
-
-      Fixme{..} <- ContT $ maybe1 fme' (pure ())
-
-      when metaOnly do
-        for_ (HM.toList fixmeAttr) $ \(k,v) -> do
-          liftIO $ print $ (pretty k <+> pretty v)
-        exit ()
-
-      let gh' = HM.lookup "blob" fixmeAttr
-
-      -- FIXME: define-fallback-action
-      gh <- ContT $ maybe1 gh' none
-
-      let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
-
-      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
-      let bbefore = if start > before then before  + 1 else 1
-      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
-      let lno   = max 1 $ origLen + after + before
-
-      let dict = [ (mkId k, mkStr @C   v) | (k,v) <- HM.toList fixmeAttr ]
-                 <>
-                 [ (mkId (FixmeAttrName "before"), mkStr @C (FixmeAttrVal $ Text.pack $ show bbefore))
-                 ]
-
-      debug (pretty cmd)
-
-      w <- gitRunCommand cmd
-            <&> either (LBS8.pack . show) id
-            <&> LBS8.lines
-            <&> drop start
-            <&> take lno
-
-      liftIO $ action  dict (LBS8.unlines w)
-
-
-delete :: FixmePerks m => Text -> FixmeM m ()
-delete txt = do
-  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-  hashes <- selectFixmeHashes txt
-  for_ hashes $ \ha -> do
-    insertFixmeDelStaged ha
-
-modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
-modify_ txt a b = do
-  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-  void $ runMaybeT do
-    ha <- toMPlus =<< lift (selectFixmeHash txt)
-    lift $ insertFixmeModStaged ha (fromString a) (fromString b)
 

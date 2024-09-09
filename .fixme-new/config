@@ -23,6 +23,8 @@ fixme-value-set scope mvp-0 mvp-1 backlog
 
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
+fixme-exclude **/.**
+fixme-exclude dist-newstyle
 
 fixme-file-comments "*.scm" ";"
 

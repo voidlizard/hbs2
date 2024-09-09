@@ -10,6 +10,8 @@ import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
 import Fixme.Log
 
+import Data.Config.Suckless.Script.File
+
 import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Git.Local.CLI
@@ -58,6 +60,8 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import System.IO.Temp as Temp
 import System.IO qualified as IO
+
+import Streaming.Prelude qualified as S
 
 {- HLINT ignore "Functor law" -}
 
@@ -121,8 +125,10 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
+            <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
+            <*>  newTVarIO mzero
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO defaultCatAction
@@ -163,7 +169,7 @@ silence = do
   setLoggingOff @TRACE
 
 
-readConfig :: FixmePerks m => FixmeM m [Syntax C]
+readConfig :: (FixmePerks m) => FixmeM m [Syntax C]
 readConfig = do
 
   user <- userConfigs
@@ -174,6 +180,8 @@ readConfig = do
       <&> fromRight mempty
       <&> parseTop
       >>= either (error.show) pure
+
+  updateScanMagic
 
   pure $ mconcat w
 
@@ -223,16 +231,26 @@ runTop forms = do
 
        entry $ bindMatch "fixme-attribs" $ nil_ \case
         StringLikeList xs -> do
+          w <- fixmeWorkDir
           ta <- lift $ asks fixmeEnvAttribs
-          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
+          atomically $ modifyTVar ta (<> HS.fromList (fmap (fromString . (</> w)) xs))
 
         _ -> throwIO $ BadFormException @C nil
 
 
        entry $ bindMatch "fixme-files" $ nil_ \case
         StringLikeList xs -> do
+          w <- fixmeWorkDir
           t <- lift $ asks fixmeEnvFileMask
-          atomically (modifyTVar t (<> xs))
+          atomically (modifyTVar t (<> fmap (w </>) xs))
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-exclude" $ nil_ \case
+        StringLikeList xs -> do
+          w <- fixmeWorkDir
+          t <- lift $ asks fixmeEnvFileExclude
+          atomically (modifyTVar t (<> fmap (w </>) xs))
 
         _ -> throwIO $ BadFormException @C nil
 
@@ -291,29 +309,55 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
-       entry $ bindMatch "dump" $ nil_ \case
-        [FixmeHashLike h] -> do
-          lift $ dumpFixme h
+       entry $ bindMatch "fixme:scan-magic" $ nil_ $ const do
+          magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
+          liftIO $ print $ pretty magic
 
-        _ -> throwIO $ BadFormException @C nil
+       entry $ bindMatch "fixme:path" $ nil_ $ const do
+          path <- lift fixmeWorkDir
+          liftIO $ print $ pretty path
 
-       entry $ bindMatch "cat" $ nil_ \case
-        [SymbolVal "metadata", FixmeHashLike hash] -> do
-          lift $ catFixmeMetadata hash
+       entry $ bindMatch "fixme:files" $ nil_ $ const do
+          w <- lift fixmeWorkDir
+          incl <- lift (asks fixmeEnvFileMask >>= readTVarIO)
+          excl <- lift (asks fixmeEnvFileExclude >>= readTVarIO)
+          glob incl excl w  $ \fn -> do
+            liftIO $ putStrLn (makeRelative w fn)
+            pure True
 
-        [FixmeHashLike hash] -> do
-          lift $ catFixme hash
+       entry $ bindMatch "fixme:state:drop" $ nil_ $ const $ lift do
+        cleanupDatabase
 
-        _ -> throwIO $ BadFormException @C nil
+       entry $ bindMatch "fixme:state:cleanup" $ nil_ $ const $ lift do
+        cleanupDatabase
 
-       entry $ bindMatch "report" $ nil_ \case
-        [] -> lift $ list_ Nothing ()
+       entry $ bindMatch "fixme:scan:import" $ nil_ $ const $ lift do
+          fxs0 <- scanFiles
 
-        (SymbolVal "--template" : StringLike name : query) -> do
-          lift $ list_ (Just (fromString name)) query
+          fxs <- flip filterM fxs0 $ \fme -> do
+                   let fn = HM.lookup "file" (fixmeAttr fme) <&> Text.unpack . coerce
+                   seen <- maybe1 fn (pure False) selectIsAlreadyScanned
+                   pure (not seen)
 
-        query -> do
-          lift $ list_ mzero query
+          withState $ transactional do
+            for_ fxs $ \fme -> do
+              notice $ "fixme" <+> pretty (fixmeKey fme)
+              insertFixme fme
+              -- TODO: remove-code-duplucation
+              let fn = HM.lookup "file" (fixmeAttr fme) <&> Text.unpack . coerce
+              for_ fn insertScanned
+
+       entry $ bindMatch "fixme:scan:list" $ nil_ $ const do
+          fxs <- lift scanFiles
+          for_ fxs $ \fme -> do
+            liftIO $ print $ pretty fme
+
+       -- TODO: some-shit
+       --  one
+
+
+       -- TODO: some-shit
+       --   two
 
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
@@ -334,87 +378,13 @@ runTop forms = do
         co <- lift listCommits <&> fmap (mkStr @C . view _1)
         pure $ mkList co
 
-       entry $ bindMatch "git:refs" $ const do
-         refs <- lift $ listRefs False
-
-         elems <- for refs $ \(h,r) -> do
-          pure $ mkList @C [mkStr h, mkSym ".", mkStr r]
-
-         pure $ mkList elems
-
        -- TODO: implement-fixme:refchan:export
        entry $ bindMatch "fixme:refchan:export" $ nil_ \case
         _ -> none
 
-       -- TODO: implement-fixme:refchan:import
-
-       entry $ bindMatch "fixme:log:export" $ nil_ \case
-        [StringLike fn] -> do
-           lift $ exportToLog fn
-
-        _ -> throwIO $ BadFormException @C nil
-
-       entry $ bindMatch "fixme:log:import" $ nil_ \case
-        [StringLike fn] -> lift do
-           env <- ask
-           d   <- readTVarIO tvd
-           importFromLog fn $ \ins -> do
-              void $ run d ins
-           updateIndexes
-
-        _ -> throwIO $ BadFormException @C nil
-
-       entry $ bindMatch "fixme:list:poor" $ nil_ $ const do
-        fme <- lift listFixmies
-        pure ()
-
-       entry $ bindMatch "deleted" $ nil_ $ \case
-         [TimeStampLike _, FixmeHashLike hash] -> lift do
-           trace $ red "deleted" <+> pretty hash
-           deleteFixme hash
-
-         _ -> pure ()
-
-       entry $ bindMatch  "modified" $ nil_ $ \case
-        [TimeStampLike _, FixmeHashLike hash, StringLike a, StringLike b] -> do
-          trace $ red "modified!" <+> pretty hash <+> pretty a <+> pretty b
-          lift $ updateFixme Nothing hash (fromString a) (fromString b)
-
-        _ -> pure ()
-
-       entry $ bindMatch "delete" $ nil_ \case
-         [FixmeHashLike hash] -> lift $ delete hash
-
-         _ -> throwIO $ BadFormException @C nil
-
-       entry $ bindMatch "modify" $ nil_ \case
-         [FixmeHashLike hash, StringLike a, StringLike b] -> do
-           lift $ modify_ hash a b
-
-         _ -> throwIO $ BadFormException @C nil
-
-       entry $ bindMatch "fixme:stage:show" $ nil_ $ const do
-          stage <- lift selectStage
-          liftIO $ print $ vcat (fmap pretty stage)
-
-       entry $ bindMatch "fixme:state:drop" $ nil_ $ const do
-          lift cleanupDatabase
-
-       entry $ bindMatch "fixme:state:clean" $ nil_ $ const do
-          lift cleanupDatabase
-
-       entry $ bindMatch "fixme:stage:drop" $ nil_ $ const do
-          lift cleanStage
-
-       entry $ bindMatch "fixme:stage:clean" $ nil_ $ const do
-          lift cleanStage
-
-       entry $ bindMatch "fixme:config:path" $ const do
-        co <- localConfig
-        pure $ mkStr @C co
-
        entry $ bindMatch "git:import" $ nil_ $ const do
-        lift $ scanGitLocal mempty Nothing
+        error "not implemented yet"
+        -- lift $ scanGitLocal mempty Nothing
 
        entry $ bindMatch "git:blobs" $  \_ -> do
         blobs <- lift listRelevantBlobs
@@ -436,11 +406,11 @@ runTop forms = do
 
         notice $ "1. read refchan" <+> pretty (AsBase58 rchan)
 
-        fxs <- lift $ selectFixmeThin ()
+        -- fxs <- lift $ selectFixmeThin ()
 
-        for_ fxs $ \(FixmeThin x) -> void $ runMaybeT do
-          h <- HM.lookup "fixme-hash" x & toMPlus
-          notice $ pretty h
+--         for_ fxs $ \(FixmeThin x) -> void $ runMaybeT do
+--           h <- HM.lookup "fixme-hash" x & toMPlus
+--           notice $ pretty h
 
         notice "2. read issues from state"
         notice "3. discover new issues"
