@@ -277,13 +277,17 @@ listFixme expr = do
 
   let sql = [qc|
     with s1 as (
-      select (cast (json_group_object(o.k, o.v) as blob)) as blob from object o
+      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+      from object o
       group by o.o
     )
-    select blob from s1
+    select s1.blob from s1
     where
       {w}
       {end}
+    order by
+        json_extract(s1.blob, '$.commit-time') asc nulls last,
+        json_extract(s1.blob, '$.w') asc nulls last
     |]
 
   debug $ pretty sql
@@ -296,7 +300,8 @@ getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme
 getFixme key = do
 
   let sql = [qc|
-    select (cast (json_group_object(o.k, o.v) as blob)) as blob from object o
+    select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+    from object o
     where o.o = ?
     group by o.o
     limit 1

@@ -378,10 +378,10 @@ runTop forms = do
           withState $ transactional do
             for_ fxs $ \fme -> do
               let fn = HM.lookup "file" (fixmeAttr fme) <&> Text.unpack . coerce
-              fmeRich <- lift $ maybe1 fn (pure mempty) (flip getMetaDataFromGitBlame fme)
+              fmeRich <- lift $ maybe1 fn (pure mempty) (`getMetaDataFromGitBlame` fme)
               notice $ "fixme" <+> pretty (fixmeKey fme)
               insertFixme (fmeRich <> fme)
-              -- TODO: remove-code-duplucation
+              -- TODO: remove-code-duplication
               for_ fn insertScanned
 
        entry $ bindMatch "fixme:scan:list" $ nil_ $ const do
