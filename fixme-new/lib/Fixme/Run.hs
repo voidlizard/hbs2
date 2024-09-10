@@ -412,7 +412,7 @@ runTop forms = do
         -- lift $ scanGitLocal mempty Nothing
 
        entry $ bindMatch "git:blobs" $  \_ -> do
-        blobs <- lift listRelevantBlobs
+        blobs <- lift (listBlobs Nothing)
 
         elems <- for blobs $ \(f,h) -> do
                     pure $ mkList @C [ mkStr f, mkSym ".", mkStr h ]

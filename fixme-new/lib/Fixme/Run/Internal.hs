@@ -244,6 +244,8 @@ import_ = do
 
   let blobs = HM.fromList hashes
 
+  let isVersioned = maybe False (`HM.member` versioned)
+
   withState $ transactional do
     for_ fxs $ \fme -> do
       let fn = fixmeGet "file" fme <&> Text.unpack . coerce
@@ -252,10 +254,11 @@ import_ = do
       let blob = fn >>= flip HM.lookup blobs
                     >>= \b -> pure (fixmeSet "blob" (fromString (show $ pretty $ b)) mempty)
 
-      notice $ "fixme" <+> pretty (fixmeKey fme)
+      notice $ "fixme" <+> pretty (fixmeKey fme) <+> pretty fn
       insertFixme (fromMaybe mempty blob <> fmeRich <> fme)
 
       -- TODO: add-scanned-only-on-commited
+      --   $workflow: test
       --   поведение: если файл в гите И закоммичен -- то
       --   добавляем в сканированные.
       --
@@ -265,8 +268,8 @@ import_ = do
       --
       --   проверяем
       for_ fn $ \f -> do
-        let add = -- not (HM.member f versioned)
-              maybe False (`HS.member` commited) (HM.lookup f blobs)
+        let add = not (isVersioned fn)
+                   || maybe False (`HS.member` commited) (HM.lookup f blobs)
 
         when add do
           notice $ red "SCANNED" <+> pretty f
