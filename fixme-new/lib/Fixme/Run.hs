@@ -371,13 +371,13 @@ runTop forms = do
           fxs0 <- scanFiles
 
           fxs <- flip filterM fxs0 $ \fme -> do
-                   let fn = HM.lookup "file" (fixmeAttr fme) <&> Text.unpack . coerce
+                   let fn = fixmeGet "file" fme <&> Text.unpack . coerce
                    seen <- maybe1 fn (pure False) selectIsAlreadyScanned
                    pure (not seen)
 
           withState $ transactional do
             for_ fxs $ \fme -> do
-              let fn = HM.lookup "file" (fixmeAttr fme) <&> Text.unpack . coerce
+              let fn = fixmeGet "file" fme <&> Text.unpack . coerce
               fmeRich <- lift $ maybe1 fn (pure mempty) (`getMetaDataFromGitBlame` fme)
               notice $ "fixme" <+> pretty (fixmeKey fme)
               insertFixme (fmeRich <> fme)

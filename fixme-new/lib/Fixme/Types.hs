@@ -164,6 +164,11 @@ instance Semigroup Fixme where
                , fixmeAttr = fixmeAttr a <> fixmeAttr b
                }
 
+fixmeGet :: FixmeAttrName -> Fixme -> Maybe FixmeAttrVal
+fixmeGet name Fixme{..} = HM.lookup name fixmeAttr
+
+fixmeSet :: FixmeAttrName -> FixmeAttrVal -> Fixme -> Fixme
+fixmeSet name val fx = fx { fixmeAttr = HM.insert name val (fixmeAttr fx) }
 
 instance FromJSON FixmeOffset where
   parseJSON = \case
