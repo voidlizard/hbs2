@@ -280,6 +280,8 @@ cat_ hash = do
 
   CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
 
+  dir  <- fixmeWorkDir
+
   void $ flip runContT pure do
     callCC \exit -> do
 
@@ -289,7 +291,7 @@ cat_ hash = do
 
       fme' <- lift $ getFixme ha
 
-      Fixme{..} <- ContT $ maybe1 fme' (pure ())
+      fx@Fixme{..} <- ContT $ maybe1 fme' (pure ())
 
       let gh' = HM.lookup "blob" fixmeAttr
 
@@ -310,14 +312,15 @@ cat_ hash = do
 
       debug (pretty cmd)
 
-      let text = fixmePlain & LBS.fromStrict . encodeUtf8 . Text.unlines . fmap coerce
-
       w <- gitRunCommand cmd
-            <&> fromRight text
-            <&> LBS8.lines
-            <&> drop start
-            <&> take lno
+              <&> either (const Nothing) Just
 
-      liftIO $ action  dict (LBS8.unlines w)
+      maybe1 w none $ \lbs -> do
+        let piece = LBS8.lines lbs & drop start & take lno
+        liftIO $ action  dict (LBS8.unlines piece)
+        exit ()
 
+      let fallback = LBS8.unlines $ fmap (LBS8.fromStrict . encodeUtf8 . coerce) fixmePlain
+
+      liftIO $ action  dict fallback
 
