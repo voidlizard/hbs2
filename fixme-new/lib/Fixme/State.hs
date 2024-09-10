@@ -357,7 +357,7 @@ insertFixme fme = do
               else object.v
             end,
         w = case
-              when excluded.w > object.w and (excluded.v <> object.v) then excluded.v
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
               else object.w
             end
       |]
