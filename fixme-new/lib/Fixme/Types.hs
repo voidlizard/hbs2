@@ -356,6 +356,7 @@ data FixmeEnv =
   , fixmeEnvCatContext     :: TVar (Int,Int)
   , fixmeEnvMyEndpoints    :: TVar (Maybe MyPeerClientEndpoints)
   , fixmeEnvRefChan        :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
+  , fixmeEnvAuthor         :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
   }
 
 
@@ -422,6 +423,7 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO (1,3)
+    <*>  newTVarIO mzero
     <*>  newTVarIO mzero
     <*>  newTVarIO mzero
 

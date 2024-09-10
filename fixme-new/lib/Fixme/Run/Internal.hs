@@ -12,22 +12,31 @@ import Fixme.Scan as Scan
 
 import HBS2.Git.Local.CLI
 
+import HBS2.OrDie
+import HBS2.Data.Types.SignedBox
 import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
 import HBS2.Storage
 import HBS2.Storage.Compact
+import HBS2.Storage.Operations.ByteString
 import HBS2.System.Dir
+import HBS2.Net.Auth.Credentials
 import DBPipe.SQLite hiding (field)
+
+
+import HBS2.KeyMan.Keys.Direct
 
 import Data.Config.Suckless
 import Data.Config.Suckless.Script.File
 
+import Data.List.Split (chunksOf)
 import Control.Applicative
 import Data.Aeson.Encode.Pretty as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString qualified as BS
 import Data.Either
 import Data.Maybe
 import Data.HashSet qualified as HS
@@ -42,6 +51,7 @@ import Data.Text.IO qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
+import Data.Word
 import Control.Monad.Identity
 import Lens.Micro.Platform
 import System.Process.Typed
@@ -323,4 +333,69 @@ cat_ hash = do
       let fallback = LBS8.unlines $ fmap (LBS8.fromStrict . encodeUtf8 . coerce) fixmePlain
 
       liftIO $ action  dict fallback
+
+
+data FixmeExported =
+  FixmeExported
+  { exportedKey    :: FixmeKey
+  , exportedWeight :: Word64
+  , exportedName   :: FixmeAttrName
+  , exportedValue  :: FixmeAttrVal
+  }
+  deriving stock Generic
+
+instance FromRow FixmeExported
+instance ToRow  FixmeExported
+instance Serialise FixmeExported
+
+refchanExport :: FixmePerks m => FixmeM m ()
+refchanExport = do
+  sto <- getStorage
+  rchanAPI <- getClientAPI @RefChanAPI @UNIX
+
+
+  chan <- asks fixmeEnvRefChan
+           >>= readTVarIO
+           >>= orThrowUser "refchan not set"
+
+  au <- asks fixmeEnvAuthor
+           >>= readTVarIO
+           >>= orThrowUser "author's key not set"
+
+  creds <- runKeymanClientRO $ loadCredentials au
+             >>= orThrowUser "can't read credentials"
+
+
+  let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
+
+  -- withRPC2 @RefChanAPI soname $ \caller -> do
+  --   for_ items $ \it -> do
+  --     let str = show (pretty it)
+  --     putStr str
+  --     let lbs = str & Text.pack & Text.encodeUtf8
+  --     let box = makeSignedBox @L4Proto @BS.ByteString pk sk lbs
+  --     void $ callService @RpcRefChanPropose caller (chan, box)
+
+  withState do
+    what <- select_ @_ @FixmeExported [qc|select o,w,k,cast (v as text) from object order by o, k, v|]
+
+    let chu  = chunksOf 10000 what
+
+    for_ chu $ \x -> do
+      h  <- writeAsMerkle sto (serialise x)
+
+      let tx = AnnotatedHashRef Nothing (HashRef h)
+
+      let lbs = serialise tx
+
+      liftIO $ print (LBS.length lbs)
+
+      let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
+
+      warn $ "POST" <+> red "unencrypted!" <+> pretty (hashObject @HbSync (serialise box))
+
+      r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
+
+      when (isNothing r) do
+        err $ red "hbs2-peer rpc calling timeout"
 

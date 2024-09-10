@@ -136,6 +136,7 @@ runFixmeCLI m = do
             <*>  newTVarIO (1,3)
             <*>  newTVarIO mzero
             <*>  newTVarIO mzero
+            <*>  newTVarIO mzero
 
   -- FIXME: defer-evolve
   --   не все действия требуют БД,
@@ -408,13 +409,19 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "author" $ nil_ \case
+        [SignPubKeyLike au] -> do
+          t <- lift $ asks fixmeEnvAuthor
+          atomically  $ writeTVar t (Just au)
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "git:commits" $ const $ do
         co <- lift listCommits <&> fmap (mkStr @C . view _1)
         pure $ mkList co
 
-       -- TODO: implement-fixme:refchan:export
-       entry $ bindMatch "fixme:refchan:export" $ nil_ \case
-        _ -> none
+       entry $ bindMatch "fixme:refchan:export" $ nil_ $ const do
+        void $ lift $ refchanExport
 
        entry $ bindMatch "git:blobs" $  \_ -> do
         blobs <- lift (listBlobs Nothing)
