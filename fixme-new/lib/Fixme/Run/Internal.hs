@@ -195,25 +195,6 @@ scanFiles = do
       pure True
 
 
-  -- tpl <- asks fixmeEnvTemplates >>= readTVarIO
-  --           <&> HM.lookup (fromMaybe "default" tpl)
-
-  -- fixmies <- selectFixmeThin a
-
-  -- case tpl of
-  --   Nothing-> do
-  --     liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
-
-  --   Just (Simple (SimpleTemplate simple)) -> do
-  --     for_ fixmies $ \(FixmeThin attr) -> do
-  --       let subst = [ (mkId k, mkStr @C v) | (k,v) <- HM.toList attr ]
-  --       let what = render (SimpleTemplate (inject  subst simple))
-  --                     & fromRight "render error"
-
-  --       liftIO $ hPutDoc stdout what
-
-
-
 report :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
 report t q = do
 
