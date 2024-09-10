@@ -195,3 +195,11 @@ scanFiles = do
       pure True
 
 
+runReport :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
+runReport tpl q = do
+  debug $ "runReport" <+> pretty tpl
+  fxs <- listFixme q
+  for_ fxs $ \fme -> do
+    liftIO $ print $ pretty fme
+
+

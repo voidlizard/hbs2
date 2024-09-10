@@ -327,6 +327,17 @@ runTop forms = do
           -- magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
           -- liftIO $ print $ pretty magic
 
+
+       entry $ bindMatch "report" $ nil_ $ lift . \case
+        ( SymbolVal "template" : StringLike t : p )  -> do
+          runReport (Just t) p
+
+        ( SymbolVal "--template" : StringLike t : p )  -> do
+          runReport (Just t) p
+
+        p -> do
+          runReport Nothing p
+
        entry $ bindMatch "fixme:key:show" $ nil_ \case
         [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
           key <- lift (selectFixmeKey w) >>= toMPlus
@@ -571,6 +582,11 @@ runTop forms = do
        entry $ bindMatch "log:trace:off" $ nil_ $ const do
           lift $ setLoggingOff @TRACE
 
+       entry $ bindMatch "log:debug:on" $ nil_ $ const do
+          lift $ setLogging @DEBUG $ toStderr . logPrefix ""
+
+       entry $ bindMatch "log:debug:off" $ nil_ $ const do
+          lift $ setLoggingOff @DEBUG
 
        entry $ bindMatch "debug:peer:check" $ nil_ $ const do
         peer <- lift $ getClientAPI @PeerAPI @UNIX

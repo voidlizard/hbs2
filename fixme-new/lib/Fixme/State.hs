@@ -4,6 +4,7 @@ module Fixme.State
   ( evolve
   , withState
   , cleanupDatabase
+  , listFixme
   , insertFixme
   , modifyFixme
   , insertScanned
@@ -196,16 +197,12 @@ genPredQ tbl what = go what
       All -> ("true", mempty)
 
       FixmeHashExactly x ->
-        ([qc|(s2.fixme = ?)|], [Bound x])
-
-      AttrLike "fixme-hash" val -> do
-        let binds = [Bound (val <> "%")]
-        ([qc|(s2.fixme like ?)|], binds)
+        ([qc|(o.o = ?)|], [Bound x])
 
       AttrLike name val -> do
         let x = val <> "%"
         let binds = [Bound x]
-        ([qc|(json_extract({tbl}, '$."{name}"') like ?)|], binds)
+        ([qc|(json_extract({tbl}.blob, '$."{name}"') like ?)|], binds)
 
       Not a -> do
         let (sql, bound) = go a
@@ -266,6 +263,34 @@ selectFixmeKey s = do
     select @(Only FixmeKey) [qc|select distinct(o) from object where o like ? order by w desc|] (Only (s<>"%"))
        <&> fmap fromOnly
        <&> headMay
+
+
+listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
+          => q
+          -> m [Fixme]
+listFixme expr = do
+
+  let (w,bound) = genPredQ "s1" (predicate expr)
+  let end = case bound of
+              [] -> " or true" :: String
+              _  -> " or false"
+
+  let sql = [qc|
+    with s1 as (
+      select (cast (json_group_object(o.k, o.v) as blob)) as blob from object o
+      group by o.o
+    )
+    select blob from s1
+    where
+      {w}
+      {end}
+    |]
+
+  debug $ pretty sql
+
+  withState $ select @(Only LBS.ByteString) sql bound
+        <&> fmap (Aeson.decode @Fixme . fromOnly)
+        <&> catMaybes
 
 getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme)
 getFixme key = do
