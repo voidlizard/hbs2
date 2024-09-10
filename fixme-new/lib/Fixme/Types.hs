@@ -383,6 +383,12 @@ fixmeGetGitDirCLIOpt = do
           <&> fmap (\d -> [qc|--git-dir {d}|])
           <&> fromMaybe ""
 
+builtinAttribs :: HashSet FixmeAttrName
+builtinAttribs = HS.singleton "deleted"
+
+builtinAttribVals :: HashMap FixmeAttrName (HashSet FixmeAttrVal)
+builtinAttribVals = HM.fromList [("deleted", HS.fromList ["true","false"])]
+
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                      deriving newtype ( Applicative
                                       , Functor
@@ -404,8 +410,8 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
-    <*>  newTVarIO mempty
-    <*>  newTVarIO mempty
+    <*>  newTVarIO builtinAttribs
+    <*>  newTVarIO builtinAttribVals
     <*>  newTVarIO mempty
     <*>  newTVarIO defCommentMap
     <*>  newTVarIO Nothing

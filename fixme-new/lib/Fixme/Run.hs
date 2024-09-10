@@ -123,8 +123,8 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
+            <*>  newTVarIO builtinAttribs
+            <*>  newTVarIO builtinAttribVals
             <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
@@ -314,6 +314,15 @@ runTop forms = do
           void $ runMaybeT do
             key <- lift (selectFixmeKey w) >>= toMPlus
             lift $ modifyFixme key [(fromString k, fromString v)]
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "delete" $ nil_ \case
+        [ FixmeHashLike w ] -> lift do
+          void $ runMaybeT do
+            key <- lift (selectFixmeKey w) >>= toMPlus
+            lift $ modifyFixme key [("deleted", "true")]
 
         _ -> throwIO $ BadFormException @C nil
 

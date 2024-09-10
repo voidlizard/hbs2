@@ -218,7 +218,7 @@ genPredQ tbl what = go what
         let bsql = go b
         ([qc|{fst asql} or {fst bsql}|], snd asql <> snd bsql)
 
-      Ignored -> ("false", mempty)
+      Ignored -> ("true", mempty)
 
 
 cleanupDatabase :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
@@ -271,9 +271,8 @@ listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
 listFixme expr = do
 
   let (w,bound) = genPredQ "s1" (predicate expr)
-  let end = case bound of
-              [] -> " or true" :: String
-              _  -> " or false"
+
+  let present = [qc|and coalesce(json_extract(s1.blob, '$.deleted'),'false') <> 'true' |] :: String
 
   let sql = [qc|
     with s1 as (
@@ -284,7 +283,7 @@ listFixme expr = do
     select s1.blob from s1
     where
       {w}
-      {end}
+      {present}
     order by
         json_extract(s1.blob, '$.commit-time') asc nulls last,
         json_extract(s1.blob, '$.w') asc nulls last
