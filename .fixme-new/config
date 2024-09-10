@@ -54,5 +54,11 @@ fixme-comments ";" "--"
 
 (define (lss s) (report workflow ~ s))
 
+(define (done s) (modify s workflow :done))
+(define (wip s) (modify s workflow :wip))
+(define (test s) (modify s workflow :test))
+(define (new s) (modify s workflow :new))
+(define (backlog s) (modify s workflow :backlog))
+
 
 (refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42)
