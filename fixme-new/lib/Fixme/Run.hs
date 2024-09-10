@@ -423,6 +423,9 @@ runTop forms = do
        entry $ bindMatch "fixme:refchan:export" $ nil_ $ const do
         void $ lift $ refchanExport
 
+       entry $ bindMatch "fixme:refchan:import" $ nil_ $ const do
+        void $ lift $ refchanImport
+
        entry $ bindMatch "git:blobs" $  \_ -> do
         blobs <- lift (listBlobs Nothing)
 

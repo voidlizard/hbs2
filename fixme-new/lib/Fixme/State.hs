@@ -6,11 +6,13 @@ module Fixme.State
   , cleanupDatabase
   , listFixme
   , insertFixme
+  , insertFixmeExported
   , modifyFixme
   , insertScanned
   , selectIsAlreadyScanned
   , selectFixmeKey
   , getFixme
+  , FixmeExported(..)
   , HasPredicate(..)
   , SelectPredicate(..)
   ) where
@@ -371,5 +373,41 @@ insertFixme fme = do
       lift $ insert sql (o,w,k,v)
 
     lift $ insert sql (o,w,"fixme-text",txt)
+
+
+data FixmeExported =
+  FixmeExported
+  { exportedKey    :: FixmeKey
+  , exportedWeight :: Word64
+  , exportedName   :: FixmeAttrName
+  , exportedValue  :: FixmeAttrVal
+  }
+  deriving stock Generic
+
+instance FromRow FixmeExported
+instance ToRow  FixmeExported
+instance Serialise FixmeExported
+
+
+insertFixmeExported :: FixmePerks m => FixmeExported -> DBPipeM m ()
+insertFixmeExported item = do
+
+  let sql = [qc|
+
+      insert into object (o, w, k, v)
+      values (?, ?, ?, ?)
+      on conflict (o, k)
+      do update set
+        v = case
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.v
+              else object.v
+            end,
+        w = case
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
+              else object.w
+            end
+  |]
+
+  insert sql item
 
 
