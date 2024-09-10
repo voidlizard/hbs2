@@ -9,11 +9,7 @@ fixme-prefix     TODO:
 fixme-prefix     PR:
 fixme-prefix     REVIEW:
 
-fixme-git-scan-filter-days 30
-
 fixme-attribs assigned workflow type
-
-fixme-attribs resolution cat scope
 
 fixme-value-set workflow new backlog wip test fixed done
 
@@ -57,8 +53,6 @@ fixme-comments ";" "--"
 (define (ls) (report))
 
 (define (lss s) (report workflow ~ s))
-
-(define (stage) (fixme:stage:show))
 
 
 (refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42)

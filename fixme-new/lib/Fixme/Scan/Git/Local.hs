@@ -9,7 +9,6 @@ import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.State
 import Fixme.Scan as Scan
-import Fixme.Log
 
 import HBS2.Storage
 import HBS2.Storage.Compact
@@ -50,24 +49,6 @@ import System.TimeIt
 import Data.Map qualified as Map
 
 import Streaming.Prelude qualified as S
-
-data ScanGitArgs =
-    PrintBlobs
-  | PrintFixme
-  | ScanRunDry
-  | ScanAllCommits
-  deriving stock (Eq,Ord,Show,Data,Generic)
-
-pattern ScanGitArgs :: forall {c} . ScanGitArgs -> Syntax c
-pattern ScanGitArgs w <- ( scanGitArg -> Just w )
-
-scanGitArg :: Syntax c -> Maybe ScanGitArgs
-scanGitArg = \case
-  SymbolVal "print-blobs" -> Just PrintBlobs
-  SymbolVal "print-fixme" -> Just PrintFixme
-  SymbolVal "dry"         -> Just ScanRunDry
-  SymbolVal "all-commits" -> Just ScanAllCommits
-  _ -> Nothing
 
 
 {- HLINT ignore "Functor law" -}

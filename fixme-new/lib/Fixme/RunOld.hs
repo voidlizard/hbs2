@@ -10,7 +10,6 @@ import Fixme.Config
 import Fixme.State
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
-import Fixme.Log
 
 import HBS2.Git.Local.CLI
 

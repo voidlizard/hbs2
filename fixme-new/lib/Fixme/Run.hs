@@ -8,7 +8,6 @@ import Fixme.State
 import Fixme.Run.Internal
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
-import Fixme.Log
 
 import Data.Config.Suckless.Script.File
 
@@ -221,13 +220,6 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
-
-       entry $ bindMatch "fixme-git-scan-filter-days" $ nil_ \case
-        [LitIntVal d] -> do
-          t <- lift $ asks fixmeEnvGitScanDays
-          atomically (writeTVar t (Just d))
-
-        _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "fixme-attribs" $ nil_ \case
         StringLikeList xs -> do

@@ -128,7 +128,6 @@ executable test-udp
 
     -- other-extensions:
 
-    -- type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          TestUDP.hs
 
@@ -866,7 +865,6 @@ executable test-notify
 
     -- other-extensions:
 
-    type:             exitcode-stdio-1.0
     hs-source-dirs:   test/notify-unix
     main-is:          Main.hs
     build-depends:
@@ -910,7 +908,6 @@ executable test-playground
 
     -- other-extensions:
 
-    type:             exitcode-stdio-1.0
     hs-source-dirs:   test/playground
     main-is:          Main.hs
     build-depends:
@@ -961,7 +958,6 @@ executable test-pipe-mess
 
     -- other-extensions:
 
-    type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          TestPipeMessaging.hs
     build-depends:
