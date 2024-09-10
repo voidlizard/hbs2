@@ -391,8 +391,7 @@ runTop forms = do
        --  one
 
        -- TODO: some-shit
-       --   two
-       --   updated
+       --  new text
 
        entry $ bindMatch "env:show" $ nil_ $ const $ do
         lift printEnv
