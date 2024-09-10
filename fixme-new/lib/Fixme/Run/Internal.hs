@@ -24,6 +24,7 @@ import DBPipe.SQLite hiding (field)
 import Data.Config.Suckless
 import Data.Config.Suckless.Script.File
 
+import Control.Applicative
 import Data.Aeson.Encode.Pretty as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -39,6 +40,7 @@ import Data.Generics.Product.Fields (field)
 import Data.List qualified as List
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
@@ -271,4 +273,54 @@ import_ = do
         when add do
           notice $ red "SCANNED" <+> pretty f
           insertScanned f
+
+
+cat_ :: FixmePerks m => Text -> FixmeM m ()
+cat_ hash = do
+
+  (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
+  gd  <- fixmeGetGitDirCLIOpt
+
+  CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
+
+  void $ flip runContT pure do
+    callCC \exit -> do
+
+      mha <- lift $ selectFixmeKey hash
+
+      ha <- ContT $ maybe1 mha (pure ())
+
+      fme' <- lift $ getFixme ha
+
+      Fixme{..} <- ContT $ maybe1 fme' (pure ())
+
+      let gh' = HM.lookup "blob" fixmeAttr
+
+      -- FIXME: define-fallback-action
+      gh <- ContT $ maybe1 gh' none
+
+      let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
+
+      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
+      let bbefore = if start > before then before  + 1 else 1
+      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
+      let lno   = max 1 $ origLen + after + before
+
+      let dict = [ (mkId k, mkStr @C   v) | (k,v) <- HM.toList fixmeAttr ]
+                 <>
+                 [ (mkId (FixmeAttrName "before"), mkStr @C (FixmeAttrVal $ Text.pack $ show bbefore))
+                 ]
+
+      debug (pretty cmd)
+
+      let text = fixmePlain & LBS.fromStrict . encodeUtf8 . Text.unlines . fmap coerce
+
+      w <- gitRunCommand cmd
+            <&> fromRight text
+            <&> LBS8.lines
+            <&> drop start
+            <&> take lno
+
+      liftIO $ action  dict (LBS8.unlines w)
+
 

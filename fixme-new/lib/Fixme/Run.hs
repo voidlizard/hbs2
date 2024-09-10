@@ -326,6 +326,13 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+       entry $ bindMatch "cat" $ nil_ $ \case
+        [ FixmeHashLike w ] -> lift do
+          cat_ w
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "dump" $ nil_ $ \case
         [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
           key <- lift (selectFixmeKey w) >>= toMPlus
