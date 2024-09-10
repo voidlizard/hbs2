@@ -330,13 +330,13 @@ runTop forms = do
 
        entry $ bindMatch "report" $ nil_ $ lift . \case
         ( SymbolVal "template" : StringLike t : p )  -> do
-          runReport (Just t) p
+          report (Just t) p
 
         ( SymbolVal "--template" : StringLike t : p )  -> do
-          runReport (Just t) p
+          report (Just t) p
 
         p -> do
-          runReport Nothing p
+          report Nothing p
 
        entry $ bindMatch "fixme:key:show" $ nil_ \case
         [ FixmeHashLike w ] -> lift $ void $ runMaybeT do

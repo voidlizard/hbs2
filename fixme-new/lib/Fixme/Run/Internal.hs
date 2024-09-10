@@ -195,11 +195,42 @@ scanFiles = do
       pure True
 
 
-runReport :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
-runReport tpl q = do
-  debug $ "runReport" <+> pretty tpl
-  fxs <- listFixme q
-  for_ fxs $ \fme -> do
-    liftIO $ print $ pretty fme
+  -- tpl <- asks fixmeEnvTemplates >>= readTVarIO
+  --           <&> HM.lookup (fromMaybe "default" tpl)
 
+  -- fixmies <- selectFixmeThin a
+
+  -- case tpl of
+  --   Nothing-> do
+  --     liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
+
+  --   Just (Simple (SimpleTemplate simple)) -> do
+  --     for_ fixmies $ \(FixmeThin attr) -> do
+  --       let subst = [ (mkId k, mkStr @C v) | (k,v) <- HM.toList attr ]
+  --       let what = render (SimpleTemplate (inject  subst simple))
+  --                     & fromRight "render error"
+
+  --       liftIO $ hPutDoc stdout what
+
+
+
+report :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
+report t q = do
+
+  tpl <- asks fixmeEnvTemplates >>= readTVarIO
+            <&> HM.lookup (maybe "default" fromString t)
+
+  fxs <- listFixme q
+
+  case tpl of
+    Nothing ->
+      liftIO $ LBS.putStr $ Aeson.encodePretty (fmap fixmeAttr fxs)
+
+    Just (Simple (SimpleTemplate simple)) -> do
+      for_ fxs $ \(Fixme{..}) -> do
+        let subst = [ (mkId k, mkStr @C v) | (k,v) <- HM.toList fixmeAttr ]
+        let what = render (SimpleTemplate (inject  subst simple))
+                      & fromRight "render error"
+
+        liftIO $ hPutDoc stdout what
 
