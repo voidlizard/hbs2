@@ -368,41 +368,7 @@ runTop forms = do
         cleanupDatabase
 
        entry $ bindMatch "fixme:scan:import" $ nil_ $ const $ lift do
-          fxs0 <- scanFiles
-
-          fxs <- flip filterM fxs0 $ \fme -> do
-                   let fn = fixmeGet "file" fme <&> Text.unpack . coerce
-                   seen <- maybe1 fn (pure False) selectIsAlreadyScanned
-                   pure (not seen)
-
-          hashes <- catMaybes <$> flip runContT pure do
-              p <- ContT $ bracket startGitHash stopProcess
-              let files = mapMaybe (fixmeGet "file") fxs
-                              & HS.fromList
-                              & HS.toList
-                              & fmap (Text.unpack . coerce)
-              for files $ \f -> do
-                mbHash <- lift $ gitHashPathStdin p f
-                case mbHash of
-                  Just ha ->
-                    pure $ Just (f, ha)
-                  Nothing ->
-                    pure Nothing
-
-          let blobs = HM.fromList hashes
-
-          withState $ transactional do
-            for_ fxs $ \fme -> do
-              let fn = fixmeGet "file" fme <&> Text.unpack . coerce
-              fmeRich <- lift $ maybe1 fn (pure mempty) (`getMetaDataFromGitBlame` fme)
-
-              let blob = fn >>= flip HM.lookup blobs
-                            >>= \b -> pure (fixmeSet "blob" (fromString (show $ pretty $ b)) mempty)
-
-              notice $ "fixme" <+> pretty (fixmeKey fme)
-              insertFixme (fromMaybe mempty blob <> fmeRich <> fme)
-              -- TODO: remove-code-duplication
-              for_ fn insertScanned
+          import_
 
        entry $ bindMatch "fixme:scan:list" $ nil_ $ const do
           fxs <- lift scanFiles
