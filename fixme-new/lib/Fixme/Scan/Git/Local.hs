@@ -359,11 +359,28 @@ gitCatBlob h = do
   (_,s,_)  <- readProcess $ shell [qc|git {gd} cat-file blob {pretty h}|]
   pure s
 
+
+startGitHash ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
+startGitHash = do
+  gd <- fixmeGetGitDirCLIOpt
+  let cmd = [qc|git {gd} hash-object --stdin-paths|]
+  debug $ pretty cmd
+  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ shell cmd
+  startProcess config
+
+gitHashPathStdin :: FixmePerks m => (Process Handle Handle e) -> FilePath -> FixmeM m (Maybe GitHash)
+gitHashPathStdin prc file  = do
+  let ssin = getStdin prc
+  let sout = getStdout prc
+  liftIO $ IO.hPutStrLn ssin file >> IO.hFlush ssin
+  liftIO (IO.hGetLine sout) <&> fromStringMay @GitHash
+
 startGitCatFile ::  (FixmePerks m, MonadReader FixmeEnv m) => m (Process Handle Handle ())
 startGitCatFile = do
   gd <- fixmeGetGitDirCLIOpt
   let cmd = [qc|git {gd} cat-file --batch|]
   debug $ pretty cmd
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ shell cmd
+  -- ssin <- getStdin config
   startProcess config
 

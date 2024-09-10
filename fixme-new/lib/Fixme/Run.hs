@@ -375,12 +375,21 @@ runTop forms = do
                    seen <- maybe1 fn (pure False) selectIsAlreadyScanned
                    pure (not seen)
 
-          let files = mapMaybe (fixmeGet "file") fxs
-                          & HS.fromList
-                          & HS.toList
-                          & fmap (Text.unpack . coerce)
+          hashes <- catMaybes <$> flip runContT pure do
+              p <- ContT $ bracket startGitHash stopProcess
+              let files = mapMaybe (fixmeGet "file") fxs
+                              & HS.fromList
+                              & HS.toList
+                              & fmap (Text.unpack . coerce)
+              for files $ \f -> do
+                mbHash <- lift $ gitHashPathStdin p f
+                case mbHash of
+                  Just ha ->
+                    pure $ Just (f, ha)
+                  Nothing ->
+                    pure Nothing
 
-          blobs <- listBlobs mzero <&> HM.fromList
+          let blobs = HM.fromList hashes
 
           withState $ transactional do
             for_ fxs $ \fme -> do
