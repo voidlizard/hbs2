@@ -264,7 +264,6 @@ import_ = do
       --
       --   если не в гите -- то добавляем в сканированные
       --
-      --   проверяем
       for_ fn $ \f -> do
         let add = not (isVersioned fn)
                    || maybe False (`HS.member` commited) (HM.lookup f blobs)
