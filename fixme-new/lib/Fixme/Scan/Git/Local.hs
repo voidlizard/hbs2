@@ -115,10 +115,13 @@ listCommits = do
 
     spec = sq <> delims " \t"
 
-listBlobs :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m [(FilePath,GitHash)]
-listBlobs co = do
+listBlobs :: (FixmePerks m, MonadReader FixmeEnv m) => Maybe GitHash -> m [(FilePath,GitHash)]
+listBlobs mco = do
   gd <- fixmeGetGitDirCLIOpt
-  gitRunCommand [qc|git {gd} ls-tree -r -l -t {pretty co}|]
+
+  let what = maybe "HEAD" (show . pretty) mco
+
+  gitRunCommand [qc|git {gd} ls-tree -r -l -t {what}|]
     <&> fromRight mempty
     <&> fmap LBS8.words . LBS8.lines
     <&> mapMaybe
@@ -151,7 +154,7 @@ listRelevantBlobs =  do
   commits <- listCommits
   S.toList_ $ do
     for_ commits $ \(co, _) -> do
-      found <- lift $ listBlobs co >>= filterBlobs
+      found <- lift $ listBlobs (Just co) >>= filterBlobs
       S.each found
 
 listFixmies :: FixmePerks m
@@ -296,7 +299,7 @@ gitExtractFileMetaData fns = do
   rich0 <- S.toList_ $ do
     for_ co $ \(c, (t,n,m)) -> do
       let pat = [ (True, f) | f <- fns ]
-      blobz <- lift $ listBlobs c >>= filterBlobs0 pat
+      blobz <- lift $ listBlobs (Just c) >>= filterBlobs0 pat
 
       for_ blobz $ \(f,h) -> do
         let attr = HM.fromList [ ("commit",          FixmeAttrVal (fromString $ show $ pretty c))
@@ -344,7 +347,7 @@ listCommitForIndex fn = do
          )
 
   for_ s0 $ \(h, GitCommit w _) -> do
-    blobz <- listBlobs h <&> HS.fromList . fmap ( uncurry GitBlobInfo  )
+    blobz <- listBlobs (Just h) <&> HS.fromList . fmap ( uncurry GitBlobInfo  )
     fn (h, GitCommit w blobz)
 
   where

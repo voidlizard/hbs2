@@ -375,12 +375,23 @@ runTop forms = do
                    seen <- maybe1 fn (pure False) selectIsAlreadyScanned
                    pure (not seen)
 
+          let files = mapMaybe (fixmeGet "file") fxs
+                          & HS.fromList
+                          & HS.toList
+                          & fmap (Text.unpack . coerce)
+
+          blobs <- listBlobs mzero <&> HM.fromList
+
           withState $ transactional do
             for_ fxs $ \fme -> do
               let fn = fixmeGet "file" fme <&> Text.unpack . coerce
               fmeRich <- lift $ maybe1 fn (pure mempty) (`getMetaDataFromGitBlame` fme)
+
+              let blob = fn >>= flip HM.lookup blobs
+                            >>= \b -> pure (fixmeSet "blob" (fromString (show $ pretty $ b)) mempty)
+
               notice $ "fixme" <+> pretty (fixmeKey fme)
-              insertFixme (fmeRich <> fme)
+              insertFixme (fromMaybe mempty blob <> fmeRich <> fme)
               -- TODO: remove-code-duplication
               for_ fn insertScanned
 
@@ -388,6 +399,8 @@ runTop forms = do
           fxs <- lift scanFiles
           for_ fxs $ \fme -> do
             liftIO $ print $ pretty fme
+
+       -- TODO: some-uncommited-shit
 
        -- TODO: some-shit
        --  one
