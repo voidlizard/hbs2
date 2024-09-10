@@ -141,6 +141,7 @@ runFixmeCLI m = do
   --   не все действия требуют БД,
   --   хорошо бы, что бы она не создавалась,
   --   если не требуется
+  mkdir (takeDirectory dbPath)
   recover env do
     runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
                    `finally` flushLoggers
@@ -414,10 +415,6 @@ runTop forms = do
        -- TODO: implement-fixme:refchan:export
        entry $ bindMatch "fixme:refchan:export" $ nil_ \case
         _ -> none
-
-       entry $ bindMatch "git:import" $ nil_ $ const do
-        error "not implemented yet"
-        -- lift $ scanGitLocal mempty Nothing
 
        entry $ bindMatch "git:blobs" $  \_ -> do
         blobs <- lift (listBlobs Nothing)

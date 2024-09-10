@@ -270,9 +270,7 @@ import_ = do
                    || maybe False (`HS.member` commited) (HM.lookup f blobs)
 
         when add do
-          notice $ red "SCANNED" <+> pretty f
           insertScanned f
-
 
 cat_ :: FixmePerks m => Text -> FixmeM m ()
 cat_ hash = do
