@@ -404,7 +404,9 @@ insertFixme fme = do
               when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
               else object.w
             end,
-        nonce = null
+        nonce = case when excluded.w > object.w and (excluded.v <> object.v) then null
+                     else object.nonce
+                end
       |]
 
     for_ (fixmeStart fme) $ \s -> do
@@ -466,10 +468,7 @@ insertFixmeExported h item = do
               when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
               else object.w
             end,
-        nonce = case
-              when excluded.w > object.w and (excluded.v <> object.v) then excluded.nonce
-              else object.nonce
-            end
+        nonce = excluded.nonce
   |]
 
   insert sql (WithNonce h item)
