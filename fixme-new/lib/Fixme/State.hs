@@ -439,6 +439,9 @@ instance LocalNonce FixmeExported where
     HashRef $ hashObject @HbSync
             $ serialise (exportedKey,exportedName,exportedValue)
 
+instance LocalNonce (HashRef, FixmeExported) where
+  localNonce (h, e) =  HashRef $ hashObject @HbSync
+                               $ serialise (h, localNonce e)
 
 data WithNonce a = WithNonce HashRef a
 

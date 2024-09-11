@@ -392,7 +392,7 @@ refchanExport dry = do
 
           let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
 
-          warn $ "POST" <+> red "unencrypted!" <+> pretty (hashObject @HbSync (serialise box))
+          warn $ "POST" <+> red "unencrypted!" <+> pretty (length x) <+> pretty (hashObject @HbSync (serialise box))
 
           unless dry do
             r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
@@ -464,9 +464,11 @@ refchanImport = do
       w <- readTVarIO ttsmap <&> fromMaybe (exportedWeight i) . HM.lookup h
       let item = i { exportedWeight = w }
 
-      unless (exportedWeight item == 0) do
+      if exportedWeight item /= 0 then do
         notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
-        insertFixmeExported (localNonce i) item
+        insertFixmeExported (localNonce (href,i)) item
+      else do
+        warn "SKIP TX!"
 
       atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
       insertScanned txh
