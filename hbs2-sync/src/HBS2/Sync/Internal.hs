@@ -27,7 +27,7 @@ import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.Map qualified as Map
 import Lens.Micro.Platform
-import System.Directory (setModificationTime,listDirectory,createDirectoryIfMissing)
+import System.Directory (listDirectory,createDirectoryIfMissing)
 import System.Directory (XdgDirectory(..),getXdgDirectory)
 import Control.Monad.Except
 import Data.Ord
@@ -59,7 +59,10 @@ syncEntries = do
       setLogging @DEBUG  debugPrefix
 
   entry $ bindMatch "init" $ nil_ $ \case
-    [StringLike "--auto", SignPubKeyLike author, StringLike readerRaw] -> do
+    [StringLike "--auto", StringLike authorString, StringLike readerString] -> do
+      authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
+      readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
+
       peerApi  <- getClientAPI @PeerAPI @UNIX
       rchanApi <- getClientAPI @RefChanAPI @UNIX
       storage  <- getStorage
@@ -69,15 +72,14 @@ syncEntries = do
                <&> parseTop
                >>= orThrowUser "invalid hbs2-peer attributes"
 
-      key <- [ x
-             | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
-             ] & headMay & orThrowUser "hbs2-peer key not found"
+      peerKey <- [ x
+                 | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
+                 ] & headMay & orThrowUser "hbs2-peer key not found"
 
-      reader <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerRaw & orThrowUser "reader not found"
       let chanData = refChanHeadDefault @L4Proto
-                     & set refChanHeadPeers (HM.singleton key 1)
-                     & set refChanHeadAuthors (HS.singleton author)
-                     & set refChanHeadReaders (HS.singleton reader)
+                     & set refChanHeadPeers (HM.singleton peerKey 1)
+                     & set refChanHeadAuthors (HS.singleton authorKey)
+                     & set refChanHeadReaders (HS.singleton readerKey)
       refchan <- keymanNewCredentials (Just "refchan") 0
 
       creds <- runKeymanClient $ loadCredentials refchan
@@ -93,13 +95,12 @@ syncEntries = do
       callService @RpcRefChanHeadPost rchanApi (HashRef href)
         >>= orThrowUser "can't post refchan head"
 
-      let signString = show $ pretty $ AsBase58 author
       let refchanString = show $ pretty $ AsBase58 refchan
       let configForms :: [Syntax c] = [ mkList [mkSym "exclude", mkStr "**/.*"]
                                       , mkList [mkSym "include", mkStr "**"]
-                                      , mkList [mkSym "sign", mkStr signString]
+                                      , mkList [mkSym "sign", mkStr authorString]
                                       , mkList [mkSym "refchan", mkStr refchanString]
-                                      ] 
+                                      ]
       let config = unlines $ map (show . pretty) configForms
       display config
       let path = ".hbs-sync/config"
