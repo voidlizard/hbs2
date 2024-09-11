@@ -361,7 +361,7 @@ refchanExport = do
   withState do
     what <- select_ @_ @FixmeExported [qc|select o,w,k,cast (v as text) from object order by o, k, v|]
 
-    let chu  = chunksOf 10000 what
+    let chu  = chunksOf 1000 what
 
     for_ chu $ \x -> do
 
