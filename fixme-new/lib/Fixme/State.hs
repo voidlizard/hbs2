@@ -464,6 +464,10 @@ insertFixmeExported h item = do
         w = case
               when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
               else object.w
+            end,
+        nonce = case
+              when excluded.w > object.w and (excluded.v <> object.v) then null
+              else object.nonce
             end
   |]
 
