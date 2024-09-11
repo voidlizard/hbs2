@@ -338,8 +338,8 @@ cat_ hash = do
 
 
 
-refchanExport :: FixmePerks m => FixmeM m ()
-refchanExport = do
+refchanExport :: FixmePerks m => Bool -> FixmeM m ()
+refchanExport dry = do
   sto <- getStorage
   rchanAPI <- getClientAPI @RefChanAPI @UNIX
 
@@ -364,9 +364,14 @@ refchanExport = do
     --   с ростом количества записей. Нужно отбирать
     --   только такие элементы, которые реально отсутствуют
     --   в рефчане
-    what <- select_ @_ @FixmeExported [qc|select distinct o,0,k,cast (v as text) from object order by o, k, v|]
+    what <- select_ @_ @FixmeExported [qc|
+      select distinct o,0,k,cast (v as text)
+      from object obj
+      where not exists (select null from scanned where hash = obj.nonce)
+      order by o, k, v
+      |]
 
-    let chu  = chunksOf 1000 what
+    let chu  = chunksOf 10000 what
 
     flip runContT pure do
 
@@ -385,16 +390,15 @@ refchanExport = do
 
           let lbs = serialise tx
 
-          liftIO $ print (LBS.length lbs)
-
           let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
 
           warn $ "POST" <+> red "unencrypted!" <+> pretty (hashObject @HbSync (serialise box))
 
-          r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
+          unless dry do
+            r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
 
-          when (isNothing r) do
-            err $ red "hbs2-peer rpc calling timeout"
+            when (isNothing r) do
+              err $ red "hbs2-peer rpc calling timeout"
 
 
 refchanImport :: FixmePerks m => FixmeM m ()
@@ -462,7 +466,7 @@ refchanImport = do
 
       unless (exportedWeight item == 0) do
         notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
-        insertFixmeExported item
+        insertFixmeExported (localNonce i) item
 
       atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
       insertScanned txh

@@ -419,8 +419,12 @@ runTop forms = do
         co <- lift listCommits <&> fmap (mkStr @C . view _1)
         pure $ mkList co
 
-       entry $ bindMatch "fixme:refchan:export" $ nil_ $ const do
-        void $ lift $ refchanExport
+       entry $ bindMatch "fixme:refchan:export" $ nil_ $ \case
+          [SymbolVal "dry"] -> do
+            notice $ yellow "export is running in dry mode"
+            void $ lift $ refchanExport True
+
+          _ ->  void $ lift $ refchanExport False
 
        entry $ bindMatch "fixme:refchan:import" $ nil_ $ const do
         void $ lift $ refchanImport

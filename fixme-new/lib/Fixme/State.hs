@@ -20,6 +20,7 @@ module Fixme.State
   , FixmeExported(..)
   , HasPredicate(..)
   , SelectPredicate(..)
+  , LocalNonce(..)
   ) where
 
 import Fixme.Prelude hiding (key)
@@ -127,13 +128,12 @@ withState what = do
 createTables :: FixmePerks m => DBPipeM m ()
 createTables = do
 
-  ddl [qc| create table if not exists tree
-           ( hash text not null
-           , o    text not null
-           , k    text not null
-           , primary key (hash,o,k)
-           )
-         |]
+  -- ddl [qc| create table if not exists tree
+  --          ( hash   text not null
+  --          , nonce  text not null
+  --          , primary key (hash,nonce)
+  --          )
+  --        |]
 
   ddl [qc| create table if not exists scanned
            ( hash text not null primary key )
@@ -144,6 +144,7 @@ createTables = do
            , w   integer not null
            , k   text    not null
            , v   blob    not null
+           , nonce text  null
            , primary key (o,k)
            )
          |]
@@ -294,7 +295,7 @@ insertScannedFile file = do
   k <- lift $ scannedKeyForFile file
   insertScanned k
 
-insertScanned:: (FixmePerks m, MonadReader FixmeEnv m) => HashRef -> DBPipeM m ()
+insertScanned:: (FixmePerks m) => HashRef -> DBPipeM m ()
 insertScanned k = do
   insert [qc| insert into scanned (hash)
               values(?)
@@ -430,14 +431,27 @@ instance FromRow FixmeExported
 instance ToRow  FixmeExported
 instance Serialise FixmeExported
 
+class LocalNonce a where
+  localNonce :: a -> HashRef
 
-insertFixmeExported :: FixmePerks m => FixmeExported -> DBPipeM m ()
-insertFixmeExported item = do
+instance LocalNonce FixmeExported where
+  localNonce FixmeExported{..} =
+    HashRef $ hashObject @HbSync
+            $ serialise (exportedKey,exportedName,exportedValue)
+
+
+data WithNonce a = WithNonce HashRef a
+
+instance ToRow (WithNonce FixmeExported) where
+  toRow (WithNonce nonce f@FixmeExported{..}) = toRow (exportedKey, exportedWeight, exportedName, exportedValue, nonce)
+
+insertFixmeExported :: FixmePerks m => HashRef -> FixmeExported -> DBPipeM m ()
+insertFixmeExported h item = do
 
   let sql = [qc|
 
-      insert into object (o, w, k, v)
-      values (?, ?, ?, ?)
+      insert into object (o, w, k, v, nonce)
+      values (?, ?, ?, ?, ?)
       on conflict (o, k)
       do update set
         v = case
@@ -450,6 +464,7 @@ insertFixmeExported item = do
             end
   |]
 
-  insert sql item
+  insert sql (WithNonce h item)
+  insertScanned h
 
 
