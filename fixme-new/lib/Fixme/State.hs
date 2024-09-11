@@ -403,7 +403,8 @@ insertFixme fme = do
         w = case
               when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
               else object.w
-            end
+            end,
+        nonce = null
       |]
 
     for_ (fixmeStart fme) $ \s -> do
@@ -466,7 +467,7 @@ insertFixmeExported h item = do
               else object.w
             end,
         nonce = case
-              when excluded.w > object.w and (excluded.v <> object.v) then null
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.nonce
               else object.nonce
             end
   |]
