@@ -461,14 +461,17 @@ insertFixmeExported h item = do
       on conflict (o, k)
       do update set
         v = case
-              when excluded.w > object.w and (excluded.v <> object.v) then excluded.v
+              when excluded.w > object.w  then excluded.v
               else object.v
             end,
         w = case
-              when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
+              when excluded.w > object.w  then excluded.w
               else object.w
             end,
-        nonce = excluded.nonce
+        nonce = case
+                  when excluded.w > object.w then excluded.nonce
+                  else object.nonce
+                end
   |]
 
   insert sql (WithNonce h item)

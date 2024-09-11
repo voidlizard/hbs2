@@ -365,11 +365,10 @@ refchanExport dry = do
     --   только такие элементы, которые реально отсутствуют
     --   в рефчане
     what <- select_ @_ @FixmeExported [qc|
-      select distinct o,0,k,cast (v as text)
+      select distinct o,w,k,cast (v as text)
       from object obj
       where not exists (select null from scanned where hash = obj.nonce)
-         or obj.nonce is null
-      order by o, k, v
+      order by o, k, v, w
       |]
 
     let chu  = chunksOf 10000 what
@@ -415,9 +414,11 @@ refchanImport = do
 
   -- TODO: assume-huge-list
   -- scanned <- listAllScanned
-  let isScanned = selectIsAlreadyScanned
+  let goodToGo x = do
+        here <- selectIsAlreadyScanned x
+        pure $ not here
 
-  walkRefChanTx @UNIX isScanned chan $ \txh u -> do
+  walkRefChanTx @UNIX goodToGo chan $ \txh u -> do
 
     case  u of
 
@@ -436,6 +437,8 @@ refchanImport = do
 
         scanned <- lift $ selectIsAlreadyScanned href
 
+        -- notice $ yellow "SCANNED" <+> pretty scanned
+
         if scanned then do
           atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
           lift $ withState $ transactional do
@@ -453,7 +456,6 @@ refchanImport = do
                         & toMPlus
 
           for_ exported $ \exported -> do
-            unless scanned do
               atomically $ writeTQueue tq (txh, orig, href, exported)
 
   imported <- atomically $ flushTQueue tq
