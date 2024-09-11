@@ -440,7 +440,7 @@ class LocalNonce a where
 instance LocalNonce FixmeExported where
   localNonce FixmeExported{..} =
     HashRef $ hashObject @HbSync
-            $ serialise (exportedKey,exportedName,exportedValue)
+            $ serialise (exportedKey,exportedName,exportedValue,exportedWeight)
 
 instance LocalNonce (HashRef, FixmeExported) where
   localNonce (h, e) =  HashRef $ hashObject @HbSync

@@ -368,6 +368,7 @@ refchanExport dry = do
       select distinct o,0,k,cast (v as text)
       from object obj
       where not exists (select null from scanned where hash = obj.nonce)
+         or obj.nonce is null
       order by o, k, v
       |]
 
@@ -379,10 +380,6 @@ refchanExport dry = do
 
         -- FIXME: encrypt-tree
         h  <- writeAsMerkle sto (serialise x)
-
-        already <- lift $ lift $ selectIsAlreadyScanned (HashRef h)
-
-        when already $ next ()
 
         let tx = AnnotatedHashRef Nothing (HashRef h)
 
@@ -417,8 +414,8 @@ refchanImport = do
   tq <- newTQueueIO
 
   -- TODO: assume-huge-list
-  scanned <- listAllScanned
-  let isScanned = pure . not . (`HS.member` scanned)
+  -- scanned <- listAllScanned
+  let isScanned = selectIsAlreadyScanned
 
   walkRefChanTx @UNIX isScanned chan $ \txh u -> do
 
@@ -437,7 +434,9 @@ refchanImport = do
         AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
                                     & toMPlus . either (const Nothing) Just
 
-        if HS.member href scanned then do
+        scanned <- lift $ selectIsAlreadyScanned href
+
+        if scanned then do
           atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
           lift $ withState $ transactional do
             insertScanned txh
@@ -454,7 +453,7 @@ refchanImport = do
                         & toMPlus
 
           for_ exported $ \exported -> do
-            unless (HS.member href scanned) do
+            unless scanned do
               atomically $ writeTQueue tq (txh, orig, href, exported)
 
   imported <- atomically $ flushTQueue tq
@@ -468,7 +467,7 @@ refchanImport = do
         notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
         insertFixmeExported (localNonce (href,i)) item
       else do
-        warn "SKIP TX!"
+        debug $ "SKIP TX!" <+> pretty txh
 
       atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
       insertScanned txh
