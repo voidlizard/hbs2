@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.State
   ( evolve
@@ -8,8 +9,11 @@ module Fixme.State
   , insertFixme
   , insertFixmeExported
   , modifyFixme
+  , insertScannedFile
   , insertScanned
+  , selectIsAlreadyScannedFile
   , selectIsAlreadyScanned
+  , listAllScanned
   , selectFixmeKey
   , getFixme
   , FixmeExported(..)
@@ -21,6 +25,7 @@ import Fixme.Prelude hiding (key)
 import Fixme.Types
 import Fixme.Config
 
+import HBS2.Base58
 import HBS2.System.Dir
 import Data.Config.Suckless hiding (key)
 import Data.Config.Suckless.Syntax
@@ -56,6 +61,15 @@ import System.TimeIt
 --   Но это и удобно: кажется, что можно менять БД
 --   на лету бесплатно
 
+
+newtype SomeHash h = SomeHash { fromSomeHash :: h }
+                     deriving newtype (IsString)
+
+instance Pretty (AsBase58 h) => ToField (SomeHash h) where
+  toField (SomeHash h) = toField ( show $ pretty (AsBase58 h))
+
+instance IsString (SomeHash h) => FromField (SomeHash h) where
+  fromField = fmap fromString . fromField @String
 
 pattern Operand :: forall {c} . Text -> Syntax c
 pattern Operand what <- (operand -> Just what)
@@ -245,15 +259,27 @@ scannedKeyForFile  file = do
   w <- liftIO $ getModificationTime fn <&> round . utcTimeToPOSIXSeconds
   pure $ hashObject @HbSync ( serialise (magic,w,file) ) & HashRef
 
-selectIsAlreadyScanned :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> m Bool
-selectIsAlreadyScanned file = withState do
-  k <- lift $ scannedKeyForFile file
+selectIsAlreadyScannedFile :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> m Bool
+selectIsAlreadyScannedFile file = do
+  k <- scannedKeyForFile file
+  selectIsAlreadyScanned k
+
+selectIsAlreadyScanned :: (FixmePerks m, MonadReader FixmeEnv m) => HashRef -> m Bool
+selectIsAlreadyScanned k = withState do
   what <- select @(Only Int) [qc|select 1 from scanned where hash = ? limit 1|] (Only k)
   pure $ not $ List.null what
 
-insertScanned :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> DBPipeM m ()
-insertScanned file = do
+listAllScanned :: (FixmePerks m, MonadReader FixmeEnv m) => m (HashSet HashRef)
+listAllScanned = withState do
+  select_ [qc|select hash from scanned|] <&> HS.fromList . fmap ( fromSomeHash . fromOnly )
+
+insertScannedFile :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> DBPipeM m ()
+insertScannedFile file = do
   k <- lift $ scannedKeyForFile file
+  insertScanned k
+
+insertScanned:: (FixmePerks m, MonadReader FixmeEnv m) => HashRef -> DBPipeM m ()
+insertScanned k = do
   insert [qc| insert into scanned (hash)
               values(?)
               on conflict (hash) do nothing|]

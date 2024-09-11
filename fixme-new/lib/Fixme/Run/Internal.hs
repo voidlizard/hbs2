@@ -235,7 +235,7 @@ import_ = do
 
   fxs <- flip filterM fxs0 $ \fme -> do
            let fn = fixmeGet "file" fme <&> Text.unpack . coerce
-           seen <- maybe1 fn (pure False) selectIsAlreadyScanned
+           seen <- maybe1 fn (pure False) selectIsAlreadyScannedFile
            pure (not seen)
 
   hashes <- catMaybes <$> flip runContT pure do
@@ -282,7 +282,7 @@ import_ = do
                    || maybe False (`HS.member` commited) (HM.lookup f blobs)
 
         when add do
-          insertScanned f
+          insertScannedFile f
 
 cat_ :: FixmePerks m => Text -> FixmeM m ()
 cat_ hash = do
@@ -358,14 +358,6 @@ refchanExport = do
 
   let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
 
-  -- withRPC2 @RefChanAPI soname $ \caller -> do
-  --   for_ items $ \it -> do
-  --     let str = show (pretty it)
-  --     putStr str
-  --     let lbs = str & Text.pack & Text.encodeUtf8
-  --     let box = makeSignedBox @L4Proto @BS.ByteString pk sk lbs
-  --     void $ callService @RpcRefChanPropose caller (chan, box)
-
   withState do
     what <- select_ @_ @FixmeExported [qc|select o,w,k,cast (v as text) from object order by o, k, v|]
 
@@ -396,24 +388,28 @@ refchanImport :: FixmePerks m => FixmeM m ()
 refchanImport = do
 
   sto <- getStorage
-  rchanAPI <- getClientAPI @RefChanAPI @UNIX
 
   chan <- asks fixmeEnvRefChan
            >>= readTVarIO
            >>= orThrowUser "refchan not set"
 
 
-  ttsmap <- newTVarIO HM.empty
+  ttsmap  <- newTVarIO HM.empty
+  accepts <- newTVarIO HM.empty
 
   tq <- newTQueueIO
 
-  walkRefChanTx @UNIX (const $ pure True) chan $ \txh u -> do
+  -- TODO: assume-huge-list
+  scanned <- listAllScanned
+
+  walkRefChanTx @UNIX (pure . not . (`HS.member` scanned)) chan $ \txh u -> do
 
     case  u of
 
       A (AcceptTran (Just ts) _ what) -> do
         debug $ red "ACCEPT" <+> pretty ts <+> pretty what
         atomically $ modifyTVar ttsmap (HM.insertWith max what (coerce @_ @Word64 ts))
+        atomically $ modifyTVar accepts (HM.insertWith (<>) what (HS.singleton txh))
 
       A _  -> none
 
@@ -432,16 +428,18 @@ refchanImport = do
                       & toMPlus
 
         for_ exported $ \exported -> do
-          atomically $ writeTQueue tq (orig, exported)
+          atomically $ writeTQueue tq (txh, orig, exported)
 
   imported <- atomically $ flushTQueue tq
 
   withState $ transactional do
-    for_ imported $ \(h, i) -> do
+    for_ imported $ \(txh, h, i) -> do
       w <- readTVarIO ttsmap <&> fromMaybe (exportedWeight i) . HM.lookup h
       let item = i { exportedWeight = w }
       notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
       insertFixmeExported item
-
+      atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
+      insertScanned txh
+      for_ atx insertScanned
 
 
