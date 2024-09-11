@@ -359,29 +359,42 @@ refchanExport = do
   let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
 
   withState do
-    what <- select_ @_ @FixmeExported [qc|select o,w,k,cast (v as text) from object order by o, k, v|]
+    -- FIXME: select-only-really-missed-records
+    --   сейчас всегда фуллскан. будет всё дольше и дольше
+    --   с ростом количества записей. Нужно отбирать
+    --   только такие элементы, которые реально отсутствуют
+    --   в рефчане
+    what <- select_ @_ @FixmeExported [qc|select distinct o,0,k,cast (v as text) from object order by o, k, v|]
 
     let chu  = chunksOf 1000 what
 
-    for_ chu $ \x -> do
+    flip runContT pure do
 
-      -- FIXME: encrypt-tree
-      h  <- writeAsMerkle sto (serialise x)
+      for_ chu $ \x -> callCC \next -> do
 
-      let tx = AnnotatedHashRef Nothing (HashRef h)
+        -- FIXME: encrypt-tree
+        h  <- writeAsMerkle sto (serialise x)
 
-      let lbs = serialise tx
+        already <- lift $ lift $ selectIsAlreadyScanned (HashRef h)
 
-      liftIO $ print (LBS.length lbs)
+        when already $ next ()
 
-      let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
+        let tx = AnnotatedHashRef Nothing (HashRef h)
 
-      warn $ "POST" <+> red "unencrypted!" <+> pretty (hashObject @HbSync (serialise box))
+        lift do
 
-      r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
+          let lbs = serialise tx
 
-      when (isNothing r) do
-        err $ red "hbs2-peer rpc calling timeout"
+          liftIO $ print (LBS.length lbs)
+
+          let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
+
+          warn $ "POST" <+> red "unencrypted!" <+> pretty (hashObject @HbSync (serialise box))
+
+          r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
+
+          when (isNothing r) do
+            err $ red "hbs2-peer rpc calling timeout"
 
 
 refchanImport :: FixmePerks m => FixmeM m ()
@@ -446,11 +459,13 @@ refchanImport = do
     for_ imported $ \(txh, h, href, i) -> do
       w <- readTVarIO ttsmap <&> fromMaybe (exportedWeight i) . HM.lookup h
       let item = i { exportedWeight = w }
-      notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
-      insertFixmeExported item
+
+      unless (exportedWeight item == 0) do
+        notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
+        insertFixmeExported item
+
       atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
       insertScanned txh
       insertScanned href
       for_ atx insertScanned
-
 

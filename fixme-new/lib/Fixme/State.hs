@@ -16,6 +16,7 @@ module Fixme.State
   , listAllScanned
   , selectFixmeKey
   , getFixme
+  , insertTree
   , FixmeExported(..)
   , HasPredicate(..)
   , SelectPredicate(..)
@@ -126,6 +127,13 @@ withState what = do
 createTables :: FixmePerks m => DBPipeM m ()
 createTables = do
 
+  ddl [qc| create table if not exists tree
+           ( hash text not null
+           , o    text not null
+           , k    text not null
+           , primary key (hash,o,k)
+           )
+         |]
 
   ddl [qc| create table if not exists scanned
            ( hash text not null primary key )
@@ -268,6 +276,14 @@ selectIsAlreadyScanned :: (FixmePerks m, MonadReader FixmeEnv m) => HashRef -> m
 selectIsAlreadyScanned k = withState do
   what <- select @(Only Int) [qc|select 1 from scanned where hash = ? limit 1|] (Only k)
   pure $ not $ List.null what
+
+
+insertTree :: FixmePerks m => HashRef -> FixmeKey -> FixmeAttrName -> DBPipeM m ()
+insertTree h o k = do
+  insert [qc|  insert into tree (hash,o,k)
+               values (?,?,?)
+               on conflict (hash,o,k) do nothing
+         |] (h,o,k)
 
 listAllScanned :: (FixmePerks m, MonadReader FixmeEnv m) => m (HashSet HashRef)
 listAllScanned = withState do
