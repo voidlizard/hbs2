@@ -401,8 +401,9 @@ refchanImport = do
 
   -- TODO: assume-huge-list
   scanned <- listAllScanned
+  let isScanned = pure . not . (`HS.member` scanned)
 
-  walkRefChanTx @UNIX (pure . not . (`HS.member` scanned)) chan $ \txh u -> do
+  walkRefChanTx @UNIX isScanned chan $ \txh u -> do
 
     case  u of
 
@@ -419,27 +420,37 @@ refchanImport = do
         AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
                                     & toMPlus . either (const Nothing) Just
 
-        -- FIXME: decrypt-tree
-        what <- runExceptT (readFromMerkle sto (SimpleKey (coerce href)))
-                  <&> either (const Nothing) Just
-                  >>= toMPlus
+        if HS.member href scanned then do
+          atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
+          lift $ withState $ transactional do
+            insertScanned txh
+            for_ atx insertScanned
 
-        exported <- deserialiseOrFail @[FixmeExported] what
-                      & toMPlus
+        else do
 
-        for_ exported $ \exported -> do
-          atomically $ writeTQueue tq (txh, orig, exported)
+          -- FIXME: decrypt-tree
+          what <- runExceptT (readFromMerkle sto (SimpleKey (coerce href)))
+                    <&> either (const Nothing) Just
+                    >>= toMPlus
+
+          exported <- deserialiseOrFail @[FixmeExported] what
+                        & toMPlus
+
+          for_ exported $ \exported -> do
+            unless (HS.member href scanned) do
+              atomically $ writeTQueue tq (txh, orig, href, exported)
 
   imported <- atomically $ flushTQueue tq
 
   withState $ transactional do
-    for_ imported $ \(txh, h, i) -> do
+    for_ imported $ \(txh, h, href, i) -> do
       w <- readTVarIO ttsmap <&> fromMaybe (exportedWeight i) . HM.lookup h
       let item = i { exportedWeight = w }
       notice $ "import" <+> pretty (exportedKey item) <+> pretty (exportedWeight item)
       insertFixmeExported item
       atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup h
       insertScanned txh
+      insertScanned href
       for_ atx insertScanned
 
 
