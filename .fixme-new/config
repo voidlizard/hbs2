@@ -15,7 +15,7 @@ fixme-attribs class
 
 fixme-value-set :workflow :new :backlog :wip :test :fixed :done
 
-fixme-value-set class hardcode performance boilerplate
+fixme-value-set class hardcode leak performance boilerplate
 
 ; fixme-value-set cat bug feat refactor
 
