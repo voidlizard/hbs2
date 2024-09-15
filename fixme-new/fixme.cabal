@@ -57,6 +57,7 @@ common shared-properties
       , hbs2-storage-simple
       , hbs2-keyman-direct-lib
       , hbs2-git
+      , hbs2-cli
       , db-pipe
       , suckless-conf
       , fuzzy-parse
@@ -104,11 +105,13 @@ common shared-properties
 library
     import:           shared-properties
 
+    other-modules:
+      Fixme.Run.Internal
+
     exposed-modules:
       Fixme
       Fixme.Config
       Fixme.Run
-      Fixme.Log
       Fixme.Types
       Fixme.Prelude
       Fixme.State

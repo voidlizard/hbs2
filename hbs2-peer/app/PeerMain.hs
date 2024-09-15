@@ -26,6 +26,7 @@ import HBS2.Net.Messaging.Encrypted.ByPass
 import HBS2.Net.PeerLocator
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.RefChan qualified as R
+import HBS2.Peer.Proto.RefChan.Adapter
 import HBS2.Net.Proto.Notify
 import HBS2.OrDie
 import HBS2.Storage.Simple
@@ -864,7 +865,7 @@ runPeer opts = Exception.handle (\e -> myException e
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
-  rce <- refChanWorkerEnv conf penv denv
+  rce <- refChanWorkerEnv conf penv denv refChanNotifySource
 
   let refChanAdapter =
         RefChanAdapter
@@ -872,14 +873,21 @@ runPeer opts = Exception.handle (\e -> myException e
         , refChanSubscribed = isPolledRef @e brains "refchan"
         , refChanWriteTran = refChanWriteTranFn rce
         , refChanValidatePropose = refChanValidateTranFn @e rce
-
+        -- TODO: inject-refchanUpdateNotifyCallback
         , refChanNotifyRely = \r u -> do
            trace "refChanNotifyRely!"
            refChanNotifyRelyFn @e rce r u
            case u of
-             R.Notify rr s -> do
-               emitNotify refChanNotifySource (RefChanNotifyKey r, RefChanNotifyData rr s)
+             R.Notify rr x -> do
+               emitNotify refChanNotifySource (RefChanNotifyKey r, RefChanNotifyData rr x)
              _ -> pure ()
+
+        -- , refChanEmitRefChanUpdated = \rchan val -> do
+        --     emitNotify refChanNotifySource (RefChanNotifyKey rchan, RefChanUpdated rchan val)
+
+        -- , refChanEmitRefChanHeadUpdated = \rchan old val -> do
+        --     emitNotify refChanNotifySource (RefChanNotifyKey rchan, RefChanHeadUpdated rchan old val)
+        --     pure ()
         }
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter

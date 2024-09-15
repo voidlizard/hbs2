@@ -5,7 +5,7 @@ import Fixme.Types
 
 import HBS2.System.Dir
 import System.Environment
-import System.Directory
+import System.Directory (getXdgDirectory, XdgDirectory(..))
 
 binName :: FixmePerks m => m FilePath
 binName = liftIO getProgName
@@ -15,6 +15,9 @@ localConfigDir = do
   p <- pwd
   b <- binName
   pure (p </> ("." <> b))
+
+fixmeWorkDir :: FixmePerks m => m FilePath
+fixmeWorkDir = localConfigDir <&> takeDirectory >>= canonicalizePath
 
 localConfig:: FixmePerks m => m FilePath
 localConfig = localConfigDir <&> (</> "config")

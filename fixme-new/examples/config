@@ -9,13 +9,13 @@ fixme-prefix     TODO:
 fixme-prefix     PR:
 fixme-prefix     REVIEW:
 
-fixme-attribs assigned workflow :class
+fixme-git-scan-filter-days 30
 
-fixme-attribs class
+fixme-attribs assigned workflow type
+
+fixme-attribs resolution cat scope
 
 fixme-value-set workflow new backlog wip test fixed done
-
-fixme-value-set class hardcode performance boilerplate
 
 ; fixme-value-set cat bug feat refactor
 
@@ -23,8 +23,6 @@ fixme-value-set scope mvp-0 mvp-1 backlog
 
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
-fixme-exclude **/.**
-fixme-exclude dist-newstyle
 
 fixme-file-comments "*.scm" ";"
 
@@ -56,18 +54,8 @@ fixme-comments ";" "--"
 
 (define (ls) (report))
 
-(define (lss s) (report workflow ~ s))
+(define (ls:wip) (report workflow ~ wip))
 
-(define (done s) (modify s workflow :done))
-(define (wip s) (modify s workflow :wip))
-(define (test s) (modify s workflow :test))
-(define (new s) (modify s workflow :new))
-(define (backlog s) (modify s workflow :backlog))
-
-;; refchan settings
-(refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42)
-(reader DTKxNwYCux7zHFLSvmEm5P3Ex21iQrrVdzJpR3giLh1D)
-(author 3fKeGjaDGBKtNqeNBPsThh8vSj4TPiqaaK7uHbB8MQUV)
-
+(define (stage) (fixme:stage:show))
 
 

@@ -1,6 +1,3 @@
-{-# Language MultiWayIf #-}
-{-# Language PatternSynonyms #-}
-{-# Language ViewPatterns #-}
 module Fixme.Run where
 
 import Prelude hiding (init)
@@ -8,13 +5,26 @@ import Fixme.Prelude hiding (indent)
 import Fixme.Types
 import Fixme.Config
 import Fixme.State
+import Fixme.Run.Internal
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
-import Fixme.Log
+
+import Data.Config.Suckless.Script.File
+
+import HBS2.KeyMan.Keys.Direct
 
 import HBS2.Git.Local.CLI
+import HBS2.Peer.Proto.RefChan.Types
 
+import HBS2.CLI.Run.KeyMan (keymanNewCredentials)
+
+import HBS2.OrDie
+import HBS2.Peer.CLI.Detect
+import HBS2.Net.Auth.GroupKeySymm
+import HBS2.Data.Types.SignedBox
 import HBS2.Base58
+import HBS2.Storage.Operations.ByteString
+import HBS2.Net.Auth.Credentials
 import HBS2.Merkle
 import HBS2.Data.Types.Refs
 import HBS2.Storage
@@ -42,70 +52,64 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Control.Monad.Identity
 import Lens.Micro.Platform
+import System.Environment
 import System.Process.Typed
+import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import System.IO.Temp as Temp
 import System.IO qualified as IO
 
-
 import Streaming.Prelude qualified as S
-
 
 {- HLINT ignore "Functor law" -}
 
-pattern Init :: forall {c}. Syntax c
-pattern Init <- ListVal [SymbolVal "init"]
 
-pattern ScanGitLocal :: forall {c}. [ScanGitArgs] -> Syntax c
-pattern ScanGitLocal e <- ListVal (SymbolVal "scan-git" : (scanGitArgs -> e))
+recover :: (FixmePerks m) => FixmeEnv -> m a -> m a
+recover env m = flip fix 0 $ \next attempt
+    -> do m
+        `catch` (\PeerNotConnected  -> do
+                    if attempt < 1 then do
+                      runWithRPC env $ next (succ attempt)
+                    else do
+                      throwIO PeerNotConnected
+               )
 
-pattern Update :: forall {c}. [ScanGitArgs] -> Syntax c
-pattern Update e <- ListVal (SymbolVal "update" : (scanGitArgs -> e))
+withFixmeCLI :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeEnv -> FixmeM m a -> m a
+withFixmeCLI env m = do
+  recover env do
+    withFixmeEnv env m
 
-pattern ReadFixmeStdin :: forall {c}.  Syntax c
-pattern ReadFixmeStdin <- ListVal [SymbolVal "read-fixme-stdin"]
+runWithRPC :: (FixmePerks m) => FixmeEnv ->  m a -> m a
+runWithRPC FixmeEnv{..} m = do
 
-pattern FixmeFiles :: forall {c} . [FilePattern] -> Syntax c
-pattern FixmeFiles e  <- ListVal (SymbolVal "fixme-files" : (fileMasks -> e))
+  soname <- detectRPC
+              `orDie` "can't locate hbs2-peer rpc"
 
+  flip runContT pure do
 
-pattern FixmePrefix :: forall {c} . FixmeTag -> Syntax c
-pattern FixmePrefix s <- ListVal [SymbolVal "fixme-prefix", fixmePrefix -> Just s]
+    client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+                >>= orThrowUser ("can't connect to" <+> pretty soname)
 
-pattern FixmeGitScanFilterDays :: forall {c}. Integer -> Syntax c
-pattern FixmeGitScanFilterDays d <- ListVal [ SymbolVal "fixme-git-scan-filter-days", LitIntVal d ]
+    void $ ContT $ withAsync $ runMessagingUnix client
 
+    peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+    refChanAPI <- makeServiceCaller @RefChanAPI (fromString soname)
+    storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
 
-logRootKey :: SomeRefKey ByteString
-logRootKey = SomeRefKey "ROOT"
+    let endpoints = [ Endpoint @UNIX  peerAPI
+                    , Endpoint @UNIX  refChanAPI
+                    , Endpoint @UNIX  storageAPI
+                    ]
 
-scanGitArgs :: [Syntax c] -> [ScanGitArgs]
-scanGitArgs syn = [ w | ScanGitArgs w <- syn ]
-
-
-fileMasks :: [Syntax c] -> [FilePattern]
-fileMasks what = [ show (pretty s) | s <- what ]
-
-fixmePrefix :: Syntax c -> Maybe FixmeTag
-fixmePrefix = \case
-  SymbolVal s -> Just (FixmeTag (coerce s))
-  _ -> Nothing
-
-
-defaultTemplate :: HashMap Id FixmeTemplate
-defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
-  where
-    short = parseTop s & fromRight mempty
-    s = [qc|
-(trim 10  $fixme-key) " "
-(align 6  $fixme-tag) " "
-(trim 50  ($fixme-title))
-(nl)
-    |]
+    void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
 
-runFixmeCLI :: FixmePerks m => FixmeM m a -> m a
+    let newEnv = Just (MyPeerClientEndpoints soname peerAPI refChanAPI storageAPI)
+    liftIO $ atomically $ writeTVar fixmeEnvMyEndpoints newEnv
+    lift m
+
+runFixmeCLI :: forall a m . FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
   dbPath <- localDBPath
   git <- findGitDir
@@ -118,23 +122,31 @@ runFixmeCLI m = do
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
-            <*>  newTVarIO mempty
+            <*>  newTVarIO builtinAttribs
+            <*>  newTVarIO builtinAttribVals
             <*>  newTVarIO mempty
             <*>  newTVarIO defCommentMap
             <*>  newTVarIO Nothing
+            <*>  newTVarIO mzero
             <*>  newTVarIO mempty
             <*>  newTVarIO mempty
             <*>  newTVarIO defaultCatAction
             <*>  newTVarIO defaultTemplate
             <*>  newTVarIO mempty
             <*>  newTVarIO (1,3)
+            <*>  newTVarIO mzero
+            <*>  newTVarIO mzero
+            <*>  newTVarIO mzero
+            <*>  newTVarIO mzero
 
   -- FIXME: defer-evolve
   --   не все действия требуют БД,
   --   хорошо бы, что бы она не создавалась,
   --   если не требуется
-  runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
-                 `finally` flushLoggers
+  mkdir (takeDirectory dbPath)
+  recover env do
+    runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
+                   `finally` flushLoggers
   where
     setupLogger = do
       setLogging @ERROR  $ toStderr . logPrefix "[error] "
@@ -156,10 +168,10 @@ silence = do
   setLoggingOff @ERROR
   setLoggingOff @WARN
   setLoggingOff @NOTICE
+  setLoggingOff @TRACE
 
 
-
-readConfig :: FixmePerks m => FixmeM m [Syntax C]
+readConfig :: (FixmePerks m) => FixmeM m [Syntax C]
 readConfig = do
 
   user <- userConfigs
@@ -169,659 +181,430 @@ readConfig = do
     try @_ @IOException (liftIO $ readFile conf)
       <&> fromRight mempty
       <&> parseTop
-      <&> fromRight mempty
+      >>= either (error.show) pure
+
+  updateScanMagic
 
   pure $ mconcat w
 
-init :: FixmePerks m => FixmeM m ()
-init = do
 
-  lo <- localConfigDir
+runCLI :: FixmePerks m => FixmeM m ()
+runCLI = do
+  argz <- liftIO getArgs
+  forms <- parseTop (unlines $ unwords <$> splitForms argz)
+           & either  (error.show) pure
 
-  let lo0 = takeFileName lo
+  runTop forms
 
-  mkdir lo
-  touch (lo </> "config")
+notEmpty :: [a] -> Maybe [a]
+notEmpty = \case
+  [] -> Nothing
+  x  -> Just x
 
-  let gitignore = lo </> ".gitignore"
-  here <- doesPathExist gitignore
+runTop :: forall m . FixmePerks m => [Syntax C] -> FixmeM m ()
+runTop forms = do
 
-  unless here do
-    liftIO $ writeFile gitignore $ show $
-      vcat [ pretty ("." </> localDBName)
-           ]
+  tvd  <- newTVarIO mempty
 
-  notice $ yellow "run" <> line <> vcat [
-      "git add" <+> pretty (lo0  </> ".gitignore")
-    , "git add" <+> pretty (lo0  </> "config")
-    ]
+  let dict = makeDict @C do
 
+       internalEntries
 
+       entry $ bindMatch "--help" $ nil_ \case
+         HelpEntryBound what -> helpEntry what
+         [StringLike s]      -> helpList False (Just s)
+         _                   -> helpList False Nothing
 
-readFixmeStdin :: FixmePerks m => FixmeM m ()
-readFixmeStdin = do
-  what <- liftIO LBS8.getContents
-  fixmies <- Scan.scanBlob Nothing what
-  liftIO $ print $ vcat (fmap pretty fixmies)
+       entry $ bindMatch "fixme-prefix" $ nil_ \case
+        [StringLike pref] -> do
 
+          t <- lift $ asks fixmeEnvTags
+          atomically (modifyTVar t (HS.insert (FixmeTag $ fromString pref)))
 
-list_ :: (FixmePerks m, HasPredicate a) => Maybe Id -> a -> FixmeM m ()
-list_ tpl a = do
-  tpl <- asks fixmeEnvTemplates >>= readTVarIO
-            <&> HM.lookup (fromMaybe "default" tpl)
-
-  fixmies <- selectFixmeThin a
-
-  case tpl of
-    Nothing-> do
-      liftIO $ LBS.putStr $ Aeson.encodePretty fixmies
-
-    Just (Simple (SimpleTemplate simple)) -> do
-      for_ fixmies $ \(FixmeThin attr) -> do
-        let subst = [ (mkId k, mkstr @C v) | (k,v) <- HM.toList attr ]
-        let what = render (SimpleTemplate (inject  subst simple))
-                      & fromRight "render error"
-
-        liftIO $ hPutDoc stdout what
+        _ -> throwIO $ BadFormException @C nil
 
 
-catFixmeMetadata :: FixmePerks m => Text -> FixmeM m ()
-catFixmeMetadata = cat_ True
+       entry $ bindMatch "fixme-attribs" $ nil_ \case
+        StringLikeList xs -> do
+          ta <- lift $ asks fixmeEnvAttribs
+          atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
 
-catFixme :: FixmePerks m => Text -> FixmeM m ()
-catFixme = cat_ False
+        _ -> throwIO $ BadFormException @C nil
 
-cat_ :: FixmePerks m => Bool -> Text -> FixmeM m ()
-cat_ metaOnly hash = do
 
-  (before,after)  <- asks fixmeEnvCatContext >>= readTVarIO
-  gd  <- fixmeGetGitDirCLIOpt
+       entry $ bindMatch "fixme-files" $ nil_ \case
+        StringLikeList xs -> do
+          w <- fixmeWorkDir
+          t <- lift $ asks fixmeEnvFileMask
+          atomically (modifyTVar t (<> fmap (w </>) xs))
 
-  CatAction action <- asks fixmeEnvCatAction >>= readTVarIO
+        _ -> throwIO $ BadFormException @C nil
 
-  void $ flip runContT pure do
-    callCC \exit -> do
+       entry $ bindMatch "fixme-exclude" $ nil_ \case
+        StringLikeList xs -> do
+          w <- fixmeWorkDir
+          t <- lift $ asks fixmeEnvFileExclude
+          atomically (modifyTVar t (<> fmap (w </>) xs))
 
-      mha <- lift $ selectFixmeHash hash
+        _ -> throwIO $ BadFormException @C nil
 
-      ha <- ContT $ maybe1 mha (pure ())
+       entry $ bindMatch "fixme-file-comments" $ nil_ $ \case
+         [StringLike ft, StringLike b] -> do
+            let co = Text.pack b & HS.singleton
+            t <- lift $ asks fixmeEnvFileComments
+            atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
 
-      fme' <- lift $ selectFixme ha
+         _ -> throwIO $ BadFormException @C nil
 
-      Fixme{..} <- ContT $ maybe1 fme' (pure ())
+       entry $ bindMatch "fixme-comments" $ nil_  \case
+         (StringLikeList xs) -> do
+            t <- lift $ asks fixmeEnvDefComments
+            let co = fmap Text.pack xs & HS.fromList
+            atomically $ modifyTVar t (<> co)
 
-      when metaOnly do
-        for_ (HM.toList fixmeAttr) $ \(k,v) -> do
-          liftIO $ print $ (pretty k <+> pretty v)
-        exit ()
+         _ -> throwIO $ BadFormException @C nil
 
-      let gh' = HM.lookup "blob" fixmeAttr
+       entry $ bindMatch  "fixme-value-set" $ nil_ \case
+         (StringLike n : StringLikeList xs)  -> do
+           t <- lift $ asks fixmeEnvAttribValues
+           let name = fromString n
+           let vals = fmap fromString xs & HS.fromList
+           atomically $ modifyTVar t (HM.insertWith (<>) name vals)
 
-      -- FIXME: define-fallback-action
-      gh <- ContT $ maybe1 gh' none
+         _ -> throwIO $ BadFormException @C nil
 
-      let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
+       entry $ bindMatch "fixme-pager" $ nil_ \case
+         [ListVal cmd0] -> do
+            t <- lift $ asks fixmeEnvCatAction
+            let action =  CatAction $ \dict lbs -> do
 
-      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
-      let bbefore = if start > before then before  + 1 else 1
-      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
-      let lno   = max 1 $ origLen + after + before
+                  let ccmd = case inject dict cmd0 of
+                               (StringLike p : StringLikeList xs) -> Just (p, xs)
+                               _  -> Nothing
 
-      let dict = [ (mkId k, mkstr @C   v) | (k,v) <- HM.toList fixmeAttr ]
-                 <>
-                 [ (mkId (FixmeAttrName "before"), mkstr @C (FixmeAttrVal $ Text.pack $ show bbefore))
+
+                  debug $ pretty ccmd
+
+                  maybe1 ccmd none $ \(p, args) -> do
+
+                    let input = byteStringInput lbs
+                    let cmd = setStdin input $ setStderr closed
+                                             $ proc p args
+                    void $ runProcess cmd
+
+            atomically $ writeTVar t action
+
+         _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme-def-context" $ nil_ \case
+        [LitIntVal a, LitIntVal b] -> do
+          t <- lift $ asks fixmeEnvCatContext
+          atomically $ writeTVar t (fromIntegral a, fromIntegral b)
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "modify" $ nil_ \case
+        [ FixmeHashLike w, StringLike k, StringLike v ] -> lift do
+          void $ runMaybeT do
+            key <- lift (selectFixmeKey w) >>= toMPlus
+            lift $ modifyFixme key [(fromString k, fromString v)]
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "delete" $ nil_ \case
+        [ FixmeHashLike w ] -> lift do
+          void $ runMaybeT do
+            key <- lift (selectFixmeKey w) >>= toMPlus
+            lift $ modifyFixme key [("deleted", "true")]
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+       entry $ bindMatch "cat" $ nil_ $ \case
+        [ FixmeHashLike w ] -> lift do
+          cat_ w
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "dump" $ nil_ $ \case
+        [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
+          key <- lift (selectFixmeKey w) >>= toMPlus
+          fme <- lift $ getFixme key
+          liftIO $ print $ pretty fme
+
+        _ -> throwIO $ BadFormException @C nil
+          -- magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
+          -- liftIO $ print $ pretty magic
+
+
+       entry $ bindMatch "report" $ nil_ $ lift . \case
+        ( SymbolVal "template" : StringLike t : p )  -> do
+          report (Just t) p
+
+        ( SymbolVal "--template" : StringLike t : p )  -> do
+          report (Just t) p
+
+        p -> do
+          report Nothing p
+
+       entry $ bindMatch "fixme:key:show" $ nil_ \case
+        [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
+          key <- lift (selectFixmeKey w) >>= toMPlus
+          liftIO $ print $ pretty key
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "fixme:scan-magic" $ nil_ $ const do
+          magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
+          liftIO $ print $ pretty magic
+
+       entry $ bindMatch "fixme:path" $ nil_ $ const do
+          path <- lift fixmeWorkDir
+          liftIO $ print $ pretty path
+
+       entry $ bindMatch "fixme:files" $ nil_ $ const do
+          w <- lift fixmeWorkDir
+          incl <- lift (asks fixmeEnvFileMask >>= readTVarIO)
+          excl <- lift (asks fixmeEnvFileExclude >>= readTVarIO)
+          glob incl excl w  $ \fn -> do
+            liftIO $ putStrLn (makeRelative w fn)
+            pure True
+
+       entry $ bindMatch "fixme:state:drop" $ nil_ $ const $ lift do
+        cleanupDatabase
+
+       entry $ bindMatch "fixme:state:cleanup" $ nil_ $ const $ lift do
+        cleanupDatabase
+
+       entry $ bindMatch "fixme:git:import" $ nil_ $ const $ lift do
+          import_
+
+       entry $ bindMatch "fixme:git:list" $ nil_ $ const do
+          fxs <- lift scanFiles
+          for_ fxs $ \fme -> do
+            liftIO $ print $ pretty fme
+
+       -- TODO: some-uncommited-shit
+
+       -- TODO: some-shit
+       --  one
+
+       -- TODO: some-shit
+       --  new text
+
+       entry $ bindMatch "env:show" $ nil_ $ const $ do
+        lift printEnv
+
+       entry $ bindMatch "refchan:show" $ nil_ $ const do
+          tref <- lift $ asks fixmeEnvRefChan
+          r <- readTVarIO tref
+          liftIO $ print $ pretty (fmap AsBase58 r)
+
+       entry $ bindMatch "refchan" $ nil_ \case
+        [SignPubKeyLike rchan] -> do
+          tref<- lift $ asks fixmeEnvRefChan
+          atomically  $ writeTVar tref (Just rchan)
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "author" $ nil_ \case
+        [SignPubKeyLike au] -> do
+          t <- lift $ asks fixmeEnvAuthor
+          atomically  $ writeTVar t (Just au)
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "reader" $ nil_ \case
+        [EncryptPubKeyLike reader] -> do
+          t <- lift $ asks fixmeEnvReader
+          atomically  $ writeTVar t (Just reader)
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "git:commits" $ const $ do
+        co <- lift listCommits <&> fmap (mkStr @C . view _1)
+        pure $ mkList co
+
+       entry $ bindMatch "fixme:refchan:export" $ nil_ $ \case
+          [SymbolVal "dry"] -> do
+            notice $ yellow "export is running in dry mode"
+            void $ lift $ refchanExport [RefChanExportDry]
+
+          _ ->  void $ lift $ refchanExport ()
+
+       entry $ bindMatch "fixme:refchan:import" $ nil_ $ const $ lift do
+        void $ refchanImport
+
+
+       entry $ bindMatch "update" $ nil_ $ const $ lift do
+        refchanUpdate
+
+       entry $ bindMatch "fixme:refchan:update" $ nil_ $ const $ lift do
+        refchanUpdate
+
+       entry $ bindMatch "git:blobs" $  \_ -> do
+        blobs <- lift (listBlobs Nothing)
+
+        elems <- for blobs $ \(f,h) -> do
+                    pure $ mkList @C [ mkStr f, mkSym ".", mkStr h ]
+
+        pure $ mkList @C elems
+
+       entry $ bindMatch "init" $ nil_ $ const $ do
+        lift init
+
+       brief "initializes a new refchan" $
+         desc ( vcat [
+                   "Refchan is an ACL-controlled CRDT channel useful for syncronizing"
+                 , "fixme-new state amongst the different remote setups/peers/directories"
+                 , "use it if you want to use fixme-new in a distributed fashion"
                  ]
+              ) $
+         args [] $
+         returns "string" "refchan-key" $ do
+         entry $ bindMatch "refchan:init" $ nil_ $ const $ do
 
-      debug (pretty cmd)
-
-      w <- gitRunCommand cmd
-            <&> either (LBS8.pack . show) id
-            <&> LBS8.lines
-            <&> drop start
-            <&> take lno
-
-      liftIO $ action  dict (LBS8.unlines w)
-
-delete :: FixmePerks m => Text -> FixmeM m ()
-delete txt = do
-  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-  hashes <- selectFixmeHashes txt
-  for_ hashes $ \ha -> do
-    insertFixmeDelStaged ha
-
-modify_ :: FixmePerks m => Text -> String -> String -> FixmeM m ()
-modify_ txt a b = do
-  acts <- asks fixmeEnvUpdateActions >>= readTVarIO
-  void $ runMaybeT do
-    ha <- toMPlus =<< lift (selectFixmeHash txt)
-    lift $ insertFixmeModStaged ha (fromString a) (fromString b)
-
-exportToLog :: FixmePerks m => FilePath -> FixmeM m ()
-exportToLog fn = do
-  e <- getEpoch
-  warn $ red "EXPORT-FIXMIES" <+> pretty fn
-  sto <- compactStorageOpen @HbSync mempty fn
-  fx <- selectFixmeThin ()
-  for_ fx $ \(FixmeThin m) -> void $ runMaybeT do
-    h <- HM.lookup "fixme-hash" m & toMPlus
-    loaded <- lift (selectFixme (coerce h)) >>= toMPlus
-    let what = Added e loaded
-    let k = mkKey what
-    get sto k >>= guard . isNothing
-    put sto (mkKey what) (LBS.toStrict $ serialise what)
-    warn $ red "export" <+> pretty h
+           let rch0 = refChanHeadDefault @L4Proto
+           sto <- lift getStorage
+           peer <- lift $ getClientAPI @PeerAPI @UNIX
+           rchanApi <- lift $ getClientAPI @RefChanAPI @UNIX
 
-  what <- selectStage
+           confFile <- localConfig
+           conf <- liftIO (readFile confFile)
+                      <&> parseTop
+                      <&> either (error.show) (fmap (fixContext @_ @C))
 
-  for_ what $ \w -> do
-    let k = mkKey w
-    v0 <- get sto k <&> fmap (deserialiseOrFail @CompactAction .  LBS.fromStrict)
-    case v0 of
-      Nothing -> do
-        put sto k (LBS.toStrict $ serialise w)
+           let already = headMay [ x
+                                 | ListVal [StringLike "refchan", SignPubKeyLike x] <- conf
+                                 ]
 
-      Just (Left{}) -> do
-        put sto k (LBS.toStrict $ serialise w)
+           flip runContT pure $ callCC \done -> do
 
-      Just (Right prev) | getSequence w > getSequence prev -> do
-        put sto k (LBS.toStrict $ serialise w)
+             when (isJust already) do
+              warn $ red "refchan is already set" <+> pretty (fmap AsBase58 already)
 
-      _ -> pure ()
+             poked <- lift $ callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
+                        >>= orThrowUser "hbs2-peer not connected"
+                        <&> parseTop
+                        <&> fromRight mempty
 
-  compactStorageClose sto
+             pkey <- [ fromStringMay @(PubKey 'Sign 'HBS2Basic) x
+                     | ListVal [SymbolVal "peer-key:", StringLike x ] <- poked
+                     ] & headMay . catMaybes & orThrowUser "hbs2-peer key not set"
 
-  cleanStage
 
-importFromLog :: FixmePerks m => CompactStorage HbSync -> FixmeM m ()
-importFromLog sto = do
-  fset <- listAllFixmeHashes
+             notice $ green "default peer" <+> pretty (AsBase58 pkey)
 
-  -- sto <- compactStorageOpen @HbSync readonly fn
-  ks   <- keys sto
 
-  toImport <- S.toList_ do
-    for_ ks $ \k -> runMaybeT do
-      v <- get sto k & MaybeT
-      what <- deserialiseOrFail @CompactAction (LBS.fromStrict v) & toMPlus
+             signK' <- lift $ runKeymanClientRO $ listCredentials
+                     <&> headMay
 
-      case what of
-        Added _ fx  -> do
-          let ha = hashObject @HbSync (serialise fx) & HashRef
-          unless (HS.member ha fset) do
-            warn $ red "import" <+> viaShow (pretty ha)
-            lift $ S.yield (Right fx)
-        w -> lift $ S.yield (Left $ fromRight mempty $ parseTop (show $ pretty w))
+             signK <- ContT $ maybe1 signK' (throwIO $ userError "no default author key found in hbs2-keyman")
 
-  withState $ transactional do
-    for_ (rights  toImport) insertFixme
+             notice $ green "default author" <+> pretty (AsBase58 signK)
 
-  let w = lefts toImport
-  runForms (mconcat w)
+             -- TODO: use-hbs2-git-api?
+             (_, gkh', _) <- readProcess (shell [qc|git hbs2 key|])
+                              <&> over _2 (  (fromStringMay @HashRef)  <=< (notEmpty . headDef "" . lines . LBS8.unpack) )
+                              <&> \x ->  case view _1 x of
+                                    ExitFailure _ -> set _2 Nothing x
+                                    ExitSuccess   -> x
 
-  unless (List.null toImport) do
-    updateIndexes
+             notice $ green "group key" <+> maybe "none" pretty gkh'
 
-  -- compactStorageClose sto
+             readers <- fromMaybe mempty <$> runMaybeT do
+                          gh <- toMPlus gkh'
+                          gk <- loadGroupKeyMaybe @'HBS2Basic sto gh
+                                   >>= toMPlus
+                          pure $ HM.keys (recipients gk)
 
-printEnv :: FixmePerks m => FixmeM m ()
-printEnv = do
-  g <- asks fixmeEnvGitDir >>= readTVarIO
-  masks <- asks fixmeEnvFileMask >>= readTVarIO
-  tags  <- asks fixmeEnvTags >>= readTVarIO
-  days  <- asks fixmeEnvGitScanDays >>= readTVarIO
-  comments1 <- asks fixmeEnvDefComments >>= readTVarIO <&> HS.toList
+             notice $ green "readers" <+> pretty (length readers)
 
-  comments2 <- asks fixmeEnvFileComments >>= readTVarIO
-                 <&> HM.toList
-                 <&> fmap  (over _2 HS.toList)
+             let rch1 = rch0 & set refChanHeadReaders (HS.fromList readers)
+                             & set refChanHeadAuthors (HS.singleton signK)
+                             & set refChanHeadPeers   (HM.singleton pkey 1)
 
-  attr <- asks fixmeEnvAttribs >>= readTVarIO <&> HS.toList
-  vals <- asks fixmeEnvAttribValues >>= readTVarIO <&> HM.toList
 
-  for_ tags $ \m -> do
-    liftIO $ print $ "fixme-prefix" <+> pretty m
+             let unlucky =    HM.null (view refChanHeadPeers rch1)
+                           || HS.null (view refChanHeadAuthors rch1)
 
-  for_ masks $ \m -> do
-    liftIO $ print $ "fixme-files" <+> dquotes (pretty m)
 
-  for_ days $ \d -> do
-    liftIO $ print $ "fixme-git-scan-filter-days" <+> pretty d
+             liftIO $ print $ pretty rch1
 
-  for_ comments1 $ \d -> do
-    liftIO $ print $ "fixme-comments" <+> dquotes (pretty d)
+             if unlucky then do
+                warn $ red $ "refchan definition is not complete;" <+>
+                             "you may add missed keys, edit the"   <+>
+                             "defition and add if manually or repeat init attempt"
+                             <> line
+             else do
+                notice "refchan definition seems okay, adding new refchan"
+                refchan <- lift $ keymanNewCredentials (Just "refchan") 0
 
-  for_ comments2 $ \(ft, comm') -> do
-    for_ comm' $ \comm -> do
-      liftIO $ print $ "fixme-file-comments"
-                  <+> dquotes (pretty ft) <+> dquotes (pretty  comm)
+                creds <- lift $ runKeymanClientRO $ loadCredentials refchan
+                               >>= orThrowUser "can't load credentials"
 
-  for_ attr $ \a -> do
-      liftIO $ print $ "fixme-attribs"
-                  <+> pretty a
+                let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch1
 
-  for_ vals$ \(v, vs) -> do
-      liftIO $ print $ "fixme-value-set" <+> pretty v <+> hsep (fmap pretty (HS.toList vs))
+                href <- writeAsMerkle sto  (serialise box)
 
-  for_ g $ \git -> do
-    liftIO $ print $ "fixme-git-dir" <+> dquotes (pretty git)
+                callService @RpcPollAdd peer (refchan, "refchan", 17)
+                    >>= orThrowUser "can't subscribe to refchan"
 
-  dbPath <- asks fixmeEnvDbPath >>= readTVarIO
-  liftIO $ print $ "fixme-state-path" <+> dquotes (pretty dbPath)
+                callService @RpcRefChanHeadPost rchanApi (HashRef href)
+                    >>= orThrowUser "can't post refchan head"
 
-  (before,after) <- asks fixmeEnvCatContext >>= readTVarIO
+                liftIO $ appendFile confFile $
+                     show $ pretty ( mkList @C [ mkSym "refchan"
+                                               , mkSym (show $ pretty (AsBase58 refchan)) ]
+                                   )
 
-  liftIO $ print $ "fixme-def-context" <+> pretty before <+> pretty after
 
-  ma <- asks fixmeEnvMacro >>= readTVarIO <&> HM.toList
+       entry $ bindMatch "set-template" $ nil_ \case
+         [SymbolVal who, SymbolVal w] -> do
+           templates <- lift $ asks fixmeEnvTemplates
+           t <- readTVarIO templates
+           for_ (HM.lookup w t) $ \tpl -> do
+             atomically $ modifyTVar templates (HM.insert who tpl)
 
-  for_ ma $ \(n, syn) -> do
-    liftIO $ print $ parens ("define-macro" <+> pretty n <+> pretty syn)
+         _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "define-template" $ nil_ $ \case
+         [SymbolVal who, IsSimpleTemplate body ] -> do
+          t <- lift $ asks fixmeEnvTemplates
+          atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate body)))
 
-help :: FixmePerks m => m ()
-help = do
-  notice "this is help  message"
+         _ -> throwIO $ BadFormException @C nil
 
+       entry $ bindMatch "log:trace:on" $ nil_ $ const do
+          lift $ setLogging @TRACE $ toStderr . logPrefix ""
 
-splitForms :: [String] -> [[String]]
-splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
-  where
-    go acc ( "then" : rest ) = emit acc >> go mempty rest
-    go acc ( "and" : rest ) = emit acc >> go mempty rest
-    go acc ( x : rest ) = go ( x : acc ) rest
-    go acc [] = emit acc
+       entry $ bindMatch "log:trace:off" $ nil_ $ const do
+          lift $ setLoggingOff @TRACE
 
-    emit = S.yield . reverse
+       entry $ bindMatch "log:debug:on" $ nil_ $ const do
+          lift $ setLogging @DEBUG $ toStderr . logPrefix ""
 
-sanitizeLog :: [Syntax c] -> [Syntax c]
-sanitizeLog lls = flip filter lls $ \case
-  ListVal (SymbolVal "deleted" : _) -> True
-  ListVal (SymbolVal "modified" : _) -> True
-  _ -> False
+       entry $ bindMatch "log:debug:off" $ nil_ $ const do
+          lift $ setLoggingOff @DEBUG
 
-pattern Template :: forall {c}. Maybe Id -> [Syntax c] -> [Syntax c]
-pattern Template w syn <- (mbTemplate  -> (w, syn))
+       entry $ bindMatch "debug:peer:check" $ nil_ $ const do
+        peer <- lift $ getClientAPI @PeerAPI @UNIX
+        poked <- callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
+                   <&> fromMaybe "hbs2-peer not connected"
+        liftIO $ putStrLn poked
 
-mbTemplate :: [Syntax c] -> (Maybe Id, [Syntax c])
-mbTemplate = \case
-  ( SymbolVal "template" : StringLike w : rest ) -> (Just (fromString w), rest)
-  other -> (Nothing, other)
+  conf <- readConfig
 
-pattern IsSimpleTemplate ::  forall {c} . [Syntax c] -> [Syntax c]
-pattern IsSimpleTemplate xs <- [ListVal (SymbolVal "simple" : xs)]
+  argz <- liftIO getArgs
 
-run :: FixmePerks m => [String] -> FixmeM m ()
-run what = do
+  let args = zipWith (\i s -> bindValue (mkId ("$_" <> show i)) (mkStr @C s )) [1..] argz
+               & HM.unions
 
-  sc <- readConfig
+  let finalDict = dict <> args -- :: Dict C (FixmeM m)
 
-  let s0 = fmap (parseTop . unwords) (splitForms what)
-             & rights
-             & mconcat
+  atomically $ writeTVar tvd finalDict
 
-  runForms (sc <> s0)
-
-
-runForms :: forall c m . (IsContext c, Data c, Data (Context c), FixmePerks m)
-         => [Syntax c]
-         -> FixmeM m ()
-runForms ss = for_  ss $ \s -> do
-
-  macros  <- asks fixmeEnvMacro >>= readTVarIO
-
-  debug $ pretty s
-
-  case s of
-
-    (ListVal (SymbolVal name : rest)) | HM.member name macros -> do
-      let repl = [ (mkId ("$",i), syn) | (i,syn) <- zip [1..] rest ]
-      maybe1 (inject repl (HM.lookup name macros)) none $ \macro -> do
-        debug $ yellow "run macro" <+> pretty macro
-        runForms [macro]
-
-    FixmeFiles xs -> do
-      t <- asks fixmeEnvFileMask
-      atomically (modifyTVar t (<> xs))
-
-    FixmePrefix tag -> do
-      t <- asks fixmeEnvTags
-      atomically (modifyTVar t (HS.insert tag))
-
-    FixmeGitScanFilterDays d -> do
-      t <- asks fixmeEnvGitScanDays
-      atomically (writeTVar t (Just d))
-
-    ListVal [SymbolVal "fixme-file-comments", StringLike ft, StringLike b] -> do
-      let co = Text.pack b & HS.singleton
-      t <- asks fixmeEnvFileComments
-      atomically (modifyTVar t (HM.insertWith (<>) (commentKey ft) co))
-
-    ListVal (SymbolVal "fixme-comments" : StringLikeList xs) -> do
-      t <- asks fixmeEnvDefComments
-      let co = fmap Text.pack xs & HS.fromList
-      atomically $ modifyTVar t (<> co)
-
-    ListVal (SymbolVal "fixme-attribs" : StringLikeList xs) -> do
-      ta <- asks fixmeEnvAttribs
-      atomically $ modifyTVar ta (<> HS.fromList (fmap fromString xs))
-
-    ListVal [SymbolVal "fixme-git-dir", StringLike g] -> do
-      ta <- asks fixmeEnvGitDir
-      atomically $ writeTVar ta (Just g)
-
-    ListVal [SymbolVal "fixme-state-path", StringLike g] -> do
-      p <- asks fixmeEnvDbPath
-      db <- asks fixmeEnvDb
-      atomically do
-        writeTVar p g
-        writeTVar db Nothing
-
-      evolve
-
-    ListVal [SymbolVal "fixme-def-context", LitIntVal a, LitIntVal b] -> do
-      t <- asks fixmeEnvCatContext
-      atomically $ writeTVar t (fromIntegral a, fromIntegral b)
-
-    ListVal [SymbolVal "fixme-pager", ListVal cmd0] -> do
-      t <- asks fixmeEnvCatAction
-      let action =  CatAction $ \dict lbs -> do
-
-            let ccmd = case inject dict cmd0 of
-                         (StringLike p : StringLikeList xs) -> Just (p, xs)
-                         _  -> Nothing
-
-
-            debug $ pretty ccmd
-
-            maybe1 ccmd none $ \(p, args) -> do
-
-              let input = byteStringInput lbs
-              let cmd = setStdin input $ setStderr closed
-                                       $ proc p args
-              void $ runProcess cmd
-
-      atomically $ writeTVar t action
-
-    ListVal (SymbolVal "fixme-value-set" : StringLike n : StringLikeList xs) -> do
-      t <- asks fixmeEnvAttribValues
-      let name = fromString n
-      let vals = fmap fromString xs & HS.fromList
-      atomically $ modifyTVar t (HM.insertWith (<>) name vals)
-
-    Init         -> init
-
-    ScanGitLocal args -> scanGitLocal args Nothing
-
-    Update args -> scanGitLocal args Nothing
-
-    ListVal (SymbolVal "list" : (Template n [])) -> do
-      debug $ "list" <+> pretty n
-      list_ n ()
-
-    ListVal (SymbolVal "list" : (Template n whatever)) -> do
-      debug $ "list" <+> pretty n
-      list_ n whatever
-
-    ListVal [SymbolVal "cat", SymbolVal "metadata", FixmeHashLike hash] -> do
-      catFixmeMetadata hash
-
-    ListVal [SymbolVal "cat", FixmeHashLike hash] -> do
-      catFixme hash
-
-    ListVal [SymbolVal "delete", FixmeHashLike hash] -> do
-      delete hash
-
-    ListVal [SymbolVal "modify", FixmeHashLike hash, StringLike a, StringLike b] -> do
-      modify_ hash a b
-
-    ListVal [SymbolVal "modified", TimeStampLike t, FixmeHashLike hash, StringLike a, StringLike b] -> do
-      debug $ green $ pretty s
-      updateFixme (Just t) hash (fromString a) (fromString b)
-
-    ListVal [SymbolVal "modified", FixmeHashLike hash, StringLike a, StringLike b] -> do
-      debug $ green $ pretty s
-      updateFixme Nothing hash (fromString a) (fromString b)
-
-    ListVal [SymbolVal "deleted", TimeStampLike _, FixmeHashLike hash] -> do
-      deleteFixme hash
-
-    ListVal [SymbolVal "deleted", FixmeHashLike hash] -> do
-      deleteFixme hash
-
-    ListVal [SymbolVal "added", FixmeHashLike _] -> do
-      -- we don't add fixmies at this stage
-      -- but in fixme-import
-      none
-
-    ReadFixmeStdin -> readFixmeStdin
-
-    ListVal [SymbolVal "print-env"] -> printEnv
-
-    ListVal (SymbolVal "hello" : xs) -> do
-      notice $ "hello" <+> pretty xs
-
-    ListVal [SymbolVal "define-macro", SymbolVal name, macro@(ListVal{})] -> do
-      debug $ yellow "define-macro" <+> pretty name <+> pretty macro
-      macros <- asks fixmeEnvMacro
-      atomically $ modifyTVar macros (HM.insert name (fixContext macro))
-
-    ListVal (SymbolVal "define-template" : SymbolVal who : IsSimpleTemplate xs) -> do
-      trace $ "define-template" <+> pretty who <+> "simple" <+> hsep (fmap pretty xs)
-      t <- asks fixmeEnvTemplates
-      atomically $ modifyTVar t (HM.insert who (Simple (SimpleTemplate xs)))
-
-    ListVal [SymbolVal "set-template", SymbolVal who, SymbolVal w] -> do
-      templates <- asks fixmeEnvTemplates
-      t <- readTVarIO templates
-      for_ (HM.lookup w t) $ \tpl -> do
-        atomically $ modifyTVar templates (HM.insert who tpl)
-
-    -- FIXME: maybe-rename-fixme-update-action
-    ListVal (SymbolVal "fixme-update-action" : xs) -> do
-      debug $ "fixme-update-action" <+> pretty xs
-      env <- ask
-      t <- asks fixmeEnvUpdateActions
-      let repl syn = [ ( "$1", syn ) ]
-      let action = UpdateAction @c $ \syn -> do
-                       liftIO (withFixmeEnv env (runForms (inject (repl syn) xs)))
-
-      atomically $ modifyTVar t (<> [action])
-
-    ListVal (SymbolVal "update-action" : xs) -> do
-      debug $ "update-action" <+> pretty xs
-      env <- ask
-      t <- asks fixmeEnvReadLogActions
-      let action = ReadLogAction @c $ \_ -> liftIO (withFixmeEnv env (runForms  xs))
-      atomically $ modifyTVar t (<> [action])
-
-    ListVal [SymbolVal "import-git-logs", StringLike fn] -> do
-      warn $ red "import-git-logs" <+> pretty fn
-      scanGitLogLocal fn importFromLog
-
-    ListVal [SymbolVal "import", StringLike fn] -> do
-      warn $ red "IMPORT" <+> pretty fn
-      sto <- compactStorageOpen  readonly fn
-      importFromLog sto
-      compactStorageClose sto
-
-    ListVal [SymbolVal "export", StringLike fn] -> do
-      warn $ red "EXPORT" <+> pretty fn
-      exportToLog fn
-
-    ListVal [SymbolVal "git:list-refs"] -> do
-      refs <- listRefs False
-      for_ refs $ \(h,r) -> do
-        liftIO $ print $ pretty h <+> pretty r
-
-    ListVal [SymbolVal "git:merge-binary-log",StringLike o, StringLike target, StringLike b] -> do
-      debug $ red "git:merge-binary-log" <+> pretty o <+> pretty target <+> pretty b
-
-      temp <- liftIO $ emptyTempFile "." "merge-result"
-      sa  <- compactStorageOpen @HbSync readonly o
-      sb  <- compactStorageOpen @HbSync readonly b
-      r   <- compactStorageOpen @HbSync mempty temp
-
-      for_ [sa,sb] $ \sto -> do
-        ks   <- keys sto
-        for_ ks $ \k -> runMaybeT do
-          v <- get sto k & MaybeT
-          put r k v
-
-      compactStorageClose r
-      compactStorageClose sa
-      compactStorageClose sb
-
-      mv temp target
-
-    ListVal [SymbolVal "no-debug"] -> do
-      setLoggingOff @DEBUG
-
-    ListVal [SymbolVal "silence"] -> do
-      silence
-
-    ListVal [SymbolVal "builtin:run-stdin"] -> do
-      let ini = mempty :: [Text]
-      flip fix ini $ \next acc -> do
-        eof <- liftIO IO.isEOF
-        s <-   if eof then pure "" else liftIO Text.getLine <&> Text.strip
-        if Text.null s then do
-          let code = parseTop (Text.unlines acc) & fromRight mempty
-          runForms code
-          unless eof do
-            next mempty
-        else do
-          next (acc <> [s])
-
-    ListVal [SymbolVal "builtin:evolve"] -> do
-      evolve
-
-    ListVal [SymbolVal "builtin:list-commits"] -> do
-      co <- listCommits
-      liftIO $ print $ vcat (fmap (pretty . view _1) co)
-
-    ListVal [SymbolVal "builtin:cleanup-state"] -> do
-      cleanupDatabase
-
-    ListVal [SymbolVal "builtin:clean-stage"] -> do
-      cleanStage
-
-    ListVal [SymbolVal "builtin:drop-stage"] -> do
-      cleanStage
-
-    ListVal [SymbolVal "builtin:show-stage"] -> do
-      stage <- selectStage
-      liftIO $ print $ vcat (fmap pretty stage)
-
-    ListVal [SymbolVal "builtin:show-log", StringLike fn] -> do
-      sto <- compactStorageOpen @HbSync readonly fn
-
-      ks <- keys sto
-
-      entries <- mapM (get sto) ks
-                  <&> catMaybes
-                  <&> fmap (deserialiseOrFail @CompactAction . LBS.fromStrict)
-                  <&> rights
-
-      liftIO $ print $ vcat (fmap pretty entries)
-
-      compactStorageClose sto
-
-    ListVal [SymbolVal "builtin:update-indexes"] -> do
-      updateIndexes
-
-    ListVal [SymbolVal "builtin:scan-magic"] -> do
-      magic <- scanMagic
-      liftIO $ print $ pretty magic
-
-    ListVal [SymbolVal "builtin:select-fixme-hash", FixmeHashLike x] -> do
-      w <- selectFixmeHash x
-      liftIO $ print $ pretty w
-
-    ListVal [SymbolVal "builtin:git:list-stage"] -> do
-      stage <- gitListStage
-      for_ stage $ \case
-        Left (fn,h)  -> liftIO $ print $ "N" <+> pretty h <+> pretty fn
-        Right (fn,h) -> liftIO $ print $ "E" <+> pretty h <+> pretty fn
-
-    ListVal (SymbolVal "builtin:git:extract-file-meta-data" : StringLikeList fs) -> do
-      fxm <-  gitExtractFileMetaData fs <&> HM.toList
-      liftIO $ print $ vcat (fmap (pretty.snd) fxm)
-
-    ListVal (SymbolVal "builtin:git:extract-from-stage" : opts) -> do
-      env <- ask
-      gitStage <- gitListStage
-
-      let dry = or [ True | StringLike "dry" <- opts ]
-      let verbose = or [ True | StringLike "verbose" <- opts ]
-
-      blobs  <- for gitStage $ \case
-          Left (fn, hash) -> pure (fn, hash, liftIO $ LBS8.readFile fn)
-          Right (fn,hash) -> pure (fn, hash, liftIO (withFixmeEnv env $ gitCatBlob hash))
-
-      let fns = fmap (view _1) blobs
-
-      -- TODO: extract-metadata-from-git-blame
-      --   subj
-
-      stageFile <- localConfigDir <&> (</> "current-stage.log")
-
-      fmeStage <- compactStorageOpen mempty stageFile
-
-      for_ blobs $ \(fn, bhash, readBlob) -> do
-        nno <- newTVarIO (mempty :: HashMap FixmeTitle Integer)
-        lbs <- readBlob
-        fxs <- scanBlob (Just fn) lbs
-                 >>= \e -> do
-                  for e $ \fx0 -> do
-                    n <- atomically $ stateTVar nno (\m -> do
-                            let what = HM.lookup (fixmeTitle fx0) m & fromMaybe 0
-                            (what, HM.insert (fixmeTitle fx0) (succ what) m)
-                         )
-                    let ls = fixmePlain fx0
-                    meta <- getMetaDataFromGitBlame fn fx0
-                    let tit = fixmeTitle fx0 & coerce @_ @Text
-
-                    -- FIXME: fix-this-copypaste
-                    let ks  = [qc|{fn}#{tit}:{n}|] :: Text
-                    let ksh = hashObject @HbSync (serialise ks) & pretty & show & Text.pack & FixmeAttrVal
-                    let kh = HM.singleton "fixme-key" ksh
-                    let kv = HM.singleton "fixme-key-string" (FixmeAttrVal ks) <> kh
-
-                    pure $ fixmeDerivedFields (fx0 <> mkFixmeFileName fn <> meta)
-                             & set  (field @"fixmePlain") ls
-
-                             & over (field @"fixmeAttr")
-                                    (HM.insert "blob" (fromString $ show $ pretty bhash))
-                             & over (field @"fixmeAttr")
-                                    (mappend (kh<>kv))
-
-        unless dry do
-          for_ fxs $ \fx -> void $ runMaybeT do
-            e <- getEpoch
-            let what = Added e fx
-            let k = mkKey (FromFixmeKey fx)
-            get fmeStage k >>= guard . isNothing
-            put fmeStage k (LBS.toStrict $ serialise what)
-
-            when verbose do
-              liftIO $ print (pretty fx)
-
-      when dry do
-        warn $ red "FUCKING DRY!"
-
-      compactStorageClose fmeStage
-
-    ListVal [SymbolVal "trace"] -> do
-      setLogging @TRACE (logPrefix "[trace] " . toStderr)
-      trace "trace on"
-
-    ListVal [SymbolVal "no-trace"] -> do
-      trace "trace off"
-      setLoggingOff @TRACE
-
-    ListVal [SymbolVal "debug"] -> do
-      setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
-
-    w         -> err (pretty w)
-
+  run finalDict (conf <> forms) >>= eatNil display
 

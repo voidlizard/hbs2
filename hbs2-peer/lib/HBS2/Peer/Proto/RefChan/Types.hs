@@ -12,7 +12,6 @@ module HBS2.Peer.Proto.RefChan.Types
 import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Data.Detect
-import HBS2.Clock
 import HBS2.Net.Proto
 import HBS2.Net.Auth.Credentials
 import HBS2.Base58
@@ -37,12 +36,10 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe
-import Data.Either
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Data.Hashable hiding (Hashed)
 import Data.Coerce
-import Data.List qualified as List
 import Codec.Serialise
 
 {- HLINT ignore "Use newtype instead of data" -}
@@ -382,15 +379,6 @@ data RefChanHead e =
 
 instance ForRefChans e => Serialise (RefChanHead e)
 
--- FIXME: rename
-data RefChanAdapter e m =
-  RefChanAdapter
-  { refChanOnHead     :: RefChanId e -> RefChanHeadBlockTran e -> m ()
-  , refChanSubscribed :: RefChanId e -> m Bool
-  , refChanWriteTran  :: HashRef -> m ()
-  , refChanValidatePropose :: RefChanId e -> HashRef -> m Bool
-  , refChanNotifyRely :: RefChanId e -> RefChanNotify e -> m ()
-  }
 
 class HasRefChanId e p | p -> e where
   getRefChanId :: p -> RefChanId e

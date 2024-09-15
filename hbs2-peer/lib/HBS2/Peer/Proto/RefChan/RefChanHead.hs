@@ -8,6 +8,7 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Base58
 import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.BlockAnnounce
+import HBS2.Peer.Proto.RefChan.Adapter
 import HBS2.Net.Proto.Sessions
 import HBS2.Data.Types.Refs
 import HBS2.Storage

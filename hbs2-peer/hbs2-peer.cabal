@@ -158,6 +158,7 @@ library
       HBS2.Peer.Proto.RefChan.RefChanHead
       HBS2.Peer.Proto.RefChan.RefChanNotify
       HBS2.Peer.Proto.RefChan.RefChanUpdate
+      HBS2.Peer.Proto.RefChan.Adapter
       HBS2.Peer.Proto.AnyRef
       HBS2.Peer.Proto.LWWRef
       HBS2.Peer.Proto.LWWRef.Internal

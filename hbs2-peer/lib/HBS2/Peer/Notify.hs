@@ -29,9 +29,9 @@ import Codec.Serialise
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString qualified as BS
 
-
-data RefChanEvents e =
-  RefChanOnNotify
+-- TODO: rename-to-RefChanEvents
+--   $workflow: wip
+data RefChanEvents e = RefChanEvents
 
 instance HasProtocol UNIX  (NotifyProto (RefChanEvents L4Proto) UNIX) where
   type instance ProtocolId (NotifyProto (RefChanEvents L4Proto) UNIX) = 0x20e14bfa0ca1db8e
@@ -49,7 +49,13 @@ deriving newtype instance ForRefChans e => Hashable (NotifyKey (RefChanEvents e)
 deriving newtype instance ForRefChans e => Eq (NotifyKey (RefChanEvents e))
 
 data instance NotifyData (RefChanEvents e) =
-  RefChanNotifyData (RefChanId e) (SignedBox BS.ByteString (Encryption e))
+    RefChanNotifyData (RefChanId e) (SignedBox BS.ByteString (Encryption e))
+  -- TODO: ASAP-RefChanUpdatedEvent
+  --   $workflow: wip
+  | RefChanUpdated (RefChanId e) HashRef
+  -- TODO: ASAP-RefChanHeadUpdatedEvent
+  --   $workflow: wip
+  | RefChanHeadUpdated (RefChanId e) (Maybe HashRef) HashRef
   deriving Generic
 
 instance ForRefChans e => Serialise (NotifyKey (RefChanEvents e))

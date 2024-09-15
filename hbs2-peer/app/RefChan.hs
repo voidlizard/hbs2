@@ -29,12 +29,15 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging.Unix
 import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.RefChan.Adapter
+import HBS2.Net.Proto.Notify (SomeNotifySource(..))
+import HBS2.Peer.Notify
 import HBS2.Net.Proto.Sessions
 import HBS2.Storage
 
 import PeerTypes hiding (downloads)
 import PeerConfig
-import BlockDownload
+import BlockDownload()
 import Brains
 
 import Control.Monad.Trans.Cont
@@ -44,6 +47,7 @@ import Control.Exception ()
 import Control.Monad.Except ()
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import Data.Coerce
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.HashMap.Strict (HashMap)
@@ -87,6 +91,7 @@ data RefChanWorkerEnv e =
   { _refChanWorkerConf            :: PeerConfig
   , _refChanPeerEnv               :: PeerEnv e
   , _refChanWorkerEnvDEnv         :: DownloadEnv e
+  , _refChanNotifySource          :: SomeNotifySource (RefChanEvents e)
   , _refChanWorkerEnvHeadQ        :: TQueue (RefChanId e, RefChanHeadBlockTran e)
   , _refChanWorkerEnvDownload     :: TVar (HashMap HashRef (RefChanId e, (TimeSpec, OnDownloadComplete)))
   , _refChanWorkerEnvNotify       :: TVar (HashMap (RefChanId e) ())
@@ -108,18 +113,20 @@ refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
                  => PeerConfig
                  -> PeerEnv e
                  -> DownloadEnv e
+                 -> SomeNotifySource (RefChanEvents e)
                  -> m (RefChanWorkerEnv e)
 
-refChanWorkerEnv conf pe de = liftIO $ RefChanWorkerEnv @e conf pe de
-                                      <$> newTQueueIO
-                                      <*> newTVarIO mempty
-                                      <*> newTVarIO mempty
-                                      <*> newTQueueIO
-                                      <*> newTVarIO mempty
-                                      <*> newTVarIO mempty
-                                      <*> newTQueueIO
-                                      <*> Cache.newCache (Just defRequestLimit)
-                                      <*> Cache.newCache (Just defRequestLimit)
+refChanWorkerEnv conf pe de nsource =
+  liftIO $ RefChanWorkerEnv @e conf pe de nsource
+    <$> newTQueueIO
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTQueueIO
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
+    <*> newTQueueIO
+    <*> Cache.newCache (Just defRequestLimit)
+    <*> Cache.newCache (Just defRequestLimit)
 
 refChanOnHeadFn :: forall e m . (ForRefChans e, MonadIO m) => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
 refChanOnHeadFn env chan tran = do
@@ -531,7 +538,7 @@ refChanWorker :: forall e s m . ( MonadIO m
              -> SomeBrains e
              -> m ()
 
-refChanWorker env brains = do
+refChanWorker env@RefChanWorkerEnv{..} brains = do
 
   penv <- ask
 
@@ -559,7 +566,7 @@ refChanWorker env brains = do
 
     polls <- ContT $ withAsync (refChanPoll penv)
 
-    wtrans <- ContT $ withAsync (liftIO $ withPeerM penv $ refChanWriter penv)
+    wtrans <- ContT $ withAsync (liftIO $ withPeerM penv $ refChanWriter)
 
     cleanup1 <- ContT $ withAsync (liftIO (cleanupRounds penv))
 
@@ -633,8 +640,7 @@ refChanWorker env brains = do
               debug $ "CLEANUP ROUND" <+> pretty x
 
 
-
-    refChanWriter penv = do
+    refChanWriter = do
       sto <- getStorage
       forever do
         pause @'Seconds 1
@@ -665,13 +671,17 @@ refChanWorker env brains = do
           -- FIXME: might-be-problems-on-large-logs
           let hashesNew = HashSet.fromList (hashes <> new) & HashSet.toList
 
-          -- -- FIXME: remove-chunk-num-hardcode
+          -- FIXME: remove-chunk-num-hardcode
+          --   $class: hardcode
           let pt = toPTree (MaxSize 256) (MaxNum 256) hashesNew
 
           nref <- makeMerkle 0 pt $ \(_,_,bss) -> void $ liftIO $ putBlock sto bss
-          liftIO $ updateRef sto c nref
 
-          debug $ "REFCHANLOG UPDATED:" <+> pretty c <+> pretty nref
+          -- TODO: ASAP-notify-on-refchan-update
+          --  $workflow: wip
+
+          updateRef sto c nref
+          notifyOnRefChanUpdated env c nref
 
     refChanPoll penv = withPeerM penv do
 
@@ -724,8 +734,8 @@ refChanWorker env brains = do
           let what = unboxSignedBox @(RefChanHeadBlock e) @s lbs
 
           notify <- atomically $ do
-                        no <- readTVar (_refChanWorkerEnvNotify env) <&> HashMap.member chan
-                        modifyTVar (_refChanWorkerEnvNotify env) (HashMap.delete chan)
+                        no <- readTVar _refChanWorkerEnvNotify  <&> HashMap.member chan
+                        modifyTVar _refChanWorkerEnvNotify (HashMap.delete chan)
                         pure no
 
           case what of
@@ -985,14 +995,34 @@ logMergeProcess penv env q = withPeerM penv do
 
         unless (HashSet.null merged) do
 
+          -- FIXME: sub-optimal-partition
+          --   убрать этот хардкод размеров
+          --   он приводит к излишне мелким блокам
           let pt = toPTree (MaxSize 256) (MaxNum 256) (HashSet.toList merged)
 
           liftIO do
             nref <- makeMerkle 0 pt $ \(_,_,bss) -> do
               void $ putBlock sto bss
 
-            debug $ "NEW REFCHAN" <+> pretty chanKey <+> pretty  nref
-
+            -- TODO: ASAP-emit-refchan-updated-notify
+            --   $workflow: wip
             updateRef sto chanKey nref
+            notifyOnRefChanUpdated env chanKey nref
 
+
+notifyOnRefChanUpdated :: forall e s m . ( ForRefChans e
+                                         , s ~ Encryption e
+                                         , MonadUnliftIO m
+                                         )
+                       => RefChanWorkerEnv e
+                       -> RefChanLogKey s
+                       -> Hash HbSync
+                       -> m ()
+
+notifyOnRefChanUpdated RefChanWorkerEnv{..} c nref = do
+    emitNotify _refChanNotifySource notification
+    debug $ "REFCHAN UPDATED:" <+> pretty c <+> pretty nref
+  where
+    notification =
+       (RefChanNotifyKey (coerce c), RefChanUpdated (coerce c) (HashRef nref))
 

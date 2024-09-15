@@ -1,48 +1,42 @@
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.State
   ( evolve
   , withState
-  , insertFixme
-  , selectFixmeThin
-  , selectFixmeHash
-  , selectFixmeHashes
-  , selectFixme
-  , deleteFixme
-  , updateFixme
-  , insertCommit
-  , insertBlob
-  , selectObjectHash
-  , newCommit
   , cleanupDatabase
-  , updateIndexes
-  , insertFixmeDelStaged
-  , insertFixmeModStaged
-  , selectStageModified
-  , selectStageDeleted
-  , selectStage
-  , cleanStage
-  , insertProcessed
-  , isProcessed
-  , selectProcessed
-  , checkFixmeExists
-  , listAllFixmeHashes
+  , listFixme
+  , insertFixme
+  , insertFixmeExported
+  , modifyFixme
+  , insertScannedFile
+  , insertScanned
+  , selectIsAlreadyScannedFile
+  , selectIsAlreadyScanned
+  , listAllScanned
+  , selectFixmeKey
+  , getFixme
+  , insertTree
+  , FixmeExported(..)
   , HasPredicate(..)
   , SelectPredicate(..)
+  , LocalNonce(..)
   ) where
 
-import Fixme.Prelude
+import Fixme.Prelude hiding (key)
 import Fixme.Types
 import Fixme.Config
 
+import HBS2.Base58
 import HBS2.System.Dir
-import Data.Config.Suckless
+import Data.Config.Suckless hiding (key)
 import Data.Config.Suckless.Syntax
 import DBPipe.SQLite hiding (field)
 
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Aeson as Aeson
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (q,qc)
 import Data.Text qualified as Text
@@ -57,6 +51,8 @@ import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Fixed
 import Data.Word (Word64)
+import System.Directory (getModificationTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import System.TimeIt
 
 -- TODO: runPipe-omitted
@@ -67,6 +63,15 @@ import System.TimeIt
 --   Но это и удобно: кажется, что можно менять БД
 --   на лету бесплатно
 
+
+newtype SomeHash h = SomeHash { fromSomeHash :: h }
+                     deriving newtype (IsString)
+
+instance Pretty (AsBase58 h) => ToField (SomeHash h) where
+  toField (SomeHash h) = toField ( show $ pretty (AsBase58 h))
+
+instance IsString (SomeHash h) => FromField (SomeHash h) where
+  fromField = fmap fromString . fromField @String
 
 pattern Operand :: forall {c} . Text -> Syntax c
 pattern Operand what <- (operand -> Just what)
@@ -123,234 +128,26 @@ withState what = do
 createTables :: FixmePerks m => DBPipeM m ()
 createTables = do
 
-  -- тут все таблицы будут называться с префиксом
-  -- fixme, что бы может быть можно было встроить
-  -- в другую бд, если вдруг понадобится
+  -- ddl [qc| create table if not exists tree
+  --          ( hash   text not null
+  --          , nonce  text not null
+  --          , primary key (hash,nonce)
+  --          )
+  --        |]
 
-  ddl [qc|
-        create table if not exists fixmegitobject
-          ( hash text not null
-          , type text null
-          , primary key (hash)
-          )
-      |]
-
-  ddl [qc|
-        create table if not exists fixme
-          ( id    text not null
-          , ts    integer
-          , fixme blob not null
-          , primary key (id)
-          )
-      |]
-
-  ddl [qc|
-        create table if not exists fixmedeleted
-          ( id      text not null
-          , ts      integer not null
-          , deleted bool not null
-          , primary key (id,ts)
-          )
-      |]
-
-  ddl [qc|
-        create table if not exists fixmerel
-          ( origin  text not null
-          , related text not null
-          , ts      integer not null
-          , reason  text not null
-          , primary key (origin,related,ts)
-          )
-      |]
-
-  ddl [qc|
-        create table if not exists fixmeattr
-          ( fixme   text not null
-          , ts      integer null
-          , name    text not null
-          , value   text
-          , primary key (fixme,ts,name)
-          )
-      |]
-
-  ddl [qc| drop view if exists fixmeattrview |]
-
-  let commits = [qc|name in ('commit','committer','committer-name','committer-email','commit-time')|] :: Text
-
-  ddl [qc|
-    create view fixmeattrview as
-      with ranked1 as (
-        select
-          fixme,
-          name,
-          value,
-          row_number() over (partition by fixme, name order by ts desc nulls first) as rn
-        from fixmeattr
-        where not ({commits})
-      )
-      , ranked2 as (
-        select
-          fixme,
-          name,
-          value,
-          row_number() over (partition by fixme, name order by ts asc nulls last) as rn
-        from fixmeattr
-        where ({commits})
-      )
-
-      select distinct fixme,name,value
-      from
-      (
-        select
-          fixme,
-          name,
-          value
-        from ranked1
-        where rn = 1
-
-        union
-
-        select
-          fixme,
-          name,
-          value
-        from ranked2
-        where rn = 1
-      )
-    |]
-
-  ddl [qc|drop view if exists fixmeactualview|]
-
-  ddl [qc|
-    create view fixmeactualview as
-    with a1 as (
-      select
-        a.fixme,
-        f.ts,
-        a.name,
-        a.value
-      from
-        fixmeattrview a
-        join fixme f on a.fixme = f.id
-      where
-        a.name = 'fixme-key'
-        and not exists (select null from fixmedeleted d where d.id = f.id)
-    ),
-    rn AS (
-      select
-        f.id,
-        f.ts,
-        a.value AS fixmekey,
-        row_number() over (partition by a.value order by f.ts desc) as rn
-      from
-        fixme f
-        join a1 a on f.id = a.fixme and a.name = 'fixme-key'
-    )
-    select id as fixme, fixmekey, ts from rn
-      where rn = 1
-      and not exists (
-      select null
-        from fixmeattr a
-             join fixmedeleted d on d.id = a.fixme
-        where a.name = 'fixme-key'
-              and a.value = rn.fixmekey
-      )
-
-    |]
-
-
-  ddl [qc|
-        create table if not exists fixmeactual
-          ( fixme   text not null
-          , primary key (fixme)
-          )
-      |]
-
-  ddl [qc|
-        create table if not exists fixmejson
-          ( fixme     text not null
-          , fixmekey  text
-          , json      blob
-          , primary key (fixme)
-          )
-      |]
-
-  ddl [qc|
-        create index if not exists idx_fixmekey ON fixmejson(fixmekey)
-      |]
-
-  ddl [qc| create table if not exists fixmestagedel
-           ( hash text    not null primary key
-           , ts   integer not null
-           )
+  ddl [qc| create table if not exists scanned
+           ( hash text not null primary key )
          |]
 
-  ddl [qc| create table if not exists fixmestagemod
-           ( hash   text    not null
-           , ts     integer not null
-           , attr   text    not null
-           , value  text
-           , primary key (hash,attr)
+  ddl [qc| create table if not exists object
+           ( o   text    not null
+           , w   integer not null
+           , k   text    not null
+           , v   blob    not null
+           , nonce text  null
+           , primary key (o,k)
            )
          |]
-
-  ddl [qc| create table if not exists fixmeprocessed
-           ( hash   text  not null
-           , primary key (hash)
-           )
-         |]
-
--- .fixme-new/state.db
--- and not exists (select null from fixmedeleted d where a.fixme = id limit 1)
-
-insertCommit :: FixmePerks m => GitHash -> DBPipeM m ()
-insertCommit gh = do
-  insert [qc|
-    insert into fixmegitobject (hash,type) values(?,'commit')
-    on conflict (hash) do nothing
-            |] (Only gh)
-
-insertBlob :: FixmePerks m => GitHash -> DBPipeM m ()
-insertBlob gh = do
-  insert [qc|
-    insert into fixmegitobject (hash,type) values(?,'blob')
-    on conflict (hash) do nothing
-            |] (Only gh)
-
-selectObjectHash :: FixmePerks m => GitHash -> DBPipeM m (Maybe GitHash)
-selectObjectHash gh = do
-  select [qc|select hash from fixmegitobject where hash = ?|] (Only gh)
-    <&> fmap fromOnly . listToMaybe
-
-newCommit :: (FixmePerks m, MonadReader FixmeEnv m) => GitHash -> m Bool
-newCommit gh = isNothing <$> withState (selectObjectHash gh)
-
-insertFixme :: FixmePerks m => Fixme -> DBPipeM m ()
-insertFixme fx@Fixme{..} = do
-  let fixme = serialise fx
-  let fxId = hashObject @HbSync fixme & HashRef
-  insert [qc|insert into fixme (id, ts, fixme) values (?,?,?)
-             on conflict(id) do nothing
-            |] (fxId, fixmeTs, fixme)
-
-  for_ (HM.toList fixmeAttr) $ \(n,v) -> do
-    insert [qc|
-      insert into fixmeattr(fixme,ts,name,value)
-      values (?,?,?,?)
-      on conflict (fixme,ts,name) do update set value = excluded.value
-              |] (fxId, fixmeTs, n, v)
-
-    insert [qc|
-      insert into fixmeattr(fixme,ts,name,value)
-      values (?,?,?,?)
-      on conflict (fixme,ts,name) do update set value = excluded.value
-              |] (fxId, fixmeTs, "fixme-tag", fixmeTag)
-
-    insert [qc|
-      insert into fixmeattr(fixme,ts,name,value)
-      values (?,?,?,?)
-      on conflict (fixme,ts,name) do update set value = excluded.value
-              |] (fxId, fixmeTs, "fixme-title", fixmeTitle)
 
 
 data SelectPredicate =
@@ -389,18 +186,18 @@ instance IsContext c => HasPredicate [Syntax c] where
       go = \case
 
         ( SymbolVal "!" : rest ) -> do
-            mklist [mksym "not", unlist (go rest)]
+            mkList [mkSym "not", unlist (go rest)]
 
         ( Operand a : SymbolVal "~" : Operand b  : rest ) -> do
-          go (mklist [mksym "like", mkstr a, mkstr b] : rest)
+          go (mkList [mkSym "like", mkStr a, mkStr b] : rest)
 
         ( w : SymbolVal "&&" : rest ) -> do
-          mklist [mksym "and", unlist w, unlist (go rest)]
+          mkList [mkSym "and", unlist w, unlist (go rest)]
 
         ( w : SymbolVal "||" : rest ) -> do
-          mklist [mksym "or", unlist w, unlist (go rest)]
+          mkList [mkSym "or", unlist w, unlist (go rest)]
 
-        w -> mklist w
+        w -> mkList w
 
       unlist = \case
         ListVal [x] -> x
@@ -409,50 +206,6 @@ instance IsContext c => HasPredicate [Syntax c] where
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
-
-selectFixmeHash :: (FixmePerks m) => Text -> FixmeM m (Maybe Text)
-selectFixmeHash what = listToMaybe <$> selectFixmeHashes what
-
-selectFixmeHashes :: (FixmePerks m) => Text -> FixmeM m [Text]
-selectFixmeHashes what = withState do
-  let w = what <> "%"
-  select @(Only Text)
-            [qc| select fixme
-                 from fixmejson
-                 where json_extract(json,'$."fixme-key"') like ?
-                 union
-                 select id
-                 from fixme
-                 where id like ?
-            |] (w,w)
-         <&> fmap fromOnly
-
-selectFixme :: FixmePerks m => Text -> FixmeM m (Maybe Fixme)
-selectFixme txt = do
-
-  attrs <- selectFixmeThin (FixmeHashExactly txt)
-             <&> fmap coerce . headMay
-             <&> fromMaybe mempty
-
-  runMaybeT do
-
-    lift (withState $ select [qc|select fixme from fixme where id = ? limit 1|] (Only txt))
-      <&> listToMaybe . fmap fromOnly
-      >>= toMPlus
-      <&> (deserialiseOrFail @Fixme)
-      >>= toMPlus
-      <&> over (field @"fixmeAttr") (<> attrs)
-
-
-listAllFixmeHashes :: (FixmePerks m, MonadReader FixmeEnv m) => m (HashSet HashRef)
-listAllFixmeHashes = withState do
-  select_ @_ @(Only HashRef) [qc|select id from fixme|]
-    <&> HS.fromList . fmap fromOnly
-
-checkFixmeExists :: FixmePerks m => HashRef -> FixmeM m Bool
-checkFixmeExists what = withState do
-  select @(Only (Maybe Int)) [qc|select 1 from fixme where id = ? limit 1|] (Only what)
-    <&> not . List.null
 
 data Bound = forall a . (ToField a, Show a) => Bound a
 
@@ -469,16 +222,12 @@ genPredQ tbl what = go what
       All -> ("true", mempty)
 
       FixmeHashExactly x ->
-        ([qc|({tbl}.fixme = ?)|], [Bound x])
-
-      AttrLike "fixme-hash" val -> do
-        let binds = [Bound (val <> "%")]
-        ([qc|({tbl}.fixme like ?)|], binds)
+        ([qc|(o.o = ?)|], [Bound x])
 
       AttrLike name val -> do
         let x = val <> "%"
         let binds = [Bound x]
-        ([qc|(json_extract({tbl}.json, '$."{name}"') like ?)|], binds)
+        ([qc|(json_extract({tbl}.blob, '$."{name}"') like ?)|], binds)
 
       Not a -> do
         let (sql, bound) = go a
@@ -494,214 +243,238 @@ genPredQ tbl what = go what
         let bsql = go b
         ([qc|{fst asql} or {fst bsql}|], snd asql <> snd bsql)
 
-      Ignored -> ("false", mempty)
+      Ignored -> ("true", mempty)
 
-
-updateFixmeJson :: FixmePerks m =>  DBPipeM m ()
-updateFixmeJson = do
-
-  update_ [qc|
-
-    insert into fixmejson (fixme,fixmekey,json)
-      with json as  (
-        select
-            a.fixme as fixme,
-            cast(json_set(json_group_object(a.name,a.value), '$."fixme-hash"', f.fixme) as blob) as json
-
-        from
-          fixmeattrview a join fixmeactual f on f.fixme = a.fixme
-
-        group by a.fixme
-      )
-
-      select
-          fixme
-        , json_extract(json, '$."fixme-key"') as fixmekey
-        , json
-         from json where true
-      on conflict (fixme) do update set json = excluded.json, fixmekey = excluded.fixmekey
-  |]
-
-
--- TODO: predicate-for-stage-toggle
-selectFixmeThin :: (FixmePerks m, HasPredicate a) => a -> FixmeM m [FixmeThin]
-selectFixmeThin a = withState do
-
-  let predic = genPredQ "j" (predicate a)
-
-  let emptyObect = [q|'{}'|] :: String
-
-  let sql = [qc|
-
-with s1 as (
-  select  m.hash as hash
-        , cast(json_group_object(m.attr,m.value) as blob) as json
-  from fixmestagemod m
-)
-
-select  cast(json_patch(j.json, coalesce(s.json,{emptyObect})) as blob) as blob
-
-from
-  fixmejson j join fixmeactual f on f.fixme = j.fixme
-              join fixme f0 on f0.id = f.fixme
-              left join s1 s on s.hash = j.fixme
-
-where
-
-  (
-  {fst predic}
-  )
-
-order by json_extract(blob, '$.commit-time'), json_extract(blob, '$.title')
-
-  |]
-
-  trace $ red "selectFixmeThin" <> line <> pretty sql
-
-  (t,r) <- timeItT $ select sql (snd predic) <&> mapMaybe (Aeson.decode @FixmeThin . fromOnly)
-
-  trace $ yellow "selectFixmeThin" <> line
-            <> pretty sql <> line
-            <> pretty (length r) <+> "rows" <> line
-            <> pretty "elapsed" <+> pretty (realToFrac t :: Fixed E6)
-
-  pure r
 
 cleanupDatabase :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
 cleanupDatabase = do
   warn $ red "cleanupDatabase"
   withState $ transactional do
-    update_ [qc|delete from fixme|]
-    update_ [qc|delete from fixmeattr|]
-    update_ [qc|delete from fixmegitobject|]
-    update_ [qc|delete from fixmedeleted|]
-    update_ [qc|delete from fixmerel|]
-    update_ [qc|delete from fixmeactual|]
-    update_ [qc|delete from fixmejson|]
-    update_ [qc|delete from fixmestagedel|]
-    update_ [qc|delete from fixmestagemod|]
+    update_ [qc|delete from object|]
+    update_ [qc|delete from scanned|]
+
+scannedKey :: (FixmePerks m, MonadReader FixmeEnv m) => Fixme -> m HashRef
+scannedKey fme = do
+  magic <- asks fixmeEnvScanMagic >>= readTVarIO
+  let file = fixmeAttr fme & HM.lookup "file"
+  let w  = fixmeTs fme
+  pure $ hashObject @HbSync ( serialise (magic,w,file) ) & HashRef
+
+scannedKeyForFile :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath-> m HashRef
+scannedKeyForFile  file = do
+  dir <- fixmeWorkDir
+  magic <- asks fixmeEnvScanMagic >>= readTVarIO
+  let fn = dir </> file
+  w <- liftIO $ getModificationTime fn <&> round . utcTimeToPOSIXSeconds
+  pure $ hashObject @HbSync ( serialise (magic,w,file) ) & HashRef
+
+selectIsAlreadyScannedFile :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> m Bool
+selectIsAlreadyScannedFile file = do
+  k <- scannedKeyForFile file
+  selectIsAlreadyScanned k
+
+selectIsAlreadyScanned :: (FixmePerks m, MonadReader FixmeEnv m) => HashRef -> m Bool
+selectIsAlreadyScanned k = withState do
+  what <- select @(Only Int) [qc|select 1 from scanned where hash = ? limit 1|] (Only k)
+  pure $ not $ List.null what
 
 
-insertFixmeModStaged :: (FixmePerks m,MonadReader FixmeEnv m)
-                     => Text
-                     -> FixmeAttrName
-                     -> FixmeAttrVal
-                     -> m ()
-insertFixmeModStaged hash k v = withState do
-  ts <- getEpoch
-  insert [qc| insert into fixmestagemod (hash,ts,attr,value) values(?,?,?,?)
-              on conflict (hash,attr)
-                 do update set hash  = excluded.hash
-                             , ts    = excluded.ts
-                             , attr  = excluded.attr
-                             , value = excluded.value
-            |] (hash,ts,k,v)
+insertTree :: FixmePerks m => HashRef -> FixmeKey -> FixmeAttrName -> DBPipeM m ()
+insertTree h o k = do
+  insert [qc|  insert into tree (hash,o,k)
+               values (?,?,?)
+               on conflict (hash,o,k) do nothing
+         |] (h,o,k)
+
+listAllScanned :: (FixmePerks m, MonadReader FixmeEnv m) => m (HashSet HashRef)
+listAllScanned = withState do
+  select_ [qc|select hash from scanned|] <&> HS.fromList . fmap ( fromSomeHash . fromOnly )
+
+insertScannedFile :: (FixmePerks m, MonadReader FixmeEnv m) => FilePath -> DBPipeM m ()
+insertScannedFile file = do
+  k <- lift $ scannedKeyForFile file
+  insertScanned k
+
+insertScanned:: (FixmePerks m) => HashRef -> DBPipeM m ()
+insertScanned k = do
+  insert [qc| insert into scanned (hash)
+              values(?)
+              on conflict (hash) do nothing|]
+         (Only k)
+
+selectFixmeKey :: (FixmePerks m, MonadReader FixmeEnv m) => Text -> m (Maybe FixmeKey)
+selectFixmeKey s = do
+  withState do
+    select @(Only FixmeKey) [qc|select distinct(o) from object where o like ? order by w desc|] (Only (s<>"%"))
+       <&> fmap fromOnly
+       <&> headMay
 
 
-insertFixmeDelStaged :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
-insertFixmeDelStaged hash = withState do
-  ts <- getEpoch
-  insert [qc| insert into fixmestagedel (hash,ts) values(?,?)
-              on conflict (hash)
-                 do update set hash = excluded.hash
-                  , ts = excluded.ts
-            |] (hash,ts)
+listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
+          => q
+          -> m [Fixme]
+listFixme expr = do
 
+  let (w,bound) = genPredQ "s1" (predicate expr)
 
-type StageModRow = (HashRef,Word64,Text,Text)
+  let present = [qc|and coalesce(json_extract(s1.blob, '$.deleted'),'false') <> 'true' |] :: String
 
-selectStageModified :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
-selectStageModified = withState do
-  what <- select_ @_ @StageModRow [qc|select hash,ts,attr,value from fixmestagemod|]
-  for what $ \(h,t,k,v) -> do
-    pure $ Modified t h (FixmeAttrName k) (FixmeAttrVal v)
-
-selectStageDeleted :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
-selectStageDeleted = withState do
-  what <- select_ @_ @(HashRef,Word64) [qc|select hash,ts from fixmestagedel|]
-  for what $ \(h,t) -> do
-    pure $ Deleted t h
-
-selectStage :: (FixmePerks m,MonadReader FixmeEnv m) => m [CompactAction]
-selectStage = do
-  a <- selectStageModified
-  b <- selectStageDeleted
-  pure (a<>b)
-
-cleanStage :: (FixmePerks m,MonadReader FixmeEnv m) => m ()
-cleanStage = withState do
-  transactional do
-    update_ [qc|delete from fixmestagedel|]
-    update_ [qc|delete from fixmestagemod|]
-
-deleteFixme :: (FixmePerks m,MonadReader FixmeEnv m) => Text -> m ()
-deleteFixme hash = withState do
-  trace $ red "deleteFixme" <+> pretty hash
-
-  here <- select [qc| select true
-                      from fixmedeleted
-                      where deleted and id = ?
-                      order by ts desc
-                      limit 1
-                     |] (Only hash) <&> isJust . listToMaybe . fmap (fromOnly @Bool)
-
-  unless here do
-    insert [qc| insert into fixmedeleted (id,ts,deleted)
-                values (?,(strftime('%s', 'now')),true)
-                on conflict(id,ts) do nothing
-              |] (Only hash)
-
-updateFixme :: (FixmePerks m,MonadReader FixmeEnv m)
-            => Maybe FixmeTimestamp
-            -> Text
-            -> FixmeAttrName
-            ->  FixmeAttrVal
-            -> m ()
-
-updateFixme ts hash a b = withState do
-  warn $ red "updateFixme" <+> pretty hash
-  insert [qc| insert into fixmeattr (fixme,ts,name,value)
-              values (?,coalesce(?,strftime('%s', 'now')),?,?)
-              on conflict(fixme,ts,name) do update set value = excluded.value
-            |] (hash,ts,a,b)
-
-updateIndexes :: (FixmePerks m, MonadReader FixmeEnv m) => m ()
-updateIndexes = withState $ transactional do
-  update_ [qc|delete from fixmeactual|]
-  update_ [qc|
-    insert into fixmeactual
-      select distinct fixme from fixmeactualview
+  let sql = [qc|
+    with s1 as (
+      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+      from object o
+      group by o.o
+    )
+    select s1.blob from s1
+    where
+      {w}
+      {present}
+    order by
+        json_extract(s1.blob, '$.commit-time') asc nulls last,
+        json_extract(s1.blob, '$.w') asc nulls last
     |]
-  updateFixmeJson
-  -- FIXME: delete-table-grows
-  --   надо добавлять статус в fixmedeleted
-  --   только если он отличается от последнего
-  --   известного статуса
-  update_ [qc|delete from fixmejson where fixme in (select distinct id from fixmedeleted)|]
+
+  debug $ pretty sql
+
+  withState $ select @(Only LBS.ByteString) sql bound
+        <&> fmap (Aeson.decode @Fixme . fromOnly)
+        <&> catMaybes
+
+getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme)
+getFixme key = do
+
+  let sql = [qc|
+    select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+    from object o
+    where o.o = ?
+    group by o.o
+    limit 1
+    |]
+
+  runMaybeT do
+
+    lift (withState $ select @(Only LBS.ByteString) sql (Only key))
+      <&> fmap (Aeson.decode @Fixme . fromOnly)
+      <&> catMaybes
+      <&> headMay
+      >>= toMPlus
 
 
+modifyFixme :: (FixmePerks m)
+            => FixmeKey
+            -> [(FixmeAttrName, FixmeAttrVal)]
+            -> FixmeM m ()
+modifyFixme o a' = do
+  FixmeEnv{..} <- ask
 
-insertProcessed :: (FixmePerks m, MonadReader FixmeEnv m, Hashed HbSync w)
-                => w
-                -> DBPipeM m ()
-insertProcessed what = do
-  insert [qc| insert into fixmeprocessed (hash) values(?)
-              on conflict (hash) do nothing
-            |] (Only (show $ pretty $ hashObject @HbSync what))
+  attrNames <- readTVarIO fixmeEnvAttribs
+  values    <- readTVarIO fixmeEnvAttribValues
+
+  now <- liftIO getPOSIXTime <&> fromIntegral . round
+
+  let a = [ (k,v) | (k,v) <- a'
+          , k `HS.member` attrNames
+          , not (HM.member k values) || v `HS.member` fromMaybe mempty (HM.lookup k values)
+          ]
+
+  let w = mempty { fixmeAttr = HM.fromList a, fixmeKey = o, fixmeTs = Just now }
+
+  withState $ insertFixme w
+
+insertFixme :: (FixmePerks m, MonadReader FixmeEnv m) => Fixme -> DBPipeM m ()
+insertFixme fme = do
+
+  void $ runMaybeT do
+
+    let o = fixmeKey fme
+    w   <-  fixmeTs fme & toMPlus
+    let attrs   = fixmeAttr fme
+    let txt = fixmePlain fme & Text.unlines . fmap coerce
+
+    let sql = [qc|
+      insert into object (o, w, k, v)
+      values (?, ?, ?, ?)
+      on conflict (o, k)
+      do update set
+        v = case
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.v
+              else object.v
+            end,
+        w = case
+              when excluded.w > object.w and (excluded.v <> object.v) then excluded.w
+              else object.w
+            end,
+        nonce = case when excluded.w > object.w and (excluded.v <> object.v) then null
+                     else object.nonce
+                end
+      |]
+
+    for_ (fixmeStart fme) $ \s -> do
+      lift $ insert sql (o,w,"fixme-start",s)
+
+    for_ (fixmeEnd fme) $ \s -> do
+      lift $ insert sql (o,w,"fixme-end",s)
+
+    for_ (HM.toList attrs) $ \(k,v) -> do
+      lift $ insert sql (o,w,k,v)
+
+    lift $ insert sql (o,w,"fixme-text",txt)
 
 
-isProcessed :: (FixmePerks m, MonadReader FixmeEnv m, Hashed HbSync w)
-             => w
-             -> DBPipeM m Bool
-isProcessed what = do
-  let k = show $ pretty $ hashObject @HbSync what
-  select @(Only (Maybe Int)) [qc| select null from fixmeprocessed where hash = ? limit 1 |] (Only k)
-   <&> isJust . listToMaybe
+data FixmeExported =
+  FixmeExported
+  { exportedKey    :: FixmeKey
+  , exportedWeight :: Word64
+  , exportedName   :: FixmeAttrName
+  , exportedValue  :: FixmeAttrVal
+  }
+  deriving stock Generic
 
-selectProcessed :: (FixmePerks m, MonadReader FixmeEnv m)
-                 => m [HashRef]
-selectProcessed = withState do
-  select_ [qc|select hash from fixmeprocessed|]
-    <&> fmap fromOnly
+instance FromRow FixmeExported
+instance ToRow  FixmeExported
+instance Serialise FixmeExported
+
+class LocalNonce a where
+  localNonce :: a -> HashRef
+
+instance LocalNonce FixmeExported where
+  localNonce FixmeExported{..} =
+    HashRef $ hashObject @HbSync
+            $ serialise (exportedKey,exportedName,exportedValue,exportedWeight)
+
+instance LocalNonce (HashRef, FixmeExported) where
+  localNonce (h, e) =  HashRef $ hashObject @HbSync
+                               $ serialise (h, localNonce e)
+
+data WithNonce a = WithNonce HashRef a
+
+instance ToRow (WithNonce FixmeExported) where
+  toRow (WithNonce nonce f@FixmeExported{..}) = toRow (exportedKey, exportedWeight, exportedName, exportedValue, nonce)
+
+insertFixmeExported :: FixmePerks m => HashRef -> FixmeExported -> DBPipeM m ()
+insertFixmeExported h item = do
+
+  let sql = [qc|
+
+      insert into object (o, w, k, v, nonce)
+      values (?, ?, ?, ?, ?)
+      on conflict (o, k)
+      do update set
+        v = case
+              when excluded.w > object.w  then excluded.v
+              else object.v
+            end,
+        w = case
+              when excluded.w > object.w  then excluded.w
+              else object.w
+            end,
+        nonce = case
+                  when excluded.w > object.w then excluded.nonce
+                  else object.nonce
+                end
+  |]
+
+  insert sql (WithNonce h item)
+  insertScanned h
 
 

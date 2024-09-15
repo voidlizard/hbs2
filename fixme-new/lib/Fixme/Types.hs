@@ -1,7 +1,9 @@
-{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fixme.Types
   ( module Fixme.Types
+  , module Exported
   ) where
 
 import Fixme.Prelude hiding (align)
@@ -10,11 +12,25 @@ import HBS2.Base58
 import DBPipe.SQLite hiding (field)
 import HBS2.Git.Local
 
+import HBS2.OrDie
+import HBS2.Storage as Exported
+import HBS2.Peer.CLI.Detect
+import HBS2.Peer.RPC.Client as Exported hiding (encode,decode)
+import HBS2.Peer.RPC.Client.Unix as Exported  hiding (encode,decode)
+import HBS2.Peer.RPC.API.Peer as Exported
+import HBS2.Peer.RPC.API.RefChan as Exported
+import HBS2.Peer.RPC.API.Storage as Exported
+import HBS2.Peer.RPC.Client.StorageClient as Exported
+
+
 import Data.Config.Suckless
 
 import Prettyprinter.Render.Terminal
 import Control.Applicative
-import Data.Aeson
+import Data.Aeson as Aeson
+import Data.Aeson.KeyMap as Aeson hiding (null)
+import Data.Aeson.Key qualified as Aeson
+import Data.Aeson.Types as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
@@ -33,6 +49,17 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.Generics.Product.Fields (field)
 import Lens.Micro.Platform
 
+
+data MyPeerClientEndpoints =
+  MyPeerClientEndpoints
+  { _peerSocket      :: FilePath
+  , _peerPeerAPI     :: ServiceCaller PeerAPI UNIX
+  , _peerRefChanAPI  :: ServiceCaller RefChanAPI UNIX
+  , _peerStorageAPI  :: ServiceCaller StorageAPI UNIX
+  }
+
+makeLenses 'MyPeerClientEndpoints
+
 -- FIXME: move-to-suckless-conf
 deriving stock instance Ord (Syntax C)
 
@@ -43,25 +70,11 @@ pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
 pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
-fixContext :: IsContext c => Syntax c -> Syntax C
-fixContext = go
-  where
-    go = \case
-      List    _ xs -> List noContext (fmap go xs)
-      Symbol  _ w  -> Symbol noContext w
-      Literal _ l  -> Literal noContext l
-
-mklist :: IsContext c => [Syntax c] -> Syntax c
-mklist = List noContext
-
-mkint :: (IsContext c, Integral a) => a -> Syntax c
-mkint  = Literal noContext . LitInt . fromIntegral
-
-mksym :: IsContext c => Id -> Syntax c
-mksym  = Symbol noContext
-
 class MkId a where
   mkId :: a -> Id
+
+instance MkId String where
+  mkId s = fromString s
 
 instance MkId FixmeAttrName where
   mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
@@ -72,45 +85,6 @@ instance MkId (Text,Int) where
 instance MkId (String,Integer) where
   mkId (p, i) = Id (fromString p <> fromString (show i))
 
-class IsContext c => MkStr c a where
-  mkstr :: a -> Syntax c
-
-
-instance IsContext c => MkStr c String where
-  mkstr s = Literal (noContext @c) (LitStr $ Text.pack s)
-
-instance IsContext c => MkStr c ByteString where
-  mkstr s = Literal (noContext @c) (LitStr $ Text.pack $ BS8.unpack s)
-
-instance IsContext c => MkStr c (Maybe FixmeKey) where
-  mkstr Nothing  = Literal (noContext @c) (LitStr "")
-  mkstr (Just k) = Literal (noContext @c) (LitStr (coerce k))
-
-instance IsContext c => MkStr c FixmeAttrVal where
-  mkstr (s :: FixmeAttrVal)  = Literal (noContext @c) (LitStr (coerce s))
-
-
-instance IsContext c => MkStr c (Maybe FixmeAttrVal) where
-  mkstr (Just v) = mkstr v
-  mkstr Nothing  = mkstr ( "" :: Text )
-
-instance IsContext c => MkStr c FixmeAttrName where
-  mkstr (s :: FixmeAttrName)  = Literal (noContext @c) (LitStr (coerce s))
-
-instance IsContext c => MkStr c HashRef where
-  mkstr s  = Literal (noContext @c) (LitStr (fromString $ show $ pretty s))
-
-instance IsContext c => MkStr c Text where
-  mkstr = Literal noContext . LitStr
-
-stringLike :: Syntax c -> Maybe String
-stringLike = \case
-  LitStrVal s -> Just $ Text.unpack s
-  SymbolVal (Id s) -> Just $ Text.unpack s
-  _ -> Nothing
-
-stringLikeList :: [Syntax c] -> [String]
-stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 fixmeHashFromSyn :: Syntax c -> Maybe Text
 fixmeHashFromSyn = \case
@@ -126,15 +100,15 @@ tsFromFromSyn = \case
   _ -> Nothing
 
 newtype FixmeTag = FixmeTag { fromFixmeTag :: Text }
-                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField)
+                   deriving newtype (Eq,Ord,Show,IsString,Hashable,Semigroup,Monoid,ToField,FromField,FromJSON,ToJSON)
                    deriving stock (Data,Generic)
 
 newtype FixmeTitle = FixmeTitle { fromFixmeTitle :: Text }
-                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,Hashable)
+                     deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,Hashable,FromJSON,ToJSON)
                      deriving stock (Data,Generic)
 
 newtype FixmePlainLine = FixmePlainLine { fromFixmeText :: Text }
-                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField)
+                         deriving newtype (Eq,Ord,Show,IsString,Semigroup,Monoid,ToField,FromField,FromJSON,ToJSON)
                          deriving stock (Data,Generic)
 
 
@@ -150,16 +124,16 @@ newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                         deriving stock (Data,Generic)
 
 
 newtype FixmeKey  = FixmeKey Text
-                    deriving newtype (Eq,Ord,Show,ToField,FromField)
+                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid)
                     deriving stock (Data,Generic)
 
 newtype FixmeOffset = FixmeOffset Word32
-                     deriving newtype (Eq,Ord,Show,Num,ToField,FromField)
+                     deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                      deriving newtype (Integral,Real,Enum)
                      deriving stock (Data,Generic)
 
@@ -168,7 +142,7 @@ data Fixme =
   Fixme
   { fixmeTag       :: FixmeTag
   , fixmeTitle     :: FixmeTitle
-  , fixmeKey       :: Maybe FixmeKey
+  , fixmeKey       :: FixmeKey
   , fixmeTs        :: Maybe FixmeTimestamp
   , fixmeStart     :: Maybe FixmeOffset
   , fixmeEnd       :: Maybe FixmeOffset
@@ -178,7 +152,7 @@ data Fixme =
   deriving stock (Ord,Eq,Show,Data,Generic)
 
 instance Monoid Fixme where
-  mempty = Fixme mempty mempty Nothing Nothing Nothing Nothing mempty mempty
+  mempty = Fixme mempty mempty mempty Nothing Nothing Nothing mempty mempty
 
 instance Semigroup Fixme where
   (<>) a b = b { fixmeTs  = fixmeTs b <|> fixmeTs a
@@ -190,10 +164,65 @@ instance Semigroup Fixme where
                , fixmeAttr = fixmeAttr a <> fixmeAttr b
                }
 
+fixmeGet :: FixmeAttrName -> Fixme -> Maybe FixmeAttrVal
+fixmeGet name Fixme{..} = HM.lookup name fixmeAttr
+
+fixmeSet :: FixmeAttrName -> FixmeAttrVal -> Fixme -> Fixme
+fixmeSet name val fx = fx { fixmeAttr = HM.insert name val (fixmeAttr fx) }
+
+instance FromJSON FixmeOffset where
+  parseJSON = \case
+    Number x -> pure (FixmeOffset  (ceiling x))
+
+    String s  -> do
+      n <- maybe (fail "invalid FixmeOffset value") pure (readMay (Text.unpack s))
+      pure $ FixmeOffset n
+
+    _ -> fail "invalid FixmeOffset value"
+
+
+instance FromJSON FixmeTimestamp where
+  parseJSON = \case
+    Number x -> pure (FixmeTimestamp (ceiling x))
+
+    String s  -> do
+      n <- maybe (fail "invalid FixmeOffset value") pure (readMay (Text.unpack s))
+      pure $ FixmeTimestamp n
+
+    _ -> fail "invalid FixmeTimestamp value"
+
+
+instance FromJSON Fixme where
+  parseJSON = withObject "Fixme" $ \o -> do
+    fixmeKey   <- o .:  "fixme-key"
+    fixmeTag   <- o .:  "fixme-tag"
+    fixmeTitle <- o .:  "fixme-title"
+    fixmeStart <- o .:? "fixme-start"
+    fixmeEnd   <- o .:? "fixme-end"
+    fixmeTs    <- o .:? "fixme-timestamp"
+
+    fixmePlainTxt <- o .:? "fixme-text" <&> fromMaybe mempty
+    let fixmePlain = fmap FixmePlainLine (Text.lines fixmePlainTxt)
+
+    let wtf = [ unpackItem k v
+              | (k,v) <- Aeson.toList o
+              , k /= "fixme-text"
+              ] & catMaybes
+
+    let fixmeAttr = HM.fromList wtf
+
+    return Fixme{..}
+
+    where
+      unpackItem k v = do
+        (FixmeAttrName (Aeson.toText k),) <$>
+          case v of
+           String x -> pure (FixmeAttrVal x)
+           _        -> Nothing
+
 newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
                     deriving newtype (Semigroup,Monoid,Eq,Ord,Show,ToJSON,FromJSON)
                     deriving stock (Data,Generic)
-
 
 
 
@@ -235,13 +264,31 @@ instance MkKey (FromFixmeKey Fixme) where
     maybe k2  (mappend "A" . LBS.toStrict . serialise) (HM.lookup "fixme-key" fixmeAttr)
     where k2 = mappend "A" $ serialise fx & LBS.toStrict
 
+instance IsContext c => MkStr c GitHash  where
+  mkStr ha = mkStr (show $ pretty ha)
+
+instance IsContext c => MkStr c GitRef  where
+  mkStr ha = mkStr (show $ pretty ha)
+
+instance IsContext c => MkStr c HashRef  where
+  mkStr ha = mkStr (show $ pretty ha)
+
+instance IsContext c => MkStr c FixmeAttrVal  where
+  mkStr v = mkStr (coerce @_ @Text v)
+
+instance IsContext c => MkStr c (AsBase58 ByteString) where
+  mkStr v = mkStr (show $ pretty v)
+
+instance IsContext c => MkStr c FixmeAttrName  where
+  mkStr v = mkStr (coerce @_ @Text v)
+
 instance Pretty CompactAction where
   pretty = \case
-    Deleted s r      -> pretty $ mklist @C [ mksym "deleted", mkint s, mkstr r  ]
-    Modified s r k v -> pretty $ mklist @C [ mksym "modified", mkint s, mkstr r, mkstr k, mkstr v ]
+    Deleted s r      -> pretty $ mkList @C [ mkSym "deleted", mkInt s, mkStr r  ]
+    Modified s r k v -> pretty $ mkList @C [ mkSym "modified", mkInt s, mkStr r, mkStr k, mkStr v ]
     -- FIXME: normal-pretty-instance
     e@(Added  w fx) -> do
-      pretty $ mklist @C [ mksym "added", mkstr (toBase58 $ mkKey e) ]
+      pretty $ mkList @C [ mkSym "added", mkStr (AsBase58 $ mkKey e) ]
 
 instance Serialise CompactAction
 
@@ -280,6 +327,11 @@ instance Monoid FixmeOpts where
 instance Semigroup FixmeOpts where
   (<>) _ b = FixmeOpts (fixmeOptNoEvolve b)
 
+data PeerNotConnected = PeerNotConnected
+     deriving (Show,Typeable)
+
+instance Exception PeerNotConnected
+
 data FixmeEnv =
   FixmeEnv
   { fixmeLock              :: MVar ()
@@ -288,18 +340,24 @@ data FixmeEnv =
   , fixmeEnvDb             :: TVar (Maybe DBPipeEnv)
   , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
+  , fixmeEnvFileExclude    :: TVar [FilePattern]
   , fixmeEnvTags           :: TVar (HashSet FixmeTag)
   , fixmeEnvAttribs        :: TVar (HashSet FixmeAttrName)
   , fixmeEnvAttribValues   :: TVar (HashMap FixmeAttrName (HashSet FixmeAttrVal))
   , fixmeEnvDefComments    :: TVar (HashSet Text)
   , fixmeEnvFileComments   :: TVar (HashMap FilePath (HashSet Text))
   , fixmeEnvGitScanDays    :: TVar (Maybe Integer)
+  , fixmeEnvScanMagic      :: TVar (Maybe HashRef)
   , fixmeEnvUpdateActions  :: TVar [UpdateAction]
   , fixmeEnvReadLogActions :: TVar [ReadLogAction]
   , fixmeEnvCatAction      :: TVar CatAction
   , fixmeEnvTemplates      :: TVar (HashMap Id FixmeTemplate)
   , fixmeEnvMacro          :: TVar (HashMap Id (Syntax C))
   , fixmeEnvCatContext     :: TVar (Int,Int)
+  , fixmeEnvMyEndpoints    :: TVar (Maybe MyPeerClientEndpoints)
+  , fixmeEnvRefChan        :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
+  , fixmeEnvAuthor         :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
+  , fixmeEnvReader         :: TVar (Maybe (PubKey 'Encrypt 'HBS2Basic))
   }
 
 
@@ -327,6 +385,12 @@ fixmeGetGitDirCLIOpt = do
           <&> fmap (\d -> [qc|--git-dir {d}|])
           <&> fromMaybe ""
 
+builtinAttribs :: HashSet FixmeAttrName
+builtinAttribs = HS.singleton "deleted"
+
+builtinAttribVals :: HashMap FixmeAttrName (HashSet FixmeAttrVal)
+builtinAttribVals = HM.fromList [("deleted", HS.fromList ["true","false"])]
+
 newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                      deriving newtype ( Applicative
                                       , Functor
@@ -337,7 +401,7 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
                                       )
 
 
-fixmeEnvBare :: FixmePerks m => m FixmeEnv
+fixmeEnvBare :: forall m .  FixmePerks m => m FixmeEnv
 fixmeEnvBare =
   FixmeEnv
     <$>  newMVar ()
@@ -348,22 +412,25 @@ fixmeEnvBare =
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
-    <*>  newTVarIO mempty
+    <*>  newTVarIO builtinAttribs
+    <*>  newTVarIO builtinAttribVals
     <*>  newTVarIO mempty
     <*>  newTVarIO defCommentMap
     <*>  newTVarIO Nothing
+    <*>  newTVarIO mzero
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO (CatAction $ \_ _ -> pure ())
     <*>  newTVarIO mempty
     <*>  newTVarIO mempty
     <*>  newTVarIO (1,3)
+    <*>  newTVarIO mzero
+    <*>  newTVarIO mzero
+    <*>  newTVarIO mzero
+    <*>  newTVarIO mzero
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env
-
--- FIXME: move-to-suckless-conf-library
-deriving newtype instance Hashable Id
 
 instance Serialise FixmeTag
 instance Serialise FixmeTitle
@@ -375,6 +442,29 @@ instance Serialise FixmeOffset
 instance Serialise FixmeKey
 instance Serialise Fixme
 
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI PeerAPI UNIX m where
+  getClientAPI = getApiOrThrow peerPeerAPI
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI RefChanAPI UNIX m where
+  getClientAPI = getApiOrThrow peerRefChanAPI
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI StorageAPI UNIX m where
+  getClientAPI = getApiOrThrow peerStorageAPI
+
+
+instance (FixmePerks m, MonadReader FixmeEnv m) => HasStorage m where
+  getStorage = do
+    api <- getClientAPI @StorageAPI @UNIX
+    pure $ AnyStorage (StorageClient api)
+
+getApiOrThrow :: (MonadReader FixmeEnv m, MonadIO m)
+              => Getting b MyPeerClientEndpoints b -> m b
+getApiOrThrow getter =
+    asks fixmeEnvMyEndpoints
+      >>= readTVarIO
+      >>= orThrow PeerNotConnected
+      <&> view getter
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -614,7 +704,7 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno <> fxMisc
+fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -624,9 +714,18 @@ fixmeDerivedFields fx = fx <> fxCo <> tag <> fxLno <> fxMisc
 
     tag = mempty { fixmeAttr = HM.singleton "fixme-tag" (FixmeAttrVal (coerce $ fixmeTag fx))  }
 
+    key = HM.singleton "fixme-key" (FixmeAttrVal $ coerce $ (fixmeKey fx))
+
+    fxKey = mempty { fixmeAttr = key }
+
     lno = succ <$> fixmeStart fx <&> FixmeAttrVal . fromString . show
 
     fxLno = mempty { fixmeAttr = maybe mempty (HM.singleton "line") lno }
+
+    fxE = join $ for (fixmeStart fx) $ \n -> do
+            Just $ FixmeOffset $ fromIntegral $ fromIntegral n + length (fixmePlain fx)
+
+    fxEnd = mempty { fixmeEnd = fxE }
 
     fxCo =
       maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter

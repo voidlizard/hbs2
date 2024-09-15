@@ -264,9 +264,15 @@ instance Asymm 'HBS2Basic where
 instance Hashed HbSync Sign.PublicKey where
   hashObject pk = hashObject (Crypto.encode pk)
 
-
 pattern SignPubKeyLike :: forall {c} . PubKey 'Sign 'HBS2Basic -> Syntax c
 pattern SignPubKeyLike x <- (
+  \case
+    StringLike s -> fromStringMay s
+    _            -> Nothing
+      -> Just x )
+
+pattern EncryptPubKeyLike :: forall {c} . PubKey 'Encrypt 'HBS2Basic -> Syntax c
+pattern EncryptPubKeyLike x <- (
   \case
     StringLike s -> fromStringMay s
     _            -> Nothing

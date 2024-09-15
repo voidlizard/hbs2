@@ -70,6 +70,22 @@ runKeymanClient action = do
     void $ ContT $ bracket (async (runPipe db)) cancel
     lift $ withDB db (fromKeyManClient action)
 
+listCredentials :: forall  m .
+                     ( MonadIO m
+                     , SerialisedCredentials 'HBS2Basic
+                     )
+                  => KeyManClient m [PubKey 'Sign 'HBS2Basic]
+listCredentials = KeyManClient do
+  select_ [qc|
+    select f.key
+    from keytype t
+            join keyfile f on t.key = f.key
+       left join keyweight w on w.key = f.key
+    where t.type = 'sign'
+    order by w.weight desc nulls last
+    limit 100 |]
+      <&> mapMaybe ( fromStringMay . fromOnly )
+
 loadCredentials :: forall a m .
                      ( MonadIO m
                      , SomePubKeyPerks a
