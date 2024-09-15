@@ -117,7 +117,7 @@ work = do
     --
     --   так лучше
     --
-    let o = [MUWatchdog 10,MUDontRetry]
+    let o = [MUWatchdog 10]
 
     soname <- detectRPC
                 >>= orThrowUser "hbs2-peer not found"

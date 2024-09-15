@@ -63,6 +63,18 @@ data MessagingUnixOpts =
   | MUKeepAlive Int
   deriving (Eq,Ord,Show,Generic,Data)
 
+-- TODO: counters-to-detect-zombies
+--   $class: leak
+--   добавить счётчики для обнаружения
+--   мёртвых соединений, а так же их отстрел.
+--   есть основания полагать, что Messaging
+--   может течь.
+--
+--   Шаг 1. добавить счётчики
+--   Шаг 2. убедиться, что ресурсы текут
+--   Шаг 3. устранить течь
+--   Шаг 4. убедиться, что течь устранена
+
 -- FIXME: use-bounded-queues
 data MessagingUnix =
   MessagingUnix
