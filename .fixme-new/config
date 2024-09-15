@@ -65,9 +65,7 @@ fixme-comments ";" "--"
 (define (backlog s) (modify s workflow :backlog))
 
 ;; refchan settings
-(refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42)
-(reader DTKxNwYCux7zHFLSvmEm5P3Ex21iQrrVdzJpR3giLh1D)
-(author 3fKeGjaDGBKtNqeNBPsThh8vSj4TPiqaaK7uHbB8MQUV)
+source ./config.local
 
 
 

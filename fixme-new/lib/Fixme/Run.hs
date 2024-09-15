@@ -434,9 +434,32 @@ runTop forms = do
 
           _ ->  void $ lift $ refchanExport ()
 
-       entry $ bindMatch "fixme:refchan:import" $ nil_ $ const $ lift do
-        void $ refchanImport
+       entry $ bindMatch "source" $ nil_ $ \case
+        [StringLike path] -> do
 
+          ppath <- if List.isPrefixOf "." path then do
+                      dir <- localConfigDir
+                      let rest = tail $ splitDirectories path
+                      pure $ joinPath (dir:rest)
+                   else do
+                      canonicalizePath path
+
+          debug $ red "SOURCE FILE" <+> pretty ppath
+
+          dd <- readTVarIO tvd
+
+          -- FIXME: raise-warning?
+          content <- liftIO $ try @_ @IOException (readFile ppath)
+                        <&> fromRight mempty
+                        <&> parseTop
+                        >>= either (error.show) pure
+
+          lift $ run dd content
+
+        _ -> throwIO $ BadFormException @C nil
+
+       entry $ bindMatch "update" $ nil_ $ const $ lift do
+        refchanUpdate
 
        entry $ bindMatch "update" $ nil_ $ const $ lift do
         refchanUpdate
