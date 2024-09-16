@@ -1,5 +1,5 @@
 module HBS2.Sync.Internal
-  ( syncEntries
+  ( configPath, syncEntries
   ) where
 
 import HBS2.Sync.Prelude
@@ -34,10 +34,35 @@ import Data.Ord
 
 import Streaming.Prelude qualified as S
 
+data ConfigException
+  = ConfigAlreadyExists String
+  deriving (Show)
+
+instance Exception ConfigException
+
+configPath :: FilePath -> FilePath
+configPath directory =
+  directory </> ".hbs2-sync/config"
+
+findConfig :: (MonadIO m) => m (Maybe FilePath)
+findConfig =
+  findConfig' =<< pwd
+  where
+    findConfig' level = do
+      let path = configPath level
+      exists <- liftIO $ doesFileExist path
+      if exists
+        then return $ Just path
+        else
+          let parent = takeDirectory level
+           in if parent == level -- we've reached the root directory
+                then return Nothing
+                else findConfig' parent
 
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
                             , Exception (BadFormException c)
+                            , Exception ConfigException
                             , HasClientAPI PeerAPI UNIX m
                             , HasClientAPI RefChanAPI UNIX m
                             , HasClientAPI StorageAPI UNIX m
@@ -62,6 +87,8 @@ syncEntries = do
     [StringLike "--auto", StringLike authorString, StringLike readerString] -> do
       authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
       readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
+
+      findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
 
       peerApi  <- getClientAPI @PeerAPI @UNIX
       rchanApi <- getClientAPI @RefChanAPI @UNIX
@@ -103,10 +130,12 @@ syncEntries = do
                                       ]
       let config = unlines $ map (show . pretty) configForms
       display config
-      let path = ".hbs-sync/config"
+
       liftIO $ do
+        path <- configPath <$> pwd
         createDirectoryIfMissing True $ takeDirectory path
         writeFile path config
+
       pure ()
 
     _ -> do
@@ -140,7 +169,7 @@ syncEntries = do
            Nothing -> Just (mempty & set dirSyncPath (Just d))
            Just x  -> Just (x & set dirSyncPath (Just d))
 
-         ins <- try @_ @IOError (liftIO $ readFile (d </> ".hbs2-sync/config"))
+         ins <- try @_ @IOError (liftIO $ readFile (configPath d))
                  <&> fromRight mempty
                  <&> parseTop
                  <&> either mempty (fmap fixContext)

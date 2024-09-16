@@ -51,11 +51,10 @@ main = do
           _ -> display cli
 
   dir <- pwd
-  here <- liftIO $ doesFileExist (dir </> ".hbs2-sync/config")
+  here <- liftIO $ doesFileExist (configPath dir)
 
   void $ runSyncApp $ recover $ do
     when here $ runM dict do
         void $ evalTop [ mkList [mkSym "dir", mkStr dir] ]
 
     run dict cli
-
