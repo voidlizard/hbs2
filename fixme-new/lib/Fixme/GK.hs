@@ -24,6 +24,7 @@ import Lens.Micro.Platform
 data GroupKeyOpError =
     NoRefChanHead
   | NoReadersSet
+  | GKLoadFailed
   deriving (Eq,Ord,Show,Typeable)
 
 instance Exception GroupKeyOpError
@@ -53,7 +54,7 @@ loadGroupKey = do
 
     flip fix 0 $ \next -> \case
 
-      attempt | attempt > 2 -> mzero
+      attempt | attempt > 2 -> throwIO GKLoadFailed
 
       attempt -> do
 
