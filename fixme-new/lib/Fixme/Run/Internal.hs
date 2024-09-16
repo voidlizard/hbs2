@@ -978,18 +978,15 @@ fixmeRefChanInit = do
                                       , mkSym (show $ pretty (AsBase58 refchan))
                                       ]
 
-        let theirReaderKeyClause = maybe1 rk nil $ \(KeyringEntry pk _ _) -> do
-               mkList @C [ mkSym "reader", mkSym (show $ pretty (AsBase58 pk) )  ]
+        let theirReaderKeyClause = maybe1 rk ";; reader ..."$ \(KeyringEntry pk _ _) -> do
+               pretty $ mkList @C [ mkSym "reader", mkSym (show $ pretty (AsBase58 pk) )  ]
 
         let theirAuthorClause  = mkList @C [ mkSym "author", mkSym (show $ pretty (AsBase58 signK) ) ]
 
         let content =    line
-                      <> vcat [ pretty refChanClause ]
-                      <> line
-                      <> line
                       <> note
                       <> line
-                      <> vcat [ pretty theirReaderKeyClause
+                      <> vcat [ theirReaderKeyClause
                               , pretty theirAuthorClause
                               ]
 
@@ -998,7 +995,9 @@ fixmeRefChanInit = do
             show content
 
           appendFile confFile $ show $
-              line <>
+              line
+              <> vcat [ pretty refChanClause ]
+              <> line <>
               pretty (mkList @C [ mkSym "source", mkSym ( "." </> rchanFile ) ])
 
         notice $ green "refchan added" <+> pretty (AsBase58 refchan)
