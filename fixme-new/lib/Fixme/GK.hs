@@ -53,43 +53,43 @@ loadGroupKey = do
 
     flip fix 0 $ \next -> \case
 
-        attempt | attempt > 2 -> mzero
+      attempt | attempt > 2 -> mzero
 
-        attempt -> do
+      attempt -> do
 
-          let readers = view refChanHeadReaders rch
+        let readers = view refChanHeadReaders rch
 
-          gkHash <- liftIO (try @_ @IOError $ readFile gkF)
-                      <&> either (const Nothing) ( (=<<) (fromStringMay @HashRef) . headMay . lines )
+        gkHash <- liftIO (try @_ @IOError $ readFile gkF)
+                    <&> either (const Nothing) ( (=<<) (fromStringMay @HashRef) . headMay . lines )
 
-          debug $ "GK0" <+> pretty gkHash
+        debug $ "GK0" <+> pretty gkHash
 
-          case gkHash of
-            Nothing -> do
-              debug "generate new group key"
-              gknew <- generateGroupKey @'HBS2Basic Nothing (HS.toList readers)
-              ha <- writeAsMerkle sto (serialise gknew)
-              liftIO $ writeFile gkF (show $ pretty ha)
-              next (succ attempt)
+        case gkHash of
+          Nothing -> do
+            debug "generate new group key"
+            gknew <- generateGroupKey @'HBS2Basic Nothing (HS.toList readers)
+            ha <- writeAsMerkle sto (serialise gknew)
+            liftIO $ writeFile gkF (show $ pretty ha)
+            next (succ attempt)
 
-            Just h -> do
-              now <- liftIO $ getPOSIXTime <&> round
-              gk' <- loadGroupKeyMaybe @s sto h
+          Just h -> do
+            now <- liftIO $ getPOSIXTime <&> round
+            gk' <- loadGroupKeyMaybe @s sto h
 
-              (_,gk) <- maybe1 gk' (rm gkF >> next (succ attempt)) (pure . (h,))
+            (_,gk) <- maybe1 gk' (rm gkF >> next (succ attempt)) (pure . (h,))
 
-              let ts = getGroupKeyTimestamp gk & fromMaybe 0
+            let ts = getGroupKeyTimestamp gk & fromMaybe 0
 
-              -- FIXME: timeout-hardcode
-              --   $class: hardcode
-              if | now - ts > 2592000 -> do
-                   rm gkF
-                   next (succ attempt)
+            -- FIXME: timeout-hardcode
+            --   $class: hardcode
+            if | now - ts > 2592000 -> do
+                 rm gkF
+                 next (succ attempt)
 
-                 | HM.keysSet (recipients gk) /= readers -> do
-                   rm gkF
-                   next (succ attempt)
+               | HM.keysSet (recipients gk) /= readers -> do
+                 rm gkF
+                 next (succ attempt)
 
-                 | otherwise -> do
-                    pure (h,gk)
+               | otherwise -> do
+                  pure (h,gk)
 
