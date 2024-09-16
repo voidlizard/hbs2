@@ -15,6 +15,7 @@ import HBS2.Git.Local.CLI
 import HBS2.Polling
 import HBS2.OrDie
 import HBS2.Base58
+import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.RPC.Client.RefChan
@@ -23,7 +24,7 @@ import HBS2.System.Dir
 import HBS2.Net.Auth.Credentials
 import DBPipe.SQLite hiding (field)
 
-
+import HBS2.CLI.Run.KeyMan (keymanNewCredentials)
 import HBS2.KeyMan.Keys.Direct
 
 import Data.Config.Suckless.Script.File
@@ -60,6 +61,11 @@ pattern IsSimpleTemplate xs <- ListVal (SymbolVal "simple" : xs)
 
 {- HLINT ignore "Functor law" -}
 
+notEmpty :: [a] -> Maybe [a]
+notEmpty = \case
+  [] -> Nothing
+  x  -> Just x
+
 defaultTemplate :: HashMap Id FixmeTemplate
 defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
   where
@@ -70,6 +76,37 @@ defaultTemplate = HM.fromList [ ("default", Simple (SimpleTemplate short)) ]
 (trim 50  ($fixme-title))
 (nl)
     |]
+
+
+templateExample :: String
+templateExample = [qc|
+
+; this is an optional template example
+; for nicer fixme list
+;(define-template short
+;  (quot
+;    (simple
+;         (trim 10  $fixme-key) " "
+;
+;         (if (~ FIXME $fixme-tag)
+;          (then (fgd red (align 6  $fixme-tag))  )
+;          (else (if (~ TODO $fixme-tag)
+;                  (then (fgd green (align 6  $fixme-tag)))
+;                  (else (align 6  $fixme-tag)) ) )
+;          )
+;
+;
+;         (align 10  ("[" $workflow "]"))  " "
+;         (align 8  $class)  " "
+;         (align 12 $assigned)  " "
+;         (align 20 (trim 20 $committer-name)) " "
+;         (trim 50  ($fixme-title)) " "
+;         (nl))
+;    )
+;)
+; (set-template default short)
+
+|]
 
 
 init :: FixmePerks m => FixmeM m ()
@@ -85,14 +122,62 @@ init = do
   let gitignore = lo </> ".gitignore"
   here <- doesPathExist gitignore
 
+  confPath <- localConfig
+
+  unless here do
+
+    liftIO $ appendFile confPath $ show $ vcat
+      [ mempty
+      , ";; this is a default fixme config"
+      , ";;"
+      , "fixme-prefix"    <+> "FIXME:"
+      , "fixme-prefix"    <+> "TODO:"
+      , "fixme-value-set" <+> hsep [":workflow", ":new",":wip",":backlog",":done"]
+      , "fixme-file-comments" <+> dquotes "*.scm" <+> dquotes ";"
+      , "fixme-comments" <+> dquotes ";"  <+> dquotes "--" <+> dquotes "#"
+      , mempty
+      ]
+
+    exts <- listBlobs Nothing
+              <&> fmap (takeExtension . fst)
+              <&> HS.toList . HS.fromList
+
+    for_ exts $ \e -> do
+      unless (e `elem` [".gitignore",".local"] )  do
+        liftIO $ appendFile confPath $
+          show $ ( "fixme-files" <+> dquotes ("**/*" <> pretty e) <> line )
+
+    liftIO $ appendFile confPath $ show $ vcat
+      [ "fixme-exclude" <+> dquotes "**/.**"
+      ]
+
+    liftIO $ appendFile confPath $ show $ vcat
+      [ mempty
+      , pretty templateExample
+      , ";; uncomment to source any other local settings file"
+      , ";; source ./my.local"
+      , mempty
+      ]
+
   unless here do
     liftIO $ writeFile gitignore $ show $
       vcat [ pretty ("." </> localDBName)
            ]
 
-  notice $ yellow "run" <> line <> vcat [
-      "git add" <+> pretty (lo0  </> ".gitignore")
+  notice $ green "default config created:" <+> ".fixme-new/config" <> line
+             <> "edit it for your project" <> line
+             <> "typically you need to add it to git"
+             <> line
+             <> "use (source ./some.local) form to add your personal settings" <> line
+             <> "which should not be shared amongst the whole project" <> line
+             <> "and add " <> yellow ".fixme-new/some.local" <+> "file to .gitignore"
+             <> line
+
+  notice $ "run" <> line <> vcat [
+      mempty
+    , "git add" <+> pretty (lo0  </> ".gitignore")
     , "git add" <+> pretty (lo0  </> "config")
+    , mempty
     ]
 
 
@@ -312,7 +397,11 @@ cat_ hash = do
       let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
 
       let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
-      let bbefore = if start > before then before  + 1 else 1
+
+      debug $ red "start"  <+> pretty start
+      debug $ red "before" <+> pretty before
+
+      let bbefore = if start == 0 then before  else before + 1
       let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
       let lno   = max 1 $ origLen + after + before
 
@@ -537,4 +626,140 @@ refchanImport = do
       insertScanned txh
       insertScanned href
       for_ atx insertScanned
+
+
+fixmeRefChanInit :: FixmePerks m => FixmeM m ()
+fixmeRefChanInit = do
+   let rch0 = refChanHeadDefault @L4Proto
+   sto <- getStorage
+   peer <- getClientAPI @PeerAPI @UNIX
+   rchanApi <- getClientAPI @RefChanAPI @UNIX
+
+   dir <- localConfigDir
+   confFile <- localConfig
+
+   rchan <- asks fixmeEnvRefChan
+              >>= readTVarIO
+
+   flip runContT pure $ callCC \done -> do
+
+     when (isJust rchan) do
+      warn $ red "refchan is already set" <+> pretty (fmap AsBase58 rchan)
+      warn $ "done" <+> pretty (fmap AsBase58 rchan)
+      done ()
+
+     poked <- lift $ callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
+                >>= orThrowUser "hbs2-peer not connected"
+                <&> parseTop
+                <&> fromRight mempty
+
+     pkey <- [ fromStringMay @(PubKey 'Sign 'HBS2Basic) x
+             | ListVal [SymbolVal "peer-key:", StringLike x ] <- poked
+             ] & headMay . catMaybes & orThrowUser "hbs2-peer key not set"
+
+
+     notice $ green "default peer" <+> pretty (AsBase58 pkey)
+
+
+     signK' <- lift $ runKeymanClientRO $ listCredentials
+             <&> headMay
+
+     signK <- ContT $ maybe1 signK' (throwIO $ userError "no default author key found in hbs2-keyman")
+
+     notice $ green "default author" <+> pretty (AsBase58 signK)
+
+     -- TODO: use-hbs2-git-api?
+     (_, gkh', _) <- readProcess (shell [qc|git hbs2 key|])
+                      <&> over _2 (  (fromStringMay @HashRef)  <=< (notEmpty . headDef "" . lines . LBS8.unpack) )
+                      <&> \x ->  case view _1 x of
+                            ExitFailure _ -> set _2 Nothing x
+                            ExitSuccess   -> x
+
+     notice $ green "group key" <+> maybe "none" pretty gkh'
+
+     readers <- fromMaybe mempty <$> runMaybeT do
+                  gh <- toMPlus gkh'
+                  gk <- loadGroupKeyMaybe @'HBS2Basic sto gh
+                           >>= toMPlus
+                  pure $ HM.keys (recipients gk)
+
+     notice $ green "readers" <+> pretty (length readers)
+
+     rk <- lift $ runKeymanClientRO $ loadKeyRingEntries readers
+              <&> fmap snd . headMay
+
+
+     let rch1 = rch0 & set refChanHeadReaders (HS.fromList readers)
+                     & set refChanHeadAuthors (HS.singleton signK)
+                     & set refChanHeadPeers   (HM.singleton pkey 1)
+
+
+     let unlucky =    HM.null (view refChanHeadPeers rch1)
+                   || HS.null (view refChanHeadAuthors rch1)
+
+
+     liftIO $ print $ pretty rch1
+
+     if unlucky then do
+        warn $ red $ "refchan definition is not complete;" <+>
+                     "you may add missed keys, edit the"   <+>
+                     "defition and add if manually or repeat init attempt"
+                     <> line
+     else do
+        notice "refchan definition seems okay, adding new refchan"
+
+        refchan <- lift $ keymanNewCredentials (Just "refchan") 0
+
+        creds <- lift $ runKeymanClientRO $ loadCredentials refchan
+                       >>= orThrowUser "can't load credentials"
+
+        let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch1
+
+        href <- writeAsMerkle sto  (serialise box)
+
+        callService @RpcPollAdd peer (refchan, "refchan", 17)
+            >>= orThrowUser "can't subscribe to refchan"
+
+        callService @RpcRefChanHeadPost rchanApi (HashRef href)
+            >>= orThrowUser "can't post refchan head"
+
+
+        let nonce = take 6 $ show $ pretty (AsBase58 refchan)
+        let rchanFile = "refchan-" <> nonce <> ".local"
+        let rchanFilePath = dir </> rchanFile
+
+        let note =    ";; author and reader are inferred automatically" <> line
+                   <> ";; from hbs2-keyman data" <> line
+                   <> ";; edit them if needed" <> line
+                   <> ";; reader is *your* reading public key." <> line
+                   <> ";; author is *your* signing public key." <> line
+
+        let refChanClause = mkList @C [ mkSym "refchan"
+                                      , mkSym (show $ pretty (AsBase58 refchan))
+                                      ]
+
+        let theirReaderKeyClause = maybe1 rk nil $ \(KeyringEntry pk _ _) -> do
+               mkList @C [ mkSym "reader", mkSym (show $ pretty (AsBase58 pk) )  ]
+
+        let theirAuthorClause  = mkList @C [ mkSym "author", mkSym (show $ pretty (AsBase58 signK) ) ]
+
+        let content =    line
+                      <> vcat [ pretty refChanClause ]
+                      <> line
+                      <> line
+                      <> note
+                      <> line
+                      <> vcat [ pretty theirReaderKeyClause
+                              , pretty theirAuthorClause
+                              ]
+
+        liftIO do
+          writeFile rchanFilePath $
+            show content
+
+          appendFile confFile $ show $
+              line <>
+              pretty (mkList @C [ mkSym "source", mkSym ( "." </> rchanFile ) ])
+
+        notice $ green "refchan added" <+> pretty (AsBase58 refchan)
 
