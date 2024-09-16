@@ -434,6 +434,10 @@ runTop forms = do
 
           _ ->  void $ lift $ refchanExport ()
 
+       entry $ bindMatch "fixme:refchan:import" $ nil_ $ \case
+          _ ->  void $ lift $ refchanImport
+
+
        entry $ bindMatch "source" $ nil_ $ \case
         [StringLike path] -> do
 
