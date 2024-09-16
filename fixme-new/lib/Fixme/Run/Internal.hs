@@ -9,6 +9,7 @@ import Fixme.Config
 import Fixme.State
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
+import Fixme.GK
 
 import HBS2.Git.Local.CLI
 
@@ -17,7 +18,7 @@ import HBS2.OrDie
 import HBS2.Base58
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Data.Types.SignedBox
-import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.RefChan as RefChan
 import HBS2.Peer.RPC.Client.RefChan
 import HBS2.Storage.Operations.ByteString
 import HBS2.System.Dir
@@ -53,6 +54,7 @@ import Control.Concurrent.STM (flushTQueue)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import System.Directory (getModificationTime)
 
+import System.IO as IO
 
 import Streaming.Prelude qualified as S
 
@@ -460,12 +462,9 @@ refchanExport opts = do
 
   let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
 
+  gk0 <- loadGroupKey
+
   withState do
-    -- FIXME: select-only-really-missed-records
-    --   сейчас всегда фуллскан. будет всё дольше и дольше
-    --   с ростом количества записей. Нужно отбирать
-    --   только такие элементы, которые реально отсутствуют
-    --   в рефчане
     what <- select_ @_ @FixmeExported [qc|
       select distinct o,w,k,cast (v as text)
       from object obj
@@ -481,7 +480,11 @@ refchanExport opts = do
 
         -- FIXME: encrypt-tree
         --   1. откуда ключ взять
+
         --   2. куда его положить
+
+
+        --
         --   3. один на всех?
         --   4. по одному на каждого?
         --   5. как будет устроена ротация
@@ -517,8 +520,15 @@ refchanUpdate = do
 
   api   <- getClientAPI @RefChanAPI @UNIX
 
+  sto <- getStorage
+
   h0 <- callService @RpcRefChanGet api rchan
          >>= orThrowUser "can't request refchan head"
+
+  rch <-  RefChan.getRefChanHead @L4Proto sto (RefChanHeadKey rchan)
+              >>= orThrowUser "can't request refchan head"
+
+  let w = view refChanHeadWaitAccept rch
 
   txn <- refchanExport ()
 
@@ -532,7 +542,7 @@ refchanUpdate = do
 
     -- TODO: fix-this-lame-polling
     flip fix 0 $ \next -> \case
-      n | n >= 3 -> pure ()
+      n | n >= w -> pure ()
       n  -> do
 
         h <- callService @RpcRefChanGet api rchan
@@ -542,6 +552,7 @@ refchanUpdate = do
           pure ()
         else do
           pause @'Seconds 1
+          liftIO $ hPutStr stderr (show $ pretty (w - n) <> "    \r")
           next (succ n)
 
     none

@@ -8,6 +8,7 @@ import Fixme.State
 import Fixme.Run.Internal
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
+import Fixme.GK as GK
 
 import Data.Config.Suckless.Script.File
 
@@ -355,6 +356,14 @@ runTop forms = do
        entry $ bindMatch "fixme:scan-magic" $ nil_ $ const do
           magic <- lift $ asks fixmeEnvScanMagic >>= readTVarIO
           liftIO $ print $ pretty magic
+
+       entry $ bindMatch "fixme:gk:show" $ nil_ $ const do
+        w <- lift loadGroupKey
+        case w of
+          Just (h,_) -> do
+            liftIO $ print $ pretty h
+          _ -> do
+            liftIO $ print $ pretty "none"
 
        entry $ bindMatch "fixme:path" $ nil_ $ const do
           path <- lift fixmeWorkDir
