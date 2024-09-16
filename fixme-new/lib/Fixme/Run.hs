@@ -491,26 +491,33 @@ runTop forms = do
               ) $
          args [] $
          returns "string" "refchan-key" $ do
-         entry $ bindMatch "refchan:init" $ nil_ $ const $ do
+         entry $ bindMatch "fixme:refchan:init" $ nil_ $ const $ do
 
            let rch0 = refChanHeadDefault @L4Proto
            sto <- lift getStorage
            peer <- lift $ getClientAPI @PeerAPI @UNIX
            rchanApi <- lift $ getClientAPI @RefChanAPI @UNIX
 
+           dir <- localConfigDir
            confFile <- localConfig
-           conf <- liftIO (readFile confFile)
-                      <&> parseTop
-                      <&> either (error.show) (fmap (fixContext @_ @C))
 
-           let already = headMay [ x
-                                 | ListVal [StringLike "refchan", SignPubKeyLike x] <- conf
-                                 ]
+           -- conf <- liftIO (readFile confFile)
+           --            <&> parseTop
+           --            <&> either (error.show) (fmap (fixContext @_ @C))
+
+           -- let already = headMay [ x
+           --                       | ListVal [StringLike "refchan", SignPubKeyLike x] <- conf
+           --                       ]
+
+           rchan <- lift $ asks fixmeEnvRefChan
+                      >>= readTVarIO
 
            flip runContT pure $ callCC \done -> do
 
-             when (isJust already) do
-              warn $ red "refchan is already set" <+> pretty (fmap AsBase58 already)
+             when (isJust rchan) do
+              warn $ red "refchan is already set" <+> pretty (fmap AsBase58 rchan)
+              warn $ "done" <+> pretty (fmap AsBase58 rchan)
+              done ()
 
              poked <- lift $ callRpcWaitMay @RpcPoke (TimeoutSec 1) peer ()
                         >>= orThrowUser "hbs2-peer not connected"
@@ -549,6 +556,10 @@ runTop forms = do
 
              notice $ green "readers" <+> pretty (length readers)
 
+             rk <- lift $ runKeymanClientRO $ loadKeyRingEntries readers
+                      <&> fmap snd . headMay
+
+
              let rch1 = rch0 & set refChanHeadReaders (HS.fromList readers)
                              & set refChanHeadAuthors (HS.singleton signK)
                              & set refChanHeadPeers   (HM.singleton pkey 1)
@@ -567,6 +578,7 @@ runTop forms = do
                              <> line
              else do
                 notice "refchan definition seems okay, adding new refchan"
+
                 refchan <- lift $ keymanNewCredentials (Just "refchan") 0
 
                 creds <- lift $ runKeymanClientRO $ loadCredentials refchan
@@ -582,11 +594,44 @@ runTop forms = do
                 callService @RpcRefChanHeadPost rchanApi (HashRef href)
                     >>= orThrowUser "can't post refchan head"
 
-                liftIO $ appendFile confFile $
-                     show $ pretty ( mkList @C [ mkSym "refchan"
-                                               , mkSym (show $ pretty (AsBase58 refchan)) ]
-                                   )
 
+                let nonce = take 6 $ show $ pretty (AsBase58 refchan)
+                let rchanFile = "refchan-" <> nonce <> ".local"
+                let rchanFilePath = dir </> rchanFile
+
+                let note =    ";; author and reader are inferred automatically" <> line
+                           <> ";; from hbs2-keyman data" <> line
+                           <> ";; edit them if needed" <> line
+                           <> ";; reader is *your* reading public key." <> line
+                           <> ";; author is *your* signing public key." <> line
+
+                let refChanClause = mkList @C [ mkSym "refchan"
+                                              , mkSym (show $ pretty (AsBase58 refchan))
+                                              ]
+
+                let theirReaderKeyClause = maybe1 rk nil $ \(KeyringEntry pk _ _) -> do
+                       mkList @C [ mkSym "reader", mkSym (show $ pretty (AsBase58 pk) )  ]
+
+                let theirAuthorClause  = mkList @C [ mkSym "author", mkSym (show $ pretty (AsBase58 signK) ) ]
+
+                let content = (vcat $ [ pretty refChanClause ])
+                              <> line
+                              <> line
+                              <> note
+                              <> line
+                              <> vcat [ pretty theirReaderKeyClause
+                                      , pretty theirAuthorClause
+                                      ]
+
+                liftIO do
+                  writeFile rchanFilePath $
+                    show content
+
+                  appendFile confFile $ show $ pretty $
+                      mkList @C [ mkSym "source", mkSym ( "." </> rchanFile ) ]
+
+
+                notice $ green "refchan added" <+> pretty (AsBase58 refchan)
 
        entry $ bindMatch "set-template" $ nil_ \case
          [SymbolVal who, SymbolVal w] -> do
