@@ -65,3 +65,6 @@ fixme-comments ";" "--"
 (define (backlog s) (modify s workflow :backlog))
 
 ;; refchan settings
+refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42
+source ./refchan.local
+
