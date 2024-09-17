@@ -12,6 +12,7 @@ import Fixme.Scan as Scan
 import Fixme.GK
 
 import HBS2.Git.Local.CLI
+import HBS2.CLI.Run.MetaData (createTreeWithMetadata,getTreeContents)
 
 import HBS2.Polling
 import HBS2.OrDie
@@ -479,21 +480,19 @@ refchanExport opts = do
       for_ chu $ \x -> callCC \next -> do
 
         -- FIXME: encrypt-tree
-        --   1. откуда ключ взять
 
-        --   2. куда его положить
-
-
-        --
-        --   3. один на всех?
-        --   4. по одному на каждого?
-        --   5. как будет устроена ротация
         --   6. как делать доступ к историческим данным
         --   6.1 новые ключи в этот же рефчан
         --   6.2 или новые ключи в какой-то еще рефчан
-        h  <- writeAsMerkle sto (serialise x)
 
-        let tx = AnnotatedHashRef Nothing (HashRef h)
+        let s = maybe "[ ]" (const $ yellow "[@]") gk0
+
+        let gk = snd <$> gk0
+
+        href <- liftIO $ createTreeWithMetadata sto gk mempty (serialise x)
+                  >>= orThrowPassIO
+
+        let tx = AnnotatedHashRef Nothing href
 
         lift do
 
@@ -501,7 +500,7 @@ refchanExport opts = do
 
           let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
 
-          warn $ "POST" <+> red "unencrypted!" <+> pretty (length x) <+> pretty (hashObject @HbSync (serialise box))
+          warn $ "POST" <+> pretty (length x) <+> s <> "tree" <+> pretty href <+> pretty (hashObject @HbSync (serialise box))
 
           unless dry do
             r <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) rchanAPI (chan, box)
@@ -510,6 +509,7 @@ refchanExport opts = do
               err $ red "hbs2-peer rpc calling timeout"
 
       pure $ length what
+
 
 refchanUpdate :: FixmePerks m => FixmeM m ()
 refchanUpdate = do
@@ -610,7 +610,7 @@ refchanImport = do
         else do
 
           -- FIXME: decrypt-tree
-          what <- runExceptT (readFromMerkle sto (SimpleKey (coerce href)))
+          what <- liftIO (runExceptT $ getTreeContents sto href)
                     <&> either (const Nothing) Just
                     >>= toMPlus
 

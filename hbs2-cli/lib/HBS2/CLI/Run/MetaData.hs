@@ -3,6 +3,7 @@
 module HBS2.CLI.Run.MetaData
   ( metaDataEntries
   , createTreeWithMetadata
+  , getTreeContents
   ) where
 
 import HBS2.CLI.Prelude

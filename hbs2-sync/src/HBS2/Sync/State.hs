@@ -24,7 +24,7 @@ import HBS2.Peer.RPC.Client.RefChan as Client
 
 import HBS2.KeyMan.Keys.Direct
 
-import HBS2.CLI.Run.MetaData (createTreeWithMetadata)
+import HBS2.CLI.Run.MetaData (createTreeWithMetadata, getTreeContents)
 
 import DBPipe.SQLite
 import Data.Config.Suckless.Script.File
@@ -598,39 +598,6 @@ mergeState seed orig = do
           next (Set.insert new names, succ n)
         else
           new
-
-getTreeContents :: forall m . ( MonadUnliftIO m
-                              , MonadIO m
-                              , MonadError OperationError m
-                   )
-                => AnyStorage
-                -> HashRef
-                -> m LBS.ByteString
-
-getTreeContents sto href = do
-
-  blk <- getBlock sto (coerce href)
-           >>= orThrowError MissedBlockError
-
-  let q = tryDetect (coerce href) blk
-
-  case q of
-
-    MerkleAnn (MTreeAnn {_mtaCrypt = NullEncryption }) -> do
-      readFromMerkle sto (SimpleKey (coerce href))
-
-    MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
-
-      rcpts  <- Symm.loadGroupKeyMaybe @'HBS2Basic sto (HashRef gkh)
-                  >>= orThrowError (GroupKeyNotFound 11)
-                  <&> HM.keys . Symm.recipients
-
-      let findStuff g = do
-            runKeymanClientRO @IO $ findMatchedGroupKeySecret sto g
-
-      readFromMerkle sto (ToDecryptBS (coerce href) (liftIO . findStuff))
-
-    _ -> throwError UnsupportedFormat
 
 
 runDirectory :: ( IsContext c
