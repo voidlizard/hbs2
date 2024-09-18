@@ -157,6 +157,13 @@ extractGroupKeySecret gk = do
 
     pure $ headMay r
 
+trackGK :: forall s m . (MonadIO m, s ~ HBS2Basic)
+         => AnyStorage
+        -> HashRef
+        -> m ()
+trackGK sto href = do
+  -- gk <- loadGroupKeyMaybe @s sto href
+  pure ()
 
 type TrackGroupKeyView = ( SomeHash GroupKeyId
                          , SomeHash HashRef

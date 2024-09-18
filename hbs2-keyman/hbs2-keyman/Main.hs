@@ -136,6 +136,7 @@ updateKeys = do
       conf <- getConf
       let rchans = [ r | ListVal [SymbolVal "refchan", SignPubKeyLike r] <- conf ]
 
+      -- FIXME: assume-huge-list
       seen <- withState selectAllSeenGKTx
 
       flip runContT pure $ callCC \exit -> do
@@ -151,6 +152,8 @@ updateKeys = do
           runScan (RChanScanEnv sto rpc) do
 
             for_ rchans $ \r -> do
+
+              notice $ "scan refchan" <+> pretty (AsBase58  r)
 
               walkRefChanTx @proto (pure . not . flip HS.member seen) r $ \tx0 -> \case
                 P _  (ProposeTran _ box) -> do

@@ -139,6 +139,7 @@ runFixmeCLI m = do
             <*>  newTVarIO mzero
             <*>  newTVarIO mzero
             <*>  newTVarIO mzero
+            <*>  newTVarIO mempty
 
   -- FIXME: defer-evolve
   --   не все действия требуют БД,
@@ -442,6 +443,8 @@ runTop forms = do
        entry $ bindMatch "fixme:refchan:import" $ nil_ $ \case
           _ ->  void $ lift $ refchanImport
 
+       entry $ bindMatch "fixme:gk:export" $ nil_ $ \case
+          _ ->  void $ lift $ refchanExportGroupKeys
 
        entry $ bindMatch "source" $ nil_ $ \case
         [StringLike path] -> do
@@ -475,6 +478,11 @@ runTop forms = do
 
        entry $ bindMatch "fixme:refchan:update" $ nil_ $ const $ lift do
         refchanUpdate
+
+
+       entry $ bindMatch "cache:ignore" $ nil_ $ const $ lift do
+        tf <- asks fixmeEnvFlags
+        atomically $ modifyTVar tf (HS.insert FixmeIgnoreCached)
 
        entry $ bindMatch "git:blobs" $  \_ -> do
         blobs <- lift (listBlobs Nothing)

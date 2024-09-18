@@ -28,22 +28,22 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
 
+
 --FIXME: move-somewhere-else
-getGroupKeyHash :: ( IsContext c
-                   , MonadUnliftIO m
+getGroupKeyHash :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasClientAPI StorageAPI UNIX m
                    )
                 => HashRef
-                -> RunM c m (Maybe HashRef, MTreeAnn [HashRef])
+                -> m (Maybe HashRef, MTreeAnn [HashRef])
 getGroupKeyHash h = do
   flip runContT pure do
-    sto <- getStorage
+    sto <- lift getStorage
 
     headBlock <- getBlock sto (fromHashRef h)
-                   >>= orThrowUser  "no-block"
+                   >>= orThrow MissedBlockError
                    <&> deserialiseOrFail @(MTreeAnn [HashRef])
-                   >>= orThrowUser  "invalid block format"
+                   >>= orThrow UnsupportedFormat
 
     case _mtaCrypt headBlock of
       (EncryptGroupNaClSymm hash _) ->

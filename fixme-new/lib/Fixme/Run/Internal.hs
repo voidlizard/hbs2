@@ -12,7 +12,7 @@ import Fixme.Scan as Scan
 import Fixme.GK
 
 import HBS2.Git.Local.CLI
-import HBS2.CLI.Run.MetaData (createTreeWithMetadata,getTreeContents)
+import HBS2.CLI.Run.MetaData (createTreeWithMetadata,getTreeContents,getGroupKeyHash)
 
 import HBS2.Polling
 import HBS2.OrDie
@@ -31,6 +31,7 @@ import HBS2.KeyMan.Keys.Direct
 
 import Data.Config.Suckless.Script.File
 
+import Data.List qualified as L
 import Data.List.Split (chunksOf)
 import Data.Aeson.Encode.Pretty as Aeson
 import Data.ByteString.Lazy qualified as LBS
@@ -530,6 +531,8 @@ refchanUpdate = do
 
   let w = view refChanHeadWaitAccept rch
 
+  refchanExportGroupKeys
+
   txn <- refchanExport ()
 
   unless (txn == 0) do
@@ -609,7 +612,6 @@ refchanImport = do
 
         else do
 
-          -- FIXME: decrypt-tree
           what <- liftIO (runExceptT $ getTreeContents sto href)
                     <&> either (const Nothing) Just
                     >>= toMPlus
@@ -772,4 +774,111 @@ fixmeRefChanInit = do
               pretty (mkList @C [ mkSym "source", mkSym ( "." </> rchanFile ) ])
 
         notice $ green "refchan added" <+> pretty (AsBase58 refchan)
+
+
+
+refchanExportGroupKeys :: FixmePerks m => FixmeM m ()
+refchanExportGroupKeys = do
+
+  let gkHash x = hashObject @HbSync ("GKSCAN" <> serialise x) & HashRef
+
+  sto <- getStorage
+
+  chan <- asks fixmeEnvRefChan
+           >>= readTVarIO
+           >>= orThrowUser "refchan not set"
+
+  ignCached <- asks fixmeEnvFlags >>= readTVarIO <&> HS.member FixmeIgnoreCached
+
+  let goodToGo x | ignCached = pure True
+                 | otherwise = do
+        here <- selectIsAlreadyScanned (gkHash x)
+        pure $ not here
+
+  debug "refchanExportGroupKeys"
+
+  skip <- newTVarIO HS.empty
+  gkz <- newTVarIO HS.empty
+
+  walkRefChanTx @UNIX goodToGo chan $ \txh u -> do
+
+    case u of
+      P orig (ProposeTran _ box) -> void $ runMaybeT do
+        (_, bs) <- unboxSignedBox0 box & toMPlus
+
+        AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+                                    & toMPlus . either (const Nothing) Just
+
+        result <- lift $ try @_ @OperationError  (getGroupKeyHash href)
+
+        case result of
+          Right (Just gk,_) -> do
+            atomically do
+              modifyTVar gkz  (HS.insert gk)
+              modifyTVar skip (HS.insert txh)
+
+          Right (Nothing,_) -> do
+            atomically $ modifyTVar skip (HS.insert txh)
+
+          Left UnsupportedFormat -> do
+            debug $ "unsupported" <+> pretty href
+            atomically $ modifyTVar skip (HS.insert txh)
+
+          Left e -> do
+             debug $ "other error" <+> viaShow e
+
+      _ -> none
+
+  l <- readTVarIO skip <&> HS.toList
+  r <- readTVarIO gkz <&> HS.toList
+
+  withState $ transactional do
+    for_ l (insertScanned . gkHash)
+
+  rchan <- asks fixmeEnvRefChan
+             >>= readTVarIO
+             >>= orThrowUser "refchan not set"
+
+  api   <- getClientAPI @RefChanAPI @UNIX
+
+  rch <-  RefChan.getRefChanHead @L4Proto sto (RefChanHeadKey rchan)
+              >>= orThrowUser "can't request refchan head"
+
+  hashes <- L.sort <$> S.toList_ do
+    for_ r $ \gkh -> void $ runMaybeT do
+      gk <- loadGroupKeyMaybe @'HBS2Basic sto gkh >>= toMPlus
+      gks <- liftIO (runKeymanClientRO $ findMatchedGroupKeySecret sto gk)
+
+      when (isNothing gks) do
+      --   lift $ withState (insertScanned (gkHash txh))
+        warn $ "unaccessible group key" <+> pretty gkh
+        mzero
+
+      debug $  red "prepare new gk0" <+> pretty gkh <+> pretty (groupKeyId gk)
+
+      gk1 <- generateGroupKey @'HBS2Basic gks (HS.toList $ view refChanHeadReaders rch)
+      gkh1 <- writeAsMerkle sto (serialise gk1) <&> HashRef
+      lift $ S.yield gkh1
+
+  notice $ yellow $ "new gk:" <+> pretty (L.length hashes)
+
+        -- scanned <- lift $ selectIsAlreadyScanned href
+
+        -- -- notice $ yellow "SCANNED" <+> pretty scanned
+
+        -- if scanned then do
+        --   atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
+        --   lift $ withState $ transactional do
+        --     insertScanned txh
+        --     for_ atx insertScanned
+
+        -- else do
+
+        --   -- FIXME: decrypt-tree
+        --   what <- liftIO (runExceptT $ getTreeContents sto href)
+        --             <&> either (const Nothing) Just
+        --             >>= toMPlus
+
+        --   exported <- deserialiseOrFail @[FixmeExported] what
+        --                 & toMPlus
 
