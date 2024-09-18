@@ -1071,7 +1071,17 @@ refchanExportGroupKeys = do
   rch <-  RefChan.getRefChanHead @L4Proto sto (RefChanHeadKey rchan)
               >>= orThrowUser "can't request refchan head"
 
-  hashes <- L.sort <$> S.toList_ do
+  au <- asks fixmeEnvAuthor
+           >>= readTVarIO
+           >>= orThrowUser "author's key not set"
+
+  creds <- runKeymanClientRO $ loadCredentials au
+             >>= orThrowUser "can't read credentials"
+
+
+  let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
+
+  keyz <- Map.fromList <$> S.toList_ do
     for_ r $ \gkh -> void $ runMaybeT do
       gk <- loadGroupKeyMaybe @'HBS2Basic sto gkh >>= toMPlus
       gks <- liftIO (runKeymanClientRO $ findMatchedGroupKeySecret sto gk)
@@ -1081,31 +1091,36 @@ refchanExportGroupKeys = do
         warn $ "unaccessible group key" <+> pretty gkh
         mzero
 
-      debug $  red "prepare new gk0" <+> pretty gkh <+> pretty (groupKeyId gk)
-
       gk1 <- generateGroupKey @'HBS2Basic gks (HS.toList $ view refChanHeadReaders rch)
-      gkh1 <- writeAsMerkle sto (serialise gk1) <&> HashRef
-      lift $ S.yield gkh1
+      let lbs = serialise gk1
+      -- gkh1 <- writeAsMerkle sto lbs  <&> HashRef
+      debug $  red "prepare new gk0" <+> pretty (LBS.length lbs) <+> pretty gkh <+> pretty (groupKeyId gk)
+      lift $ S.yield (groupKeyId gk, gk1)
 
-  notice $ yellow $ "new gk:" <+> pretty (L.length hashes)
+  notice $ yellow $ "new gk:" <+> pretty (Map.size keyz)
 
-        -- scanned <- lift $ selectIsAlreadyScanned href
+  let nitems = 262144 `div` (125 * HS.size (view refChanHeadReaders rch) )
+  let chunks = Map.elems keyz & chunksOf nitems
 
-        -- -- notice $ yellow "SCANNED" <+> pretty scanned
+  for_ chunks $ \x -> do
 
-        -- if scanned then do
-        --   atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
-        --   lift $ withState $ transactional do
-        --     insertScanned txh
-        --     for_ atx insertScanned
+      let gktreemeta = HM.fromList [ ("GK", Text.pack (show $ pretty $ L.length x)) ]
+      -- group keys are public (and already encrypted)
+      -- therefore, no encryption
+      href <- liftIO $ createTreeWithMetadata sto mzero gktreemeta (serialise x)
+                >>= orThrowPassIO
 
-        -- else do
+      let tx = AnnotatedHashRef Nothing href
 
-        --   -- FIXME: decrypt-tree
-        --   what <- liftIO (runExceptT $ getTreeContents sto href)
-        --             <&> either (const Nothing) Just
-        --             >>= toMPlus
+      let lbs = serialise tx
 
-        --   exported <- deserialiseOrFail @[FixmeExported] what
-        --                 & toMPlus
+      let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
+
+      warn $ "POST GK TX" <+> pretty (length x) <+> "tree" <+> pretty href
+
+      result <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) api (chan, box)
+
+      when (isNothing result) do
+        err $ red "hbs2-peer rpc calling timeout"
+
 
