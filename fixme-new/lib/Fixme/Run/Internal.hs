@@ -578,8 +578,6 @@ refchanImport = do
 
   tq <- newTQueueIO
 
-  -- TODO: assume-huge-list
-  -- scanned <- listAllScanned
   let goodToGo x = do
         here <- selectIsAlreadyScanned x
         pure $ not here
@@ -593,6 +591,10 @@ refchanImport = do
         atomically $ modifyTVar ttsmap (HM.insertWith max what (coerce @_ @Word64 ts))
         atomically $ modifyTVar accepts (HM.insertWith (<>) what (HS.singleton txh))
 
+        scanned <- selectIsAlreadyScanned what
+        when scanned do
+           withState $ insertScanned txh
+
       A _  -> none
 
       P orig (ProposeTran _ box) -> void $ runMaybeT do
@@ -603,15 +605,7 @@ refchanImport = do
 
         scanned <- lift $ selectIsAlreadyScanned href
 
-        -- notice $ yellow "SCANNED" <+> pretty scanned
-
-        if scanned then do
-          atx <- readTVarIO accepts <&> fromMaybe mempty . HM.lookup txh
-          lift $ withState $ transactional do
-            insertScanned txh
-            for_ atx insertScanned
-
-        else do
+        unless scanned do
 
           -- check if metadata tx
           meta <- runExceptT (extractMetaData @'HBS2Basic (const $ pure Nothing) sto href)
@@ -621,7 +615,7 @@ refchanImport = do
 
           let isGk = not $ L.null [ True | ListVal [SymbolVal "GK:", _] <- parsed ]
 
-          notice $ "metadata:" <+> pretty isGk <+> pretty parsed
+          debug $ "metadata:" <+> pretty isGk <+> pretty parsed
 
           if isGk then do
 
@@ -634,8 +628,7 @@ refchanImport = do
                           & toMPlus
 
             for_ gkz $ \gk -> do
-                atomically $ writeTQueue tq (Left (txh, orig, href, gk))
-
+              atomically $ writeTQueue tq (Left (txh, orig, href, gk))
 
           else do
             what <- liftIO (runExceptT $ getTreeContents sto href)
@@ -657,6 +650,35 @@ refchanImport = do
         notice $ "import GK" <+> pretty hx <+> "from" <+> pretty href
         insertScanned txh
         -- TODO: ASAP-notify-hbs2-keyman
+        --   у нас два варианта:
+        --     1. звать runKeymanClient и в нём записывать в БД
+        --        с возможностью блокировок
+        --     2. каким-то образом делать отложенную запись,
+        --        например, писать лог групповых ключей
+        --        куда-то, откуда hbs2-keyman сможет
+        --        обновить их при запуске
+        --
+        --        лог групповых ключей мы можем писать:
+        --          1.  в рефлог, на который подписан и кейман
+        --          2.  в рефчан, на который подписан и кейман
+        --                неожиданные плюсы:
+        --                  + у нас уже есть такой рефчан!
+        --                    всё, что надо сделать  -- это записать ключи туда
+        --                    с одной стороны туповато: перекладывать транзы из
+        --                    рефчана в рефчан. с другой стороны -- не нужны никакие
+        --                    новые механизмы. рефчан, в общем-то, локальный(?),
+        --                    блоки никуда за пределы хоста не поедут (?) и сеть
+        --                    грузить не будут (?)
+        --
+        --          3.  в рефчан, используя notify
+        --          4.  в еще какую переменную, которая будет
+        --              локальна
+        --          5.  в какой-то лог. который кейман будет
+        --              процессировать при hbs2-keyman update
+        --
+        --      поскольку БД кеймана блокируется целиком при апдейтах,
+        --      единственное, куда писать проблематично -- это сама БД.
+        --
         pure ()
 
       Right (txh, h, href, i) -> do
