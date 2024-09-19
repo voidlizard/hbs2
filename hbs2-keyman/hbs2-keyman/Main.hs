@@ -139,7 +139,7 @@ updateKeys = do
       -- FIXME: assume-huge-list
       seen <- withState selectAllSeenGKTx
 
-      debug $ "SEEN" <+> pretty (List.length seen)
+      trace $ "SEEN" <+> pretty (List.length seen)
 
       flip runContT pure $ callCC \exit -> do
         when (List.null rchans) $ exit ()
