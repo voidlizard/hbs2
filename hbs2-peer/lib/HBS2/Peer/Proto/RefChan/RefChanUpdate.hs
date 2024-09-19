@@ -267,6 +267,9 @@ refChanUpdateProto self pc adapter msg = do
     guard =<< lift (refChanSubscribed adapter (getRefChanId msg))
 
     let h0 = hashObject @HbSync (serialise msg)
+
+    debug $ "RefchanUpdate: ALREADY" <+> pretty h0
+
     guard =<< liftIO (hasBlock sto h0 <&> isNothing)
 
     case msg of

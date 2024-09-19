@@ -467,13 +467,18 @@ refchanExport opts = do
 
   gk0 <- loadGroupKey
 
+  -- TODO: this-may-cause-to-tx-flood
+  --   сделать какой-то период релакса,
+  --   что ли
+  now <- liftIO $ getPOSIXTime <&> round
+
   withState do
-    what <- select_ @_ @FixmeExported [qc|
-      select distinct o,w,k,cast (v as text)
+    what <- select  @FixmeExported [qc|
+      select distinct o,?,k,cast (v as text)
       from object obj
       where not exists (select null from scanned where hash = obj.nonce)
       order by o, k, v, w
-      |]
+      |] (Only now)
 
     let chu  = chunksOf 10000 what
 
@@ -578,7 +583,10 @@ refchanImport = do
 
   tq <- newTQueueIO
 
-  let goodToGo x = do
+  ignCached <- asks fixmeEnvFlags >>= readTVarIO <&> HS.member FixmeIgnoreCached
+
+  let goodToGo x | ignCached = pure True
+                 | otherwise  = do
         here <- selectIsAlreadyScanned x
         pure $ not here
 
@@ -605,7 +613,7 @@ refchanImport = do
 
         scanned <- lift $ selectIsAlreadyScanned href
 
-        unless scanned do
+        when (not scanned || ignCached) do
 
           -- check if metadata tx
           meta <- runExceptT (extractMetaData @'HBS2Basic (const $ pure Nothing) sto href)
