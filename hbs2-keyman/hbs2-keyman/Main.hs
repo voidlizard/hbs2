@@ -177,15 +177,21 @@ updateKeys = do
                     --   будет болтаться, если она не AnnotatedHashRef
                     lift $ lift $ S.yield (Left tx0)
 
-                    gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gkbs & toMPlus
+                    let gkz1 = deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gkbs
+                                  & either mempty List.singleton
 
-                    gkId <- getGroupKeyId gk & toMPlus
+                    let gkz2 = deserialiseOrFail @[GroupKey 'Symm HBS2Basic] gkbs
+                                 & fromRight mempty
 
-                    --TODO: verify-group-key-id-if-possible
+                    for_ (gkz1 <> gkz2) $ \gk -> do
 
-                    notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
+                      gkId <- getGroupKeyId gk & toMPlus
 
-                    lift $ lift $ S.yield (Right (gkId, gkh, gk) )
+                      --TODO: verify-group-key-id-if-possible
+
+                      notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
+
+                      lift $ lift $ S.yield (Right (gkId, gkh, gk) )
 
                 _ -> do
                   lift $ S.yield (Left tx0)

@@ -658,6 +658,8 @@ refchanImport = do
       Left (txh, orig, href, gk) -> do
         hx <- writeAsMerkle sto (serialise gk)
         notice $ "import GK" <+> pretty hx <+> "from" <+> pretty href
+        -- let tx = AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+        --                             & toMPlus . either (const Nothing) Just
         insertScanned txh
         -- TODO: ASAP-notify-hbs2-keyman
         --   у нас два варианта:
