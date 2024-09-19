@@ -521,6 +521,8 @@ refchanExport opts = do
 refchanUpdate :: FixmePerks m => FixmeM m ()
 refchanUpdate = do
 
+  refchanImport
+
   rchan <- asks fixmeEnvRefChan
              >>= readTVarIO
              >>= orThrowUser "refchan not set"
