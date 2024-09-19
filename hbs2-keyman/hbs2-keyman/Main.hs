@@ -139,6 +139,8 @@ updateKeys = do
       -- FIXME: assume-huge-list
       seen <- withState selectAllSeenGKTx
 
+      debug $ "SEEN" <+> pretty (List.length seen)
+
       flip runContT pure $ callCC \exit -> do
         when (List.null rchans) $ exit ()
         so' <- detectRPC
@@ -192,6 +194,7 @@ updateKeys = do
                       notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
 
                       lift $ lift $ S.yield (Right (gkId, gkh, gk) )
+                      lift $ lift $ S.yield ( Left tx0 )
 
                 _ -> do
                   lift $ S.yield (Left tx0)
