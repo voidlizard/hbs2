@@ -107,6 +107,7 @@ library
 
     other-modules:
       Fixme.Run.Internal
+      Fixme.Run.Internal.RefChan
 
     exposed-modules:
       Fixme

@@ -6,6 +6,7 @@ import Fixme.Types
 import Fixme.Config
 import Fixme.State
 import Fixme.Run.Internal
+import Fixme.Run.Internal.RefChan
 import Fixme.Scan.Git.Local as Git
 import Fixme.Scan as Scan
 import Fixme.GK as GK
@@ -504,8 +505,10 @@ runTop forms = do
               ) $
          args [] $
          returns "string" "refchan-key" $ do
-         entry $ bindMatch "fixme:refchan:init" $ nil_ $ const $ lift do
-           fixmeRefChanInit
+         entry $ bindMatch "fixme:refchan:init" $ nil_ $ \case
+          [] -> lift $ fixmeRefChanInit Nothing
+          [SignPubKeyLike rc] -> lift $ fixmeRefChanInit (Just rc)
+          _ -> throwIO $ BadFormException @C nil
 
        entry $ bindMatch "set-template" $ nil_ \case
          [SymbolVal who, SymbolVal w] -> do
