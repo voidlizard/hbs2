@@ -182,10 +182,7 @@ updateKeys = do
                     let gkz1 = deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gkbs
                                   & either mempty List.singleton
 
-                    let gkz2 = deserialiseOrFail @[GroupKey 'Symm HBS2Basic] gkbs
-                                 & fromRight mempty
-
-                    for_ (gkz1 <> gkz2) $ \gk -> do
+                    for_ gkz1 $ \gk -> do
 
                       gkId <- getGroupKeyId gk & toMPlus
 

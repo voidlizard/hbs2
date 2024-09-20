@@ -39,6 +39,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString qualified as BS
 import Data.Either
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Maybe
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
@@ -592,6 +593,9 @@ refchanImport = do
         here <- selectIsAlreadyScanned x
         pure $ not here
 
+  fixmeGkSign <- putBlock sto "FIXMEGROUPKEYBLOCKv1" <&> fmap HashRef
+                    >>= orThrowUser "hbs2 storage error. aborted"
+
   walkRefChanTx @UNIX goodToGo chan $ \txh u -> do
 
     case  u of
@@ -610,54 +614,42 @@ refchanImport = do
       P orig (ProposeTran _ box) -> void $ runMaybeT do
         (_, bs) <- unboxSignedBox0 box & toMPlus
 
-        AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
+        AnnotatedHashRef sn href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
                                     & toMPlus . either (const Nothing) Just
 
         scanned <- lift $ selectIsAlreadyScanned href
 
         when (not scanned || ignCached) do
 
-          -- check if metadata tx
-          meta <- runExceptT (extractMetaData @'HBS2Basic (const $ pure Nothing) sto href)
-                     <&> fromRight mempty
-
-          let parsed = parseTop meta & fromRight mempty
-
-          let isGk = not $ L.null [ True | ListVal [SymbolVal "GK:", _] <- parsed ]
-
-          debug $ "metadata:" <+> pretty isGk <+> pretty parsed
+          let isGk = sn == Just fixmeGkSign
 
           if isGk then do
 
-            -- TODO: check-error-type
-            what <- liftIO (runExceptT $ getTreeContents sto href)
-                      <&> either (const Nothing) Just
-                      >>= toMPlus
-
-            gkz <- deserialiseOrFail @[GroupKey 'Symm 'HBS2Basic] what
-                          & toMPlus
-
-            for_ gkz $ \gk -> do
-              atomically $ writeTQueue tq (Left (txh, orig, href, gk))
+            atomically $ writeTQueue tq (Left (txh, orig, href, href))
 
           else do
             what <- liftIO (runExceptT $ getTreeContents sto href)
                       <&> either (const Nothing) Just
                       >>= toMPlus
 
-            exported <- deserialiseOrFail @[FixmeExported] what
-                          & toMPlus
+            let exported = deserialiseOrFail @[FixmeExported] what
+                              & either (const Nothing) Just
 
-            for_ exported $ \e -> do
-                atomically $ writeTQueue tq (Right (txh, orig, href, e))
+            case exported of
+              Just e -> do
+                for_ e $ \x -> do
+                  atomically $ writeTQueue tq (Right (txh, orig, href, x))
+
+              Nothing -> do
+                lift $ withState $ insertScanned txh
 
   imported <- atomically $ flushTQueue tq
 
   withState $ transactional do
     for_ imported $ \case
       Left (txh, orig, href, gk) -> do
-        hx <- writeAsMerkle sto (serialise gk)
-        notice $ "import GK" <+> pretty hx <+> "from" <+> pretty href
+        -- hx <- writeAsMerkle sto (serialise gk)
+        -- notice $ "import GK" <+> pretty hx <+> "from" <+> pretty href
         -- let tx = AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
         --                             & toMPlus . either (const Nothing) Just
         insertScanned txh
@@ -844,7 +836,6 @@ fixmeRefChanInit = do
         notice $ green "refchan added" <+> pretty (AsBase58 refchan)
 
 
-
 refchanExportGroupKeys :: FixmePerks m => FixmeM m ()
 refchanExportGroupKeys = do
 
@@ -867,6 +858,8 @@ refchanExportGroupKeys = do
 
   skip <- newTVarIO HS.empty
   gkz <- newTVarIO HS.empty
+
+  fixmeSign <- putBlock sto "FIXMEGROUPKEYBLOCKv1" <&> fmap HashRef
 
   walkRefChanTx @UNIX goodToGo chan $ \txh u -> do
 
@@ -922,9 +915,16 @@ refchanExportGroupKeys = do
 
   let (pk,sk) = (view peerSignPk creds, view peerSignSk creds)
 
-  keyz <- Map.fromList <$> S.toList_ do
+  keyz <- Set.fromList <$> S.toList_ do
     for_ r $ \gkh -> void $ runMaybeT do
+
+      debug $ red $ "FOR GK" <+> pretty gkh
+
       gk <- loadGroupKeyMaybe @'HBS2Basic sto gkh >>= toMPlus
+
+      -- the original groupkey should be indexed as well
+      lift $ S.yield gkh
+
       gks <- liftIO (runKeymanClientRO $ findMatchedGroupKeySecret sto gk)
 
       when (isNothing gks) do
@@ -934,30 +934,69 @@ refchanExportGroupKeys = do
 
       gk1 <- generateGroupKey @'HBS2Basic gks (HS.toList $ view refChanHeadReaders rch)
       let lbs = serialise gk1
-      -- gkh1 <- writeAsMerkle sto lbs  <&> HashRef
+      gkh1 <- writeAsMerkle sto lbs  <&> HashRef
       debug $  red "prepare new gk0" <+> pretty (LBS.length lbs) <+> pretty gkh <+> pretty (groupKeyId gk)
-      lift $ S.yield (groupKeyId gk, gk1)
+      lift $ S.yield gkh1
 
-  notice $ yellow $ "new gk:" <+> pretty (Map.size keyz)
+  notice $ yellow $ "new gk:" <+> pretty (Set.size keyz)
 
-  let nitems = 262144 `div` (125 * HS.size (view refChanHeadReaders rch) )
-  let chunks = Map.elems keyz & chunksOf nitems
+  -- let nitems = 262144 `div` (125 * HS.size (view refChanHeadReaders rch) )
+  -- let chunks = Map.elems keyz & chunksOf nitems
 
-  for_ chunks $ \x -> do
+  -- TODO: gk:performance-vs-reliability
+  --   ситуация такова: групповой ключ это меркл-дерево
+  --   для одного и того же блоба могут быть разные меркл-деревья,
+  --   так как могут быть разные настройки.
+  --
+  --   если распространять ключи по-одному, то хотя бы тот же ключ,
+  --   который мы создали изначально -- будет доступен по своему хэшу,
+  --   как отдельный артефакт.
+  --
+  --   Если писать их пачками, где каждый ключ представлен непосредственно,
+  --   то на принимающей стороне нет гарантии, что меркл дерево будет писаться
+  --   с таким же параметрами, хотя и может.
+  --
+  --   Решение:  делать групповой ключ БЛОКОМ. тогда его размер будет ограничен,
+  --   но он хотя бы будет всегда однозначно определён хэшем.
+  --
+  --   Решение: ссылаться не на групповой ключ, а на хэш его секрета
+  --   что ломает текущую схему и обратная совместимость будет морокой.
+  --
+  --   Решение: добавить в hbs2-keyman возможно индексации единичного
+  --   ключа, и индексировать таким образом *исходные* ключи.
+  --
+  --   Тогда можно эти вот ключи писать пачками, их хэши не имеют особого значения,
+  --   если мы проиндексируем оригинальный ключ и будем знать, на какой секрет он
+  --   ссылается.
+  --
+  --   Заметим, что в один блок поместится аж >2000 читателей, что должно быть
+  --   более, чем достаточно => при таких группах вероятность утечки секрета
+  --   стремится к 1.0, так как большинство клало болт на меры безопасности.
+  --
+  --   Кстати говоря, проблема недостаточного количества авторов в ключе легко
+  --   решается полем ORIGIN, т.к мы можем эти самые ключи разделять.
+  --
+  --   Что бы не стоять перед такой проблемой, мы всегда можем распостранять эти ключи
+  --   по-одному, ЛИБО добавить в производный ключ поле
+  --   ORIGIN: где будет хэш изначального ключа.
+  --
+  --   Это нормально, так как мы сможем проверить, что у этих ключей
+  --   (текущий и ORIGIN) одинаковые хэши секретов.
+  --
+  --   Это всё равно оставляет возможность еще одной DoS атаки на сервис,
+  --   с распространением кривых ключей, но это хотя бы выяснимо, ну и атака
+  --   может быть только в рамках рефчана, т.е лечится выкидыванием пиров /
+  --   исключением зловредных авторов.
 
-      let gktreemeta = HM.fromList [ ("GK", Text.pack (show $ pretty $ L.length x)) ]
-      -- group keys are public (and already encrypted)
-      -- therefore, no encryption
-      href <- liftIO $ createTreeWithMetadata sto mzero gktreemeta (serialise x)
-                >>= orThrowPassIO
+  for_ (Set.toList keyz) $ \href -> do
 
-      let tx = AnnotatedHashRef Nothing href
+      let tx = AnnotatedHashRef fixmeSign href
 
       let lbs = serialise tx
 
       let box = makeSignedBox @'HBS2Basic @BS.ByteString pk sk (LBS.toStrict lbs)
 
-      warn $ "POST GK TX" <+> pretty (length x) <+> "tree" <+> pretty href
+      warn $ "post gk tx" <+> "tree" <+> pretty href
 
       result <- callRpcWaitMay @RpcRefChanPropose (TimeoutSec 1) api (chan, box)
 
