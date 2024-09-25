@@ -7,6 +7,7 @@ import HBS2.Hash
 import HBS2.System.Dir
 import HBS2.Net.Auth.Credentials
 
+import HBS2.KeyMan.Config (getDefaultKeyPath)
 import HBS2.KeyMan.Keys.Direct
 import HBS2.KeyMan.State
 import HBS2.KeyMan.App.Types
@@ -18,7 +19,6 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
-
 
 
 keymanGetConfig :: (IsContext c, MonadUnliftIO m) => m [Syntax c]
@@ -38,11 +38,7 @@ keymanUpdate = do
 keymanNewCredentials :: MonadUnliftIO m => Maybe String -> Int -> m (PubKey 'Sign 'HBS2Basic)
 keymanNewCredentials suff n = do
   conf <- keymanGetConfig @C
-
-  path <- [ p
-          | ListVal [SymbolVal "default-key-path", StringLike p] <- conf
-          ] & headMay & orThrowUser "default-key-path not set"
-
+  path <- getDefaultKeyPath conf
   creds <- newCredentialsEnc @'HBS2Basic n
 
   let s = show $ pretty $ AsCredFile (AsBase58 creds)
@@ -56,4 +52,3 @@ keymanNewCredentials suff n = do
   keymanUpdate
 
   pure psk
-

@@ -16,7 +16,7 @@ inputs = {
     suckless-conf.inputs.fuzzy.follows = "fuzzy";
     suckless-conf.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
+    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
     db-pipe.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 

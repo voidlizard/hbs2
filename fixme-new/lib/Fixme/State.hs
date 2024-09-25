@@ -40,6 +40,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (q,qc)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Maybe
 import Data.List qualified as List
 import Data.Either
@@ -310,6 +311,9 @@ selectFixmeKey s = do
        <&> headMay
 
 
+sqliteToAeson :: FromJSON a => Text -> Maybe a
+sqliteToAeson = Aeson.decode . LBS.fromStrict . Text.encodeUtf8
+
 listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
           => q
           -> m [Fixme]
@@ -321,7 +325,7 @@ listFixme expr = do
 
   let sql = [qc|
     with s1 as (
-      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as text) as blob
       from object o
       group by o.o
     )
@@ -336,15 +340,15 @@ listFixme expr = do
 
   debug $ pretty sql
 
-  withState $ select @(Only LBS.ByteString) sql bound
-        <&> fmap (Aeson.decode @Fixme . fromOnly)
+  withState $ select @(Only Text) sql bound
+        <&> fmap (sqliteToAeson . fromOnly)
         <&> catMaybes
 
 getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme)
 getFixme key = do
 
   let sql = [qc|
-    select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as blob) as blob
+    select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as text) as blob
     from object o
     where o.o = ?
     group by o.o
@@ -353,8 +357,8 @@ getFixme key = do
 
   runMaybeT do
 
-    lift (withState $ select @(Only LBS.ByteString) sql (Only key))
-      <&> fmap (Aeson.decode @Fixme . fromOnly)
+    lift (withState $ select @(Only Text) sql (Only key))
+      <&> fmap (sqliteToAeson . fromOnly)
       <&> catMaybes
       <&> headMay
       >>= toMPlus

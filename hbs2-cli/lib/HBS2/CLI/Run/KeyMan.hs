@@ -10,6 +10,7 @@ import HBS2.CLI.Run.Internal.KeyMan
 import HBS2.Hash
 import HBS2.System.Dir
 
+import HBS2.KeyMan.Config (getDefaultKeyPath)
 import HBS2.KeyMan.Keys.Direct
 import HBS2.KeyMan.State
 import HBS2.KeyMan.App.Types
@@ -40,8 +41,7 @@ keymanEntries = do
   entry $ bindMatch "hbs2:keyman:keys:add" $ \case
     [ LitStrVal ke ] -> do
       conf <- keymanGetConfig @C
-      let path = head [ s | ListVal [ SymbolVal "default-key-path", StringLike s ] <- conf ]
-      mkdir path
+      path <- getDefaultKeyPath conf
       let n =  hashObject @HbSync (serialise ke) & pretty & show
       let fname = n `addExtension` ".key"
       let fpath = path </> fname
@@ -50,4 +50,3 @@ keymanEntries = do
       pure $ mkStr fpath
 
     _ -> throwIO (BadFormException @C nil)
-

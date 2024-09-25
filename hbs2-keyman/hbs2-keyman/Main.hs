@@ -205,8 +205,9 @@ updateKeys = do
         pure ()
 
     updateLocalKeys prune = do
-
-      masks <- cfgValue @KeyFilesOpt @(Set String) <&> Set.toList
+      conf <- getConf
+      defaultMask <- getDefaultKeyMask conf
+      masks <- cfgValue @KeyFilesOpt @(Set String) <&> (Set.toList . Set.insert defaultMask)
       files <- KeyRing.findFilesBy masks
 
       when prune do
@@ -260,5 +261,3 @@ main :: IO ()
 main = do
   (_, action) <- execParser opts
   runApp action
-
-
