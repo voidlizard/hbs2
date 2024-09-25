@@ -7,21 +7,18 @@ module HBS2.Merkle where
 import HBS2.Prelude
 import HBS2.Hash
 
-import Control.Applicative
 import Codec.Serialise (serialise, deserialiseOrFail)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Data
-import Data.Foldable (forM_, traverse_)
+import Data.Foldable (traverse_)
 import Data.List qualified as List
-import Data.Text (Text)
 import Data.Word
-import GHC.Generics
 import Lens.Micro.Platform
 import Control.Monad.Trans.Maybe
 import Control.Monad
-import Prettyprinter
+-- import Prettyprinter
 
 
 
@@ -210,7 +207,7 @@ walkMerkle' root flookup sink = go root
 
       either (const $ runWithAnnTree hash bs) runWithTree t1
 
-    runWithAnnTree hash bs  = do
+    runWithAnnTree _hash bs  = do
       let t = deserialiseOrFail @(MTreeAnn a) bs
       case t of
         Left{} -> pure ()

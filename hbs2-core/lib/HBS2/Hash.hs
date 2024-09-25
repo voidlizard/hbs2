@@ -16,8 +16,8 @@ import Data.ByteArray qualified as BA
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Short qualified as SB
-import Data.ByteString.Short (ShortByteString)
+-- import Data.ByteString.Short qualified as SB
+-- import Data.ByteString.Short (ShortByteString)
 import Data.Data
 import Data.Hashable (Hashable)
 import Data.Kind
@@ -26,7 +26,7 @@ import Data.Text qualified as Text
 import GHC.Generics
 import Prettyprinter
 import Text.InterpolatedString.Perl6 (qc)
-import Control.DeepSeq (NFData,force)
+import Control.DeepSeq (NFData)
 
 data HbSync = HbSync
               deriving stock (Data)

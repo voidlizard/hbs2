@@ -1,7 +1,5 @@
 module HBS2.Net.Proto.Sessions where
 
-import HBS2.Net.Proto.Types
-
 import Data.Typeable
 import Data.Dynamic
 import Data.Hashable
@@ -27,7 +25,7 @@ instance Hashable SKey where
 
 
 instance Eq SKey where
-  (==) (SKey p1 ty1 a) (SKey p2 ty2 b) = ty1 == ty2 && unKey p1 a == unKey p1 b
+  (==) (SKey p1 ty1 a) (SKey _p2 ty2 b) = ty1 == ty2 && unKey p1 a == unKey p1 b
 
 
 data family SessionKey  e p :: Type

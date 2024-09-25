@@ -3,7 +3,6 @@ module HBS2.Prelude.Plated
   , module HBS2.Prelude
   , module Data.Data
   , module Data.Generics.Uniplate.Operations
-  , Generic
   ) where
 
 import Data.Data

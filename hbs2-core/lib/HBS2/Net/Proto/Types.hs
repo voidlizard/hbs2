@@ -68,7 +68,7 @@ data L4Proto = UDP | TCP
                deriving stock (Enum,Bounded)
 
 instance Hashable L4Proto where
-  hashWithSalt s l = hashWithSalt s ("l4proto", fromEnum l)
+  hashWithSalt s l = hashWithSalt s ("l4proto" :: String, fromEnum l)
 
 instance Show L4Proto where
   show UDP = "udp"
@@ -177,9 +177,9 @@ instance AddrPriority (Peer L4Proto) where
 
 instance Hashable (Peer L4Proto) where
   hashWithSalt salt p = case _sockAddr p of
-    SockAddrInet  pn h     -> hashWithSalt salt (4, fromEnum (_sockType p), fromIntegral pn, h)
-    SockAddrInet6 pn _ h _ -> hashWithSalt salt (6, fromEnum (_sockType p), fromIntegral pn, h)
-    SockAddrUnix s         -> hashWithSalt salt ("unix", s)
+    SockAddrInet  pn h     -> hashWithSalt salt (4 :: Int, fromEnum (_sockType p), fromIntegral pn :: Integer, h)
+    SockAddrInet6 pn _ h _ -> hashWithSalt salt (6 :: Int, fromEnum (_sockType p), fromIntegral pn :: Integer, h)
+    SockAddrUnix s         -> hashWithSalt salt ("unix" :: String, s)
 
 -- FIXME: support-udp-prefix
 instance Pretty (Peer L4Proto) where

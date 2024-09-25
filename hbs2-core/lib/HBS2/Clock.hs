@@ -1,8 +1,9 @@
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.Clock
   ( module HBS2.Clock
   , module System.Clock
-  , POSIXTime, getPOSIXTime, getEpoch
+  , POSIXTime, getPOSIXTime
   )where
 
 import Data.Functor
@@ -14,7 +15,6 @@ import Data.Proxy
 import Data.Time
 import Prettyprinter
 import System.Clock
-import Data.Time.Clock
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Word
 
@@ -50,7 +50,7 @@ instance IsTimeout t => Expired (Timeout t) TimeSpec where
 -- expired timeout ts = False
 
 toNominalDiffTime :: IsTimeout t => Timeout t -> NominalDiffTime
-toNominalDiffTime = fromRational . (/ (10^6)) . fromIntegral . toMicroSeconds
+toNominalDiffTime = fromRational . (/ (10^(6 :: Integer))) . fromIntegral . toMicroSeconds
 
 class IsTimeout a => MonadPause a m where
   pause :: Timeout a -> m ()
@@ -97,7 +97,7 @@ instance IsTimeout 'Minutes where
   toNanoSeconds (TimeoutMin x) = round (x * 60 * 1e9)
 
 instance IsTimeout 'NomDiffTime where
-  toNanoSeconds (TimeoutNDT t) = round (realToFrac (nominalDiffTimeToSeconds t) * 1e9)
+  toNanoSeconds (TimeoutNDT t) = round (realToFrac (nominalDiffTimeToSeconds t) * (1e9 :: Double))
 
 instance IsTimeout 'TS where
   toNanoSeconds (TimeoutTS s) = fromIntegral $ toNanoSecs s

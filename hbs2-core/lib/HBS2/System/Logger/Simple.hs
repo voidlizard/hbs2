@@ -41,8 +41,6 @@ import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Control.Concurrent.STM
 
-import Prettyprinter.Render.Terminal
-
 data LoggerType = LoggerStdout
                 | LoggerStderr
                 | LoggerFile FilePath

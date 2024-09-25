@@ -2,15 +2,10 @@
 module HBS2.Actors.Peer.Types where
 
 import HBS2.Prelude
-import HBS2.Storage
 import HBS2.Net.Proto.Types
 import HBS2.Net.Messaging
-import HBS2.Hash
 
 import Control.Monad.Trans.Class
-import Data.ByteString.Lazy (ByteString)
-import Control.Monad
-import Codec.Serialise
 
 class HasProtocol e p => HasTimeLimits e p m where
   tryLockForPeriod :: Peer e -> p -> m Bool

@@ -23,7 +23,6 @@ import Control.Concurrent.STM (flushTQueue)
 import Data.Maybe
 import Data.Either
 import UnliftIO
-import System.IO (hPrint)
 
 
 instance (HasProtocol UNIX (NotifyProto ev0 UNIX)) => HasTimeLimits UNIX (NotifyProto ev0 UNIX) IO where
@@ -165,7 +164,7 @@ runNotifyWorkerServer env = do
 
   -- FIXNE: timeout-hardcode
   let tmo = 60
-  let tnano = round $ realToFrac tmo * 1e9
+  let tnano = round $ realToFrac tmo * (1e9 :: Double)
 
   cleanup <- async $ forever do
 
@@ -324,7 +323,7 @@ makeNotifyClient sink what = do
                   pure w
 
       forM_ waiter $ \wa -> do
-        r  <- try @_ @SomeException $ atomically $ writeTQueue wa ha
+        _r  <- try @_ @SomeException $ atomically $ writeTQueue wa ha
         debug $ "NOTIFY CLIENT SUBSCRIBED" <+> viaShow rn
 
     NotifyBye ha  -> do

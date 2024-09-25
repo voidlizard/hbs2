@@ -2,7 +2,6 @@ module HBS2.Data.Types
   ( module X
   -- , module HBS2.Data.Types.Crypto
   , AsSyntax(..)
-  , LoadedRef(..)
   )
   where
 

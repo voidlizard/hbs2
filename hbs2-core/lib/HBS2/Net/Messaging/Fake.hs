@@ -31,6 +31,8 @@ newFakeP2P :: (Eq (Peer peer), Hashable (Peer peer)) => Bool -> IO (FakeP2P peer
 newFakeP2P block =
   FakeP2P block <$> newTVarIO mempty
 
+getChan :: (Hashable (Peer proto)) =>
+           FakeP2P proto msg -> Peer proto -> IO (TChan (From proto, msg))
 getChan bus whom = do
   ch <- newTChanIO
   atomically $ stateTVar t (alter ch)
@@ -45,7 +47,7 @@ instance ( (HasPeer proto, Hashable (Peer proto))
          ) => Messaging (FakeP2P proto msg) proto msg where
 
   sendTo bus (To whom) who msg = liftIO do
-    ch <- newTChanIO
+    _ch <- newTChanIO
     chan <- getChan bus whom
     atomically $ Chan.writeTChan chan (who, msg)
 

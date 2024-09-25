@@ -1,6 +1,7 @@
 {-# Language FunctionalDependencies #-}
 {-# Language PatternSynonyms #-}
 {-# Language ViewPatterns #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module HBS2.Prelude
   ( module Data.String
   , module Safe
@@ -37,6 +38,9 @@ import GHC.Generics as X (Generic)
 import Data.ByteString (ByteString)
 import Data.String (IsString(..))
 import Safe
+import Control.Monad as X
+import Control.Monad.Fix as X
+import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe
 
 

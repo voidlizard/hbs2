@@ -12,8 +12,6 @@ import HBS2.Net.Proto.Types
 import HBS2.Hash
 import HBS2.Net.Messaging.Unix
 
-import Data.Config.Suckless
-
 import Data.Word
 import Crypto.Error
 import Crypto.PubKey.Ed25519 qualified as Ed

@@ -6,25 +6,25 @@ import HBS2.Data.Types
 import HBS2.Merkle
 import HBS2.Storage
 
-import HBS2.System.Logger.Simple
+-- import HBS2.System.Logger.Simple
 
-import Data.Foldable (for_)
+-- import Data.Foldable (for_)
 import Control.Monad.Trans.Maybe
 import Codec.Serialise (deserialiseOrFail)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either
-import Data.Function
-import Data.Functor
+-- import Data.Function
+-- import Data.Functor
 
 import Data.Maybe
 import Control.Concurrent.STM
 import Data.HashMap.Strict qualified as HashMap
-import Data.HashMap.Strict (HashMap)
+-- import Data.HashMap.Strict (HashMap)
 import Data.List qualified as List
 
 import Streaming.Prelude qualified as S
-import Streaming qualified as S
+-- import Streaming qualified as S
 
 data BlobType =  Merkle (MTree [HashRef])
                | MerkleAnn (MTreeAnn [HashRef])

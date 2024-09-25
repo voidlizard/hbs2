@@ -20,6 +20,7 @@ import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
 
 import Data.Kind
+import Control.Monad
 import Control.Monad.Reader
 import Data.ByteString ( ByteString )
 import UnliftIO

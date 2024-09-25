@@ -4,7 +4,7 @@
 module HBS2.Data.Types.Refs
   ( module HBS2.Data.Types.Refs
   , serialise
-  , pattern HashLike
+  -- , pattern HashLike
   ) where
 
 import HBS2.Base58

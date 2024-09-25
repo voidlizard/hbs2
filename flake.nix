@@ -8,27 +8,34 @@ inputs = {
     haskell-flake-utils.url = "github:ivanovs-4/haskell-flake-utils/master";
     hspup.url = "github:voidlizard/hspup";
     hspup.inputs.nixpkgs.follows = "nixpkgs";
+    hspup.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    fixme.url = "git+https://git.hbs2.net/Fujv1Uy4W5d9Z7REEArMxbXSJ8nLLn4dYuvaAs8b86hr";
-    #fixme.url = "git+file:///home/dmz/w/fixme?ref=dev-0.2";
-    fixme.inputs.nixpkgs.follows = "nixpkgs";
-
-    suckless-conf.url =
-      "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ?rev=b6c5087312e6c09e5c27082da47846f377f73756";
+    suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
 
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
+    suckless-conf.inputs.fuzzy.follows = "fuzzy";
+    suckless-conf.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft?ref=generic-sql";
+    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
+    db-pipe.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
     lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
     lsm.inputs.nixpkgs.follows = "nixpkgs";
+    lsm.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
+    # fuzzy.url = "git+file:/home/iv/haskell/p2p/hex-offgrid/fuzzy-parse";  # tmp
     fuzzy.url = "git+https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";
+    fuzzy.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
     saltine = {
       url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
+      flake = false;
+    };
+
+    bytestring-mmap = {
+      url = "github:ivanovs-4/bytestring-mmap";
       flake = false;
     };
 
@@ -78,10 +85,27 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "fixme-new"   = "./fixme-new";
    };
 
-   hpPreOverrides = {pkgs, ...}: final: prev: with pkgs; {
+   hpPreOverrides = {pkgs, ...}: final: prev: ((with pkgs; {
      saltine = prev.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
      scotty = final.callHackage "scotty" "0.21" { };
-   };
+     bytestring-mmap = prev.callCabal2nix "bytestring-mmap" inputs.bytestring-mmap {};
+     skylighting-lucid = final.callHackage "skylighting-lucid" "1.0.4" { };
+     # wai-app-file-cgi = final.callHackage "wai-app-file-cgi" "3.1.11" { };
+     # htags = final.callHackage "htags" "1.0.1" { };
+   }) //
+   (with haskell-flake-utils.lib;
+    with pkgs.haskell.lib;
+    let
+      donts = [
+        (jailbreakUnbreak pkgs)
+        # dontBenchmark
+        dontCoverage
+        dontCheck
+      ];
+    in tunePackages pkgs prev {
+       wai-app-file-cgi = donts;
+     }
+   ));
 
    packagePostOverrides = { pkgs }: with pkgs; with haskell.lib; [
     disableExecutableProfiling
@@ -115,7 +139,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
             cabal-install
             haskell-language-server
             hoogle
-            htags
+            # htags
             text-icu
             magic
             pkgs.icu72
@@ -125,7 +149,6 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
           ++
           [ pkgs.pkg-config
             inputs.hspup.packages.${pkgs.system}.default
-            inputs.fixme.packages.${pkgs.system}.default
           ]
         );
 

@@ -27,6 +27,8 @@ import HBS2.Peer.Proto.RefChan.Types
 import HBS2.System.Logger.Simple
 
 import Codec.Serialise
+import Control.Monad
+import Control.Monad.Fix
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)

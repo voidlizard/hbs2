@@ -14,7 +14,6 @@ import Crypto.Saltine.Class qualified as Crypto
 import Crypto.Saltine.Class (IsEncoding(..))
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
-import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Maybe

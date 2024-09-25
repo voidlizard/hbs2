@@ -2,11 +2,9 @@ module HBS2.Net.Messaging.Stream where
 
 import HBS2.Prelude.Plated
 
-import Data.Function
-import Control.Exception (try,Exception,SomeException,throwIO)
+import Control.Exception (Exception,throwIO)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
-import Data.Typeable
 import Network.Socket hiding (listen,connect)
 import Streaming.Prelude qualified as S
 import Data.ByteString qualified as BS

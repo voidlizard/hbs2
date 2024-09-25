@@ -286,6 +286,7 @@ executable hbs2-peer
 
     -- other-extensions:
     build-depends:    base, hbs2-peer, hbs2-keyman-direct-lib, vty
+                    , vty-unix
 
     hs-source-dirs:   app
 

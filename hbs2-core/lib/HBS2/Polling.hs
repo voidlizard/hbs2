@@ -1,7 +1,6 @@
 module HBS2.Polling where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
 
 import Data.Heap (Entry(..))
 import Data.Heap qualified as Heap

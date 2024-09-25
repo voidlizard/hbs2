@@ -17,8 +17,6 @@ import HBS2.Events
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Messaging
 import HBS2.Net.PeerLocator
-import HBS2.Net.PeerLocator.Static
-import HBS2.Net.Proto
 import HBS2.Net.Proto.Sessions
 import HBS2.Prelude.Plated
 import HBS2.Storage
@@ -26,6 +24,7 @@ import HBS2.System.Logger.Simple
 
 import Data.Config.Suckless.KeyValue (HasConf(..))
 
+import Control.Monad
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
@@ -33,7 +32,6 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
 import Data.Dynamic
-import Data.Foldable hiding (find)
 import Data.Map qualified as Map
 import Data.Maybe
 import GHC.TypeLits
@@ -264,7 +262,7 @@ instance ( MonadIO m
          ) => Request e msg m where
   request peer_e msg = do
     let proto = protoId @e @msg (Proxy @msg)
-    pipe <- getFabriq @e
+    pip <- getFabriq @e
     me <- ownPeer @e
 
     -- TODO: check if a request were sent to peer and timeout is here
@@ -281,7 +279,7 @@ instance ( MonadIO m
       trace $ "REQUEST: not allowed to send for proto" <+> viaShow proto
 
     when allowed do
-      sendTo pipe (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
+      sendTo pip (To peer_e) (From me) (AnyMessage @(Encoded e) @e proto (encode msg))
       -- trace $ "REQUEST: after sendTo" <+> viaShow peer_e
 
 
@@ -431,7 +429,7 @@ runProto :: forall e m  . ( MonadIO m
 
 runProto hh = do
   me       <- ownPeer @e @m
-  pipe     <- getFabriq @e
+  pipf     <- getFabriq @e
 
   let resp = [ (pid, a) | a@AnyProtocol { myProtoId = pid } <- hh ]
 
@@ -439,7 +437,7 @@ runProto hh = do
 
   forever $ do
 
-    messages <- receive @_ @e pipe (To me)
+    messages <- receive @_ @e pipf (To me)
 
     for_ messages $ \(From pip, AnyMessage n msg :: AnyMessage (Encoded e) e) -> do
 

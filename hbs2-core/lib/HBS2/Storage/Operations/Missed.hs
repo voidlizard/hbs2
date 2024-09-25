@@ -7,10 +7,10 @@ import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Storage
 
-import HBS2.System.Logger.Simple
+-- import HBS2.System.Logger.Simple
 
 import Streaming.Prelude qualified as S
-import Streaming.Prelude (Stream(..), Of(..))
+import Streaming.Prelude (Stream, Of(..))
 import Control.Monad.Trans.Maybe
 import Control.Monad
 import Data.Maybe

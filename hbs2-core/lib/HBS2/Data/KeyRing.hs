@@ -9,7 +9,6 @@ import System.FilePath
 import System.Directory
 import Data.List as L
 import Data.Maybe
-import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Lens.Micro.Platform
 import UnliftIO
@@ -23,7 +22,7 @@ splitPattern fp = (pref, flt)
     pref = joinPath pref'
     flt = case flt' of
       [] -> "*"
-      xs -> joinPath flt'
+      _xs -> joinPath flt'
     (pref', flt') = L.span isNotP (splitDirectories fp)
     isNotP s = isNothing (find isP s)
     isP c = c `elem` ("?*" :: [Char])

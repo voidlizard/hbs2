@@ -4,10 +4,8 @@ import Data.ByteString.Base58 (encodeBase58, bitcoinAlphabet, decodeBase58,Alpha
 import Data.ByteString  qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Char8 (ByteString)
-import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.Word
-import Data.Char (ord)
 import Numeric
 
 import Prettyprinter

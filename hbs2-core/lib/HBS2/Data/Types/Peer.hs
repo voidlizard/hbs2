@@ -1,14 +1,12 @@
 {-# Language UndecidableInstances #-}
 module HBS2.Data.Types.Peer where
 
-import Codec.Serialise
 import Data.ByteString qualified as BS
 import Data.Hashable
 import Lens.Micro.Platform
 
 import HBS2.Prelude
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
 
 
 type PingSign e = Signature (Encryption e)

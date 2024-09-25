@@ -8,7 +8,6 @@ module HBS2.ScheduledAction
   ) where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
 
 import Prelude hiding (all)
 import Data.Word
@@ -54,15 +53,15 @@ runScheduled :: MonadUnliftIO m => Scheduled -> m ()
 runScheduled sch = forever do
   pause (view scheduleRunPeriod sch)
 
-  now <- getTimeCoarse <&> toNanoSecs <&> (/1e9) . realToFrac <&> round
+  now <- getTimeCoarse <&> toNanoSecs <&> (/ (1e9 :: Double)) . realToFrac <&> round
 
-  expired <- atomically do
+  expireds <- atomically do
     all   <- readTVar (slots sch) <&> HashMap.toList
-    let (rest, expired)  = List.partition ( (>now) . fst) all
+    let (rest, expireds)  = List.partition ( (>now) . fst) all
     writeTVar (slots sch) (HashMap.fromList rest)
-    pure expired
+    pure expireds
 
-  for_ expired $ \(_, all) -> do
+  for_ expireds $ \(_, all) -> do
     for_ all $ \action -> do
       -- TODO: error-logging-maybe
       liftIO $ void $ action `E.catch` (\(_ :: E.ArithException) -> pure ())
@@ -71,7 +70,7 @@ runScheduled sch = forever do
 
 schedule :: forall a m . (MonadUnliftIO m, Integral a) => Scheduled -> a -> IO () -> m ()
 schedule s ttl what = do
-  now <- getTimeCoarse <&> toNanoSecs <&> (/1e9) . realToFrac <&> round
+  now <- getTimeCoarse <&> toNanoSecs <&> (/ (1e9 :: Double)) . realToFrac <&> round
   let slot = now + fromIntegral ttl
   atomically $ modifyTVar (slots s) (HashMap.insertWith (<>) slot [what])
 

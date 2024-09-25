@@ -12,11 +12,11 @@ import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging
 import HBS2.Net.Messaging.Stream
-import HBS2.Clock
 
 import HBS2.System.Logger.Simple
 
 import Control.Monad
+import Control.Monad.Fix
 import Control.Monad.Reader hiding (reader)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -33,10 +33,6 @@ import Data.Set qualified as Set
 import Lens.Micro.Platform
 import Control.Monad.Trans.Cont
 import UnliftIO
-
-import Streaming.Prelude qualified as S
-
-import Control.Concurrent (myThreadId)
 
 data UNIX = UNIX
             deriving (Eq,Ord,Show,Generic)
@@ -170,7 +166,7 @@ runMessagingUnix env = do
       liftIO $ listen sock 5
 
       forever do
-        (so, sa) <- liftIO $ accept sock
+        (so, _sa) <- liftIO $ accept sock
 
         withSession $ flip runContT void do
 
@@ -193,7 +189,7 @@ runMessagingUnix env = do
                   msg <- liftIO . atomically $ readTQueue q
 
                   let len = fromIntegral $ LBS.length msg :: Int
-                  let bs = bytestring32 (fromIntegral len)
+                  let _bs = bytestring32 (fromIntegral len)
 
                   liftIO $ sendAll so $ bytestring32 (fromIntegral len)
 
@@ -398,7 +394,7 @@ createQueues env who = liftIO do
 
 instance Messaging MessagingUnix UNIX ByteString where
 
-  sendTo bus (To who) (From me) msg = liftIO do
+  sendTo bus (To who) (From _me) msg = liftIO do
 
     -- createQueues bus who
 

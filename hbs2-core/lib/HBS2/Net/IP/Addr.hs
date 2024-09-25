@@ -16,8 +16,6 @@ import Control.Monad
 import Control.Monad.Trans.Maybe
 import Data.Attoparsec.Text as Atto
 import Data.Char
-import Data.Function
-import Data.Functor
 import Data.IP
 import Data.Maybe
 import Data.Text qualified as Text
@@ -75,9 +73,9 @@ instance FromStringMaybe (IPAddrPort e) where
       po = snd <$> hp
 
 getHostPort :: Text -> Maybe (String, PortNumber)
-getHostPort s =  parseOnly p s & either (const Nothing) Just
+getHostPort s =  parseOnly p' s & either (const Nothing) Just
   where
-    p = do
+    p' = do
       (h, p) <- pAddr <|> tcppAddr
       pure (Text.unpack h, read (Text.unpack p))
 
@@ -129,8 +127,8 @@ pIP4 = do
 
   hostAddr0 <- replicateM 3 $ do
     n <- Atto.takeWhile isDigit
-    dot <- string "."
-    pure ( n <> dot )
+    cdot <- string "."
+    pure ( n <> cdot )
 
   hostAddr1 <- Atto.takeWhile isDigit
 
@@ -150,6 +148,6 @@ pHostName = do
   void $ char ':'
   port <- decimal
   let host = if Text.null host' then "localhost" else host'
-  pure (host, Text.pack (show port))
+  pure (host, Text.pack (show (port :: Integer)))
 
 

@@ -13,7 +13,6 @@ module HBS2.Net.Messaging.Encrypted.ByPass
 
 import HBS2.Prelude
 import HBS2.Hash
-import HBS2.Clock hiding (sec)
 import HBS2.Net.Messaging
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Auth.Credentials()
@@ -40,7 +39,6 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.Maybe
-import Data.Time.Clock.POSIX
 import Data.Word
 import System.Random
 import System.IO.Unsafe (unsafePerformIO)
@@ -317,7 +315,7 @@ instance (ForByPass e, Messaging w e ByteString)
             when (isNothing mbx) do
               debug $ "HEY: failed to unbox" <+> pretty heyNonceA <+> pretty orig
 
-            n <- toMPlus mbx
+            _n <- toMPlus mbx
 
             (pks, HEYBox t puk) <- toMPlus mbx
 

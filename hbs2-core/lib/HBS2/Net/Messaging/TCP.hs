@@ -89,8 +89,8 @@ newMessagingTCP pa = liftIO do
 
 instance Messaging MessagingTCP L4Proto ByteString where
 
-  sendTo bus (To p) (From f) msg = liftIO do
-    let own = view tcpOwnPeer bus
+  sendTo bus (To p) (From _f) msg = liftIO do
+    let _own = view tcpOwnPeer bus
 
     co' <- atomically $ readTVar (view tcpPeerConn bus) <&> HashMap.lookup p
 
@@ -369,7 +369,7 @@ runMessagingTCP env = liftIO do
     now <- getTimeCoarse
 
     -- FIXME: time-hardcode-again
-    let expire = filter (\e -> (realToFrac (toNanoSecs (now - fst e)) / 1e9) < 30)
+    let expire = filter (\e -> (realToFrac (toNanoSecs (now - fst e)) / (1e9 :: Double)) < 30)
     atomically $ modifyTVar defs
                $ HashMap.mapMaybe
                   $ \es -> let rs = expire es

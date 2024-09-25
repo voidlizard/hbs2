@@ -10,6 +10,7 @@ import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging
 
 import Control.Concurrent.STM qualified as STM
+import Control.Monad.Fix
 import Control.Monad.Reader
 import Data.ByteString.Builder qualified as B
 import Data.ByteString.Lazy (ByteString)
@@ -49,7 +50,7 @@ newMessagingPipe (pIn,pOut) = do
     <$> newTQueueIO
 
 instance Hashable PipeAddr where
-  hashWithSalt salt (PipeAddr pip) = hashWithSalt salt ("pipe-addr", fd)
+  hashWithSalt salt (PipeAddr pip) = hashWithSalt salt ("pipe-addr" :: String, fd)
     where
       fd = unsafePerformIO (handleToFd pip <&> fromIntegral @_ @Word)
 

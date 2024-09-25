@@ -17,12 +17,11 @@ import HBS2.Storage.Operations.Class
 import HBS2.Defaults
 
 import Streaming.Prelude qualified as S
-import Streaming qualified as S
 import Data.Function
 
+import Control.Monad
 import Control.Monad.Except
 import Control.Exception
-import Data.Bifunctor
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 -- hbs2-core/lib/HBS2/Net/Auth/Credentials.hs

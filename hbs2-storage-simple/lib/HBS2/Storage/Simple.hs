@@ -19,6 +19,7 @@ import HBS2.System.Logger.Simple
 import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
+import Control.Monad.Fix
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS

@@ -16,7 +16,7 @@ import Data.Text.Encoding qualified as TE
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 
-import UnliftIO
+-- import UnliftIO
 
 {- HLINT ignore "Functor law" -}
 

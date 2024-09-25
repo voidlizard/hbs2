@@ -201,7 +201,7 @@ instance ( Serialise  (PeerCredentials e)
          )
 
   =>  Pretty (AsBase58 (PeerCredentials e)) where
-  pretty (AsBase58 c@(PeerCredentials s p _)) = pretty $ B8.unpack (toBase58 bs)
+  pretty (AsBase58 c@(PeerCredentials _s _p _)) = pretty $ B8.unpack (toBase58 bs)
     where
      bs = LBS.toStrict $ serialise c
 

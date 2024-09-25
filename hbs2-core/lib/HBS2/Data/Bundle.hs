@@ -178,7 +178,7 @@ instance MonadIO m => ImportBundle HashRef m where
       go hd bs
         | LBS.null bs = pure $ Right ()
         | otherwise = do
-            let ss = bundleHeadSectionSize hd
+            let _ss = bundleHeadSectionSize hd
             let (bsh, allBsRest) = LBS.splitAt sectionHeadSize bs
             case deserialiseOrFail @BundleSection bsh of
               Left{} -> do

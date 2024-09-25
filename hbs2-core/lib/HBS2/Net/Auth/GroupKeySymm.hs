@@ -23,7 +23,7 @@ import HBS2.Net.Proto.Types
 import HBS2.Storage hiding (Key)
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
-import HBS2.Storage(Storage(..))
+-- import HBS2.Storage(Storage(..))
 import HBS2.Defaults
 
 
@@ -56,13 +56,14 @@ import Data.Word (Word64)
 import Data.ByteArray()
 import Network.ByteOrder qualified as N
 import Streaming.Prelude qualified as S
-import Lens.Micro.Platform
+-- import Lens.Micro.Platform
 import Data.Coerce
-import Data.Typeable (TypeRep, typeRep)
-import Type.Reflection (SomeTypeRep(..), someTypeRep)
+-- import Data.Typeable (TypeRep, typeRep)
+-- import Type.Reflection (SomeTypeRep(..), someTypeRep)
+import Type.Reflection ()
 
-import Streaming qualified as S
-import Streaming (Stream(..), Of(..))
+-- import Streaming qualified as S
+import Streaming (Stream, Of(..))
 
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -197,7 +198,7 @@ instance (ForGroupKeySymm s) => Serialise (GroupKey 'Symm s) where
     let compatEncoded = Serialise.encode compat
     let version = 2
     let ext     = (getGroupKeyIdScheme x, getGroupKeyId x, getGroupKeyTimestamp x)
-    compatEncoded  <> Serialise.encode version <> Serialise.encode ext
+    compatEncoded  <> Serialise.encode (version :: Integer) <> Serialise.encode ext
 
   decode = do
     GroupKeySymmV1{..}  <- Serialise.decode @(GroupKeySymmV1 s)

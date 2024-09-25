@@ -5,10 +5,10 @@ import HBS2.Clock
 import HBS2.Defaults
 import HBS2.Net.IP.Addr
 import HBS2.Net.Messaging
-import HBS2.Net.Proto
+-- import HBS2.Net.Proto
 import HBS2.Prelude.Plated
 
-import HBS2.System.Logger.Simple
+-- import HBS2.System.Logger.Simple
 
 import Data.Function
 import Control.Exception
@@ -19,7 +19,6 @@ import Control.Concurrent.STM.TQueue qualified as Q0
 import Control.Monad
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified  as LBS
-import Data.Functor
 import Data.List qualified as L
 import Data.Maybe
 -- import Data.Text (Text)
@@ -100,7 +99,7 @@ newMessagingUDP reuse saddr =
                           )
 
   where
-    sorted = L.sortBy ( compare `on` proto)
+    sorted = L.sortBy ( compare @Integer `on` proto)
     proto x = case addrAddress x of
       SockAddrInet{}  -> 0
       SockAddrInet6{} -> 1

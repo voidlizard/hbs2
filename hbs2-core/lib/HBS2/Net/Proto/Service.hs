@@ -13,13 +13,14 @@ import HBS2.Net.Proto.Types
 import HBS2.Prelude.Plated
 
 import Codec.Serialise
+import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.ByteString.Lazy (ByteString)
 import Data.Kind
 import Data.List qualified as List
 import GHC.TypeLits
-import Lens.Micro.Platform
+-- import Lens.Micro.Platform
 import UnliftIO.Async
 import UnliftIO qualified as UIO
 import UnliftIO (TVar,TQueue,atomically)

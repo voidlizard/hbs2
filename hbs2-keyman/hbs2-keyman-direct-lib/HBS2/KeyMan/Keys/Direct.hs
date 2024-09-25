@@ -13,6 +13,7 @@ import HBS2.Net.Auth.GroupKeySymm as Symm
 
 import HBS2.System.Dir
 
+import Control.Monad
 import Control.Monad.Cont
 import DBPipe.SQLite
 import Text.InterpolatedString.Perl6 (qc)

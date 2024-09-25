@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 module HBS2.Net.PeerLocator.Static
   ( StaticPeerLocator
   , newStaticPeerLocator

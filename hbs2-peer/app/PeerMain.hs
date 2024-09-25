@@ -122,6 +122,7 @@ import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
 
 import Graphics.Vty qualified as Vty
+import Graphics.Vty.Platform.Unix qualified as Vty
 
 data GoAgainException = GoAgainException
                         deriving (Eq,Ord,Show,Typeable)
@@ -342,7 +343,7 @@ runCLI = do
 
         liftIO do
           when pro $ flip runContT pure do
-            cfg <- liftIO $ Vty.standardIOConfig
+            cfg <- pure $ Vty.defaultConfig
             vty <- ContT $ bracket (Vty.mkVty cfg) Vty.shutdown
 
             fix \next -> do

@@ -11,9 +11,9 @@ module HBS2.Net.Messaging.Encrypted.RandomPrefix
 import Data.Word
 import Data.Bits
 -- import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy (ByteString)
+import Control.Monad
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Builder
@@ -52,7 +52,7 @@ instance Instruction a => Emittable (Proxy a) where
   emit _ = word8 . fromIntegral $ natVal (Proxy @(Opcode a))
 
 instance Emittable OP where
-  emit (OP op arg) = emit op <> emit arg
+  emit (OP o arg) = emit o <> emit arg
   emit (BYTE w) = word8 w
 
 instance Emittable () where
@@ -192,7 +192,7 @@ runCodeLazy s = runState (execStateT (runMaybeT (go s)) Nothing) s
       put (Just n)
       pure rest
 
-    repeatN bs = do
+    _repeatN bs = do
       (n, rest) <- next bs
 
       rest' <- replicateM (min 16 (fromIntegral n)) $ do
@@ -223,7 +223,7 @@ instance MonadIO m => RandomPrefix PrefixMethod1 m where
 
   randomPrefix (PrefixMethod1 k a x) = liftIO do
     let nums = partsMethod1 k a x
-    me <- liftIO $ replicateM (length nums) $ randomRIO (0,2)
+    me <- liftIO $ replicateM (length nums) $ randomRIO (0,2 :: Integer)
     opcodes <- forM (zip me nums) $ \z@(_, n) ->
       case fst z of
         1 -> do
