@@ -5,7 +5,7 @@ SHELL := bash
 MAKEFLAGS += --warn-undefined-variables
 MAKEFLAGS += --no-builtin-rules
 
-GHC_VERSION := 9.4.8
+GHC_VERSION := 9.6.6
 BIN_DIR := ./bin
 BINS := \
   hbs2               \
