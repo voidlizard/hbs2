@@ -136,7 +136,10 @@ updateKeys = do
       conf <- getConf
       let rchans = [ r | ListVal [SymbolVal "refchan", SignPubKeyLike r] <- conf ]
 
+      -- FIXME: assume-huge-list
       seen <- withState selectAllSeenGKTx
+
+      trace $ "SEEN" <+> pretty (List.length seen)
 
       flip runContT pure $ callCC \exit -> do
         when (List.null rchans) $ exit ()
@@ -151,6 +154,8 @@ updateKeys = do
           runScan (RChanScanEnv sto rpc) do
 
             for_ rchans $ \r -> do
+
+              notice $ "scan refchan" <+> pretty (AsBase58  r)
 
               walkRefChanTx @proto (pure . not . flip HS.member seen) r $ \tx0 -> \case
                 P _  (ProposeTran _ box) -> do
@@ -174,15 +179,19 @@ updateKeys = do
                     --   будет болтаться, если она не AnnotatedHashRef
                     lift $ lift $ S.yield (Left tx0)
 
-                    gk <- deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gkbs & toMPlus
+                    let gkz1 = deserialiseOrFail @(GroupKey 'Symm HBS2Basic) gkbs
+                                  & either mempty List.singleton
 
-                    gkId <- getGroupKeyId gk & toMPlus
+                    for_ gkz1 $ \gk -> do
 
-                    --TODO: verify-group-key-id-if-possible
+                      gkId <- getGroupKeyId gk & toMPlus
 
-                    notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
+                      --TODO: verify-group-key-id-if-possible
 
-                    lift $ lift $ S.yield (Right (gkId, gkh, gk) )
+                      notice $ green "found new gk0" <+> pretty gkId <+> pretty gkh
+
+                      lift $ lift $ S.yield (Right (gkId, gkh, gk) )
+                      lift $ lift $ S.yield ( Left tx0 )
 
                 _ -> do
                   lift $ S.yield (Left tx0)

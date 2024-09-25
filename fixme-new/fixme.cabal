@@ -107,6 +107,7 @@ library
 
     other-modules:
       Fixme.Run.Internal
+      Fixme.Run.Internal.RefChan
 
     exposed-modules:
       Fixme
@@ -117,6 +118,7 @@ library
       Fixme.State
       Fixme.Scan
       Fixme.Scan.Git.Local
+      Fixme.GK
 
     build-depends:    base
                     , base16-bytestring

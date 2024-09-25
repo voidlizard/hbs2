@@ -332,6 +332,14 @@ data PeerNotConnected = PeerNotConnected
 
 instance Exception PeerNotConnected
 
+data FixmeFlags =
+  FixmeIgnoreCached
+  deriving stock (Eq,Ord,Enum,Show,Generic)
+
+instance Hashable FixmeFlags
+  -- hashWithSalt s e = undefined
+
+
 data FixmeEnv =
   FixmeEnv
   { fixmeLock              :: MVar ()
@@ -358,6 +366,7 @@ data FixmeEnv =
   , fixmeEnvRefChan        :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
   , fixmeEnvAuthor         :: TVar (Maybe (PubKey 'Sign 'HBS2Basic))
   , fixmeEnvReader         :: TVar (Maybe (PubKey 'Encrypt 'HBS2Basic))
+  , fixmeEnvFlags          :: TVar (HashSet FixmeFlags)
   }
 
 
@@ -428,6 +437,7 @@ fixmeEnvBare =
     <*>  newTVarIO mzero
     <*>  newTVarIO mzero
     <*>  newTVarIO mzero
+    <*>  newTVarIO mempty
 
 withFixmeEnv :: FixmePerks m => FixmeEnv -> FixmeM m a -> m a
 withFixmeEnv env what = runReaderT ( fromFixmeM what) env

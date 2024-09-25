@@ -11,6 +11,8 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix (UNIX)
 import HBS2.Peer.RPC.Client
 
+import HBS2.CLI.Run.MetaData (getTreeContents)
+
 import HBS2.CLI.Run.Internal hiding (PeerNotConnectedException)
 
 import Control.Monad.Trans.Maybe

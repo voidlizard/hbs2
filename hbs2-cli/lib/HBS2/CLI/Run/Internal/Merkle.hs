@@ -8,6 +8,7 @@ import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.Hash
 import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Data.Types.Refs
+import HBS2.Data.Detect
 import HBS2.Merkle
 import HBS2.Storage
 import HBS2.Storage.Operations.ByteString
@@ -19,6 +20,7 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.Net.Auth.Schema()
 
 import Codec.Serialise
+import Data.Coerce
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Data.Text qualified as Text
@@ -26,22 +28,22 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
 
+
 --FIXME: move-somewhere-else
-getGroupKeyHash :: ( IsContext c
-                   , MonadUnliftIO m
+getGroupKeyHash :: ( MonadUnliftIO m
                    , HasStorage m
                    , HasClientAPI StorageAPI UNIX m
                    )
                 => HashRef
-                -> RunM c m (Maybe HashRef, MTreeAnn [HashRef])
+                -> m (Maybe HashRef, MTreeAnn [HashRef])
 getGroupKeyHash h = do
   flip runContT pure do
-    sto <- getStorage
+    sto <- lift getStorage
 
     headBlock <- getBlock sto (fromHashRef h)
-                   >>= orThrowUser  "no-block"
+                   >>= orThrow MissedBlockError
                    <&> deserialiseOrFail @(MTreeAnn [HashRef])
-                   >>= orThrowUser  "invalid block format"
+                   >>= orThrow UnsupportedFormat
 
     case _mtaCrypt headBlock of
       (EncryptGroupNaClSymm hash _) ->
@@ -114,4 +116,40 @@ createTreeWithMetadata sto mgk meta lbs = do -- flip runContT pure do
 
       runExceptT $ writeAsMerkle sto source <&> HashRef
 
+
+getTreeContents :: forall m . ( MonadUnliftIO m
+                              , MonadIO m
+                              , MonadError OperationError m
+                   )
+                => AnyStorage
+                -> HashRef
+                -> m LBS.ByteString
+
+getTreeContents sto href = do
+
+  blk <- getBlock sto (coerce href)
+           >>= orThrowError MissedBlockError
+
+  let q = tryDetect (coerce href) blk
+
+  case q of
+
+    Merkle _ -> do
+      readFromMerkle sto (SimpleKey (coerce href))
+
+    MerkleAnn (MTreeAnn {_mtaCrypt = NullEncryption }) -> do
+      readFromMerkle sto (SimpleKey (coerce href))
+
+    MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
+
+      rcpts  <- Symm.loadGroupKeyMaybe @'HBS2Basic sto (HashRef gkh)
+                  >>= orThrowError (GroupKeyNotFound 11)
+                  <&> HM.keys . Symm.recipients
+
+      let findStuff g = do
+            runKeymanClientRO @IO $ findMatchedGroupKeySecret sto g
+
+      readFromMerkle sto (ToDecryptBS (coerce href) (liftIO . findStuff))
+
+    _ -> throwError UnsupportedFormat
 
