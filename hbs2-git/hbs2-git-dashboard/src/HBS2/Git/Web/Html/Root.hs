@@ -952,7 +952,9 @@ repoPage tab lww params = rootPage do
       aside_ [class_ "sidebar"] do
 
         div_ [class_ "info-block" ] do
-          toHtml (ShortRef lww)
+          let url = toURL (RepoPage (CommitsTab Nothing) lww)
+          let txt = toHtml (ShortRef lww)
+          a_ [href_ url, class_ "secondary"] txt
 
         -- div_ [class_ "info-block" ] do
         --   a_ [ href_ "/"] do
@@ -982,7 +984,7 @@ repoPage tab lww params = rootPage do
             for_ fixme $ \_ -> do
               li_ $ small_ do
                 a_ [class_ "secondary"] do
-                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
+                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconFixme
                   "Issues"
 
             when (rlRepoForks > 0) do
