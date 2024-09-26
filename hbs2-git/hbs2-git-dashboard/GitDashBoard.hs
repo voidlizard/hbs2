@@ -22,8 +22,9 @@ import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
 
+import Data.Config.Suckless.Script
+
 import Lucid (renderTextT,HtmlT(..),toHtml)
-import Options.Applicative as O
 import Data.Either
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as LT
@@ -42,32 +43,8 @@ import System.FilePath
 import System.Process.Typed
 import System.Directory (XdgDirectory(..),getXdgDirectory)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
-
-
-configParser :: DashBoardPerks m => Parser (m ())
-configParser = do
-  opts <- RunDashBoardOpts <$> optional (strOption
-      ( long "config"
-     <> short 'c'
-     <> metavar "FILEPATH"
-     <> help "Path to the configuration file"
-     <> completer (bashCompleter "file")
-      ))
-
-  cmd <- subparser
-              (  command "web" (O.info pRunWeb (progDesc "Run the web interface"))
-              <> command "index" (O.info pRunIndex (progDesc "update index"))
-              )
-
-  pure $ cmd opts
-
-
-pRunWeb :: DashBoardPerks m => Parser (RunDashBoardOpts -> m ())
-pRunWeb = pure $ \x -> runDashBoardM x runScotty
-
-pRunIndex :: DashBoardPerks m => Parser (RunDashBoardOpts -> m ())
-pRunIndex = pure $ \x -> runDashBoardM x do
-  updateIndex
+import System.Environment
+import System.Exit
 
 {- HLINT ignore "Eta reduce" -}
 {- HLINT ignore "Functor law" -}
@@ -76,30 +53,30 @@ getRPC :: Monad m => HasConf m => m (Maybe FilePath)
 getRPC = pure Nothing
 
 
-runDashBoardM :: DashBoardPerks m => RunDashBoardOpts -> DashBoardM m a -> m a
-runDashBoardM cli m = do
+hbs2_git_dashboard :: FilePath
+hbs2_git_dashboard = "hbs2-git-dashboard"
 
+readConfig :: DashBoardPerks m => m [Syntax C]
+readConfig = do
 
-  let hbs2_git_dashboard = "hbs2-git-dashboard"
   xdgConf <- liftIO $ getXdgDirectory XdgConfig hbs2_git_dashboard
-  xdgData <- liftIO $ getXdgDirectory XdgData hbs2_git_dashboard
 
-  let cliConfPath = cli & configPath
-
-  let confPath = fromMaybe xdgConf cliConfPath
+  let confPath = xdgConf
   let confFile = confPath </> "config"
 
+  touch confFile
+
+  runExceptT (liftIO $ readFile confFile)
+     <&> fromRight mempty
+     <&> parseTop
+     <&> fromRight mempty
+
+runDashBoardM :: DashBoardPerks m => DashBoardM m a -> m a
+runDashBoardM m = do
+
+  xdgData <- liftIO $ getXdgDirectory XdgData hbs2_git_dashboard
+
   let dbFile = xdgData </> "state.db"
-
-  when (isNothing cliConfPath) do
-    touch confFile
-
-  conf <- runExceptT (liftIO $ readFile confFile)
-           <&> fromRight mempty
-           <&> parseTop
-           <&> fromRight mempty
-
-  liftIO $ print (pretty conf)
 
   -- FIXME: unix-socket-from-config
   soname <- detectRPC `orDie` "hbs2-peer rpc not found"
@@ -141,7 +118,6 @@ runDashBoardM cli m = do
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
     env <- newDashBoardEnv
-                conf
                 dbFile
                 peerAPI
                 refLogAPI
@@ -174,13 +150,11 @@ orFall a mb = ContT $ maybe1 mb a
 renderHtml :: forall m a . MonadIO m => HtmlT (ActionT m) a -> ActionT m ()
 renderHtml m = renderTextT m >>= html
 
-runDashboardWeb :: WebOptions -> ScottyT (DashBoardM IO) ()
-runDashboardWeb wo = do
+runDashboardWeb :: WebOptions ->  ScottyT (DashBoardM IO) ()
+runDashboardWeb WebOptions{..} = do
   middleware logStdout
 
-  let assets = _assetsOverride wo
-
-  case assets of
+  case _assetsOverride of
     Nothing -> do
       middleware (E.static assetsDir)
     Just f -> do
@@ -327,15 +301,13 @@ runDashboardWeb wo = do
 
 runScotty :: DashBoardPerks m => DashBoardM m ()
 runScotty  = do
-    pno <- cfgValue @HttpPortOpt @(Maybe Int) <&> fromMaybe 8090
-    wo  <- cfgValue @DevelopAssetsOpt @(Maybe FilePath) <&> WebOptions
+    pno <- getHttpPortNumber
+    wo <- WebOptions <$> getDevAssets
 
     env <- ask
 
     flip runContT pure do
-
       void $ ContT $ withAsync updateIndexPeriodially
-
       scottyT pno (withDashBoardEnv env) (runDashboardWeb wo)
 
 updateIndexPeriodially :: DashBoardPerks m => DashBoardM m ()
@@ -395,14 +367,57 @@ updateIndexPeriodially = do
 
               lift $ buildCommitTreeIndex (coerce lww)
 
+quit :: DashBoardPerks m => m ()
+quit = liftIO exitSuccess
 
 main :: IO ()
 main = do
-  execParser opts & join
-  where
-    opts = O.info (configParser <**> helper)
-      ( fullDesc
-     <> progDesc "hbs2-git-dashboard"
-     <> O.header "hbs2-git-dashboard" )
+  argz <- getArgs
+  cli <- parseTop (unlines $ unwords <$> splitForms argz)
+           & either  (error.show) pure
+
+  conf <- readConfig
+
+  let dict = makeDict @C do
+
+          -- TODO: write-man-entries
+
+          entry $ bindMatch "--help" $ nil_ $ \case
+            HelpEntryBound what -> do
+              helpEntry what
+              quit
+
+            [StringLike s] -> helpList False (Just s) >> quit
+
+            _ -> helpList False Nothing >> quit
+
+          entry $ bindMatch "develop-assets" $ nil_ \case
+            [StringLike s] -> do
+              pure ()
+
+            _ -> none
+
+          brief "allows fixme for given reflog" $
+            args [arg "public-key" "reflog"] $
+            examples [qc|
+              fixme-allow BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+            |]
+            $ entry $ bindMatch "fixme-allow" $ nil_ \case
+              [SignPubKeyLike what] -> do
+                lift $ insertFixmeAllowed (RepoRefLog (RefLogKey what))
+
+              _ -> throwIO $ BadFormException @C nil
+
+          entry $ bindMatch "port" $ nil_ \case
+            [LitIntVal n] -> do
+              tp <- lift $ asks _dashBoardHttpPort
+              atomically $ writeTVar tp (Just (fromIntegral n))
+
+            _ -> throwIO $ BadFormException @C nil
+
+          entry $ bindMatch "web" $ nil_ $ const do
+            lift runScotty
+
+  void $ runDashBoardM $ run dict (conf <> cli)
 
 

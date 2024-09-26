@@ -19,6 +19,8 @@ import HBS2.System.Dir
 
 import System.FilePath
 
+import Data.Word
+
 data HttpPortOpt
 
 data DevelopAssetsOpt
@@ -42,15 +44,16 @@ instance Semigroup RunDashBoardOpts where
 
 data DashBoardEnv =
   DashBoardEnv
-  { _peerAPI        :: ServiceCaller PeerAPI UNIX
-  , _refLogAPI      :: ServiceCaller RefLogAPI UNIX
-  , _refChanAPI     :: ServiceCaller RefChanAPI UNIX
-  , _lwwRefAPI      :: ServiceCaller LWWRefAPI UNIX
-  , _sto            :: AnyStorage
-  , _dashBoardConf  :: TVar [Syntax C]
-  , _db             :: DBPipeEnv
-  , _dataDir        :: FilePath
-  , _pipeline       :: TQueue (IO ())
+  { _peerAPI            :: ServiceCaller PeerAPI UNIX
+  , _refLogAPI          :: ServiceCaller RefLogAPI UNIX
+  , _refChanAPI         :: ServiceCaller RefChanAPI UNIX
+  , _lwwRefAPI          :: ServiceCaller LWWRefAPI UNIX
+  , _sto                :: AnyStorage
+  , _dataDir            :: FilePath
+  , _db                 :: DBPipeEnv
+  , _pipeline           :: TQueue (IO ())
+  , _dashBoardHttpPort  :: TVar (Maybe Word16)
+  , _dashBoardDevAssets :: TVar (Maybe FilePath)
   }
 
 makeLenses 'DashBoardEnv
@@ -71,26 +74,32 @@ newtype DashBoardM m a = DashBoardM { fromDashBoardM :: ReaderT DashBoardEnv m a
                          , MonadReader DashBoardEnv
                          )
 
-instance (MonadIO m, Monad m, MonadReader DashBoardEnv m) => HasConf m where
-  getConf = do
-    asks _dashBoardConf >>= readTVarIO
-
 newDashBoardEnv :: MonadIO m
-                => [Syntax C]
-                -> FilePath
+                => FilePath
                 -> ServiceCaller PeerAPI UNIX
                 -> ServiceCaller RefLogAPI UNIX
                 -> ServiceCaller RefChanAPI UNIX
                 -> ServiceCaller LWWRefAPI UNIX
                 -> AnyStorage
                 -> m DashBoardEnv
-newDashBoardEnv cfg dbFile peer rlog rchan lww sto  = do
+newDashBoardEnv dbFile peer rlog rchan lww sto  = do
   let ddir = takeDirectory dbFile
-  DashBoardEnv peer rlog rchan lww sto
-        <$> newTVarIO cfg
-        <*> newDBPipeEnv dbPipeOptsDef dbFile
-        <*> pure ddir
+  DashBoardEnv peer rlog rchan lww sto ddir
+        <$> newDBPipeEnv dbPipeOptsDef dbFile
         <*> newTQueueIO
+        <*> newTVarIO (Just 8911)
+        <*> newTVarIO Nothing
+
+getHttpPortNumber :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m a
+getHttpPortNumber = do
+  asks _dashBoardHttpPort
+    >>= readTVarIO
+    <&> fromIntegral . fromMaybe 8911
+
+getDevAssets :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m (Maybe FilePath)
+getDevAssets = do
+  asks _dashBoardDevAssets
+    >>= readTVarIO
 
 withDashBoardEnv :: Monad m => DashBoardEnv -> DashBoardM m a -> m a
 withDashBoardEnv env m = runReaderT (fromDashBoardM m) env

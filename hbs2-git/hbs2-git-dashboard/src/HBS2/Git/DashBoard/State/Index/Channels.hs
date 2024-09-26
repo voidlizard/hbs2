@@ -9,7 +9,7 @@ import DBPipe.SQLite.Generic as G
 
 import Streaming.Prelude qualified as S
 
-updateIndexFromChannels :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m ()
+updateIndexFromChannels :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m ()
 updateIndexFromChannels = do
   debug "updateIndexChannels"
 

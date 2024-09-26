@@ -10,7 +10,7 @@ import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State.Index.Channels
 import HBS2.Git.DashBoard.State.Index.Peer
 
-updateIndex :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m ()
+updateIndex :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m ()
 updateIndex = do
   debug "updateIndex"
   updateIndexFromPeer

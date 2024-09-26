@@ -943,7 +943,8 @@ repoPage tab lww params = rootPage do
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
   let pinned = [ (name,r) | ListVal [ SymbolVal "pinned:", r@(PinnedRefBlob _ name _) ] <- meta ] & take 5
 
-  let fixme  = headMay [ x | FixmeRefChanP x <- meta ]
+  allowed <- lift $ checkFixmeAllowed (RepoRefLog (coerce lww))
+  let fixme  = headMay [ x | allowed, FixmeRefChanP x <- meta ]
 
   debug $ red "META" <+> pretty meta
 

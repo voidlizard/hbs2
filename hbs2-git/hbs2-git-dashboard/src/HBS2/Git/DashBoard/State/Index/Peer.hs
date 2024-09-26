@@ -12,7 +12,7 @@ import Streaming.Prelude qualified as S
 
 seconds = TimeoutSec
 
-updateIndexFromPeer :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m ()
+updateIndexFromPeer :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m ()
 updateIndexFromPeer = do
   debug "updateIndexFromPeer"
 

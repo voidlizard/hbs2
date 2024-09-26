@@ -25,6 +25,7 @@ import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
 
+import Data.Aeson as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
 import Lucid.Base
@@ -108,6 +109,16 @@ evolveDB = do
   createRepoCommitTable
   createForksTable
 
+  ddl [qc|
+    create table if not exists object
+    ( o text not null
+    , w integer not null
+    , k text not null
+    , v text not null
+    , nonce text null
+    , primary key (o,k)
+    )
+  |]
 
 instance ToField GitHash where
   toField x = toField $ show $ pretty x
@@ -182,7 +193,7 @@ newtype RepoHeadSeq = RepoHeadSeq Word64
 
 newtype RepoRefLog = RepoRefLog (RefLogKey 'HBS2Basic)
                      deriving stock (Generic)
-                     deriving newtype (ToField,FromField,Pretty)
+                     deriving newtype (ToField,FromField,Pretty,Serialise)
 
 newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
                       deriving stock (Generic)
@@ -272,10 +283,11 @@ asRefChan = \case
   LitStrVal s -> fromStringMay @MyRefChan (Text.unpack s)
   _           -> Nothing
 
-getIndexEntries :: (DashBoardPerks m, HasConf m, MonadReader DashBoardEnv m) => m [MyRefChan]
+getIndexEntries :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [MyRefChan]
 getIndexEntries = do
-  conf <- getConf
-  pure [ s | ListVal [ SymbolVal "index", PRefChan s] <- conf ]
+  pure mempty
+  -- conf <- getConf
+  -- pure [ s | ListVal [ SymbolVal "index", PRefChan s] <- conf ]
 
 
 data NiceTS = NiceTS
@@ -870,5 +882,85 @@ gitShowRefs what = do
                 >>= toMPlus
 
     pure $ view repoHeadRefs hd
+
+
+insertOWKV :: (DashBoardPerks m, ToJSON a)
+           => Text
+           -> Maybe Integer
+           -> Text
+           -> a
+           -> DBPipeM m ()
+insertOWKV o w k v = do
+
+  let sql = [qc|
+
+      insert into object (o, w, k, v)
+      values (?, ?, ?, cast (? as text))
+      on conflict (o, k)
+      do update set
+        v = case
+              when excluded.w > object.w  then excluded.v
+              else object.v
+            end,
+        w = case
+              when excluded.w > object.w  then excluded.w
+              else object.w
+            end
+  |]
+
+  t <- maybe1 w (round <$> liftIO getPOSIXTime) pure
+
+  S.insert sql (o,t,k,Aeson.encode v)
+
+
+insertOption :: ( DashBoardPerks m
+                , MonadReader DashBoardEnv m
+                , Pretty a
+                , Serialise a)
+             => Text
+             -> a
+             -> m ()
+insertOption  key value = do
+  w <- liftIO getPOSIXTime <&> fromIntegral . round
+  let o = hashObject @HbSync (serialise ("option", key)) & pretty & show
+  let v = show $ pretty v
+  withState $ transactional do
+    insertOWKV (fromString o) (Just w) "$type" "option"
+    insertOWKV (fromString o) (Just w) "name"  key
+    insertOWKV (fromString o) (Just w) "value" (fromString v)
+
+
+insertFixmeAllowed :: ( DashBoardPerks m
+                      , MonadReader DashBoardEnv m
+                      )
+                   => RepoRefLog
+                   -> m ()
+insertFixmeAllowed  reflog = do
+  let o = hashObject @HbSync (serialise ("fixme-allowed", reflog)) & pretty & show
+  let v = show $ pretty reflog
+  withState $ transactional do
+    insertOWKV (fromString o) mzero "$type" "fixme-allowed"
+    insertOWKV (fromString o) mzero "value" v
+
+checkFixmeAllowed :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                  => RepoRefLog
+                  -> m Bool
+
+checkFixmeAllowed r = do
+
+  let sql = [qc|
+    with
+      s1 as (
+        select o from object where k = '$type' and json_extract(v, '$') = 'fixme-allowed'
+      )
+    select 1
+      from s1 join object o on s1.o = o.o
+      where o.k = 'value' and json_extract(o.v, '$') = ?
+      limit 1;
+  |]
+
+  w <- withState $ select @(Only Int) sql (Only r)
+
+  pure $ not $ List.null w
 
 
