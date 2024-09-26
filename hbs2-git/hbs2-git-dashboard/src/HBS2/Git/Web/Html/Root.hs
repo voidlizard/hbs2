@@ -349,13 +349,13 @@ dashboardRootPage = rootPage do
         div_ [class_ "info-block"] $ small_ "Всякая разная рандомная информация хрен знает, что тут пока выводить"
 
       div_ [class_ "content"] do
-        
+
         section_ do
           h2_ "Git repositories"
           form_ [role_ "search"] do
             input_ [name_ "search", type_ "search"]
             input_ [type_ "submit", value_ "Search"]
-                      
+
         section_ do
 
           for_ items $ \it@RepoListItem{..} -> do
@@ -913,6 +913,12 @@ asGitHash  = \case
   LitStrVal s -> fromStringMay (Text.unpack s)
   _ -> Nothing
 
+
+pattern FixmeRefChanP :: forall {c} . PubKey Sign HBS2Basic -> Syntax c
+pattern FixmeRefChanP x <- ListVal [ SymbolVal "fixme:"
+                                   , ListVal [ SymbolVal "refchan", SignPubKeyLike x
+                                   ]]
+
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
          -> LWWRefKey 'HBS2Basic
@@ -936,6 +942,8 @@ repoPage tab lww params = rootPage do
   let author = headMay [ s | ListVal [ SymbolVal "author:", LitStrVal s ] <- meta ]
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
   let pinned = [ (name,r) | ListVal [ SymbolVal "pinned:", r@(PinnedRefBlob _ name _) ] <- meta ] & take 5
+
+  let fixme  = headMay [ x | FixmeRefChanP x <- meta ]
 
   debug $ red "META" <+> pretty meta
 
@@ -970,6 +978,12 @@ repoPage tab lww params = rootPage do
                 a_ [class_ "secondary", href_ (toURL (RepoPage ManifestTab lww))] do
                   span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
                   "Manifest"
+
+            for_ fixme $ \_ -> do
+              li_ $ small_ do
+                a_ [class_ "secondary"] do
+                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
+                  "Issues"
 
             when (rlRepoForks > 0) do
               li_ $ small_ do

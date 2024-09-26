@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 module HBS2.Git.DashBoard.Prelude
   ( module HBS2.Git.DashBoard.Prelude
   , module HBS2.Prelude.Plated
@@ -18,6 +19,7 @@ module HBS2.Git.DashBoard.Prelude
   , module UnliftIO
   , module Codec.Serialise
   , GitRef(..), GitHash(..), GitObjectType(..)
+  , pattern SignPubKeyLike
   , qc, q
   ) where
 
@@ -31,6 +33,7 @@ import HBS2.Merkle
 import HBS2.System.Logger.Simple.ANSI as Logger
 import HBS2.Misc.PrettyStuff as Logger
 
+import HBS2.Net.Auth.Credentials
 
 import HBS2.Peer.RPC.API.RefChan as API
 import HBS2.Peer.RPC.API.RefLog  as API
