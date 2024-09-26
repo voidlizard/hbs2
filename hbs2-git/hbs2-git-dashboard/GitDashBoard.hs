@@ -328,10 +328,10 @@ updateIndexPeriodially = do
     void $ ContT $ withAsync $ forever do
       rs <- atomically $ peekTQueue changes >> flushTQueue changes
       addJob (withDashBoardEnv env updateIndex)
-      pause @'Seconds 30
+      pause @'Seconds 60
 
     lift do
-      polling (Polling 1 10) rlogs $ \r -> do
+      polling (Polling 1 30) rlogs $ \r -> do
 
         debug $ yellow "POLL REFLOG" <+> pretty r
 
