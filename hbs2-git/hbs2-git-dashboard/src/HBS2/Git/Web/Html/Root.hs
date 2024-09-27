@@ -885,25 +885,6 @@ instance ToHtml (ShortRef (LWWRefKey 'HBS2Basic)) where
   toHtmlRaw (ShortRef a) = toHtml (shortRef 14 3 (show $ pretty a))
 
 
-pattern PinnedRefBlob :: forall {c}. Text -> Text -> GitHash -> Syntax c
-pattern PinnedRefBlob syn name hash <- ListVal [ SymbolVal "blob"
-                                               , SymbolVal (Id syn)
-                                               , LitStrVal name
-                                               , asGitHash -> Just hash
-                                               ]
-{-# COMPLETE PinnedRefBlob #-}
-
-asGitHash :: forall c . Syntax c -> Maybe GitHash
-asGitHash  = \case
-  LitStrVal s -> fromStringMay (Text.unpack s)
-  _ -> Nothing
-
-
-pattern FixmeRefChanP :: forall {c} . PubKey Sign HBS2Basic -> Syntax c
-pattern FixmeRefChanP x <- ListVal [ SymbolVal "fixme:"
-                                   , ListVal [ SymbolVal "refchan", SignPubKeyLike x
-                                   ]]
-
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
          -> LWWRefKey 'HBS2Basic
@@ -928,7 +909,7 @@ repoPage tab lww params = rootPage do
   let public = headMay [ s | ListVal [ SymbolVal "public:", SymbolVal (Id s) ] <- meta ]
   let pinned = [ (name,r) | ListVal [ SymbolVal "pinned:", r@(PinnedRefBlob _ name _) ] <- meta ] & take 5
 
-  allowed <- lift $ checkFixmeAllowed (RepoRefLog (coerce lww))
+  allowed <- lift $ checkFixmeAllowed (RepoLww lww)
   let fixme  = headMay [ x | allowed, FixmeRefChanP x <- meta ]
 
   debug $ red "META" <+> pretty meta
@@ -1075,3 +1056,4 @@ repoPage tab lww params = rootPage do
               repoForks lww
 
         div_ [id_ "repo-tab-data-embedded"] mempty
+

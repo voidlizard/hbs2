@@ -21,6 +21,9 @@ import System.FilePath
 
 import Data.Word
 
+type MyRefChan    = RefChanId L4Proto
+type MyRefLogKey  = RefLogKey 'HBS2Basic
+
 data HttpPortOpt
 
 data DevelopAssetsOpt
@@ -60,6 +63,9 @@ makeLenses 'DashBoardEnv
 
 repoDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m FilePath
 repoDataPath lw = asks _dataDir <&> (</> (show $ pretty lw)) >>= canonicalizePath
+
+fixmeDataPath  :: (DashBoardPerks m, MonadReader DashBoardEnv m) => MyRefChan -> m FilePath
+fixmeDataPath rchan = asks _dataDir <&> (</> (show $ "fixme-" <> pretty (AsBase58 rchan))) >>= canonicalizePath
 
 type DashBoardPerks m = MonadUnliftIO m
 

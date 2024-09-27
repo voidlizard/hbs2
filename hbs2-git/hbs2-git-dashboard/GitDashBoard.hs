@@ -508,6 +508,7 @@ theDict = do
     getRpcSocketEntry
     rpcPingEntry
     rpcIndexEntry
+    debugEntries
 
   where
 
@@ -581,6 +582,13 @@ theDict = do
         so <- getRPCSocket >>= orThrowUser "rpc socket down"
         withMyRPCClient so $ \caller -> do
           void $ callService @IndexNowRPC caller ()
+
+    debugEntries = do
+      entry $ bindMatch "debug:select-repo-fixme" $ nil_ $ const $ lift do
+        rs <- selectRepoFixme
+        for_ rs $ \(r,f) -> do
+          liftIO $ print $ pretty r <+> pretty (AsBase58 f)
+
 
 main :: IO ()
 main = do

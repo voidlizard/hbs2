@@ -103,19 +103,24 @@ instance FromField HashRef where
   fromField = fmap (fromString @HashRef) . fromField @String
 
 evolve :: FixmePerks m => FixmeM  m ()
-evolve = withState do
+evolve = do
+  dbPath <- localDBPath
+  debug $ "evolve" <+> pretty dbPath
+  mkdir (takeDirectory dbPath)
+  withState do
     createTables
 
 withState :: forall m a . (FixmePerks m, MonadReader FixmeEnv m) => DBPipeM m a ->  m a
 withState what = do
   lock <- asks fixmeLock
+
   db <- withMVar lock $ \_ -> do
           t <- asks fixmeEnvDb
           mdb <- readTVarIO t
           case mdb of
             Just d  -> pure (Right d)
             Nothing -> do
-              path <- asks fixmeEnvDbPath >>= readTVarIO
+              path <- localDBPath
               newDb <- try @_ @IOException (newDBPipeEnv dbPipeOptsDef path)
               case newDb of
                 Left e   -> pure (Left e)

@@ -13,6 +13,7 @@ import DBPipe.SQLite hiding (field)
 import HBS2.Git.Local
 
 import HBS2.OrDie
+import HBS2.System.Dir
 import HBS2.Storage as Exported
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client as Exported hiding (encode,decode)
@@ -344,7 +345,7 @@ data FixmeEnv =
   FixmeEnv
   { fixmeLock              :: MVar ()
   , fixmeEnvOpts           :: TVar FixmeOpts
-  , fixmeEnvDbPath         :: TVar FilePath
+  , fixmeEnvWorkDir        :: TVar FilePath
   , fixmeEnvDb             :: TVar (Maybe DBPipeEnv)
   , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
@@ -411,11 +412,11 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
 
 
 fixmeEnvBare :: forall m .  FixmePerks m => m FixmeEnv
-fixmeEnvBare =
+fixmeEnvBare = do
   FixmeEnv
     <$>  newMVar ()
     <*>  newTVarIO mempty
-    <*>  newTVarIO ":memory:"
+    <*>  (pwd >>= newTVarIO)
     <*>  newTVarIO Nothing
     <*>  newTVarIO Nothing
     <*>  newTVarIO mempty

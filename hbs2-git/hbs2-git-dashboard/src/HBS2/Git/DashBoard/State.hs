@@ -57,8 +57,6 @@ instance Semigroup RepoListPred where
 instance Monoid RepoListPred where
   mempty = RepoListPred Nothing Nothing
 
-type MyRefChan    = RefChanId L4Proto
-type MyRefLogKey  = RefLogKey 'HBS2Basic
 
 evolveDB :: DashBoardPerks m => DBPipeM m ()
 evolveDB = do
@@ -183,6 +181,8 @@ newtype RepoLwwSeq = RepoLwwSeq Integer
 
 newtype RepoChannel = RepoChannel MyRefChan
 
+newtype RefChanField = RefChanField MyRefChan
+                       deriving stock (Generic)
 
 newtype RepoHeadRef = RepoHeadRef HashRef
                       deriving stock (Generic)
@@ -201,8 +201,19 @@ newtype RepoHeadGK0 = RepoHeadGK0 (Maybe HashRef)
                       deriving stock (Generic)
                       deriving newtype (ToField,FromField)
 
+newtype Base58Field a = Base58Field { fromBase58Field :: a }
+                        deriving stock (Eq,Ord,Generic)
+
+
 instance ToField RepoChannel where
   toField (RepoChannel x) = toField $ show $ pretty (AsBase58 x)
+
+instance ToField RefChanField where
+  toField (RefChanField x) = toField $ show $ pretty (AsBase58 x)
+
+instance FromField RefChanField where
+  fromField w = fromField @String w
+    >>= maybe (fail "invalid key") (pure . RefChanField) . fromStringMay
 
 data TxProcessedTable
 data RepoTable
@@ -452,6 +463,15 @@ createRepoHeadTable = do
       )
   |]
 
+  ddl [qc|
+    create table if not exists repoheadfixme
+    ( lww text       not null
+    , lwwseq integer not null
+    , refchan text   not null
+    , primary key (lww, lwwseq)
+    )
+  |]
+
 data RepoHeadTable
 
 instance HasTableName RepoHeadTable where
@@ -495,6 +515,29 @@ insertRepoHead lww lwwseq rlog tx rf rh = do
     )
 
   pure ()
+
+
+insertRepoFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                => LWWRefKey 'HBS2Basic
+                -> RepoLwwSeq
+                -> MyRefChan
+                -> DBPipeM m ()
+insertRepoFixme lww lwwseq r = do
+  S.insert [qc|
+    insert into repoheadfixme (lww, lwwseq, refchan) values(?,?,?)
+    on conflict (lww, lwwseq) do update set refchan = excluded.refchan
+              |]
+    (lww, lwwseq, RefChanField r)
+
+selectRepoFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                => m [(RepoLww, MyRefChan)]
+
+selectRepoFixme = do
+  let sql = [qc|
+    select lww, refchan from (select  lww, refchan, max(lwwseq) from repoheadfixme group by lww)
+  |]
+  withState $ select_ @_ @(RepoLww, RefChanField)  sql
+    <&> fmap (over _2 coerce)
 
 -- FIXME: what-if-two-repo-shares-one-reflog?
 selectLwwByRefLog :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoRefLog -> m (Maybe RepoLww)
@@ -961,7 +1004,7 @@ deleteFixmeAllowed = do
   withState $ S.insert_  sql
 
 checkFixmeAllowed :: (DashBoardPerks m, MonadReader DashBoardEnv m)
-                  => RepoRefLog
+                  => RepoLww
                   -> m Bool
 
 checkFixmeAllowed r = do
@@ -980,6 +1023,10 @@ checkFixmeAllowed r = do
   w <- withState $ select @(Only Int) sql (Only r)
 
   pure $ not $ List.null w
+
+-- listFixmeRefChans :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [Rep
+-- listFixmeRefChans
+
 
 rpcSocketKey :: String
 rpcSocketKey =
