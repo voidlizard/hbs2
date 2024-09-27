@@ -153,6 +153,7 @@ executable hbs2-git-dashboard
       HBS2.Git.DashBoard.State.Index
       HBS2.Git.DashBoard.State.Index.Channels
       HBS2.Git.DashBoard.State.Index.Peer
+      HBS2.Git.DashBoard.Manifest
       HBS2.Git.Web.Html.Root
 
     -- other-extensions:

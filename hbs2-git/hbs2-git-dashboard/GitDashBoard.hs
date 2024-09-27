@@ -60,8 +60,9 @@ getRPC = pure Nothing
 
 data CallRPC
 data PingRPC
+data IndexNowRPC
 
-type MyRPC = '[ PingRPC, CallRPC ]
+type MyRPC = '[ PingRPC, IndexNowRPC, CallRPC ]
 
 instance HasProtocol UNIX  (ServiceProto MyRPC UNIX) where
   type instance ProtocolId (ServiceProto MyRPC UNIX) = 0xFAFABEBE
@@ -69,14 +70,14 @@ instance HasProtocol UNIX  (ServiceProto MyRPC UNIX) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
 
--- instance (MonadIO m, HasProtocol UNIX (ServiceProto MyServiceMethods1 UNIX)) => HasTimeLimits UNIX (ServiceProto MyServiceMethods1 UNIX) m where
---   tryLockForPeriod _ _ = pure True
-
 type instance Input CallRPC = String
 type instance Output CallRPC = String
 
 type instance Input PingRPC = ()
 type instance Output PingRPC = String
+
+type instance Input IndexNowRPC = ()
+type instance Output IndexNowRPC = ()
 
 class HasDashBoardEnv m where
   getDashBoardEnv :: m DashBoardEnv
@@ -90,6 +91,12 @@ instance (MonadIO m, HasDashBoardEnv m) => HandleMethod m PingRPC where
   handleMethod _ = do
     debug $ "RPC PING"
     pure "pong"
+
+instance (DashBoardPerks m, HasDashBoardEnv m) => HandleMethod m IndexNowRPC where
+  handleMethod _ = do
+    e <- getDashBoardEnv
+    debug $ "rpc: index:now"
+    withDashBoardEnv e $ addJob (liftIO $ withDashBoardEnv e updateIndex)
 
 readConfig :: DashBoardPerks m => m [Syntax C]
 readConfig = do
@@ -422,7 +429,7 @@ updateIndexPeriodially = do
 
   env <- ask
 
-  let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 30)
+  let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 60)
 
   flip runContT pure do
 
@@ -486,8 +493,7 @@ withMyRPCClient soname m = do
       liftIO $ m caller
 
 
-theDict :: forall m . ( MonadIO m
-                      , MonadUnliftIO m
+theDict :: forall m . ( DashBoardPerks m
                       -- , HasTimeLimits UNIX (ServiceProto MyRPC UNIX) m
                       ) => Dict C (DashBoardM m)
 theDict = do
@@ -501,6 +507,7 @@ theDict = do
     developAssetsEntry
     getRpcSocketEntry
     rpcPingEntry
+    rpcIndexEntry
 
   where
 
@@ -568,6 +575,12 @@ theDict = do
         withMyRPCClient so $ \caller -> do
           what <- callService @PingRPC caller ()
           print what
+
+    rpcIndexEntry = do
+      entry $ bindMatch "index:now" $ nil_ $ const $ lift do
+        so <- getRPCSocket >>= orThrowUser "rpc socket down"
+        withMyRPCClient so $ \caller -> do
+          void $ callService @IndexNowRPC caller ()
 
 main :: IO ()
 main = do

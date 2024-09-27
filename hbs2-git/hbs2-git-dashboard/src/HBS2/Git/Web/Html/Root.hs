@@ -8,6 +8,7 @@ import HBS2.Git.DashBoard.Prelude
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.State.Commits
+import HBS2.Git.DashBoard.Manifest
 
 import HBS2.OrDie
 
@@ -410,32 +411,16 @@ tabClick :: Attribute
 tabClick =
   hyper_ "on click take .contrast from .tab for event's target"
 
+
 parsedManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem  -> m ([Syntax C], Text)
 parsedManifest RepoListItem{..} = do
 
   sto <- asks _sto
   mhead <- readRepoHeadFromTx sto (coerce rlRepoTx)
 
-  let rawManifest  = (_repoManifest . snd =<< mhead)
-                      & fromMaybe (coerce rlRepoBrief)
-                      & Text.lines
-
-  w <- S.toList_ do
-         flip fix rawManifest $ \next ss -> do
-          case ss of
-            ( "" : rest )  -> S.yield (Right (Text.stripStart (Text.unlines rest)))
-            ( a : rest )   -> S.yield (Left a ) >> next rest
-            [] -> pure ()
-
-  let meta = Text.unlines (lefts w)
-                & Text.unpack
-                & parseTop
-                & fromRight mempty
-
-  let manifest = mconcat $ rights  w
-
-  pure (meta, manifest)
-
+  case mhead of
+    Just x  -> parseManifest (snd x)
+    Nothing -> pure (mempty, coerce rlRepoBrief)
 
 thisRepoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
 thisRepoManifest it@RepoListItem{..} = do
