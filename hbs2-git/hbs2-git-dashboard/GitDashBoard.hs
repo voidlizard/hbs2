@@ -370,6 +370,7 @@ updateIndexPeriodially = do
 quit :: DashBoardPerks m => m ()
 quit = liftIO exitSuccess
 
+
 main :: IO ()
 main = do
   argz <- getArgs
@@ -382,42 +383,69 @@ main = do
 
           -- TODO: write-man-entries
 
-          entry $ bindMatch "--help" $ nil_ $ \case
-            HelpEntryBound what -> do
-              helpEntry what
-              quit
-
-            [StringLike s] -> helpList False (Just s) >> quit
-
-            _ -> helpList False Nothing >> quit
-
-          entry $ bindMatch "develop-assets" $ nil_ \case
-            [StringLike s] -> do
-              pure ()
-
-            _ -> none
-
-          brief "allows fixme for given reflog" $
-            args [arg "public-key" "reflog"] $
-            examples [qc|
-              fixme-allow BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
-            |]
-            $ entry $ bindMatch "fixme-allow" $ nil_ \case
-              [SignPubKeyLike what] -> do
-                lift $ insertFixmeAllowed (RepoRefLog (RefLogKey what))
-
-              _ -> throwIO $ BadFormException @C nil
-
-          entry $ bindMatch "port" $ nil_ \case
-            [LitIntVal n] -> do
-              tp <- lift $ asks _dashBoardHttpPort
-              atomically $ writeTVar tp (Just (fromIntegral n))
-
-            _ -> throwIO $ BadFormException @C nil
-
-          entry $ bindMatch "web" $ nil_ $ const do
-            lift runScotty
+          myHelpEntry
+          fixmeAllowEntry
+          fixmeAllowDropEntry
+          webEntry
+          portEntry
+          developAssetsEntry
 
   void $ runDashBoardM $ run dict (conf <> cli)
 
+  where
+
+    myHelpEntry = do
+        entry $ bindMatch "--help" $ nil_ $ \case
+          HelpEntryBound what -> do
+            helpEntry what
+            quit
+
+          [StringLike s] -> helpList False (Just s) >> quit
+
+          _ -> helpList False Nothing >> quit
+
+    fixmeAllowEntry =  do
+      brief "allows fixme for given reflog" $
+        args [arg "public-key" "reflog"] $
+        examples [qc|
+          fixme-allow BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+        |]
+        $ entry $ bindMatch "fixme-allow" $ nil_ \case
+          [SignPubKeyLike what] -> do
+            lift $ insertFixmeAllowed (RepoRefLog (RefLogKey what))
+
+          _ -> throwIO $ BadFormException @C nil
+
+
+    fixmeAllowDropEntry =  do
+      brief "drop all allowed fixme records" $
+        examples [qc|
+          fixme-allow:drop
+        |]
+        $ entry $ bindMatch "fixme-allow:drop" $ nil_ \case
+          [] -> do
+            lift $ deleteFixmeAllowed
+
+          _ -> throwIO $ BadFormException @C nil
+
+    webEntry = do
+      brief "run web interface" $
+        entry $ bindMatch "web" $ nil_ $ const do
+          lift runScotty
+
+    portEntry = do
+      brief "set http port for web interface" $
+        entry $ bindMatch "port" $ nil_ \case
+          [LitIntVal n] -> do
+            tp <- lift $ asks _dashBoardHttpPort
+            atomically $ writeTVar tp (Just (fromIntegral n))
+
+          _ -> throwIO $ BadFormException @C nil
+
+    developAssetsEntry = do
+      entry $ bindMatch "develop-assets" $ nil_ \case
+        [StringLike s] -> do
+          pure ()
+
+        _ -> none
 

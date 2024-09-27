@@ -942,6 +942,22 @@ insertFixmeAllowed  reflog = do
     insertOWKV (fromString o) mzero "$type" "fixme-allowed"
     insertOWKV (fromString o) mzero "value" v
 
+deleteFixmeAllowed :: ( DashBoardPerks m
+                      , MonadReader DashBoardEnv m
+                      )
+                   => m ()
+deleteFixmeAllowed = do
+
+  let sql = [qc|
+    with
+      s1 as (
+        select o from object where k = '$type' and json_extract(v, '$') = 'fixme-allowed'
+      )
+    delete from object where o in (select o from s1)
+    |]
+
+  withState $ S.insert_  sql
+
 checkFixmeAllowed :: (DashBoardPerks m, MonadReader DashBoardEnv m)
                   => RepoRefLog
                   -> m Bool
