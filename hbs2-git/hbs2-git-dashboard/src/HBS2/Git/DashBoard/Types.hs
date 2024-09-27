@@ -50,7 +50,7 @@ data DashBoardEnv =
   , _lwwRefAPI          :: ServiceCaller LWWRefAPI UNIX
   , _sto                :: AnyStorage
   , _dataDir            :: FilePath
-  , _db                 :: DBPipeEnv
+  , _db                 :: TVar (Maybe DBPipeEnv)
   , _pipeline           :: TQueue (IO ())
   , _dashBoardHttpPort  :: TVar (Maybe Word16)
   , _dashBoardDevAssets :: TVar (Maybe FilePath)
@@ -82,10 +82,9 @@ newDashBoardEnv :: MonadIO m
                 -> ServiceCaller LWWRefAPI UNIX
                 -> AnyStorage
                 -> m DashBoardEnv
-newDashBoardEnv dbFile peer rlog rchan lww sto  = do
-  let ddir = takeDirectory dbFile
+newDashBoardEnv ddir peer rlog rchan lww sto  = do
   DashBoardEnv peer rlog rchan lww sto ddir
-        <$> newDBPipeEnv dbPipeOptsDef dbFile
+        <$> newTVarIO mzero
         <*> newTQueueIO
         <*> newTVarIO (Just 8911)
         <*> newTVarIO Nothing
@@ -104,13 +103,45 @@ getDevAssets = do
 withDashBoardEnv :: Monad m => DashBoardEnv -> DashBoardM m a -> m a
 withDashBoardEnv env m = runReaderT (fromDashBoardM m) env
 
-withState :: (MonadIO m, MonadReader DashBoardEnv m) => DBPipeM m a -> m a
+data StateFSM m a =
+    S0
+  | SConnect
+
+withState :: forall m a . (MonadIO m, MonadReader DashBoardEnv m) => DBPipeM m a -> m a
 withState f = do
-  asks _db >>= flip withDB f
+
+  dbFile <- asks _dataDir <&> (</> "state.db")
+  tdb <- asks _db
+
+  flip fix S0 $ \next -> \case
+
+    SConnect -> do
+      notice $ yellow "connecting to db"
+      dbe <- liftIO $ try @_ @SomeException (newDBPipeEnv dbPipeOptsDef dbFile)
+
+      case dbe of
+        Right e -> do
+          atomically $ writeTVar tdb (Just e)
+          next S0
+
+        Left what -> do
+          err $ viaShow what
+          pause @Seconds 1
+          next SConnect
+
+    S0 -> do
+      dbe <- readTVarIO tdb
+
+      case dbe of
+        Just d  -> withDB d f
+        Nothing -> next SConnect
 
 
 addJob :: (DashBoardPerks m, MonadReader DashBoardEnv m) => IO () -> m ()
 addJob f = do
   q <- asks _pipeline
   atomically $ writeTQueue q f
+
+hbs2_git_dashboard :: FilePath
+hbs2_git_dashboard = "hbs2-git-dashboard"
 

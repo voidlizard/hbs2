@@ -6,10 +6,14 @@ module Main where
 import HBS2.Git.DashBoard.Prelude
 
 import HBS2.Net.Messaging.Unix
+import HBS2.Net.Proto
+import HBS2.Net.Proto.Service
+
 import HBS2.System.Dir
 import HBS2.OrDie
 import HBS2.Polling
 
+import HBS2.Actors.Peer
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
@@ -29,6 +33,7 @@ import Data.Either
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as LT
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy (ByteString)
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.Static hiding ((<|>))
 import Network.Wai.Middleware.StaticEmbedded as E
@@ -45,6 +50,7 @@ import System.Directory (XdgDirectory(..),getXdgDirectory)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import System.Environment
 import System.Exit
+import System.IO.Temp
 
 {- HLINT ignore "Eta reduce" -}
 {- HLINT ignore "Functor law" -}
@@ -52,9 +58,38 @@ import System.Exit
 getRPC :: Monad m => HasConf m => m (Maybe FilePath)
 getRPC = pure Nothing
 
+data CallRPC
+data PingRPC
 
-hbs2_git_dashboard :: FilePath
-hbs2_git_dashboard = "hbs2-git-dashboard"
+type MyRPC = '[ PingRPC, CallRPC ]
+
+instance HasProtocol UNIX  (ServiceProto MyRPC UNIX) where
+  type instance ProtocolId (ServiceProto MyRPC UNIX) = 0xFAFABEBE
+  type instance Encoded UNIX = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+-- instance (MonadIO m, HasProtocol UNIX (ServiceProto MyServiceMethods1 UNIX)) => HasTimeLimits UNIX (ServiceProto MyServiceMethods1 UNIX) m where
+--   tryLockForPeriod _ _ = pure True
+
+type instance Input CallRPC = String
+type instance Output CallRPC = String
+
+type instance Input PingRPC = ()
+type instance Output PingRPC = String
+
+class HasDashBoardEnv m where
+  getDashBoardEnv :: m DashBoardEnv
+
+instance (MonadIO m) => HandleMethod m CallRPC where
+  handleMethod n = do
+    debug $ "RPC CALL" <+> pretty n
+    pure ""
+
+instance (MonadIO m, HasDashBoardEnv m) => HandleMethod m PingRPC where
+  handleMethod _ = do
+    debug $ "RPC PING"
+    pure "pong"
 
 readConfig :: DashBoardPerks m => m [Syntax C]
 readConfig = do
@@ -76,6 +111,7 @@ runDashBoardM m = do
 
   xdgData <- liftIO $ getXdgDirectory XdgData hbs2_git_dashboard
 
+  let dataDir = xdgData
   let dbFile = xdgData </> "state.db"
 
   -- FIXME: unix-socket-from-config
@@ -118,7 +154,7 @@ runDashBoardM m = do
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
     env <- newDashBoardEnv
-                dbFile
+                dataDir
                 peerAPI
                 refLogAPI
                 refChanAPI
@@ -130,7 +166,7 @@ runDashBoardM m = do
       forever do
         liftIO (atomically $ readTQueue q) & liftIO . join
 
-    lift $ withDashBoardEnv env (withState evolveDB >> m)
+    lift $ withDashBoardEnv env m
       `finally` do
         setLoggingOff @DEBUG
         setLoggingOff @INFO
@@ -306,9 +342,74 @@ runScotty  = do
 
     env <- ask
 
+    notice "evolving db"
+    withState evolveDB
+
+    notice "running config"
+    conf <- readConfig
+
+    run theDict conf
+
     flip runContT pure do
       void $ ContT $ withAsync updateIndexPeriodially
+      void $ ContT $ withAsync runRPC
       scottyT pno (withDashBoardEnv env) (runDashboardWeb wo)
+
+
+data RPCEnv = RPCEnv
+  { rpcMessaging :: MessagingUnix
+  , dashBoardEnv :: DashBoardEnv
+  }
+
+newtype RunRPCM m a = RunRPCM { fromRunRPC :: ReaderT RPCEnv m a }
+                      deriving newtype ( Applicative
+                                       , Functor
+                                       , Monad
+                                       , MonadIO
+                                       , MonadUnliftIO
+                                       , MonadTrans
+                                       , MonadReader RPCEnv
+                                       )
+runRPCMonad :: DashBoardEnv -> MessagingUnix -> RunRPCM m a -> m a
+runRPCMonad env s m = runReaderT (fromRunRPC m) (RPCEnv s env)
+
+instance HasFabriq UNIX (RunRPCM IO) where
+  getFabriq = asks (Fabriq . rpcMessaging)
+
+instance HasOwnPeer UNIX (RunRPCM IO) where
+  ownPeer = asks ( msgUnixSelf . rpcMessaging)
+
+instance HasDashBoardEnv (ResponseM UNIX (RunRPCM IO)) where
+  getDashBoardEnv = lift $ asks dashBoardEnv
+
+runRPC :: DashBoardPerks m => DashBoardM m ()
+runRPC = do
+  debug $ green "runRPC loop"
+
+  env <- ask
+
+  liftIO $ flip runContT pure do
+
+    soname <- ContT $ bracket (liftIO $ emptySystemTempFile "hbs2-git-dashboard-socket") rm
+
+    liftIO $ withDashBoardEnv env do
+      setRPCSocket soname
+
+    void $ ContT $ bracket (pure soname) (\_ -> withDashBoardEnv env $ delRPCSocket)
+
+    notice $ green "rpc-socket" <+> pretty soname
+
+    server <- newMessagingUnix True 1.0 soname
+
+    m1 <- ContT $ withAsync (runMessagingUnix server)
+
+    p1 <- ContT $ withAsync $ runRPCMonad env server do
+                    runProto @UNIX
+                      [ makeResponse (makeServer @MyRPC)
+                      ]
+
+    void $ waitAnyCatchCancel [m1,p1]
+
 
 updateIndexPeriodially :: DashBoardPerks m => DashBoardM m ()
 updateIndexPeriodially = do
@@ -328,7 +429,7 @@ updateIndexPeriodially = do
     void $ ContT $ withAsync $ forever do
       rs <- atomically $ peekTQueue changes >> flushTQueue changes
       addJob (withDashBoardEnv env updateIndex)
-      pause @'Seconds 60
+      pause @'Seconds 1
 
     lift do
       polling (Polling 1 30) rlogs $ \r -> do
@@ -370,27 +471,36 @@ updateIndexPeriodially = do
 quit :: DashBoardPerks m => m ()
 quit = liftIO exitSuccess
 
+withMyRPCClient :: ( MonadUnliftIO m )
+                   -- , HasTimeLimits UNIX (ServiceProto MyRPC UNIX) m)
+                => FilePath -> (ServiceCaller MyRPC UNIX -> IO b) -> m b
+withMyRPCClient soname m = do
+  liftIO do
+    client <- newMessagingUnix False 1.0 soname
+    flip runContT pure do
+      mess <- ContT $ withAsync $ runMessagingUnix client
+      caller <- makeServiceCaller @MyRPC @UNIX (msgUnixSelf client)
+      p2 <- ContT $ withAsync $ runReaderT (runServiceClient caller) client
+      void $ ContT $ bracket none (const $ cancel mess)
+      void $ ContT $ bracket none (const $ cancel p2)
+      liftIO $ m caller
 
-main :: IO ()
-main = do
-  argz <- getArgs
-  cli <- parseTop (unlines $ unwords <$> splitForms argz)
-           & either  (error.show) pure
 
-  conf <- readConfig
-
-  let dict = makeDict @C do
-
-          -- TODO: write-man-entries
-
-          myHelpEntry
-          fixmeAllowEntry
-          fixmeAllowDropEntry
-          webEntry
-          portEntry
-          developAssetsEntry
-
-  void $ runDashBoardM $ run dict (conf <> cli)
+theDict :: forall m . ( MonadIO m
+                      , MonadUnliftIO m
+                      -- , HasTimeLimits UNIX (ServiceProto MyRPC UNIX) m
+                      ) => Dict C (DashBoardM m)
+theDict = do
+  makeDict @C do
+    -- TODO: write-man-entries
+    myHelpEntry
+    fixmeAllowEntry
+    fixmeAllowDropEntry
+    webEntry
+    portEntry
+    developAssetsEntry
+    getRpcSocketEntry
+    rpcPingEntry
 
   where
 
@@ -415,7 +525,6 @@ main = do
             lift $ insertFixmeAllowed (RepoRefLog (RefLogKey what))
 
           _ -> throwIO $ BadFormException @C nil
-
 
     fixmeAllowDropEntry =  do
       brief "drop all allowed fixme records" $
@@ -448,4 +557,27 @@ main = do
           pure ()
 
         _ -> none
+
+    getRpcSocketEntry = do
+      entry $ bindMatch "rpc:socket" $ nil_ $ const do
+        lift getRPCSocket >>= liftIO . maybe exitFailure putStr
+
+    rpcPingEntry = do
+      entry $ bindMatch "ping" $ nil_ $ const $ lift do
+        so <- getRPCSocket >>= orThrowUser "rpc socket down"
+        withMyRPCClient so $ \caller -> do
+          what <- callService @PingRPC caller ()
+          print what
+
+main :: IO ()
+main = do
+  argz <- getArgs
+  cli <- parseTop (unlines $ unwords <$> splitForms argz)
+           & either  (error.show) pure
+
+  let dict = theDict
+
+  void $ runDashBoardM $ do
+    run dict cli
+
 

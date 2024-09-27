@@ -19,6 +19,7 @@ import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
+import HBS2.System.Dir
 
 import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite qualified as S
@@ -36,6 +37,7 @@ import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Map (Map)
 import System.FilePath
+import System.Directory
 
 import Skylighting.Core qualified as Sky
 import Skylighting qualified as Sky
@@ -979,4 +981,28 @@ checkFixmeAllowed r = do
 
   pure $ not $ List.null w
 
+rpcSocketKey :: String
+rpcSocketKey =
+  hashObject @HbSync (serialise "rpc-socket-name") & pretty & show
+
+rpcSocketFile :: MonadUnliftIO m => m FilePath
+rpcSocketFile = do
+  dir <- liftIO $ getXdgDirectory XdgState hbs2_git_dashboard
+  pure $ dir </> rpcSocketKey
+
+setRPCSocket :: (DashBoardPerks m, MonadReader DashBoardEnv m) => FilePath -> m ()
+setRPCSocket soname = do
+  soFile <- rpcSocketFile
+  touch soFile
+  liftIO $ writeFile soFile soname
+
+delRPCSocket :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m ()
+delRPCSocket = do
+  rpcSocketFile >>= rm
+
+getRPCSocket :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m (Maybe FilePath)
+getRPCSocket = do
+  soFile <- rpcSocketFile
+  liftIO $ try @_ @IOError (readFile soFile)
+   <&> either (const Nothing) Just
 
