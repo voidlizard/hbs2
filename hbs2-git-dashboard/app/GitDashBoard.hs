@@ -22,6 +22,7 @@ import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.State.Index
 import HBS2.Git.DashBoard.State.Commits
 import HBS2.Git.DashBoard.Types
+import HBS2.Git.DashBoard.Fixme
 import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
@@ -583,6 +584,8 @@ theDict = do
         withMyRPCClient so $ \caller -> do
           void $ callService @IndexNowRPC caller ()
 
+    -- TODO: ASAP-hide-debug-functions-from-help
+
     debugEntries = do
       entry $ bindMatch "debug:select-repo-fixme" $ nil_ $ const $ lift do
         rs <- selectRepoFixme
@@ -593,6 +596,18 @@ theDict = do
         [SignPubKeyLike s] -> do
            what <- lift $ checkFixmeAllowed (RepoLww (LWWRefKey s))
            liftIO $ print $ pretty what
+
+        _ -> throwIO $ BadFormException @C nil
+
+
+      entry $ bindMatch "debug:test-with-fixme" $ nil_ $ \case
+        [SignPubKeyLike s] -> lift do
+           r <- runInFixme (RepoLww (LWWRefKey s)) (listFixme ())
+                    & try @_ @SomeException
+                    >>= orThrowPassIO
+
+           for_ r $ \f -> do
+              liftIO $ print $ pretty f
 
         _ -> throwIO $ BadFormException @C nil
 

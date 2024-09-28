@@ -8,7 +8,7 @@ import System.Environment
 import System.Directory (getXdgDirectory, XdgDirectory(..))
 
 binName :: FixmePerks m => m FilePath
-binName = liftIO getProgName
+binName = pure "fixme-new" -- liftIO getProgName
 
 localConfigDir :: (FixmePerks m, MonadReader FixmeEnv m) =>  m FilePath
 localConfigDir = do

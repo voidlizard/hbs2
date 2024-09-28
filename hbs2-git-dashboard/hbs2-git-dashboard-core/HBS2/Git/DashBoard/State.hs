@@ -175,6 +175,9 @@ newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving stock (Generic)
                   deriving newtype (ToField,FromField,Pretty)
 
+instance Show RepoLww where
+  show (RepoLww x) = show $ parens $  "RepoLww" <+> pretty x
+
 newtype RepoLwwSeq = RepoLwwSeq Integer
                      deriving stock (Generic)
                      deriving newtype (ToField,FromField,Pretty)
@@ -1024,9 +1027,23 @@ checkFixmeAllowed r = do
 
   pure $ not $ List.null w
 
--- listFixmeRefChans :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m [Rep
--- listFixmeRefChans
+selectRepoFixmeRefChan :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+                  => RepoLww
+                  -> m (Maybe MyRefChan)
+selectRepoFixmeRefChan r = do
+  let sql = [qc|
+    select refchan from (
+      select lww
+           , refchan
+           , max(lwwseq)
+      from repoheadfixme
+      where lww = ?
+      group by lww, refchan
+      limit 1)
+    |]
 
+  withState  (select @(Only RefChanField) sql (Only r))
+    <&> (fmap coerce . headMay)
 
 rpcSocketKey :: String
 rpcSocketKey =

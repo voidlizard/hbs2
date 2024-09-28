@@ -91,6 +91,7 @@ library hbs2-git-dashboard-core
       , filepattern
       , generic-data
       , generic-deriving
+      , generic-lens
       , http-types
       , interpolatedstring-perl6
       , lucid

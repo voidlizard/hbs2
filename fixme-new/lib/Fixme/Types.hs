@@ -369,7 +369,7 @@ data FixmeEnv =
   , fixmeEnvReader         :: TVar (Maybe (PubKey 'Encrypt 'HBS2Basic))
   , fixmeEnvFlags          :: TVar (HashSet FixmeFlags)
   }
-
+  deriving stock (Generic)
 
 fixmeGetCommentsFor :: FixmePerks m => Maybe FilePath -> FixmeM m [Text]
 
@@ -464,7 +464,7 @@ instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI StorageAPI UNIX 
   getClientAPI = getApiOrThrow peerStorageAPI
 
 
-instance (FixmePerks m, MonadReader FixmeEnv m) => HasStorage m where
+instance (FixmePerks m) => HasStorage (FixmeM m) where
   getStorage = do
     api <- getClientAPI @StorageAPI @UNIX
     pure $ AnyStorage (StorageClient api)

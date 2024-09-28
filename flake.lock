@@ -26,11 +26,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1727252661,
-        "narHash": "sha256-8vmgF0Atw+m7a+2Wmlnwjjyw8nSYv0QMT+zN9R3DljQ=",
+        "lastModified": 1727503203,
+        "narHash": "sha256-/HVVyxa55pDLzMiRgCWB4YKVsW2v9wFHTlSpLnyuhkU=",
         "ref": "refs/heads/master",
-        "rev": "8b614540a7f30f0227cb18ef2ad4c8d84db4a75c",
-        "revCount": 9,
+        "rev": "7f28fdcb2ba9ccd426facffebf100e98522d7eac",
+        "revCount": 11,
         "type": "git",
         "url": "https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft"
       },
