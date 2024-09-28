@@ -23,6 +23,7 @@ import HBS2.Git.DashBoard.State.Index
 import HBS2.Git.DashBoard.State.Commits
 import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.Fixme
+import HBS2.Git.DashBoard.Manifest
 import HBS2.Git.Web.Html.Root
 
 import HBS2.Peer.CLI.Detect
@@ -230,16 +231,8 @@ runDashboardWeb WebOptions{..} = do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
-
-      item <- lift (selectRepoList ( mempty
-                                      & set repoListByLww (Just lww)
-                                      & set repoListLimit (Just 1))
-                                   )
-                 <&> listToMaybe
-                 >>= orFall (status status404)
-
-      lift $ html =<< renderTextT (thisRepoManifest item)
-
+      TopInfoBlock{..} <- getTopInfoBlock lww
+      lift $ html (LT.fromStrict manifest)
 
   get (routePattern (RepoRefs "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
@@ -298,6 +291,12 @@ runDashboardWeb WebOptions{..} = do
       lww       <- lwws' & orFall (status status404)
       lift $ renderHtml (repoForks lww)
       -- lift $ renderHtml (toHtml $ show $ pretty lww)
+
+  get (routePattern (RepoFixmeHtmx "lww")) do
+    lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
+    flip runContT pure do
+      lww   <- lwws' & orFall (status status404)
+      lift $ renderHtml (repoFixme lww)
 
   get (routePattern (RepoCommits "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
@@ -602,14 +601,20 @@ theDict = do
 
       entry $ bindMatch "debug:test-with-fixme" $ nil_ $ \case
         [SignPubKeyLike s] -> lift do
-           r <- runInFixme (RepoLww (LWWRefKey s)) (listFixme ())
-                    & try @_ @SomeException
-                    >>= orThrowPassIO
-
+           r <- listFixme (RepoLww (LWWRefKey s)) ()
            for_ r $ \f -> do
               liftIO $ print $ pretty f
 
         _ -> throwIO $ BadFormException @C nil
+
+      entry $ bindMatch "debug:count-fixme" $ nil_ $ \case
+        [SignPubKeyLike s] -> lift do
+           r <- countFixme (RepoLww (LWWRefKey s))
+           liftIO $ print $ pretty r
+
+        _ -> throwIO $ BadFormException @C nil
+
+
 
 main :: IO ()
 main = do

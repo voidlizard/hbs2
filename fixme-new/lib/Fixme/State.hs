@@ -6,6 +6,7 @@ module Fixme.State
   , withState
   , cleanupDatabase
   , listFixme
+  , countFixme
   , insertFixme
   , insertFixmeExported
   , modifyFixme
@@ -318,6 +319,28 @@ selectFixmeKey s = do
 
 sqliteToAeson :: FromJSON a => Text -> Maybe a
 sqliteToAeson = Aeson.decode . LBS.fromStrict . Text.encodeUtf8
+
+
+countFixme :: (FixmePerks m, MonadReader FixmeEnv m) => m Int
+countFixme = do
+
+  let present = [qc|coalesce(json_extract(s1.blob, '$.deleted'),'false') <> 'true' |] :: String
+
+  let sql = [qc|
+    with s1 as (
+      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as text) as blob
+      from object o
+      group by o.o
+    )
+    select count(s1.blob) from s1
+    where
+      {present}
+    |]
+
+  debug $ pretty sql
+
+  withState $ select_ @_ @(Only Int) sql
+    <&> maybe 0 fromOnly . headMay
 
 listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
           => q

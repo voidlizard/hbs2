@@ -1,9 +1,18 @@
 module HBS2.Git.DashBoard.Fixme
-  ( F.listFixme
-  , F.HasPredicate(..)
+  ( F.HasPredicate(..)
   , F.SelectPredicate(..)
   , runInFixme
+  , countFixme
+  , listFixme
   , RunInFixmeError(..)
+  , Fixme(..)
+  , FixmeKey(..)
+  , FixmeTitle(..)
+  , FixmeTag(..)
+  , FixmePlainLine(..)
+  , FixmeAttrName(..)
+  , FixmeAttrVal(..)
+  , FixmeOpts(..)
   ) where
 
 import HBS2.Git.DashBoard.Prelude
@@ -13,11 +22,13 @@ import HBS2.Git.DashBoard.State
 import HBS2.OrDie
 
 import Fixme.State qualified as F
+import Fixme.State (HasPredicate(..))
 import Fixme.Types
 import Fixme.Config
 
-import DBPipe.SQLite (withDB, shutdown)
+import DBPipe.SQLite (shutdown)
 
+import Data.Either
 import Data.Generics.Product.Fields (field)
 
 data RunInFixmeError =
@@ -49,9 +60,6 @@ runInFixme repo m = do
   let fenvNew  = fenv & set (field @"fixmeEnvWorkDir") twd
                       & set (field @"fixmeEnvOpts") fo
 
-  -- TODO: close-fixme-database-garanteed
-  --  похоже, что надо будет фиксить db-pipe
-
   flip runContT pure do
     dbe <- lift $ withFixmeEnv fenvNew $ F.withState ask
 
@@ -66,5 +74,17 @@ runInFixme repo m = do
       trace $ "fixme:db"     <+> pretty dbp
 
       m
+
+listFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m, HasPredicate q) => RepoLww -> q -> m [Fixme]
+listFixme repo q = do
+  runInFixme repo $ F.listFixme q
+    & try @_ @RunInFixmeError
+    <&> fromRight mempty
+
+countFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoLww -> m (Maybe Int)
+countFixme repo = do
+  runInFixme repo $ F.countFixme
+    & try @_ @RunInFixmeError
+    <&> either (const Nothing) Just
 
 

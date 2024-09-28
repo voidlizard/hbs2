@@ -156,7 +156,7 @@ newtype RepoHeadTx = RepoHeadTx HashRef
 
 newtype RepoName = RepoName Text
                    deriving stock (Eq,Show,Generic)
-                   deriving newtype (ToField,FromField,ToHtml,IsString)
+                   deriving newtype (ToField,FromField,ToHtml,IsString,Pretty)
 
 newtype RepoBrief = RepoBrief Text
                    deriving stock (Generic)
@@ -172,7 +172,7 @@ newtype RepoCommitsNum = RepoCommitsNum Int
                          deriving newtype (ToField,FromField,Show,Pretty)
 
 newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
-                  deriving stock (Generic)
+                  deriving stock (Generic,Ord,Eq)
                   deriving newtype (ToField,FromField,Pretty)
 
 instance Show RepoLww where

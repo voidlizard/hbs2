@@ -9,6 +9,7 @@ import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.State
 import HBS2.Git.DashBoard.State.Commits
 import HBS2.Git.DashBoard.Manifest
+import HBS2.Git.DashBoard.Fixme as Fixme
 
 import HBS2.OrDie
 
@@ -67,6 +68,7 @@ data RepoListPage = RepoListPage
 data RepoPageTabs =  CommitsTab (Maybe GitHash)
                    | ManifestTab
                    | TreeTab (Maybe GitHash)
+                   | IssuesTab
                    | ForksTab
                     deriving stock (Eq,Ord,Show)
 
@@ -87,6 +89,8 @@ data RepoForksHtmx repo = RepoForksHtmx repo
 newtype RepoManifest repo = RepoManifest repo
 
 newtype RepoCommits repo = RepoCommits repo
+
+newtype RepoFixmeHtmx repo = RepoFixmeHtmx repo
 
 data RepoCommitsQ repo off lim = RepoCommitsQ repo off lim
 
@@ -115,6 +119,7 @@ instance Pretty RepoPageTabs where
     ManifestTab{}  -> "manifest"
     TreeTab{}      -> "tree"
     ForksTab{}     -> "forks"
+    IssuesTab{}    -> "issues"
 
 instance FromStringMaybe RepoPageTabs where
   fromStringMay = \case
@@ -122,6 +127,7 @@ instance FromStringMaybe RepoPageTabs where
     "manifest" -> pure ManifestTab
     "tree"     -> pure (TreeTab Nothing)
     "forks"    -> pure ForksTab
+    "issues"   -> pure IssuesTab
     _          -> pure (CommitsTab Nothing)
 
 instance ToRoutePattern RepoListPage where
@@ -256,9 +262,19 @@ instance ToURL (RepoForksHtmx (LWWRefKey 'HBS2Basic))  where
     where
       repo = show $ pretty k
 
+instance ToRoutePattern (RepoFixmeHtmx String) where
+  routePattern (RepoFixmeHtmx r) =
+    path ["/", "htmx", "fixme", toArg r] & toPattern
+
+instance ToURL (RepoFixmeHtmx RepoLww)  where
+  toURL (RepoFixmeHtmx k) = path ["/", "htmx", "fixme", repo]
+    where
+      repo = show $ pretty k
+
 instance ToRoutePattern (RepoForksHtmx String) where
   routePattern (RepoForksHtmx r) =
     path ["/", "htmx", "forks", toArg r] & toPattern
+
 
 myCss :: Monad m => HtmlT m ()
 myCss = do
@@ -422,10 +438,10 @@ parsedManifest RepoListItem{..} = do
     Just x  -> parseManifest (snd x)
     Nothing -> pure (mempty, coerce rlRepoBrief)
 
-thisRepoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoListItem -> HtmlT m ()
-thisRepoManifest it@RepoListItem{..} = do
-  (_, manifest) <- lift $ parsedManifest it
-  toHtmlRaw (renderMarkdown' manifest)
+thisRepoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoHead -> HtmlT m ()
+thisRepoManifest rh = do
+  (_, man) <- lift $ parseManifest rh
+  toHtmlRaw (renderMarkdown' man)
 
 repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
@@ -885,12 +901,122 @@ instance ToHtml (ShortRef (LWWRefKey 'HBS2Basic)) where
   toHtmlRaw (ShortRef a) = toHtml (shortRef 14 3 (show $ pretty a))
 
 
-repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
-         => RepoPageTabs
-         -> LWWRefKey 'HBS2Basic
-         -> [(Text,Text)]
-         -> HtmlT m ()
-repoPage tab lww params = rootPage do
+newtype H a = H a
+
+instance ToHtml (H FixmeKey) where
+  toHtmlRaw (H k) = toHtmlRaw $ take 10 $ show $ pretty k
+  toHtml (H k)    = toHtml    $ take 10 $ show $ pretty k
+
+instance ToHtml (H FixmeTag) where
+  toHtmlRaw (H k) = toHtmlRaw $ coerce @_ @Text k
+  toHtml (H k)    = toHtml    $ coerce @_ @Text k
+
+instance ToHtml (H FixmeTitle) where
+  toHtmlRaw (H k) = toHtmlRaw $ coerce @_ @Text k
+  toHtml (H k)    = toHtml    $ coerce @_ @Text k
+
+repoFixme :: (MonadReader DashBoardEnv m, DashBoardPerks m) => LWWRefKey HBS2Basic -> HtmlT m ()
+repoFixme lww = do
+
+  fme <- lift $ listFixme (RepoLww lww) ()
+
+  table_ [] do
+    for_ fme $ \fixme -> do
+      tr_ [class_ "commit-brief-title"] $ do
+        td_ [class_ "mono", width_ "10"] do
+           a_ [] $ toHtml (H $ fixmeKey fixme)
+        td_ [width_ "10"] do
+           strong_ [] $ toHtml (H $ fixmeTag fixme)
+        td_ [] do
+           toHtml (H $ fixmeTitle fixme)
+      tr_ [class_ "commit-brief-details"] $ do
+        td_ [colspan_ "3"] do
+          small_ "seconday shit"
+
+
+data TopInfoBlock =
+  TopInfoBlock
+  { author      :: Maybe Text
+  , public      :: Maybe Text
+  , forksNum    :: RepoForks
+  , commitsNum  :: RepoCommitsNum
+  , manifest    :: Text
+  , fixme       :: Maybe MyRefChan
+  , fixmeCnt    :: Int
+  , pinned      :: [(Text, Syntax C)]
+  , repoHeadRef :: RepoHeadRef
+  , repoHead    :: Maybe RepoHead
+  , repoName    :: RepoName
+  }
+
+repoTopInfoBlock :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
+                 => LWWRefKey 'HBS2Basic
+                 -> TopInfoBlock
+                 -> HtmlT m ()
+
+repoTopInfoBlock lww TopInfoBlock{..} = do
+  div_ [class_ "info-block" ] do
+
+    summary_ [class_ "sidebar-title"] $ small_ $ strong_ "About"
+    ul_ [class_ "mb-0"] do
+      for_ author $ \a -> do
+        li_ $ small_ do
+          "Author: "
+          toHtml a
+
+      for_ public $ \p -> do
+        li_ $ small_ do
+          "Public: "
+          toHtml p
+
+      when (Text.length manifest > 100) do
+        li_ $ small_ do
+          a_ [class_ "secondary", href_ (toURL (RepoPage ManifestTab lww))] do
+            span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
+            "Manifest"
+
+      for_ fixme $ \_ -> do
+        li_ $ small_ do
+          a_ [ class_ "secondary"
+             , href_ (toURL (RepoPage IssuesTab lww)) ] do
+            span_ [class_ "inline-icon-wrapper"] $ svgIcon IconFixme
+            toHtml $ show fixmeCnt
+            " Issues"
+
+      when (forksNum > 0) do
+        li_ $ small_ do
+          a_ [class_ "secondary"
+            , href_ "#"
+            , hxGet_ (toURL (RepoForksHtmx lww))
+            , hxTarget_ "#repo-tab-data"
+            ] do
+              span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
+              toHtml $ show forksNum
+              " forks"
+
+      li_ $ small_ do
+        a_ [class_ "secondary"
+          , href_ (toURL (RepoPage (CommitsTab Nothing) lww))
+          ] do
+          span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitCommit
+          toHtml $ show commitsNum
+          " commits"
+
+      for_ pinned $ \(_,ref) ->  do
+        case ref of
+          PinnedRefBlob s n hash -> small_ do
+            li_ $ a_ [class_ "secondary"
+              , href_ "#"
+              , hxGet_ (toURL (RepoSomeBlob lww s hash))
+              , hxTarget_ "#repo-tab-data"
+              ] do
+                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconPinned
+                  toHtml (Text.take 12 n)
+                  " "
+                  toHtml $ ShortRef hash
+
+
+getTopInfoBlock lww = do
 
   it@RepoListItem{..} <- lift (selectRepoList ( mempty
                                   & set repoListByLww (Just lww)
@@ -901,7 +1027,7 @@ repoPage tab lww params = rootPage do
   sto <- asks _sto
   mhead <- lift $ readRepoHeadFromTx sto (coerce rlRepoTx)
 
-  let mbHead = snd <$> mhead
+  let repoHead = snd <$> mhead
 
   (meta, manifest) <- lift $ parsedManifest it
 
@@ -912,7 +1038,25 @@ repoPage tab lww params = rootPage do
   allowed <- lift $ checkFixmeAllowed (RepoLww lww)
   let fixme  = headMay [ x | allowed, FixmeRefChanP x <- meta ]
 
-  debug $ red "META" <+> pretty meta
+  fixmeCnt <- lift (Fixme.countFixme (RepoLww lww))
+                 <&> fromMaybe 0
+
+  let forksNum = rlRepoForks
+  let commitsNum = rlRepoCommits
+  let repoHeadRef = rlRepoHead
+  let repoName = rlRepoName
+
+  pure $ TopInfoBlock{..}
+
+repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
+         => RepoPageTabs
+         -> LWWRefKey 'HBS2Basic
+         -> [(Text,Text)]
+         -> HtmlT m ()
+
+repoPage IssuesTab lww _ = rootPage do
+
+  topInfoBlock@TopInfoBlock{..} <- getTopInfoBlock lww
 
   main_ [class_ "container-fluid"] do
     div_ [class_ "wrapper"] do
@@ -923,70 +1067,60 @@ repoPage tab lww params = rootPage do
           let txt = toHtml (ShortRef lww)
           a_ [href_ url, class_ "secondary"] txt
 
-        -- div_ [class_ "info-block" ] do
-        --   a_ [ href_ "/"] do
-        --     span_ [class_ "inline-icon-wrapper"] $ svgIcon IconArrowUturnLeft
-        --     "back to projects"
+        repoTopInfoBlock lww topInfoBlock
+
+      div_ [class_ "content"] $ do
+
+        -- article_ [class_ "py-0"] $ nav_ [ariaLabel_ "breadcrumb", class_ "repo-menu"] $ ul_ do
+
+        --   let menuTabClasses isActive = if isActive then "tab contrast" else "tab"
+        --       menuTab t misc name = li_ do
+        --         a_ ([class_ $ menuTabClasses $ isActiveTab tab t] <> misc <> [tabClick]) do
+        --           name
+
+        --   menuTab (CommitsTab Nothing)
+        --                  [ href_ "#"
+        --                  , hxGet_ (toURL (RepoCommits lww))
+        --                  , hxTarget_ "#repo-tab-data"
+        --                  ] "commits"
+
+        --   menuTab (TreeTab Nothing)
+        --               [ href_ "#"
+        --               , hxGet_ (toURL (RepoRefs lww))
+        --               , hxTarget_ "#repo-tab-data"
+        --               ] "tree"
+
+        section_ do
+          strong_ $ toHtml (show $ "Issues ::" <+> pretty repoName)
+
+        div_ [ id_ "repo-tab-data"
+             , hxTrigger_ "load"
+             , hxTarget_ "#repo-tab-data"
+             , hxGet_ (toURL (RepoFixmeHtmx (RepoLww lww)))
+             ] do
+          pure ()
+
+        div_ [id_ "repo-tab-data-embedded"] mempty
+
+
+repoPage tab lww params = rootPage do
+
+  sto <- asks _sto
+
+  topInfoBlock@TopInfoBlock{..} <- getTopInfoBlock lww
+
+  main_ [class_ "container-fluid"] do
+    div_ [class_ "wrapper"] do
+      aside_ [class_ "sidebar"] do
 
         div_ [class_ "info-block" ] do
+          let url = toURL (RepoPage (CommitsTab Nothing) lww)
+          let txt = toHtml (ShortRef lww)
+          a_ [href_ url, class_ "secondary"] txt
 
-          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "About"
-          ul_ [class_ "mb-0"] do
-            for_ author $ \a -> do
-              li_ $ small_ do
-                "Author: "
-                toHtml a
+        repoTopInfoBlock lww topInfoBlock
 
-            for_ public $ \p -> do
-              li_ $ small_ do
-                "Public: "
-                toHtml p
-
-            when (Text.length manifest > 100) do
-              li_ $ small_ do
-                a_ [class_ "secondary", href_ (toURL (RepoPage ManifestTab lww))] do
-                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
-                  "Manifest"
-
-            for_ fixme $ \_ -> do
-              li_ $ small_ do
-                a_ [class_ "secondary"] do
-                  span_ [class_ "inline-icon-wrapper"] $ svgIcon IconFixme
-                  "Issues"
-
-            when (rlRepoForks > 0) do
-              li_ $ small_ do
-                a_ [class_ "secondary"
-                  , href_ "#"
-                  , hxGet_ (toURL (RepoForksHtmx lww))
-                  , hxTarget_ "#repo-tab-data"
-                  ] do
-                    span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
-                    toHtml $ show rlRepoForks
-                    " forks"
-
-            li_ $ small_ do
-              a_ [class_ "secondary"
-                , href_ (toURL (RepoPage (CommitsTab Nothing) lww))
-                ] do
-                span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitCommit
-                toHtml $ show rlRepoCommits
-                " commits"
-
-            for_ pinned $ \(_,ref) ->  do
-              case ref of
-                PinnedRefBlob s n hash -> small_ do
-                  li_ $ a_ [class_ "secondary"
-                    , href_ "#"
-                    , hxGet_ (toURL (RepoSomeBlob lww s hash))
-                    , hxTarget_ "#repo-tab-data"
-                    ] do
-                        span_ [class_ "inline-icon-wrapper"] $ svgIcon IconPinned
-                        toHtml (Text.take 12 n)
-                        " "
-                        toHtml $ ShortRef hash
-
-        for_ mbHead $ \rh -> do
+        for_ repoHead $ \rh -> do
 
           let theHead = headMay [ v | (GitRef "HEAD", v) <- view repoHeadRefs rh ]
 
@@ -1031,7 +1165,7 @@ repoPage tab lww params = rootPage do
                       ] "tree"
 
         section_ do
-          strong_ $ toHtml rlRepoName
+          strong_ $ toHtml repoName
 
         div_ [id_ "repo-tab-data"] do
 
@@ -1046,7 +1180,7 @@ repoPage tab lww params = rootPage do
               maybe (repoRefs lww) (\t -> repoTree lww t t) tree
 
             ManifestTab -> do
-              thisRepoManifest it
+              for_ repoHead $ thisRepoManifest
 
             CommitsTab{} -> do
               let predicate = Right (fromQueryParams params)
