@@ -331,7 +331,7 @@ rootPage content  = do
 
       header_ [class_ "container-fluid"] do
         nav_ do
-          ul_ $ li_ $ a_ [href_ (toURL RepoListPage)] $ strong_ "hbs2-peer dashboard"
+          ul_ $ li_ $ a_ [href_ (toURL RepoListPage)] $ strong_ "hbs2-git dashboard"
 
       content
 
