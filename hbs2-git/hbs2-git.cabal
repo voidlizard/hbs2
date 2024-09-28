@@ -127,69 +127,6 @@ library
     hs-source-dirs:   hbs2-git-client-lib
 
 
-library hbs2-git-dashboard-assets
-  import:           shared-properties
-
-  build-depends:
-    base, file-embed, lucid, text
-
-  exposed-modules:
-      HBS2.Git.Web.Assets
-
-  hs-source-dirs:   hbs2-git-dashboard-assets
-
-  default-language: GHC2021
-
-
-executable hbs2-git-dashboard
-    import:           shared-properties
-    main-is:          GitDashBoard.hs
-
-    other-modules:
-      HBS2.Git.DashBoard.Prelude
-      HBS2.Git.DashBoard.Types
-      HBS2.Git.DashBoard.State
-      HBS2.Git.DashBoard.State.Commits
-      HBS2.Git.DashBoard.State.Index
-      HBS2.Git.DashBoard.State.Index.Channels
-      HBS2.Git.DashBoard.State.Index.Peer
-      HBS2.Git.DashBoard.Manifest
-      HBS2.Git.DashBoard.Fixme
-      HBS2.Git.Web.Html.Root
-
-    -- other-extensions:
-    build-depends:
-        base, hbs2-git-dashboard-assets, hbs2-peer, hbs2-git, suckless-conf
-        , fuzzy-parse
-        , binary
-        , generic-deriving
-        , generic-data
-        , deriving-compat
-        , vector
-        , optparse-applicative
-        , http-types
-        , file-embed
-        , network-uri
-        , wai
-        , wai-extra
-        , wai-middleware-static
-        , wai-middleware-static-embedded
-        , lucid
-        , lucid-htmx
-        , pandoc
-        , skylighting
-        , skylighting-core
-        , skylighting-lucid
-        , scotty >= 0.21
-        , temporary
-
-    hs-source-dirs:
-      hbs2-git-dashboard
-      hbs2-git-dashboard/src
-
-    default-language: GHC2021
-
-
 executable hbs2-git-subscribe
     import:           shared-properties
     main-is:          Main.hs
