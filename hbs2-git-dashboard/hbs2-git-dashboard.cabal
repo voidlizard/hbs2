@@ -76,6 +76,7 @@ library hbs2-git-dashboard-core
       , hbs2-keyman-direct-lib
       , db-pipe
       , suckless-conf
+      , fixme-new
 
       , aeson
       , atomic-write

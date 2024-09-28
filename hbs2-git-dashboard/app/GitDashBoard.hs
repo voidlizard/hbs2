@@ -589,6 +589,12 @@ theDict = do
         for_ rs $ \(r,f) -> do
           liftIO $ print $ pretty r <+> pretty (AsBase58 f)
 
+      entry $ bindMatch "debug:check-fixme-allowed" $ nil_ $ \case
+        [SignPubKeyLike s] -> do
+           what <- lift $ checkFixmeAllowed (RepoLww (LWWRefKey s))
+           liftIO $ print $ pretty what
+
+        _ -> throwIO $ BadFormException @C nil
 
 main :: IO ()
 main = do
