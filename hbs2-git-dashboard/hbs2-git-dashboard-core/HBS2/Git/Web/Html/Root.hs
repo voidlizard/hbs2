@@ -738,6 +738,8 @@ repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
 repoCommits lww predicate' = do
   now <- getEpoch
 
+  debug $ red "repoCommits"
+
   let predicate = either id id predicate'
 
   co <- lift $ selectCommits lww predicate
@@ -1018,6 +1020,8 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
 
 getTopInfoBlock lww = do
 
+  debug $ red "getTopInfoBlock"
+
   it@RepoListItem{..} <- lift (selectRepoList ( mempty
                                   & set repoListByLww (Just lww)
                                   & set repoListLimit (Just 1))
@@ -1038,8 +1042,11 @@ getTopInfoBlock lww = do
   allowed <- lift $ checkFixmeAllowed (RepoLww lww)
   let fixme  = headMay [ x | allowed, FixmeRefChanP x <- meta ]
 
-  fixmeCnt <- lift (Fixme.countFixme (RepoLww lww))
-                 <&> fromMaybe 0
+  fixmeCnt <- if allowed then
+                lift (Fixme.countFixme (RepoLww lww))
+                  <&> fromMaybe 0
+              else
+                pure 0
 
   let forksNum = rlRepoForks
   let commitsNum = rlRepoCommits

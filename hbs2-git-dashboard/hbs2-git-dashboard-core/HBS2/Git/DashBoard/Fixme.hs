@@ -78,13 +78,13 @@ runInFixme repo m = do
 listFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m, HasPredicate q) => RepoLww -> q -> m [Fixme]
 listFixme repo q = do
   runInFixme repo $ F.listFixme q
-    & try @_ @RunInFixmeError
+    & try @_ @SomeException
     <&> fromRight mempty
 
 countFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoLww -> m (Maybe Int)
 countFixme repo = do
   runInFixme repo $ F.countFixme
-    & try @_ @RunInFixmeError
+    & try @_ @SomeException
     <&> either (const Nothing) Just
 
 
