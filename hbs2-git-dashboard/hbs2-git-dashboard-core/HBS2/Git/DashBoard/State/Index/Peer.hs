@@ -85,8 +85,6 @@ updateIndexFromPeer = do
 
                       guard (not done)
 
-                      debug $ red "AAAAAAA" <+> pretty htx
-
                       getBlock sto (fromHashRef htx) >>= toMPlus
                          <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                          >>= toMPlus
