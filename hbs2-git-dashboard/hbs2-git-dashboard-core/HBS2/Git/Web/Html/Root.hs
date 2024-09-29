@@ -917,23 +917,25 @@ instance ToHtml (H FixmeTitle) where
   toHtmlRaw (H k) = toHtmlRaw $ coerce @_ @Text k
   toHtml (H k)    = toHtml    $ coerce @_ @Text k
 
-repoFixme :: (MonadReader DashBoardEnv m, DashBoardPerks m) => LWWRefKey HBS2Basic -> HtmlT m ()
+repoFixme :: (MonadReader DashBoardEnv m, DashBoardPerks m)
+          => LWWRefKey HBS2Basic
+          -> HtmlT m ()
+
 repoFixme lww = do
 
   fme <- lift $ listFixme (RepoLww lww) ()
 
-  table_ [] do
-    for_ fme $ \fixme -> do
-      tr_ [class_ "commit-brief-title"] $ do
-        td_ [class_ "mono", width_ "10"] do
-           a_ [] $ toHtml (H $ fixmeKey fixme)
-        td_ [width_ "10"] do
-           strong_ [] $ toHtml (H $ fixmeTag fixme)
-        td_ [] do
-           toHtml (H $ fixmeTitle fixme)
-      tr_ [class_ "commit-brief-details"] $ do
-        td_ [colspan_ "3"] do
-          small_ "seconday shit"
+  for_ fme $ \fixme -> do
+    tr_ [class_ "commit-brief-title"] $ do
+      td_ [class_ "mono", width_ "10"] do
+         a_ [] $ toHtml (H $ fixmeKey fixme)
+      td_ [width_ "10"] do
+         strong_ [] $ toHtml (H $ fixmeTag fixme)
+      td_ [] do
+         toHtml (H $ fixmeTitle fixme)
+    tr_ [class_ "commit-brief-details"] $ do
+      td_ [colspan_ "3"] do
+        small_ "seconday shit"
 
 
 data TopInfoBlock =
@@ -1078,34 +1080,17 @@ repoPage IssuesTab lww _ = rootPage do
 
       div_ [class_ "content"] $ do
 
-        -- article_ [class_ "py-0"] $ nav_ [ariaLabel_ "breadcrumb", class_ "repo-menu"] $ ul_ do
-
-        --   let menuTabClasses isActive = if isActive then "tab contrast" else "tab"
-        --       menuTab t misc name = li_ do
-        --         a_ ([class_ $ menuTabClasses $ isActiveTab tab t] <> misc <> [tabClick]) do
-        --           name
-
-        --   menuTab (CommitsTab Nothing)
-        --                  [ href_ "#"
-        --                  , hxGet_ (toURL (RepoCommits lww))
-        --                  , hxTarget_ "#repo-tab-data"
-        --                  ] "commits"
-
-        --   menuTab (TreeTab Nothing)
-        --               [ href_ "#"
-        --               , hxGet_ (toURL (RepoRefs lww))
-        --               , hxTarget_ "#repo-tab-data"
-        --               ] "tree"
-
         section_ do
           strong_ $ toHtml (show $ "Issues ::" <+> pretty repoName)
 
+        table_ [] do
+          tbody_ [id_ "fixme-tab-data"] mempty
+
         div_ [ id_ "repo-tab-data"
              , hxTrigger_ "load"
-             , hxTarget_ "#repo-tab-data"
+             , hxTarget_ "#fixme-tab-data"
              , hxGet_ (toURL (RepoFixmeHtmx (RepoLww lww)))
-             ] do
-          pure ()
+             ] mempty
 
         div_ [id_ "repo-tab-data-embedded"] mempty
 

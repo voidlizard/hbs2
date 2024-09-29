@@ -43,7 +43,11 @@ instance Exception RunInFixmeError
 --
 --  Хорошо бы как-то абстрагировать, изолировать и т.п.
 --
-runInFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoLww -> FixmeM m a ->  m a
+runInFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m)
+           => RepoLww
+           -> FixmeM m a
+           ->  m a
+
 runInFixme repo m = do
 
   denv <- ask
@@ -52,6 +56,8 @@ runInFixme repo m = do
                   >>= orThrow (FixmeRefChanNotFound repo)
 
   p <- fixmeDataPath fixmeRChan
+
+  -- TODO: check-if-database-exists
 
   fenv <- fixmeEnvBare
   fo <- newTVarIO (FixmeOpts True)
