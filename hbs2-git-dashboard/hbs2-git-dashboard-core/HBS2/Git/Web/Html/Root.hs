@@ -939,11 +939,13 @@ repoFixme :: ( MonadReader DashBoardEnv m
 
 repoFixme q lww = do
 
+  now <- liftIO $ getPOSIXTime <&> round
+
   debug $ blue "repoFixme" <+> "LIMITS" <+> viaShow (limit q)
 
   let offset = maybe 0 fst (limit q)
 
-  fme <- lift $ listFixme (RepoLww lww) q
+  fme <- lift $ listFixme (RepoLww lww) (Reversed q)
 
   for_ fme $ \fixme -> do
     tr_ [class_ "commit-brief-title"] $ do
@@ -955,7 +957,11 @@ repoFixme q lww = do
          toHtml (H $ fixmeTitle fixme)
     tr_ [class_ "commit-brief-details"] $ do
       td_ [colspan_ "3"] do
-        small_ "seconday shit"
+        mempty
+
+        -- small_ do
+        --   for_ (fixmeTs fixme) $ \t0 -> do
+        --     toHtml ("updated " <> agePure (fromIntegral t0) now)
 
   unless (List.null fme) do
     tr_ [ class_ "commit-brief-last"
@@ -1093,6 +1099,9 @@ repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
 repoPage IssuesTab lww _ = rootPage do
 
   topInfoBlock@TopInfoBlock{..} <- getTopInfoBlock lww
+  tot <- lift $ countFixme (RepoLww lww)
+  fmw <- lift $ countFixmeByAttribute (RepoLww lww) "workflow"
+  fmt <- lift $ countFixmeByAttribute (RepoLww lww) "fixme-tag"
 
   main_ [class_ "container-fluid"] do
     div_ [class_ "wrapper"] do
@@ -1104,6 +1113,41 @@ repoPage IssuesTab lww _ = rootPage do
           a_ [href_ url, class_ "secondary"] txt
 
         repoTopInfoBlock lww topInfoBlock
+
+        div_ [class_ "info-block" ] do
+
+          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Tag"
+
+          -- TODO: make-this-block-properly
+
+          ul_ do
+            for_ fmt $ \(s,n) -> do
+              li_ [] $ small_ [] do
+                a_ [class_ "secondary"] do
+                  span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+                    toHtml $ show $ pretty n
+
+                  span_ [] $ toHtml $ show $ pretty s
+
+          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Status"
+
+          ul_ do
+
+            li_ [] $ small_ [] do
+              a_ [class_ "secondary"] do
+                span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+                  toHtml $ show $ pretty (fromMaybe 0 tot)
+
+                span_ [] $ toHtml $ show $ pretty "[all]"
+
+            for_ fmw $ \(s,n) -> do
+              li_ [] $ small_ [] do
+                a_ [class_ "secondary"] do
+                  span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+                    toHtml $ show $ pretty n
+
+                  span_ [] $ toHtml $ show $ pretty s
+
 
       div_ [class_ "content"] $ do
 

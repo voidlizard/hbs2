@@ -1,12 +1,16 @@
 module HBS2.Git.DashBoard.Fixme
   ( F.HasPredicate(..)
   , F.HasLimit(..)
+  , HasItemOrder(..)
+  , ItemOrder(..)
+  , Reversed(..)
   , F.SelectPredicate(..)
   , WithLimit(..)
   , QueryOffset
   , QueryLimit
   , runInFixme
   , countFixme
+  , countFixmeByAttribute
   , listFixme
   , RunInFixmeError(..)
   , Fixme(..)
@@ -27,7 +31,15 @@ import HBS2.Git.DashBoard.State
 import HBS2.OrDie
 
 import Fixme.State qualified as F
-import Fixme.State (HasPredicate(..),HasLimit(..),WithLimit(..),QueryOffset,QueryLimit)
+import Fixme.State ( HasPredicate(..)
+                   , HasLimit(..)
+                   , HasItemOrder(..)
+                   , WithLimit(..)
+                   , QueryOffset
+                   , QueryLimit
+                   , ItemOrder
+                   , Reversed
+                   )
 import Fixme.Types
 import Fixme.Config
 
@@ -94,6 +106,7 @@ listFixme :: ( DashBoardPerks m
              , MonadReader DashBoardEnv m
              , HasPredicate q
              , HasLimit q
+             , HasItemOrder q
              ) => RepoLww -> q -> m [Fixme]
 listFixme repo q = do
   runInFixme repo $ F.listFixme q
@@ -108,4 +121,9 @@ countFixme repo = do
     & try @_ @SomeException
     <&> either (const Nothing) Just
 
+countFixmeByAttribute :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoLww -> String -> m [(FixmeAttrVal, Int)]
+countFixmeByAttribute repo name = do
+  runInFixme repo $ F.countByAttribute (fromString name)
+    & try @_ @SomeException
+    <&> fromRight mempty
 

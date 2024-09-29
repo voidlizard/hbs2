@@ -383,6 +383,15 @@ runTop forms = do
        entry $ bindMatch "fixme:state:cleanup" $ nil_ $ const $ lift do
         cleanupDatabase
 
+
+       entry $ bindMatch "fixme:state:count-by-attribute" $ nil_ $ \case
+        [StringLike s] -> lift do
+            rs <- countByAttribute (fromString s)
+            for_ rs $ \(n,v) -> do
+              liftIO $ print $ pretty n <+> pretty v
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "fixme:git:import" $ nil_ $ const $ lift do
           import_
 

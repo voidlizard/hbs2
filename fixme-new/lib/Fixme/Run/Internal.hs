@@ -298,7 +298,7 @@ scanFiles = do
       pure True
 
 
-report :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
+report :: (FixmePerks m, HasPredicate q, HasItemOrder q) => Maybe FilePath -> q -> FixmeM m ()
 report t q = do
 
   tpl <- asks fixmeEnvTemplates >>= readTVarIO

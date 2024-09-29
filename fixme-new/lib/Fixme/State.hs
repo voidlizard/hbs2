@@ -7,6 +7,7 @@ module Fixme.State
   , cleanupDatabase
   , listFixme
   , countFixme
+  , countByAttribute
   , insertFixme
   , insertFixmeExported
   , modifyFixme
@@ -22,6 +23,9 @@ module Fixme.State
   , HasPredicate(..)
   , SelectPredicate(..)
   , HasLimit(..)
+  , HasItemOrder(..)
+  , ItemOrder(..)
+  , Reversed(..)
   , LocalNonce(..)
   , WithLimit(..)
   , QueryOffset(..)
@@ -35,8 +39,6 @@ import Fixme.Config
 
 import HBS2.Base58
 import HBS2.System.Dir
-import Data.Config.Suckless hiding (key)
-import Data.Config.Suckless.Syntax
 import DBPipe.SQLite hiding (field)
 
 import Data.HashSet (HashSet)
@@ -44,23 +46,16 @@ import Data.HashSet qualified as HS
 import Data.Aeson as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
-import Text.InterpolatedString.Perl6 (q,qc)
+import Text.InterpolatedString.Perl6 (qc)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Maybe
 import Data.List qualified as List
-import Data.Either
-import Data.List (sortBy,sortOn)
-import Data.Ord
-import Lens.Micro.Platform
-import Data.Generics.Product.Fields (field)
 import Control.Monad.Trans.Maybe
 import Data.Coerce
-import Data.Fixed
 import Data.Word (Word64)
 import System.Directory (getModificationTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
-import System.TimeIt
 
 -- TODO: runPipe-omitted
 --   runPipe нигде не запускается, значит, все изменения
@@ -168,6 +163,17 @@ class HasPredicate a where
 class HasLimit a where
   limit :: a -> Maybe QueryLimitClause
 
+data ItemOrder = Direct | Reverse
+
+class HasItemOrder a where
+  itemOrder :: a -> ItemOrder
+  itemOrder = const Direct
+
+newtype Reversed a = Reversed a
+
+instance HasItemOrder (Reversed a) where
+  itemOrder = const Reverse
+
 -- TODO: move-to-db-pipe?
 newtype QueryOffset = QueryOffset Word64
                       deriving newtype (Show,Eq,Ord,Num,Enum,Integral,Real,ToField,FromField,Pretty)
@@ -183,11 +189,26 @@ instance HasLimit () where
 
 data WithLimit q = WithLimit (Maybe QueryLimitClause) q
 
+instance HasItemOrder q => HasItemOrder (WithLimit q) where
+  itemOrder (WithLimit _ q) = itemOrder q
+
+instance HasItemOrder [Syntax c] where
+  itemOrder = const Direct
+
+instance HasItemOrder () where
+  itemOrder = const Direct
+
 instance HasPredicate q => HasPredicate (WithLimit q) where
   predicate (WithLimit _ query) = predicate query
 
 instance HasLimit (WithLimit a) where
   limit (WithLimit l _) = l
+
+instance HasPredicate q => HasPredicate (Reversed q) where
+  predicate (Reversed q) = predicate q
+
+instance HasLimit q => HasLimit (Reversed q) where
+  limit (Reversed q) = limit q
 
 data SelectPredicate =
     All
@@ -371,10 +392,34 @@ countFixme = do
   withState $ select_ @_ @(Only Int) sql
     <&> maybe 0 fromOnly . headMay
 
+
+countByAttribute :: ( FixmePerks m
+                    , MonadReader FixmeEnv m
+                    )
+                 => FixmeAttrName
+                 -> m [(FixmeAttrVal, Int)]
+countByAttribute name = do
+  let sql = [qc|
+
+
+    select v, count(1) from object o
+    where not exists
+      ( select null from object o1
+        where o1.o = o.o
+          and o1.k = 'deleted' and o1.v == 'true'
+      )
+    and o.k = ?
+    group by v
+
+    |]
+
+  withState $ select sql (Only name)
+
 listFixme :: ( FixmePerks m
              , MonadReader FixmeEnv m
              , HasPredicate q
              , HasLimit q
+             , HasItemOrder q
              )
           => q
           -> m [Fixme]
@@ -388,9 +433,13 @@ listFixme expr = do
                                  Just (o,l) -> ([qc|limit ? offset ?|] :: String, [Bound l, Bound o])
                                  Nothing -> (mempty, [])
 
+  let o = case itemOrder expr of
+            Direct  -> "asc" :: String
+            Reverse -> "desc"
+
   let sql = [qc|
     with s1 as (
-      select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as text) as blob
+      select cast (json_insert(json_group_object(o.k, o.v), '$.fixme-timestamp', cast(max(o.w) as text)) as text) as blob
       from object o
       group by o.o
     )
@@ -399,8 +448,8 @@ listFixme expr = do
       {w}
       {present}
     order by
-        json_extract(s1.blob, '$.commit-time') asc nulls last,
-        json_extract(s1.blob, '$.w') asc nulls last
+        json_extract(s1.blob, '$.commit-time') {o} nulls last,
+        json_extract(s1.blob, '$.w') {o} nulls last
     {limitClause}
     |]
 
@@ -414,7 +463,7 @@ getFixme :: (FixmePerks m, MonadReader FixmeEnv m) => FixmeKey -> m (Maybe Fixme
 getFixme key = do
 
   let sql = [qc|
-    select cast (json_insert(json_group_object(o.k, o.v), '$.w', max(o.w)) as text) as blob
+    select cast (json_insert(json_group_object(o.k, o.v), '$.fixme-timestamp', cast(max(o.w) as text)) as text) as blob
     from object o
     where o.o = ?
     group by o.o

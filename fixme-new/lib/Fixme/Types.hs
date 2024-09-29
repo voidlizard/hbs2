@@ -125,7 +125,7 @@ newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
+                        deriving newtype (Eq,Ord,Show,Enum,Num,Integral,Real,ToField,FromField,ToJSON)
                         deriving stock (Data,Generic)
 
 
@@ -219,6 +219,7 @@ instance FromJSON Fixme where
         (FixmeAttrName (Aeson.toText k),) <$>
           case v of
            String x -> pure (FixmeAttrVal x)
+           Number x -> pure (FixmeAttrVal (Text.pack $ show x))
            _        -> Nothing
 
 newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
@@ -715,7 +716,7 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
+fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc <> fxTs
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -740,6 +741,9 @@ fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
 
     fxCo =
       maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter
+
+    fxTs  =
+      maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "fixme-timestamp" (fromString (show c)) }) (fixmeTs fx)
 
     fxMisc =
       fx & over (field @"fixmeAttr")
