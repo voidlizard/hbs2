@@ -304,7 +304,7 @@ report t q = do
   tpl <- asks fixmeEnvTemplates >>= readTVarIO
             <&> HM.lookup (maybe "default" fromString t)
 
-  fxs <- listFixme q
+  fxs <- listFixme (WithLimit Nothing q)
 
   case tpl of
     Nothing ->

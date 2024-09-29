@@ -100,6 +100,18 @@ instance (DashBoardPerks m, HasDashBoardEnv m) => HandleMethod m IndexNowRPC whe
     debug $ "rpc: index:now"
     withDashBoardEnv e $ addJob (liftIO $ withDashBoardEnv e updateIndex)
 
+instance HasLimit (FromParams 'FixmeDomain [Param]) where
+  -- TODO: optimal-page-size
+  limit (FromParams p) = Just limits
+    where
+      pageSize = fromIntegral fixmePageSize
+      page     = fromMaybe 0 $ headMay [ readDef 0 (Text.unpack n) | ("$page", n) <- p ]
+      offset   = page
+      limits   = (fromIntegral offset, fromIntegral pageSize)
+
+instance HasPredicate (FromParams 'FixmeDomain [Param]) where
+  predicate _ = All
+
 readConfig :: DashBoardPerks m => m [Syntax C]
 readConfig = do
 
@@ -294,9 +306,11 @@ runDashboardWeb WebOptions{..} = do
 
   get (routePattern (RepoFixmeHtmx "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
+    p <- queryParams
+    debug $ "FIXME: GET QUERY" <+> pretty p
     flip runContT pure do
       lww   <- lwws' & orFall (status status404)
-      lift $ renderHtml (repoFixme lww)
+      lift $ renderHtml (repoFixme (FromParams @'FixmeDomain p) lww)
 
   get (routePattern (RepoCommits "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)

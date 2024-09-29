@@ -49,6 +49,10 @@ import Network.HTTP.Types.Status
 rootPath :: [String] -> [String]
 rootPath = ("/":)
 
+data Domain = FixmeDomain
+
+newtype FromParams (e :: Domain) a = FromParams a
+
 class Path a where
   path :: [a] -> Text
 
@@ -89,6 +93,8 @@ data RepoForksHtmx repo = RepoForksHtmx repo
 newtype RepoManifest repo = RepoManifest repo
 
 newtype RepoCommits repo = RepoCommits repo
+
+data Paged q = Paged QueryOffset q
 
 newtype RepoFixmeHtmx repo = RepoFixmeHtmx repo
 
@@ -268,6 +274,11 @@ instance ToRoutePattern (RepoFixmeHtmx String) where
 
 instance ToURL (RepoFixmeHtmx RepoLww)  where
   toURL (RepoFixmeHtmx k) = path ["/", "htmx", "fixme", repo]
+    where
+      repo = show $ pretty k
+
+instance ToURL (Paged (RepoFixmeHtmx RepoLww))  where
+  toURL (Paged p (RepoFixmeHtmx k)) = path ["/", "htmx", "fixme", repo] <> [qc|?$page={p}|]
     where
       repo = show $ pretty k
 
@@ -917,13 +928,22 @@ instance ToHtml (H FixmeTitle) where
   toHtmlRaw (H k) = toHtmlRaw $ coerce @_ @Text k
   toHtml (H k)    = toHtml    $ coerce @_ @Text k
 
-repoFixme :: (MonadReader DashBoardEnv m, DashBoardPerks m)
-          => LWWRefKey HBS2Basic
+repoFixme :: ( MonadReader DashBoardEnv m
+             , DashBoardPerks m
+             , HasLimit q
+             , HasPredicate q
+             )
+          => q
+          -> LWWRefKey HBS2Basic
           -> HtmlT m ()
 
-repoFixme lww = do
+repoFixme q lww = do
 
-  fme <- lift $ listFixme (RepoLww lww) ()
+  debug $ blue "repoFixme" <+> "LIMITS" <+> viaShow (limit q)
+
+  let offset = maybe 0 fst (limit q)
+
+  fme <- lift $ listFixme (RepoLww lww) q
 
   for_ fme $ \fixme -> do
     tr_ [class_ "commit-brief-title"] $ do
@@ -937,6 +957,13 @@ repoFixme lww = do
       td_ [colspan_ "3"] do
         small_ "seconday shit"
 
+  unless (List.null fme) do
+    tr_ [ class_ "commit-brief-last"
+        , hxGet_ (toURL (Paged (offset + fromIntegral fixmePageSize) (RepoFixmeHtmx (RepoLww lww))))
+        , hxTrigger_ "revealed"
+        , hxSwap_ "afterend"
+        ] do
+      td_ [colspan_ "3"] mempty
 
 data TopInfoBlock =
   TopInfoBlock

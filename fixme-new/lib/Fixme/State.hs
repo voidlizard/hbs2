@@ -21,7 +21,12 @@ module Fixme.State
   , FixmeExported(..)
   , HasPredicate(..)
   , SelectPredicate(..)
+  , HasLimit(..)
   , LocalNonce(..)
+  , WithLimit(..)
+  , QueryOffset(..)
+  , QueryLimit(..)
+  , QueryLimitClause(..)
   ) where
 
 import Fixme.Prelude hiding (key)
@@ -157,6 +162,33 @@ createTables = do
          |]
 
 
+class HasPredicate a where
+  predicate :: a -> SelectPredicate
+
+class HasLimit a where
+  limit :: a -> Maybe QueryLimitClause
+
+-- TODO: move-to-db-pipe?
+newtype QueryOffset = QueryOffset Word64
+                      deriving newtype (Show,Eq,Ord,Num,Enum,Integral,Real,ToField,FromField,Pretty)
+
+-- TODO: move-to-db-pipe?
+newtype QueryLimit = QueryLimit Word64
+                      deriving newtype (Show,Eq,Ord,Num,Enum,Integral,Real,ToField,FromField,Pretty)
+
+type QueryLimitClause = (QueryOffset, QueryLimit)
+
+instance HasLimit () where
+  limit _ = Nothing
+
+data WithLimit q = WithLimit (Maybe QueryLimitClause) q
+
+instance HasPredicate q => HasPredicate (WithLimit q) where
+  predicate (WithLimit _ query) = predicate query
+
+instance HasLimit (WithLimit a) where
+  limit (WithLimit l _) = l
+
 data SelectPredicate =
     All
   | FixmeHashExactly Text
@@ -167,15 +199,12 @@ data SelectPredicate =
   | Ignored
   deriving stock (Data,Generic,Show)
 
-class HasPredicate a where
-  predicate :: a -> SelectPredicate
 
 instance HasPredicate () where
   predicate = const All
 
 instance HasPredicate SelectPredicate where
   predicate = id
-
 
 instance IsContext c => HasPredicate [Syntax c] where
   predicate s = goPred $ unlist $ go s
@@ -342,7 +371,11 @@ countFixme = do
   withState $ select_ @_ @(Only Int) sql
     <&> maybe 0 fromOnly . headMay
 
-listFixme :: (FixmePerks m, MonadReader FixmeEnv m, HasPredicate q)
+listFixme :: ( FixmePerks m
+             , MonadReader FixmeEnv m
+             , HasPredicate q
+             , HasLimit q
+             )
           => q
           -> m [Fixme]
 listFixme expr = do
@@ -350,6 +383,10 @@ listFixme expr = do
   let (w,bound) = genPredQ "s1" (predicate expr)
 
   let present = [qc|and coalesce(json_extract(s1.blob, '$.deleted'),'false') <> 'true' |] :: String
+
+  let (limitClause, lbound) = case limit expr of
+                                 Just (o,l) -> ([qc|limit ? offset ?|] :: String, [Bound l, Bound o])
+                                 Nothing -> (mempty, [])
 
   let sql = [qc|
     with s1 as (
@@ -364,11 +401,12 @@ listFixme expr = do
     order by
         json_extract(s1.blob, '$.commit-time') asc nulls last,
         json_extract(s1.blob, '$.w') asc nulls last
+    {limitClause}
     |]
 
   debug $ pretty sql
 
-  withState $ select @(Only Text) sql bound
+  withState $ select @(Only Text) sql (bound <> lbound)
         <&> fmap (sqliteToAeson . fromOnly)
         <&> catMaybes
 

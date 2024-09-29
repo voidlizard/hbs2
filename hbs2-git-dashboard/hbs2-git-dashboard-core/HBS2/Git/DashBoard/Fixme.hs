@@ -1,6 +1,10 @@
 module HBS2.Git.DashBoard.Fixme
   ( F.HasPredicate(..)
+  , F.HasLimit(..)
   , F.SelectPredicate(..)
+  , WithLimit(..)
+  , QueryOffset
+  , QueryLimit
   , runInFixme
   , countFixme
   , listFixme
@@ -13,6 +17,7 @@ module HBS2.Git.DashBoard.Fixme
   , FixmeAttrName(..)
   , FixmeAttrVal(..)
   , FixmeOpts(..)
+  , fixmePageSize
   ) where
 
 import HBS2.Git.DashBoard.Prelude
@@ -22,7 +27,7 @@ import HBS2.Git.DashBoard.State
 import HBS2.OrDie
 
 import Fixme.State qualified as F
-import Fixme.State (HasPredicate(..))
+import Fixme.State (HasPredicate(..),HasLimit(..),WithLimit(..),QueryOffset,QueryLimit)
 import Fixme.Types
 import Fixme.Config
 
@@ -36,6 +41,10 @@ data RunInFixmeError =
   deriving stock (Generic, Typeable, Show)
 
 instance Exception RunInFixmeError
+
+fixmePageSize :: QueryLimit
+fixmePageSize = 100
+
 
 -- TODO: less-hacky-approach
 --  этот код подразумевает, что мы знаем довольно много деталей
@@ -81,9 +90,15 @@ runInFixme repo m = do
 
       m
 
-listFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m, HasPredicate q) => RepoLww -> q -> m [Fixme]
+listFixme :: ( DashBoardPerks m
+             , MonadReader DashBoardEnv m
+             , HasPredicate q
+             , HasLimit q
+             ) => RepoLww -> q -> m [Fixme]
 listFixme repo q = do
   runInFixme repo $ F.listFixme q
+    -- FIXME: error-handling
+    --   at least print log entry
     & try @_ @SomeException
     <&> fromRight mempty
 
