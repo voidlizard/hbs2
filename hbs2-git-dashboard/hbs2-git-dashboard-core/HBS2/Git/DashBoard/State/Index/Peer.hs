@@ -7,6 +7,8 @@ import HBS2.Git.DashBoard.Manifest
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx.Git
 
+import HBS2.Hash
+
 import HBS2.System.Dir
 
 import Streaming.Prelude qualified as S
@@ -37,6 +39,7 @@ updateFixmeFor (RepoLww lw) f = do
   debug $ "run fixme for:" <+> pretty rcp <+> pretty cmdStr
 
   void $ runProcess cmd
+
 
 updateIndexFromPeer :: (DashBoardPerks m, MonadReader DashBoardEnv m) => m ()
 updateIndexFromPeer = do
@@ -77,9 +80,13 @@ updateIndexFromPeer = do
 
                   Right hxs -> do
                     for_ hxs $ \htx -> void $ runMaybeT do
-                      -- done  <- liftIO $ withDB db (isTxProcessed (HashVal htx))
-                      -- done1 <- liftIO $ withDB db (isTxProcessed (processedRepoTx (gitLwwRef,htx)))
-                      -- guard (not done && not done1)
+
+                      done <- lift $ withState $ isProcessed (HashRef $ hashObject @HbSync (serialise (lw,htx)))
+
+                      guard (not done)
+
+                      debug $ red "AAAAAAA" <+> pretty htx
+
                       getBlock sto (fromHashRef htx) >>= toMPlus
                          <&> deserialiseOrFail @(RefLogUpdate L4Proto)
                          >>= toMPlus
@@ -99,6 +106,8 @@ updateIndexFromPeer = do
         for_ headz $ \(l, tx, rh, rhead, fme) -> do
           let rlwwseq = RepoLwwSeq (fromIntegral $ lwwSeq wv)
           insertRepoHead l rlwwseq (RepoRefLog rk) tx rh rhead
+
+          insertProcessed (HashRef $ hashObject @HbSync (serialise (l,coerce @_ @HashRef tx)))
 
           for_ fme $ \f -> do
             insertRepoFixme l rlwwseq f

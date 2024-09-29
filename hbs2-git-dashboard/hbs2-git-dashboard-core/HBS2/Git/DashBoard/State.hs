@@ -154,6 +154,8 @@ newtype RepoHeadTx = RepoHeadTx HashRef
                      deriving stock (Generic)
                      deriving newtype (ToField,FromField,Pretty)
 
+instance Serialise RepoHeadTx
+
 newtype RepoName = RepoName Text
                    deriving stock (Eq,Show,Generic)
                    deriving newtype (ToField,FromField,ToHtml,IsString,Pretty)
@@ -190,6 +192,8 @@ newtype RefChanField = RefChanField MyRefChan
 newtype RepoHeadRef = RepoHeadRef HashRef
                       deriving stock (Generic)
                       deriving newtype (ToField,FromField)
+
+instance Serialise RepoHeadRef
 
 
 newtype RepoHeadSeq = RepoHeadSeq Word64
@@ -591,7 +595,7 @@ createRepoCommitTable  = do
   |]
 
 
-isProcessed :: (DashBoardPerks m) => HashRef -> DBPipeM m Bool
+isProcessed :: (MonadIO m) => HashRef -> DBPipeM m Bool
 isProcessed href = do
   select @(Only Int) [qc|select 1 from processed where hash = ? limit 1|] (Only href)
     <&> not . List.null
