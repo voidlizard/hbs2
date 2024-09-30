@@ -1136,8 +1136,6 @@ repoPage IssuesTab lww p' = rootPage do
 
           summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Tag"
 
-          -- FIXME: wtf?
-
           -- TODO: make-this-block-properly
 
           ul_ do
