@@ -218,6 +218,10 @@ table tr:hover {
   background-color: #f1f1f1;
 }
 
+.lim-text {
+  max-width: 80ch;
+  word-wrap: break-word;
+}
 
 
 pre > code.sourceCode { white-space: pre; position: relative; }

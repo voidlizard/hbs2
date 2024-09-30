@@ -8,7 +8,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import Lucid.Base
 
 version :: Int
-version = 6
+version = 7
 
 assetsDir :: [(FilePath, ByteString)]
 assetsDir = $(embedDir "hbs2-git-dashboard-assets/assets")

@@ -130,13 +130,16 @@ newtype FixmeTimestamp = FixmeTimestamp Word64
 
 
 newtype FixmeKey  = FixmeKey Text
-                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid)
+                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid,IsString)
                     deriving stock (Data,Generic)
 
 newtype FixmeOffset = FixmeOffset Word32
                      deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                      deriving newtype (Integral,Real,Enum)
                      deriving stock (Data,Generic)
+
+instance FromStringMaybe FixmeKey where
+  fromStringMay s = pure (fromString s)
 
 
 data Fixme =

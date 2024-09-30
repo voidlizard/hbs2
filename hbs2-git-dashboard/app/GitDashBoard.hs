@@ -310,6 +310,19 @@ runDashboardWeb WebOptions{..} = do
       lift $ renderHtml (repoForks lww)
       -- lift $ renderHtml (toHtml $ show $ pretty lww)
 
+  get (routePattern (IssuePage "lww" "fixme")) do
+
+    r <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
+    f <- captureParam @String "fixme" <&> fromStringMay @FixmeKey
+
+    debug $ blue "AAAA" <+> pretty r <+> pretty f
+
+    flip runContT pure do
+      lww       <- r & orFall (status status404)
+      fme       <- f & orFall (status status404)
+
+      lift $ renderHtml (issuePage (RepoLww lww) fme)
+
   get (routePattern (RepoFixmeHtmx mempty "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     p <- queryParams

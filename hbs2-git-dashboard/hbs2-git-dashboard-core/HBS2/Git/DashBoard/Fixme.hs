@@ -12,6 +12,7 @@ module HBS2.Git.DashBoard.Fixme
   , countFixme
   , countFixmeByAttribute
   , listFixme
+  , getFixme
   , RunInFixmeError(..)
   , Fixme(..)
   , FixmeKey(..)
@@ -115,6 +116,17 @@ listFixme repo q = do
     --   at least print log entry
     & try @_ @SomeException
     <&> fromRight mempty
+
+
+getFixme :: ( DashBoardPerks m
+            , MonadReader DashBoardEnv m
+            ) => RepoLww -> FixmeKey -> m (Maybe Fixme)
+getFixme repo fk = do
+  -- FIXME: error-handling
+    --   at least print log entry
+  try @_ @SomeException (runInFixme repo $ runMaybeT do
+    k <- lift (F.selectFixmeKey (coerce fk)) >>= toMPlus
+    lift (F.getFixme k) >>= toMPlus ) <&> fromRight Nothing
 
 countFixme :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoLww -> m (Maybe Int)
 countFixme repo = do

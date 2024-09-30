@@ -110,6 +110,8 @@ data RepoCommitSummaryQ repo commit = RepoCommitSummaryQ repo commit
 
 data RepoCommitPatchQ repo commit = RepoCommitPatchQ repo commit
 
+data IssuePage repo issue = IssuePage repo issue
+
 isActiveTab :: RepoPageTabs -> RepoPageTabs -> Bool
 isActiveTab a b = case (a,b)  of
   (CommitsTab{},CommitsTab{}) -> True
@@ -296,6 +298,15 @@ instance ToRoutePattern (RepoForksHtmx String) where
     path ["/", "htmx", "forks", toArg r] & toPattern
 
 
+instance ToRoutePattern (IssuePage String String) where
+  routePattern (IssuePage s w) = path ["/", "issues", toArg s, toArg w] & toPattern
+
+instance ToURL (IssuePage RepoLww FixmeKey)  where
+  toURL (IssuePage r i) = path ["/", "issues", repo, issue]
+    where
+      repo = show $ pretty r
+      issue = show $ pretty i
+
 myCss :: Monad m => HtmlT m ()
 myCss = do
   link_ [rel_ "stylesheet", href_ (path ["css/custom.css"])]
@@ -461,7 +472,7 @@ parsedManifest RepoListItem{..} = do
 thisRepoManifest :: (DashBoardPerks m, MonadReader DashBoardEnv m) => RepoHead -> HtmlT m ()
 thisRepoManifest rh = do
   (_, man) <- lift $ parseManifest rh
-  toHtmlRaw (renderMarkdown' man)
+  div_ [class_ "lim-text"] $ toHtmlRaw (renderMarkdown' man)
 
 repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
@@ -884,7 +895,8 @@ doRenderBlob fallback lww BlobInfo{..} = do
       case blobSyn of
         BlobSyn (Just "markdown") -> do
 
-          toHtmlRaw (renderMarkdown' txt)
+          div_ [class_ "lim-text"] do
+            toHtmlRaw (renderMarkdown' txt)
 
         _ -> do
 
@@ -962,7 +974,8 @@ repoFixme q@(FromParams p') lww = do
   for_ fme $ \fixme -> do
     tr_ [class_ "commit-brief-title"] $ do
       td_ [class_ "mono", width_ "10"] do
-         a_ [] $ toHtml (H $ fixmeKey fixme)
+         a_ [ href_ (toURL (IssuePage (RepoLww lww) (fixmeKey fixme)))
+            ] $ toHtml (H $ fixmeKey fixme)
       td_ [width_ "10"] do
          strong_ [] $ toHtml (H $ fixmeTag fixme)
       td_ [] do
@@ -1009,6 +1022,12 @@ repoTopInfoBlock :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
                  -> HtmlT m ()
 
 repoTopInfoBlock lww TopInfoBlock{..} = do
+
+  div_ [class_ "info-block" ] do
+    let url = toURL (RepoPage (CommitsTab Nothing) lww)
+    let txt = toHtml (ShortRef lww)
+    a_ [href_ url, class_ "secondary"] txt
+
   div_ [class_ "info-block" ] do
 
     summary_ [class_ "sidebar-title"] $ small_ $ strong_ "About"
@@ -1040,9 +1059,7 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
       when (forksNum > 0) do
         li_ $ small_ do
           a_ [class_ "secondary"
-            , href_ "#"
-            , hxGet_ (toURL (RepoForksHtmx lww))
-            , hxTarget_ "#repo-tab-data"
+            , href_  (toURL (RepoPage ForksTab lww))
             ] do
               span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
               toHtml $ show forksNum
@@ -1105,6 +1122,148 @@ getTopInfoBlock lww = do
 
   pure $ TopInfoBlock{..}
 
+
+issuesSidebar :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
+              => LWWRefKey 'HBS2Basic
+              -> TopInfoBlock
+              -> [(Text,Text)]
+              -> HtmlT m ()
+issuesSidebar lww topInfoBlock p' = do
+
+  let p = Map.fromList p'
+
+  tot <- lift $ countFixme (RepoLww lww)
+  fmw <- lift $ countFixmeByAttribute (RepoLww lww) "workflow"
+  fmt <- lift $ countFixmeByAttribute (RepoLww lww) "fixme-tag"
+  ass <- lift $ countFixmeByAttribute (RepoLww lww) "assigned"
+
+  repoTopInfoBlock lww topInfoBlock
+
+  div_ [class_ "info-block" ] do
+
+    summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Tag"
+
+    -- TODO: make-this-block-properly
+
+    ul_ do
+      for_ fmt $ \(s,n) -> do
+        li_ [] $ small_ [] do
+          a_ [ class_ "secondary"
+             , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "fixme-tag" (coerce s) p) (RepoLww lww))))
+             , hxTarget_ "#fixme-tab-data"
+             ] do
+            span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+              toHtml $ show $ pretty n
+
+            span_ [] $ toHtml $ show $ pretty s
+
+    summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Status"
+
+    ul_ do
+
+      li_ [] $ small_ [] do
+        a_ [ class_ "secondary"
+           , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.delete "workflow" p) (RepoLww lww))))
+           , hxTarget_ "#fixme-tab-data"
+           ] do
+          span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+            toHtml $ show $ pretty (fromMaybe 0 tot)
+
+          span_ [] $ toHtml $ show $ pretty "[all]"
+
+      for_ fmw $ \(s,n) -> do
+        li_ [] $ small_ [] do
+          a_ [ class_ "secondary"
+             , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "workflow" (coerce s) p) (RepoLww lww))))
+             , hxTarget_ "#fixme-tab-data"
+             ] do
+            span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+              toHtml $ show $ pretty n
+
+            span_ [] $ toHtml $ show $ pretty s
+
+
+    summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Assigned"
+
+    for_ ass $ \(s,n) -> do
+      li_ [] $ small_ [] do
+        a_ [ class_ "secondary"
+           , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "assigned" (coerce s) p) (RepoLww lww))))
+           , hxTarget_ "#fixme-tab-data"
+           ] do
+          span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+            toHtml $ show $ pretty n
+
+          span_ [] $ toHtml $ show $ pretty s
+
+
+  pure ()
+
+
+data IssueOptionalArg w t = IssueOptionalArg w t
+
+issueOptionalArg :: Fixme -> FixmeAttrName -> IssueOptionalArg Fixme FixmeAttrName
+issueOptionalArg a b = IssueOptionalArg a b
+
+instance ToHtml (IssueOptionalArg Fixme FixmeAttrName) where
+  toHtml (IssueOptionalArg fxm n)  = do
+    for_ (fixmeGet n fxm) $ \t -> do
+      tr_ do
+        th_ $ strong_ (toHtml $ show $ pretty n)
+        td_ (toHtml $ show $ pretty t)
+
+  toHtmlRaw  = toHtml
+
+issuePage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
+         => RepoLww
+         -> FixmeKey
+         -> HtmlT m ()
+
+issuePage repo@(RepoLww lww) f = rootPage do
+
+  ti@TopInfoBlock{} <- getTopInfoBlock (coerce repo)
+
+  fxm <- lift (getFixme repo f)
+            >>= orThrow (itemNotFound f)
+
+  let txt = fixmePlain fxm & fmap coerce & Text.intercalate "\n"
+
+  main_ [class_ "container-fluid"] do
+    div_ [class_ "wrapper"] do
+      aside_ [class_ "sidebar"] do
+
+        -- issuesSidebar (coerce repo) ti mempty
+        repoTopInfoBlock (coerce repo) ti
+
+      div_ [class_ "content"] $ do
+
+        nav_ [style_ "margin-bottom: 2em;"] do
+
+          div_ do
+            small_ do
+              a_ [ href_ (toURL (RepoPage IssuesTab lww))
+                 ] do
+                span_ [class_ "inline-icon-wrapper"] $ svgIcon IconArrowUturnLeft
+                span_ [] "back to issues"
+
+        section_ do
+          table_ do
+            tr_ do
+              td_ [colspan_ "2"] do
+                strong_ [style_ "margin-right: 1ch;"] $ toHtml (coerce @_ @Text $ fixmeTag fxm)
+                span_ [style_ "margin-right: 1ch;"] $ toHtml (H $ fixmeKey fxm)
+                span_ [] $ toHtml (coerce @_ @Text $ fixmeTitle fxm)
+
+            toHtml (issueOptionalArg fxm "workflow")
+            toHtml (issueOptionalArg fxm "file")
+            toHtml (issueOptionalArg fxm "commit")
+            toHtml (issueOptionalArg fxm "committer-name")
+
+        section_ [class_ "lim-text"] do
+          toHtmlRaw $ renderMarkdown txt
+
+
+
 repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          => RepoPageTabs
          -> LWWRefKey 'HBS2Basic
@@ -1113,82 +1272,13 @@ repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
 
 repoPage IssuesTab lww p' = rootPage do
 
-  let p = Map.fromList p'
-
-  topInfoBlock@TopInfoBlock{..} <- getTopInfoBlock lww
-  tot <- lift $ countFixme (RepoLww lww)
-  fmw <- lift $ countFixmeByAttribute (RepoLww lww) "workflow"
-  fmt <- lift $ countFixmeByAttribute (RepoLww lww) "fixme-tag"
-  ass <- lift $ countFixmeByAttribute (RepoLww lww) "assigned"
+  ti@TopInfoBlock{..} <- getTopInfoBlock lww
 
   main_ [class_ "container-fluid"] do
     div_ [class_ "wrapper"] do
       aside_ [class_ "sidebar"] do
 
-        div_ [class_ "info-block" ] do
-          let url = toURL (RepoPage (CommitsTab Nothing) lww)
-          let txt = toHtml (ShortRef lww)
-          a_ [href_ url, class_ "secondary"] txt
-
-        repoTopInfoBlock lww topInfoBlock
-
-        div_ [class_ "info-block" ] do
-
-          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Tag"
-
-          -- TODO: make-this-block-properly
-
-          ul_ do
-            for_ fmt $ \(s,n) -> do
-              li_ [] $ small_ [] do
-                a_ [ class_ "secondary"
-                   , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "fixme-tag" (coerce s) p) (RepoLww lww))))
-                   , hxTarget_ "#fixme-tab-data"
-                   ] do
-                  span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
-                    toHtml $ show $ pretty n
-
-                  span_ [] $ toHtml $ show $ pretty s
-
-          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Status"
-
-          ul_ do
-
-            li_ [] $ small_ [] do
-              a_ [ class_ "secondary"
-                 , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.delete "workflow" p) (RepoLww lww))))
-                 , hxTarget_ "#fixme-tab-data"
-                 ] do
-                span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
-                  toHtml $ show $ pretty (fromMaybe 0 tot)
-
-                span_ [] $ toHtml $ show $ pretty "[all]"
-
-            for_ fmw $ \(s,n) -> do
-              li_ [] $ small_ [] do
-                a_ [ class_ "secondary"
-                   , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "workflow" (coerce s) p) (RepoLww lww))))
-                   , hxTarget_ "#fixme-tab-data"
-                   ] do
-                  span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
-                    toHtml $ show $ pretty n
-
-                  span_ [] $ toHtml $ show $ pretty s
-
-
-          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Assigned"
-
-          for_ ass $ \(s,n) -> do
-            li_ [] $ small_ [] do
-              a_ [ class_ "secondary"
-                 , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "assigned" (coerce s) p) (RepoLww lww))))
-                 , hxTarget_ "#fixme-tab-data"
-                 ] do
-                span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
-                  toHtml $ show $ pretty n
-
-                span_ [] $ toHtml $ show $ pretty s
-
+        issuesSidebar lww ti p'
 
       div_ [class_ "content"] $ do
 
@@ -1221,10 +1311,6 @@ repoPage tab lww params = rootPage do
     div_ [class_ "wrapper"] do
       aside_ [class_ "sidebar"] do
 
-        div_ [class_ "info-block" ] do
-          let url = toURL (RepoPage (CommitsTab Nothing) lww)
-          let txt = toHtml (ShortRef lww)
-          a_ [href_ url, class_ "secondary"] txt
 
         repoTopInfoBlock lww topInfoBlock
 
