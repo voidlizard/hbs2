@@ -716,7 +716,15 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc <> fxTs
+fixmeDerivedFields fx = do
+  fxEnd
+  <> fx
+  <> fxKey
+  <> fxCo
+  <> tag
+  <> fxLno
+  <> fxTs
+  <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
