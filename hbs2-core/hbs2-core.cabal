@@ -95,6 +95,7 @@ library
                     , HBS2.Hash
                     , HBS2.Merkle
                     , HBS2.Merkle.MetaData
+                    , HBS2.Merkle.Walk
                     , HBS2.Net.Auth.Schema
                     , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm
@@ -186,6 +187,7 @@ library
                     , stm-chans
                     , string-conversions
                     , streaming
+                    , streaming-bytestring
                     , string-conversions
                     , suckless-conf
                     , template-haskell

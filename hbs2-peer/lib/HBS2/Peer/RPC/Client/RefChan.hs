@@ -29,6 +29,7 @@ import UnliftIO
 getRefChanHeadHash :: forall proto m . ( MonadUnliftIO m
                                        , HasClientAPI RefChanAPI proto m
                                        , HasProtocol proto (ServiceProto RefChanAPI proto)
+
                                        )
                    => PubKey 'Sign 'HBS2Basic
                    -> m (Maybe HashRef)
