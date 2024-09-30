@@ -717,6 +717,9 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
 
 fixmeDerivedFields :: Fixme -> Fixme
 fixmeDerivedFields fx = do
+  -- TODO: refactor-this-out
+  --   чревато ошибками, надо как-то переписать
+  --   по-человечески.
   fxEnd
   <> fx
   <> fxKey
@@ -724,6 +727,7 @@ fixmeDerivedFields fx = do
   <> tag
   <> fxLno
   <> fxTs
+  -- always last
   <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)

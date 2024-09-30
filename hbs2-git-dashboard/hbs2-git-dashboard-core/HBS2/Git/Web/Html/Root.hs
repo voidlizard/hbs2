@@ -19,6 +19,8 @@ import HBS2.Git.Web.Assets
 
 -- import Data.Text.Fuzzy.Tokenize as Fuzz
 
+import Data.Map qualified as Map
+import Data.Map (Map)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -39,6 +41,7 @@ import Data.List qualified as List
 import Data.List (sortOn)
 
 import Web.Scotty.Trans as Scotty
+import Network.URI.Encode
 
 import Data.Kind
 
@@ -74,6 +77,7 @@ data RepoPageTabs =  CommitsTab (Maybe GitHash)
                    | TreeTab (Maybe GitHash)
                    | IssuesTab
                    | ForksTab
+                   | PinnedTab (Maybe (Text, Text, GitHash))
                     deriving stock (Eq,Ord,Show)
 
 data RepoPage s a = RepoPage s a
@@ -96,7 +100,7 @@ newtype RepoCommits repo = RepoCommits repo
 
 data Paged q = Paged QueryOffset q
 
-newtype RepoFixmeHtmx repo = RepoFixmeHtmx repo
+data RepoFixmeHtmx repo = RepoFixmeHtmx (Map Text Text) repo
 
 data RepoCommitsQ repo off lim = RepoCommitsQ repo off lim
 
@@ -126,6 +130,7 @@ instance Pretty RepoPageTabs where
     TreeTab{}      -> "tree"
     ForksTab{}     -> "forks"
     IssuesTab{}    -> "issues"
+    PinnedTab{}    -> "pinned"
 
 instance FromStringMaybe RepoPageTabs where
   fromStringMay = \case
@@ -134,6 +139,7 @@ instance FromStringMaybe RepoPageTabs where
     "tree"     -> pure (TreeTab Nothing)
     "forks"    -> pure ForksTab
     "issues"   -> pure IssuesTab
+    "pinned"   -> pure $ PinnedTab Nothing
     _          -> pure (CommitsTab Nothing)
 
 instance ToRoutePattern RepoListPage where
@@ -144,9 +150,11 @@ instance ToURL (RepoPage RepoPageTabs (LWWRefKey 'HBS2Basic)) where
   toURL (RepoPage s w)  = path @String [ "/", show (pretty s), show (pretty w)]
                             <> pred_
     where
+     -- FIXME: use-uri-encode
      pred_ = case s of
-      CommitsTab (Just p) -> Text.pack $ "?ref=" <> show (pretty p)
-      TreeTab (Just p)    -> Text.pack $ "?tree=" <> show (pretty p)
+      CommitsTab (Just p)       -> Text.pack $ "?ref=" <> show (pretty p)
+      TreeTab (Just p)          -> Text.pack $ "?tree=" <> show (pretty p)
+      PinnedTab (Just (s,n,h))  -> Text.pack $ "?ref=" <> show (pretty h)
       _ -> mempty
 
 instance ToRoutePattern (RepoPage String String) where
@@ -268,19 +276,20 @@ instance ToURL (RepoForksHtmx (LWWRefKey 'HBS2Basic))  where
     where
       repo = show $ pretty k
 
-instance ToRoutePattern (RepoFixmeHtmx String) where
-  routePattern (RepoFixmeHtmx r) =
+instance ToRoutePattern (RepoFixmeHtmx  String) where
+  routePattern (RepoFixmeHtmx _ r) =
     path ["/", "htmx", "fixme", toArg r] & toPattern
 
 instance ToURL (RepoFixmeHtmx RepoLww)  where
-  toURL (RepoFixmeHtmx k) = path ["/", "htmx", "fixme", repo]
+  toURL (RepoFixmeHtmx argz' k) = path ["/", "htmx", "fixme", repo] <> "?" <> filtPart
     where
       repo = show $ pretty k
+      filtPart = Text.intercalate "&" [ [qc|{encodeText k}={encodeText v}|] | (k,v) <- argz ]
+      argz = Map.toList argz'
 
 instance ToURL (Paged (RepoFixmeHtmx RepoLww))  where
-  toURL (Paged p (RepoFixmeHtmx k)) = path ["/", "htmx", "fixme", repo] <> [qc|?$page={p}|]
-    where
-      repo = show $ pretty k
+  toURL (Paged p (RepoFixmeHtmx a k)) = toURL (RepoFixmeHtmx paged k)
+    where paged = Map.insert "$page" (Text.pack (show p)) a
 
 instance ToRoutePattern (RepoForksHtmx String) where
   routePattern (RepoForksHtmx r) =
@@ -932,12 +941,15 @@ repoFixme :: ( MonadReader DashBoardEnv m
              , DashBoardPerks m
              , HasLimit q
              , HasPredicate q
+             , q ~ FromParams 'FixmeDomain [Param]
              )
           => q
           -> LWWRefKey HBS2Basic
           -> HtmlT m ()
 
-repoFixme q lww = do
+repoFixme q@(FromParams p') lww = do
+
+  let p = Map.fromList p'
 
   now <- liftIO $ getPOSIXTime <&> round
 
@@ -965,7 +977,7 @@ repoFixme q lww = do
 
   unless (List.null fme) do
     tr_ [ class_ "commit-brief-last"
-        , hxGet_ (toURL (Paged (offset + fromIntegral fixmePageSize) (RepoFixmeHtmx (RepoLww lww))))
+        , hxGet_ (toURL (Paged (offset + fromIntegral fixmePageSize) (RepoFixmeHtmx p (RepoLww lww))))
         , hxTrigger_ "revealed"
         , hxSwap_ "afterend"
         ] do
@@ -1043,9 +1055,7 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
         case ref of
           PinnedRefBlob s n hash -> small_ do
             li_ $ a_ [class_ "secondary"
-              , href_ "#"
-              , hxGet_ (toURL (RepoSomeBlob lww s hash))
-              , hxTarget_ "#repo-tab-data"
+              , href_ (toURL (RepoPage (PinnedTab (Just (s,n,hash))) lww))
               ] do
                   span_ [class_ "inline-icon-wrapper"] $ svgIcon IconPinned
                   toHtml (Text.take 12 n)
@@ -1096,12 +1106,15 @@ repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          -> [(Text,Text)]
          -> HtmlT m ()
 
-repoPage IssuesTab lww _ = rootPage do
+repoPage IssuesTab lww p' = rootPage do
+
+  let p = Map.fromList p'
 
   topInfoBlock@TopInfoBlock{..} <- getTopInfoBlock lww
   tot <- lift $ countFixme (RepoLww lww)
   fmw <- lift $ countFixmeByAttribute (RepoLww lww) "workflow"
   fmt <- lift $ countFixmeByAttribute (RepoLww lww) "fixme-tag"
+  ass <- lift $ countFixmeByAttribute (RepoLww lww) "assigned"
 
   main_ [class_ "container-fluid"] do
     div_ [class_ "wrapper"] do
@@ -1125,7 +1138,10 @@ repoPage IssuesTab lww _ = rootPage do
           ul_ do
             for_ fmt $ \(s,n) -> do
               li_ [] $ small_ [] do
-                a_ [class_ "secondary"] do
+                a_ [ class_ "secondary"
+                   , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "fixme-tag" (coerce s) p) (RepoLww lww))))
+                   , hxTarget_ "#fixme-tab-data"
+                   ] do
                   span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
                     toHtml $ show $ pretty n
 
@@ -1136,7 +1152,10 @@ repoPage IssuesTab lww _ = rootPage do
           ul_ do
 
             li_ [] $ small_ [] do
-              a_ [class_ "secondary"] do
+              a_ [ class_ "secondary"
+                 , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.delete "workflow" p) (RepoLww lww))))
+                 , hxTarget_ "#fixme-tab-data"
+                 ] do
                 span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
                   toHtml $ show $ pretty (fromMaybe 0 tot)
 
@@ -1144,11 +1163,28 @@ repoPage IssuesTab lww _ = rootPage do
 
             for_ fmw $ \(s,n) -> do
               li_ [] $ small_ [] do
-                a_ [class_ "secondary"] do
+                a_ [ class_ "secondary"
+                   , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "workflow" (coerce s) p) (RepoLww lww))))
+                   , hxTarget_ "#fixme-tab-data"
+                   ] do
                   span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
                     toHtml $ show $ pretty n
 
                   span_ [] $ toHtml $ show $ pretty s
+
+
+          summary_ [class_ "sidebar-title"] $ small_ $ strong_ "Assigned"
+
+          for_ ass $ \(s,n) -> do
+            li_ [] $ small_ [] do
+              a_ [ class_ "secondary"
+                 , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "assigned" (coerce s) p) (RepoLww lww))))
+                 , hxTarget_ "#fixme-tab-data"
+                 ] do
+                span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
+                  toHtml $ show $ pretty n
+
+                span_ [] $ toHtml $ show $ pretty s
 
 
       div_ [class_ "content"] $ do
@@ -1166,7 +1202,7 @@ repoPage IssuesTab lww _ = rootPage do
         div_ [ id_ "repo-tab-data"
              , hxTrigger_ "load"
              , hxTarget_ "#fixme-tab-data"
-             , hxGet_ (toURL (RepoFixmeHtmx (RepoLww lww)))
+             , hxGet_ (toURL (RepoFixmeHtmx mempty (RepoLww lww)))
              ] mempty
 
         div_ [id_ "repo-tab-data-embedded"] mempty
@@ -1257,6 +1293,27 @@ repoPage tab lww params = rootPage do
 
             ForksTab -> do
               repoForks lww
+
+            PinnedTab w -> do
+
+              pinned' <- S.toList_ $ for_ pinned $ \(_,ref) ->  case ref of
+                              PinnedRefBlob s n hash -> do
+                                S.yield (hash, (s,n))
+
+              let pinned = Map.fromList pinned'
+
+              void $ runMaybeT do
+                ref  <- [ fromStringMay @GitHash (Text.unpack v)
+                        | ("ref", v) <- params
+                        ] & catMaybes
+                          & headMay
+                          & toMPlus
+
+                (s,n) <- Map.lookup ref pinned & toMPlus
+
+                lift $ repoSomeBlob lww s ref
+
+              mempty
 
         div_ [id_ "repo-tab-data-embedded"] mempty
 

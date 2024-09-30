@@ -11,6 +11,7 @@ common shared-properties
         -Wall
         -fno-warn-type-defaults
         -fno-warn-unused-matches
+        -fno-warn-name-shadowing
         -O2
 
   default-language: GHC2021
@@ -123,6 +124,7 @@ library hbs2-git-dashboard-core
       , unliftio
       , unliftio-core
       , unordered-containers
+      , uri-encode
       , vector
       , wai
       , wai-extra

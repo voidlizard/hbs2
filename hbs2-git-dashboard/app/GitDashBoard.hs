@@ -110,7 +110,13 @@ instance HasLimit (FromParams 'FixmeDomain [Param]) where
       limits   = (fromIntegral offset, fromIntegral pageSize)
 
 instance HasPredicate (FromParams 'FixmeDomain [Param]) where
-  predicate _ = All
+  predicate (FromParams args) = do
+    flip fix seed $ \next -> \case
+      [] -> All
+      ( clause : rest ) -> And clause (next rest)
+
+    where
+      seed = [ AttrLike a b | (a,b) <- args, a /= "$page" ]
 
 readConfig :: DashBoardPerks m => m [Syntax C]
 readConfig = do
@@ -304,7 +310,7 @@ runDashboardWeb WebOptions{..} = do
       lift $ renderHtml (repoForks lww)
       -- lift $ renderHtml (toHtml $ show $ pretty lww)
 
-  get (routePattern (RepoFixmeHtmx "lww")) do
+  get (routePattern (RepoFixmeHtmx mempty "lww")) do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     p <- queryParams
     debug $ "FIXME: GET QUERY" <+> pretty p
