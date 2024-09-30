@@ -969,11 +969,16 @@ repoFixme q@(FromParams p') lww = do
          toHtml (H $ fixmeTitle fixme)
     tr_ [class_ "commit-brief-details"] $ do
       td_ [colspan_ "3"] do
-        mempty
+        let mco = fixmeGet "commit-time" fixme & pretty & show & readMay @Word64
+        let mw   = fixmeGet "workflow" fixme <&> coerce @_ @Text
 
-        -- small_ do
-        --   for_ (fixmeTs fixme) $ \t0 -> do
-        --     toHtml ("updated " <> agePure (fromIntegral t0) now)
+        small_ do
+          for_ mw $ \w -> do
+            span_ [] (toHtml $ show $ brackets $ pretty w)
+            " "
+
+          for_ mco $ \co ->
+            span_ [] $ toHtml $ show $ brackets ("commited" <+> pretty (agePure co now))
 
   unless (List.null fme) do
     tr_ [ class_ "commit-brief-last"

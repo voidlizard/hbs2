@@ -22,6 +22,7 @@ module HBS2.Git.DashBoard.Fixme
   , FixmeAttrVal(..)
   , FixmeOpts(..)
   , fixmePageSize
+  , fixmeGet
   ) where
 
 import HBS2.Git.DashBoard.Prelude
