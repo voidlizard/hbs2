@@ -1152,7 +1152,11 @@ repoPage IssuesTab lww _ = rootPage do
       div_ [class_ "content"] $ do
 
         section_ do
-          strong_ $ toHtml (show $ "Issues ::" <+> pretty repoName)
+          h5_ $ toHtml (show $ "Issues ::" <+> pretty repoName)
+
+          form_ [role_ "search"] do
+            input_ [name_ "search", type_ "search"]
+            input_ [type_ "submit", value_ "Search"]
 
         table_ [] do
           tbody_ [id_ "fixme-tab-data"] mempty
