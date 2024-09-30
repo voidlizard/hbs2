@@ -441,59 +441,105 @@ runRPC = do
 updateIndexPeriodially :: DashBoardPerks m => DashBoardM m ()
 updateIndexPeriodially = do
 
-  cached <- newTVarIO ( mempty :: HashMap MyRefLogKey HashRef )
-
-  changes <- newTQueueIO
 
   api <- asks _refLogAPI
 
   env <- ask
 
-  let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 60)
+  changes <- newTQueueIO
 
   flip runContT pure do
 
-    void $ ContT $ withAsync $ forever do
+    p1 <- ContT $ withAsync $ forever do
       rs <- atomically $ peekTQueue changes >> flushTQueue changes
       addJob (withDashBoardEnv env updateIndex)
       pause @'Seconds 1
 
-    lift do
-      polling (Polling 1 30) rlogs $ \r -> do
+    p2 <- pollRepos changes
 
-        debug $ yellow "POLL REFLOG" <+> pretty r
+    p3 <- pollFixmies
 
-        rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) api (coerce r)
-                <&> join
+    void $ waitAnyCatchCancel [p1,p2,p3]
 
-        old <- readTVarIO cached <&> HM.lookup r
+  where
 
-        for_ rv $ \x -> do
+    pollFixmies = do
 
-          when (rv /= old) do
-            debug $ yellow "REFLOG UPDATED" <+> pretty r <+> pretty x
-            atomically $ modifyTVar cached (HM.insert r x)
-            atomically $ writeTQueue changes r
+      env <- ask
 
-            flip runContT pure $ callCC $ \exit -> do
+      api <- asks _refChanAPI
 
-              lww <- lift (selectLwwByRefLog (RepoRefLog r))
-                       >>= maybe (exit ()) pure
+      cached <- newTVarIO ( mempty :: HashMap MyRefChan HashRef )
 
-              dir <- lift $ repoDataPath (coerce lww)
+      let chans = selectRepoFixme
+                   <&> fmap (,60)
 
-              here <- doesDirectoryExist dir
+      ContT $ withAsync $ do
+        polling (Polling 1 30) chans $ \(l,r) -> do
+          debug $ yellow "POLL FIXME CHAN" <+> pretty (AsBase58 r)
 
-              unless here do
-                debug $ red "INIT DATA DIR" <+> pretty dir
-                mkdir dir
-                void $ runProcess $ shell [qc|git --git-dir {dir} init --bare|]
+          void $ runMaybeT do
 
-              let cmd = [qc|git --git-dir {dir} hbs2 import {show $ pretty lww}|]
-              debug $ red "SYNC" <+> pretty cmd
-              void $ runProcess $ shell cmd
+            new <- lift (callRpcWaitMay @RpcRefChanGet (TimeoutSec 1) api (coerce r))
+                    <&> join
+                    >>= toMPlus
 
-              lift $ buildCommitTreeIndex (coerce lww)
+            old <- readTVarIO cached <&> HM.lookup r
+
+            when (Just new /= old) $ lift do
+              debug $ yellow "fixme refchan changed" <+> "run update" <+> pretty new
+              addJob do
+                -- TODO: this-is-not-100-percent-reliable
+                --   $workflow: backlog
+                --   откуда нам вообще знать, что там всё получилось?
+                atomically $ modifyTVar cached (HM.insert r new)
+                void $ try @_ @SomeException (withDashBoardEnv env $ updateFixmeFor l r)
+
+
+    pollRepos changes = do
+
+      cached <- newTVarIO ( mempty :: HashMap MyRefLogKey HashRef )
+
+      api <- asks _refLogAPI
+      let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 60)
+
+      ContT $ withAsync $ do
+        polling (Polling 1 30) rlogs $ \r -> do
+
+          debug $ yellow "POLL REFLOG" <+> pretty r
+
+          rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) api (coerce r)
+                  <&> join
+
+          old <- readTVarIO cached <&> HM.lookup r
+
+          for_ rv $ \x -> do
+
+            when (rv /= old) do
+              debug $ yellow "REFLOG UPDATED" <+> pretty r <+> pretty x
+              atomically $ modifyTVar cached (HM.insert r x)
+              atomically $ writeTQueue changes r
+
+              flip runContT pure $ callCC $ \exit -> do
+
+                lww <- lift (selectLwwByRefLog (RepoRefLog r))
+                         >>= maybe (exit ()) pure
+
+                dir <- lift $ repoDataPath (coerce lww)
+
+                here <- doesDirectoryExist dir
+
+                unless here do
+                  debug $ red "INIT DATA DIR" <+> pretty dir
+                  mkdir dir
+                  void $ runProcess $ shell [qc|git --git-dir {dir} init --bare|]
+
+                let cmd = [qc|git --git-dir {dir} hbs2 import {show $ pretty lww}|]
+                debug $ red "SYNC" <+> pretty cmd
+                void $ runProcess $ shell cmd
+
+                lift $ buildCommitTreeIndex (coerce lww)
+
 
 quit :: DashBoardPerks m => m ()
 quit = liftIO exitSuccess

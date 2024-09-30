@@ -175,7 +175,7 @@ newtype RepoCommitsNum = RepoCommitsNum Int
 
 newtype RepoLww = RepoLww (LWWRefKey 'HBS2Basic)
                   deriving stock (Generic,Ord,Eq)
-                  deriving newtype (ToField,FromField,Pretty)
+                  deriving newtype (ToField,FromField,Pretty,Hashable)
 
 instance Show RepoLww where
   show (RepoLww x) = show $ parens $  "RepoLww" <+> pretty x
