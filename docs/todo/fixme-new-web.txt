@@ -23,3 +23,8 @@ FIXME: poll-fixme-refchans
   poll
 
 
+FIXME: commit-and-blob-catch-inconsistency
+ похоже, возникают ситуации, когда fixme-new захватывает
+ blob и commit некорректно (из разных коммитов?), и
+ hbs2-git-dashboard, бывает, не может найти blob в индексе.
+
