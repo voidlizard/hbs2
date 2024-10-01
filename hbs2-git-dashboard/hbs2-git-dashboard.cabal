@@ -145,6 +145,7 @@ library hbs2-git-dashboard-core
       HBS2.Git.Web.Html.Types
       HBS2.Git.Web.Html.Parts.TopInfoBlock
       HBS2.Git.Web.Html.Parts.Issues.Sidebar
+      HBS2.Git.Web.Html.Parts.Blob
       HBS2.Git.Web.Html.Markdown
       HBS2.Git.Web.Html.Root
       HBS2.Git.Web.Html.Issue

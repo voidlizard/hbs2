@@ -35,6 +35,11 @@ header>nav {
   display: flex;
 }
 
+
+.hidden{
+  display: none;
+}
+
 .sidebar {
   width: 20rem;
   flex-shrink: 0;

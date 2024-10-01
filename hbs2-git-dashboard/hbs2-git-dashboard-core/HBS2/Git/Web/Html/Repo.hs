@@ -17,12 +17,11 @@ import HBS2.Git.Web.Html.Types
 import HBS2.Git.Web.Html.Root
 import HBS2.Git.Web.Html.Markdown
 import HBS2.Git.Web.Html.Parts.Issues.Sidebar
+import HBS2.Git.Web.Html.Parts.Blob
 
 
 import Data.Map qualified as Map
-import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
-import Data.Text.Encoding qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
 import Lucid.Htmx
@@ -31,7 +30,6 @@ import Skylighting qualified as Sky
 import Skylighting.Tokenizer
 import Skylighting.Format.HTML.Lucid as Lucid
 
-import Control.Applicative
 import Data.Either
 import Data.List qualified as List
 import Data.List (sortOn)
@@ -593,46 +591,6 @@ repoBlob lww co tree bi@BlobInfo{..} = do
       td_ [colspan_ "3"] mempty
 
   doRenderBlob (pure mempty) lww bi
-
-doRenderBlob fallback lww BlobInfo{..} = do
-  fromMaybe mempty <$> runMaybeT do
-
-    guard (blobSize < 10485760)
-
-    let fn = blobName & coerce
-    let syntaxMap = Sky.defaultSyntaxMap
-
-    syn <- ( Sky.syntaxesByFilename syntaxMap fn
-               & headMay
-           ) <|> Sky.syntaxByName syntaxMap "default"
-           & toMPlus
-
-    lift do
-
-      txt <- lift (readBlob lww blobHash)
-                <&> LBS.toStrict
-                <&> Text.decodeUtf8
-
-      case blobSyn of
-        BlobSyn (Just "markdown") -> do
-
-          div_ [class_ "lim-text"] do
-            toHtmlRaw (renderMarkdown' txt)
-
-        _ -> do
-
-          txt <- lift (readBlob lww blobHash)
-                    <&> LBS.toStrict
-                    <&> Text.decodeUtf8
-
-          let config = TokenizerConfig { traceOutput = False, syntaxMap = syntaxMap }
-
-          case tokenize config syn txt of
-            Left _ -> fallback txt
-            Right tokens -> do
-              let fo = Sky.defaultFormatOpts { Sky.numberLines = False, Sky.ansiColorLevel = Sky.ANSI256Color  }
-              let code = renderText (Lucid.formatHtmlBlock fo tokens)
-              toHtmlRaw code
 
 
 

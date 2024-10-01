@@ -14,6 +14,7 @@ import HBS2.Git.Web.Html.Types
 import HBS2.Git.Web.Html.Root
 import HBS2.Git.Web.Html.Markdown
 import HBS2.Git.Web.Html.Fixme()
+import HBS2.Git.Web.Html.Parts.Blob
 
 import Data.Text qualified as Text
 import Lucid.Base
@@ -97,6 +98,9 @@ issuePage repo@(RepoLww lww) f = rootPage do
                 span_ [] $ toHtml (coerce @_ @Text $ fixmeTitle fxm)
 
             toHtml (issueOptionalArg fxm "workflow")
+            toHtml (issueOptionalArg fxm "class")
+            toHtml (issueOptionalArg fxm "assigned")
+            toHtml (issueOptionalArg fxm "scope")
             toHtml (issueOptionalArg fxm "committer-name")
             toHtml (issueOptionalArg fxm "commit")
 
@@ -111,7 +115,9 @@ issuePage repo@(RepoLww lww) f = rootPage do
                       toHtml $ show $ pretty file
                   Just (BlobInfo{}) -> do
                     td_ do
-                      a_ [ href_ "#" ] do
+                      a_ [ href_ "#"
+                         , hyper_ "on click toggle .hidden on #issue-blob"
+                         ] do
                         toHtml $ show $ pretty file
 
             -- toHtml (issueOptionalArg fxm "file")
@@ -119,6 +125,26 @@ issuePage repo@(RepoLww lww) f = rootPage do
         section_ [class_ "lim-text"] do
           toHtmlRaw $ renderMarkdown txt
 
+        let s0 = fixmeStart fxm
+        let e0 = fixmeEnd fxm
+        let n  = liftA2 (-) e0 s0 & fromMaybe 0
 
+        let hide = if n > 3 then "hidden" else ""
+
+        section_ [id_ "issue-blob", class_ hide ] $ void $ runMaybeT do
+          blob <- toMPlus mbBlob
+          s <- s0 & toMPlus <&> fromIntegral
+          e <- e0 & toMPlus <&> fromIntegral
+
+          let before = max 0 (s - 2)
+          let seize  = max 1 (e - s + 100)
+
+          debug $ "PREPROCESS BLOB" <+> pretty before <+> pretty seize
+
+          lift $ doRenderBlob' (pure mempty) (trim before seize) lww blob
+
+    where
+      trim before seize txt =
+        Text.lines txt & drop before & take seize & Text.unlines
 
 
