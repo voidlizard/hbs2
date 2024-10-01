@@ -84,6 +84,9 @@ article {
   color: var(--pico-secondary-hover);
 }
 
+.copyable-text {
+}
+
 .copy-button .icon {
   width: 1.125rem;
   height: 1.125rem;

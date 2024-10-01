@@ -44,6 +44,13 @@ set @data-tooltip to 'Copy'
 |]
 
 
+onClickCopyText :: Text -> Attribute
+onClickCopyText s =
+  hyper_ [qc|on click writeText('{s}') into the navigator's clipboard
+set @data-tooltip to 'Copied!'
+|]
+
+
 instance ToHtml RepoBrief where
   toHtml (RepoBrief txt) = toHtmlRaw (renderMarkdown' txt)
   toHtmlRaw (RepoBrief txt) = toHtmlRaw (renderMarkdown' txt)

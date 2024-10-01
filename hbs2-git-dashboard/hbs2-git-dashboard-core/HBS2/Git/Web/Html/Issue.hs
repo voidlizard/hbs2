@@ -20,7 +20,6 @@ import Lucid.Base
 import Lucid.Html5 hiding (for_)
 
 
-
 data IssueOptionalArg w t = IssueOptionalArg w t
 
 issueOptionalArg :: Fixme -> FixmeAttrName -> IssueOptionalArg Fixme FixmeAttrName
@@ -49,6 +48,21 @@ issuePage repo@(RepoLww lww) f = rootPage do
 
   let txt = fixmePlain fxm & fmap coerce & Text.intercalate "\n"
 
+  let mbFile = fixmeGet "file" fxm
+
+  mbBlob <- runMaybeT do
+              blobHashText <- fixmeGet "blob" fxm & toMPlus
+              debug $ red "BLOB HASH TEXT" <+> pretty blobHashText
+              hash <- coerce blobHashText
+                             & Text.unpack
+                             & fromStringMay @GitHash
+                             & toMPlus
+              debug $ red "BLOB" <+> pretty hash
+              lift (lift $ selectBlobInfo (BlobHash hash))
+                 >>= toMPlus
+
+  debug $ "BLOB INFO" <> line <> pretty (fmap blobHash mbBlob)
+
   main_ [class_ "container-fluid"] do
     div_ [class_ "wrapper"] do
       aside_ [class_ "sidebar"] do
@@ -71,16 +85,40 @@ issuePage repo@(RepoLww lww) f = rootPage do
           table_ do
             tr_ do
               td_ [colspan_ "2"] do
+                let fkKey = coerce @_ @Text $ fixmeKey fxm
                 strong_ [style_ "margin-right: 1ch;"] $ toHtml (coerce @_ @Text $ fixmeTag fxm)
-                span_ [style_ "margin-right: 1ch;"] $ toHtml (H $ fixmeKey fxm)
+                span_ [ style_ "margin-right: 1ch;"
+                      -- FIXME: make-underlined-on-hover
+                      --  $assigned fastpok
+                      , class_ "copyable-text"
+                      , onClickCopyText $ Text.take 10 fkKey
+                      ] $ toHtml (H $ fixmeKey fxm)
+                " "
                 span_ [] $ toHtml (coerce @_ @Text $ fixmeTitle fxm)
 
             toHtml (issueOptionalArg fxm "workflow")
-            toHtml (issueOptionalArg fxm "file")
-            toHtml (issueOptionalArg fxm "commit")
             toHtml (issueOptionalArg fxm "committer-name")
+            toHtml (issueOptionalArg fxm "commit")
+
+
+            maybe1 mbFile none $ \file -> do
+              tr_ do
+                th_ $ strong_ [] $ "file"
+
+                case mbBlob of
+                  Nothing -> do
+                    td_ do
+                      toHtml $ show $ pretty file
+                  Just (BlobInfo{}) -> do
+                    td_ do
+                      a_ [ href_ "#" ] do
+                        toHtml $ show $ pretty file
+
+            -- toHtml (issueOptionalArg fxm "file")
 
         section_ [class_ "lim-text"] do
           toHtmlRaw $ renderMarkdown txt
+
+
 
 
