@@ -696,6 +696,17 @@ theDict = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+      entry $ bindMatch "debug:build-single-commit-index" $ nil_ $ \case
+        [SignPubKeyLike lw, StringLike h'] -> lift do
+
+          h <- fromStringMay @GitHash h'
+                  & orThrowUser ("invalid git object hash" <+> pretty h')
+
+          buildSingleCommitTreeIndex (LWWRefKey lw) h
+
+        _ -> throwIO $ BadFormException @C nil
+
         -- rs <- selectRepoFixme
         -- for_ rs $ \(r,f) -> do
         --   liftIO $ print $ pretty r <+> pretty (AsBase58 f)
