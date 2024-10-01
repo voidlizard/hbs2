@@ -81,9 +81,9 @@ updateIndexFromPeer = do
                   Right hxs -> do
                     for_ hxs $ \htx -> void $ runMaybeT do
 
-                      -- done <- lift $ withState $ isProcessed (HashRef $ hashObject @HbSync (serialise (lw,htx)))
+                      done <- lift $ withState $ isProcessed (HashRef $ hashObject @HbSync (serialise (lw,htx)))
 
-                      -- guard (not done)
+                      guard (not done)
 
                       getBlock sto (fromHashRef htx) >>= toMPlus
                          <&> deserialiseOrFail @(RefLogUpdate L4Proto)
@@ -105,12 +105,12 @@ updateIndexFromPeer = do
           let rlwwseq = RepoLwwSeq (fromIntegral $ lwwSeq wv)
           insertRepoHead l rlwwseq (RepoRefLog rk) tx rh rhead
 
-          -- insertProcessed (HashRef $ hashObject @HbSync (serialise (l,coerce @_ @HashRef tx)))
+          insertProcessed (HashRef $ hashObject @HbSync (serialise (l,coerce @_ @HashRef tx)))
 
           for_ fme $ \f -> do
             insertRepoFixme l rlwwseq f
 
-      buildCommitTreeIndex (coerce lw)
+      -- buildCommitTreeIndex (coerce lw)
 
   fxe <- selectRepoFixme
 

@@ -178,6 +178,7 @@ executable hbs2-git-dashboard
         , hbs2-git-dashboard-core
         , hbs2-peer
         , suckless-conf
+        , db-pipe
 
         , binary
         , bytestring

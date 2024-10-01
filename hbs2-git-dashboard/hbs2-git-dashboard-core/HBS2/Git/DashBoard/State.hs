@@ -769,8 +769,12 @@ buildCommitTreeIndex lww = do
   commits <- listCommits
   env <- ask
 
+  ignoreCaches <- getIgnoreCaches
+
   for_ commits $ \co -> void $ runMaybeT do
-    checkCommitProcessed co >>= guard . not
+    done <- checkCommitProcessed co
+    let skip = done && not ignoreCaches
+    guard (not skip)
     updateRepoData env co
 
   updateForks

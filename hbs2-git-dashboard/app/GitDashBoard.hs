@@ -28,8 +28,9 @@ import HBS2.Git.Web.Html.Root
 import HBS2.Git.Web.Html.Issue
 import HBS2.Git.Web.Html.Repo
 import HBS2.Git.Web.Html.Fixme
-
 import HBS2.Peer.CLI.Detect
+
+import DBPipe.SQLite
 
 import Data.Config.Suckless.Script
 
@@ -142,7 +143,6 @@ runDashBoardM m = do
   xdgData <- liftIO $ getXdgDirectory XdgData hbs2_git_dashboard
 
   let dataDir = xdgData
-  let dbFile = xdgData </> "state.db"
 
   -- FIXME: unix-socket-from-config
   soname <- detectRPC `orDie` "hbs2-peer rpc not found"
@@ -190,6 +190,18 @@ runDashBoardM m = do
                 refChanAPI
                 lwwAPI
                 sto
+
+    void $ ContT $ withAsync do
+      fix \next -> do
+        dbe' <- readTVarIO (_db env)
+        case dbe' of
+          Just dbe -> do
+            notice $ green "Aquired database!"
+            runPipe dbe
+
+          Nothing -> do
+            pause @'Seconds 5
+            next
 
     void $ ContT $ withAsync do
       q <- withDashBoardEnv env $ asks _pipeline
@@ -677,6 +689,17 @@ theDict = do
       entry $ bindMatch "debug:cache:ignore:off" $ nil_ $ const $ lift do
         t <- asks _dashBoardIndexIgnoreCaches
         atomically $ writeTVar t False
+
+      entry $ bindMatch "debug:build-commit-index" $ nil_ $ \case
+        [SignPubKeyLike lw] -> lift do
+          buildCommitTreeIndex (LWWRefKey lw)
+
+        _ -> throwIO $ BadFormException @C nil
+
+        -- rs <- selectRepoFixme
+        -- for_ rs $ \(r,f) -> do
+        --   liftIO $ print $ pretty r <+> pretty (AsBase58 f)
+
 
       entry $ bindMatch "debug:select-repo-fixme" $ nil_ $ const $ lift do
         rs <- selectRepoFixme
