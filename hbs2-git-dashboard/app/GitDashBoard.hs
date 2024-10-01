@@ -25,6 +25,9 @@ import HBS2.Git.DashBoard.Types
 import HBS2.Git.DashBoard.Fixme
 import HBS2.Git.DashBoard.Manifest
 import HBS2.Git.Web.Html.Root
+import HBS2.Git.Web.Html.Issue
+import HBS2.Git.Web.Html.Repo
+import HBS2.Git.Web.Html.Fixme
 
 import HBS2.Peer.CLI.Detect
 
@@ -249,7 +252,7 @@ runDashboardWeb WebOptions{..} = do
     lwws' <- captureParam @String "lww" <&> fromStringMay @(LWWRefKey 'HBS2Basic)
     flip runContT pure do
       lww <- lwws' & orFall (status status404)
-      TopInfoBlock{..} <- getTopInfoBlock lww
+      TopInfoBlock{..} <- lift $ getTopInfoBlock lww
       lift $ html (LT.fromStrict manifest)
 
   get (routePattern (RepoRefs "lww")) do
