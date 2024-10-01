@@ -15,8 +15,6 @@ import HBS2.Peer.RPC.Client
 
 import HBS2.CLI.Run.MetaData (getTreeContents)
 
-import HBS2.CLI.Run.Internal hiding (PeerNotConnectedException)
-
 import HBS2.Data.Types.SignedBox
 import HBS2.CLI.Run.Internal.KeyMan
 
@@ -27,8 +25,7 @@ import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.Map qualified as Map
 import Lens.Micro.Platform
-import System.Directory (listDirectory,createDirectoryIfMissing)
-import System.Directory (XdgDirectory(..),getXdgDirectory)
+import System.Directory (XdgDirectory(..),createDirectoryIfMissing,getXdgDirectory,listDirectory)
 import Control.Monad.Except
 import Data.Ord
 
@@ -59,6 +56,81 @@ findConfig =
                 then return Nothing
                 else findConfig' parent
 
+syncInit ::
+  forall c m.
+  ( MonadUnliftIO m,
+    IsContext c,
+    Exception ConfigException,
+    HasClientAPI PeerAPI UNIX m,
+    HasClientAPI RefChanAPI UNIX m,
+    HasClientAPI StorageAPI UNIX m,
+    HasStorage m,
+    HasKeyManClient m
+  ) =>
+  PubKey 'Sign HBS2Basic ->
+  PubKey 'Encrypt HBS2Basic ->
+  RunM c m ()
+syncInit authorKey readerKey = do
+  findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
+
+  peerApi <- getClientAPI @PeerAPI @UNIX
+  rchanApi <- getClientAPI @RefChanAPI @UNIX
+  storage <- getStorage
+
+  poked <-
+    callService @RpcPoke peerApi ()
+      >>= orThrowUser "can't poke hbs2-peer"
+      <&> parseTop
+      >>= orThrowUser "invalid hbs2-peer attributes"
+
+  peerKey <-
+    [ x
+    | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
+    ]
+    & headMay
+    & orThrowUser "hbs2-peer key not found"
+
+  let chanData =
+        refChanHeadDefault @L4Proto
+          & set refChanHeadPeers (HM.singleton peerKey 1)
+          & set refChanHeadAuthors (HS.singleton authorKey)
+          & set refChanHeadReaders (HS.singleton readerKey)
+
+  refchan <- keymanNewCredentials (Just "refchan") 0
+
+  creds <-
+    runKeymanClient $
+      loadCredentials refchan
+        >>= orThrowUser "can't load credentials"
+
+  let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) chanData
+
+  href <- writeAsMerkle storage (serialise box)
+
+  callService @RpcPollAdd peerApi (refchan, "refchan", 17)
+    >>= orThrowUser "can't subscribe to refchan"
+
+  callService @RpcRefChanHeadPost rchanApi (HashRef href)
+    >>= orThrowUser "can't post refchan head"
+
+  let authorString = show $ pretty $ AsBase58 authorKey
+  let refchanString = show $ pretty $ AsBase58 refchan
+  let configForms :: [Syntax c] =
+        [ mkList [mkSym "exclude", mkStr "**/.*"]
+        , mkList [mkSym "include", mkStr "**"]
+        , mkList [mkSym "sign", mkStr authorString]
+        , mkList [mkSym "refchan", mkStr refchanString]
+        ]
+  let config = unlines $ map (show . pretty) configForms
+  display config
+
+  liftIO $ do
+    path <- configPath <$> pwd
+    createDirectoryIfMissing True $ takeDirectory path
+    writeFile path config
+
+  pure ()
+
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
                             , Exception (BadFormException c)
@@ -84,59 +156,28 @@ syncEntries = do
       setLogging @DEBUG  debugPrefix
 
   entry $ bindMatch "init" $ nil_ $ \case
-    [StringLike "--auto", StringLike authorString, StringLike readerString] -> do
+    [StringLike authorString, StringLike readerString] -> do
       authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
       readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
 
-      findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
+      syncInit authorKey readerKey
 
-      peerApi  <- getClientAPI @PeerAPI @UNIX
-      rchanApi <- getClientAPI @RefChanAPI @UNIX
-      storage  <- getStorage
+    [] -> do
+      authorKey <- keymanNewCredentials (Just "sync") 1
 
-      poked <- callService @RpcPoke peerApi ()
-               >>= orThrowUser "can't poke hbs2-peer"
-               <&> parseTop
-               >>= orThrowUser "invalid hbs2-peer attributes"
+      creds <-
+        runKeymanClient $
+          loadCredentials authorKey
+            >>= orThrowUser "can't load credentials"
 
-      peerKey <- [ x
-                 | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
-                 ] & headMay & orThrowUser "hbs2-peer key not found"
+      readerKeyring <-
+        view peerKeyring creds
+          & headMay
+          & orThrowUser "reader key not found"
 
-      let chanData = refChanHeadDefault @L4Proto
-                     & set refChanHeadPeers (HM.singleton peerKey 1)
-                     & set refChanHeadAuthors (HS.singleton authorKey)
-                     & set refChanHeadReaders (HS.singleton readerKey)
-      refchan <- keymanNewCredentials (Just "refchan") 0
+      let readerKey = view krPk readerKeyring
 
-      creds <- runKeymanClient $ loadCredentials refchan
-               >>= orThrowUser "can't load credentials"
-
-      let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) chanData
-
-      href <- writeAsMerkle storage (serialise box)
-
-      callService @RpcPollAdd peerApi (refchan, "refchan", 17)
-        >>= orThrowUser "can't subscribe to refchan"
-
-      callService @RpcRefChanHeadPost rchanApi (HashRef href)
-        >>= orThrowUser "can't post refchan head"
-
-      let refchanString = show $ pretty $ AsBase58 refchan
-      let configForms :: [Syntax c] = [ mkList [mkSym "exclude", mkStr "**/.*"]
-                                      , mkList [mkSym "include", mkStr "**"]
-                                      , mkList [mkSym "sign", mkStr authorString]
-                                      , mkList [mkSym "refchan", mkStr refchanString]
-                                      ]
-      let config = unlines $ map (show . pretty) configForms
-      display config
-
-      liftIO $ do
-        path <- configPath <$> pwd
-        createDirectoryIfMissing True $ takeDirectory path
-        writeFile path config
-
-      pure ()
+      syncInit authorKey readerKey
 
     _ -> do
       err "bad form"
