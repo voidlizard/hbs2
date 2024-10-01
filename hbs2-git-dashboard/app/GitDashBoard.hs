@@ -641,6 +641,7 @@ theDict = do
 
           _ -> throwIO $ BadFormException @C nil
 
+
     developAssetsEntry = do
       entry $ bindMatch "develop-assets" $ nil_ \case
         [StringLike s] -> do
@@ -668,6 +669,15 @@ theDict = do
     -- TODO: ASAP-hide-debug-functions-from-help
 
     debugEntries = do
+
+      entry $ bindMatch "debug:cache:ignore:on" $ nil_ $ const $ lift do
+        t <- asks _dashBoardIndexIgnoreCaches
+        atomically $ writeTVar t True
+
+      entry $ bindMatch "debug:cache:ignore:off" $ nil_ $ const $ lift do
+        t <- asks _dashBoardIndexIgnoreCaches
+        atomically $ writeTVar t False
+
       entry $ bindMatch "debug:select-repo-fixme" $ nil_ $ const $ lift do
         rs <- selectRepoFixme
         for_ rs $ \(r,f) -> do

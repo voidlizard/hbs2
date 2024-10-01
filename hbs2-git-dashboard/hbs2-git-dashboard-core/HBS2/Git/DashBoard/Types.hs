@@ -57,6 +57,7 @@ data DashBoardEnv =
   , _pipeline           :: TQueue (IO ())
   , _dashBoardHttpPort  :: TVar (Maybe Word16)
   , _dashBoardDevAssets :: TVar (Maybe FilePath)
+  , _dashBoardIndexIgnoreCaches :: TVar Bool
   }
 
 makeLenses 'DashBoardEnv
@@ -94,6 +95,7 @@ newDashBoardEnv ddir peer rlog rchan lww sto  = do
         <*> newTQueueIO
         <*> newTVarIO (Just 8911)
         <*> newTVarIO Nothing
+        <*> newTVarIO False
 
 getHttpPortNumber :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m a
 getHttpPortNumber = do
@@ -104,6 +106,12 @@ getHttpPortNumber = do
 getDevAssets :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m (Maybe FilePath)
 getDevAssets = do
   asks _dashBoardDevAssets
+    >>= readTVarIO
+
+
+getIgnoreCaches :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m Bool
+getIgnoreCaches = do
+  asks _dashBoardIndexIgnoreCaches
     >>= readTVarIO
 
 withDashBoardEnv :: Monad m => DashBoardEnv -> DashBoardM m a -> m a
