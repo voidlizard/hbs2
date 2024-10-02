@@ -28,7 +28,7 @@ import Lens.Micro.Platform
 import System.Directory (XdgDirectory(..),createDirectoryIfMissing,getXdgDirectory,listDirectory)
 import Control.Monad.Except
 import Data.Ord
-
+import Text.InterpolatedString.Perl6 (qc)
 import Streaming.Prelude qualified as S
 
 data ConfigException
@@ -67,10 +67,9 @@ syncInit ::
     HasStorage m,
     HasKeyManClient m
   ) =>
-  PubKey 'Sign HBS2Basic ->
-  PubKey 'Encrypt HBS2Basic ->
+  Maybe (PubKey 'Sign HBS2Basic, PubKey 'Encrypt HBS2Basic) ->
   RunM c m ()
-syncInit authorKey readerKey = do
+syncInit keys = do
   findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
 
   peerApi <- getClientAPI @PeerAPI @UNIX
@@ -90,6 +89,8 @@ syncInit authorKey readerKey = do
     & headMay
     & orThrowUser "hbs2-peer key not found"
 
+  (authorKey, readerKey) <- getKeys keys
+
   let chanData =
         refChanHeadDefault @L4Proto
           & set refChanHeadPeers (HM.singleton peerKey 1)
@@ -97,6 +98,8 @@ syncInit authorKey readerKey = do
           & set refChanHeadReaders (HS.singleton readerKey)
 
   refchan <- keymanNewCredentials (Just "refchan") 0
+  let refchanString = show $ pretty $ AsBase58 refchan
+  display $ "refchan created: " <> refchanString <> "\n"
 
   creds <-
     runKeymanClient $
@@ -114,22 +117,44 @@ syncInit authorKey readerKey = do
     >>= orThrowUser "can't post refchan head"
 
   let authorString = show $ pretty $ AsBase58 authorKey
-  let refchanString = show $ pretty $ AsBase58 refchan
   let configForms :: [Syntax c] =
-        [ mkList [mkSym "exclude", mkStr "**/.*"]
-        , mkList [mkSym "include", mkStr "**"]
-        , mkList [mkSym "sign", mkStr authorString]
-        , mkList [mkSym "refchan", mkStr refchanString]
+        [ mkList [mkSym "exclude", mkStr "**/.*"],
+          mkList [mkSym "include", mkStr "**"],
+          mkList [mkSym "sign", mkStr authorString],
+          mkList [mkSym "refchan", mkStr refchanString]
         ]
   let config = unlines $ map (show . pretty) configForms
-  display config
 
-  liftIO $ do
-    path <- configPath <$> pwd
-    createDirectoryIfMissing True $ takeDirectory path
-    writeFile path config
+  path <-
+    liftIO $ do
+      path <- configPath <$> pwd
+      createDirectoryIfMissing True $ takeDirectory path
+      writeFile path config
+      pure path
 
+  display $ path <> " created\n"
   pure ()
+  where
+    getKeys Nothing = do
+      authorKey <- keymanNewCredentials (Just "sync") 1
+
+      creds <-
+        runKeymanClient $
+          loadCredentials authorKey
+            >>= orThrowUser "can't load credentials"
+
+      readerKeyring <-
+        view peerKeyring creds
+          & headMay
+          & orThrowUser "reader key not found"
+
+      let readerKey = view krPk readerKeyring
+
+      display $ "author key created: " <> show (pretty $ AsBase58 authorKey) <> "\n"
+      display $ "reader key created: " <> show (pretty $ AsBase58 readerKey) <> "\n"
+      pure (authorKey, readerKey)
+    getKeys (Just (authorKey, readerKey)) =
+      pure (authorKey, readerKey)
 
 syncEntries :: forall c m . ( MonadUnliftIO m
                             , IsContext c
@@ -155,32 +180,25 @@ syncEntries = do
     _ -> do
       setLogging @DEBUG  debugPrefix
 
-  entry $ bindMatch "init" $ nil_ $ \case
-    [StringLike authorString, StringLike readerString] -> do
-      authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
-      readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
+  brief "initializes hbs2-sync directory"
+    $ args [arg "sign key" "<author>", arg "encrypt key" "<reader>"]
+    $ desc "prepares directory to use with sync:\n* creates keys if not specified,\n* creates refchan,\n* populates current directory with config"
+    $ examples [qc|
+hbs2-sync init
+hbs2-sync init 3scAAE7h6uYXWq57TZHv8tunJEyU34aA6k3Ky5Ec5Sow BLvbiWLzpt4ATXFPjfqT543zc6dYgHBQkmcQ4UALSpfb
+    |]
+    $ entry $ bindMatch "init" $ nil_ $ \case
+      [StringLike authorString, StringLike readerString] -> do
+        authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
+        readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
 
-      syncInit authorKey readerKey
+        syncInit (Just (authorKey, readerKey))
 
-    [] -> do
-      authorKey <- keymanNewCredentials (Just "sync") 1
+      [] -> do
+        syncInit Nothing
 
-      creds <-
-        runKeymanClient $
-          loadCredentials authorKey
-            >>= orThrowUser "can't load credentials"
-
-      readerKeyring <-
-        view peerKeyring creds
-          & headMay
-          & orThrowUser "reader key not found"
-
-      let readerKey = view krPk readerKeyring
-
-      syncInit authorKey readerKey
-
-    _ -> do
-      err "bad form"
+      _ -> do
+        err "unknown parameters, please use `help init` command"
 
   entry $ bindMatch "sync" $ nil_ $ \case
     [StringLike d] -> do
