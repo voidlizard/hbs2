@@ -1,0 +1,758 @@
+%
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{polyglossia}
+\usepackage{xltxtra}
+\usepackage[margin=2cm,a4paper]{geometry}% http://ctan.org/pkg/geometry
+\usepackage{pdfpages}
+\usepackage{graphicx}
+\usepackage[ddmmyyyy]{datetime}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage[nomessages]{fp}
+\usepackage{caption}
+\usepackage{url}
+\usepackage{indentfirst}
+\usepackage[parfill]{parskip}
+\usepackage[ colorlinks=true
+           , linkcolor=black
+		   , anchorcolor=black
+		   , citecolor=black
+		   , filecolor=black
+		   , menucolor=black
+		   , runcolor=black
+		   , urlcolor=blue]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows,snakes,shapes,backgrounds,positioning,calc}
+\usepackage{marvosym}
+\usepackage{pifont}
+\usepackage{fontspec}
+\usepackage{fontawesome5}
+\usepackage{listings}
+\usepackage{verbatim}
+\usepackage{xcolor}
+\usepackage{float} % Needed for the floating environment
+
+\setmainlanguage{russian}
+\defaultfontfeatures{Ligatures=TeX,Mapping=tex-text}
+\setmainfont{Liberation Serif}
+\newfontfamily\cyrillicfont{Liberation Serif}[Script=Cyrillic]
+\newfontfamily{\cyrillicfonttt}{Liberation Mono}[Scale=0.8]
+
+\setlist{noitemsep}
+\setlength{\intextsep}{2cm}
+
+\newcommand{\term}[2]{\textit{#2}}
+\newcommand{\Peer}{\term{peer}{пир}}
+\newcommand{\Relay}{\term{relay}{Relay}}
+\newcommand{\Acc}{\term{acc}{Accumulator}}
+\newcommand{\Dude}{\term{dude}{Dude}}
+\newcommand{\Mailbox}{\term{mailbox}{Mailbox}}
+\renewcommand{\dateseparator}{.}
+\renewcommand*\contentsname{Содержание}
+
+\lstset{
+  language=Haskell,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{green},
+  stringstyle=\color{red},
+  % numberstyle=\tiny\color{gray},
+  % numbers=left,
+  % stepnumber=1,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+}
+
+\newfloat{Code}{t}{myc}
+
+\graphicspath{ {img/}}
+
+\title{Протокол <<Mailbox>>}
+
+\begin{document}
+
+\maketitle
+
+\section{О документе}
+
+Документ рассматривает протокол доставки данных <<Mailbox>> по паттерну $*
+\rightarrow 1$ <<email>> в P2P окружении, как подпротокола  для hbs2-peer.
+
+Протокол предполагается к использованию в ситуациях, когда между
+\term{actor}{акторами} нет общего авторизованного канала связи (в смысле
+hbs2-peer).
+
+Протокол не подразумевает нахождения акторов постоянно онлайн.
+
+Протокол не подразумевает использования механизмов вроде DNS, сертификатов PKCS
+и Authority, или каких-либо (скомпрометированных) централизованных сервисов.
+
+Протокол не подразумевает постоянной связности сети.
+
+Для адресации используются публичные ключи подписи.
+
+Для E2E шифрования используется механизм групповых ключей.
+
+Для упаковки и распространения данных используются примитивы hbs2-peer:
+\term{block}{блоки}, \term{merkle}{(шифрованные) деревья Меркла} с метаданными,
+и протоколы для работы с ними.
+
+Отличие от протоколов IMAP,SMTP,POP3 в том, что это другой протокол для другого
+окружения и исходящий из других предпосылок.
+
+Теоретически, в качестве несложного упражнения, можно поднять сервер IMAP как
+локальный фронтенд для hbs2-peer и тогда это будет IMAP-via-P2P.
+
+\section{Предпосылки}
+
+В текущей реализации HBS2 существуют следующие релевантные виды каналов
+(протоколов,\term{ref}{ссылок}):
+
+\paragraph{RefLog:}
+
+Обеспечивает коммуникацию по паттерну   $1 \rightarrow *$, то есть один -- ко
+всем, канал распространяет сообщения одного автора. Пруфом записи является
+подпись \term{ksign}{ключом подписи} автора. \term{peer}{Пиры} должны
+подписаться на канал для его распространения, распространять канал (ссылку)
+может любой любой подписанный на него \term{peer}{пир}, так как валидность
+записей проверяется подписью автора. Канал является \term{GSET}{CRDT G-SET}
+записей.
+
+Метафорой рефлога может являться твиттер-аккаунт либо канал в телеграме, с одним
+писателем и множеством подписчиков.
+
+
+\paragraph{RefChan:}
+
+Обеспечивает коммуникацию по паттерну ${A} \rightarrow {R}$, то есть определяет
+множество \term{author}{авторов} $A$ и множество \term{reader}{читателей} $R$, и
+пруфом записи является подпись \term{author}{автора}, а
+\term{permission}{разрешением} на чтение --- опциональное шифрование сообщения
+\term{GK0}{групповым ключом}, куда входят читатели $R$, то есть $GK = \{ k_i
+\}_{i \in R}$, где каждый $k_i$ --- секретный ключ, зашифрованный публичным
+ключом $r_i$ из множества $R$.
+
+Кроме того, \term{refchan}{RefChan} определяет множество пиров ${P}$, которые
+могут отправлять сообщение в данный \term{refchan}{RefChan} и принимаются только
+такие сообщения.
+
+Данное ограничение необходимо для борьбы с атакой Сивиллы в случае, если \Peer{}
+игнорирует настройки ${A}$.
+
+Кроме того, у \term{refchan}{рефчана} есть владелец, который может менять
+настройки $A,R$, а блок настроек представляет собой \term{lww}{CRDT LWW регистр}
+со ссылкой на блок настроек, подписанный ключом владельца.
+
+Как видно, распространять сообщения из \term{refchan}{рефчана} могут только пиры
+$p_i \in P$
+
+То есть, распространять транзакции может кто угодно, т.к каждая транзакция
+подписана ключом \term{peer}{пира}, но вот при запросе состояния будут
+учитываться только ответы пиров $p_i \in P$.
+
+Метафорой \term{refchan}{рефчана} является модерируемый чат с ограниченным
+множеством участников и администраторами.
+
+Таким образом, при наличии этих протоколов, мы можем
+
+\begin{enumerate}
+
+\item посылать сообщения от одного автора всему миру, то есть тем пирам, которые
+  слушают (подписаны) на данный рефлог или
+
+\item осуществлять коммуникацию между ограниченными множествами пиров и
+  авторов/читателей.
+
+\end{enumerate}
+
+Общим является то, что бы получать обновления рефлога или рефчана, мы (как пир)
+должны быть на них \term{subscribed}{подписаны}, т.е мы должны знать, что такие
+\term{ref}{ссылки} существуют и явно на них подписаться.
+
+
+Возникает вопрос, как можно обеспечить коммуникацию между произвольными
+\term{actor}{акторами} Алиса и Боб, у которых нет общего канала.
+
+Куда писать Алисе, что бы её сообщение достигло Боба? Рефчана, куда бы входили
+бы и Алиса и Боб в общем случае еще не существует, канал связи отсутствует.
+
+Алиса может быть подписана на какую-то ссылку Боба, но Боб не подписан на каналы
+Алисы. Или наоборот.
+
+Предлагается ввести новый протокол, \term{mailbox}{Mailbox}, который будет
+обеспечивать коммуникацию по паттерну $ * \rightarrow 1 $, то есть кто угодно
+может отправлять сообщения в почтовый ящик получателя.
+
+Получатель проверяет почтовый ящик и забирает оттуда сообщения.
+
+При этом обеспечивается отправка и доставка в условиях, когда \term{peer}{пиры}
+получателя и отправителя  не находятся онлайн всё время.
+
+Данный протокол может быть полезен при установлении канала связи (например,
+создании общего рефчана), или просто оффлайн обмене сообщениями в условиях
+необязательного наличия каналов, например, при рассылке патчей и пулл/мерж
+реквестов в git или создании тикетов или для отсылки \textit{реакций}, в общем
+---  в любом случае, когда между акторами нет какого-то прямого канала.
+
+Важным является то, что получатель подписан только на свои, известные ему
+каналы, куда все (при выполнении определённых условий) могут отправлять
+сообщения.
+
+
+\section{Протокол}
+
+Протокол является подпротоколом \textit{hbs2-peer} и в отношении него верно всё,
+что верно для семейства этих протоколов --- авторизация и аутентификация пиров,
+черные и белые списки пиров, транспортное шифрование сообщений через ByPass и
+так далее.
+
+Идентификаторами являются публичные ключи подписи и шифрования.
+
+Для e2e шифрования используется тот же механизм групповых ключей.
+
+Передаваемыми единицами являются либо короткие сообщения
+\texttt{SmallEncryptedBlock} либо \term{merkle}{деревья Меркла} с шифрованием и
+метаданными.
+
+Протокол использует примитивы \textit{hbs2-core} и \textit{hbs2-peer}, как
+минимум:
+
+\begin{itemize}
+  \item[-] SignedBox
+  \item[-] SmallEncryptedBlock
+  \item[-] MerkleTree
+\end{itemize}
+
+Протокол определяет служебные сообщения, специфичные для него, однако обмен
+данными идёт через обычные протоколы (GetBlock,GetBlockSize).
+
+Короткие сообщения могут доставляться непосредственно через (сигнальные)
+сообщения протокола.
+
+\subsection{Участники}
+
+\paragraph{Пир} Узел hbs2, поддерживающий данный протокол
+
+\paragraph{Актор} также \term{dude}{Dude}.  Отправители и получатели сообщений.
+
+Требуется определить, что явлется идентификатором, или идентификаторами \Dude{}.
+
+\paragraph{Message} Сообщение.
+
+Определяется отправителем, получателем (получателями?), и содержимым.
+Видится,что сообщения могут быть двух классов: \textit{маленькое}, где всё
+сообщение вместе со служебной информацией помещается в один пакет и может быть
+доставлено непосредственно через коммуникационный протокол (GOSSIP), и
+\textit{большое}, когда \Peer{} поддерживающий данный протокол -- будет
+выкачивать все ссылки на части сообщения (большой текст, аттачменты и т.п.)
+
+\paragraph{Mailbox} Единица хранения и распространения сообщений.
+
+Mailbox бывают видов \term{Relay}{Relay} и \term{Accumulator}{Accumulator}.
+
+Разница между ними в том, что \Relay{} просто принимает и выкачивает сообщения,
+пришедшие по протоколу, и не пытается опрашивать соседей и объединять все
+известные сообщения дла \Dude{} в общее множество.
+
+Назначание \Relay{} --- временное хранение сообщений, пока их не заберёт один из
+\term{acc}{аккумуляторов}. \Mailbox{} \Relay{} занимает фиксированное, заранее
+определенное место на диске
+
+Поскольку мы в общем не знаем, забрали ли сообщение или нет, видится так, что
+\Relay{} организует ограниченную очередь сообщений, и при исчерпании лимита
+места, отведённого под почтовый ящик -- просто удаляет наиболее старые сообщения
+из очереди.
+
+Назначание \Acc{} -- хранить все сообщения для своего \Dude{}, т.е это его
+<<распределённый почтовый аккаунт>>.
+
+То есть, \Acc{} образуют \term{GSET}{CRDT G-SET} сообщений, и постепенно
+сходятся к одному значению (объединению всех сообщений всех \Acc{}).
+
+Очевидно, нужно предусмотреть или записи вида \textit{Tomb}, или иной способ
+удаления сообщений, например, через команду протокола.
+
+\Acc{} опрашивает всех соседей, получает ссылки на \term{merkle}{деревья~Меркла}
+сообщений, выкачивает сообщения и объединяет их в общее множество.
+
+\subsection{Примеры}
+
+\subsection*{Минимальная конфигурация}
+
+Два пира при условии наличия прямой сетевой доступности в обоих направлениях.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                   ]
+
+  \node[box,minimum height=2cm,label={below:{hbs2-peer}}] (dudeA) {{\underline{Dude~A}}\\ \Acc{}};
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , right=2.5cm of dudeA
+       ] (dudeB) {{\underline{Dude~B}}\\ \Acc{}};
+
+  \draw[<->] (dudeA) -- (dudeB)
+              node[midway,above] {Mailbox}
+              node[midway,below] {GOSSIP};
+
+
+\end{tikzpicture}
+\caption{минимальная конфигурация}
+\end{figure}
+
+\pagebreak
+
+\begin{itemize}
+ \item[-] Обмен сообщениями возможен только при одновременном нахождении обоих
+   пиров онлайн и наличия между ними связи
+
+ \item[-] При потере узла Dude~A или Dude~B теряют все адресованные им сообщения
+\end{itemize}
+
+
+\subsection*{Примерно оптимальная конфигурация}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                   ]
+
+  \node[box,minimum height=2cm,label={below:{hbs2-peer}}] (dudeA) {{\underline{Dude~A}}\\ \Acc{}};
+
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , right=1.5cm of dudeA
+       ] (relayA) {{\underline{Relay~1}}\\ \Relay{}};
+
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , below=1.5cm of dudeA
+       ] (A1) {{\underline{A1}}\\ \Acc{}};
+
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , right=1.5cm of relayA
+       ] (relayB) {{\underline{Relay~2}}\\ \Relay{}};
+
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , right=1.5cm of relayB
+       ] (dudeB) {{\underline{Dude~B}}\\ \Acc{}};
+
+  \node[ box
+       , minimum height=2cm
+       , label={below:{hbs2-peer}}
+       , below=1.5cm of dudeB
+       ] (B1) {{\underline{B1}}\\ \Acc{}};
+
+  \node[ box, circle, draw, dashed
+       , minimum size=2.5cm
+       , minimum height=2.5cm
+       , yshift=-0.5cm
+       , right=2.75cm of A1
+       , label={below: protocol}
+       ] (gossip) {{\underline{Mailbox}}\\GOSSIP };
+
+
+  \draw[<->,dashed] (dudeA) -- (relayA);
+  \draw[<->,dashed] (dudeB) -- (relayB);
+  \draw[<->,dashed] (dudeA) -- (A1);
+  \draw[<->,dashed] (dudeB) -- (B1);
+
+  \draw[<->,dashed] (dudeA) -- (gossip);
+  \draw[<->,dashed] (dudeB) -- (gossip);
+  \draw[<->,dashed] (relayA) -- (gossip);
+  \draw[<->,dashed] (relayB) -- (gossip);
+  \draw[<->,dashed] (A1) -- (gossip);
+  \draw[<->,dashed] (B1) -- (gossip);
+
+\end{tikzpicture}
+\caption{Примерно оптимальная конфигурация}
+\end{figure}
+
+\begin{itemize}
+\item[-] Каждый Dude имеет некоторое количество Mailbox типа \Acc{} и \Relay{}.
+
+\item[-] Часть из них находится на пирах, которые большую часть времени
+  доступны.
+
+\item[-] Часть доступных пиров имеет между собой прямую связь по GOSSIP.
+
+\item[-] Не требуется полная связность сети между Dude~A и Dude~B, достаточно,
+  что бы была цепочка соединений, доступных хотя бы время от времени.
+
+\item[-] Сообщения Dude~A и Dude~B реплицированы между узлами типа \Acc{} (для
+  каждого Dude -- свои мейлбоксы, естественно) и сообщения будут утрачены
+    только в случае полной одновременной утраты всех узлов такого типа или если
+    на всех этих узлах будут удалены \term{mailbox}{мейлбоксы} для Dude~A или
+    Dude~B.
+\end{itemize}
+
+\pagebreak
+
+\section{Структуры данных}
+
+\subsection{Message}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                   ]
+
+  \node[ draw
+       , minimum height=2cm
+       , minimum width=12cm
+       % , label={[yshift=5mm]south:SignedBox}
+       ] (msg)  {};
+
+
+   \node[draw,below=5mm of msg.north west,anchor=north west,xshift=2mm
+       ] (sender) {$Sender$};
+
+  \node[above=1.5cm of sender.north west, anchor = south west, text width=1.8cm] (label1) {Публичный ключ отправителя};
+
+  \draw[->] (label1.south) -- ($(sender.north west)!(label1.south)!(sender.north east)$);
+
+  % \node[draw,below=5mm of msg.north west,anchor=north west,xshift=2mm
+  \node[draw,right=5mm of sender
+       ] (flags) {$\{F\}$};
+
+  \node[draw,right=1mm of flags
+       ] (rcpt) {$\{Recipients\}$};
+
+  \node[draw,right=1mm of rcpt
+       ] (gk) {$GK^*$};
+
+  \node[draw,right=1mm of gk
+       ] (ref) {$\{Ref\}$};
+
+  \node[draw,right=1mm of ref,minimum width=4cm
+       ] (payload) {$Payload$};
+
+
+  \node[above=1.5cm of payload.north west, anchor = south west, text width=2cm]
+     (labelP) {SmallEncryptedBlock};
+
+  \draw[->] (labelP.south) -- ($(payload.north west)!(labelP.south)!(payload.north east)$);
+
+  \node[ draw
+       , above=2mm of flags.north west, xshift=-2.5mm
+       , anchor=north west
+       , minimum width = 10cm
+       , minimum height = 1.1cm
+       , label={[yshift=-1mm]south:SignedBox}
+       ] (box) {};
+
+
+\end{tikzpicture}
+\caption{Структура сообщения}
+\end{figure}
+
+\paragraph{Sender:}  Публичный (адрес) ключ подписи отправителя
+
+\paragraph{F:} Флаги (опции) сообщения. Например, TTL. TBD.
+
+\paragraph{Recipients:} Публичные ключи подписи (адреса) получателей
+
+Так как \term{peer}{пиру} нужно знать, в какой \Mailbox{} положить сообщение
+
+
+\paragraph{GK:} (Опционально) групповой ключ шифрования, которым зашифровано
+сообщение
+
+\paragraph{Refs:} Ссылки на части сообщения, (зашифрованные)
+\term{merkle}{деревья} с метаданными
+
+\paragraph{Payload:} Непосредственное короткое сообщение
+
+
+\section{Сообщения протокола}
+
+\subsection{SEND}
+
+Пир~A \Dude~A посылает сообщение \Dude~B или списку \Dude{} через Пир~X.
+
+Если Пир~X не поддерживает протокол -- то сообщение не обрабатывается.
+
+Если Пир~X поддерживает протокол -- то сообщение пересылается соседям Пир~X.
+
+Если Пир~X имеет \Mailbox{} для одного из получателей (\Dude{}) --- то сообщение
+кладётся в \Mailbox{}.
+
+Если это \Acc{} -- то просто кладётся. Если задана квота на размер и размер
+\Mailbox{} превышен (переполнен), то сообщение может игнорироваться.
+
+Если это \Relay{} то кладётся, если квота размера не превышена. Если превышена,
+то удаляются наиболее старые сообщения, пока не освободится достаточно места на
+диске.
+
+Если не удалось, то сообщение удаляется.
+
+Если сообщение содержит хэш-ссылки (вложения), то они скачиваются в соответствии
+с политиками (размеры,etc).
+
+Каждая ссылка сообщения проверяется на целостность, скачивание продолжается,
+пока оно не станет целостным или до тех пор, пока (определяется политикой).
+
+Если пир \Dude~A не имеет блоков, на которые ссылается сообщениe --- то мы
+прекращаем скачивать зависимости. Возможно, такое сообщение стоит дропнуть.
+
+Авторизация: сообщение SEND подписано \Dude~A, отправителем сообщения.
+
+\subsection{CHECK-MAIL}
+
+Получатель (владелец \Mailbox{}) запрашивает хэш \term{merkle}{дерева Меркла} сообщений,
+содержащихся в \Mailbox{}.
+
+Авторизация: сообщение SEND подписано \Dude --- владельцем \Mailbox{}.
+
+\subsection{MAIL-STATUS}
+
+Ответ на сообщение \texttt{CHECK-MAIL}, содержит хэш ссылку
+\term{merkle}{дерева Меркла} сообщений, содержащихся в \Mailbox{}
+или признак отсутствия сообщений.
+
+Поведение. Получаем сообщения из дерева, пишем в результат только валидные.
+
+Если затесались невалидные -- то это повод для каких-то действий в отношении
+пира, который обслуживает \Mailbox{}.
+
+Авторизация: сообщение подписано \Dude --- владельцем  \Mailbox{}.
+
+\subsection{DELETE}
+
+Удалить сообщение для \Mailbox{}.
+
+Содержит признак рассылать по GOSSIP или нет, допустим, оно адресовано только
+одному конкретному узлу.
+
+Содержит предикат, какие сообщения удалять (все, для определенного отправителя,
+старше, чем X, больше, чем X, и т.п.). TBD.
+
+Полезно для освобождения ресурсов и экономии сетевого трафика.
+
+Опциональное.
+
+Авторизация: сообщение подписано \Dude --- владельцем  \Mailbox{}.
+
+\subsection{SET-POLICY}
+
+Устанавливает политики обработки сообщений и \Mailbox{}.
+
+Параметры: GOSSIP (да/нет)
+
+Данные: \term{term}{дерево Меркла} текстового файла с инструкциями.
+
+Авторизация: сообщение подписано \Dude --- владельцем  \Mailbox{}.
+
+Инструкции: TBD, расширяемо.
+
+Возможный примерный вид:
+
+\begin{verbatim}
+
+dudes drop *
+peers drop *
+
+dudes accept GmtNGbawvxqykjDaBiT3LsqP7xqDPHVTxqfBqoFQ6Mre
+
+dudes accept 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42
+
+dudes delete G5K9QvFaomXdP4Y9HcYEt3diS2cCWyU8nBd2eTzrcq1j
+
+dude set-pow-factor 94wrDGvcnSitP8a6rxLSTPBhXSwdGYrQqkuk2FcuiM3T 10
+
+peer set-pow-factor Gu5FxngYYwpRfCUS9DJBGyH3tvtjXFbcZ7CbxmJPWEGH 10
+
+peers accept yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu
+
+peer cooldown * 120
+peer cooldown yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu  60
+
+dude cooldown * 120
+dude cooldown G5K9QvFaomXdP4Y9HcYEt3diS2cCWyU8nBd2eTzrcq1j 300
+
+\end{verbatim}
+
+
+\section{Возможные атаки и противодействие им}
+
+\subsection{Спам}
+
+Массовые нежелательные рассылки.
+
+\paragraph{Тактика борьбы:}
+
+\begin{itemize}
+ \item[-] Отвергать сообщения с множеством реципиентов.
+ \item[-] Вводить cooldown периоды для пиров и \Dude{}.
+ \item[-] Вводить (общие) белые списки и принимать сообщения только от них.
+ \item[-] Сделать ненулевой стоимость попадания в белые списки.
+ \item[-] Ввести иструменты репутации и т.п.
+ \item[-] Ввести регулируемый PoW на сообщения.
+\end{itemize}
+
+\subsection{DoS}
+
+Атаки на работоспособность пира и сети в целом.
+
+\subsection{Посылка огромных данных}
+
+TBD
+
+\subsection{Посылка невалидных данных}
+
+TBD
+
+\subsection{Ссылки на отсутствующие данные}
+
+TBD
+
+\subsection{Анализ метаданных, построение графа взаимодействий}
+
+Поскольку \texttt{GOSSIP} проходит через пиров и имеет открытые метаданные,
+можно сохранять граф коммуникаций и запоминать публичные ключи.
+
+Что бы этому противодействовать -- можно только взаимодействовать с заведомо
+надёжными пирами через, возможно, отдельную сеть.
+
+К сожалению.
+
+Для по-настоящему анонимного и неотслеживаемого общения нужно использовать
+другие механизмы.
+
+\section{Примеры применения}
+
+\subsection{Issues/Pull requests}
+
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[ every label/.style={font=\scriptsize},
+                     every node/.style={font=\scriptsize},
+                     handle/.style={ draw=black
+                                   , circle
+                                   , inner sep=2pt
+                                   },
+                     box/.style={ draw=black
+                                , rounded corners,
+                                , anchor=base
+                                , font=\scriptsize
+                                , minimum height=1.5cm
+                                , text width=1.5cm
+                                , align=center
+                                },
+                     db/.style={ cylinder
+                               , draw
+                               , fill=gray!10
+                               , minimum height=1cm
+                               , minimum width=1.5cm
+                               , shape border rotate=90
+                               , aspect=0.5
+                               }
+                   ]
+
+  \node[box] (hbs2-peer1) {hbs2-peer1};
+  \node[box,right=3cm of hbs2-peer1] (hbs2-peer2) {\underline{hbs2-peer2}\\Relay};
+  \node[box,below=3cm of hbs2-peer2]
+      (hbs2-peerN)
+      {\underline{hbs2-peerN}\\\Acc{}};
+
+  \draw[->] (hbs2-peer1) -- (hbs2-peer2)
+    node[below,midway] {MAILBOX:SEND}
+    node[above,midway] {PR~Message};
+
+  \draw[->] (hbs2-peer2) -- (hbs2-peerN)
+    node[left,midway] {MAILBOX:SEND}
+    node[left,midway,yshift=4mm] {PR~Message};
+
+  \node[box,right=2cm of hbs2-peerN] (process) {filter-process};
+
+  \node[box,right=2cm of process] (fixme) {fixme};
+
+  \node[db,right=1cm of fixme,anchor=west,yshift=-4mm] (db) {fixme-state};
+
+  \draw[->] (process.150) -- ($(hbs2-peerN.north east)!(process.150)!(hbs2-peerN.south east)$)
+      node[midway,above] {MAIL-CHECK};
+
+  \draw[->] (process.180) -- ($(hbs2-peerN.north east)!(process.180)!(hbs2-peerN.south east)$)
+      node[midway,above] {READ};
+
+  \draw[->] (process) -- (fixme)
+    node[above,midway] {import};
+
+  \draw[->]  (fixme.south) -- ($(fixme.south) - (0,+2cm)$) -| (hbs2-peerN.south)
+    node[below,near start] {refchan:export};
+
+  \draw[->] (fixme.east) -- (db.152);
+
+
+\end{tikzpicture}
+\end{figure}
+
+Пользователь формирует сообщение специального вида (plaintext/fixme) которое
+посылается по протоколу MAILBOX получателю -- владельцу мейлобокса, который
+указан в manifest проекта, как контакт для посылки подобных сообщений.
+
+На некоем хосте существует процесс, который время от времени проверяет
+\Mailbox{} и при обнаружении новых сообщений экспортирует их в fixme,
+который, в свою очередь, помещает их в RefChan делая доступными и видимыми
+для подписчиков этого рефчана.
+
+Обновления данного Issue/PR возможны, если в качестве fixme-key выбран некий
+уникальный идентификатор, который и будет указан в каждом сообщении.
+
+
+\end{document}
+
+
