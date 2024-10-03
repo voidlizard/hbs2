@@ -13,13 +13,15 @@ fixme-attribs assigned workflow :class
 
 fixme-attribs class
 
+fixme-attribs :scope
+
 fixme-value-set :workflow :new :backlog :wip :test :fixed :done
 
 fixme-value-set class hardcode performance boilerplate
 
 ; fixme-value-set cat bug feat refactor
 
-fixme-value-set scope mvp-0 mvp-1 backlog
+fixme-value-set :scope :mvp-0 :mvp-1 :mvp-2 :backlog
 
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs

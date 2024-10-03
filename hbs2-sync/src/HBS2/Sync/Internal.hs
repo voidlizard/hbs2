@@ -180,6 +180,8 @@ syncEntries = do
     _ -> do
       setLogging @DEBUG  debugPrefix
 
+
+
   brief "initializes hbs2-sync directory"
     $ args [arg "sign key" "<author>", arg "encrypt key" "<reader>"]
     $ desc "prepares directory to use with sync:\n* creates keys if not specified,\n* creates refchan,\n* populates current directory with config"
@@ -212,6 +214,12 @@ hbs2-sync init 3scAAE7h6uYXWq57TZHv8tunJEyU34aA6k3Ky5Ec5Sow BLvbiWLzpt4ATXFPjfqT
       void $ evalTop [ mkList [mkSym "dir", mkStr "."]
                      , mkList [mkSym "run"]
                      ]
+
+   -- TODO: ASAP-init-from-refchan
+   --   $assigned bo0h
+   --   сделать команду, что бы инициализировала каталог
+   --   из существующего рефчана, что бы отличать её от предыдущей
+   --   можно сделать ключ --refchan XXXXXXXXXXX
 
     _ -> pure ()
 
