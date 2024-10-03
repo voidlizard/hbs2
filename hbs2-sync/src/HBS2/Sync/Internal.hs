@@ -216,7 +216,7 @@ hbs2-sync init 3scAAE7h6uYXWq57TZHv8tunJEyU34aA6k3Ky5Ec5Sow BLvbiWLzpt4ATXFPjfqT
                      ]
 
    -- TODO: ASAP-init-from-refchan
-   --   $assigned bo0h
+   --   $assigned: bo0h
    --   сделать команду, что бы инициализировала каталог
    --   из существующего рефчана, что бы отличать её от предыдущей
    --   можно сделать ключ --refchan XXXXXXXXXXX
