@@ -8,18 +8,18 @@ import System.Environment
 import System.Directory (getXdgDirectory, XdgDirectory(..))
 
 binName :: FixmePerks m => m FilePath
-binName = liftIO getProgName
+binName = pure "fixme-new" -- liftIO getProgName
 
-localConfigDir :: FixmePerks m => m FilePath
+localConfigDir :: (FixmePerks m, MonadReader FixmeEnv m) =>  m FilePath
 localConfigDir = do
-  p <- pwd
+  p <- asks fixmeEnvWorkDir >>= readTVarIO
   b <- binName
   pure (p </> ("." <> b))
 
-fixmeWorkDir :: FixmePerks m => m FilePath
-fixmeWorkDir = localConfigDir <&> takeDirectory >>= canonicalizePath
+fixmeWorkDir :: (FixmePerks m, MonadReader FixmeEnv m) => m FilePath
+fixmeWorkDir = asks fixmeEnvWorkDir >>= readTVarIO
 
-localConfig:: FixmePerks m => m FilePath
+localConfig:: (FixmePerks m, MonadReader FixmeEnv m) => m FilePath
 localConfig = localConfigDir <&> (</> "config")
 
 userConfigs :: FixmePerks m => m [FilePath]
@@ -36,6 +36,6 @@ userConfigs= do
 localDBName :: FilePath
 localDBName = "state.db"
 
-localDBPath :: FixmePerks m => m FilePath
+localDBPath :: (FixmePerks m, MonadReader FixmeEnv m) => m FilePath
 localDBPath = localConfigDir <&> (</> localDBName)
 

@@ -52,10 +52,12 @@ newtype LWWRefKey s =
   }
   deriving stock (Generic)
 
-
 instance RefMetaData (LWWRefKey s)
 
 deriving stock instance IsRefPubKey s => Eq (LWWRefKey s)
+
+instance IsRefPubKey s => Ord (LWWRefKey s) where
+  compare a b = compare (serialise a) (serialise b)
 
 instance IsRefPubKey e => Serialise (LWWRefKey e)
 

@@ -30,7 +30,7 @@ data GroupKeyOpError =
 instance Exception GroupKeyOpError
 
 
-groupKeyFile :: forall m . FixmePerks m => m FilePath
+groupKeyFile :: forall m . (FixmePerks m, MonadReader FixmeEnv m) => m FilePath
 groupKeyFile = do
   dir <- localConfigDir
   pure $ dir </> "gk0"

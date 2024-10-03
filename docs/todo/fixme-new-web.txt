@@ -1,0 +1,30 @@
+TODO: fixme-refchan-to-manifest
+  добавить настройку рефчана для fixme в манифест проекта
+
+TODO: fixme-refchan-allow
+  добавить настройку для разрешения fixme для проекта.
+  только если разрешено --- пир подписывается на этот рефчан
+  и тянет из него issues
+
+TODO: fixme-init
+  инициализация fixme в каталоге репозитория.
+  проконтроллировать, что нормально работает с bare
+  репо
+
+TODO: fixme-refchan-import
+  встроить обновление стейта fixme в
+  конвейры hbs2-git-dashboard
+  (видимо, отдельным конвейром)
+
+
+FIXME: poll-fixme-refchans
+  сейчас новые рефчаны с fixme будут подтянуты
+  только при перезапуске. надо встроить явный
+  poll
+
+
+FIXME: commit-and-blob-catch-inconsistency
+ похоже, возникают ситуации, когда fixme-new захватывает
+ blob и commit некорректно (из разных коммитов?), и
+ hbs2-git-dashboard, бывает, не может найти blob в индексе.
+

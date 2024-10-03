@@ -49,6 +49,7 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
      "hbs2-core"
      "hbs2-storage-simple"
      "hbs2-git"
+     "hbs2-git-dashboard"
      "hbs2-qblf"
      "hbs2-keyman"
      "hbs2-keyman-direct-lib"
@@ -71,18 +72,19 @@ outputs = { self, nixpkgs, haskell-flake-utils, ... }@inputs:
    inherit packageNames;
 
    packageDirs = {
-     "hbs2"        = "./hbs2";
-     "hbs2-tests"  = "./hbs2-tests";
-     "hbs2-core"   = "./hbs2-core";
-     "hbs2-storage-simple" = "./hbs2-storage-simple";
-     "hbs2-peer"   = "./hbs2-peer";
-     "hbs2-keyman" = "./hbs2-keyman/hbs2-keyman";
+     "hbs2"                   = "./hbs2";
+     "hbs2-tests"             = "./hbs2-tests";
+     "hbs2-core"              = "./hbs2-core";
+     "hbs2-storage-simple"    = "./hbs2-storage-simple";
+     "hbs2-peer"              = "./hbs2-peer";
+     "hbs2-keyman"            = "./hbs2-keyman/hbs2-keyman";
      "hbs2-keyman-direct-lib" = "./hbs2-keyman/hbs2-keyman-direct-lib";
-     "hbs2-git"    = "./hbs2-git";
-     "hbs2-fixer"  = "./hbs2-fixer";
-     "hbs2-cli"    = "./hbs2-cli";
-     "hbs2-sync"   = "./hbs2-sync";
-     "fixme-new"   = "./fixme-new";
+     "hbs2-git"               = "./hbs2-git";
+     "hbs2-git-dashboard"     = "./hbs2-git-dashboard";
+     "hbs2-fixer"             = "./hbs2-fixer";
+     "hbs2-cli"               = "./hbs2-cli";
+     "hbs2-sync"              = "./hbs2-sync";
+     "fixme-new"              = "./fixme-new";
    };
 
    hpPreOverrides = {pkgs, ...}: final: prev: ((with pkgs; {

@@ -113,12 +113,11 @@ runWithRPC FixmeEnv{..} m = do
 
 runFixmeCLI :: forall a m . FixmePerks m => FixmeM m a -> m a
 runFixmeCLI m = do
-  dbPath <- localDBPath
   git <- findGitDir
   env <- FixmeEnv
             <$>  newMVar ()
             <*>  newTVarIO mempty
-            <*>  newTVarIO dbPath
+            <*>  (pwd >>= newTVarIO)
             <*>  newTVarIO Nothing
             <*>  newTVarIO git
             <*>  newTVarIO mempty
@@ -146,7 +145,6 @@ runFixmeCLI m = do
   --   не все действия требуют БД,
   --   хорошо бы, что бы она не создавалась,
   --   если не требуется
-  mkdir (takeDirectory dbPath)
   recover env do
     runReaderT ( setupLogger >> fromFixmeM (handle @_ @SomeException (err . viaShow) evolve >> m) ) env
                    `finally` flushLoggers
@@ -233,7 +231,7 @@ runTop forms = do
 
        entry $ bindMatch "fixme-files" $ nil_ \case
         StringLikeList xs -> do
-          w <- fixmeWorkDir
+          w <- lift fixmeWorkDir
           t <- lift $ asks fixmeEnvFileMask
           atomically (modifyTVar t (<> fmap (w </>) xs))
 
@@ -241,7 +239,7 @@ runTop forms = do
 
        entry $ bindMatch "fixme-exclude" $ nil_ \case
         StringLikeList xs -> do
-          w <- fixmeWorkDir
+          w <- lift fixmeWorkDir
           t <- lift $ asks fixmeEnvFileExclude
           atomically (modifyTVar t (<> fmap (w </>) xs))
 
@@ -385,6 +383,15 @@ runTop forms = do
        entry $ bindMatch "fixme:state:cleanup" $ nil_ $ const $ lift do
         cleanupDatabase
 
+
+       entry $ bindMatch "fixme:state:count-by-attribute" $ nil_ $ \case
+        [StringLike s] -> lift do
+            rs <- countByAttribute (fromString s)
+            for_ rs $ \(n,v) -> do
+              liftIO $ print $ pretty n <+> pretty v
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "fixme:git:import" $ nil_ $ const $ lift do
           import_
 
@@ -451,7 +458,7 @@ runTop forms = do
         [StringLike path] -> do
 
           ppath <- if List.isPrefixOf "." path then do
-                      dir <- localConfigDir
+                      dir <- lift localConfigDir
                       let rest = tail $ splitDirectories path
                       pure $ joinPath (dir:rest)
                    else do
@@ -544,9 +551,10 @@ runTop forms = do
                    <&> fromMaybe "hbs2-peer not connected"
         liftIO $ putStrLn poked
 
-  conf <- readConfig
 
   argz <- liftIO getArgs
+
+  conf <- readConfig
 
   let args = zipWith (\i s -> bindValue (mkId ("$_" <> show i)) (mkStr @C s )) [1..] argz
                & HM.unions

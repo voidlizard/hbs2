@@ -13,6 +13,7 @@ import DBPipe.SQLite hiding (field)
 import HBS2.Git.Local
 
 import HBS2.OrDie
+import HBS2.System.Dir
 import HBS2.Storage as Exported
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client as Exported hiding (encode,decode)
@@ -124,18 +125,21 @@ newtype FixmeAttrVal = FixmeAttrVal { fromFixmeAttrVal :: Text }
                         deriving stock (Data,Generic)
 
 newtype FixmeTimestamp = FixmeTimestamp Word64
-                        deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
+                        deriving newtype (Eq,Ord,Show,Enum,Num,Integral,Real,ToField,FromField,ToJSON)
                         deriving stock (Data,Generic)
 
 
 newtype FixmeKey  = FixmeKey Text
-                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid)
+                    deriving newtype (Eq,Ord,Show,ToField,FromField,Pretty,FromJSON,ToJSON,Semigroup,Monoid,IsString)
                     deriving stock (Data,Generic)
 
 newtype FixmeOffset = FixmeOffset Word32
                      deriving newtype (Eq,Ord,Show,Num,ToField,FromField,ToJSON)
                      deriving newtype (Integral,Real,Enum)
                      deriving stock (Data,Generic)
+
+instance FromStringMaybe FixmeKey where
+  fromStringMay s = pure (fromString s)
 
 
 data Fixme =
@@ -218,6 +222,7 @@ instance FromJSON Fixme where
         (FixmeAttrName (Aeson.toText k),) <$>
           case v of
            String x -> pure (FixmeAttrVal x)
+           Number x -> pure (FixmeAttrVal (Text.pack $ show x))
            _        -> Nothing
 
 newtype FixmeThin = FixmeThin (HashMap FixmeAttrName FixmeAttrVal)
@@ -344,7 +349,7 @@ data FixmeEnv =
   FixmeEnv
   { fixmeLock              :: MVar ()
   , fixmeEnvOpts           :: TVar FixmeOpts
-  , fixmeEnvDbPath         :: TVar FilePath
+  , fixmeEnvWorkDir        :: TVar FilePath
   , fixmeEnvDb             :: TVar (Maybe DBPipeEnv)
   , fixmeEnvGitDir         :: TVar (Maybe FilePath)
   , fixmeEnvFileMask       :: TVar [FilePattern]
@@ -368,7 +373,7 @@ data FixmeEnv =
   , fixmeEnvReader         :: TVar (Maybe (PubKey 'Encrypt 'HBS2Basic))
   , fixmeEnvFlags          :: TVar (HashSet FixmeFlags)
   }
-
+  deriving stock (Generic)
 
 fixmeGetCommentsFor :: FixmePerks m => Maybe FilePath -> FixmeM m [Text]
 
@@ -411,11 +416,11 @@ newtype FixmeM m a = FixmeM { fromFixmeM :: ReaderT FixmeEnv m a }
 
 
 fixmeEnvBare :: forall m .  FixmePerks m => m FixmeEnv
-fixmeEnvBare =
+fixmeEnvBare = do
   FixmeEnv
     <$>  newMVar ()
     <*>  newTVarIO mempty
-    <*>  newTVarIO ":memory:"
+    <*>  (pwd >>= newTVarIO)
     <*>  newTVarIO Nothing
     <*>  newTVarIO Nothing
     <*>  newTVarIO mempty
@@ -463,7 +468,7 @@ instance (FixmePerks m, MonadReader FixmeEnv m) => HasClientAPI StorageAPI UNIX 
   getClientAPI = getApiOrThrow peerStorageAPI
 
 
-instance (FixmePerks m, MonadReader FixmeEnv m) => HasStorage m where
+instance (FixmePerks m) => HasStorage (FixmeM m) where
   getStorage = do
     api <- getClientAPI @StorageAPI @UNIX
     pure $ AnyStorage (StorageClient api)
@@ -714,7 +719,19 @@ fixmeAttrNonEmpty a b = case (coerce a :: Text, coerce b :: Text) of
   (_,_) -> b
 
 fixmeDerivedFields :: Fixme -> Fixme
-fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
+fixmeDerivedFields fx = do
+  -- TODO: refactor-this-out
+  --   чревато ошибками, надо как-то переписать
+  --   по-человечески.
+  fxEnd
+  <> fx
+  <> fxKey
+  <> fxCo
+  <> tag
+  <> fxLno
+  <> fxTs
+  -- always last
+  <> fxMisc
   where
     email = HM.lookup "commiter-email" (fixmeAttr fx)
               & maybe mempty (\x -> " <" <> x <> ">")
@@ -739,6 +756,9 @@ fixmeDerivedFields fx = fxEnd <> fx <> fxKey <> fxCo <> tag <> fxLno <> fxMisc
 
     fxCo =
       maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "committer" c }) comitter
+
+    fxTs  =
+      maybe mempty (\c -> mempty { fixmeAttr = HM.singleton "fixme-timestamp" (fromString (show c)) }) (fixmeTs fx)
 
     fxMisc =
       fx & over (field @"fixmeAttr")

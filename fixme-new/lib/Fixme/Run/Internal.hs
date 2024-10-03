@@ -199,6 +199,10 @@ printEnv = do
   attr <- asks fixmeEnvAttribs >>= readTVarIO <&> HS.toList
   vals <- asks fixmeEnvAttribValues >>= readTVarIO <&> HM.toList
 
+  dir <- asks fixmeEnvWorkDir >>= readTVarIO
+
+  liftIO $ print $ "; workdir" <+> pretty dir
+
   for_ tags $ \m -> do
     liftIO $ print $ "fixme-prefix" <+> pretty m
 
@@ -229,8 +233,8 @@ printEnv = do
   for_ g $ \git -> do
     liftIO $ print $ "fixme-git-dir" <+> dquotes (pretty git)
 
-  dbPath <- asks fixmeEnvDbPath >>= readTVarIO
-  liftIO $ print $ "fixme-state-path" <+> dquotes (pretty dbPath)
+  dbPath <- localDBPath
+  liftIO $ print $ "; fixme-state-path" <+> dquotes (pretty dbPath)
 
   (before,after) <- asks fixmeEnvCatContext >>= readTVarIO
 
@@ -294,13 +298,13 @@ scanFiles = do
       pure True
 
 
-report :: (FixmePerks m, HasPredicate q) => Maybe FilePath -> q -> FixmeM m ()
+report :: (FixmePerks m, HasPredicate q, HasItemOrder q) => Maybe FilePath -> q -> FixmeM m ()
 report t q = do
 
   tpl <- asks fixmeEnvTemplates >>= readTVarIO
             <&> HM.lookup (maybe "default" fromString t)
 
-  fxs <- listFixme q
+  fxs <- listFixme (WithLimit Nothing q)
 
   case tpl of
     Nothing ->
