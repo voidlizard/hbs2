@@ -158,6 +158,8 @@ runDashBoardM m = do
   setLogging @WARN   warnPrefix
   setLogging @NOTICE noticePrefix
 
+  mkdir dataDir
+
   flip runContT pure do
 
 
