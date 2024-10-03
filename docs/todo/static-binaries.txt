@@ -1,0 +1,7 @@
+PR: Initial support for static builds using nix
+  Still work in progress.
+  Suddenly, I didn't manage to make flake that is able to build
+  both static and dynamic binaries.
+
+  To run static builds use `nix build .#static` command at the project's root
+  commit: be86429c4b806fe20069e8efbf921c20b9e17ee3
