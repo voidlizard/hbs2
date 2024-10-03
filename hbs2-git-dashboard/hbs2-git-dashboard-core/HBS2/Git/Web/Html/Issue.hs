@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module HBS2.Git.Web.Html.Issue (issuePage) where
 
 
@@ -20,6 +22,9 @@ import Data.Text qualified as Text
 import Lucid.Base
 import Lucid.Html5 hiding (for_)
 
+#if __GLASGOW_HASKELL__ < 906
+import Control.Applicative -- add liftA2 into scope
+#endif
 
 data IssueOptionalArg w t = IssueOptionalArg w t
 
@@ -146,5 +151,3 @@ issuePage repo@(RepoLww lww) f = rootPage do
     where
       trim before seize txt =
         Text.lines txt & drop before & take seize & Text.unlines
-
-

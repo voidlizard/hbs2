@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE CPP #-}
 module HBS2.Git.Web.Html.Fixme where
 
 import HBS2.Git.DashBoard.Prelude
@@ -19,6 +20,10 @@ import Data.List qualified as List
 
 import Web.Scotty.Trans as Scotty
 
+
+#if __GLASGOW_HASKELL__ < 906
+import Control.Applicative -- add liftA2 into scope
+#endif
 
 instance ToHtml (H FixmeKey) where
   toHtmlRaw (H k) = toHtmlRaw $ take 10 $ show $ pretty k
@@ -93,5 +98,3 @@ repoFixme q@(FromParams p') lww = do
         , hxSwap_ "afterend"
         ] do
       td_ [colspan_ "3"] mempty
-
-
