@@ -11,6 +11,7 @@ import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix (UNIX)
+import HBS2.Peer.RPC.Client.RefChan as RefChanClient
 import HBS2.Peer.RPC.Client
 
 import HBS2.CLI.Run.MetaData (getTreeContents)
@@ -18,18 +19,19 @@ import HBS2.CLI.Run.MetaData (getTreeContents)
 import HBS2.Data.Types.SignedBox
 import HBS2.CLI.Run.Internal.KeyMan
 
+import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
+import Data.Foldable (Foldable(toList))
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.Map qualified as Map
-import Lens.Micro.Platform
-import System.Directory (XdgDirectory(..),createDirectoryIfMissing,getXdgDirectory,listDirectory)
-import Control.Monad.Except
 import Data.Ord
-import Text.InterpolatedString.Perl6 (qc)
+import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
+import System.Directory (XdgDirectory(..),createDirectoryIfMissing,getXdgDirectory,listDirectory)
+import Text.InterpolatedString.Perl6 (qc)
 
 data ConfigException
   = ConfigAlreadyExists String
@@ -56,6 +58,25 @@ findConfig =
                 then return Nothing
                 else findConfig' parent
 
+checkConfig :: forall c m. (MonadUnliftIO m, Exception ConfigException) => RunM c m ()
+checkConfig =
+  findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
+
+createConfig :: forall c m. (MonadUnliftIO m, IsContext c) => String -> String -> RunM c m String
+createConfig author refchan = do
+  let configForms :: [Syntax c] =
+        [ mkList [mkSym "exclude", mkStr "**/.*"],
+          mkList [mkSym "include", mkStr "**"],
+          mkList [mkSym "sign", mkStr author],
+          mkList [mkSym "refchan", mkStr refchan]
+        ]
+  let config = unlines $ map (show . pretty) configForms
+  liftIO $ do
+    path <- configPath <$> pwd
+    createDirectoryIfMissing True $ takeDirectory path
+    writeFile path config
+    pure path
+
 syncInit ::
   forall c m.
   ( MonadUnliftIO m,
@@ -70,7 +91,7 @@ syncInit ::
   Maybe (PubKey 'Sign HBS2Basic, PubKey 'Encrypt HBS2Basic) ->
   RunM c m ()
 syncInit keys = do
-  findConfig >>= maybe (pure ()) (throwIO . ConfigAlreadyExists)
+  checkConfig
 
   peerApi <- getClientAPI @PeerAPI @UNIX
   rchanApi <- getClientAPI @RefChanAPI @UNIX
@@ -117,20 +138,7 @@ syncInit keys = do
     >>= orThrowUser "can't post refchan head"
 
   let authorString = show $ pretty $ AsBase58 authorKey
-  let configForms :: [Syntax c] =
-        [ mkList [mkSym "exclude", mkStr "**/.*"],
-          mkList [mkSym "include", mkStr "**"],
-          mkList [mkSym "sign", mkStr authorString],
-          mkList [mkSym "refchan", mkStr refchanString]
-        ]
-  let config = unlines $ map (show . pretty) configForms
-
-  path <-
-    liftIO $ do
-      path <- configPath <$> pwd
-      createDirectoryIfMissing True $ takeDirectory path
-      writeFile path config
-      pure path
+  path <- createConfig authorString refchanString
 
   display $ path <> " created\n"
   pure ()
@@ -180,16 +188,37 @@ syncEntries = do
     _ -> do
       setLogging @DEBUG  debugPrefix
 
-
-
   brief "initializes hbs2-sync directory"
     $ args [arg "sign key" "<author>", arg "encrypt key" "<reader>"]
     $ desc "prepares directory to use with sync:\n* creates keys if not specified,\n* creates refchan,\n* populates current directory with config"
     $ examples [qc|
 hbs2-sync init
 hbs2-sync init 3scAAE7h6uYXWq57TZHv8tunJEyU34aA6k3Ky5Ec5Sow BLvbiWLzpt4ATXFPjfqT543zc6dYgHBQkmcQ4UALSpfb
+hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
     |]
     $ entry $ bindMatch "init" $ nil_ $ \case
+      [StringLike "--refchan", StringLike refchanString] -> do
+        checkConfig
+
+        refchanKey <-
+          fromStringMay @(PubKey 'Sign HBS2Basic) refchanString
+            & orThrowUser "refchan not found"
+
+        headBlock <-
+          RefChanClient.getRefChanHead @UNIX refchanKey
+            >>= orThrowUser "can't load refchan head"
+
+        authorKey <-
+          view refChanHeadAuthors headBlock
+            & toList
+            & headMay
+            & orThrowUser "can't find author key"
+
+        let authorString = show $ pretty $ AsBase58 authorKey
+        path <- createConfig authorString refchanString
+        display $ path <> " created\n"
+        pure ()
+
       [StringLike authorString, StringLike readerString] -> do
         authorKey <- fromStringMay @(PubKey 'Sign HBS2Basic) authorString & orThrowUser "author not found"
         readerKey <- fromStringMay @(PubKey 'Encrypt HBS2Basic) readerString & orThrowUser "reader not found"
@@ -214,13 +243,6 @@ hbs2-sync init 3scAAE7h6uYXWq57TZHv8tunJEyU34aA6k3Ky5Ec5Sow BLvbiWLzpt4ATXFPjfqT
       void $ evalTop [ mkList [mkSym "dir", mkStr "."]
                      , mkList [mkSym "run"]
                      ]
-
-   -- TODO: ASAP-init-from-refchan
-   --   $assigned: bo0h
-   --   сделать команду, что бы инициализировала каталог
-   --   из существующего рефчана, что бы отличать её от предыдущей
-   --   можно сделать ключ --refchan XXXXXXXXXXX
-
     _ -> pure ()
 
   brief "sets current directory"
