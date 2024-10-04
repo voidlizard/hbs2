@@ -38,11 +38,6 @@ inputs = {
       flake = false;
     };
 
-    bytestring-mmap = {
-      url = "github:ivanovs-4/bytestring-mmap";
-      flake = false;
-    };
-
 };
 
 outputs = { self, nixpkgs, flake-utils, ... }@inputs:
@@ -80,8 +75,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
       defaultOverlay = final: prev:
         (prev.lib.composeManyExtensions
-        [
-          overlay
+        [ overlay
           inputs.suckless-conf.overlays.default
           inputs.db-pipe.overlays.default
         ]) final prev;
@@ -116,8 +110,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       haskellPackages = pkgs.haskellPackages.override {
         overrides = new: old: with pkgs.haskell.lib;
           {
-            scotty = new.callHackage "scotty" "0.21" { };
-            bytestring-mmap = jailbreakUnbreak old.bytestring-mmap; # old.callCabal2nix "bytestring-mmap" inputs.bytestring-mmap {};
+            scotty = new.callHackage "scotty" "0.21" {};
+            bytestring-mmap = old.callCabal2nix "bytestring-mmap" "${self}/miscellaneous/bytestring-mmap" {};
             skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
             wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak old.wai-app-file-cgi));
             saltine = old.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
@@ -134,13 +128,11 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         (_name: packagePostOverrides) # we can't apply overrides inside our overlay because it will remove linking info
         (pkgs.lib.getAttrs packageNames pkgs.haskellPackages);
 
-    # dynamic packages don't work at the moment, because
-    # ivanovs-4/bytestring-mmap doesn't compile with ghc 9.4
-    # and bytestring-mmap doesn't compire with ghc > 9.6
     packagesDynamic = makePackages pkgs;
     packagesStatic = makePackages pkgs.pkgsStatic;
     in  {
     legacyPackages = pkgs;
+    overlays.default = defaultOverlay;
 
     packages =
       packagesDynamic //
@@ -157,7 +149,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         };
       };
 
-    devShell.default = pkgs.haskellPackages.shellFor {
+    devShells.default = pkgs.haskellPackages.shellFor {
       packages = _: pkgs.lib.attrsets.attrVals packageNames pkgs.haskellPackages;
       # withHoogle = true;
       buildInputs = (

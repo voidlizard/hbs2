@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -e
+
+compile="ghc -no-recomp -O --make "
+
+$compile files.hs && ./files
+rm files
+
+$compile cp.hs    && ./cp /usr/share/dict/cracklib-small ./words
+rm cp
+
+$compile pressure.hs    && ./pressure
+
+#big-lazy.hs
+#big.hs
+#fast-cp.hs
+#pressure.hs
+#small.hs

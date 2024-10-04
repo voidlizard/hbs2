@@ -1,21 +1,5 @@
 {
   "nodes": {
-    "bytestring-mmap": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1727193872,
-        "narHash": "sha256-L39kMCMry/BNJngt0+yvSIMnJJzWR9ZoyXbEyniEfwU=",
-        "owner": "ivanovs-4",
-        "repo": "bytestring-mmap",
-        "rev": "f43e5e06718ed904487f17e7725c12098773c12f",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ivanovs-4",
-        "repo": "bytestring-mmap",
-        "type": "github"
-      }
-    },
     "db-pipe": {
       "inputs": {
         "haskell-flake-utils": [
@@ -294,7 +278,6 @@
     },
     "root": {
       "inputs": {
-        "bytestring-mmap": "bytestring-mmap",
         "db-pipe": "db-pipe",
         "flake-utils": "flake-utils",
         "fuzzy": "fuzzy",
