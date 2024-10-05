@@ -13,15 +13,13 @@ fixme-attribs assigned workflow :class
 
 fixme-attribs class
 
-fixme-attribs :scope
-
-fixme-value-set :workflow :new :backlog :wip :test :fixed :done
+fixme-value-set :workflow :new :backlog :wip :test :fixed :done :ready :merged
 
 fixme-value-set class hardcode performance boilerplate
 
 ; fixme-value-set cat bug feat refactor
 
-fixme-value-set :scope :mvp-0 :mvp-1 :mvp-2 :backlog
+fixme-value-set scope mvp-0 mvp-1 backlog
 
 fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
@@ -65,6 +63,9 @@ fixme-comments ";" "--"
 (define (test s) (modify s workflow :test))
 (define (new s) (modify s workflow :new))
 (define (backlog s) (modify s workflow :backlog))
+(define (ready s) (modify s workflow :ready))
+(define (merged s) (modify s workflow :merged))
+(define (assign s who) (modify s :assigned who))
 
 ;; refchan settings
 refchan 3WtddmcE8zzgBAPR7Bu7mKMaVMTN423NNXSPUJp3Hx42
