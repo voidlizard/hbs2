@@ -142,6 +142,8 @@ We’re using it for our non-public projects.
 
 ## How to install
 
+### nix flakes
+
 Assuming you know what the Nix and Nix flakes are ( See
 [nixos.org](https://nixos.org) if you don’t )
 
@@ -157,6 +159,54 @@ Alternative option:
     nix profile install git+http://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP \
     --substituters http://nix.hbs2.net:6000 \
     --trusted-public-keys git.hbs2.net-1:HYIYU3xWetj0NasmHrxsWQTVzQUjawOE8ejZAW2xUS4=
+
+### Home Manager module
+
+The following snippet of code tries to show how to bring the HBS2 flake
+from the flake input and use its packages with Home Manager.
+
+Don’t forget to replace exampleName with your username!
+
+```nix
+# flake.nix
+
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    hbs2.url = "git+https://git.hbs2.net/BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP";
+  };
+
+  outputs = {nixpkgs, home-manager, hbs2, ...}: {
+    homeConfigurations."exampleName" =
+    let system = "x86_64-linux"; # use your system here
+    in home-manager.lib.homeManagerConfiguration {
+      pkgs = nixpkgs.legacyPackages.${system};
+
+      modules = [
+        hbs2.homeManagerModules.${system}.default
+        {
+          services.hbs2 = {
+            enable = true;
+            git-dashboard.enable = true; # optional
+          };
+        }
+        # ...
+      ];
+    };
+  };
+}
+```
+
+Option `services.hbs2.enable` will add all hbs2 binaries into your environment and
+create `hbs2-peer` user service to run it automatically at the background.
+
+Option `services.hbs2.git-dashboard.enable` will create `hbs2-git-dashboard` user service.
 
 ## How to generate peer’s key?
 

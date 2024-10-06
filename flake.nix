@@ -116,6 +116,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
     in  {
     legacyPackages = pkgs;
     overlays.default = defaultOverlay;
+    homeManagerModules.default = import ./nix/hm-module.nix self;
 
     packages =
       packagesDynamic //
