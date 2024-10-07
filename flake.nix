@@ -14,8 +14,7 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
     hspup.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    suckless-conf.url = "git+https://git.hbs2.net/JAuk1UJzZfbDGKVazSQU5yYQ3NGfk4gVeZzBCduf5TgQ";
-
+    suckless-conf.url = "path:./miscellaneous/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
     suckless-conf.inputs.fuzzy.follows = "fuzzy";
     suckless-conf.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
@@ -24,18 +23,18 @@ inputs = {
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
     db-pipe.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    lsm.url = "git+https://git.hbs2.net/5BCaH95cWsVKBmWaDNLWQr2umxzzT5kqRRKNTm2J15Ls";
-    lsm.inputs.nixpkgs.follows = "nixpkgs";
-    lsm.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
-
     # fuzzy.url = "git+file:/home/iv/haskell/p2p/hex-offgrid/fuzzy-parse";  # tmp
     fuzzy.url = "git+https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
     fuzzy.inputs.nixpkgs.follows = "nixpkgs";
     fuzzy.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
     saltine = {
-      url = "github:tel/saltine/3d3a54cf46f78b71b4b55653482fb6f4cee6b77d";
+      url = "path:./miscellaneous/saltine";
       flake = false;
+    };
+
+    libsodium = {
+      url = "path:./miscellaneous/libsodium";
     };
 
 };
@@ -168,6 +167,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         ++
         [ pkgs.pkg-config
           inputs.hspup.packages.${pkgs.system}.default
+          inputs.libsodium.defaultPackage.${pkgs.system}
         ]
       );
 
