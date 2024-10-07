@@ -152,3 +152,5 @@ issuePage repo@(RepoLww lww) f = rootPage do
     where
       trim before seize txt =
         Text.lines txt & drop before & take seize & Text.unlines
+
+

@@ -114,6 +114,7 @@ library hbs2-git-dashboard-core
       , skylighting-lucid
       , stm
       , streaming
+      , split
       , temporary
       , text
       , time

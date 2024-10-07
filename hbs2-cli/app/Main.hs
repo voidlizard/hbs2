@@ -14,6 +14,7 @@ import HBS2.CLI.Run.Peer
 import HBS2.CLI.Run.RefLog
 import HBS2.CLI.Run.RefChan
 import HBS2.CLI.Run.LWWRef
+import HBS2.CLI.Run.Mailbox
 
 import Data.Config.Suckless.Script.File as SF
 
@@ -68,6 +69,7 @@ main = do
         reflogEntries
         refchanEntries
         lwwRefEntries
+        mailboxEntries
         helpEntries
 
         SF.entries
