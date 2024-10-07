@@ -6,17 +6,26 @@ import HBS2.Base58
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Proto.Types
-import Data.List.Split (chunksOf)
+import HBS2.Storage
 import HBS2.Net.Auth.Credentials
+import HBS2.Data.Detect
+import HBS2.Storage.Operations.ByteString
 
 import Codec.Serialise
-import Crypto.Saltine.Class qualified as Crypto
-import Crypto.Saltine.Class (IsEncoding(..))
+import Control.Applicative ((<|>))
 import Control.Monad.Identity
 import Control.Monad.Trans.Maybe
+import Control.Monad.Except
+import Crypto.Saltine.Class (IsEncoding(..))
+import Crypto.Saltine.Class qualified as Crypto
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy.Char8 qualified as LBS
+import Data.ByteString.Lazy (ByteString)
+import Data.Coerce
+import Data.List.Split (chunksOf)
 import Data.Maybe
+import Data.Either
 import Lens.Micro.Platform
 
 
@@ -80,6 +89,46 @@ instance ForPrettySigil s => Pretty (Sigil s) where
              ]
     where
       psk = dquotes (pretty (AsBase58 (sigilSignPk s)))
+
+
+storeSigil :: forall s m . (ForSigil s, MonadIO m)
+           => AnyStorage
+           -> Sigil s
+           -> m (Maybe HashRef)
+storeSigil sto s = do
+  putBlock sto (serialise s) <&> fmap HashRef
+
+
+loadSigil :: forall s m . (ForSigil s, MonadIO m)
+           => AnyStorage
+           -> HashRef
+           -> m (Maybe (Sigil s))
+loadSigil sto href  = runMaybeT do
+
+  lbs0 <- getBlock sto ha
+           >>= toMPlus
+
+  case tryDetect (coerce href) lbs0 of
+    Blob _      -> decodeSigil lbs0 & toMPlus
+    Merkle{}    -> readFromTree
+    MerkleAnn{} -> readFromTree
+
+    _ -> mzero
+
+  where
+    ha = coerce href
+
+    readFromTree = do
+      runExceptT (readFromMerkle sto (SimpleKey ha))
+         >>= toMPlus
+         <&> decodeSigil
+         >>= toMPlus
+
+decodeSigil :: forall s . ForSigil s => ByteString -> Maybe (Sigil s)
+decodeSigil lbs = do
+  deserialiseOrFail @(Sigil s) lbs & either (const Nothing) Just
+  <|>
+  parseSerialisableFromBase58 @(Sigil s) (LBS.toStrict lbs)
 
 -- Nothing, если ключ отсутствует в Credentials
 makeSigilFromCredentials :: forall s . ForSigil s
