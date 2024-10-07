@@ -112,6 +112,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
             bytestring-mmap = old.callCabal2nix "bytestring-mmap" "${self}/miscellaneous/bytestring-mmap" {};
             skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
             wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak old.wai-app-file-cgi));
+            suckless-conf = old.callCabal2nix "suckless-conf" "${self}/miscellaneous/suckless-conf" {};
             saltine = old.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
           }
           // pkgs.lib.genAttrs topLevelPackages (name:
