@@ -20,6 +20,8 @@ import HBS2.System.Dir
 import System.FilePath
 
 import Data.Word
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 
 type MyRefChan    = RefChanId L4Proto
 type MyRefLogKey  = RefLogKey 'HBS2Basic
@@ -58,6 +60,7 @@ data DashBoardEnv =
   , _dashBoardHttpPort  :: TVar (Maybe Word16)
   , _dashBoardDevAssets :: TVar (Maybe FilePath)
   , _dashBoardIndexIgnoreCaches :: TVar Bool
+  , _repoCommitIndexWIP :: TVar (HashMap (LWWRefKey 'HBS2Basic) Int)
   }
 
 makeLenses 'DashBoardEnv
@@ -96,6 +99,7 @@ newDashBoardEnv ddir peer rlog rchan lww sto  = do
         <*> newTVarIO (Just 8911)
         <*> newTVarIO Nothing
         <*> newTVarIO False
+        <*> newTVarIO mempty
 
 getHttpPortNumber :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m a
 getHttpPortNumber = do
@@ -131,7 +135,7 @@ withState f = do
 
     SConnect -> do
       notice $ yellow "connecting to db"
-      dbe <- liftIO $ try @_ @SomeException (newDBPipeEnv dbPipeOptsDef dbFile)
+      dbe <- liftIO $ try @_ @SomeException (newDBPipeEnv (dbPipeOptsDef {dbPipeBatchTime = 1}) dbFile)
 
       case dbe of
         Right e -> do
@@ -155,6 +159,8 @@ addJob :: (DashBoardPerks m, MonadReader DashBoardEnv m) => IO () -> m ()
 addJob f = do
   q <- asks _pipeline
   atomically $ writeTQueue q f
+
+
 
 hbs2_git_dashboard :: FilePath
 hbs2_git_dashboard = "hbs2-git-dashboard"
