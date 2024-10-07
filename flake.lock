@@ -10,17 +10,14 @@
         ]
       },
       "locked": {
-        "lastModified": 1727503203,
+        "lastModified": 1,
         "narHash": "sha256-/HVVyxa55pDLzMiRgCWB4YKVsW2v9wFHTlSpLnyuhkU=",
-        "ref": "refs/heads/master",
-        "rev": "7f28fdcb2ba9ccd426facffebf100e98522d7eac",
-        "revCount": 11,
-        "type": "git",
-        "url": "https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft"
+        "path": "./miscellaneous/db-pipe",
+        "type": "path"
       },
       "original": {
-        "type": "git",
-        "url": "https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft"
+        "path": "./miscellaneous/db-pipe",
+        "type": "path"
       }
     },
     "flake-utils": {
@@ -51,17 +48,14 @@
         ]
       },
       "locked": {
-        "lastModified": 1727197542,
+        "lastModified": 1,
         "narHash": "sha256-BF9Xd2fa8L5Xju9NTaoUjmzUEJfrRMMKULYQieBjbKo=",
-        "ref": "refs/heads/master",
-        "rev": "a834b152e29d632c816eefe117036e5d9330bd03",
-        "revCount": 43,
-        "type": "git",
-        "url": "https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "path": "./miscellaneous/fuzzy-parse",
+        "type": "path"
       },
       "original": {
-        "type": "git",
-        "url": "https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA"
+        "path": "./miscellaneous/fuzzy-parse",
+        "type": "path"
       }
     },
     "haskell-flake-utils": {

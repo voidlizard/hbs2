@@ -14,19 +14,18 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
     hspup.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
+    fuzzy.url = "path:./miscellaneous/fuzzy-parse";
+    fuzzy.inputs.nixpkgs.follows = "nixpkgs";
+    fuzzy.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
+
     suckless-conf.url = "path:./miscellaneous/suckless-conf";
     suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
     suckless-conf.inputs.fuzzy.follows = "fuzzy";
     suckless-conf.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    db-pipe.url = "git+https://git.hbs2.net/5xrwbTzzweS9yeJQnrrUY9gQJfhJf84pbyHhF2MMmSft";
+    db-pipe.url = "path:./miscellaneous/db-pipe";
     db-pipe.inputs.nixpkgs.follows = "nixpkgs";
     db-pipe.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
-
-    # fuzzy.url = "git+file:/home/iv/haskell/p2p/hex-offgrid/fuzzy-parse";  # tmp
-    fuzzy.url = "git+https://git.hbs2.net/GmcLB9gEPT4tbx9eyQiECwsu8oPyEh6qKEpQDtyBWVPA";
-    fuzzy.inputs.nixpkgs.follows = "nixpkgs";
-    fuzzy.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
     saltine = {
       url = "path:./miscellaneous/saltine";
