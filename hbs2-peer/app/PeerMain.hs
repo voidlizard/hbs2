@@ -60,6 +60,7 @@ import PeerMeta
 import CLI.Common
 import CLI.RefChan
 import CLI.LWWRef
+import CLI.Mailbox
 import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
@@ -74,6 +75,7 @@ import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.LWWRef
+import HBS2.Peer.RPC.API.Mailbox
 import HBS2.Peer.Notify
 import HBS2.Peer.RPC.Client.StorageClient
 
@@ -246,6 +248,7 @@ runCLI = do
                 <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
                 <> command "lwwref"    (info pLwwRef (progDesc "lwwref commands"))
+                <> command "mailbox"   (info pMailBox (progDesc "mailbox commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                 <> command "download"  (info pDownload  (progDesc "download management"))
@@ -1229,6 +1232,7 @@ runPeer opts = Exception.handle (\e -> myException e
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
       , makeResponse (makeServer @LWWRefAPI)
+      , makeResponse (makeServer @MailboxAPI)
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
