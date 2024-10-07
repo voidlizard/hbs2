@@ -1,0 +1,23 @@
+
+;; fixme config file
+
+fixme-comments   // # --
+
+fixme-prefix     FIXME:   bugs issues
+fixme-prefix     TODO:    bugs issues
+
+fixme-files **/*.hs
+
+fixme-files doc/devlog
+
+fixme-files-ignore .direnv/** dist-newstyle/**
+
+fixme-id-show-len 10
+
+; fixme-tag-prefix #
+
+fixme-list-full-row-pref "## "
+fixme-list-full-row-suff "\n\n;;;"
+
+
+
