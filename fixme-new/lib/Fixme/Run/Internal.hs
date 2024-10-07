@@ -495,6 +495,8 @@ cat_ hash = do
 
       debug (pretty cmd)
 
+      let blobHash = fixmeGet "blob" fx
+
       w <- gitRunCommand cmd
               <&> either (const Nothing) Just
 
