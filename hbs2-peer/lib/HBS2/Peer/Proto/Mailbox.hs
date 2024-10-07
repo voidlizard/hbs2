@@ -44,7 +44,7 @@ data DeleteMessagesPayload s =
   }
   deriving stock (Generic)
 
-data MailBoxProtoMessage e s =
+data MailBoxProtoMessage s e =
     SendMessage     (Message s) -- already has signed box
   | CheckMailbox    (SignedBox (MailboxKey s) s)
   | MailboxStatus   (SignedBox (MailBoxStatusPayload s) s)
@@ -53,16 +53,32 @@ data MailBoxProtoMessage e s =
   | DeleteMessages  (SignedBox (DeleteMessagesPayload s) s)
   deriving stock (Generic)
 
-data MailBoxProto e s =
-  MailBoxProtoV1 (MailBoxProtoMessage e s)
+data MailBoxProto s e =
+  MailBoxProtoV1 { mailBoxProtoPayload :: MailBoxProtoMessage s e }
+  deriving stock (Generic)
 
 instance ForMailbox s => Serialise (MailBoxStatusPayload s)
 instance ForMailbox s => Serialise (SetPolicyPayload s)
 instance ForMailbox s => Serialise (GetPolicyPayload s)
 instance ForMailbox s => Serialise (DeleteMessagesPayload s)
-instance ForMailbox s => Serialise (MailBoxProtoMessage e s)
+instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
+instance ForMailbox s => Serialise (MailBoxProto s e)
 
+mailboxProto :: forall e m p . ( MonadIO m
+                               , Response e p m
+                               , HasDeferred p e m
+                               , p ~ MailBoxProto (Encryption e) e
+                               )
+             => MailBoxProto (Encryption e) e
+             ->  m ()
 
+mailboxProto mess = do
+  -- common stuff
 
+  case mailBoxProtoPayload mess of
+    SendMessage{} -> none
+    _ -> none
+
+  pure ()
 
 

@@ -28,6 +28,7 @@ import HBS2.Peer.Proto
 import HBS2.Peer.Proto.RefChan qualified as R
 import HBS2.Peer.Proto.RefChan.Adapter
 import HBS2.Net.Proto.Notify
+import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
@@ -1117,6 +1118,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     -- TODO: change-all-to-authorized
                     , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProtoA)
+                    , makeResponse (authorized mailboxProto)
                     ]
 
 

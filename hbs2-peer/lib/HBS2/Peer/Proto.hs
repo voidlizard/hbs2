@@ -29,6 +29,7 @@ import HBS2.Peer.Proto.RefLog
 import HBS2.Peer.Proto.RefChan hiding (Notify)
 import HBS2.Peer.Proto.AnyRef
 import HBS2.Peer.Proto.LWWRef
+import HBS2.Peer.Proto.Mailbox
 
 import HBS2.Actors.Peer.Types
 import HBS2.Net.Messaging.Unix (UNIX)
@@ -154,6 +155,16 @@ instance HasProtocol L4Proto (LWWRefProto L4Proto) where
   decode = either (const Nothing) Just . deserialiseOrFail
   encode = serialise
   requestPeriodLim = ReqLimPerMessage 1
+
+
+instance HasProtocol L4Proto (MailBoxProto HBS2Basic L4Proto) where
+  type instance ProtocolId (MailBoxProto HBS2Basic L4Proto) = 13001
+  type instance Encoded L4Proto = ByteString
+  decode = either (const Nothing) Just . deserialiseOrFail
+  encode = serialise
+
+  -- TODO: limit-request-period
+  requestPeriodLim = NoLimit -- ReqLimPerMessage 1
 
 instance Serialise (RefChanValidate UNIX) => HasProtocol UNIX (RefChanValidate UNIX) where
   type instance ProtocolId (RefChanValidate UNIX) = 0xFFFA0001
