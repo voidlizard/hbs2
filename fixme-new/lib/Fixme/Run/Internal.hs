@@ -472,42 +472,49 @@ cat_ hash = do
 
       fx@Fixme{..} <- ContT $ maybe1 fme' (pure ())
 
+      let dict = [ ("$file", mkStr @C (show $ pretty fixmeKey)) ]
+                 <>
+                 [ (mkId k, mkStr @C   v) | (k,v) <- HM.toList fixmeAttr ]
+                 <>
+                 [ (mkId "$before", mkStr @C (FixmeAttrVal $ Text.pack $ show 1))
+                 ] & HM.fromList
+
+
+      let fallText0 = [qc|{show $ pretty fixmeTag} {show $ pretty fixmeTitle}|]
+                       & encodeUtf8
+                       & LBS8.fromStrict
+
+      let fallback = LBS8.unlines $ fallText0 : fmap (LBS8.fromStrict . encodeUtf8 . coerce) fixmePlain
+
+      let fbAction = action (HM.toList dict)
+
       let gh' = HM.lookup "blob" fixmeAttr
 
       -- FIXME: define-fallback-action
-      gh <- ContT $ maybe1 gh' none
+      gh <- ContT $ maybe1 gh' (liftIO (fbAction fallback))
 
       let cmd = [qc|git {gd} cat-file blob {pretty gh}|] :: String
-
-      let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
-
-      debug $ red "start"  <+> pretty start
-      debug $ red "before" <+> pretty before
-
-      let bbefore = if start == 0 then before  else before + 1
-      let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
-      let lno   = max 1 $ origLen + after + before
-
-      let dict = [ (mkId k, mkStr @C   v) | (k,v) <- HM.toList fixmeAttr ]
-                 <>
-                 [ (mkId (FixmeAttrName "before"), mkStr @C (FixmeAttrVal $ Text.pack $ show bbefore))
-                 ]
-
-      debug (pretty cmd)
-
-      let blobHash = fixmeGet "blob" fx
 
       w <- gitRunCommand cmd
               <&> either (const Nothing) Just
 
-      maybe1 w none $ \lbs -> do
+      maybe1 w (liftIO $ fbAction fallback) $ \lbs -> do
+
+        let start = fromMaybe 0 fixmeStart & fromIntegral  & (\x -> x - before) & max 0
+
+        -- FIXME: off-by-one-error
+        let bbefore = if start == 0 then 1 else before + 1
+
+        -- warn $ red "before" <+> pretty before <+> pretty bbefore
+
+        let origLen = maybe  0 fromIntegral fixmeEnd - maybe 0 fromIntegral fixmeStart & max 1
+        let lno   =   max 1 $ origLen + after + before
+        let val = mkStr @C (FixmeAttrVal $ Text.pack $ show bbefore)
+        let ddict = HM.toList (HM.insert "$before" val dict)
         let piece = LBS8.lines lbs & drop start & take lno
-        liftIO $ action  dict (LBS8.unlines piece)
+        liftIO $ action ddict (LBS8.unlines piece)
         exit ()
 
-      let fallback = LBS8.unlines $ fmap (LBS8.fromStrict . encodeUtf8 . coerce) fixmePlain
-
-      liftIO $ action  dict fallback
 
 class HasRefChanExportOpts a where
   refchanExportDry :: a -> Bool

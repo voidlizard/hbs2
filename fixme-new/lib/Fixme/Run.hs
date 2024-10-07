@@ -287,6 +287,7 @@ runTop forms = do
                     let input = byteStringInput lbs
                     let cmd = setStdin input $ setStderr closed
                                              $ proc p args
+
                     void $ runProcess cmd
 
             atomically $ writeTVar t action
