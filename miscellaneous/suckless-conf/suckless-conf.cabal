@@ -1,0 +1,143 @@
+cabal-version:      3.0
+name:               suckless-conf
+version:            0.1.2.9
+-- synopsis:
+-- description:
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Dmitry Zuikov
+maintainer:         dzuikov@gmail.com
+-- copyright:
+category:           Text
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common shared-properties
+  ghc-options:
+        -Wall
+        -- -fno-warn-unused-matches
+        -- -fno-warn-unused-do-bind
+        -- -Werror=missing-methods
+        -- -Werror=incomplete-patterns
+        -- -fno-warn-unused-binds
+        -- -threaded
+        -- -rtsopts
+        -- "-with-rtsopts=-N4 -A64m -AL256m -I0"
+
+
+  default-language:    Haskell2010
+
+  default-extensions:
+                       ApplicativeDo
+                     , BangPatterns
+                     , BlockArguments
+                     , ConstraintKinds
+                     , DataKinds
+                     , DeriveDataTypeable
+                     , DeriveGeneric
+                     , DerivingStrategies
+                     , DerivingVia
+                     , ExtendedDefaultRules
+                     , FlexibleContexts
+                     , FlexibleInstances
+                     , GADTs
+                     , GeneralizedNewtypeDeriving
+                     , ImportQualifiedPost
+                     , LambdaCase
+                     , MultiParamTypeClasses
+                     , OverloadedStrings
+                     , QuasiQuotes
+                     , ScopedTypeVariables
+                     , StandaloneDeriving
+                     , TupleSections
+                     , TypeApplications
+                     , TypeFamilies
+                     , ImportQualifiedPost
+
+
+
+library
+    import:          shared-properties
+
+    exposed-modules:
+        Data.Config.Suckless
+      , Data.Config.Suckless.Syntax
+      , Data.Config.Suckless.Parse
+      , Data.Config.Suckless.KeyValue
+      , Data.Config.Suckless.Script
+      , Data.Config.Suckless.Script.File
+
+    other-modules:
+        Data.Config.Suckless.Types
+      , Data.Config.Suckless.Parse.Fuzzy
+      , Data.Config.Suckless.Script.Internal
+
+    -- other-extensions:
+    build-depends:    base
+                    , aeson
+                    , bytestring
+                    , containers
+                    , directory
+                    , filepath
+                    , filepattern
+                    , fuzzy-parse >= 0.1.3.1
+                    , hashable
+                    , interpolatedstring-perl6
+                    , microlens-platform
+                    , mtl
+                    , prettyprinter
+                    , prettyprinter-ansi-terminal
+                    , safe
+                    , scientific
+                    , streaming
+                    , stm
+                    , text
+                    , time
+                    , transformers
+                    , unliftio
+                    , unordered-containers
+                    , vector
+
+    hs-source-dirs:   lib
+    default-language: Haskell2010
+
+test-suite spec
+  import:          shared-properties
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Data.Config.Suckless.KeyValueSpec
+      Data.Config.Suckless.AesonSpec
+
+  hs-source-dirs:
+      test
+  ghc-options:
+      -Wall
+      -threaded
+      -rtsopts
+      -with-rtsopts=-N
+  build-tool-depends:
+      hspec-discover:hspec-discover
+  build-depends:      base
+                    , hspec
+                    , aeson
+                    , scientific
+                    , suckless-conf
+                    , fuzzy-parse >= 0.1.3.1
+                    , containers
+                    , mtl
+                    , text
+                    , prettyprinter
+                    , interpolatedstring-perl6
+                    , tasty-hunit
+
+  default-language: Haskell2010
+  default-extensions:
+                      DerivingStrategies
+                    , FlexibleInstances
+                    , MultiParamTypeClasses
+                    , OverloadedStrings
+                    , ScopedTypeVariables
+                    , TypeApplications
+
