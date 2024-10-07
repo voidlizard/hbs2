@@ -13,6 +13,8 @@ fixme-attribs assigned workflow :class
 
 fixme-attribs class
 
+fixme-attribs :committer-name :commit-time
+
 fixme-value-set :workflow :new :backlog :wip :test :fixed :done :ready :merged
 
 fixme-value-set class hardcode performance boilerplate
@@ -25,6 +27,7 @@ fixme-files **/*.txt docs/devlog.md
 fixme-files **/*.hs
 fixme-exclude **/.**
 fixme-exclude dist-newstyle
+fixme-exclude miscellaneous
 
 fixme-file-comments "*.scm" ";"
 

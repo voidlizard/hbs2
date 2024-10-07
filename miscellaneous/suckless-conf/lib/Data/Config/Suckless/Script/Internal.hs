@@ -632,6 +632,13 @@ run d sy = do
   tvd <- newTVarIO d
   lastDef nil <$> runReaderT (fromRunM (mapM eval sy)) tvd
 
+runEval :: forall c m . ( IsContext c
+                    , MonadUnliftIO m
+                    , Exception (BadFormException c)
+                    ) => TVar (Dict c m) -> [Syntax c] -> m (Syntax c)
+runEval tvd sy = do
+  lastDef nil <$> runReaderT (fromRunM (mapM eval sy)) tvd
+
 evalTop :: forall c m . ( IsContext c
                         , MonadUnliftIO m
                         , Exception (BadFormException c))
@@ -646,6 +653,15 @@ bindMatch n fn = HM.singleton n (Bind man (BindLambda fn))
 
 bindValue :: Id -> Syntax c -> Dict c m
 bindValue n e = HM.singleton n (Bind mzero (BindValue e))
+
+lookupValue :: forall c m . (IsContext c, MonadUnliftIO m)
+            => Id -> RunM c m (Syntax c)
+lookupValue i = do
+  ask  >>= readTVarIO
+       <&> (fmap bindAction . HM.lookup i)
+       <&> \case
+          Just (BindValue s) -> s
+          _  -> nil
 
 nil :: forall c . IsContext c => Syntax c
 nil = List noContext []

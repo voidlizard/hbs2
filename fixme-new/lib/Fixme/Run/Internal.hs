@@ -41,6 +41,7 @@ import Data.Either
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Maybe
+import Data.Generics.Product.Fields (field)
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -49,6 +50,7 @@ import Data.Text.Encoding (encodeUtf8)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Coerce
 import Data.Word
+import Data.UUID.V4 qualified as UUID
 import Lens.Micro.Platform
 import System.Process.Typed
 import Control.Monad.Trans.Cont
@@ -58,7 +60,10 @@ import Control.Concurrent.STM (flushTQueue)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import System.Directory (getModificationTime)
 
+
 import System.IO as IO
+import System.Environment (lookupEnv)
+import System.IO.Temp qualified as Temp
 
 import Streaming.Prelude qualified as S
 
@@ -257,6 +262,11 @@ printEnv = do
 
   liftIO $ print $ ("reader" <+> pretty (AsBase58 <$> reader))
 
+scanOneFile :: FixmePerks m => FilePath -> FixmeM m [Fixme]
+scanOneFile fn = do
+  lbs <- liftIO $ LBS.readFile fn
+  scanBlob (Just fn) lbs
+
 scanFiles :: FixmePerks m => FixmeM m [Fixme]
 scanFiles = do
   w <- fixmeWorkDir
@@ -317,6 +327,73 @@ report t q = do
                       & fromRight "render error"
 
         liftIO $ hPutDoc stdout what
+
+
+edit_ :: FixmePerks m
+         => Either (String,String) Fixme
+         -> FixmeM m ()
+
+edit_ what = do
+
+  now <- liftIO $ getPOSIXTime <&> round
+
+  editor <- liftIO $ lookupEnv "EDITOR" >>= orThrowUser "EDITOR not set"
+
+  let txt = case what of
+              Right fx0 -> do
+                let fxm = fx0 & set (field @"fixmeAttr") mempty
+                              & set (field @"fixmeStart") mzero
+                              & set (field @"fixmeEnd") mzero
+                show $ pretty fxm
+
+              Left (me,title) -> [qc|TODO: {title}
+$commit-time:    {pretty now}
+$committer-name: {pretty me}
+
+Issue text...
+|]
+
+  let setKey k fx = case what of
+                      Right w -> fx & set (field @"fixmeKey") (fixmeKey w)
+                      Left{}  -> fx & set (field @"fixmeKey") (fromString p)
+        where
+         p = show $ pretty
+                  $ hashObject @HbSync
+                  $ fromString @LBS8.ByteString
+                  $ show k
+
+  flip runContT pure $ callCC \exit -> do
+   fname <- liftIO $ Temp.writeTempFile "." "fixme-issue" txt
+
+   h1 <- liftIO $ try @_ @SomeException (LBS.readFile fname)
+            <&> fromRight mempty
+            <&> hashObject @HbSync
+
+   ContT $ bracket none (const $ rm fname)
+
+   void $ runProcess $ shell [qc|{editor} {fname}|]
+
+   s <- liftIO $ LBS.readFile fname
+
+   h2 <- liftIO $ try @_ @SomeException (LBS.readFile fname)
+          <&> fromRight mempty
+          <&> hashObject @HbSync
+
+   fxs <- lift $ scanBlobOpts NoIndents Nothing s
+
+   when (h1 == h2) $ exit ()
+
+   lift $ withState $ transactional do
+     for fxs $ \f -> do
+       key <- liftIO $ UUID.nextRandom <&> show
+       let norm = f & set (field @"fixmeStart") mzero
+                    & set (field @"fixmeEnd") mzero
+                    & setKey key
+                    & set (field @"fixmeTs") (Just $ fromIntegral now)
+                    & fixmeDerivedFields
+
+       notice $ "fixme" <+> pretty (fixmeKey norm)
+       insertFixme norm
 
 
 import_ :: FixmePerks m => FixmeM m ()

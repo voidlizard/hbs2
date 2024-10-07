@@ -1,5 +1,11 @@
 {-# Language MultiWayIf #-}
-module Fixme.Scan (scanBlob,scanMagic,updateScanMagic) where
+module Fixme.Scan
+  ( scanBlobOpts
+  , scanBlob
+  , scanMagic
+  , updateScanMagic
+  , NoIndents(..)
+  ) where
 
 import Fixme.Prelude hiding (indent)
 import Fixme.Types
@@ -74,12 +80,34 @@ updateScanMagic = do
   magic <- scanMagic
   atomically $ writeTVar t (Just magic)
 
-scanBlob :: forall m . FixmePerks m
-         => Maybe FilePath   -- ^ filename to detect type
-         -> ByteString       -- ^ content
+class IsScanBlobOptions a where
+  ignoreIndents :: a -> Bool
+
+data NoIndents = NoIndents
+
+instance IsScanBlobOptions () where
+  ignoreIndents = const False
+
+instance IsScanBlobOptions NoIndents where
+  ignoreIndents = const True
+
+scanBlob ::  forall m . (FixmePerks m)
+         => Maybe FilePath
+         -> ByteString
          -> FixmeM m [Fixme]
 
-scanBlob fpath lbs = do
+scanBlob = scanBlobOpts ()
+
+
+scanBlobOpts ::  forall o m . (IsScanBlobOptions o, FixmePerks m)
+             => o
+             -> Maybe FilePath
+             -> ByteString
+             -> FixmeM m [Fixme]
+
+scanBlobOpts o fpath lbs = do
+
+  let indents = not (ignoreIndents o)
 
   tagz <- asks fixmeEnvTags
               >>= readTVarIO
@@ -120,7 +148,7 @@ scanBlob fpath lbs = do
 
           if | eln > 1 -> next (S S0 (x:xs))
 
-             | li <= l0 && not (LBS8.null bs) -> next (S S0 (x:xs))
+             | indents && li <= l0 && not (LBS8.null bs) -> next (S S0 (x:xs))
 
              | otherwise -> do
 

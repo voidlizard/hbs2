@@ -59,7 +59,7 @@ import System.Process.Typed
 import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
-import System.IO.Temp as Temp
+import System.IO.Temp qualified as Temp
 import System.IO qualified as IO
 
 import Streaming.Prelude qualified as S
@@ -325,6 +325,32 @@ runTop forms = do
 
         _ -> throwIO $ BadFormException @C nil
 
+
+       entry $ bindMatch "create" $ nil_ $ \syn -> do
+
+        me' <- lookupValue "me"
+
+        me <- case me' of
+                StringLike who -> pure who
+                _ -> do
+                  user    <- liftIO $ lookupEnv "USER" <&> fromMaybe "stranger"
+                  try @_ @SomeException (readProcess (shell [qc|git config user.name|]))
+                               <&> either (const user) (headDef user . lines . LBS8.unpack . view _2)
+
+        let title = case syn of
+                        StringLikeList xs -> unwords xs
+                        _ -> "new-issue"
+
+        lift $ edit_ (Left (me,title))
+
+       entry $ bindMatch "edit" $ nil_ $ \case
+        [ FixmeHashLike w] -> lift $ void $ runMaybeT do
+          key <- lift (selectFixmeKey w) >>= toMPlus
+          fme <- lift (getFixme key) >>= toMPlus
+          lift $ edit_ (Right fme)
+
+        _ -> throwIO $ BadFormException @C nil
+
        entry $ bindMatch "dump" $ nil_ $ \case
         [ FixmeHashLike w ] -> lift $ void $ runMaybeT do
           key <- lift (selectFixmeKey w) >>= toMPlus
@@ -466,15 +492,13 @@ runTop forms = do
 
           debug $ red "SOURCE FILE" <+> pretty ppath
 
-          dd <- readTVarIO tvd
-
           -- FIXME: raise-warning?
           content <- liftIO $ try @_ @IOException (readFile ppath)
                         <&> fromRight mempty
                         <&> parseTop
                         >>= either (error.show) pure
 
-          lift $ run dd content
+          lift $ runEval tvd content
 
         _ -> throwIO $ BadFormException @C nil
 
@@ -563,5 +587,5 @@ runTop forms = do
 
   atomically $ writeTVar tvd finalDict
 
-  run finalDict (conf <> forms) >>= eatNil display
+  runEval tvd (conf <> forms) >>= eatNil display
 
