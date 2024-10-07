@@ -14,28 +14,6 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
     hspup.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
-    fuzzy.url = "path:./miscellaneous/fuzzy-parse";
-    fuzzy.inputs.nixpkgs.follows = "nixpkgs";
-    fuzzy.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
-
-    suckless-conf.url = "path:./miscellaneous/suckless-conf";
-    suckless-conf.inputs.nixpkgs.follows = "nixpkgs";
-    suckless-conf.inputs.fuzzy.follows = "fuzzy";
-    suckless-conf.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
-
-    db-pipe.url = "path:./miscellaneous/db-pipe";
-    db-pipe.inputs.nixpkgs.follows = "nixpkgs";
-    db-pipe.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
-
-    saltine = {
-      url = "path:./miscellaneous/saltine";
-      flake = false;
-    };
-
-    libsodium = {
-      url = "path:./miscellaneous/libsodium";
-    };
-
 };
 
 outputs = { self, nixpkgs, flake-utils, ... }@inputs:
@@ -66,16 +44,22 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         "fixme-new"
         ];
 
+      miscellaneous = 
+        [
+        "bytestring-mmap"
+        "db-pipe"
+        "fuzzy-parse"
+        "suckless-conf"
+        ];
+
       pkgs = import nixpkgs {
           inherit system;
           overlays = [defaultOverlay];
         };
 
       defaultOverlay = final: prev:
-        (prev.lib.composeManyExtensions
-        [ overlay
-          inputs.suckless-conf.overlays.default
-          inputs.db-pipe.overlays.default
+        (prev.lib.composeManyExtensions # no-op
+        [ overlay 
         ]) final prev;
 
       packagePostOverrides = pkg: with pkgs.haskell.lib.compose; pkgs.lib.pipe pkg [
@@ -103,22 +87,22 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
     jailbreakUnbreak = pkg:
         pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
 
+    makePkgsFromDir = hp: pkgNames: mkPath: 
+      pkgs.lib.genAttrs pkgNames (name: 
+        hp.callCabal2nix name "${self}/${mkPath name}" {});
+
     overlay = final: prev: let pkgs = prev; in
     {
       haskellPackages = pkgs.haskellPackages.override {
         overrides = new: old: with pkgs.haskell.lib;
           {
             scotty = new.callHackage "scotty" "0.21" {};
-            bytestring-mmap = old.callCabal2nix "bytestring-mmap" "${self}/miscellaneous/bytestring-mmap" {};
             skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
             wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak old.wai-app-file-cgi));
-            suckless-conf = old.callCabal2nix "suckless-conf" "${self}/miscellaneous/suckless-conf" {};
-            saltine = old.callCabal2nix "saltine" inputs.saltine { inherit (pkgs) libsodium; };
           }
-          // pkgs.lib.genAttrs topLevelPackages (name:
-            old.callCabal2nix name "${self}/${name}" {})
-          // pkgs.lib.genAttrs keymanPackages (name:
-            old.callCabal2nix name "${self}/hbs2-keyman/${name}" {});
+          // makePkgsFromDir old topLevelPackages (n: n)
+          // makePkgsFromDir old keymanPackages (name: "hbs2-keyman/${name}")
+          // makePkgsFromDir old miscellaneous (name: "miscellaneous/${name}");
         };
       };
 
@@ -149,7 +133,9 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       };
 
     devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: pkgs.lib.attrsets.attrVals packageNames pkgs.haskellPackages;
+      packages = _: 
+        pkgs.lib.attrVals packageNames pkgs.haskellPackages ++
+        pkgs.lib.attrVals miscellaneous pkgs.haskellPackages;
       # withHoogle = true;
       buildInputs = (
         with pkgs.haskellPackages; [
@@ -166,8 +152,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         ]
         ++
         [ pkgs.pkg-config
+          pkgs.libsodium
           inputs.hspup.packages.${pkgs.system}.default
-          inputs.libsodium.defaultPackage.${pkgs.system}
         ]
       );
 
