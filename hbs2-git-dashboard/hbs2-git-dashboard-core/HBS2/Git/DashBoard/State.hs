@@ -25,7 +25,7 @@ import DBPipe.SQLite hiding (insert)
 import DBPipe.SQLite qualified as S
 import DBPipe.SQLite.Generic as G
 
-
+import Data.List.Split (chunksOf)
 import Data.Aeson as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy (ByteString)
@@ -36,6 +36,8 @@ import Data.Either
 import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Map (Map)
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import System.FilePath
 import System.Directory
 
@@ -690,18 +692,36 @@ instance FromRow BlobInfo
 
 type TreeLocator = [(TreeParent, TreeTree, TreeLevel, TreePath)]
 
+
 insertBlob :: DashBoardPerks m
            => (BlobHash, BlobName, BlobSize, BlobSyn)
            -> DBPipeM m ()
-insertBlob (h,n,size,syn) = do
+insertBlob (h, n, size, syn) = do
   S.insert [qc|
-  insert into blob (hash,name,size,syntax)
+  insert into blob (hash, name, size, syntax)
   values (?,?,?,?)
   on conflict (hash)
   do update set name = excluded.name
               , size = excluded.size
               , syntax = excluded.syntax
-  |] (h,n,size,syn)
+  where blob.name != excluded.name
+     or blob.size != excluded.size
+     or blob.syntax != excluded.syntax
+  |] (h, n, size, syn)
+
+
+-- insertBlob :: DashBoardPerks m
+--            => (BlobHash, BlobName, BlobSize, BlobSyn)
+--            -> DBPipeM m ()
+-- insertBlob (h,n,size,syn) = do
+--   S.insert [qc|
+--   insert into blob (hash,name,size,syntax)
+--   values (?,?,?,?)
+--   on conflict (hash)
+--   do update set name = excluded.name
+--               , size = excluded.size
+--               , syntax = excluded.syntax
+--   |] (h,n,size,syn)
 
 
 selectBlobInfo :: (DashBoardPerks m, MonadReader DashBoardEnv m)
@@ -758,8 +778,8 @@ readBlob repo hash = do
     <&> fromRight mempty
 
 
-updateForks :: (MonadIO m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m ()
-updateForks lww = withState do
+updateForks :: (MonadIO m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> DBPipeM m ()
+updateForks lww = do
 
   S.insert [qc|
     insert into fork (a,b)
@@ -777,6 +797,13 @@ checkCommitProcessed :: (MonadIO m, MonadReader DashBoardEnv m)
 checkCommitProcessed lww co = withState do
   select [qc|select 1 from repocommit where lww = ? and kommit = ?|] (lww, co)
     <&> listToMaybe @(Only Int) <&> isJust
+
+
+listCommitsProcessed :: (MonadIO m, MonadReader DashBoardEnv m)
+                     => LWWRefKey 'HBS2Basic -> m [GitHash]
+listCommitsProcessed lww = withState do
+  select [qc|select kommit from repocommit where lww = ?|] (Only lww)
+    <&> fmap fromOnly
 
 listCommits :: (MonadUnliftIO m, MonadReader DashBoardEnv m)
             => LWWRefKey HBS2Basic -> m [GitHash]
@@ -837,46 +864,46 @@ getRootTree lww co = do
            _                 -> Nothing
 
 updateRepoData :: (MonadReader DashBoardEnv m, MonadUnliftIO m)
-               => LWWRefKey HBS2Basic -> GitHash -> m ()
+               => LWWRefKey HBS2Basic -> GitHash -> DBPipeM m ()
 updateRepoData lww co  = do
 
   env <- ask
 
   void $ runMaybeT do
 
-    root <- lift (getRootTree lww co) >>= toMPlus
-    (trees, blobs) <- lift $ getTreeRecursive lww co
+    root <- lift (lift (getRootTree lww co)) >>= toMPlus
+    (trees, blobs) <- lift $ lift $ getTreeRecursive lww co
 
     -- lift $ addJob $ liftIO $ withDashBoardEnv env do
 
-    lift $ withState $ transactional do
-
+    -- lift $ withState do
+    lift do
       insert @RepoCommitTable $
         onConflictIgnore @RepoCommitTable (RepoLww lww, RepoCommit co)
 
       for_ blobs $ \(fn, (hash, size, syn)) -> do
         insertBlob (BlobHash hash, BlobName fn, BlobSize size, BlobSyn syn)
 
-        for_ (Map.toList trees) $ \(t,h0) -> do
+      for_ (Map.toList trees) $ \(t,h0) -> do
 
-          case t of
-            [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
-            _   -> pure ()
+        case t of
+          [x] -> insertTree (TreeCommit co,TreeParent root,TreeTree h0,1,TreePath x)
+          _   -> pure ()
 
-          let child = tailSafe t
-          debug $ red "TREE-REL:" <+> pretty t
-          let parent = Map.lookup child trees
+        let child = tailSafe t
+        debug $ red "TREE-REL:" <+> pretty t
+        let parent = Map.lookup child trees
 
-          for_ parent $ \p -> do
-            debug $ red "FOUND SHIT:" <+> pretty (h0,p)
-            insertTree ( TreeCommit co
-                       , TreeParent p
-                       , TreeTree h0
-                       , TreeLevel (length t)
-                       , TreePath (headDef "" t)
-                       )
+        for_ parent $ \p -> do
+          debug $ red "FOUND SHIT:" <+> pretty (h0,p)
+          insertTree ( TreeCommit co
+                     , TreeParent p
+                     , TreeTree h0
+                     , TreeLevel (length t)
+                     , TreePath (headDef "" t)
+                     )
 
-  updateForks lww
+      -- updateForks lww
 
 buildSingleCommitTreeIndex :: ( MonadUnliftIO m
                               , DashBoardPerks m
@@ -894,7 +921,9 @@ buildSingleCommitTreeIndex lww co = do
     done <- checkCommitProcessed lww co
     let skip = done && not ignoreCaches
     guard (not skip)
-    lift $ updateRepoData lww co
+    lift $ withState $ transactional $ do
+      updateRepoData lww co
+      updateForks lww
 
 buildCommitTreeIndex :: ( MonadUnliftIO m
                         , DashBoardPerks m
@@ -904,16 +933,26 @@ buildCommitTreeIndex :: ( MonadUnliftIO m
                      -> m ()
 buildCommitTreeIndex lww = do
 
-  commits <- listCommits lww
+
+  debug $ red "buildCommitTreeIndex" <+> pretty lww
+
   env <- ask
 
   ignoreCaches <- getIgnoreCaches
 
-  for_ commits $ \co -> void $ runMaybeT do
-    done <- checkCommitProcessed lww co
-    let skip = done && not ignoreCaches
-    guard (not skip)
-    lift $ addJob $ withDashBoardEnv env (updateRepoData lww co)
+  doneCommits <- listCommitsProcessed lww <&> HS.fromList
+
+  commits <- listCommits lww <&> filter (not . flip HS.member doneCommits)
+  let chunks = chunksOf 100 commits
+
+  for_ chunks $ \chunk -> do
+    -- addJob $ withDashBoardEnv env do
+      withState $  transactional do
+        for_ chunk $ \co -> do
+          updateRepoData lww co
+
+  unless (List.null chunks) do
+    withState $ transactional $ do updateForks lww
 
   -- FIXME: check-names-with-spaces
 
