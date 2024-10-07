@@ -1,0 +1,12 @@
+
+
+- [ ] TODO: Tests for Data.Text.Fuzzy.Section
+- [ ] TODO: haddock for Data.Text.Fuzzy.Section
+
+- [~] TODO: Tests
+- [+] TODO: Freeze dependencies versions
+- [ ] TODO: Version number
+- [+] TODO: Haddocks
+- [ ] TODO: Tokenizer: Identation support
+- [ ] TODO: Tokenizer: Block comments support
+
