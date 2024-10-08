@@ -69,9 +69,3 @@ runMailboxCLI rpc s = do
     caller <- ContT $ withMyRPC @MailboxAPI rpc
     lift $ run (dict caller) cli >>= eatNil display
 
-  -- withMyRPC @LWWRefAPI rpc $ \caller -> do
-  --   callService @RpcLWWRefGet caller ref >>= \case
-  --     Left e  -> err (viaShow e) >> exitFailure
-  --     Right r -> print $ pretty r
-
-

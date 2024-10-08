@@ -279,6 +279,7 @@ executable hbs2-peer
                     , RefChan
                     , RefChanNotifyLog
                     , LWWRef
+                    , MailboxProtoWorker
                     , CheckMetrics
                     , HttpWorker
                     , Brains
