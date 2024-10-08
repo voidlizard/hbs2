@@ -492,8 +492,6 @@ theDict = do
 
                   _ -> throwIO $ BadFormException @C nil
 
-          warn $ green "lwwref" <+> pretty (AsBase58 lww)
-
           void $ runMaybeT do
             rh <- readActualRepoHeadFor (LWWRefKey lww)
                     >>= toMPlus
