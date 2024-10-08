@@ -49,6 +49,7 @@ data MailBoxProtoMessage s e =
   | CheckMailbox    (SignedBox (MailboxKey s) s)
   | MailboxStatus   (SignedBox (MailBoxStatusPayload s) s)
   | SetPolicy       (SignedBox (SetPolicyPayload s) s)
+  | GetPolicy       (SignedBox (GetPolicyPayload s) s)
   | CurrentPolicy   (GetPolicyPayload s)
   | DeleteMessages  (SignedBox (DeleteMessagesPayload s) s)
   deriving stock (Generic)
@@ -64,21 +65,65 @@ instance ForMailbox s => Serialise (DeleteMessagesPayload s)
 instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
 instance ForMailbox s => Serialise (MailBoxProto s e)
 
-mailboxProto :: forall e m p . ( MonadIO m
-                               , Response e p m
-                               , HasDeferred p e m
-                               , p ~ MailBoxProto (Encryption e) e
-                               )
-             => MailBoxProto (Encryption e) e
+class IsMailboxProtoAdapter e a where
+
+mailboxProto :: forall e m p a . ( MonadIO m
+                                 , Response e p m
+                                 , HasDeferred p e m
+                                 , IsMailboxProtoAdapter e a
+                                 , p ~ MailBoxProto (Encryption e) e
+                                 )
+             => a
+             -> MailBoxProto (Encryption e) e
              ->  m ()
 
-mailboxProto mess = do
+mailboxProto adapter mess = do
   -- common stuff
 
   case mailBoxProtoPayload mess of
-    SendMessage{} -> none
-    _ -> none
+    SendMessage{} -> do
+      -- TODO: implement-SendMessage
+      --   [ ] check-if-mailbox-exists
+      --   [ ] check-message-signature
+      --   [ ] if-already-processed-then-skip
+      --   [ ] store-message-hash-block-with-ttl
+      --   [ ] if-message-to-this-mailbox-then store-message
+      --   [ ] gossip-message
+      none
 
-  pure ()
+    CheckMailbox{} -> do
+      -- TODO: implement-CheckMailbox
+      --  [ ]  check-signed-box-or-drop
+      --  [ ]  if-client-has-mailbox-then
+      --  [ ]     get-mailbox-status
+      --  [ ]     answer-MailboxStatus
+      --  [ ]  gossip-message?
+      none
+
+    MailboxStatus{} -> do
+      -- TODO: implement-MailboxStatus
+      --
+      --  [ ]  if-do-gossip-setting-then
+      --  [ ]     gossip-MailboxStatus
+      --
+      --  [ ]  check-signed-box-or-drop
+      --  [ ]  if-client-has-mailbox-then
+      --  [ ]     get-mailbox-status
+      --  [ ]     answer-MailboxStatus
+      --
+      none
+
+    SetPolicy{} -> do
+      none
+
+    GetPolicy{} -> do
+      none
+
+    CurrentPolicy{} -> do
+      none
+
+    DeleteMessages{} -> do
+      none
+
 
 

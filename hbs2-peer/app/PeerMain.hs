@@ -54,6 +54,7 @@ import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
 import LWWRef (lwwRefWorker)
+import MailboxProtoWorker
 import HttpWorker
 import DispatchProxy
 import PeerMeta
@@ -1105,6 +1106,9 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
 
+                mbw <- createMailboxProtoWorker @L4Proto
+                peerThread "mailboxProtoWorker" (mailboxProtoWorker mbw)
+
                 liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
@@ -1121,7 +1125,7 @@ runPeer opts = Exception.handle (\e -> myException e
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     -- TODO: change-all-to-authorized
                     , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProtoA)
-                    , makeResponse (authorized mailboxProto)
+                    , makeResponse ((authorized . mailboxProto) mbw)
                     ]
 
 
