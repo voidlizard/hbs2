@@ -4,6 +4,7 @@ import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.Data.Types
 import HBS2.Merkle
+import HBS2.Merkle.Walk
 import HBS2.Storage
 
 -- import HBS2.System.Logger.Simple
@@ -22,6 +23,7 @@ import Control.Concurrent.STM
 import Data.HashMap.Strict qualified as HashMap
 -- import Data.HashMap.Strict (HashMap)
 import Data.List qualified as List
+import UnliftIO qualified
 
 import Streaming.Prelude qualified as S
 -- import Streaming qualified as S
@@ -158,6 +160,15 @@ readLog getBlk (HashRef h)  =
       case hr of
         Left{} -> pure ()
         Right (hrr :: [HashRef]) -> S.each hrr
+
+readLogThrow :: forall m . ( MonadIO m )
+        => ( Hash HbSync -> IO (Maybe ByteString) )
+        -> HashRef
+        -> m [HashRef]
+readLogThrow getBlk (HashRef h)  =
+  S.toList_ do
+      either UnliftIO.throwIO pure =<<
+          streamMerkle (liftIO . getBlk) h
 
 
 -- FIXME: make-it-stop-after-first-missed-block
