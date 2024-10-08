@@ -175,6 +175,9 @@ main = do
                 ("list" : _) -> do
 
 
+                    -- FIXME: may-cause-reference-inconsistency
+                    --   надо брать max(head) для lwwref
+                    --   а не максимальную транзу, накаченную на репо
                     r'  <- runMaybeT $ withState do
                             tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
