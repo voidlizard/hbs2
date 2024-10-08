@@ -1,47 +1,38 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language TemplateHaskell #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
-module Main where
+module RefChanQBLF.Impl where
 
-import HBS2.Prelude
-import HBS2.Defaults
-import HBS2.Merkle
-import HBS2.Hash
-import HBS2.Clock
-import HBS2.Base58
-import HBS2.OrDie
-import HBS2.Data.Types.Refs
-import HBS2.Net.Proto.Types
 import HBS2.Actors.Peer
-import HBS2.Peer.Proto.RefChan
-import HBS2.Peer.Proto.AnyRef
-import HBS2.Data.Types.SignedBox
-import HBS2.Net.Messaging.Unix
-import HBS2.Data.Bundle
-import HBS2.Net.Auth.Credentials
-import HBS2.Data.Detect
 import HBS2.Actors.Peer.Types()
-
+import HBS2.Base58
+import HBS2.Data.Bundle
+import HBS2.Data.Detect
+import HBS2.Data.Types.Refs
+import HBS2.Data.Types.SignedBox
+import HBS2.Hash
+import HBS2.Merkle
+import HBS2.Net.Auth.Credentials
+import HBS2.Net.Messaging.Unix
+import HBS2.Net.Proto.QBLF
+import HBS2.Peer.Proto.AnyRef
+import HBS2.Peer.Proto.RefChan
+import HBS2.Prelude
 import HBS2.Storage.Simple
-
 import HBS2.System.Logger.Simple
 
-import HBS2.Net.Proto.QBLF
-
-import Demo.QBLF.Transactions
+import RefChanQBLF.Common
+import RefChanQBLF.Transactions
 import Data.Config.Suckless
-
+import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Codec.Serialise
 import Control.Monad.Reader
-import Data.ByteString(ByteString)
-import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified as List
 import Lens.Micro.Platform hiding ((.=))
 import Options.Applicative hiding (info)
-import Options.Applicative qualified as O
-import System.Directory
 import Data.HashSet qualified as HashSet
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -50,19 +41,15 @@ import Data.Word
 import System.Random
 import UnliftIO
 
-import Web.Scotty hiding (request,header)
-import Network.HTTP.Types.Status
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
-
-import Control.Monad.Except
 
 {- HLINT ignore "Use newtype instead of data" -}
 
 -- TODO: config
 --  сделать конфиг, а то слишком много уже параметров в CLI
 
-data HttpPortOpt
+data AppSocketOpt
 data RefChanOpt
 data SocketOpt
 data ActorOpt
@@ -72,16 +59,8 @@ data StateRefOpt
 data QBLFRefKey
 type MyRefKey = AnyRefKey QBLFRefKey 'HBS2Basic
 
-instance HasCfgKey HttpPortOpt (Maybe Int) where
-  key = "http"
-
-
-instance {-# OVERLAPPING #-} (HasConf m, HasCfgKey HttpPortOpt (Maybe Int)) => HasCfgValue HttpPortOpt (Maybe Int) m where
-  cfgValue  = val <$> getConf
-    where
-      val syn = lastMay [ fromIntegral e
-                | ListVal (Key s [LitIntVal e]) <- syn, s == key @HttpPortOpt @(Maybe Int)
-                ]
+instance HasCfgKey AppSocketOpt (Maybe String) where
+  key = "app-socket"
 
 instance HasCfgKey RefChanOpt (Maybe String)  where
   key = "refchan"
@@ -154,11 +133,11 @@ data MyEnv =
   , myRef   :: MyRefKey
   , mySto   :: AnyStorage
   , myCred  :: PeerCredentials 'HBS2Basic
-  , myHttpPort :: Int
+  -- , myHttpPort :: Int
   , myFetch :: Cache HashRef ()
   }
 
-newtype App m a = App { fromApp :: ReaderT MyEnv m a }
+newtype MyAppT m a = MyAppT { fromQAppT :: ReaderT MyEnv m a }
                   deriving newtype ( Functor
                                    , Applicative
                                    , Monad
@@ -168,25 +147,21 @@ newtype App m a = App { fromApp :: ReaderT MyEnv m a }
                                    , MonadTrans
                                    )
 
-runApp :: (MonadIO m, PeerMessaging UNIX) => MyEnv -> App m a -> m a
-runApp env m = runReaderT (fromApp  m) env
+runMyAppT :: (MonadIO m, PeerMessaging UNIX) => MyEnv -> MyAppT m a -> m a
+runMyAppT env m = runReaderT (fromQAppT m) env
 
-instance Monad m => HasFabriq UNIX (App m) where
+instance Monad m => HasFabriq UNIX (MyAppT m) where
   getFabriq = asks myFab
 
-instance Monad m => HasOwnPeer UNIX (App m) where
+instance Monad m => HasOwnPeer UNIX (MyAppT m) where
   ownPeer = asks mySelf
 
-instance Monad m => HasStorage (App m) where
+instance Monad m => HasStorage (MyAppT m) where
   getStorage = asks mySto
 
 data ConsensusQBLF
 
 data StateQBLF = StateQBLF { fromStateQBLF :: HashRef }
-
-data MyError =
-  DeserializationError | SignatureError | TxUnsupported | SomeOtherError
-  deriving stock (Eq,Ord,Show)
 
 check :: MonadIO m => MyError -> Either e a -> ExceptT MyError m a
 check w  = \case
@@ -207,10 +182,10 @@ instance Serialise (QBLFMessage ConsensusQBLF)
 instance Serialise (QBLFAnnounce ConsensusQBLF)
 instance Serialise (QBLFCommit ConsensusQBLF)
 
-instance Monad m => HasTimeLimits UNIX (RefChanNotify UNIX) (App m) where
+instance Monad m => HasTimeLimits UNIX (RefChanNotify UNIX) (MyAppT m) where
   tryLockForPeriod _ _ = pure True
 
-instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) where
+instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (MyAppT m) where
   type QBLFActor ConsensusQBLF = Actor 'HBS2Basic
   type QBLFTransaction ConsensusQBLF = QBLFDemoToken 'HBS2Basic
   type QBLFState ConsensusQBLF = DAppState
@@ -238,7 +213,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
             else do
               hashes <- liftIO $ mapM (putBlock sto . serialise) txs <&> catMaybes
 
-              current <- readLog (getBlock sto) h0
+              current <- readLogThrow (getBlock sto) h0
 
               let new = HashSet.fromList ( current <> fmap HashRef hashes )
 
@@ -252,7 +227,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
                 lift $ request self (ActionRequest @UNIX chan (RefChanAnnounceBlock (HashRef r)))
 
               r <- makeMerkle 0 pt $ \(hx,_,bs) -> do
-                th <- liftIO (enqueueBlock sto bs)
+                _th <- liftIO (enqueueBlock sto bs)
                 debug $ "WRITE TX" <+> pretty hx
 
               request self (ActionRequest @UNIX chan (RefChanAnnounceBlock (HashRef r)))
@@ -265,7 +240,7 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
   qblfCommit s0 s1 = do
     debug $ "COMMIT:" <+> pretty s0 <+> pretty s1
     sto <- asks mySto
-    chan <- asks myChan
+    _chan <- asks myChan
     ref  <- asks myRef
 
     debug $ "UPDATING REF" <+> pretty ref <+> pretty s1
@@ -299,19 +274,19 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
   --     2. кэшировать всё, что можно
   qblfMerge s0 s1 = do
     chan <- asks myChan
-    self <- asks mySelf
+    _self <- asks mySelf
 
     creds <- asks myCred
-    let sk = view peerSignSk creds
-    let pk = view peerSignPk creds
+    let _sk = view peerSignSk creds
+    let _pk = view peerSignPk creds
 
     debug $ "MERGE. Proposed state:" <+> pretty s1
 
     sto <- asks mySto
     let readFn = liftIO . getBlock sto
 
-    tx1 <- mapM (readLog readFn) (fmap fromDAppState s1) <&> mconcat
-    tx0 <- readLog readFn (fromDAppState s0) <&> HashSet.fromList
+    tx1 <- mapM (readLogThrow readFn) (fmap fromDAppState s1) <&> mconcat
+    tx0 <- readLogThrow readFn (fromDAppState s0) <&> HashSet.fromList
 
     let txNew = HashSet.fromList tx1 `HashSet.difference` tx0
 
@@ -331,8 +306,8 @@ instance (ForConsensus m, MonadUnliftIO m)  => IsQBLF ConsensusQBLF (App m) wher
 
               case tx of
                 Emit box -> do
-                  (pk, e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx 'HBS2Basic) box
-                  guard ( chan == pk )
+                  (pk', e@(EmitTx a q _)) <- MaybeT $ pure $ unboxSignedBox0 @(EmitTx 'HBS2Basic) box
+                  guard ( chan == pk' )
                   debug $ "VALID EMIT TRANSACTION" <+> pretty t <+> pretty (AsBase58 a) <+> pretty q
                   pure ([(t,e)], mempty)
 
@@ -413,7 +388,7 @@ balances root = do
     Just bal -> pure bal
     Nothing -> do
 
-      txs <- readLog (liftIO . getBlock sto) root
+      txs <- readLogThrow (liftIO . getBlock sto) root
 
       r <- forM txs $ \h -> runMaybeT do
         blk <- MaybeT $ liftIO $ getBlock sto (fromHashRef h)
@@ -457,7 +432,7 @@ updBalances :: forall e s a tx . (ForRefChans e, ToBalance s tx, s ~ Encryption 
 
 updBalances = go
   where
-    go bal [] = empty
+    go _bal [] = empty
 
     go bal (t:rest) =
 
@@ -498,309 +473,4 @@ fetchMissed env s = do
     debug $ "We might be need to fetch" <+> pretty s
     liftIO $ Cache.insert cache href ()
     request @UNIX tube (ActionRequest @UNIX chan (RefChanFetch (fromDAppState s)))
-
-runMe :: ForConsensus IO => Config -> IO ()
-runMe conf = withLogging $ flip runReaderT conf do
-
-  debug $ "runMe" <+> pretty conf
-
-  kr    <- cfgValue @ActorOpt @(Maybe String) `orDie` "actor's key not set"
-  chan' <- cfgValue @RefChanOpt @(Maybe String) `orDie` "refchan not set"
-  sa    <- cfgValue @SocketOpt @(Maybe String) `orDie` "socket not set"
-  pno   <- cfgValue @HttpPortOpt @(Maybe Int) <&> fromMaybe 3011
-  ds    <- cfgValue @DefStateOpt @(Maybe String)
-
-  ref   <- ( cfgValue @StateRefOpt @(Maybe String)
-                <&>  maybe Nothing fromStringMay
-           ) `orDie` "state-ref not set"
-
-  sc <- liftIO $ BS.readFile kr
-  creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
-
-  chan  <- pure (fromStringMay @(RefChanId L4Proto) chan') `orDie` "invalid REFCHAN"
-
-  here <- liftIO $ doesFileExist sa
-
-  when here do
-    liftIO $ removeFile sa
-
-  server <- newMessagingUnixOpts [MUNoFork] True 1.0 sa
-
-  abus <- async $ runMessagingUnix server
-
-  let tube = fromString sa
-
-  -- FIXME: fix-default-storage
-  xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
-  sto' <- simpleStorageInit @HbSync [StoragePrefix xdg]
-
-  let sto = AnyStorage sto'
-  sw <- liftIO $ replicateM 4 $ async $ simpleStorageWorker sto'
-
-  -- FIXME: fix-hardcoded-timeout
-  fetches <- liftIO $ Cache.newCache (Just (toTimeSpec (TimeoutSec 30)))
-
-  let myEnv = MyEnv tube
-                    (Fabriq server)
-                    chan
-                    ref
-                    sto
-                    creds
-                    pno
-                    fetches
-
-  let dss = ds >>= fromStringMay
-
-  s0 <- readOrCreateStateRef dss sto ref
-
-  debug $ "STATE0:" <+> pretty s0
-
-  -- получить голову
-  -- из головы получить акторов
-
-  headBlk <- getRefChanHead @L4Proto sto (RefChanHeadKey chan) `orDie` "can't read head block"
-
-  let self = view peerSignPk creds & Actor
-
-  let actors = view refChanHeadAuthors headBlk
-                  & HashSet.toList
-                  & fmap Actor
-
-  runApp myEnv do
-
-    -- FIXME: timeout-hardcode
-    let w = realToFrac 5
-
-    -- FIXME: use-actors-asap
-    qblf <- qblfInit @ConsensusQBLF self actors (DAppState (HashRef s0)) w
-
-    consensus <- async do
-                   pause @'Seconds 0.5
-                   qblfRun qblf
-
-
-    -- FIXME: web-port-to-config
-    web <- async $ liftIO $ scotty (fromIntegral (myHttpPort myEnv)) $ do
-             post "/tx" $ do
-
-              r <- runExceptT do
-
-                bin <- lift body
-                let hBin = hashObject @HbSync bin
-
-                debug $ "GOT TX" <+> pretty hBin
-
-                tok <- check DeserializationError =<< pure (deserialiseOrFail @(QBLFDemoToken 'HBS2Basic) bin)
-
-                tx <- case tok of
-                        (Emit box) -> do
-                          (sign, tx) <- maybe (ExceptT $ pure $ Left SignatureError) pure $  unboxSignedBox0 box
-
-                          if sign == chan then
-                            pure hBin
-                          else
-                            fiasco SignatureError
-
-                        (Move box) -> do
-                          (sign, tx) <- maybe (ExceptT $ pure $ Left SignatureError) pure $  unboxSignedBox0 box
-                          pure hBin
-
-                qblfEnqueue qblf tok
-                pure hBin
-
-              case r of
-                Left SignatureError -> do
-                  err $ viaShow SignatureError
-                  status status401
-
-                Left e -> do
-                  err $ viaShow e
-                  status status400
-
-                Right tx -> do
-                  debug $ "TX ENQUEUED OK" <+> pretty tx
-                  status status200
-
-    link web
-
-    runProto $ List.singleton $ makeResponse (myProto myEnv qblf chan)
-
-  void $ waitAnyCatchCancel $ [abus] <> sw
-
-  where
-
-    myProto :: forall e m . ( MonadIO m
-                            , Request e (RefChanNotify e) m
-                            , e ~ UNIX
-                            )
-                       => MyEnv
-                       -> QBLF ConsensusQBLF
-                       -> RefChanId e
-                       -> RefChanNotify e
-                       -> m ()
-
-    myProto _ qblf _ (ActionRequest{}) = do
-      pure ()
-
-    myProto env qblf chan (Notify _ msg) = do
-
-      let sto = mySto env
-      let tube = mySelf env
-
-      let coco = hashObject @HbSync $ serialise msg
-      void $ runMaybeT do
-        (_, wrapped) <- MaybeT $ pure $ unboxSignedBox0  msg
-        qbmess <- MaybeT $ pure $ deserialiseOrFail @(QBLFMessage ConsensusQBLF) (LBS.fromStrict wrapped)
-                                              & either (const Nothing) Just
-
-        states <- case qbmess of
-          QBLFMsgAnn _ (QBLFAnnounce s0 s1) -> do
-            pure [s0, s1]
-
-          QBLFMsgHeartBeat _ _ s0 _-> do
-            pure  [s0]
-
-          _ -> do
-            pure mempty
-
-        -- FIXME: full-download-guarantee
-        lift $ forM_ states (fetchMissed env)
-
-        qblfAcceptMessage qblf qbmess
-        -- debug $ "RefChanQBLFMain(3)" <+> "got message" <+> pretty (AsBase58 chan) <+> pretty coco
-
-    readOrCreateStateRef mbDs sto ref = do
-      debug $ "MyRef:" <+> pretty (hashObject @HbSync ref)
-      fix \spin -> do
-                mbref <- liftIO $ getRef @_ @HbSync sto ref
-                case mbref of
-                  Nothing -> do
-                    debug "STATE is empty"
-                    maybe1 mbDs none $ \ds -> do
-                      debug $ "UPDATE REF" <+> pretty (hashObject @HbSync ref) <+> pretty (HashRef ds)
-                      liftIO $ updateRef sto ref ds
-
-                    pause @'Seconds 0.25
-
-                    spin
-
-                  Just val -> do
-                    pure val
-
-type Config = [Syntax C]
-
-main :: IO ()
-main = join . customExecParser (prefs showHelpOnError) $
-  O.info (helper <*> globalOptions)
-  (  fullDesc
-  <> header "refchan-qblf-worker"
-  <> progDesc "for test and demo purposed"
-  )
-  where
-
-    globalOptions = applyConfig <$> commonOpts <*> cli
-
-    applyConfig :: Maybe FilePath -> (Config -> IO ()) -> IO ()
-    applyConfig config m = do
-      maybe1 config (m mempty) $ \conf -> do
-        top <- readFile conf <&> parseTop <&> either (pure mempty) id
-        m top
-
-    commonOpts = optional $ strOption (long "config" <> short 'c' <> help "Config file")
-
-    cli = hsubparser (  command "run" (O.info pRun (progDesc "run qblf servant" ) )
-                     <> command "gen" (O.info pGen (progDesc "generate transcation") )
-                     <> command "post" (O.info pPostTx (progDesc "post transaction") )
-                     <> command "check" (O.info pCheckTx (progDesc "check transaction") )
-                     <> command "balances" (O.info pBalances (progDesc "show balances") )
-                     )
-
-    pRun = do
-      pure runMe
-
-    pGen = hsubparser
-           (   command "tx-emit" ( O.info pGenEmit (progDesc "generate emit") )
-            <> command "tx-move" ( O.info pGenMove (progDesc "generate move") )
-           )
-
-    pGenEmit = do
-      kr    <- strOption   ( long "keyring"  <> short 'k' <> help "keyring file" )
-      amnt <- option @Amount auto ( long "amount" <> short 'n' <> help "amount" )
-      dest <- strArgument ( metavar "ADDRESS" )
-      pure $ const $ silently do
-        sc <- BS.readFile kr
-        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
-        let pk = view peerSignPk creds
-        let sk = view peerSignSk creds
-        acc <- pure (fromStringMay @(RefChanId L4Proto) dest) `orDie` "bad account address"
-        tx <- makeEmitTx @_ @L4Proto pk sk acc amnt
-        LBS.putStr $ serialise tx
-
-    pGenMove = do
-      kr    <- strOption   ( long "wallet"  <> short 'w' <> help "wallet (keyring) file" )
-      amnt <- option @Amount auto ( long "amount" <> short 'n' <> help "amount" )
-      dest <- strArgument ( metavar "ADDRESS" )
-      pure $ const $ silently do
-        sc <- BS.readFile kr
-        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
-        let pk = view peerSignPk creds
-        let sk = view peerSignSk creds
-        acc <- pure (fromStringMay @(RefChanId L4Proto) dest) `orDie` "bad account address"
-        tx <- makeMoveTx @_ @L4Proto pk sk acc amnt
-        LBS.putStr $ serialise tx
-
-    pCheckTx = do
-      kr    <- strOption   ( long "keyring"  <> short 'k' <> help "keyring file" )
-      pure $ const do
-        sc <- BS.readFile kr
-        creds <- pure (parseCredentials @'HBS2Basic (AsCredFile sc)) `orDie` "bad keyring file"
-        let pk = view peerSignPk creds
-        let sk = view peerSignSk creds
-
-        tx <- LBS.getContents <&> deserialise @(QBLFDemoToken 'HBS2Basic)
-
-        case tx of
-          Emit box -> do
-            void $ pure (unboxSignedBox0 box) `orDie` "bad emit tx"
-
-          Move box -> do
-            void $ pure (unboxSignedBox0 box) `orDie` "bad move tx"
-
-        pure ()
-
-    pPostTx  = pure $ const do
-      error "not supported anymore / TODO via http"
-      -- rc <- strArgument ( metavar "REFCHAN" )
-      -- sa <- strArgument ( metavar "UNIX-SOCKET" ) <&> fromString
-      -- pure $ withLogging do
-      --   rchan <- pure (fromStringMay @(RefChanId L4Proto) rc) `orDie` "bad refchan"
-      --   print "JOPA"
-      --   -- FIXME: wrap-client-boilerplate
-      --   inbox <- newMessagingUnix False 1.0 sa
-      --   wInbox <- async $ runMessagingUnix inbox
-      --   let env = MyEnv (fromString sa) (Fabriq inbox) rchan
-      --   msg <- (LBS.getContents <&> deserialiseOrFail) `orDie` "transaction decode error"
-      --   runApp env do
-      --     request (mySelf env) (msg  :: QBLFDemoTran UNIX)
-      --     pause @'Seconds 0.1
-        -- cancel wInbox
-
-    pBalances = do
-      state <- strArgument ( metavar "STATE" )
-      pure $ const $ withLogging do
-
-        xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
-        sto' <- simpleStorageInit @HbSync [StoragePrefix xdg]
-
-        let sto = AnyStorage sto'
-        sw <- liftIO $ replicateM 4 $ async $ simpleStorageWorker sto'
-
-        root <- pure (fromStringMay @HashRef state) `orDie` "Bad STATE reference"
-
-        flip runReaderT sto $ do
-          debug $ "calculating balances for" <+> pretty root
-          bal <- balances root
-
-          forM_ (HashMap.toList bal) $ \(acc, qty) -> do
-            liftIO $ print $ pretty (AsBase58 acc) <+> pretty qty
 

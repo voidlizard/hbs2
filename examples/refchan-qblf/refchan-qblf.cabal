@@ -19,6 +19,7 @@ common warnings
 common common-deps
     build-depends:
           base, hbs2-core, hbs2-peer, hbs2-storage-simple, hbs2-qblf
+        , hbs2-qblf
         , aeson
         , async
         , bytestring
@@ -57,6 +58,18 @@ common common-deps
         , interpolatedstring-perl6
         , unliftio
 
+        , attoparsec
+        , clock
+        , data-textual
+        , network
+        , network-ip
+        , optparse-applicative
+        , string-conversions
+        , text
+        , time
+
+
+
 common shared-properties
   ghc-options:
         -Wall
@@ -94,68 +107,48 @@ common shared-properties
                      , MultiParamTypeClasses
                      , OverloadedStrings
                      , QuasiQuotes
+                     , RecordWildCards
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
                      , TypeApplications
+                     , TypeOperators
                      , TypeFamilies
+
+library
+    import:           shared-properties
+    import:           common-deps
+
+    hs-source-dirs:   lib
+
+    exposed-modules:
+      RefChanQBLF.App
+      RefChanQBLF.CLI
+      RefChanQBLF.Common
+      RefChanQBLF.Impl
+      RefChanQBLF.RPCServer
+      RefChanQBLF.Transactions
 
 executable refchan-qblf
     import:           shared-properties
     import:           common-deps
-    default-language: Haskell2010
+
+    build-depends:
+        refchan-qblf
 
     ghc-options:
       -- -prof
       -- -fprof-auto
 
-    other-modules:
-      Demo.QBLF.Transactions
-
     -- other-extensions:
 
     -- type:             exitcode-stdio-1.0
-    hs-source-dirs:   app lib
-    main-is:          RefChanQBLFMain.hs
-
-    build-depends:
-          base, hbs2-core, hbs2-qblf, hbs2-storage-simple
-        , async
-        , attoparsec
-        , bytestring
-        , cache
-        , clock
-        , containers
-        , data-default
-        , data-textual
-        , directory
-        , hashable
-        , microlens-platform
-        , mtl
-        , mwc-random
-        , network
-        , network-ip
-        , optparse-applicative
-        , prettyprinter
-        , QuickCheck
-        , random
-        , safe
-        , serialise
-        , stm
-        , streaming
-        , tasty
-        , tasty-hunit
-        , text
-        , time
-        , transformers
-        , uniplate
-        , vector
-        , unliftio
-
+    hs-source-dirs:   app
+    main-is:          Main.hs
 
 test-suite refchan-qblf-proto-test
     import:           shared-properties
-    default-language: Haskell2010
+    import:           common-deps
 
     other-modules:
 
