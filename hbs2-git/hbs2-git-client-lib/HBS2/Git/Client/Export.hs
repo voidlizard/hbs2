@@ -33,6 +33,7 @@ import Data.Maybe
 import Data.List qualified as L
 import Data.Ord (comparing)
 import Data.Either
+import Data.Coerce
 
 data ExportError = ExportUnsupportedOperation
                  | ExportBundleCreateError
@@ -191,7 +192,7 @@ export key refs  = do
     callCC \exit -> do
 
 
-      tx0 <- getLastAppliedTx
+      tx0 <- getLastAppliedTx key
 
       rh <- runMaybeT ( toMPlus tx0 >>= readRepoHeadFromTx sto >>= toMPlus )
 
@@ -309,8 +310,8 @@ export key refs  = do
     notInTx Nothing _ = pure True
     notInTx (Just tx0) obj = not <$> isObjectInTx tx0 obj
 
-    getLastAppliedTx = runMaybeT do
-      (tx0,_) <- withState selectMaxAppliedTx
+    getLastAppliedTx lww = runMaybeT do
+      (tx0,_) <- withState (selectMaxAppliedTxForRepo lww)
                     >>= toMPlus
       pure tx0
 

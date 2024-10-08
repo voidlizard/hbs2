@@ -178,10 +178,13 @@ main = do
                     -- FIXME: may-cause-reference-inconsistency
                     --   надо брать max(head) для lwwref
                     --   а не максимальную транзу, накаченную на репо
-                    r'  <- runMaybeT $ withState do
-                            tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
+                    r'  <- runMaybeT do
+                            -- tx <- selectMaxAppliedTx >>= lift  . toMPlus <&> fst
 
-                            (_,rh) <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
+                            -- (_,rh) <- TX.readRepoHeadFromTx sto tx >>= lift . toMPlus
+                            rh <- liftIO (withGitEnv env (readActualRepoHeadFor puk))
+                                    >>= toMPlus
+
                             pure (view repoHeadRefs rh)
 
                     let r = fromMaybe mempty r'

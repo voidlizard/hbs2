@@ -69,3 +69,5 @@ instance Pretty GitObjectType where
     Commit -> pretty @String "commit"
     Tree   -> pretty @String "tree"
     Blob   -> pretty @String "blob"
+
+

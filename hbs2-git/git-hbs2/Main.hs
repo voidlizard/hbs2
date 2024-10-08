@@ -22,15 +22,21 @@ import HBS2.Git.Data.GK
 import HBS2.KeyMan.Keys.Direct
 import HBS2.Storage.Operations.ByteString
 
+import Data.Config.Suckless.Script
+
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Data.HashSet qualified as HS
 import Data.Maybe
 import Data.List (nubBy)
+import Data.List qualified as L
 import Data.Function (on)
+import Data.HashMap.Strict qualified as HM
 import Data.Coerce
 import Options.Applicative as O
 import Data.ByteString.Lazy qualified as LBS
+import Prettyprinter
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString (ByteString)
 -- import Data.ByteString.Lazy (ByteString)
 import Text.InterpolatedString.Perl6 (qc)
@@ -38,6 +44,8 @@ import Text.InterpolatedString.Perl6 (qc)
 import Streaming.Prelude qualified as S
 
 import System.Exit
+
+{- HLINT ignore "Functor law" -}
 
 globalOptions :: Parser [GitOption]
 globalOptions = do
@@ -54,12 +62,13 @@ globalOptions = do
 
 commands :: GitPerks m => Parser (GitCLI m ())
 commands =
-  hsubparser (  command "export"   (info pExport  (progDesc "export repo to hbs2-git"))
-             <> command "import"   (info pImport  (progDesc "import repo from reflog"))
-             <> command "key"      (info pKey     (progDesc "key management"))
+  hsubparser (  command "export"   (info pExport   (progDesc "export repo to hbs2-git"))
+             <> command "import"   (info pImport   (progDesc "import repo from reflog"))
+             <> command "key"      (info pKey      (progDesc "key management"))
              <> command "manifest" (info pManifest (progDesc "manifest commands"))
-             <> command "track"    (info pTrack   (progDesc "track tools"))
-             <> command "tools"    (info pTools   (progDesc "misc tools"))
+             <> command "track"    (info pTrack    (progDesc "track tools"))
+             <> command "tools"    (info pTools    (progDesc "misc tools"))
+             <> command "run"      (info pRun      (progDesc "run new cli command; run help to figure it out"))
              )
 
 
@@ -79,6 +88,11 @@ pInit :: GitPerks m => Parser (GitCLI m ())
 pInit = do
   pure runDefault
 
+
+pRun :: GitPerks m => Parser (GitCLI m ())
+pRun = do
+  args <- many (strArgument (metavar "SCRIPT"))
+  pure $ runScriptArgs args
 
 pExport :: GitPerks m => Parser (GitCLI m ())
 pExport = do
@@ -165,17 +179,9 @@ pShowLww = pure do
 
 pShowRef :: GitPerks m => Parser (GitCLI m ())
 pShowRef = do
+  remote <- strArgument (metavar "REMOTE")
   pure do
-    sto <- asks _storage
-    void $ runMaybeT do
-
-      tx  <- withState do
-               selectMaxAppliedTx >>= lift  . toMPlus <&> fst
-
-      (_,rh) <- TX.readRepoHeadFromTx sto tx >>= toMPlus
-
-      liftIO $ print $ vcat (fmap formatRef (view repoHeadRefs rh))
-
+    runScript [mkList @C [mkSym "remote:refs:show", mkSym remote]]
 
 pManifest :: GitPerks m => Parser (GitCLI m ())
 pManifest = hsubparser (   command "list" (info pManifestList (progDesc "list all manifest"))
@@ -250,7 +256,7 @@ pManifestUpdate = do
          addManifestBriefAndName $ Just t
       StdInput -> do
         t <- liftIO $ Text.getContents
-        addManifestBriefAndName $ Just t 
+        addManifestBriefAndName $ Just t
     env <- ask
     enc <- getRepoEnc
     let manifestUpdateEnv = Just $ ManifestUpdateEnv {_manifest = manifest}
@@ -416,6 +422,84 @@ pGenRepoIndex = do
     seq <- getEpoch
     let tx = GitIndexTx what seq (GitIndexRepoDefine hd)
     liftIO $ LBS.putStr (serialise tx)
+
+
+script :: GitPerks m => Parser (GitCLI m ())
+script = do
+  rest <- many (strArgument (metavar "CLI") )
+  pure do
+    cli <- parseTop (unlines $ unwords <$> splitForms rest)
+           & either  (error.show) pure
+    void $ runScript cli
+
+runScriptArgs :: GitPerks m => [String] -> GitCLI m ()
+runScriptArgs cli = do
+    cli <- parseTop (unlines $ unwords <$> splitForms cli)
+           & either  (error.show) pure
+    void $ runScript cli
+
+runScript :: GitPerks m => [Syntax C] -> GitCLI m ()
+runScript syn = void $ run theDict syn
+
+quit :: MonadIO m => m ()
+quit = liftIO exitSuccess
+
+theDict :: forall m . ( GitPerks m
+                      -- , HasTimeLimits UNIX (ServiceProto MyRPC UNIX) m
+                      ) => Dict C (GitCLI m)
+theDict = do
+  makeDict @C do
+    -- TODO: write-man-entries
+    myHelpEntry
+    myEntries
+
+  where
+
+    myHelpEntry = do
+        entry $ bindMatch "help" $ nil_ $ \case
+          HelpEntryBound what -> do
+            helpEntry what
+            quit
+
+          [StringLike s] -> helpList False (Just s) >> quit
+
+          _ -> helpList False Nothing >> quit
+
+
+    myEntries = do
+        entry $ bindMatch "remote:hbs2:show" $ nil_ $ \case
+          _ -> do
+            -- TODO: move-to-HBS2.Local.CLI
+            remotes <- Git.gitListHBS2Remotes
+            let w = fmap (length.fst) remotes & maximumDef 8
+            for_ remotes $ \(n,r) -> do
+              liftIO $ print $ fill w (pretty n) <+> pretty (AsBase58 r)
+
+        entry $ bindMatch "remote:refs:show" $ nil_ $ \args -> lift do
+
+          sto <- getStorage
+
+          remotez <- Git.gitListHBS2Remotes <&> HM.fromList
+          let zetomer = HM.fromList [ (v,k) | (k,v) <-   HM.toList remotez ]
+
+          lww <- case args of
+
+                  [ StringLike x ] | x `HM.member` remotez  -> do
+                    orThrowUser ( "remote" <+> pretty x <+> "not found" ) (HM.lookup x remotez)
+
+                  [ SignPubKeyLike what ] | what `HM.member` zetomer -> do
+                    pure what
+
+                  _ -> throwIO $ BadFormException @C nil
+
+          warn $ green "lwwref" <+> pretty (AsBase58 lww)
+
+          void $ runMaybeT do
+            rh <- readActualRepoHeadFor (LWWRefKey lww)
+                    >>= toMPlus
+
+            liftIO $ print $ vcat (fmap formatRef (view repoHeadRefs rh))
+
 
 main :: IO ()
 main = do

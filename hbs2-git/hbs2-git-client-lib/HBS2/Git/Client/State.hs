@@ -17,6 +17,8 @@ import HBS2.Git.Data.RepoHead
 import HBS2.Git.Data.RefLog
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.Tx.Index
+import HBS2.Git.Data.Tx.Git qualified as TX
+-- import HBS2.Git.Data.Tx qualified as TX
 
 import DBPipe.SQLite
 import Data.Maybe
@@ -294,6 +296,21 @@ SELECT t.tx, t.seq FROM txdone d JOIN tx t ON d.tx = t.tx ORDER BY t.seq DESC LI
   |] ()
   <&> listToMaybe
 
+
+selectMaxAppliedTxForRepo :: MonadIO m => LWWRefKey 'HBS2Basic -> DBPipeM m (Maybe (HashRef, Integer))
+selectMaxAppliedTxForRepo lww = do
+  select [qc|
+    with rl as (
+      select l.hash, l.reflog from lww l where l.hash = ?
+      order by seq desc limit 1
+      )
+    select t.tx, t.seq
+    from txdone d join tx t on d.tx = t.tx
+                  join rl on rl.reflog = t.reflog
+    order by t.seq desc limit 1
+  |] (Only (Base58Field lww))
+  <&> listToMaybe
+
 insertBundleDone :: MonadIO m => HashRef -> DBPipeM m ()
 insertBundleDone hashRef = do
   insert [qc|
@@ -470,4 +487,20 @@ loadRepoHead rh = do
        <&> deserialiseOrFail @RepoHead
        >>= toMPlus
 
+readActualRepoHeadFor :: ( HasStorage m
+                         , MonadReader GitEnv m
+                         , MonadIO m
+                         )
+                      => LWWRefKey 'HBS2Basic -> m (Maybe RepoHead)
+
+readActualRepoHeadFor lww = do
+  sto <- getStorage
+  runMaybeT do
+    tx <- lift ( withState $
+             selectMaxAppliedTxForRepo lww
+             <&> fmap fst
+             ) >>= toMPlus
+
+    (_,rh) <- TX.readRepoHeadFromTx sto tx >>= toMPlus
+    pure rh
 

@@ -1,6 +1,7 @@
 module HBS2.Git.Local.CLI where
 
 import HBS2.Prelude
+import HBS2.Git.Client.Prelude
 
 import System.FilePath
 import HBS2.System.Dir
@@ -10,9 +11,13 @@ import System.Environment hiding (setEnv)
 import Control.Monad.Trans.Maybe
 import Control.Applicative
 import System.Process.Typed
+import Data.List qualified as L
+import Data.Maybe
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Text.InterpolatedString.Perl6 (qc)
+
+{- HLINT ignore "Functor law" -}
 
 findGitDir :: MonadIO m => m (Maybe FilePath)
 findGitDir = findGitDir' =<< pwd
@@ -63,4 +68,19 @@ gitRunCommand cmd = do
     ExitSuccess -> pure (Right out)
     e           -> pure (Left e)
 
+
+gitListHBS2Remotes  :: MonadIO m
+                    => m [(String,PubKey 'Sign HBS2Basic)]
+gitListHBS2Remotes = do
+  let gd = "" :: String
+  gitRunCommand [qc|git {gd} remote -v|]
+         >>= either (error.show) pure
+         <&> LBS8.unpack
+         <&> lines
+         <&> fmap (take 2 . words)
+         <&> mapMaybe \case
+               [n, r] | L.isPrefixOf "hbs2://" r -> do
+                 (n,) <$> (L.stripPrefix "hbs2://" r >>= fromStringMay @(PubKey 'Sign HBS2Basic))
+               _      -> Nothing
+         <&> L.nub
 
