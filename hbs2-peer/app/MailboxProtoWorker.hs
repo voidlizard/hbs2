@@ -68,9 +68,25 @@ instance (s ~ HBS2Basic) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) whe
         writeTBQueue inMessageQueue (m,c)
 
 instance (s ~ HBS2Basic) => IsMailboxService s (MailboxProtoWorker s e) where
-  mailboxCreate _ t p = do
+  mailboxCreate MailboxProtoWorker{..} t p = do
     debug $ "mailboxWorker.mailboxCreate" <+> pretty (AsBase58 p) <+> pretty t
-    pure $ Right ()
+
+    flip runContT pure $ callCC \exit -> do
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+
+      r <- liftIO $ try @_ @SomeException $ withDB dbe do
+             insert [qc|
+             insert into mailbox (recipient,type)
+             values (?,?)
+             on conflict (recipient) do nothing
+                       |] (show $ pretty $ AsBase58 p, show $ pretty t)
+
+      case r of
+        Right{} -> pure $ Right ()
+        Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
 createMailboxProtoWorker :: forall e m . MonadIO m
                          => AnyStorage

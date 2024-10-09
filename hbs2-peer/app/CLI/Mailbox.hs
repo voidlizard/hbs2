@@ -104,10 +104,10 @@ see hbs2-cli for sigil commands (create, store, load, etc)
               case syn of
                 [ StringLike "--key", SignPubKeyLike puk, MailboxTypeLike tp ] -> do
 
-                  _ <- callRpcWaitMay @RpcMailboxCreate t api (puk, tp)
+                  r <- callRpcWaitMay @RpcMailboxCreate t api (puk, tp)
                          >>= orThrowUser "rpc call timeout"
 
-                  liftIO $ print $ pretty "done"
+                  liftIO $ print $ viaShow r
 
                 [ StringLike "--sigil", HashLike sh, StringLike tp ] -> do
                   -- TODO: implement-create-by-sigil
