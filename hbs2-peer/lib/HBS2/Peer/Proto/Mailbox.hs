@@ -3,6 +3,7 @@
 module HBS2.Peer.Proto.Mailbox
   ( module HBS2.Peer.Proto.Mailbox
   , module HBS2.Peer.Proto.Mailbox.Message
+  , module HBS2.Peer.Proto.Mailbox.Types
   ) where
 
 import HBS2.Prelude.Plated
