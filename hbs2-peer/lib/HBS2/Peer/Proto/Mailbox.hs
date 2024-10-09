@@ -82,6 +82,15 @@ class IsMailboxProtoAdapter s a where
                         -> MessageContent s
                         -> m ()
 
+data MailboxServiceError =
+  MailboxCreateFailed
+  deriving stock (Typeable,Show)
+
+class IsMailboxService s a where
+  mailboxCreate :: forall m . MonadIO m => a -> MailboxType -> Recipient s -> m (Either MailboxServiceError ())
+
+data AnyMailboxService s = forall a  . (IsMailboxService s a) => AnyMailboxService { adapter :: a }
+
 mailboxProto :: forall e s m p a . ( MonadIO m
                                    , Response e p m
                                    , HasDeferred p e m

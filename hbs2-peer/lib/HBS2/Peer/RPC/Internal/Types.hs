@@ -13,6 +13,7 @@ import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Messaging.Encrypted.ByPass (ByPassStat)
 import HBS2.Net.Proto.Service
+import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.RPC.Class
 import HBS2.Peer.Brains
 
@@ -27,18 +28,19 @@ import UnliftIO
 
 data RPC2Context =
   RPC2Context
-  { rpcConfig             :: [Syntax C]
-  , rpcMessaging          :: MessagingUnix
-  , rpcPokeAnswer         :: String
-  , rpcPeerEnv            :: PeerEnv L4Proto
-  , rpcLocalMultiCast     :: Peer L4Proto
-  , rpcStorage            :: AnyStorage
-  , rpcBrains             :: SomeBrains L4Proto
-  , rpcByPassInfo         :: IO ByPassStat
-  , rpcDoFetch            :: HashRef -> IO ()
-  , rpcDoRefChanHeadPost  :: HashRef -> IO ()
-  , rpcDoRefChanPropose   :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
-  , rpcDoRefChanNotify    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  { rpcConfig              :: [Syntax C]
+  , rpcMessaging           :: MessagingUnix
+  , rpcPokeAnswer          :: String
+  , rpcPeerEnv             :: PeerEnv L4Proto
+  , rpcLocalMultiCast      :: Peer L4Proto
+  , rpcStorage             :: AnyStorage
+  , rpcBrains              :: SomeBrains L4Proto
+  , rpcByPassInfo          :: IO ByPassStat
+  , rpcDoFetch             :: HashRef -> IO ()
+  , rpcDoRefChanHeadPost   :: HashRef -> IO ()
+  , rpcDoRefChanPropose    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  , rpcDoRefChanNotify     :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  , rpcMailboxService      :: AnyMailboxService (Encryption L4Proto)
   }
 
 instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT RPC2Context m) where

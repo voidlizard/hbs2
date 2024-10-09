@@ -67,6 +67,11 @@ instance (s ~ HBS2Basic) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) whe
       else do
         writeTBQueue inMessageQueue (m,c)
 
+instance (s ~ HBS2Basic) => IsMailboxService s (MailboxProtoWorker s e) where
+  mailboxCreate _ t p = do
+    debug $ "mailboxWorker.mailboxCreate" <+> pretty (AsBase58 p) <+> pretty t
+    pure $ Right ()
+
 createMailboxProtoWorker :: forall e m . MonadIO m
                          => AnyStorage
                          -> m (MailboxProtoWorker (Encryption e) e)

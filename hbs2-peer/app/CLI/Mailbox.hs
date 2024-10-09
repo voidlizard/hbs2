@@ -1,11 +1,15 @@
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 module CLI.Mailbox (pMailBox) where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
+import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
 import HBS2.Data.Types.SignedBox
-import HBS2.Peer.Proto.LWWRef
+import HBS2.Peer.Proto.Mailbox
+import HBS2.Peer.Proto.Mailbox.Types
 
 import HBS2.Peer.RPC.API.Mailbox
 import HBS2.KeyMan.Keys.Direct
@@ -25,7 +29,17 @@ import Data.Maybe
 
 import Data.Word
 import Lens.Micro.Platform
+import UnliftIO
 
+import Text.InterpolatedString.Perl6 (qc)
+
+pattern MailboxTypeLike :: forall {c}. MailboxType -> Syntax c
+pattern MailboxTypeLike w <- (mailboxTypeLike -> Just w)
+
+mailboxTypeLike :: Syntax c -> Maybe MailboxType
+mailboxTypeLike = \case
+  StringLike s -> fromStringMay @MailboxType s
+  _            -> Nothing
 
 pMailBox :: Parser (IO ())
 pMailBox = do
@@ -51,13 +65,61 @@ runMailboxCLI rpc s = do
 
           liftIO $ print $ pretty "okay, rpc is here"
 
-        entry $ bindMatch "create" $ nil_ $ const do
-          warn "mailbox create is not here yet"
-          -- TODO: mailbox-create
-          --  - [ ] answer: via RPC or direct
-          --  - [ ] answer: peer state or separate database (separate)
-          --  - [ ] implement: MailboxWorker
-          --  - [ ] implement: interwire MailboxWorker and mailboxProto
+        brief "creates mailbox of given type" $
+          desc [qc|
+; creates a mailbox using recipient SIGN public key
+
+create --key KEY TYPE
+
+; creates a mailbox using key from a SIGIL with HASH (should stored first)
+
+create --sigil HASH TYPE
+
+; creates a mailbox using key from a SIGIL from FILE
+
+create --sigil-file FILE TYPE
+
+TYPE ::= hub | relay
+
+|] $
+          examples [qc|
+
+; create using recipient public key
+
+create --key 3fKeGjaDGBKtNqeNBPsThh8vSj4TPiqaaK7uHbB8MQUV relay
+
+; create using sigil hash
+
+create --sigil ghna99Xtm33ncfdUBT3htBUoEyT16wTZGMdm24BQ1kh relay
+
+; create using sigil file
+
+create --sigil-file ./my.sigil hub
+
+see hbs2-cli for sigil commands (create, store, load, etc)
+
+|]
+            $ entry $ bindMatch "create" $ nil_ $ \syn -> do
+
+              case syn of
+                [ StringLike "--key", SignPubKeyLike puk, MailboxTypeLike tp ] -> do
+
+                  _ <- callRpcWaitMay @RpcMailboxCreate t api (puk, tp)
+                         >>= orThrowUser "rpc call timeout"
+
+                  liftIO $ print $ pretty "done"
+
+                [ StringLike "--sigil", HashLike sh, StringLike tp ] -> do
+                  -- TODO: implement-create-by-sigil
+                  warn $ "create by sigil (hash)"
+                  error "not implemented"
+
+                [ StringLike "--sigil-file", StringLike f, StringLike tp ] -> do
+                  -- TODO: implement-create-by-sigil-file
+                  warn $ "create by sigil file" <+> pretty f
+                  error "not implemented"
+
+                _ -> throwIO $ BadFormException @C nil
 
         entry $ bindMatch "help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
