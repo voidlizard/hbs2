@@ -25,24 +25,36 @@ import PeerTypes
 
 import Control.Monad
 import UnliftIO
+-- import Control.Concurrent.STM.TBQueue
 import Lens.Micro.Platform
 
 {- HLINT ignore "Functor law" -}
 
-data MailboxProtoWorker e =
+data MailboxProtoWorker (s :: CryptoScheme) e =
   MailboxProtoWorker
-  {
+  { mpwStorage            :: AnyStorage
+  , inMessageQueue        :: TBQueue (Message s, MessageContent s)
+  , inMessageQueueDropped :: TVar Int
   }
 
-instance IsMailboxProtoAdapter 'HBS2Basic (MailboxProtoWorker e) where
-  mailboxGetStorage = const $ error "OOPSIE"
+instance (s ~ HBS2Basic) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
+  mailboxGetStorage = pure . mpwStorage
 
-  mailboxAcceptMessage _ _ _ = do
-    error "DOOPSIE"
+  mailboxAcceptMessage MailboxProtoWorker{..} m c = do
+    atomically do
+      full <- isFullTBQueue inMessageQueue
+      if full then do
+        modifyTVar inMessageQueueDropped succ
+      else do
+        writeTBQueue inMessageQueue (m,c)
 
-createMailboxProtoWorker :: forall e m . MonadIO m => m (MailboxProtoWorker e)
-createMailboxProtoWorker = do
-  pure MailboxProtoWorker
+createMailboxProtoWorker :: forall e m . MonadIO m => AnyStorage -> m (MailboxProtoWorker (Encryption e) e)
+createMailboxProtoWorker sto = do
+  -- FIXME: queue-size-hardcode
+  --   $class: hardcode
+  inQ        <- newTBQueueIO 1000
+  inDroppped <- newTVarIO 0
+  pure $ MailboxProtoWorker sto inQ inDroppped
 
 mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , MonadUnliftIO m
@@ -54,7 +66,7 @@ mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , s ~ Encryption e
                                      , IsRefPubKey s
                                      )
-             => MailboxProtoWorker e
+             => MailboxProtoWorker s e
              -> m ()
 
 mailboxProtoWorker me = do
@@ -69,7 +81,5 @@ mailboxProtoWorker me = do
 --    polling (Polling 5 5) listRefs $ \ref -> do
 --     debug $ yellow "POLLING LWWREF" <+> pretty (AsBase58 ref)
 --     gossip (LWWRefProto1 @e (LWWProtoGet (LWWRefKey ref)))
-
-
 
 
