@@ -83,7 +83,7 @@ class IsMailboxProtoAdapter s a where
                         -> m ()
 
 data MailboxServiceError =
-  MailboxCreateFailed
+  MailboxCreateFailed String
   deriving stock (Typeable,Show)
 
 class IsMailboxService s a where
