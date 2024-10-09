@@ -7,13 +7,17 @@ import HBS2.Net.Messaging.Unix (UNIX)
 import HBS2.Data.Types.Refs (HashRef(..))
 import HBS2.Data.Types.SignedBox
 
+import HBS2.Peer.Proto.Mailbox.Types
+
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString qualified as BS
 import Codec.Serialise
 
 data RpcMailboxPoke
+data RpcMailboxCreate
 
 type MailboxAPI = '[ RpcMailboxPoke
+                   , RpcMailboxCreate
                    ]
 
 type MailboxAPIProto =  0x056091510d3b2ec9
@@ -28,7 +32,7 @@ instance HasProtocol UNIX  (ServiceProto MailboxAPI UNIX) where
 type instance Input RpcMailboxPoke   = ()
 type instance Output RpcMailboxPoke  = ()
 
-
-
+type instance Input RpcMailboxCreate   = (PubKey 'Sign HBS2Basic, MailboxType)
+type instance Output RpcMailboxCreate  = ()
 
 

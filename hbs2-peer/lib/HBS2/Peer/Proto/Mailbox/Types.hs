@@ -3,6 +3,7 @@
 module HBS2.Peer.Proto.Mailbox.Types
   ( ForMailbox
   , MailboxKey
+  , MailboxType(..)
   , Recipient
   , Sender
   , PolicyVersion
@@ -23,6 +24,10 @@ import HBS2.Net.Auth.GroupKeySymm
 
 import Data.Word (Word32)
 import Codec.Serialise
+
+data MailboxType =
+  MailboxHub | MailboxRelay
+  deriving stock (Eq,Ord,Show,Generic)
 
 type MailboxKey s = PubKey 'Sign s
 
@@ -57,4 +62,18 @@ type ForMailbox s = ( ForGroupKeySymm s
 instance Serialise SimplePredicate
 instance Serialise SimplePredicateExpr
 instance Serialise MailboxMessagePredicate
+instance Serialise MailboxType
+
+instance Pretty MailboxType where
+  pretty = \case
+    MailboxHub -> "hub"
+    MailboxRelay -> "relay"
+
+instance FromStringMaybe MailboxType where
+  fromStringMay = \case
+    "hub"   -> Just MailboxHub
+    "relay" -> Just MailboxRelay
+    _       -> Nothing
+
+
 

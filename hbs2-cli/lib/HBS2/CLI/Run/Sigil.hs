@@ -60,7 +60,6 @@ sigilEntries = do
     $ entry $ bindMatch "hbs2:sigil:load:base58" $ \case
       [HashLike key] -> lift do
         sto <- getStorage
-        warn $ pretty key
         r <- loadSigil @HBS2Basic sto key >>= orThrowUser "no sigil found"
         pure $ mkStr @c ( show $ pretty $ AsBase58 r  )
 
