@@ -7,11 +7,18 @@ module HBS2.Peer.Proto.Mailbox
 
 import HBS2.Prelude.Plated
 
+import HBS2.Hash
+import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
+import HBS2.Storage
+import HBS2.Actors.Peer.Types
 
 import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Peer.Proto.Mailbox.Message
+import HBS2.Peer.Proto.Mailbox.Entry
 
+import Data.Maybe
+import Control.Monad.Trans.Cont
 import Codec.Serialise
 
 data MailBoxStatusPayload s =
@@ -65,14 +72,24 @@ instance ForMailbox s => Serialise (DeleteMessagesPayload s)
 instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
 instance ForMailbox s => Serialise (MailBoxProto s e)
 
-class IsMailboxProtoAdapter e a where
+class IsMailboxProtoAdapter s a where
+  mailboxGetStorage     :: forall m . MonadIO m => a -> m AnyStorage
 
-mailboxProto :: forall e m p a . ( MonadIO m
-                                 , Response e p m
-                                 , HasDeferred p e m
-                                 , IsMailboxProtoAdapter e a
-                                 , p ~ MailBoxProto (Encryption e) e
-                                 )
+  mailboxAcceptMessage  :: forall m . (ForMailbox s, MonadIO m)
+                        => a
+                        -> Message s
+                        -> MessageContent s
+                        -> m ()
+
+mailboxProto :: forall e s m p a . ( MonadIO m
+                                   , Response e p m
+                                   , HasDeferred p e m
+                                   , HasGossip e p m
+                                   , IsMailboxProtoAdapter s a
+                                   , p ~ MailBoxProto s e
+                                   , s ~ Encryption e
+                                   , ForMailbox s
+                                   )
              => a
              -> MailBoxProto (Encryption e) e
              ->  m ()
@@ -80,8 +97,11 @@ mailboxProto :: forall e m p a . ( MonadIO m
 mailboxProto adapter mess = do
   -- common stuff
 
+  sto <- mailboxGetStorage @s adapter
+  now <- liftIO $ getPOSIXTime <&> round
+
   case mailBoxProtoPayload mess of
-    SendMessage{} -> do
+    SendMessage msg -> deferred @p do
       -- TODO: implement-SendMessage
       --   [ ] check-if-mailbox-exists
       --   [ ] check-message-signature
@@ -89,7 +109,32 @@ mailboxProto adapter mess = do
       --   [ ] store-message-hash-block-with-ttl
       --   [ ] if-message-to-this-mailbox-then store-message
       --   [ ] gossip-message
-      none
+
+      -- проверяем, что еще не обрабатывали?
+      -- если обрабатывали -- то дропаем
+      -- что мы пишем в сторейдж?
+      -- кто потом это дропает?
+
+      flip runContT pure $ callCC \exit -> do
+
+        -- проверить подпись быстрее, чем читать диск
+        let unboxed' = unboxSignedBox0 @(MessageContent s) (messageContent msg)
+
+        -- ок, сообщение нормальное, шлём госсип, пишем, что обработали
+        (_, content) <- ContT $ maybe1 unboxed' none
+
+        let h = hashObject @HbSync (serialise msg) & HashRef
+
+        let routed = serialise (RoutedEntry h)
+        let routedHash = hashObject routed
+
+        seen <- hasBlock sto routedHash <&> isJust
+
+        unless seen $ lift do
+          gossip mess
+          mailboxAcceptMessage adapter msg content
+          -- TODO: expire-block-and-collect-garbage
+          void $ putBlock sto routed
 
     CheckMailbox{} -> do
       -- TODO: implement-CheckMailbox

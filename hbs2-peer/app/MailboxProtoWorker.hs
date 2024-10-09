@@ -34,7 +34,11 @@ data MailboxProtoWorker e =
   {
   }
 
-instance IsMailboxProtoAdapter e (MailboxProtoWorker e)
+instance IsMailboxProtoAdapter 'HBS2Basic (MailboxProtoWorker e) where
+  mailboxGetStorage = const $ error "OOPSIE"
+
+  mailboxAcceptMessage _ _ _ = do
+    error "DOOPSIE"
 
 createMailboxProtoWorker :: forall e m . MonadIO m => m (MailboxProtoWorker e)
 createMailboxProtoWorker = do
