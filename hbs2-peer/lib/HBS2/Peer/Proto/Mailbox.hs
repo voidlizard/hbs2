@@ -73,6 +73,7 @@ instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
 instance ForMailbox s => Serialise (MailBoxProto s e)
 
 class IsMailboxProtoAdapter s a where
+
   mailboxGetStorage     :: forall m . MonadIO m => a -> m AnyStorage
 
   mailboxAcceptMessage  :: forall m . (ForMailbox s, MonadIO m)
