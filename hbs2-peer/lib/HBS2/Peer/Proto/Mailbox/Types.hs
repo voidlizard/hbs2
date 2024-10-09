@@ -16,6 +16,7 @@ module HBS2.Peer.Proto.Mailbox.Types
 
 import HBS2.Prelude.Plated
 
+import HBS2.Base58
 import HBS2.Net.Proto.Types
 import HBS2.Data.Types.Refs (HashRef)
 
@@ -57,6 +58,7 @@ data MailboxMessagePredicate =
 type ForMailbox s = ( ForGroupKeySymm s
                     , Ord (PubKey 'Sign s)
                     , ForSignedBox s
+                    , Pretty (AsBase58 (PubKey 'Sign s))
                     )
 
 instance Serialise SimplePredicate

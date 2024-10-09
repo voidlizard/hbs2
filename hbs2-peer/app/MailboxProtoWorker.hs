@@ -30,6 +30,7 @@ import PeerTypes
 import DBPipe.SQLite
 
 import Control.Monad.Trans.Cont
+import Data.Maybe
 import UnliftIO
 import Control.Concurrent.STM qualified as STM
 -- import Control.Concurrent.STM.TBQueue
@@ -91,9 +92,13 @@ instance (s ~ HBS2Basic) => IsMailboxService s (MailboxProtoWorker s e) where
         Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
 
-checkMailbox_ :: MonadIO m => DBPipeEnv -> Recipient s -> m Bool
-checkMailbox_ d r = do
-  pure False
+getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> Recipient s -> m (Maybe MailboxType)
+getMailboxType_ d r = do
+  let sql = [qc|select type from mailbox where recipient = ? limit 1|]
+  withDB d do
+   select @(Only String) sql (Only (show $ pretty (AsBase58 r)))
+     <&> fmap (fromStringMay @MailboxType  . fromOnly)
+     <&> headMay . catMaybes
 
 createMailboxProtoWorker :: forall e m . MonadIO m
                          => AnyStorage
@@ -116,6 +121,7 @@ mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , Signatures s
                                      , s ~ Encryption e
                                      , IsRefPubKey s
+                                     , ForMailbox s
                                      )
              => m [Syntax C]
              -> MailboxProtoWorker s e
@@ -131,7 +137,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
     pipe <- ContT $ withAsync (runPipe dbe)
 
-    inq <- ContT $ withAsync (mailboxInQ dbe me)
+    inq <- ContT $ withAsync (mailboxInQ dbe)
 
     bs <- ContT $ withAsync do
 
@@ -142,18 +148,29 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
     void $ waitAnyCancel [bs,pipe,inq]
 
     `catch` \( e :: MailboxProtoException ) -> do
-      err $ "mailbox protocol worker terminated" <+> viaShow e
+      err $ red "mailbox protocol worker terminated" <+> viaShow e
 
     `finally` do
       warn $ yellow "mailbox protocol worker exited"
 
   where
-    mailboxInQ dbe MailboxProtoWorker{..} = do
+    mailboxInQ dbe = do
       forever do
         pause @'Seconds 10
         mess <- atomically $ STM.flushTBQueue inMessageQueue
         for_ mess $ \(m,s) -> do
-          debug "received message"
+          -- FIXME: remove
+          let ha = hashObject @HbSync (serialise  m)
+          -- сохраняем или нет?
+          -- по госсипу уже послали. сохранять надо, только если
+          -- у нас есть ящик
+          debug $ "received message" <+> pretty (AsBase58 (HashRef ha))
+
+          -- TODO: process-with-policy
+
+          for_ (messageRecipients s) $ \rcpt -> do
+            mbox <- getMailboxType_ @s dbe rcpt
+            pure ()
 
 mailboxStateEvolve :: forall e s m . ( MonadIO m
                                      , MonadUnliftIO m
