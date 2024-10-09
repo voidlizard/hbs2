@@ -134,6 +134,7 @@ mailboxProto adapter mess = do
           gossip mess
           mailboxAcceptMessage adapter msg content
           -- TODO: expire-block-and-collect-garbage
+          --   $class: leak
           void $ putBlock sto routed
 
     CheckMailbox{} -> do
