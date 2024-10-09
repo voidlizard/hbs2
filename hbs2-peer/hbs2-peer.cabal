@@ -18,7 +18,7 @@ common warnings
 
 common common-deps
     build-depends:
-          base, hbs2-core, hbs2-storage-simple
+          base, hbs2-core, hbs2-storage-simple, db-pipe
         , aeson
         , async
         , bytestring

@@ -11,6 +11,7 @@ import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Defaults
+import HBS2.System.Dir (takeDirectory,(</>))
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Data.Types.Refs
@@ -84,6 +85,8 @@ import HBS2.Peer.Proto.LWWRef.Internal
 
 import RPC2(RPC2Context(..))
 
+import Data.Config.Suckless.Script hiding (optional)
+
 import Codec.Serialise as Serialise
 import Control.Concurrent (myThreadId)
 import Control.Concurrent.STM
@@ -96,6 +99,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
+import Data.Coerce
 import Data.Fixed
 import Data.List qualified as L
 import Data.Map (Map)
@@ -1106,8 +1110,14 @@ runPeer opts = Exception.handle (\e -> myException e
 
                 peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
 
+                -- setup mailboxes stuff
                 mbw <- createMailboxProtoWorker @e (AnyStorage s)
-                peerThread "mailboxProtoWorker" (mailboxProtoWorker mbw)
+                let defConf = coerce conf
+                let mboxConf = maybe1 pref defConf $ \p -> do
+                       let mboxDir = takeDirectory (coerce p) </> "hbs2-mailbox"
+                       mkList [mkSym hbs2MailboxDirOpt, mkStr mboxDir] : coerce defConf
+
+                peerThread "mailboxProtoWorker" (mailboxProtoWorker (pure mboxConf) mbw)
 
                 liftIO $ withPeerM penv do
                   runProto @e
