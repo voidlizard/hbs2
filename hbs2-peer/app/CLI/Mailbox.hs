@@ -3,32 +3,36 @@
 module CLI.Mailbox (pMailBox) where
 
 import HBS2.Prelude.Plated
+import HBS2.Hash
 import HBS2.OrDie
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
+import HBS2.Storage
 import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Types
 
 import HBS2.Peer.RPC.API.Mailbox
+import HBS2.Peer.RPC.API.Storage
+import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.KeyMan.Keys.Direct
 
 import CLI.Common
 import RPC2()
 import PeerLogger hiding (info)
 
-import Data.Config.Suckless.Script
-
-import System.Exit
-import System.Environment (lookupEnv)
-
+import Codec.Serialise
 import Control.Monad.Trans.Cont
-import Options.Applicative
+import Data.ByteString.Lazy qualified as LBS
+import Data.Coerce
+import Data.Config.Suckless.Script
 import Data.Maybe
-
 import Data.Word
 import Lens.Micro.Platform
+import Options.Applicative
+import System.Environment (lookupEnv)
+import System.Exit
 import UnliftIO
 
 import Text.InterpolatedString.Perl6 (qc)
@@ -54,7 +58,7 @@ runMailboxCLI rpc s = do
 
   let t = TimeoutSec 1
 
-  let dict api = makeDict @C do
+  let dict sto api = makeDict @C do
         entry $ bindMatch "hey" $ nil_ $ const do
           who <- liftIO (lookupEnv "USER") <&> fromMaybe "stranger"
           liftIO $ print $ "hey," <+> pretty who
@@ -121,6 +125,53 @@ see hbs2-cli for sigil commands (create, store, load, etc)
 
                 _ -> throwIO $ BadFormException @C nil
 
+        brief "send message via gossip"  $
+          desc [qc|
+; reads message blob from stdin
+
+send --stdin
+
+; read message blob from file
+
+send --file FILE
+
+; reads message blob from storage
+
+send HASH
+
+you may create a message from plain text using
+
+hbs2-cli hbs2:mailbox:message:create
+
+command
+
+SEE ALSO
+  hbs2:mailbox:message:create
+
+          |]
+          $ entry $ bindMatch "send" $ nil_ $ \syn -> do
+
+              blob <- case syn of
+                        [ StringLike "--stdin" ] -> do
+                          liftIO (LBS.hGetContents stdin)
+
+                        [ StringLike "--file", StringLike fn ] -> do
+                          liftIO (LBS.readFile fn)
+
+                        [ HashLike h ] -> do
+                           liftIO (getBlock sto (coerce h))
+                               >>= orThrowUser "message not found"
+
+                        _ -> throwIO $ BadFormException @C nil
+
+              mess <- deserialiseOrFail @(Message HBS2Basic) blob
+                        & either (const $ error "malformed message") pure
+
+              _ <- callRpcWaitMay @RpcMailboxSend t api mess
+                     >>= orThrowUser "rpc call timeout"
+
+              pure ()
+
         entry $ bindMatch "help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
           [StringLike s]      -> helpList False (Just s)
@@ -129,5 +180,7 @@ see hbs2-cli for sigil commands (create, store, load, etc)
   flip runContT pure do
 
     caller <- ContT $ withMyRPC @MailboxAPI rpc
-    lift $ run (dict caller) cli >>= eatNil display
+    stoAPI <- ContT $ withMyRPC @StorageAPI rpc
+    let sto = AnyStorage (StorageClient stoAPI)
+    lift $ run (dict sto caller) cli >>= eatNil display
 

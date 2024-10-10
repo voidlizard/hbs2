@@ -43,3 +43,11 @@ instance (ForMailboxRPC m) => HandleMethod m RpcMailboxCreate where
     debug $ "rpc.RpcMailboxCreate" <+> pretty (AsBase58 puk) <+> pretty t
 
 
+instance (ForMailboxRPC m) => HandleMethod m RpcMailboxSend where
+
+  handleMethod mess = do
+    co <- getRpcContext @MailboxAPI @RPC2Context
+    let w = rpcMailboxService co
+    debug $ "rpc.RpcMailboxSend"
+    void $ mailboxSendMessage w mess
+

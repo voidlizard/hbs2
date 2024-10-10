@@ -135,7 +135,10 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
 
     devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: [];
+      packages = _:
+        pkgs.lib.attrVals packageNames pkgs.haskellPackages ++
+        pkgs.lib.attrVals miscellaneous pkgs.haskellPackages;
+      # withHoogle = true;
       buildInputs = (
         with pkgs.haskellPackages; [
           ghc
