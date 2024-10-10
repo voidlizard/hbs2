@@ -32,6 +32,7 @@ import PeerTypes
 import DBPipe.SQLite
 
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Data.Maybe
 import UnliftIO
 import Control.Concurrent.STM qualified as STM
@@ -160,15 +161,13 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
     inq <- ContT $ withAsync (mailboxInQ dbe)
 
-    sendq <- ContT $ withAsync $ mailboxSendQ
-
     bs <- ContT $ withAsync do
 
       forever do
         pause @'Seconds 10
         debug $ "I'm" <+> yellow "mailboxProtoWorker"
 
-    void $ waitAnyCancel [bs,pipe,inq,sendq]
+    void $ waitAnyCancel [bs,pipe,inq]
 
     `catch` \( e :: MailboxProtoException ) -> do
       err $ red "mailbox protocol worker terminated" <+> viaShow e
@@ -177,11 +176,6 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
       warn $ yellow "mailbox protocol worker exited"
 
   where
-
-    mailboxSendQ = do
-      forever do
-        pause @'Seconds 10
-        debug $ yellow "send mail loop"
 
     mailboxInQ dbe = do
       forever do
@@ -198,8 +192,14 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
           -- TODO: process-with-policy
 
-          for_ (messageRecipients s) $ \rcpt -> do
+          for_ (messageRecipients s) $ \rcpt -> void $ runMaybeT do
             mbox <- getMailboxType_ @s dbe rcpt
+                       >>= toMPlus
+
+            case mbox of
+              MailboxHub   -> debug $ blue "HUB"  <+> pretty (AsBase58 rcpt) <+> "WRITE MESSAGE"
+              MailboxRelay -> debug $ blue "RELAY"<+> pretty (AsBase58 rcpt) <+> "WRITE MESSAGE"
+
             pure ()
 
 mailboxStateEvolve :: forall e s m . ( MonadIO m
