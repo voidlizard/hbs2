@@ -365,21 +365,22 @@ Issue text...
   flip runContT pure $ callCC \exit -> do
    fname <- liftIO $ Temp.writeTempFile "." "fixme-issue" txt
 
-   h1 <- liftIO $ try @_ @SomeException (LBS.readFile fname)
-            <&> fromRight mempty
+   ContT $ bracket none (const $ rm fname)
+
+   h1 <- liftIO (BS.readFile fname)
             <&> hashObject @HbSync
 
-   ContT $ bracket none (const $ rm fname)
+   debug $ "hash1" <+> pretty  h1
 
    void $ runProcess $ shell [qc|{editor} {fname}|]
 
-   s <- liftIO $ LBS.readFile fname
+   s <- liftIO $ BS.readFile fname <&> LBS.fromStrict
 
-   h2 <- liftIO $ try @_ @SomeException (LBS.readFile fname)
-          <&> fromRight mempty
-          <&> hashObject @HbSync
+   let h2 = hashObject @HbSync s
 
    fxs <- lift $ scanBlobOpts NoIndents Nothing s
+
+   debug $ "hash before/after" <+> pretty  h1 <+> pretty h2
 
    when (h1 == h2) $ exit ()
 
