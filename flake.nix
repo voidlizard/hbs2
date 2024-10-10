@@ -44,7 +44,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         "fixme-new"
         ];
 
-      miscellaneous = 
+      miscellaneous =
         [
         "bytestring-mmap"
         "db-pipe"
@@ -59,7 +59,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
       defaultOverlay = final: prev:
         (prev.lib.composeManyExtensions # no-op
-        [ overlay 
+        [ overlay
         ]) final prev;
 
       packagePostOverrides = pkg: with pkgs.haskell.lib.compose; pkgs.lib.pipe pkg [
@@ -87,8 +87,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
     jailbreakUnbreak = pkg:
         pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
 
-    makePkgsFromDir = hp: pkgNames: mkPath: 
-      pkgs.lib.genAttrs pkgNames (name: 
+    makePkgsFromDir = hp: pkgNames: mkPath:
+      pkgs.lib.genAttrs pkgNames (name:
         hp.callCabal2nix name "${self}/${mkPath name}" {});
 
     overlay = final: prev: let pkgs = prev; in
@@ -132,13 +132,12 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         };
       };
 
+
     devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: 
-        pkgs.lib.attrVals packageNames pkgs.haskellPackages ++
-        pkgs.lib.attrVals miscellaneous pkgs.haskellPackages;
-      # withHoogle = true;
+      packages = _: [];
       buildInputs = (
         with pkgs.haskellPackages; [
+          ghc
           ghcid
           cabal-install
           haskell-language-server
@@ -153,6 +152,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         ++
         [ pkgs.pkg-config
           pkgs.libsodium
+          pkgs.file
+          pkgs.zlib
           inputs.hspup.packages.${pkgs.system}.default
         ]
       );
