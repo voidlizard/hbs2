@@ -87,10 +87,33 @@ data MailboxServiceError =
   MailboxCreateFailed String
   deriving stock (Typeable,Show)
 
-class IsMailboxService s a where
-  mailboxCreate :: forall m . MonadIO m => a -> MailboxType -> Recipient s -> m (Either MailboxServiceError ())
 
-data AnyMailboxService s = forall a  . (IsMailboxService s a) => AnyMailboxService { adapter :: a }
+class ForMailbox s => IsMailboxService s a where
+
+  mailboxCreate :: forall m . MonadIO m
+                => a
+                -> MailboxType
+                -> Recipient s
+                -> m (Either MailboxServiceError ())
+
+  mailboxSendMessage :: forall m . MonadIO m
+                     => a
+                     -> Message s
+                     -> m (Either MailboxServiceError ())
+
+data AnyMailboxService s =
+  forall a  . (IsMailboxService s a) => AnyMailboxService { mailboxService :: a }
+
+data AnyMailboxAdapter s =
+  forall a . (IsMailboxProtoAdapter s a) => AnyMailboxAdapter { mailboxAdapter :: a}
+
+instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
+  mailboxCreate (AnyMailboxService a) = mailboxCreate @s a
+  mailboxSendMessage (AnyMailboxService a) = mailboxSendMessage @s a
+
+instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
+  mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a
+  mailboxAcceptMessage (AnyMailboxAdapter a) = mailboxAcceptMessage @s a
 
 mailboxProto :: forall e s m p a . ( MonadIO m
                                    , Response e p m
@@ -101,11 +124,12 @@ mailboxProto :: forall e s m p a . ( MonadIO m
                                    , s ~ Encryption e
                                    , ForMailbox s
                                    )
-             => a
+             => Bool -- ^ inner, i.e from own peer
+             -> a
              -> MailBoxProto (Encryption e) e
              ->  m ()
 
-mailboxProto adapter mess = do
+mailboxProto inner adapter mess = do
   -- common stuff
 
   sto <- mailboxGetStorage @s adapter
@@ -132,6 +156,8 @@ mailboxProto adapter mess = do
         let unboxed' = unboxSignedBox0 @(MessageContent s) (messageContent msg)
 
         -- ок, сообщение нормальное, шлём госсип, пишем, что обработали
+        -- TODO: increment-malformed-messages-statistics
+        --   $workflow: backlog
         (_, content) <- ContT $ maybe1 unboxed' none
 
         let h = hashObject @HbSync (serialise msg) & HashRef

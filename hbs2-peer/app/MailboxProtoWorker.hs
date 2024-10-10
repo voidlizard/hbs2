@@ -1,4 +1,5 @@
 {-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
 module MailboxProtoWorker ( mailboxProtoWorker
                           , createMailboxProtoWorker
                           , MailboxProtoWorker
@@ -18,6 +19,7 @@ import HBS2.Storage.Operations.Missed
 import HBS2.Hash
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.Mailbox
+import HBS2.Net.Messaging.Unix
 import HBS2.Net.Auth.Credentials
 
 import HBS2.System.Dir
@@ -52,14 +54,18 @@ hbs2MailboxDirOpt = "hbs2:mailbox:dir"
 
 data MailboxProtoWorker (s :: CryptoScheme) e =
   MailboxProtoWorker
-  { mpwStorage            :: AnyStorage
+  { mpwPeerEnv            :: PeerEnv e
+  , mpwDownloadEnv        :: DownloadEnv e
+  , mpwStorage            :: AnyStorage
   , inMessageQueue        :: TBQueue (Message s, MessageContent s)
+  , inMessageQueueInNum   :: TVar Int
+  , inMessageQueueOutNum  :: TVar Int
   , inMessageQueueDropped :: TVar Int
   , inMessageDeclined     :: TVar Int
   , mailboxDB             :: TVar (Maybe DBPipeEnv)
   }
 
-instance (s ~ HBS2Basic) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
+instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
   mailboxGetStorage = pure . mpwStorage
 
   mailboxAcceptMessage MailboxProtoWorker{..} m c = do
@@ -69,8 +75,10 @@ instance (s ~ HBS2Basic) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) whe
         modifyTVar inMessageQueueDropped succ
       else do
         writeTBQueue inMessageQueue (m,c)
+        modifyTVar   inMessageQueueInNum succ
 
-instance (s ~ HBS2Basic) => IsMailboxService s (MailboxProtoWorker s e) where
+instance ( s ~ Encryption e, e ~ L4Proto
+         ) => IsMailboxService s (MailboxProtoWorker s e) where
   mailboxCreate MailboxProtoWorker{..} t p = do
     debug $ "mailboxWorker.mailboxCreate" <+> pretty (AsBase58 p) <+> pretty t
 
@@ -91,6 +99,15 @@ instance (s ~ HBS2Basic) => IsMailboxService s (MailboxProtoWorker s e) where
         Right{} -> pure $ Right ()
         Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
+  mailboxSendMessage w@MailboxProtoWorker{..} mess = do
+    -- we do not check message signature here
+    -- because it will be checked in the protocol handler anyway
+    liftIO $ withPeerM mpwPeerEnv do
+      me <- ownPeer @e
+      runResponseM me $ do
+        mailboxProto @e True w (MailBoxProtoV1 (SendMessage mess))
+
+    pure $ Right ()
 
 getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> Recipient s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
@@ -101,16 +118,20 @@ getMailboxType_ d r = do
      <&> headMay . catMaybes
 
 createMailboxProtoWorker :: forall e m . MonadIO m
-                         => AnyStorage
+                         => PeerEnv e
+                         -> DownloadEnv e
+                         -> AnyStorage
                          -> m (MailboxProtoWorker (Encryption e) e)
-createMailboxProtoWorker sto = do
+createMailboxProtoWorker pe de sto = do
   -- FIXME: queue-size-hardcode
   --   $class: hardcode
   inQ        <- newTBQueueIO 1000
   inDroppped <- newTVarIO 0
-  decl <- newTVarIO 0
+  inNum      <- newTVarIO 0
+  outNum     <- newTVarIO 0
+  decl       <- newTVarIO 0
   dbe        <- newTVarIO Nothing
-  pure $ MailboxProtoWorker sto inQ inDroppped decl dbe
+  pure $ MailboxProtoWorker pe de sto inQ inNum outNum inDroppped decl dbe
 
 mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , MonadUnliftIO m
@@ -139,13 +160,15 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
     inq <- ContT $ withAsync (mailboxInQ dbe)
 
+    sendq <- ContT $ withAsync $ mailboxSendQ
+
     bs <- ContT $ withAsync do
 
       forever do
         pause @'Seconds 10
         debug $ "I'm" <+> yellow "mailboxProtoWorker"
 
-    void $ waitAnyCancel [bs,pipe,inq]
+    void $ waitAnyCancel [bs,pipe,inq,sendq]
 
     `catch` \( e :: MailboxProtoException ) -> do
       err $ red "mailbox protocol worker terminated" <+> viaShow e
@@ -154,17 +177,24 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
       warn $ yellow "mailbox protocol worker exited"
 
   where
+
+    mailboxSendQ = do
+      forever do
+        pause @'Seconds 10
+        debug $ yellow "send mail loop"
+
     mailboxInQ dbe = do
       forever do
         pause @'Seconds 10
         mess <- atomically $ STM.flushTBQueue inMessageQueue
         for_ mess $ \(m,s) -> do
+          atomically $ modifyTVar inMessageQueueInNum pred
           -- FIXME: remove
           let ha = hashObject @HbSync (serialise  m)
           -- сохраняем или нет?
           -- по госсипу уже послали. сохранять надо, только если
           -- у нас есть ящик
-          debug $ "received message" <+> pretty (AsBase58 (HashRef ha))
+          debug $ yellow "received message" <+> pretty (AsBase58 (HashRef ha))
 
           -- TODO: process-with-policy
 
