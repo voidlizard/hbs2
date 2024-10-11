@@ -23,9 +23,9 @@ import Lucid.Html5 hiding (for_)
 import Data.Word
 
 
-myCss :: Monad m => HtmlT m ()
+myCss :: (WithBaseUrl, Monad m) => HtmlT m ()
 myCss = do
-  link_ [rel_ "stylesheet", href_ (path ["css/custom.css"])]
+  link_ [rel_ "stylesheet", href_ (toBaseURL "css/custom.css")]
 
 hyper_ :: Text -> Attribute
 hyper_  = makeAttribute "_"
@@ -64,7 +64,7 @@ instance ToHtml GitRef where
   toHtml (GitRef s)= toHtml s
   toHtmlRaw (GitRef s)= toHtmlRaw s
 
-rootPage :: Monad m => HtmlT m () -> HtmlT m ()
+rootPage :: (WithBaseUrl, Monad m) => HtmlT m () -> HtmlT m ()
 rootPage content  = do
   doctypehtml_ do
     head_ do
@@ -80,13 +80,13 @@ rootPage content  = do
 
       header_ [class_ "container-fluid"] do
         nav_ do
-          ul_ $ li_ $ a_ [href_ (toURL RepoListPage)] $ strong_ "hbs2-git dashboard"
+          ul_ $ li_ $ a_ [href_ (toBaseURL RepoListPage)] $ strong_ "hbs2-git dashboard"
 
       content
 
 
 dashboardRootPage :: (DashBoardPerks m, MonadReader DashBoardEnv m) => HtmlT m ()
-dashboardRootPage = rootPage do
+dashboardRootPage = asksBaseUrl $ withBaseUrl $ rootPage do
 
   items <- lift $ selectRepoList mempty
 
@@ -112,7 +112,7 @@ dashboardRootPage = rootPage do
 
             let locked = isJust $ coerce @_ @(Maybe HashRef) rlRepoGK0
 
-            let url = toURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
+            let url = toBaseURL (RepoPage (CommitsTab Nothing) (coerce @_ @(LWWRefKey 'HBS2Basic) rlRepoLww))
             -- path ["repo", Text.unpack $ view rlRepoLwwAsText it]
             let t = fromIntegral $ coerce @_ @Word64 rlRepoSeq
 
@@ -158,4 +158,3 @@ dashboardRootPage = rootPage do
 tabClick :: Attribute
 tabClick =
   hyper_ "on click take .contrast from .tab for event's target"
-

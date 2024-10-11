@@ -45,7 +45,7 @@ issuePage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          -> FixmeKey
          -> HtmlT m ()
 
-issuePage repo@(RepoLww lww) f = rootPage do
+issuePage repo@(RepoLww lww) f = asksBaseUrl $ withBaseUrl $ rootPage do
 
   ti@TopInfoBlock{} <- lift $ getTopInfoBlock (coerce repo)
 
@@ -82,7 +82,7 @@ issuePage repo@(RepoLww lww) f = rootPage do
 
           div_ do
             small_ do
-              a_ [ href_ (toURL (RepoPage IssuesTab lww))
+              a_ [ href_ (toBaseURL (RepoPage IssuesTab lww))
                  ] do
                 span_ [class_ "inline-icon-wrapper"] $ svgIcon IconArrowUturnLeft
                 span_ [] "back to issues"
