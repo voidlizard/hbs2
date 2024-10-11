@@ -20,6 +20,7 @@ import HBS2.System.Dir
 import System.FilePath
 
 import Data.Word
+import Data.Text qualified as Text
 
 type MyRefChan    = RefChanId L4Proto
 type MyRefLogKey  = RefLogKey 'HBS2Basic
@@ -57,6 +58,7 @@ data DashBoardEnv =
   , _pipeline           :: TQueue (IO ())
   , _dashBoardHttpPort  :: TVar (Maybe Word16)
   , _dashBoardDevAssets :: TVar (Maybe FilePath)
+  , _dashBoardBaseUrl   :: TVar (Maybe Text)
   , _dashBoardIndexIgnoreCaches :: TVar Bool
   }
 
@@ -95,6 +97,7 @@ newDashBoardEnv ddir peer rlog rchan lww sto  = do
         <*> newTQueueIO
         <*> newTVarIO (Just 8911)
         <*> newTVarIO Nothing
+        <*> newTVarIO Nothing
         <*> newTVarIO False
 
 getHttpPortNumber :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m a
@@ -113,6 +116,11 @@ getIgnoreCaches :: (MonadIO m, MonadReader DashBoardEnv m, Integral a) => m Bool
 getIgnoreCaches = do
   asks _dashBoardIndexIgnoreCaches
     >>= readTVarIO
+
+asksBaseUrl :: (MonadIO m, MonadReader DashBoardEnv m) => (Text -> m a) -> m a
+asksBaseUrl thingInside = do
+  mUrl <- readTVarIO =<< asks _dashBoardBaseUrl
+  thingInside (fromMaybe (Text.pack "") mUrl)
 
 withDashBoardEnv :: Monad m => DashBoardEnv -> DashBoardM m a -> m a
 withDashBoardEnv env m = runReaderT (fromDashBoardM m) env
@@ -158,4 +166,3 @@ addJob f = do
 
 hbs2_git_dashboard :: FilePath
 hbs2_git_dashboard = "hbs2-git-dashboard"
-
