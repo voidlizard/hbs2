@@ -137,6 +137,19 @@ runMailboxCLI rpc s = do
 
              _ -> throwIO $ BadFormException @C nil
 
+        brief "get mailbox status"
+          $ entry $ bindMatch "status" $ nil_ $ \case
+             [ SignPubKeyLike m ] -> do
+
+              v <- callRpcWaitMay @RpcMailboxGetStatus t api m
+                     >>= orThrowUser "rpc call timeout"
+                     >>= orThrowPassIO
+
+              liftIO $ print $ pretty v
+
+             _ -> throwIO $ BadFormException @C nil
+
+
         brief "list mailboxes"
           $ entry $ bindMatch "list" $ nil_ $ const do
 
