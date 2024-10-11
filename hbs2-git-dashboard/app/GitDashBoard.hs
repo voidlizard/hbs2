@@ -394,8 +394,6 @@ runDashboardWeb WebOptions{..} = do
 
 runScotty :: DashBoardPerks m => DashBoardM m ()
 runScotty  = do
-    pno <- getHttpPortNumber
-    wo <- WebOptions <$> getDevAssets
 
     env <- ask
 
@@ -406,6 +404,9 @@ runScotty  = do
     conf <- readConfig
 
     run theDict conf
+
+    pno <- getHttpPortNumber
+    wo <- WebOptions <$> getDevAssets
 
     flip runContT pure do
       void $ ContT $ withAsync updateIndexPeriodially
@@ -659,7 +660,8 @@ theDict = do
     developAssetsEntry = do
       entry $ bindMatch "develop-assets" $ nil_ \case
         [StringLike s] -> do
-          pure ()
+          devAssTVar <- lift $ asks _dashBoardDevAssets
+          atomically $ writeTVar devAssTVar (Just s)
 
         _ -> none
 
