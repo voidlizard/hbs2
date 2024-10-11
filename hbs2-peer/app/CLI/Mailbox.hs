@@ -5,6 +5,7 @@ module CLI.Mailbox (pMailBox) where
 import HBS2.Prelude.Plated
 import HBS2.Hash
 import HBS2.OrDie
+import HBS2.Merkle
 import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
@@ -12,6 +13,7 @@ import HBS2.Storage
 import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Types
+import HBS2.Peer.Proto.Mailbox.Entry
 
 import HBS2.Peer.RPC.API.Mailbox
 import HBS2.Peer.RPC.API.Storage
@@ -24,9 +26,12 @@ import PeerLogger hiding (info)
 
 import Codec.Serialise
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce
 import Data.Config.Suckless.Script
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
 import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
@@ -141,6 +146,43 @@ runMailboxCLI rpc s = do
                      >>= orThrowUser "rpc call timeout"
 
               liftIO $ print $ vcat (fmap fmtMbox v)
+
+        brief "list messages"
+          $ entry $ bindMatch "list:messages" $ nil_ $ \case
+             [ SignPubKeyLike m ] -> void $ runMaybeT do
+
+              v <- lift (callRpcWaitMay @RpcMailboxGet t api m)
+                     >>= orThrowUser "rpc call timeout"
+                     >>= toMPlus
+
+              d <- liftIO $ newTVarIO (mempty :: HashSet HashRef)
+              r <- liftIO $ newTVarIO (mempty :: HashSet HashRef)
+
+              walkMerkle @[HashRef] (coerce v) (liftIO . getBlock sto) $ \case
+                Left what -> err $ "missed block for tree" <+> pretty v <+> pretty what
+                Right hs  -> void $ runMaybeT do
+                  for_ hs $ \h -> do
+
+                    -- TODO: better-error-handling
+                    e <- getBlock sto (coerce h)
+                             >>= toMPlus
+                             <&> deserialiseOrFail @MailboxEntry
+                             >>= toMPlus
+
+                    case e of
+                      Deleted mh -> do
+                        atomically $ modifyTVar d (HS.insert mh)
+
+                      Existed mh -> do
+                         atomically $ modifyTVar r (HS.insert mh)
+
+              deleted <- readTVarIO d
+              rest    <- readTVarIO r
+
+              for_ (HS.difference rest deleted) $ \mh -> do
+                liftIO $ print $ pretty mh
+
+             _ -> throwIO $ BadFormException @C nil
 
         entry $ bindMatch "help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
