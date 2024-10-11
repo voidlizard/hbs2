@@ -4,6 +4,7 @@ module HBS2.Peer.Proto.Mailbox.Types
   ( ForMailbox
   , MailboxKey
   , MailboxType(..)
+  , MailboxServiceError(..)
   , Recipient
   , Sender
   , PolicyVersion
@@ -26,6 +27,14 @@ import HBS2.Net.Auth.GroupKeySymm
 import Data.Word (Word32)
 import Codec.Serialise
 import Data.Maybe
+import Control.Exception
+
+data MailboxServiceError =
+  MailboxCreateFailed String
+  deriving stock (Typeable,Show,Generic)
+
+instance Serialise MailboxServiceError
+instance Exception MailboxServiceError
 
 data MailboxType =
   MailboxHub | MailboxRelay

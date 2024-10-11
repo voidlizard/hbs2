@@ -10,23 +10,29 @@ module HBS2.Peer.Proto.Mailbox
 import HBS2.Prelude.Plated
 
 import HBS2.Hash
+import HBS2.Base58
 import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Storage
 import HBS2.Actors.Peer.Types
+import HBS2.Net.Auth.Credentials
 
 import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Peer.Proto.Mailbox.Message
 import HBS2.Peer.Proto.Mailbox.Entry
 import HBS2.Peer.Proto.Mailbox.Ref
 
-import Data.Maybe
-import Control.Monad.Trans.Cont
 import Codec.Serialise()
+import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
+import Data.Maybe
+import Data.Word
+import Lens.Micro.Platform
 
 data MailBoxStatusPayload s =
   MailBoxStatusPayload
-  { mbsMailboxKey           :: MailboxKey s
+  { mbsMailboxPayloadNonce  :: Word64
+  , mbsMailboxKey           :: MailboxKey s
   , mbsMailboxType          :: MailboxType
   , mbsMailboxHash          :: Maybe HashRef
   , mbsMailboxPolicyVersion :: Maybe PolicyVersion
@@ -69,6 +75,8 @@ instance ForMailbox s => Serialise (MailBoxProto s e)
 
 class IsMailboxProtoAdapter s a where
 
+  mailboxGetCredentials :: forall m . MonadIO m => a -> m (PeerCredentials s)
+
   mailboxGetStorage     :: forall m . MonadIO m => a -> m AnyStorage
 
   mailboxAcceptMessage  :: forall m . (ForMailbox s, MonadIO m)
@@ -76,10 +84,6 @@ class IsMailboxProtoAdapter s a where
                         -> Message s
                         -> MessageContent s
                         -> m ()
-
-data MailboxServiceError =
-  MailboxCreateFailed String
-  deriving stock (Typeable,Show)
 
 
 class ForMailbox s => IsMailboxService s a where
@@ -132,8 +136,25 @@ instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxGetStatus (AnyMailboxService a) = mailboxGetStatus @s a
 
 instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
+  mailboxGetCredentials (AnyMailboxAdapter a) = mailboxGetCredentials @s a
   mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a
   mailboxAcceptMessage (AnyMailboxAdapter a) = mailboxAcceptMessage @s a
+
+instance ForMailbox s => Pretty (MailBoxStatusPayload s) where
+  pretty MailBoxStatusPayload{..} =
+    parens $ "mailbox-status" <> line <> st
+    where
+      st = indent 2 $
+             brackets $
+             vcat [ parens ("nonce" <+> pretty mbsMailboxPayloadNonce)
+                  , parens ("key"   <+> pretty (AsBase58 mbsMailboxKey))
+                  , parens ("type"  <+> pretty mbsMailboxType)
+                  , element "mailbox-tree"   mbsMailboxHash
+                  , element "policy-version" mbsMailboxPolicyVersion
+                  , element "policy-tree"    mbsMailboxPolicyHash
+                  ]
+
+      element el = maybe mempty ( \v -> parens (el <+> pretty v) )
 
 mailboxProto :: forall e s m p a . ( MonadIO m
                                    , Response e p m
@@ -228,10 +249,20 @@ mailboxProto inner adapter mess = deferred @p do
     --        и так и известен в протоколе)
     --
 
-    CheckMailbox k -> do
+    CheckMailbox k -> deferred @p do
+      creds <- mailboxGetCredentials @s adapter
+
+      void $ runMaybeT do
+
       -- TODO: check-policy
 
-      none
+        s <- mailboxGetStatus adapter (MailboxRefKey @s k)
+               >>= toMPlus
+               >>= toMPlus
+
+        let box = makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) s
+
+        lift $ response @_ @p (MailBoxProtoV1 (MailboxStatus box))
 
     MailboxStatus{} -> do
       -- TODO: implement-MailboxStatus
@@ -251,6 +282,5 @@ mailboxProto inner adapter mess = deferred @p do
 
     DeleteMessages{} -> do
       none
-
 
 

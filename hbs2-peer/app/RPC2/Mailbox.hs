@@ -11,6 +11,8 @@ import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Ref
+import HBS2.Peer.Proto.Mailbox.Types
+
 import HBS2.Storage
 import HBS2.Net.Messaging.Unix
 import HBS2.Misc.PrettyStuff
@@ -44,6 +46,14 @@ instance (ForMailboxRPC m) => HandleMethod m RpcMailboxCreate where
     AnyMailboxService mbs <- getRpcContext @MailboxAPI @RPC2Context <&> rpcMailboxService
     void $ mailboxCreate @HBS2Basic mbs t puk
     debug $ "rpc.RpcMailboxCreate" <+> pretty (AsBase58 puk) <+> pretty t
+
+
+instance (ForMailboxRPC m) => HandleMethod m RpcMailboxGetStatus where
+
+  handleMethod puk = do
+    AnyMailboxService mbs <- getRpcContext @MailboxAPI @RPC2Context <&> rpcMailboxService
+    debug $ "rpc.RpcMailboxGetStatus" <+> pretty (AsBase58 puk)
+    mailboxGetStatus @HBS2Basic mbs (MailboxRefKey puk)
 
 instance (ForMailboxRPC m) => HandleMethod m RpcMailboxDelete where
 

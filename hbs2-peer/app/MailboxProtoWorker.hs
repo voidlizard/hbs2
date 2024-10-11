@@ -37,18 +37,19 @@ import BlockDownload()
 
 import DBPipe.SQLite
 
-import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
-import Data.Maybe
-import UnliftIO
 import Control.Concurrent.STM qualified as STM
 -- import Control.Concurrent.STM.TBQueue
-import Data.HashMap.Strict qualified as HM
+import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
+import Data.Coerce
 import Data.HashMap.Strict (HashMap)
-import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
+import Data.Maybe
 import Lens.Micro.Platform
 import Text.InterpolatedString.Perl6 (qc)
+import UnliftIO
 
 data MailboxProtoException =
     MailboxProtoWorkerTerminatedException
@@ -68,6 +69,7 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
   { mpwPeerEnv            :: PeerEnv e
   , mpwDownloadEnv        :: DownloadEnv e
   , mpwStorage            :: AnyStorage
+  , mpwCredentials        :: PeerCredentials s
   , inMessageQueue        :: TBQueue (Message s, MessageContent s)
   , inMessageMergeQueue   :: TVar (HashMap (MailboxRefKey s) (HashSet HashRef))
   , inMessageQueueInNum   :: TVar Int
@@ -78,6 +80,9 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
   }
 
 instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
+
+  mailboxGetCredentials = pure . mpwCredentials
+
   mailboxGetStorage = pure . mpwStorage
 
   mailboxAcceptMessage MailboxProtoWorker{..} m c = do
@@ -159,22 +164,39 @@ instance ( s ~ Encryption e, e ~ L4Proto
       pure $ Right r
 
   mailboxGetStatus MailboxProtoWorker{..} ref = do
-    undefined
+    -- TODO: support-policy-ASAP
 
-getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> Recipient s -> m (Maybe MailboxType)
+    now <- liftIO $ getPOSIXTime <&> round
+
+    flip runContT pure do
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+
+      t' <- getMailboxType_ dbe ref
+
+      t <- ContT $ maybe1 t' (pure $ Right Nothing)
+
+      v <- getRef mpwStorage ref <&> fmap HashRef
+
+      pure $ Right $ Just $ MailBoxStatusPayload @s now (coerce ref) t v mzero mzero
+
+getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> MailboxRefKey s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
   let sql = [qc|select type from mailbox where recipient = ? limit 1|]
   withDB d do
-   select @(Only String) sql (Only (show $ pretty (AsBase58 r)))
+   select @(Only String) sql (Only r)
      <&> fmap (fromStringMay @MailboxType  . fromOnly)
      <&> headMay . catMaybes
 
 createMailboxProtoWorker :: forall s e m . (MonadIO m, s ~ Encryption e, ForMailbox s)
-                         => PeerEnv e
+                         => PeerCredentials s
+                         -> PeerEnv e
                          -> DownloadEnv e
                          -> AnyStorage
                          -> m (MailboxProtoWorker s e)
-createMailboxProtoWorker pe de sto = do
+createMailboxProtoWorker pc pe de sto = do
   -- FIXME: queue-size-hardcode
   --   $class: hardcode
   inQ        <- newTBQueueIO 1000
@@ -184,7 +206,7 @@ createMailboxProtoWorker pe de sto = do
   outNum     <- newTVarIO 0
   decl       <- newTVarIO 0
   dbe        <- newTVarIO Nothing
-  pure $ MailboxProtoWorker pe de sto inQ mergeQ inNum outNum inDroppped decl dbe
+  pure $ MailboxProtoWorker pe de sto pc inQ mergeQ inNum outNum inDroppped decl dbe
 
 mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , MonadUnliftIO m
@@ -243,7 +265,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
           -- TODO: process-with-policy
 
           for_ (messageRecipients s) $ \rcpt -> void $ runMaybeT do
-            mbox <- getMailboxType_ @s dbe rcpt
+            mbox <- getMailboxType_ @s dbe (MailboxRefKey rcpt)
                        >>= toMPlus
 
             -- TODO: ASAP-block-accounting
