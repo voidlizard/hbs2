@@ -1,4 +1,5 @@
 {-# Language MultiWayIf #-}
+{-# Language ImplicitParams #-}
 module HBS2.Git.Web.Html.Types where
 
 import HBS2.Git.DashBoard.Prelude
@@ -37,8 +38,21 @@ class Path a where
 instance Path String where
   path = Text.pack . joinPath . rootPath
 
+
 class ToRoutePattern a where
   routePattern :: a -> RoutePattern
+
+type WithBaseUrl = ?dashBoardBaseUrl :: Text
+
+getBaseUrl :: WithBaseUrl => Text
+getBaseUrl = ?dashBoardBaseUrl
+
+withBaseUrl :: (WithBaseUrl => r) -> Text -> r
+withBaseUrl thingInside baseUrl =
+  let ?dashBoardBaseUrl = baseUrl in thingInside
+
+toBaseURL :: (WithBaseUrl, ToURL a) => a -> Text
+toBaseURL x = getBaseUrl <> toURL x
 
 class ToURL a where
   toURL :: a -> Text
@@ -135,6 +149,9 @@ instance FromStringMaybe RepoPageTabs where
 instance ToRoutePattern RepoListPage where
   routePattern = \case
     RepoListPage -> "/"
+
+instance ToURL String where
+  toURL str = path [str]
 
 instance ToURL (RepoPage RepoPageTabs (LWWRefKey 'HBS2Basic)) where
   toURL (RepoPage s w)  = path @String [ "/", show (pretty s), show (pretty w)]
@@ -303,5 +320,3 @@ agePure t0 t = do
     if | sec > 86400  -> pretty (sec `div` 86400)  <+> "days ago"
        | sec > 3600   -> pretty (sec `div` 3600)   <+> "hours ago"
        | otherwise    -> pretty (sec `div` 60)     <+> "minutes ago"
-
-

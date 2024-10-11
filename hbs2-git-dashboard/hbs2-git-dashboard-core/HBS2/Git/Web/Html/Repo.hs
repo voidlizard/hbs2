@@ -51,7 +51,7 @@ repoPage :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
          -> [(Text,Text)]
          -> HtmlT m ()
 
-repoPage IssuesTab lww p' = rootPage do
+repoPage IssuesTab lww p' = asksBaseUrl $ withBaseUrl $ rootPage do
 
   ti@TopInfoBlock{..} <- lift $ getTopInfoBlock lww
 
@@ -76,13 +76,13 @@ repoPage IssuesTab lww p' = rootPage do
         div_ [ id_ "repo-tab-data"
              , hxTrigger_ "load"
              , hxTarget_ "#fixme-tab-data"
-             , hxGet_ (toURL (RepoFixmeHtmx mempty (RepoLww lww)))
+             , hxGet_ (toBaseURL (RepoFixmeHtmx mempty (RepoLww lww)))
              ] mempty
 
         div_ [id_ "repo-tab-data-embedded"] mempty
 
 
-repoPage tab lww params = rootPage do
+repoPage tab lww params = asksBaseUrl $ withBaseUrl $ rootPage do
 
   sto <- asks _sto
 
@@ -107,7 +107,7 @@ repoPage tab lww params = rootPage do
             ul_ [class_ "mb-0"] $ do
               for_ (view repoHeadHeads rh) $ \(branch,v) -> do
                 li_ $ small_ do
-                  a_ [class_ "secondary", href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))] do
+                  a_ [class_ "secondary", href_ (toBaseURL (RepoPage (CommitsTab (Just v)) lww ))] do
                     checkHead (Just v) $ toHtml branch
 
           div_ [class_ "info-block" ] do
@@ -115,7 +115,7 @@ repoPage tab lww params = rootPage do
             ul_ [class_ "mb-0"] $ do
               for_ (view repoHeadTags rh) $ \(tag,v) -> do
                 li_ $ small_ do
-                  a_ [class_ "secondary", href_ (toURL (RepoPage (CommitsTab (Just v)) lww ))] do
+                  a_ [class_ "secondary", href_ (toBaseURL (RepoPage (CommitsTab (Just v)) lww ))] do
                     checkHead (Just v) $ toHtml tag
 
       div_ [class_ "content"] $ do
@@ -129,13 +129,13 @@ repoPage tab lww params = rootPage do
 
           menuTab (CommitsTab Nothing)
                          [ href_ "#"
-                         , hxGet_ (toURL (RepoCommits lww))
+                         , hxGet_ (toBaseURL (RepoCommits lww))
                          , hxTarget_ "#repo-tab-data"
                          ] "commits"
 
           menuTab (TreeTab Nothing)
                       [ href_ "#"
-                      , hxGet_ (toURL (RepoRefs lww))
+                      , hxGet_ (toBaseURL (RepoRefs lww))
                       , hxTarget_ "#repo-tab-data"
                       ] "tree"
 
@@ -196,14 +196,14 @@ thisRepoManifest rh = do
 repoRefs :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          => LWWRefKey 'HBS2Basic
          -> HtmlT m ()
-repoRefs lww = do
+repoRefs lww = asksBaseUrl $ withBaseUrl do
 
   refs <- lift $ gitShowRefs lww
   table_ [] do
     for_ refs $ \(r,h) -> do
       let r_ = Text.pack $ show $ pretty r
       let co = show $ pretty h
-      let uri = toURL (RepoTree lww h h)
+      let uri = toBaseURL (RepoTree lww h h)
 
       let showRef = Text.isPrefixOf "refs" r_
 
@@ -225,7 +225,7 @@ repoRefs lww = do
                  ] (toHtml $ show $ pretty h)
 
 
-treeLocator :: DashBoardPerks m
+treeLocator :: (WithBaseUrl, DashBoardPerks m)
             => LWWRefKey 'HBS2Basic
             -> GitHash
             -> TreeLocator
@@ -240,12 +240,12 @@ treeLocator lww co locator next = do
 
   let prefixSlash x = if fromIntegral x > 1 then span_ "/" else ""
   let showRoot =
-        [ hxGet_ (toURL (RepoTree lww co co))
+        [ hxGet_ (toBaseURL (RepoTree lww co co))
         , hxTarget_ "#repo-tab-data"
         , href_ "#"
         ]
 
-  span_ [] $ a_ [ hxGet_ (toURL (RepoRefs lww))
+  span_ [] $ a_ [ hxGet_ (toBaseURL (RepoRefs lww))
                 , hxTarget_ "#repo-tab-data"
                 , href_ "#"
                 ] $ toHtml (take 10 repo <> "..")
@@ -255,7 +255,7 @@ treeLocator lww co locator next = do
     span_ [] "/"
     for_ locator $ \(_,this,level,name) -> do
       prefixSlash level
-      let uri = toURL (RepoTree lww co (coerce @_ @GitHash this))
+      let uri = toBaseURL (RepoTree lww co (coerce @_ @GitHash this))
       span_ [] do
         a_ [ href_ "#"
            , hxGet_ uri
@@ -288,7 +288,7 @@ repoTree_ :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          -> GitHash -- ^ this
          -> HtmlT m ()
 
-repoTree_ embed lww co root = do
+repoTree_ embed lww co root = asksBaseUrl $ withBaseUrl $ do
 
   tree <- lift $ gitShowTree lww root
   back' <- lift $ selectParentTree (TreeCommit co) (TreeTree root)
@@ -316,7 +316,7 @@ repoTree_ embed lww co root = do
         tr_ mempty do
 
           for_ back' $ \r -> do
-            let rootLink = toURL (RepoTree lww co (coerce @_ @GitHash r))
+            let rootLink = toBaseURL (RepoTree lww co (coerce @_ @GitHash r))
             td_ $ svgIcon IconArrowUturnLeft
             td_ ".."
             td_ do a_ [ href_ "#"
@@ -327,7 +327,7 @@ repoTree_ embed lww co root = do
     for_ sorted $ \(tp,h,name) -> do
       let itemClass = pretty tp & show & Text.pack
       let hash_ = show $ pretty h
-      let uri = toURL $ RepoTree lww co h
+      let uri = toBaseURL $ RepoTree lww co h
       tr_ mempty do
         td_  $ case tp of
           Commit -> mempty
@@ -357,7 +357,7 @@ repoTree_ embed lww co root = do
         td_ [class_ "mono"] do
           case tp of
             Blob -> do
-              let blobUri = toURL $ RepoBlob lww co root h
+              let blobUri = toBaseURL $ RepoBlob lww co root h
               a_ [ href_ "#"
                  , hxGet_ blobUri
                  , hxTarget_ target
@@ -383,7 +383,7 @@ repoCommit :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             -> GitHash
             -> HtmlT m ()
 
-repoCommit style lww hash = do
+repoCommit style lww hash = asksBaseUrl $ withBaseUrl do
   let syntaxMap = Sky.defaultSyntaxMap
 
   txt <- lift $ getCommitRawBrief lww hash
@@ -399,7 +399,7 @@ repoCommit style lww hash = do
 
     tr_ do
       th_ [width_ "16rem"] $ strong_ "back"
-      td_ $ a_ [ href_ (toURL (RepoPage (CommitsTab (Just hash)) lww))
+      td_ $ a_ [ href_ (toBaseURL (RepoPage (CommitsTab (Just hash)) lww))
                ] $ toHtml $ show $ pretty hash
 
     for_ au $ \author -> do
@@ -412,16 +412,16 @@ repoCommit style lww hash = do
       td_ do
         ul_ [class_ "misc-menu"]do
             li_ $ a_ [ href_ "#"
-                     , hxGet_ (toURL (RepoCommitSummaryQ lww hash))
+                     , hxGet_ (toBaseURL (RepoCommitSummaryQ lww hash))
                      , hxTarget_ "#repo-tab-data"
                      ] "summary"
 
             li_ $ a_ [ href_ "#"
-                     , hxGet_ (toURL (RepoCommitPatchQ lww hash))
+                     , hxGet_ (toBaseURL (RepoCommitPatchQ lww hash))
                      , hxTarget_ "#repo-tab-data"
                      ] "patch"
 
-            li_ $ a_ [ href_ (toURL (RepoPage (TreeTab (Just hash)) lww))
+            li_ $ a_ [ href_ (toBaseURL (RepoPage (TreeTab (Just hash)) lww))
                      ] "tree"
 
   case style of
@@ -462,7 +462,7 @@ repoForks :: (DashBoardPerks m, MonadReader DashBoardEnv m)
           => LWWRefKey 'HBS2Basic
           -> HtmlT m ()
 
-repoForks lww  = do
+repoForks lww  = asksBaseUrl $ withBaseUrl do
   forks <- lift $ selectRepoForks lww
   now <- getEpoch
 
@@ -474,7 +474,7 @@ repoForks lww  = do
         tr_ [class_ "commit-brief-title"] do
           td_ $ svgIcon IconGitFork
           td_ [class_ "mono"] $
-            a_ [ href_ (toURL (RepoPage (CommitsTab Nothing) lwwTo))
+            a_ [ href_ (toBaseURL (RepoPage (CommitsTab Nothing) lwwTo))
                ] do
               toHtmlRaw $ view rlRepoLwwAsText it
           td_ $ small_ $ toHtml (agePure rlRepoSeq now)
@@ -485,7 +485,7 @@ repoCommits :: (DashBoardPerks m, MonadReader DashBoardEnv m)
             -> Either SelectCommitsPred SelectCommitsPred
             -> HtmlT m ()
 
-repoCommits lww predicate' = do
+repoCommits lww predicate' = asksBaseUrl $ withBaseUrl do
   now <- getEpoch
 
   debug $ red "repoCommits"
@@ -514,9 +514,9 @@ repoCommits lww predicate' = do
               td_ [class_ "commit-hash mono"] do
                   let hash = coerce @_ @GitHash commitListHash
                   a_ [ href_ "#"
-                     , hxGet_ (toURL (RepoCommitDefault lww hash))
+                     , hxGet_ (toBaseURL (RepoCommitDefault lww hash))
                      , hxTarget_ "#repo-tab-data"
-                     , hxPushUrl_ (toURL query)
+                     , hxPushUrl_ (toBaseURL query)
                      ] $ toHtml (ShortRef hash)
 
               td_ [class_ "commit-brief-title"] do
@@ -531,7 +531,7 @@ repoCommits lww predicate' = do
 
         unless (List.null co) do
           tr_ [ class_ "commit-brief-last"
-              , hxGet_ (toURL query)
+              , hxGet_ (toBaseURL query)
               , hxTrigger_ "revealed"
               , hxSwap_ "afterend"
               ] do
@@ -564,7 +564,7 @@ repoBlob :: (DashBoardPerks m, MonadReader DashBoardEnv m)
          -> BlobInfo
          -> HtmlT m ()
 
-repoBlob lww co tree bi@BlobInfo{..} = do
+repoBlob lww co tree bi@BlobInfo{..} = asksBaseUrl $ withBaseUrl do
   locator <- lift $ selectTreeLocator co tree
 
   table_ [] do
@@ -591,6 +591,3 @@ repoBlob lww co tree bi@BlobInfo{..} = do
       td_ [colspan_ "3"] mempty
 
   doRenderBlob (pure mempty) lww bi
-
-
-
