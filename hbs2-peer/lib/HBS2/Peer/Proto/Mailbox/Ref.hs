@@ -36,4 +36,3 @@ instance Pretty (AsBase58 (PubKey 'Sign s)) => Pretty (MailboxRefKey s) where
   pretty (MailboxRefKey k) = pretty (AsBase58 k)
 
 
-
