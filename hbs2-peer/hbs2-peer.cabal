@@ -166,6 +166,7 @@ library
       HBS2.Peer.Proto.Mailbox.Types
       HBS2.Peer.Proto.Mailbox.Message
       HBS2.Peer.Proto.Mailbox.Entry
+      HBS2.Peer.Proto.Mailbox.Ref
       HBS2.Peer.Proto.BrowserPlugin
 
       HBS2.Peer.RPC.Client

@@ -4,6 +4,7 @@ module HBS2.Peer.Proto.Mailbox
   ( module HBS2.Peer.Proto.Mailbox
   , module HBS2.Peer.Proto.Mailbox.Message
   , module HBS2.Peer.Proto.Mailbox.Types
+  , module HBS2.Peer.Proto.Mailbox.Ref
   ) where
 
 import HBS2.Prelude.Plated
@@ -17,6 +18,7 @@ import HBS2.Actors.Peer.Types
 import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Peer.Proto.Mailbox.Message
 import HBS2.Peer.Proto.Mailbox.Entry
+import HBS2.Peer.Proto.Mailbox.Ref
 
 import Data.Maybe
 import Control.Monad.Trans.Cont
