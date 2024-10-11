@@ -48,6 +48,8 @@ onClickCopyText :: Text -> Attribute
 onClickCopyText s =
   hyper_ [qc|on click writeText('{s}') into the navigator's clipboard
 set @data-tooltip to 'Copied!'
+wait 2s
+set @data-tooltip to 'Copy'
 |]
 
 
@@ -131,7 +133,7 @@ dashboardRootPage = rootPage do
 
               div_ do
 
-                div_ [class_ "text-nowrap"] do
+                div_ [class_ "whitespace-nowrap"] do
                   small_ $ "Updated " <> toHtml updated
 
                 when locked do

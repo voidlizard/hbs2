@@ -35,8 +35,8 @@ instance ToHtml (IssueOptionalArg Fixme FixmeAttrName) where
   toHtml (IssueOptionalArg fxm n)  = do
     for_ (fixmeGet n fxm) $ \t -> do
       tr_ do
-        th_ $ strong_ (toHtml $ show $ pretty n)
-        td_ (toHtml $ show $ pretty t)
+        td_ [class_ "whitespace-nowrap"] $ strong_ (toHtml $ show $ pretty n)
+        td_ [class_ "w-full"] (toHtml $ show $ pretty t)
 
   toHtmlRaw  = toHtml
 
@@ -78,7 +78,7 @@ issuePage repo@(RepoLww lww) f = rootPage do
 
       div_ [class_ "content"] $ do
 
-        nav_ [style_ "margin-bottom: 2em;"] do
+        nav_ [class_ "mb-1"] do
 
           div_ do
             small_ do
@@ -87,21 +87,22 @@ issuePage repo@(RepoLww lww) f = rootPage do
                 span_ [class_ "inline-icon-wrapper"] $ svgIcon IconArrowUturnLeft
                 span_ [] "back to issues"
 
-        section_ do
-          table_ do
-            tr_ do
-              td_ [colspan_ "2"] do
+        article_ [class_ "issue-info-card"] do
+          header_ do
+            h5_ do
+              toHtml (coerce @_ @Text $ fixmeTag fxm)
+              " "
+              span_ [class_ "font-normal"] do
                 let fkKey = coerce @_ @Text $ fixmeKey fxm
-                strong_ [style_ "margin-right: 1ch;"] $ toHtml (coerce @_ @Text $ fixmeTag fxm)
-                span_ [ style_ "margin-right: 1ch;"
-                      -- FIXME: make-underlined-on-hover
-                      --  $assigned fastpok
-                      , class_ "copyable-text"
+                span_ [ class_ "issue-id secondary"
+                      , data_ "tooltip" "Copy"
                       , onClickCopyText $ Text.take 10 fkKey
                       ] $ toHtml (H $ fixmeKey fxm)
                 " "
-                span_ [] $ toHtml (coerce @_ @Text $ fixmeTitle fxm)
+                toHtml (coerce @_ @Text $ fixmeTitle fxm)
 
+          div_ [class_ "overflow-x-auto"] $ table_ [class_ "issue-info-table mb-0"] do
+           
             toHtml (issueOptionalArg fxm "workflow")
             toHtml (issueOptionalArg fxm "class")
             toHtml (issueOptionalArg fxm "assigned")

@@ -55,6 +55,7 @@ header>nav {
   padding-top: var(--pico-block-spacing-vertical);
   padding-bottom: var(--pico-block-spacing-vertical);
   padding-left: var(--pico-block-spacing-horizontal);
+  overflow: auto;
 }
 
 article {
@@ -89,9 +90,6 @@ article {
   color: var(--pico-secondary-hover);
 }
 
-.copyable-text {
-}
-
 .copy-button .icon {
   width: 1.125rem;
   height: 1.125rem;
@@ -108,19 +106,6 @@ article {
 
 .info-block {
   margin-bottom: var(--pico-block-spacing-vertical);
-}
-
-.mb-0 {
-  margin-bottom: 0;
-}
-
-.py-0 {
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.text-nowrap {
-  text-wrap: nowrap;
 }
 
 .repo-menu {
@@ -145,6 +130,93 @@ aside li :where(a,[role=link]):not(:hover) {
 
 .sidebar-title {
   margin-bottom: calc(var(--pico-typography-spacing-vertical) * .25);
+}
+
+.issue-info-card {
+  padding: 0;
+}
+
+.issue-info-card>header {
+  margin: 0;
+}
+
+.issue-info-card>header h5 {
+  color: inherit;
+  margin-bottom: 0;
+}
+
+.issue-info-table tr:hover {
+  background-color: var(--pico-background-color);
+}
+
+.issue-info-table td,
+.issue-info-table th {
+  border-bottom-color: var(--pico-card-border-color);
+}
+
+.issue-info-table tr:last-child>td,
+.issue-info-table tr:last-child>th {
+  border-bottom: none;
+}
+
+.issue-info-table tr:last-child>td:first-child,
+.issue-info-table tr:last-child>th:first-child {
+  border-bottom-left-radius: var(--pico-border-radius);
+}
+
+.issue-info-table tr:last-child>td:last-child,
+.issue-info-table tr:last-child>th:last-child {
+  border-bottom-right-radius: var(--pico-border-radius);
+}
+
+.issue-info-card .issue-id {
+  cursor: pointer;
+  border-bottom: none;
+  color: var(--pico-secondary); 
+}
+
+
+.issue-info-card .issue-id:hover {
+  text-decoration: underline;
+  color: var(--pico-secondary-hover);
+}
+
+/* Tailwind-style classes */
+.mb-0 {
+  margin-bottom: 0;
+}
+
+.mb-1 {
+  margin-bottom: var(--pico-spacing);
+}
+
+.p-0 {
+  padding: 0;
+}
+
+.py-0 {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.whitespace-nowrap {
+  white-space: nowrap;
+}
+
+.font-normal {
+  font-weight: 400;
+}
+
+.text-secondary {
+  color: var(--pico-secondary);
+}
+
+.overflow-x-auto {
+  overflow-x: auto;
 }
 
 /* fastpok CSS end */
