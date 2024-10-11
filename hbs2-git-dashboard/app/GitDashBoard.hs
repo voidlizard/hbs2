@@ -248,7 +248,8 @@ runDashboardWeb WebOptions{..} = do
     lww <- captureParam @String "lww"  <&> fromStringMay @(LWWRefKey 'HBS2Basic)
                 >>= orThrow (itemNotFound "repository key")
 
-    redirect (LT.fromStrict  $ toURL (RepoPage (CommitsTab Nothing) lww))
+    asksBaseUrl $ withBaseUrl $
+      redirect (LT.fromStrict  $ toBaseURL (RepoPage (CommitsTab Nothing) lww))
 
   get (routePattern (RepoPage "tab" "lww")) do
     lww <- captureParam @String "lww"  <&> fromStringMay
@@ -371,8 +372,8 @@ runDashboardWeb WebOptions{..} = do
       lww       <- lwws' & orFall (status status404)
 
       -- FIXME: this
-      referrer <- lift (Scotty.header "Referer")
-                    >>= orFall (redirect $ LT.fromStrict $ toURL (RepoPage (CommitsTab Nothing) lww))
+      referrer <- asksBaseUrl $ withBaseUrl $ lift (Scotty.header "Referer")
+                    >>= orFall (redirect $ LT.fromStrict $ toBaseURL (RepoPage (CommitsTab Nothing) lww))
 
       lift $ renderHtml (repoCommits lww (Left pred))
 
@@ -602,6 +603,7 @@ theDict = do
     webEntry
     portEntry
     developAssetsEntry
+    baseUrlEntry
     getRpcSocketEntry
     rpcPingEntry
     rpcIndexEntry
@@ -663,6 +665,13 @@ theDict = do
           devAssTVar <- lift $ asks _dashBoardDevAssets
           atomically $ writeTVar devAssTVar (Just s)
 
+        _ -> none
+
+    baseUrlEntry = do
+      entry $ bindMatch "base-url" $ nil_ \case
+        [StringLike s] -> do
+          urlTV <- lift $ asks _dashBoardBaseUrl
+          atomically $ writeTVar urlTV (Just (Text.pack s))
         _ -> none
 
     getRpcSocketEntry = do
@@ -756,5 +765,3 @@ main = do
 
   void $ runDashBoardM $ do
     run dict cli
-
-

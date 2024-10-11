@@ -47,7 +47,7 @@ repoFixme :: ( MonadReader DashBoardEnv m
           -> LWWRefKey HBS2Basic
           -> HtmlT m ()
 
-repoFixme q@(FromParams p') lww = do
+repoFixme q@(FromParams p') lww = asksBaseUrl $ withBaseUrl do
 
   let p = Map.fromList p'
 
@@ -62,7 +62,7 @@ repoFixme q@(FromParams p') lww = do
   for_ fme $ \fixme -> do
     tr_ [class_ "commit-brief-title"] $ do
       td_ [class_ "mono", width_ "10"] do
-         a_ [ href_ (toURL (IssuePage (RepoLww lww) (fixmeKey fixme)))
+         a_ [ href_ (toBaseURL (IssuePage (RepoLww lww) (fixmeKey fixme)))
             ] $ toHtml (H $ fixmeKey fixme)
       td_ [width_ "10"] do
          strong_ [] $ toHtml (H $ fixmeTag fixme)
@@ -93,7 +93,7 @@ repoFixme q@(FromParams p') lww = do
 
   unless (List.null fme) do
     tr_ [ class_ "commit-brief-last"
-        , hxGet_ (toURL (Paged (offset + fromIntegral fixmePageSize) (RepoFixmeHtmx p (RepoLww lww))))
+        , hxGet_ (toBaseURL (Paged (offset + fromIntegral fixmePageSize) (RepoFixmeHtmx p (RepoLww lww))))
         , hxTrigger_ "revealed"
         , hxSwap_ "afterend"
         ] do

@@ -37,10 +37,10 @@ repoTopInfoBlock :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
                  -> TopInfoBlock
                  -> HtmlT m ()
 
-repoTopInfoBlock lww TopInfoBlock{..} = do
+repoTopInfoBlock lww TopInfoBlock{..} = asksBaseUrl $ withBaseUrl do
 
   div_ [class_ "info-block" ] do
-    let url = toURL (RepoPage (CommitsTab Nothing) lww)
+    let url = toBaseURL (RepoPage (CommitsTab Nothing) lww)
     let txt = toHtml (ShortRef lww)
     a_ [href_ url, class_ "secondary"] txt
 
@@ -60,14 +60,14 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
 
       when (Text.length manifest > 100) do
         li_ $ small_ do
-          a_ [class_ "secondary", href_ (toURL (RepoPage ManifestTab lww))] do
+          a_ [class_ "secondary", href_ (toBaseURL (RepoPage ManifestTab lww))] do
             span_ [class_ "inline-icon-wrapper"] $ svgIcon IconLicense
             "Manifest"
 
       for_ fixme $ \_ -> do
         li_ $ small_ do
           a_ [ class_ "secondary"
-             , href_ (toURL (RepoPage IssuesTab lww)) ] do
+             , href_ (toBaseURL (RepoPage IssuesTab lww)) ] do
             span_ [class_ "inline-icon-wrapper"] $ svgIcon IconFixme
             toHtml $ show fixmeCnt
             " Issues"
@@ -75,7 +75,7 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
       when (forksNum > 0) do
         li_ $ small_ do
           a_ [class_ "secondary"
-            , href_  (toURL (RepoPage ForksTab lww))
+            , href_  (toBaseURL (RepoPage ForksTab lww))
             ] do
               span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitFork
               toHtml $ show forksNum
@@ -83,7 +83,7 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
 
       li_ $ small_ do
         a_ [class_ "secondary"
-          , href_ (toURL (RepoPage (CommitsTab Nothing) lww))
+          , href_ (toBaseURL (RepoPage (CommitsTab Nothing) lww))
           ] do
           span_ [class_ "inline-icon-wrapper"] $ svgIcon IconGitCommit
           toHtml $ show commitsNum
@@ -93,7 +93,7 @@ repoTopInfoBlock lww TopInfoBlock{..} = do
         case ref of
           PinnedRefBlob s n hash -> small_ do
             li_ $ a_ [class_ "secondary"
-              , href_ (toURL (RepoPage (PinnedTab (Just (s,n,hash))) lww))
+              , href_ (toBaseURL (RepoPage (PinnedTab (Just (s,n,hash))) lww))
               ] do
                   span_ [class_ "inline-icon-wrapper"] $ svgIcon IconPinned
                   toHtml (Text.take 12 n)
@@ -150,4 +150,3 @@ getTopInfoBlock lww = do
   let repoName = rlRepoName
 
   pure $ TopInfoBlock{..}
-

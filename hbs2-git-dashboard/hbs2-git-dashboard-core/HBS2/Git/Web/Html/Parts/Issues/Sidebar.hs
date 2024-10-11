@@ -20,7 +20,7 @@ issuesSidebar :: (MonadIO m, DashBoardPerks m, MonadReader DashBoardEnv m)
               -> TopInfoBlock
               -> [(Text,Text)]
               -> HtmlT m ()
-issuesSidebar lww topInfoBlock p' = do
+issuesSidebar lww topInfoBlock p' = asksBaseUrl $ withBaseUrl do
 
   let p = Map.fromList p'
 
@@ -42,7 +42,7 @@ issuesSidebar lww topInfoBlock p' = do
       for_ fmt $ \(s,n) -> do
         li_ [] $ small_ [] do
           a_ [ class_ "secondary"
-             , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "fixme-tag" (coerce s) p) (RepoLww lww))))
+             , hxGet_ (toBaseURL (Paged 0 (RepoFixmeHtmx (Map.insert "fixme-tag" (coerce s) p) (RepoLww lww))))
              , hxTarget_ "#fixme-tab-data"
              ] do
             span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
@@ -56,7 +56,7 @@ issuesSidebar lww topInfoBlock p' = do
 
       li_ [] $ small_ [] do
         a_ [ class_ "secondary"
-           , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.delete "workflow" p) (RepoLww lww))))
+           , hxGet_ (toBaseURL (Paged 0 (RepoFixmeHtmx (Map.delete "workflow" p) (RepoLww lww))))
            , hxTarget_ "#fixme-tab-data"
            ] do
           span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
@@ -67,7 +67,7 @@ issuesSidebar lww topInfoBlock p' = do
       for_ fmw $ \(s,n) -> do
         li_ [] $ small_ [] do
           a_ [ class_ "secondary"
-             , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "workflow" (coerce s) p) (RepoLww lww))))
+             , hxGet_ (toBaseURL (Paged 0 (RepoFixmeHtmx (Map.insert "workflow" (coerce s) p) (RepoLww lww))))
              , hxTarget_ "#fixme-tab-data"
              ] do
             span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
@@ -81,7 +81,7 @@ issuesSidebar lww topInfoBlock p' = do
     for_ ass $ \(s,n) -> do
       li_ [] $ small_ [] do
         a_ [ class_ "secondary"
-           , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "assigned" (coerce s) p) (RepoLww lww))))
+           , hxGet_ (toBaseURL (Paged 0 (RepoFixmeHtmx (Map.insert "assigned" (coerce s) p) (RepoLww lww))))
            , hxTarget_ "#fixme-tab-data"
            ] do
           span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
@@ -94,7 +94,7 @@ issuesSidebar lww topInfoBlock p' = do
     for_ cla $ \(s,n) -> do
       li_ [] $ small_ [] do
         a_ [ class_ "secondary"
-           , hxGet_ (toURL (Paged 0 (RepoFixmeHtmx (Map.insert "class" (coerce s) p) (RepoLww lww))))
+           , hxGet_ (toBaseURL (Paged 0 (RepoFixmeHtmx (Map.insert "class" (coerce s) p) (RepoLww lww))))
            , hxTarget_ "#fixme-tab-data"
            ] do
           span_ [style_ "display: inline-block; width: 4ch; text-align: right; padding-right: 0.5em;"] $
@@ -103,4 +103,3 @@ issuesSidebar lww topInfoBlock p' = do
           span_ [] $ toHtml $ show $ pretty s
 
   pure ()
-
