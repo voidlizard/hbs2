@@ -22,12 +22,15 @@ import HBS2.Peer.Proto.Mailbox.Ref
 
 import Data.Maybe
 import Control.Monad.Trans.Cont
-import Codec.Serialise
+import Codec.Serialise()
 
 data MailBoxStatusPayload s =
   MailBoxStatusPayload
-  { mbsMailboxKey   :: MailboxKey s
-  , mbsMailboxHash  :: HashRef
+  { mbsMailboxKey           :: MailboxKey s
+  , mbsMailboxType          :: MailboxType
+  , mbsMailboxHash          :: Maybe HashRef
+  , mbsMailboxPolicyVersion :: Maybe PolicyVersion
+  , mbsMailboxPolicyHash    :: Maybe HashRef
   }
   deriving stock (Generic)
 
@@ -39,14 +42,6 @@ data SetPolicyPayload s =
   }
   deriving stock (Generic)
 
-data GetPolicyPayload s =
-  GetPolicyPayload
-  { gppMailboxKey    :: MailboxKey s
-  , gppPolicyVersion :: PolicyVersion
-  , gppPolicyRef     :: HashRef
-  }
-  deriving stock (Generic)
-
 data DeleteMessagesPayload s =
   DeleteMessagesPayload
   { dmpMailboxKey    :: MailboxKey s
@@ -55,13 +50,11 @@ data DeleteMessagesPayload s =
   deriving stock (Generic)
 
 data MailBoxProtoMessage s e =
-    SendMessage     (Message s) -- already has signed box
-  | CheckMailbox    (SignedBox (MailboxKey s) s)
-  | MailboxStatus   (SignedBox (MailBoxStatusPayload s) s)
-  | SetPolicy       (SignedBox (SetPolicyPayload s) s)
-  | GetPolicy       (SignedBox (GetPolicyPayload s) s)
-  | CurrentPolicy   (GetPolicyPayload s)
-  | DeleteMessages  (SignedBox (DeleteMessagesPayload s) s)
+    SendMessage      (Message s) -- already has signed box
+  | CheckMailbox     (MailboxKey s)
+  | MailboxStatus    (SignedBox (MailBoxStatusPayload s) s) -- signed by peer
+  | SetPolicy        (SignedBox (SetPolicyPayload s) s)
+  | DeleteMessages   (SignedBox (DeleteMessagesPayload s) s)
   deriving stock (Generic)
 
 data MailBoxProto s e =
@@ -70,7 +63,6 @@ data MailBoxProto s e =
 
 instance ForMailbox s => Serialise (MailBoxStatusPayload s)
 instance ForMailbox s => Serialise (SetPolicyPayload s)
-instance ForMailbox s => Serialise (GetPolicyPayload s)
 instance ForMailbox s => Serialise (DeleteMessagesPayload s)
 instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
 instance ForMailbox s => Serialise (MailBoxProto s e)
@@ -98,14 +90,32 @@ class ForMailbox s => IsMailboxService s a where
                 -> Recipient s
                 -> m (Either MailboxServiceError ())
 
+  mailboxDelete :: forall m . MonadIO m
+                => a
+                -> Recipient s
+                -> m (Either MailboxServiceError ())
+
   mailboxSendMessage :: forall m . MonadIO m
                      => a
                      -> Message s
                      -> m (Either MailboxServiceError ())
 
+
+  mailboxSendDelete :: forall m . MonadIO m
+                    => a
+                    -> MailboxRefKey s
+                    -> MailboxMessagePredicate
+                    -> m (Either MailboxServiceError ())
+
   mailboxListBasic :: forall m . MonadIO m
                    => a
                    -> m (Either MailboxServiceError [(MailboxRefKey s, MailboxType)])
+
+  mailboxGetStatus :: forall m . MonadIO m
+                   => a
+                   -> MailboxRefKey s
+                   -> m (Either MailboxServiceError (Maybe (MailBoxStatusPayload s)))
+
 
 data AnyMailboxService s =
   forall a  . (IsMailboxService s a) => AnyMailboxService { mailboxService :: a }
@@ -115,8 +125,11 @@ data AnyMailboxAdapter s =
 
 instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxCreate (AnyMailboxService a) = mailboxCreate @s a
+  mailboxDelete (AnyMailboxService a) = mailboxDelete @s a
   mailboxSendMessage (AnyMailboxService a) = mailboxSendMessage @s a
+  mailboxSendDelete (AnyMailboxService a) = mailboxSendDelete @s a
   mailboxListBasic (AnyMailboxService a) = mailboxListBasic @s a
+  mailboxGetStatus (AnyMailboxService a) = mailboxGetStatus @s a
 
 instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a
@@ -127,6 +140,7 @@ mailboxProto :: forall e s m p a . ( MonadIO m
                                    , HasDeferred p e m
                                    , HasGossip e p m
                                    , IsMailboxProtoAdapter s a
+                                   , IsMailboxService s a
                                    , p ~ MailBoxProto s e
                                    , s ~ Encryption e
                                    , ForMailbox s
@@ -136,7 +150,7 @@ mailboxProto :: forall e s m p a . ( MonadIO m
              -> MailBoxProto (Encryption e) e
              ->  m ()
 
-mailboxProto inner adapter mess = do
+mailboxProto inner adapter mess = deferred @p do
   -- common stuff
 
   sto <- mailboxGetStorage @s adapter
@@ -181,13 +195,42 @@ mailboxProto inner adapter mess = do
           --   $class: leak
           void $ putBlock sto routed
 
-    CheckMailbox{} -> do
-      -- TODO: implement-CheckMailbox
-      --  [ ]  check-signed-box-or-drop
-      --  [ ]  if-client-has-mailbox-then
-      --  [ ]     get-mailbox-status
-      --  [ ]     answer-MailboxStatus
-      --  [ ]  gossip-message?
+    -- NOTE: CheckMailbox-auth
+    --   поскольку пир не владеет приватными ключами,
+    --   то и подписать это сообщение он не может.
+    --
+    --   В таком случае, и в фоновом режиме нельзя будет
+    --   синхронизировать ящики.
+    --
+    --   Поскольку все сообщения зашифрованы (но не их метаданные!)
+    --   статус мейлобокса является открытой в принципе информацией.
+    --
+    --   Теперь у нас два пути:
+    --    1. Отдавать только авторизованными пирам (которые имеют майлобоксы)
+    --       для этого сделаем сообщение CheckMailboxAuth{}
+    --
+    --    2. Шифровать дерево с метаданными, так как нам в принципе
+    --       может быть известен публичный ключ шифрования автора,
+    --       но это сопряжено со сложностями с обновлением ключей.
+    --
+    --    С другой стороны, если нас не очень беспокоит возможное раскрытие
+    --    метаданных --- то тот, кто скачает мейлобокс для анализа --- будет
+    --    участвовать в раздаче.
+    --
+    --    С другой стороны, может он и хочет участвовать в раздаче, что бы каким-то
+    --    образом ей вредить или устраивать слежку.
+    --
+    --    С этим всем можно бороться поведением и policy:
+    --
+    --    например:
+    --      - не отдавать сообщения неизвестным пирам
+    --      - требовать авторизацию (CheckMailboxAuth не нужен т.к. пир авторизован
+    --        и так и известен в протоколе)
+    --
+
+    CheckMailbox k -> do
+      -- TODO: check-policy
+
       none
 
     MailboxStatus{} -> do
@@ -204,12 +247,6 @@ mailboxProto inner adapter mess = do
       none
 
     SetPolicy{} -> do
-      none
-
-    GetPolicy{} -> do
-      none
-
-    CurrentPolicy{} -> do
       none
 
     DeleteMessages{} -> do

@@ -111,6 +111,28 @@ instance ( s ~ Encryption e, e ~ L4Proto
         Right{} -> pure $ Right ()
         Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
+  mailboxDelete MailboxProtoWorker{..} mbox = do
+
+    flip runContT pure $ callCC \exit -> do
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+
+      debug $ red "delete fucking mailbox" <+> pretty (MailboxRefKey @s mbox)
+
+      -- TODO: actually-purge-messages-and-attachments
+      withDB dbe do
+        insert [qc| delete from mailbox where recipient = ? |] (Only (MailboxRefKey @s mbox))
+
+      delRef mpwStorage (MailboxRefKey @s mbox)
+
+      pure $ Right ()
+
+  -- FIXME: refactor
+  mailboxSendDelete w@MailboxProtoWorker{..} ref predicate = do
+    pure $ Right ()
+
   mailboxSendMessage w@MailboxProtoWorker{..} mess = do
     -- we do not check message signature here
     -- because it will be checked in the protocol handler anyway
@@ -135,6 +157,9 @@ instance ( s ~ Encryption e, e ~ L4Proto
              select_ @_ @(MailboxRefKey s, MailboxType) [qc|select recipient,type from mailbox|]
 
       pure $ Right r
+
+  mailboxGetStatus MailboxProtoWorker{..} ref = do
+    undefined
 
 getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> Recipient s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
@@ -179,7 +204,7 @@ mailboxProtoWorker :: forall e s m . ( MonadIO m
 
 mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
-  pause @'Seconds 10
+  pause @'Seconds 1
 
   flip runContT pure do
 
@@ -234,7 +259,9 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
             debug $ yellow "mailbox: message stored" <+> pretty ref <+> pretty ha
 
-            h' <- enqueueBlock sto (serialise (Existed ha))
+            -- TODO: add-policy-reference
+            let proof = ProofOfExist mzero
+            h' <- enqueueBlock sto (serialise (Existed proof ha))
 
             for_ h' $ \h -> do
               atomically do
@@ -324,6 +351,9 @@ mailboxStateEvolve readConf MailboxProtoWorker{..}  = do
 
   pure dbe
 
+
+instance ForMailbox s => ToField (MailboxRefKey s) where
+  toField (MailboxRefKey a) = toField (show $ pretty (AsBase58 a))
 
 instance ForMailbox s => FromField (MailboxRefKey s) where
   fromField w = fromField @String w <&> fromString @(MailboxRefKey s)

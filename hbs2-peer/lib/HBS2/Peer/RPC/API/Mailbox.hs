@@ -16,12 +16,14 @@ import Codec.Serialise
 
 data RpcMailboxPoke
 data RpcMailboxCreate
+data RpcMailboxDelete
 data RpcMailboxList
 data RpcMailboxSend
 data RpcMailboxGet
 
 type MailboxAPI = '[ RpcMailboxPoke
                    , RpcMailboxCreate
+                   , RpcMailboxDelete
                    , RpcMailboxList
                    , RpcMailboxSend
                    , RpcMailboxGet
@@ -41,6 +43,9 @@ type instance Output RpcMailboxPoke  = ()
 
 type instance Input RpcMailboxCreate   = (PubKey 'Sign HBS2Basic, MailboxType)
 type instance Output RpcMailboxCreate  = ()
+
+type instance Input RpcMailboxDelete   = (PubKey 'Sign HBS2Basic)
+type instance Output RpcMailboxDelete  = ()
 
 type instance Input RpcMailboxList   = ()
 type instance Output RpcMailboxList  = [(MailboxRefKey 'HBS2Basic, MailboxType)]
