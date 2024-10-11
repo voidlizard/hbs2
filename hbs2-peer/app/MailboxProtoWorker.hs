@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 module MailboxProtoWorker ( mailboxProtoWorker
@@ -119,6 +120,21 @@ instance ( s ~ Encryption e, e ~ L4Proto
         mailboxProto @e True w (MailBoxProtoV1 (SendMessage mess))
 
     pure $ Right ()
+
+  mailboxListBasic  MailboxProtoWorker{..} = do
+
+    flip runContT pure do
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+
+      debug $ red "mailboxListBasic"
+
+      r <- withDB dbe do
+             select_ @_ @(MailboxRefKey s, MailboxType) [qc|select recipient,type from mailbox|]
+
+      pure $ Right r
 
 getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> Recipient s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
@@ -264,7 +280,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
         let mergedTx = HS.fromList txs <> newTx & HS.toList
 
         -- FIXME: size-hardcode-again
-        let pt = toPTree (MaxSize 6000) (MaxNum 256) mergedTx
+        let pt = toPTree (MaxSize 6000) (MaxNum 1024) mergedTx
         nref <- makeMerkle 0 pt $ \(_,_,bss) -> void $ liftIO $ putBlock sto bss
 
         updateRef sto r nref
@@ -307,4 +323,12 @@ mailboxStateEvolve readConf MailboxProtoWorker{..}  = do
            |]
 
   pure dbe
+
+
+instance ForMailbox s => FromField (MailboxRefKey s) where
+  fromField w = fromField @String w <&> fromString @(MailboxRefKey s)
+
+instance FromField MailboxType where
+  fromField w = fromField @String w <&> fromString @MailboxType
+
 

@@ -51,6 +51,8 @@ pMailBox = do
  what <- many (strArgument (metavar "ARGS" <> help "hbs2-cli mailbox command-line"))
  pure (runMailboxCLI rpc what)
 
+
+
 runMailboxCLI :: RPCOpt -> [String] -> IO ()
 runMailboxCLI rpc s = do
 
@@ -70,39 +72,8 @@ runMailboxCLI rpc s = do
           liftIO $ print $ pretty "okay, rpc is here"
 
         brief "creates mailbox of given type" $
-          desc [qc|
-; creates a mailbox using recipient SIGN public key
-
-create --key KEY TYPE
-
-; creates a mailbox using key from a SIGIL with HASH (should stored first)
-
-create --sigil HASH TYPE
-
-; creates a mailbox using key from a SIGIL from FILE
-
-create --sigil-file FILE TYPE
-
-TYPE ::= hub | relay
-
-|] $
-          examples [qc|
-
-; create using recipient public key
-
-create --key 3fKeGjaDGBKtNqeNBPsThh8vSj4TPiqaaK7uHbB8MQUV relay
-
-; create using sigil hash
-
-create --sigil ghna99Xtm33ncfdUBT3htBUoEyT16wTZGMdm24BQ1kh relay
-
-; create using sigil file
-
-create --sigil-file ./my.sigil hub
-
-see hbs2-cli for sigil commands (create, store, load, etc)
-
-|]
+          desc createMailBoxDesc $
+          examples createMailBoxExamples
             $ entry $ bindMatch "create" $ nil_ $ \syn -> do
 
               case syn of
@@ -126,29 +97,7 @@ see hbs2-cli for sigil commands (create, store, load, etc)
                 _ -> throwIO $ BadFormException @C nil
 
         brief "send message via gossip"  $
-          desc [qc|
-; reads message blob from stdin
-
-send --stdin
-
-; read message blob from file
-
-send --file FILE
-
-; reads message blob from storage
-
-send HASH
-
-you may create a message from plain text using
-
-hbs2-cli hbs2:mailbox:message:create
-
-command
-
-SEE ALSO
-  hbs2:mailbox:message:create
-
-          |]
+          desc sendMessageDesc
           $ entry $ bindMatch "send" $ nil_ $ \syn -> do
 
               blob <- case syn of
@@ -172,6 +121,27 @@ SEE ALSO
 
               pure ()
 
+        brief "get mailbox value"
+          $ entry $ bindMatch "get" $ nil_ $ \case
+             [ SignPubKeyLike m ] -> do
+
+              v <- callRpcWaitMay @RpcMailboxGet t api m
+                     >>= orThrowUser "rpc call timeout"
+
+              liftIO $ print $ pretty v
+
+             _ -> throwIO $ BadFormException @C nil
+
+        brief "list mailboxes"
+          $ entry $ bindMatch "list" $ nil_ $ const do
+
+              let fmtMbox (m,t) = pretty m <+> pretty t
+
+              v <- callRpcWaitMay @RpcMailboxList t api ()
+                     >>= orThrowUser "rpc call timeout"
+
+              liftIO $ print $ vcat (fmap fmtMbox v)
+
         entry $ bindMatch "help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
           [StringLike s]      -> helpList False (Just s)
@@ -183,4 +153,69 @@ SEE ALSO
     stoAPI <- ContT $ withMyRPC @StorageAPI rpc
     let sto = AnyStorage (StorageClient stoAPI)
     lift $ run (dict sto caller) cli >>= eatNil display
+
+
+-- man entries
+
+createMailBoxDesc :: Doc a
+createMailBoxDesc = [qc|
+; creates a mailbox using recipient SIGN public key
+
+create --key KEY TYPE
+
+; creates a mailbox using key from a SIGIL with HASH (should stored first)
+
+create --sigil HASH TYPE
+
+; creates a mailbox using key from a SIGIL from FILE
+
+create --sigil-file FILE TYPE
+
+TYPE ::= hub | relay
+
+|]
+
+createMailBoxExamples :: ManExamples
+createMailBoxExamples = [qc|
+; create using recipient public key
+
+create --key 3fKeGjaDGBKtNqeNBPsThh8vSj4TPiqaaK7uHbB8MQUV relay
+
+; create using sigil hash
+
+create --sigil ghna99Xtm33ncfdUBT3htBUoEyT16wTZGMdm24BQ1kh relay
+
+; create using sigil file
+
+create --sigil-file ./my.sigil hub
+
+see hbs2-cli for sigil commands (create, store, load, etc)
+
+|]
+
+
+sendMessageDesc :: Doc a
+sendMessageDesc = [qc|
+; reads message blob from stdin
+
+send --stdin
+
+; read message blob from file
+
+send --file FILE
+
+; reads message blob from storage
+
+send HASH
+
+you may create a message from plain text using
+
+hbs2-cli hbs2:mailbox:message:create
+
+command
+
+SEE ALSO
+  hbs2:mailbox:message:create
+
+|]
 
