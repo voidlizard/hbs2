@@ -902,7 +902,7 @@ runPeer opts = Exception.handle (\e -> myException e
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
-  mailboxWorker <- createMailboxProtoWorker @e penv denv (AnyStorage s)
+  mailboxWorker <- createMailboxProtoWorker  penv denv (AnyStorage s)
 
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
