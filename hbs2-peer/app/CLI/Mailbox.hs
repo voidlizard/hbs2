@@ -170,10 +170,10 @@ runMailboxCLI rpc s = do
                              >>= toMPlus
 
                     case e of
-                      Deleted mh -> do
+                      Deleted _ mh -> do
                         atomically $ modifyTVar d (HS.insert mh)
 
-                      Existed mh -> do
+                      Existed _ mh -> do
                          atomically $ modifyTVar r (HS.insert mh)
 
               deleted <- readTVarIO d
@@ -183,6 +183,15 @@ runMailboxCLI rpc s = do
                 liftIO $ print $ pretty mh
 
              _ -> throwIO $ BadFormException @C nil
+
+
+        brief "delete mailbox"
+          $ entry $ bindMatch "delete" $ nil_ $ \case
+            [ SignPubKeyLike mbox ]-> lift do
+              callRpcWaitMay @RpcMailboxDelete t api mbox
+                 >>= orThrowUser "rpc call timeout"
+
+            _ -> throwIO $ BadFormException @C nil
 
         entry $ bindMatch "help" $ nil_ \case
           HelpEntryBound what -> helpEntry what

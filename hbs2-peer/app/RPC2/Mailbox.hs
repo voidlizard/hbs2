@@ -45,6 +45,12 @@ instance (ForMailboxRPC m) => HandleMethod m RpcMailboxCreate where
     void $ mailboxCreate @HBS2Basic mbs t puk
     debug $ "rpc.RpcMailboxCreate" <+> pretty (AsBase58 puk) <+> pretty t
 
+instance (ForMailboxRPC m) => HandleMethod m RpcMailboxDelete where
+
+  handleMethod puk = do
+    AnyMailboxService mbs <- getRpcContext @MailboxAPI @RPC2Context <&> rpcMailboxService
+    void $ mailboxDelete @HBS2Basic mbs puk
+    debug $ "rpc.RpcMailboxDelete" <+> pretty (AsBase58 puk)
 
 instance (ForMailboxRPC m) => HandleMethod m RpcMailboxList where
 
