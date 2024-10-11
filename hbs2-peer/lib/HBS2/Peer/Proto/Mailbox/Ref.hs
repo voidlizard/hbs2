@@ -3,6 +3,9 @@ module HBS2.Peer.Proto.Mailbox.Ref where
 
 
 import HBS2.Prelude
+
+import HBS2.Peer.Proto.Mailbox.Types
+
 import HBS2.Hash
 import HBS2.Base58
 import HBS2.Net.Proto.Types
@@ -12,6 +15,7 @@ import Data.Maybe (fromMaybe)
 import Data.Hashable hiding (Hashed)
 
 newtype MailboxRefKey s = MailboxRefKey (PubKey 'Sign s)
+                          deriving stock Generic
 
 instance RefMetaData (MailboxRefKey s)
 
@@ -35,4 +39,5 @@ instance Pretty (AsBase58 (PubKey 'Sign s)) => Pretty (AsBase58 (MailboxRefKey s
 instance Pretty (AsBase58 (PubKey 'Sign s)) => Pretty (MailboxRefKey s) where
   pretty (MailboxRefKey k) = pretty (AsBase58 k)
 
+instance ForMailbox s => Serialise (MailboxRefKey s)
 

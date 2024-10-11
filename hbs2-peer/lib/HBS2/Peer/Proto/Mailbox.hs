@@ -103,15 +103,20 @@ class ForMailbox s => IsMailboxService s a where
                      -> Message s
                      -> m (Either MailboxServiceError ())
 
+  mailboxListBasic :: forall m . MonadIO m
+                   => a
+                   -> m (Either MailboxServiceError [(MailboxRefKey s, MailboxType)])
+
 data AnyMailboxService s =
   forall a  . (IsMailboxService s a) => AnyMailboxService { mailboxService :: a }
 
 data AnyMailboxAdapter s =
-  forall a . (IsMailboxProtoAdapter s a) => AnyMailboxAdapter { mailboxAdapter :: a}
+  forall a . (IsMailboxProtoAdapter s a) => AnyMailboxAdapter { mailboxAdapter :: a }
 
 instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxCreate (AnyMailboxService a) = mailboxCreate @s a
   mailboxSendMessage (AnyMailboxService a) = mailboxSendMessage @s a
+  mailboxListBasic (AnyMailboxService a) = mailboxListBasic @s a
 
 instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a

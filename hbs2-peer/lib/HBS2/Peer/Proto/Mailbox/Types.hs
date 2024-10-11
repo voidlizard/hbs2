@@ -25,6 +25,7 @@ import HBS2.Net.Auth.GroupKeySymm
 
 import Data.Word (Word32)
 import Codec.Serialise
+import Data.Maybe
 
 data MailboxType =
   MailboxHub | MailboxRelay
@@ -77,5 +78,6 @@ instance FromStringMaybe MailboxType where
     "relay" -> Just MailboxRelay
     _       -> Nothing
 
-
+instance IsString MailboxType where
+  fromString s = fromMaybe (error "invalid MailboxType value") (fromStringMay s)
 
