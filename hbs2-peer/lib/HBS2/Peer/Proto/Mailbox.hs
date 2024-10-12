@@ -15,8 +15,12 @@ import HBS2.Data.Types.Refs
 import HBS2.Data.Types.SignedBox
 import HBS2.Storage
 import HBS2.Actors.Peer.Types
+import HBS2.Data.Types.Peer
 import HBS2.Net.Auth.Credentials
 
+
+import HBS2.Net.Proto.Sessions
+import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Peer.Proto.Mailbox.Message
 import HBS2.Peer.Proto.Mailbox.Entry
@@ -29,22 +33,21 @@ import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
 
+data SetPolicyPayload s =
+  SetPolicyPayload
+  { sppMailboxKey    :: MailboxKey s
+  , sppPolicyVersion :: PolicyVersion
+  , sppPolicyRef     :: HashRef -- ^ merkle tree hash of policy description file
+  }
+  deriving stock (Generic)
+
 data MailBoxStatusPayload s =
   MailBoxStatusPayload
   { mbsMailboxPayloadNonce  :: Word64
   , mbsMailboxKey           :: MailboxKey s
   , mbsMailboxType          :: MailboxType
   , mbsMailboxHash          :: Maybe HashRef
-  , mbsMailboxPolicyVersion :: Maybe PolicyVersion
-  , mbsMailboxPolicyHash    :: Maybe HashRef
-  }
-  deriving stock (Generic)
-
-data SetPolicyPayload s =
-  SetPolicyPayload
-  { sppMailboxKey    :: MailboxKey s
-  , sppPolicyVersion :: PolicyVersion
-  , sppPolicyRef     :: HashRef
+  , mbsMailboxPolicy        :: Maybe (SignedBox (SetPolicyPayload s) s)
   }
   deriving stock (Generic)
 
@@ -57,7 +60,7 @@ data DeleteMessagesPayload s =
 
 data MailBoxProtoMessage s e =
     SendMessage      (Message s) -- already has signed box
-  | CheckMailbox     (MailboxKey s)
+  | CheckMailbox     (Maybe Word64) (MailboxKey s)
   | MailboxStatus    (SignedBox (MailBoxStatusPayload s) s) -- signed by peer
   | SetPolicy        (SignedBox (SetPolicyPayload s) s)
   | DeleteMessages   (SignedBox (DeleteMessagesPayload s) s)
@@ -94,6 +97,11 @@ class ForMailbox s => IsMailboxService s a where
                 -> Recipient s
                 -> m (Either MailboxServiceError ())
 
+  mailboxSetPolicy :: forall m . MonadIO m
+                   => a
+                   -> SignedBox (SetPolicyPayload s) s
+                   -> m (Either MailboxServiceError HashRef)
+
   mailboxDelete :: forall m . MonadIO m
                 => a
                 -> Recipient s
@@ -120,6 +128,12 @@ class ForMailbox s => IsMailboxService s a where
                    -> MailboxRefKey s
                    -> m (Either MailboxServiceError (Maybe (MailBoxStatusPayload s)))
 
+  mailboxAcceptStatus :: forall m . MonadIO m
+                      => a
+                      -> MailboxRefKey s
+                      -> PubKey 'Sign s -- ^ peer's key
+                      -> MailBoxStatusPayload s
+                      -> m (Either MailboxServiceError ())
 
 data AnyMailboxService s =
   forall a  . (IsMailboxService s a) => AnyMailboxService { mailboxService :: a }
@@ -129,11 +143,13 @@ data AnyMailboxAdapter s =
 
 instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxCreate (AnyMailboxService a) = mailboxCreate @s a
+  mailboxSetPolicy (AnyMailboxService a) = mailboxSetPolicy @s a
   mailboxDelete (AnyMailboxService a) = mailboxDelete @s a
   mailboxSendMessage (AnyMailboxService a) = mailboxSendMessage @s a
   mailboxSendDelete (AnyMailboxService a) = mailboxSendDelete @s a
   mailboxListBasic (AnyMailboxService a) = mailboxListBasic @s a
   mailboxGetStatus (AnyMailboxService a) = mailboxGetStatus @s a
+  mailboxAcceptStatus (AnyMailboxService a) = mailboxAcceptStatus @s a
 
 instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetCredentials (AnyMailboxAdapter a) = mailboxGetCredentials @s a
@@ -146,15 +162,27 @@ instance ForMailbox s => Pretty (MailBoxStatusPayload s) where
     where
       st = indent 2 $
              brackets $
-             vcat [ parens ("nonce" <+> pretty mbsMailboxPayloadNonce)
+             align $ vcat
+                  [ parens ("nonce" <+> pretty mbsMailboxPayloadNonce)
                   , parens ("key"   <+> pretty (AsBase58 mbsMailboxKey))
                   , parens ("type"  <+> pretty mbsMailboxType)
                   , element "mailbox-tree"   mbsMailboxHash
-                  , element "policy-version" mbsMailboxPolicyVersion
-                  , element "policy-tree"    mbsMailboxPolicyHash
+                  , element "set-policy-payload-hash" (HashRef . hashObject . serialise <$> mbsMailboxPolicy)
+                  , maybe mempty pretty spp
                   ]
 
       element el = maybe mempty ( \v -> parens (el <+> pretty v) )
+
+      spp = mbsMailboxPolicy >>= unboxSignedBox0 <&> snd
+
+
+instance ForMailbox s => Pretty (SetPolicyPayload s) where
+  pretty SetPolicyPayload{..} = parens ( "set-policy-payload" <> line <> indent 2 (brackets w) )
+    where
+      w = align $
+            vcat [ parens ( "version" <+> pretty sppPolicyVersion )
+                 , parens ( "ref" <+> pretty sppPolicyRef )
+                 ]
 
 mailboxProto :: forall e s m p a . ( MonadIO m
                                    , Response e p m
@@ -162,6 +190,7 @@ mailboxProto :: forall e s m p a . ( MonadIO m
                                    , HasGossip e p m
                                    , IsMailboxProtoAdapter s a
                                    , IsMailboxService s a
+                                   , Sessions e (KnownPeer e) m
                                    , p ~ MailBoxProto s e
                                    , s ~ Encryption e
                                    , ForMailbox s
@@ -174,23 +203,13 @@ mailboxProto :: forall e s m p a . ( MonadIO m
 mailboxProto inner adapter mess = deferred @p do
   -- common stuff
 
-  sto <- mailboxGetStorage @s adapter
-  now <- liftIO $ getPOSIXTime <&> round
+  sto  <- mailboxGetStorage @s adapter
+  now  <- liftIO $ getPOSIXTime <&> round
+  that <- thatPeer @p
+  se   <- find (KnownPeerKey that) id
 
   case mailBoxProtoPayload mess of
     SendMessage msg -> deferred @p do
-      -- TODO: implement-SendMessage
-      --   [ ] check-if-mailbox-exists
-      --   [ ] check-message-signature
-      --   [ ] if-already-processed-then-skip
-      --   [ ] store-message-hash-block-with-ttl
-      --   [ ] if-message-to-this-mailbox-then store-message
-      --   [ ] gossip-message
-
-      -- проверяем, что еще не обрабатывали?
-      -- если обрабатывали -- то дропаем
-      -- что мы пишем в сторейдж?
-      -- кто потом это дропает?
 
       flip runContT pure $ callCC \exit -> do
 
@@ -249,7 +268,7 @@ mailboxProto inner adapter mess = deferred @p do
     --        и так и известен в протоколе)
     --
 
-    CheckMailbox k -> deferred @p do
+    CheckMailbox _ k -> deferred @p do
       creds <- mailboxGetCredentials @s adapter
 
       void $ runMaybeT do
@@ -264,18 +283,47 @@ mailboxProto inner adapter mess = deferred @p do
 
         lift $ response @_ @p (MailBoxProtoV1 (MailboxStatus box))
 
-    MailboxStatus{} -> do
-      -- TODO: implement-MailboxStatus
-      --
-      --  [ ]  if-do-gossip-setting-then
-      --  [ ]     gossip-MailboxStatus
-      --
-      --  [ ]  check-signed-box-or-drop
-      --  [ ]  if-client-has-mailbox-then
-      --  [ ]     get-mailbox-status
-      --  [ ]     answer-MailboxStatus
-      --
-      none
+    MailboxStatus box -> deferred @p do
+
+      flip runContT pure $ callCC \exit -> do
+
+        let r = unboxSignedBox0 @(MailBoxStatusPayload s) box
+
+        PeerData{..} <- ContT $ maybe1 se none
+
+        (who, content@MailBoxStatusPayload{..}) <- ContT $ maybe1 r none
+
+        unless ( who == _peerSignKey ) $ exit ()
+
+        -- FIXME: timeout-hardcode
+        --   может быть вообще не очень хорошо
+        --   авторизовываться по времени.
+        --   возможно, надо слать нонс в CheckMailbox
+        --   и тут его проверять
+        unless ( abs (now - mbsMailboxPayloadNonce) < 3 ) $ exit ()
+
+        -- NOTE: possible-poisoning-attack
+        --  левый пир генерирует merkle tree сообщений и посылает его.
+        --  чего он может добиться: добавить "валидных" сообщений, которых не было
+        --  в ящике изначально. (зашифрованных, подписанных).
+        --
+        --  можно рассылать спам, ведь каждое спам-сообщение
+        --  будет валидно.
+        --  мы не можем подписывать что-либо подписью владельца ящика,
+        --  ведь мы не владеем его ключом.
+        --
+        --  как бороться:  в policy ограничивать число пиров, которые
+        --  могут отдавать статус и игнорировать статусы от прочих пиров.
+        --
+        --  другой вариант -- каким-то образом публикуется подтверждение
+        --  от автора, что пир X владеет почтовым ящиком R.
+        --
+        --  собственно, это и есть policy.
+        --
+        --  а вот policy мы как раз можем публиковать с подписью автора,
+        --  он участвует в процессе обновления policy.
+
+        void $ mailboxAcceptStatus adapter (MailboxRefKey mbsMailboxKey) who content
 
     SetPolicy{} -> do
       none

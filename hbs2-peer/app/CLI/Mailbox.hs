@@ -3,6 +3,7 @@
 module CLI.Mailbox (pMailBox) where
 
 import HBS2.Prelude.Plated
+import HBS2.Base58
 import HBS2.Hash
 import HBS2.OrDie
 import HBS2.Merkle
@@ -10,6 +11,7 @@ import HBS2.Data.Types.Refs
 import HBS2.Net.Proto.Service
 import HBS2.Net.Auth.Credentials
 import HBS2.Storage
+import HBS2.Storage.Operations.ByteString
 import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Types
@@ -28,6 +30,8 @@ import Codec.Serialise
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Either
 import Data.Coerce
 import Data.Config.Suckless.Script
 import Data.HashSet (HashSet)
@@ -146,6 +150,59 @@ runMailboxCLI rpc s = do
                      >>= orThrowPassIO
 
               liftIO $ print $ pretty v
+
+             _ -> throwIO $ BadFormException @C nil
+
+
+        brief "set mailbox policy" $
+          desc setPolicyDesc
+          -- $ examples setPolicyExamples
+          $ entry $ bindMatch "set-policy" $ nil_ $ \case
+             [ SignPubKeyLike m, LitIntVal v, StringLike fn ] -> lift do
+
+                mstatus <- callRpcWaitMay @RpcMailboxGetStatus t api m
+                             >>= orThrowUser "rpc call timeout"
+                             >>= orThrowPassIO
+
+                s <- liftIO $ readFile fn
+                      <&> parseTop
+                      >>= either (error . show) pure
+
+                pv <- fromMaybe 0 <$> runMaybeT do
+                        MailBoxStatusPayload{..} <- toMPlus mstatus
+                        pbox <- toMPlus mbsMailboxPolicy
+                        (who, SetPolicyPayload{..}) <- unboxSignedBox0 pbox & toMPlus
+
+                        guard ( m == who )
+
+                        pure sppPolicyVersion
+
+                -- TODO: validate-policy
+
+                creds <- runKeymanClientRO (loadCredentials m)
+                           >>= orThrowUser ("can't load credentials for" <+> pretty (AsBase58 m))
+
+                let normalized = show $ vcat (fmap pretty s)
+
+                notice $ "policy" <> line <> pretty normalized
+
+                notice $ "okay" <+>  pretty pv <+> "->" <+> pretty v <+> pretty fn
+
+                hash <-  writeAsMerkle sto (LBS8.pack normalized)
+
+                notice $ "stored policy as" <+> pretty hash
+
+                let spp = SetPolicyPayload @HBS2Basic m (fromIntegral v) (HashRef hash)
+
+                let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) spp
+
+                notice $ "signed policy payload done okay"
+
+                r <- callRpcWaitMay @RpcMailboxSetPolicy t api (m,box)
+                       >>= orThrowUser "rpc call timeout"
+                       >>= orThrowPassIO
+
+                liftIO $ print $ pretty r
 
              _ -> throwIO $ BadFormException @C nil
 
@@ -282,4 +339,13 @@ SEE ALSO
   hbs2:mailbox:message:create
 
 |]
+
+
+setPolicyDesc :: Doc a
+setPolicyDesc = [qc|
+  set-policy (MAILBOX-KEY :: PUBKEY) (VERSION :: INT) FILENAME
+|]
+
+setPolicyExamples :: ManExamples
+setPolicyExamples = mempty
 

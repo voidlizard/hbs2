@@ -47,6 +47,12 @@ instance (ForMailboxRPC m) => HandleMethod m RpcMailboxCreate where
     void $ mailboxCreate @HBS2Basic mbs t puk
     debug $ "rpc.RpcMailboxCreate" <+> pretty (AsBase58 puk) <+> pretty t
 
+instance (ForMailboxRPC m) => HandleMethod m RpcMailboxSetPolicy where
+
+  handleMethod (puk, sbox) = do
+    AnyMailboxService mbs <- getRpcContext @MailboxAPI @RPC2Context <&> rpcMailboxService
+    debug $ "rpc.RpcMailboxSetPolicy" <+> pretty (AsBase58 puk)
+    mailboxSetPolicy @HBS2Basic mbs sbox
 
 instance (ForMailboxRPC m) => HandleMethod m RpcMailboxGetStatus where
 

@@ -30,7 +30,9 @@ import Data.Maybe
 import Control.Exception
 
 data MailboxServiceError =
-  MailboxCreateFailed String
+    MailboxCreateFailed String
+  | MailboxSetPolicyFailed String
+  | MailboxAuthError String
   deriving stock (Typeable,Show,Generic)
 
 instance Serialise MailboxServiceError

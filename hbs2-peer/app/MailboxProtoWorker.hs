@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language MultiWayIf #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
 module MailboxProtoWorker ( mailboxProtoWorker
@@ -20,6 +21,7 @@ import HBS2.Storage
 import HBS2.Storage.Operations.Missed
 import HBS2.Merkle
 import HBS2.Hash
+import HBS2.Data.Types.SignedBox
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Entry
@@ -35,21 +37,33 @@ import PeerConfig
 import PeerTypes
 import BlockDownload()
 
-import DBPipe.SQLite
+import DBPipe.SQLite as Q
 
 import Control.Concurrent.STM qualified as STM
 -- import Control.Concurrent.STM.TBQueue
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
+import Control.Monad.Except (throwError)
 import Data.Coerce
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Maybe
+import Codec.Serialise
 import Lens.Micro.Platform
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO
+
+newtype PolicyHash = PolicyHash HashRef
+                     deriving newtype (Eq,Ord,Show,Hashable,Pretty)
+
+instance FromField PolicyHash where
+  fromField s = PolicyHash . fromString <$> fromField @String s
+
+instance ToField PolicyHash where
+  toField f = toField (show $ pretty f)
 
 data MailboxProtoException =
     MailboxProtoWorkerTerminatedException
@@ -116,9 +130,54 @@ instance ( s ~ Encryption e, e ~ L4Proto
         Right{} -> pure $ Right ()
         Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
+  mailboxSetPolicy MailboxProtoWorker{..} sbox = do
+    -- check policy version
+    -- check policy has peers
+    -- write policy block
+    -- update reference to policy block
+    --
+    -- test: write policy, check mailboxGetStatus
+
+    debug $ red "mailboxSetPolicy"
+
+    runExceptT do
+
+      -- check policy signature
+      (who, spp) <- unboxSignedBox0 sbox
+                      & orThrowError (MailboxAuthError "invalid signature")
+
+      dbe <- readTVarIO mailboxDB
+                >>= orThrowError (MailboxSetPolicyFailed "database not ready")
+
+      loaded <- loadPolicyPayloadFor dbe mpwStorage (MailboxRefKey @s who)
+                  <&> fmap ( unboxSignedBox0 @(SetPolicyPayload s) @s .  snd )
+                  <&> join
+
+      what <- case loaded of
+        Nothing -> do
+          err $ red "mailboxSetPolicy FUCKED"
+          putBlock mpwStorage (serialise sbox)
+            >>= orThrowError (MailboxSetPolicyFailed "storage error")
+            <&> HashRef
+
+        Just (k, spp0) | sppPolicyVersion spp > sppPolicyVersion spp0 || k /= who -> do
+          putBlock mpwStorage (serialise sbox)
+            >>= orThrowError (MailboxSetPolicyFailed "storage error")
+            <&> HashRef
+
+        _ -> do
+         throwError (MailboxSetPolicyFailed "too old")
+
+      liftIO $ withDB dbe $ Q.transactional do
+        insert [qc| insert into policy (mailbox,hash) values(?,?)
+                    on conflict (mailbox) do update set hash = excluded.hash
+                  |] (MailboxRefKey @s who, PolicyHash what)
+
+      pure what
+
   mailboxDelete MailboxProtoWorker{..} mbox = do
 
-    flip runContT pure $ callCC \exit -> do
+    flip runContT pure do
 
       mdbe <- readTVarIO mailboxDB
 
@@ -163,6 +222,11 @@ instance ( s ~ Encryption e, e ~ L4Proto
 
       pure $ Right r
 
+  mailboxAcceptStatus MailboxProtoWorker{..} ref who MailBoxStatusPayload{..} = do
+    -- TODO: implement-policy-first
+    --   итак, мы не можем двигаться, пока не будет реализована policy.
+    pure $ Right ()
+
   mailboxGetStatus MailboxProtoWorker{..} ref = do
     -- TODO: support-policy-ASAP
 
@@ -180,7 +244,30 @@ instance ( s ~ Encryption e, e ~ L4Proto
 
       v <- getRef mpwStorage ref <&> fmap HashRef
 
-      pure $ Right $ Just $ MailBoxStatusPayload @s now (coerce ref) t v mzero mzero
+      spp <- loadPolicyPayloadFor dbe mpwStorage ref
+               <&> fmap snd
+
+      pure $ Right $ Just $ MailBoxStatusPayload @s now (coerce ref) t v spp
+
+loadPolicyPayloadFor :: forall s m . (ForMailbox s, MonadIO m)
+              => DBPipeEnv
+              -> AnyStorage
+              -> MailboxRefKey s
+              -> m (Maybe (HashRef, SignedBox (SetPolicyPayload s) s))
+loadPolicyPayloadFor dbe sto who = do
+  phash <- withDB dbe do
+             select @(Only PolicyHash) [qc|select hash from policy where mailbox = ?|] (Only who)
+             <&> fmap (coerce @_ @HashRef . fromOnly)
+             <&> headMay
+
+  runMaybeT do
+     ha <- toMPlus phash
+     what <- getBlock sto (coerce ha)
+                >>= toMPlus
+                <&> deserialiseOrFail
+                >>= toMPlus
+     pure (ha, what)
+
 
 getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> MailboxRefKey s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
@@ -316,7 +403,10 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
         -- NOTE: reliability
         --   в случае отказа сторейджа все эти сообщения будут потеряны
         --   однако, ввиду дублирования -- они рано или поздно будут
-        --   восстановлены с других реплик, если таковые имеются
+        --   восстановлены с других реплик, если таковые имеются.
+        --
+        --   Кроме того, мы можем писать WAL.
+        --
         newTx <- atomically do
                    n <- readTVar inMessageMergeQueue
                             <&>  fromMaybe mempty . HM.lookup r
@@ -363,12 +453,19 @@ mailboxStateEvolve readConf MailboxProtoWorker{..}  = do
 
   atomically $ writeTVar mailboxDB (Just dbe)
 
-  withDB dbe do
+  withDB dbe $ Q.transactional do
     ddl [qc|create table if not exists
              mailbox ( recipient text not null
                      , type      text not null
                      , primary key (recipient)
                      )
+           |]
+
+    ddl [qc|create table if not exists
+             policy ( mailbox   text not null
+                    , hash      text not null
+                    , primary key (mailbox)
+                    )
            |]
 
   pure dbe

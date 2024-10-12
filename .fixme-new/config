@@ -50,7 +50,7 @@ fixme-comments ";" "--"
          (align 8  $class)  " "
          (align 12 $assigned)  " "
          (align 20 (trim 20 $committer-name)) " "
-         (trim 50  ($fixme-title)) " "
+         (trim 40  ($fixme-title)) " "
          (nl))
     )
 )
