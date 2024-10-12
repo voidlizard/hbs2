@@ -225,6 +225,39 @@ instance ( s ~ Encryption e, e ~ L4Proto
   mailboxAcceptStatus MailboxProtoWorker{..} ref who MailBoxStatusPayload{..} = do
     -- TODO: implement-policy-first
     --   итак, мы не можем двигаться, пока не будет реализована policy.
+
+    flip runContT pure $ callCC \_ -> do
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+
+      p0 <- loadPolicyPayloadFor dbe mpwStorage ref <&> fmap snd
+
+      let p = unboxSignedBox0 =<< mbsMailboxPolicy
+
+      -- если версия p > версии p0 -- ставим скачиваться, по скачиванию -- обновляем
+      -- тут есть какой-то процесс, который должен поллить скачивания, не забываем,
+      -- что это довольно затратно (проверка всех блоков)
+      -- по идее и сообщения-то должны процессить уже с обновленной policy
+      -- но если этого ждать, то засинкаемся черти когда, однако же
+      -- надо их начинать качать, как можно раньше. поэтому что?
+      -- ставим качать policy
+      -- для каждого сообщения -- ставим качать его
+      -- наверное, запоминаем версию policy  с которой можно процессировать
+      -- если на момент скачивания сообщения -- policy не достигнуто -- просто его запоминаем
+      -- если их дофига, а момент так и не наступил --- тогда что?
+      --
+      -- наверное, запускаем циклический процесс по обновлению **этого** статуса.
+      -- сначала качаем policy.
+      --
+      -- как скачали -- обновляем, если ок
+      --
+      -- если не ок -- то но обновляем? а что тогда
+      --
+
+      pure $ Right ()
+
     pure $ Right ()
 
   mailboxGetStatus MailboxProtoWorker{..} ref = do
@@ -286,7 +319,7 @@ createMailboxProtoWorker :: forall s e m . (MonadIO m, s ~ Encryption e, ForMail
 createMailboxProtoWorker pc pe de sto = do
   -- FIXME: queue-size-hardcode
   --   $class: hardcode
-  inQ        <- newTBQueueIO 1000
+  inQ        <- newTBQueueIO 8000
   mergeQ     <- newTVarIO mempty
   inDroppped <- newTVarIO 0
   inNum      <- newTVarIO 0
