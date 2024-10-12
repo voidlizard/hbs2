@@ -28,6 +28,7 @@ module HBS2.Prelude
   , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
   , ByFirst(..)
   , whenTrue, whenFalse
+  , dontHandle
   ) where
 
 import HBS2.Clock
@@ -174,11 +175,10 @@ instance Eq a => Eq (ByFirst a b) where
 instance Hashable a => Hashable (ByFirst a b) where
   hashWithSalt s (ByFirst a _) = hashWithSalt s a
 
+dontHandle :: Applicative f => a -> f ()
+dontHandle = const $ pure ()
 
 -- asyncLinked :: forall m . MonadUnliftIO m =>
-
-
-
 
 
 
