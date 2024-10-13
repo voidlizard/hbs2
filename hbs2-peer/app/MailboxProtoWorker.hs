@@ -96,12 +96,19 @@ deriving instance ForMailbox s => Eq (PolicyDownload s)
 instance ForMailbox s => Hashable (PolicyDownload s) where
   hashWithSalt s p = hashWithSalt s (serialise p)
 
-data MailboxDowload  =
-  MailboxDowload
-  { mailboxDownWhen    :: Word64
+data MailboxDownload s =
+  MailboxDownload
+  { mailboxRef         :: MailboxRefKey s
+  , mailboxStatusRef   :: HashRef
+  , mailboxDownWhen    :: Word64
   , mailboxDownPolicy  :: Maybe PolicyVersion
+  , mailboxDownDone    :: Bool
   }
-  deriving stock Generic
+  deriving stock (Generic)
+
+deriving stock instance ForMailbox s => Eq (MailboxDownload s)
+
+instance ForMailbox s => Hashable (MailboxDownload s)
 
 data MailboxProtoWorker (s :: CryptoScheme) e =
   MailboxProtoWorker
@@ -113,7 +120,7 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
   , inMessageQueue        :: TBQueue (Message s, MessageContent s)
   , inMessageMergeQueue   :: TVar (HashMap (MailboxRefKey s) (HashSet HashRef))
   , inPolicyDownloadQ     :: TVar (HashMap HashRef (PolicyDownload s))
-  , inMailboxDownloadQ    :: TVar (HashMap HashRef MailboxDowload)
+  , inMailboxDownloadQ    :: TVar (HashMap HashRef (MailboxDownload s))
   , inMessageQueueInNum   :: TVar Int
   , inMessageQueueOutNum  :: TVar Int
   , inMessageQueueDropped :: TVar Int
@@ -280,7 +287,9 @@ instance ( s ~ Encryption e, e ~ L4Proto
       let downloadStatus v = do
             maybe1 mbsMailboxHash (okay ()) $ \h -> do
               startDownloadStuff me h
-              atomically $ modifyTVar inMailboxDownloadQ (HM.insert h (MailboxDowload now v))
+              -- one download per version per hash
+              let downKey = HashRef $ hashObject (serialise (v,h))
+              atomically $ modifyTVar inMailboxDownloadQ (HM.insert downKey (MailboxDownload ref h now v False))
               okay ()
 
       case mbsMailboxPolicy of
@@ -426,6 +435,7 @@ mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , IsRefPubKey s
                                      , ForMailbox s
                                      , m ~ PeerM e IO
+                                     , e ~ L4Proto
                                      )
              => m [Syntax C]
              -> MailboxProtoWorker s e
@@ -558,7 +568,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
       polling (Polling 30 30) policies $ \(pk,PolicyDownload{..}) -> do
         missed <- findMissedBlocks mpwStorage pk <&> L.null
-        unless missed do
+        unless missed $ flip runContT pure do
           let mbox = MailboxRefKey (sppMailboxKey policyDownloadWhat)
 
           current <- loadPolicyPayloadUnboxed @s dbe mpwStorage mbox
@@ -567,16 +577,36 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
           let downloaded = sppPolicyVersion policyDownloadWhat
 
+          mlbs <- getBlock mpwStorage (coerce pk)
+
+          lbs  <- ContT $ maybe1 mlbs (err $ red "storage fail: missed block" <+> pretty pk)
+
+          let msp = deserialiseOrFail @(SignedBox (SetPolicyPayload s) s) lbs
+                     & either (const Nothing) Just
+
+          spb <- ContT $ maybe1 msp (err $ red "storage fail: corrupted block" <+> pretty pk)
+
           when (downloaded > current) do
-            -- set policy
-            pure ()
+            void $ mailboxSetPolicy  me spb
 
           atomically $ modifyTVar inPolicyDownloadQ (HM.delete pk)
 
     stateDownloadQ = do
-      forever do
-        pause @'Seconds 10
-        debug $ red "mailbox: stateDownloadQ"
+
+      let mail = readTVarIO inMailboxDownloadQ
+                        <&> HM.toList
+                        <&> fmap (,10)
+
+      polling (Polling 30 30) mail $ \(pk, down@MailboxDownload{..}) -> do
+        missed <- findMissedBlocks mpwStorage mailboxStatusRef <&> L.null
+
+        when (not missed && not mailboxDownDone) do
+          atomically $ modifyTVar inMailboxDownloadQ (HM.insert pk (down { mailboxDownDone = True }))
+          debug $ "mailbox state downloaded" <+> pretty pk
+
+        unless missed do
+          debug $ "mailbox/debug: drop state" <+> pretty pk <+> pretty mailboxStatusRef
+          atomically $ modifyTVar inMailboxDownloadQ (HM.delete pk)
 
     mailboxFetchQ dbe = forever do
       toFetch <- atomically $ do
@@ -595,9 +625,9 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
     mailboxCheckQ dbe = do
 
       -- FIXME: mailbox-check-period
-      --   right now  it's 10 seconds for debug purposes
+      --   right now  it's 60 seconds for debug purposes
       --   remove hardcode to smth reasonable
-      let mboxes = liftIO (listMailboxes @s dbe <&> fmap (set _2 10) )
+      let mboxes = liftIO (listMailboxes @s dbe <&> fmap (set _2 60) )
 
       polling (Polling 10 10) mboxes $ \r -> do
         debug $ yellow "mailbox: SEND FETCH REQUEST FOR" <+> pretty r
