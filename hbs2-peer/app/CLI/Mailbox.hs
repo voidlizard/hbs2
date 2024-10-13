@@ -154,6 +154,16 @@ runMailboxCLI rpc s = do
              _ -> throwIO $ BadFormException @C nil
 
 
+        brief "fetch mailbox"
+          $ entry $ bindMatch "fetch" $ nil_ $ \case
+             [ SignPubKeyLike m ] -> do
+
+              callRpcWaitMay @RpcMailboxFetch t api m
+                 >>= orThrowUser "rpc call timeout"
+                 >>= orThrowPassIO
+
+             _ -> throwIO $ BadFormException @C nil
+
         brief "set mailbox policy" $
           desc setPolicyDesc
           -- $ examples setPolicyExamples

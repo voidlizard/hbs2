@@ -135,6 +135,11 @@ class ForMailbox s => IsMailboxService s a where
                       -> MailBoxStatusPayload s
                       -> m (Either MailboxServiceError ())
 
+  mailboxFetch :: forall m . MonadIO m
+               => a
+               -> MailboxRefKey s
+               -> m (Either MailboxServiceError ())
+
 data AnyMailboxService s =
   forall a  . (IsMailboxService s a) => AnyMailboxService { mailboxService :: a }
 
@@ -150,6 +155,7 @@ instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxListBasic (AnyMailboxService a) = mailboxListBasic @s a
   mailboxGetStatus (AnyMailboxService a) = mailboxGetStatus @s a
   mailboxAcceptStatus (AnyMailboxService a) = mailboxAcceptStatus @s a
+  mailboxFetch (AnyMailboxService a) = mailboxFetch @s a
 
 instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetCredentials (AnyMailboxAdapter a) = mailboxGetCredentials @s a

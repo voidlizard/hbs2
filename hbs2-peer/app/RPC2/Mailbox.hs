@@ -61,6 +61,13 @@ instance (ForMailboxRPC m) => HandleMethod m RpcMailboxGetStatus where
     debug $ "rpc.RpcMailboxGetStatus" <+> pretty (AsBase58 puk)
     mailboxGetStatus @HBS2Basic mbs (MailboxRefKey puk)
 
+instance (ForMailboxRPC m) => HandleMethod m RpcMailboxFetch where
+
+  handleMethod puk = do
+    AnyMailboxService mbs <- getRpcContext @MailboxAPI @RPC2Context <&> rpcMailboxService
+    debug $ "rpc.RpcMailboxFetch" <+> pretty (AsBase58 puk)
+    mailboxFetch @HBS2Basic mbs (MailboxRefKey puk)
+
 instance (ForMailboxRPC m) => HandleMethod m RpcMailboxDelete where
 
   handleMethod puk = do
