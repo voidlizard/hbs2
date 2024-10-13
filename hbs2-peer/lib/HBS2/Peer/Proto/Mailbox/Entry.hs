@@ -10,8 +10,7 @@ import Data.Hashable
 
 data ProofOfDelete =
   ProofOfDelete
-  { deletePolicy  :: Maybe HashRef
-  , deleteMessage :: Maybe HashRef
+  { deleteMessage :: Maybe HashRef
   }
   deriving stock (Generic,Eq,Ord,Show)
 
@@ -22,10 +21,10 @@ data ProofOfExist =
   deriving stock (Generic,Eq,Ord,Show)
 
 instance Monoid ProofOfDelete where
-  mempty = ProofOfDelete mzero mzero
+  mempty = ProofOfDelete mzero
 
 instance Semigroup ProofOfDelete where
-  (<>) (ProofOfDelete a1 b1) (ProofOfDelete a2 b2) = ProofOfDelete (a1 <|> a2) (b1 <|> b2)
+  (<>) (ProofOfDelete a1) (ProofOfDelete a2) = ProofOfDelete (a1 <|> a2)
 
 instance Monoid ProofOfExist where
   mempty = ProofOfExist mzero
