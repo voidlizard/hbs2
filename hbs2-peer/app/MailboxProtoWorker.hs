@@ -610,6 +610,14 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
           debug $ "mailbox/debug: drop state" <+> pretty pk <+> pretty mailboxStatusRef
           atomically $ modifyTVar inMailboxDownloadQ (HM.delete pk)
 
+          -- FIXME: assume-huge-mailboxes
+
+          walkMerkle @[HashRef] (coerce mailboxStatusRef) (getBlock mpwStorage) $ \case
+            Left what -> err $ red "mailbox: missed block for tree" <+> pretty mailboxStatusRef
+            Right hs  -> void $ runMaybeT do
+              for_ hs $ \h -> do
+                debug $ red ">>>" <+> "MERGE MAILBOX ENTRY" <+> pretty h
+
     mailboxFetchQ dbe = forever do
       toFetch <- atomically $ do
         q <- readTVar mpwFetchQ
