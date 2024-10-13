@@ -33,17 +33,18 @@ instance Semigroup ProofOfExist where
   (<>) (ProofOfExist a1) (ProofOfExist a2) = ProofOfExist (a1 <|> a2)
 
 data MailboxEntry =
-    Existed ProofOfExist  HashRef
+    Exists ProofOfExist  HashRef
   | Deleted ProofOfDelete HashRef  -- ^ proof-of-message-to-validate
   deriving stock (Eq,Ord,Show,Generic)
 
 instance Hashable MailboxEntry where
   hashWithSalt salt = \case
-    Existed p r -> hashWithSalt salt (0x177c1a3ad45b678e :: Word64, serialise (p,r))
+    Exists p r -> hashWithSalt salt (0x177c1a3ad45b678e :: Word64, serialise (p,r))
     Deleted p r -> hashWithSalt salt (0xac3196b4809ea027 :: Word64, serialise (p,r))
 
 data RoutedEntry = RoutedEntry HashRef
                    deriving stock (Eq,Ord,Show,Generic)
+
 
 instance Serialise MailboxEntry
 instance Serialise RoutedEntry
