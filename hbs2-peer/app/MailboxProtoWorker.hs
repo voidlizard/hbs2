@@ -168,7 +168,7 @@ instance ( s ~ Encryption e, e ~ L4Proto
         Right{} -> pure $ Right ()
         Left{}  -> pure $ Left (MailboxCreateFailed "database operation")
 
-  mailboxSetPolicy MailboxProtoWorker{..} sbox = do
+  mailboxSetPolicy me@MailboxProtoWorker{..} sbox = do
     -- check policy version
     -- check policy has peers
     -- write policy block
@@ -211,7 +211,17 @@ instance ( s ~ Encryption e, e ~ L4Proto
                     on conflict (mailbox) do update set hash = excluded.hash
                   |] (MailboxRefKey @s who, PolicyHash what)
 
-      -- TODO: ASAP-gossip-new-state
+
+      void $ runMaybeT do
+        msp <- mailboxGetStatus me (MailboxRefKey @s who)
+                     >>= toMPlus
+                     >>= toMPlus
+
+        creds <- mailboxGetCredentials @s me
+        let box = makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) msp
+
+        liftIO $ withPeerM mpwPeerEnv do
+          gossip (MailBoxProtoV1 @s @e (MailboxStatus box))
 
       pure what
 

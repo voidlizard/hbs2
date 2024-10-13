@@ -29,8 +29,9 @@ import Lens.Micro.Platform
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
-type ForMailboxRPC m = (MonadIO m, HasRpcContext MailboxAPI RPC2Context m)
-
+type ForMailboxRPC m = ( MonadIO m
+                       , HasRpcContext MailboxAPI RPC2Context m
+                       )
 
 instance (MonadIO m) => HandleMethod m RpcMailboxPoke where
 

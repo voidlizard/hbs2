@@ -71,7 +71,6 @@ data MailBoxProtoMessage s e =
     SendMessage      (Message s) -- already has signed box
   | CheckMailbox     (Maybe Word64) (MailboxKey s)
   | MailboxStatus    (SignedBox (MailBoxStatusPayload s) s) -- signed by peer
-  | SetPolicy        (SignedBox (SetPolicyPayload s) s)
   | DeleteMessages   (SignedBox (DeleteMessagesPayload s) s)
   deriving stock (Generic)
 
@@ -339,9 +338,6 @@ mailboxProto inner adapter mess = deferred @p do
         --  он участвует в процессе обновления policy.
 
         void $ mailboxAcceptStatus adapter (MailboxRefKey mbsMailboxKey) who content
-
-    SetPolicy{} -> do
-      none
 
     DeleteMessages{} -> do
       none
