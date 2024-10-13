@@ -261,11 +261,18 @@ instance ( s ~ Encryption e, e ~ L4Proto
 
       pure $ Right r
 
-  mailboxAcceptStatus me@MailboxProtoWorker{..} ref who MailBoxStatusPayload{..} = do
+  mailboxAcceptStatus me@MailboxProtoWorker{..} ref who s2@MailBoxStatusPayload{..} = do
     -- TODO: implement-policy-first
     --   итак, мы не можем двигаться, пока не будет реализована policy.
 
+
     flip runContT pure $ callCC \stop -> do
+
+      s0 <- runMaybeT do
+        MailBoxStatusPayload{..} <- mailboxGetStatus me ref
+                                      >>= toMPlus
+                                      >>= toMPlus
+        toMPlus mbsMailboxHash
 
       now <- liftIO $ getPOSIXTime <&> round
 
@@ -283,17 +290,18 @@ instance ( s ~ Encryption e, e ~ L4Proto
                   <+> "from"
                   <+> pretty (AsBase58 who)
 
-
       let downloadStatus v = do
             maybe1 mbsMailboxHash (okay ()) $ \h -> do
-              startDownloadStuff me h
-              -- one download per version per hash
-              let downKey = HashRef $ hashObject (serialise (v,h))
-              atomically $ modifyTVar inMailboxDownloadQ (HM.insert downKey (MailboxDownload ref h now v False))
+              when (s0 /= Just h) do
+                startDownloadStuff me h
+                -- one download per version per hash
+                let downKey = HashRef $ hashObject (serialise (v,h))
+                atomically $ modifyTVar inMailboxDownloadQ (HM.insert downKey (MailboxDownload ref h now v False))
               okay ()
 
       case mbsMailboxPolicy of
         Nothing -> downloadStatus Nothing
+
         Just newPolicy -> do
 
           -- TODO: handle-invalid-policy-error
@@ -774,5 +782,12 @@ instance ForMailbox s => FromField (MailboxRefKey s) where
 
 instance FromField MailboxType where
   fromField w = fromField @String w <&> fromString @MailboxType
+
+-- TODO: test-multiple-recipients
+
+-- TODO: implement-basic-policy
+
+-- TODO: test-basic-policy
+
 
 
