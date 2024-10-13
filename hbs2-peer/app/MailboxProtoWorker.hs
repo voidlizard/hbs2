@@ -663,7 +663,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                     case msg' of
                       Nothing -> do
                         debug $ red  "START DOWNLOAD" <+> pretty w
-                        startDownloadStuff me h
+                        startDownloadStuff me w
                         atomically $ modifyTVar fails succ
                         mzero
 
