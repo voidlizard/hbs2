@@ -657,10 +657,12 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                     -- write-already-merged
 
                   Exists _ w -> do
+                    debug $ red ">>>" <+> blue "TX: Exists" <+> pretty w
                     msg' <- getBlock mpwStorage (coerce w)
 
                     case msg' of
                       Nothing -> do
+                        debug $ red  "START DOWNLOAD" <+> pretty w
                         startDownloadStuff me h
                         atomically $ modifyTVar fails succ
                         mzero
