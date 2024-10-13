@@ -606,7 +606,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                         <&> HM.toList
                         <&> fmap (,10)
 
-      polling (Polling 30 30) mail $ \(pk, down@MailboxDownload{..}) -> do
+      polling (Polling 2 2) mail $ \(pk, down@MailboxDownload{..}) -> do
         done <- findMissedBlocks mpwStorage mailboxStatusRef <&> L.null
 
         fails <- newTVarIO 0
