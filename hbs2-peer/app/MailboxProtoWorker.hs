@@ -564,11 +564,13 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
       --   $class: performance
       let policies = readTVarIO inPolicyDownloadQ
                         <&> HM.toList
-                        <&> fmap (,10)
+                        <&> fmap (,1)
 
-      polling (Polling 30 30) policies $ \(pk,PolicyDownload{..}) -> do
-        missed <- findMissedBlocks mpwStorage pk <&> L.null
-        unless missed $ flip runContT pure do
+      polling (Polling 10 10) policies $ \(pk,PolicyDownload{..}) -> do
+        done <- findMissedBlocks mpwStorage pk <&> L.null
+
+        when done $ flip runContT pure do
+
           let mbox = MailboxRefKey (sppMailboxKey policyDownloadWhat)
 
           current <- loadPolicyPayloadUnboxed @s dbe mpwStorage mbox
@@ -577,7 +579,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
           let downloaded = sppPolicyVersion policyDownloadWhat
 
-          mlbs <- getBlock mpwStorage (coerce pk)
+          mlbs <- getBlock mpwStorage (coerce policyDownloadBox)
 
           lbs  <- ContT $ maybe1 mlbs (err $ red "storage fail: missed block" <+> pretty pk)
 
@@ -598,13 +600,13 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                         <&> fmap (,10)
 
       polling (Polling 30 30) mail $ \(pk, down@MailboxDownload{..}) -> do
-        missed <- findMissedBlocks mpwStorage mailboxStatusRef <&> L.null
+        done <- findMissedBlocks mpwStorage mailboxStatusRef <&> L.null
 
-        when (not missed && not mailboxDownDone) do
+        when (done && not mailboxDownDone) do
           atomically $ modifyTVar inMailboxDownloadQ (HM.insert pk (down { mailboxDownDone = True }))
           debug $ "mailbox state downloaded" <+> pretty pk
 
-        unless missed do
+        when done do
           debug $ "mailbox/debug: drop state" <+> pretty pk <+> pretty mailboxStatusRef
           atomically $ modifyTVar inMailboxDownloadQ (HM.delete pk)
 
