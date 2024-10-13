@@ -41,6 +41,9 @@ data SetPolicyPayload s =
   }
   deriving stock (Generic)
 
+-- for Hashable
+deriving instance ForMailbox s => Eq (SetPolicyPayload s)
+
 data MailBoxStatusPayload s =
   MailBoxStatusPayload
   { mbsMailboxPayloadNonce  :: Word64
