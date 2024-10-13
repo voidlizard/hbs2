@@ -312,6 +312,9 @@ addDownload :: forall e m . ( DownloadConstr e m
 
 addDownload mbh h = do
 
+  -- FIXME: remove-shit
+  debug $ "addDownload" <+> pretty h
+
   tinq <- asks (view blockInQ)
   checkQ <- asks (view blockCheckQ)
   dirty <- asks (view blockInDirty)

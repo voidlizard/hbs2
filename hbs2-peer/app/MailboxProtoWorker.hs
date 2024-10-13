@@ -351,7 +351,9 @@ startDownloadStuff :: forall s e m . (ForMailbox s, s ~ Encryption e, MyPeer e, 
 
 startDownloadStuff MailboxProtoWorker{..} href = do
   liftIO $ withPeerM mpwPeerEnv $ withDownload mpwDownloadEnv
-    $ addDownload @e Nothing (coerce href)
+    $ do
+      debug $ "startDownloadStuff" <+> pretty href
+      addDownload @e Nothing (coerce href)
 
 listMailboxes :: forall s m . (ForMailbox s, MonadIO m)
               => DBPipeEnv
