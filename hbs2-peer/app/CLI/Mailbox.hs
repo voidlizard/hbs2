@@ -253,7 +253,7 @@ runMailboxCLI rpc s = do
                       Deleted _ mh -> do
                         atomically $ modifyTVar d (HS.insert mh)
 
-                      Existed _ mh -> do
+                      Exists _ mh -> do
                          atomically $ modifyTVar r (HS.insert mh)
 
               deleted <- readTVarIO d

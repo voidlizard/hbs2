@@ -33,6 +33,12 @@ import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
 
+
+data MergedEntry s = MergedEntry (MailboxRefKey s) HashRef
+                   deriving stock (Generic)
+
+instance ForMailbox s => Serialise (MergedEntry s)
+
 data SetPolicyPayload s =
   SetPolicyPayload
   { sppMailboxKey    :: MailboxKey s
