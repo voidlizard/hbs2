@@ -97,24 +97,26 @@ hbs2:sigil:create:from-keyring KEYRING-FILE S
    |]
    $ entry $ bindMatch "hbs2:sigil:create:from-keyring" $ \syn -> do
 
-      let readKeyring fn = liftIO (BS8.readFile fn) <&>  parseCredentials @'HBS2Basic . AsCredFile
+      let readKeyring fn = liftIO (BS8.readFile fn)
+                             <&>  parseCredentials @'HBS2Basic . AsCredFile
+                             >>= orThrowUser "malformed keyring file"
+
 
       (cred, KeyringEntry enc _ _) <- case syn of
             [ StringLike fn ] -> do
-              s <- readKeyring fn >>= orThrowUser "malformed keyring file"
+              s <- readKeyring fn
               kr <- headMay (view peerKeyring s) & orThrowUser "encryption key missed"
               pure (s,kr)
 
             [ StringLike fn, LitIntVal n ] -> do
-
-              s <- readKeyring fn >>= orThrowUser "malformed keyring file"
+              s <- readKeyring fn
               kr <- headMay (drop (fromIntegral (max 0 (n-1))) (view peerKeyring s))
                       & orThrowUser "encryption key not found"
               pure (s,kr)
 
             [ StringLike fn, StringLike p ] -> do
 
-              s <- readKeyring fn >>= orThrowUser "malformed keyring file"
+              s <- readKeyring fn
               kr <- findKey p (view peerKeyring s)  & orThrowUser "encryption key not found"
               pure (s,kr)
 
