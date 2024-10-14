@@ -647,6 +647,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
               Left{} -> do
                 -- here, but lame
+                err $ red "mailbox (invalid block)"
                 void $ putBlock sto (serialise (MergedEntry r th))
 
               -- maybe to something more sophisticated
@@ -655,10 +656,16 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
               Right (Deleted (ProofOfDelete{..}) _) -> do
                 h   <- toMPlus deleteMessage
 
-                box <- getBlock sto (coerce h)
-                         >>= toMPlus
-                         <&> deserialiseOrFail @(SignedBox (DeleteMessagesPayload s) s)
-                         >>= toMPlus
+                mbox <- getBlock sto (coerce h)
+                         -- >>= toMPlus
+
+                when (isNothing mbox) do
+                  startDownloadStuff me h
+                  warn $ red "<<~~~>>" <+> "Proof not found!" <+> pretty h
+
+                box <- toMPlus mbox
+                        <&> deserialiseOrFail @(SignedBox (DeleteMessagesPayload s) s)
+                        >>= toMPlus
 
                 debug $ red "<<***>> mailbox:" <+> "found proof of message deleting" <+> pretty h
 
