@@ -24,7 +24,11 @@ import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Peer.Proto.Mailbox.Message
 import HBS2.Peer.Proto.Mailbox.Entry
+import HBS2.Peer.Proto.Mailbox.Policy
 import HBS2.Peer.Proto.Mailbox.Ref
+
+import HBS2.Misc.PrettyStuff
+import HBS2.System.Logger.Simple
 
 import Codec.Serialise()
 import Control.Monad.Trans.Cont
@@ -34,60 +38,13 @@ import Data.Word
 import Lens.Micro.Platform
 
 
-data MergedEntry s = MergedEntry (MailboxRefKey s) HashRef
-                   deriving stock (Generic)
-
-instance ForMailbox s => Serialise (MergedEntry s)
-
-data SetPolicyPayload s =
-  SetPolicyPayload
-  { sppMailboxKey    :: MailboxKey s
-  , sppPolicyVersion :: PolicyVersion
-  , sppPolicyRef     :: HashRef -- ^ merkle tree hash of policy description file
-  }
-  deriving stock (Generic)
-
--- for Hashable
-deriving instance ForMailbox s => Eq (SetPolicyPayload s)
-
-data MailBoxStatusPayload s =
-  MailBoxStatusPayload
-  { mbsMailboxPayloadNonce  :: Word64
-  , mbsMailboxKey           :: MailboxKey s
-  , mbsMailboxType          :: MailboxType
-  , mbsMailboxHash          :: Maybe HashRef
-  , mbsMailboxPolicy        :: Maybe (SignedBox (SetPolicyPayload s) s)
-  }
-  deriving stock (Generic)
-
-data DeleteMessagesPayload (s :: CryptoScheme) =
-  DeleteMessagesPayload
-  { dmpPredicate     :: MailboxMessagePredicate
-  }
-  deriving stock (Generic)
-
-data MailBoxProtoMessage s e =
-    SendMessage      (Message s) -- already has signed box
-  | CheckMailbox     (Maybe Word64) (MailboxKey s)
-  | MailboxStatus    (SignedBox (MailBoxStatusPayload s) s) -- signed by peer
-  | DeleteMessages   (SignedBox (DeleteMessagesPayload s ) s)
-  deriving stock (Generic)
-
-data MailBoxProto s e =
-  MailBoxProtoV1 { mailBoxProtoPayload :: MailBoxProtoMessage s e }
-  deriving stock (Generic)
-
-instance ForMailbox s => Serialise (MailBoxStatusPayload s)
-instance ForMailbox s => Serialise (SetPolicyPayload s)
-instance ForMailbox s => Serialise (DeleteMessagesPayload s)
-instance ForMailbox s => Serialise (MailBoxProtoMessage s e)
-instance ForMailbox s => Serialise (MailBoxProto s e)
-
-class IsMailboxProtoAdapter s a where
+class ForMailbox s => IsMailboxProtoAdapter s a where
 
   mailboxGetCredentials :: forall m . MonadIO m => a -> m (PeerCredentials s)
 
   mailboxGetStorage     :: forall m . MonadIO m => a -> m AnyStorage
+
+  mailboxGetPolicy      :: forall m . MonadIO m => a -> m (AnyPolicy s)
 
   mailboxAcceptMessage  :: forall m . (ForMailbox s, MonadIO m)
                         => a
@@ -169,39 +126,13 @@ instance ForMailbox s => IsMailboxService s (AnyMailboxService s) where
   mailboxAcceptStatus (AnyMailboxService a) = mailboxAcceptStatus @s a
   mailboxFetch (AnyMailboxService a) = mailboxFetch @s a
 
-instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
+instance ForMailbox s => IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetCredentials (AnyMailboxAdapter a) = mailboxGetCredentials @s a
+  mailboxGetPolicy (AnyMailboxAdapter a) = mailboxGetPolicy @s a
   mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a
   mailboxAcceptMessage (AnyMailboxAdapter a) = mailboxAcceptMessage @s a
   mailboxAcceptDelete (AnyMailboxAdapter a) = mailboxAcceptDelete @s a
 
-instance ForMailbox s => Pretty (MailBoxStatusPayload s) where
-  pretty MailBoxStatusPayload{..} =
-    parens $ "mailbox-status" <> line <> st
-    where
-      st = indent 2 $
-             brackets $
-             align $ vcat
-                  [ parens ("nonce" <+> pretty mbsMailboxPayloadNonce)
-                  , parens ("key"   <+> pretty (AsBase58 mbsMailboxKey))
-                  , parens ("type"  <+> pretty mbsMailboxType)
-                  , element "mailbox-tree"   mbsMailboxHash
-                  , element "set-policy-payload-hash" (HashRef . hashObject . serialise <$> mbsMailboxPolicy)
-                  , maybe mempty pretty spp
-                  ]
-
-      element el = maybe mempty ( \v -> parens (el <+> pretty v) )
-
-      spp = mbsMailboxPolicy >>= unboxSignedBox0 <&> snd
-
-
-instance ForMailbox s => Pretty (SetPolicyPayload s) where
-  pretty SetPolicyPayload{..} = parens ( "set-policy-payload" <> line <> indent 2 (brackets w) )
-    where
-      w = align $
-            vcat [ parens ( "version" <+> pretty sppPolicyVersion )
-                 , parens ( "ref" <+> pretty sppPolicyRef )
-                 ]
 
 mailboxProto :: forall e s m p a . ( MonadIO m
                                    , Response e p m
@@ -223,14 +154,30 @@ mailboxProto inner adapter mess = deferred @p do
   -- common stuff
 
   sto  <- mailboxGetStorage @s adapter
+  policy <- mailboxGetPolicy @s adapter
+  pc <- mailboxGetCredentials @s adapter
+
   now  <- liftIO $ getPOSIXTime <&> round
   that <- thatPeer @p
-  se   <- find (KnownPeerKey that) id
+  se'  <- find (KnownPeerKey that) id
 
-  case mailBoxProtoPayload mess of
-    SendMessage msg -> deferred @p do
+  flip runContT pure $ callCC \exit -> do
 
-      flip runContT pure $ callCC \exit -> do
+    se <- ContT $ maybe1 se' none
+
+    pip <- if inner then do
+              pure $ view peerSignPk pc
+            else do
+              pure $ view peerSignKey se
+
+    acceptPeer <- policyAcceptPeer @s policy pip
+
+    unless acceptPeer do
+      debug $ red "Peer rejected by policy" <+> pretty (AsBase58 pip)
+      exit ()
+
+    case mailBoxProtoPayload mess of
+      SendMessage msg -> do
 
         -- проверить подпись быстрее, чем читать диск
         let unboxed' = unboxSignedBox0 @(MessageContent s) (messageContent msg)
@@ -254,61 +201,57 @@ mailboxProto inner adapter mess = deferred @p do
           --   $class: leak
           void $ putBlock sto routed
 
-    -- NOTE: CheckMailbox-auth
-    --   поскольку пир не владеет приватными ключами,
-    --   то и подписать это сообщение он не может.
-    --
-    --   В таком случае, и в фоновом режиме нельзя будет
-    --   синхронизировать ящики.
-    --
-    --   Поскольку все сообщения зашифрованы (но не их метаданные!)
-    --   статус мейлобокса является открытой в принципе информацией.
-    --
-    --   Теперь у нас два пути:
-    --    1. Отдавать только авторизованными пирам (которые имеют майлобоксы)
-    --       для этого сделаем сообщение CheckMailboxAuth{}
-    --
-    --    2. Шифровать дерево с метаданными, так как нам в принципе
-    --       может быть известен публичный ключ шифрования автора,
-    --       но это сопряжено со сложностями с обновлением ключей.
-    --
-    --    С другой стороны, если нас не очень беспокоит возможное раскрытие
-    --    метаданных --- то тот, кто скачает мейлобокс для анализа --- будет
-    --    участвовать в раздаче.
-    --
-    --    С другой стороны, может он и хочет участвовать в раздаче, что бы каким-то
-    --    образом ей вредить или устраивать слежку.
-    --
-    --    С этим всем можно бороться поведением и policy:
-    --
-    --    например:
-    --      - не отдавать сообщения неизвестным пирам
-    --      - требовать авторизацию (CheckMailboxAuth не нужен т.к. пир авторизован
-    --        и так и известен в протоколе)
-    --
+      -- NOTE: CheckMailbox-auth
+      --   поскольку пир не владеет приватными ключами,
+      --   то и подписать это сообщение он не может.
+      --
+      --   В таком случае, и в фоновом режиме нельзя будет
+      --   синхронизировать ящики.
+      --
+      --   Поскольку все сообщения зашифрованы (но не их метаданные!)
+      --   статус мейлобокса является открытой в принципе информацией.
+      --
+      --   Теперь у нас два пути:
+      --    1. Отдавать только авторизованными пирам (которые имеют майлобоксы)
+      --       для этого сделаем сообщение CheckMailboxAuth{}
+      --
+      --    2. Шифровать дерево с метаданными, так как нам в принципе
+      --       может быть известен публичный ключ шифрования автора,
+      --       но это сопряжено со сложностями с обновлением ключей.
+      --
+      --    С другой стороны, если нас не очень беспокоит возможное раскрытие
+      --    метаданных --- то тот, кто скачает мейлобокс для анализа --- будет
+      --    участвовать в раздаче.
+      --
+      --    С другой стороны, может он и хочет участвовать в раздаче, что бы каким-то
+      --    образом ей вредить или устраивать слежку.
+      --
+      --    С этим всем можно бороться поведением и policy:
+      --
+      --    например:
+      --      - не отдавать сообщения неизвестным пирам
+      --      - требовать авторизацию (CheckMailboxAuth не нужен т.к. пир авторизован
+      --        и так и известен в протоколе)
+      --
 
-    CheckMailbox _ k -> deferred @p do
-      creds <- mailboxGetCredentials @s adapter
+      CheckMailbox _ k ->  do
+        creds <- mailboxGetCredentials @s adapter
 
-      void $ runMaybeT do
+        void $ runMaybeT do
 
-      -- TODO: check-policy
+          s <- mailboxGetStatus adapter (MailboxRefKey @s k)
+                 >>= toMPlus
+                 >>= toMPlus
 
-        s <- mailboxGetStatus adapter (MailboxRefKey @s k)
-               >>= toMPlus
-               >>= toMPlus
+          let box = makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) s
 
-        let box = makeSignedBox @s (view peerSignPk creds) (view peerSignSk creds) s
+          lift $ lift $ response @_ @p (MailBoxProtoV1 (MailboxStatus box))
 
-        lift $ response @_ @p (MailBoxProtoV1 (MailboxStatus box))
-
-    MailboxStatus box -> deferred @p do
-
-      flip runContT pure $ callCC \exit -> do
+      MailboxStatus box -> do
 
         let r = unboxSignedBox0 @(MailBoxStatusPayload s) box
 
-        PeerData{..} <- ContT $ maybe1 se none
+        let PeerData{..} = se
 
         (who, content@MailBoxStatusPayload{..}) <- ContT $ maybe1 r none
 
@@ -344,8 +287,7 @@ mailboxProto inner adapter mess = deferred @p do
 
         void $ mailboxAcceptStatus adapter (MailboxRefKey mbsMailboxKey) who content
 
-    DeleteMessages box -> deferred @p do
-      flip runContT pure do
+      DeleteMessages box -> do
 
         -- TODO: possible-ddos
         --   посылаем левые сообщения, заставляем считать
@@ -378,5 +320,4 @@ mailboxProto inner adapter mess = deferred @p do
         mailboxAcceptDelete adapter (MailboxRefKey mbox) spp box
 
         none
-
 

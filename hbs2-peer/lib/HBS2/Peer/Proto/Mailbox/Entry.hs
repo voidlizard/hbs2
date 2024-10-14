@@ -1,12 +1,18 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
+
 module HBS2.Peer.Proto.Mailbox.Entry where
 
 import HBS2.Prelude
 import HBS2.Peer.Proto.Mailbox.Types
+import HBS2.Peer.Proto.Mailbox.Ref
 
 import Control.Applicative
 import Data.Word
 import Codec.Serialise
 import Data.Hashable
+import Data.Maybe
 
 data ProofOfDelete =
   ProofOfDelete
@@ -50,5 +56,11 @@ instance Serialise MailboxEntry
 instance Serialise RoutedEntry
 instance Serialise ProofOfDelete
 instance Serialise ProofOfExist
+
+
+data MergedEntry s = MergedEntry (MailboxRefKey s) HashRef
+                   deriving stock (Generic)
+
+instance ForMailbox s => Serialise (MergedEntry s)
 
 
