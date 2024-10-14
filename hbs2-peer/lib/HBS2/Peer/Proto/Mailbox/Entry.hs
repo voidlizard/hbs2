@@ -10,7 +10,7 @@ import Data.Hashable
 
 data ProofOfDelete =
   ProofOfDelete
-  { deleteMessage :: Maybe HashRef
+  { deleteMessage :: Maybe HashRef -- ^ different things?
   }
   deriving stock (Generic,Eq,Ord,Show)
 

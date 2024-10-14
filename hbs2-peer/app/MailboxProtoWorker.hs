@@ -2,6 +2,7 @@
 {-# Language MultiWayIf #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
+{-# Language PatternSynonyms #-}
 module MailboxProtoWorker ( mailboxProtoWorker
                           , createMailboxProtoWorker
                           , MailboxProtoWorker
@@ -57,6 +58,7 @@ import Data.Hashable
 import Codec.Serialise
 import Lens.Micro.Platform
 import Text.InterpolatedString.Perl6 (qc)
+import Streaming.Prelude qualified as S
 import UnliftIO
 
 newtype PolicyHash = PolicyHash HashRef
@@ -131,6 +133,9 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
 okay :: Monad m => good -> m (Either bad good)
 okay good = pure (Right good)
 
+pattern PlainMessageDelete :: forall {s :: CryptoScheme} . HashRef -> DeleteMessagesPayload s
+pattern PlainMessageDelete x <- DeleteMessagesPayload (MailboxMessagePredicate1 (Op (MessageHashEq x)))
+
 instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
 
   mailboxGetCredentials = pure . mpwCredentials
@@ -145,6 +150,39 @@ instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter
       else do
         writeTBQueue inMessageQueue (m,c)
         modifyTVar   inMessageQueueInNum succ
+
+  mailboxAcceptDelete MailboxProtoWorker{..} mbox dmp box = do
+    debug $ red "<<>> mailbox: mailboxAcceptDelete" <+> pretty mbox
+
+    let sto = mpwStorage
+    -- TODO: add-policy-reference
+
+    flip runContT pure do
+
+      h' <- putBlock sto (serialise box)
+
+      h <- ContT $ maybe1 h' storageFail
+
+      let proof = ProofOfDelete (Just (HashRef h))
+
+      let what' = case dmp of
+                   PlainMessageDelete x -> Just x
+                   _ -> Nothing
+
+      what <- ContT $ maybe1 what' unsupportedPredicate
+
+      let de = Deleted proof what
+
+      deh' <- enqueueBlock sto (serialise (Deleted proof what))
+               <&> fmap HashRef
+
+      deh <- ContT $ maybe1 deh' storageFail
+
+      atomically $ modifyTVar inMessageMergeQueue (HM.insert mbox (HS.singleton deh))
+
+    where
+      storageFail = err $ red "mailbox (storage:critical)" <+> "block writing failure"
+      unsupportedPredicate = err $ red "mailbox (unsuported-predicate)"
 
 instance ( s ~ Encryption e, e ~ L4Proto
          ) => IsMailboxService s (MailboxProtoWorker s e) where
@@ -231,7 +269,7 @@ instance ( s ~ Encryption e, e ~ L4Proto
 
       mdbe <- readTVarIO mailboxDB
 
-      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxCreateFailed "database not ready"))
+      dbe <- ContT $ maybe1 mdbe (pure $ Left (MailboxOperationError "database not ready"))
 
       debug $ red "delete fucking mailbox" <+> pretty (MailboxRefKey @s mbox)
 
@@ -243,9 +281,40 @@ instance ( s ~ Encryption e, e ~ L4Proto
 
       pure $ Right ()
 
-  -- FIXME: refactor
-  mailboxSendDelete w@MailboxProtoWorker{..} ref predicate = do
-    pure $ Right ()
+  mailboxSendDelete w@MailboxProtoWorker{..} box = do
+    debug $ red "mailboxSendDelete"
+
+    flip runContT pure do
+
+      -- 1. unpack-and-check
+      let r = unboxSignedBox0 box
+
+      (k, _) <- ContT $ maybe1 r authFailed
+
+      mdbe <- readTVarIO mailboxDB
+
+      dbe <- ContT $ maybe1 mdbe dbNotReady
+
+      t <- getMailboxType_ dbe (MailboxRefKey @s k)
+
+      void $ ContT $ maybe1 t (noMailbox k)
+
+      -- 2. what?
+      -- gossip and shit
+
+      liftIO $ withPeerM mpwPeerEnv do
+        me <- ownPeer @e
+        runResponseM me $ do
+          mailboxProto @e True w (MailBoxProtoV1 (DeleteMessages box))
+
+      okay ()
+
+    where
+      dbNotReady = pure $ Left (MailboxOperationError "database not ready")
+      authFailed = pure $ Left (MailboxAuthError "inconsistent signature")
+      noMailbox k = pure $
+        Left (MailboxOperationError (show $ "no mailox" <+> pretty (AsBase58 k)))
+
 
   mailboxSendMessage w@MailboxProtoWorker{..} mess = do
     -- we do not check message signature here
@@ -566,10 +635,42 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                    modifyTVar inMessageMergeQueue  (HM.delete r)
                    pure n
 
+        newTxProvenL <- S.toList_ $
+          for_ newTx $ \th -> void $ runMaybeT do
+
+            tx <- getBlock sto (coerce th)
+                    >>= toMPlus
+                    <&> deserialiseOrFail @MailboxEntry
+                    >>= toMPlus
+
+            case tx of
+              -- maybe to something more sophisticated
+              Exists{} -> lift $ S.yield th
+
+              Deleted (ProofOfDelete{..}) _ -> do
+                h   <- toMPlus deleteMessage
+
+                box <- getBlock sto (coerce h)
+                         >>= toMPlus
+                         <&> deserialiseOrFail @(SignedBox (DeleteMessagesPayload s) s)
+                         >>= toMPlus
+
+                debug $ red "<<***>> mailbox:" <+> "found proof of message deleting" <+> pretty h
+
+                (pk,_) <- unboxSignedBox0 box & toMPlus
+
+                guard (MailboxRefKey pk == r)
+
+                debug $ red "<<***>> mailbox:" <+> "PROVEN message deleting" <+> pretty h
+
+                lift $ S.yield th
+
+        let newTxProven = HS.fromList newTxProvenL
+
         v <- getRef sto r <&> fmap HashRef
         txs <- maybe1 v (pure mempty) (readLog (liftIO . getBlock sto) )
 
-        let mergedTx = HS.fromList txs <> newTx & HS.toList
+        let mergedTx = HS.fromList txs <> newTxProven & HS.toList
 
         -- FIXME: size-hardcode-again
         let pt = toPTree (MaxSize 6000) (MaxNum 1024) mergedTx

@@ -22,6 +22,7 @@ data RpcMailboxGetStatus
 data RpcMailboxFetch
 data RpcMailboxList
 data RpcMailboxSend
+data RpcMailboxDeleteMessages
 data RpcMailboxGet
 
 type MailboxAPI = '[ RpcMailboxPoke
@@ -32,6 +33,7 @@ type MailboxAPI = '[ RpcMailboxPoke
                    , RpcMailboxFetch
                    , RpcMailboxList
                    , RpcMailboxSend
+                   , RpcMailboxDeleteMessages
                    , RpcMailboxGet
                    ]
 
@@ -67,6 +69,9 @@ type instance Output RpcMailboxList  = [(MailboxRefKey 'HBS2Basic, MailboxType)]
 
 type instance Input RpcMailboxSend  = (Message HBS2Basic)
 type instance Output RpcMailboxSend = ()
+
+type instance Input RpcMailboxDeleteMessages  = (SignedBox (DeleteMessagesPayload HBS2Basic) HBS2Basic)
+type instance Output RpcMailboxDeleteMessages = (Either MailboxServiceError ())
 
 type instance Input RpcMailboxGet = (PubKey 'Sign HBS2Basic)
 type instance Output RpcMailboxGet = (Maybe HashRef)
