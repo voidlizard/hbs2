@@ -60,10 +60,9 @@ data MailBoxStatusPayload s =
   }
   deriving stock (Generic)
 
-data DeleteMessagesPayload s =
+data DeleteMessagesPayload (s :: CryptoScheme) =
   DeleteMessagesPayload
-  { dmpMailboxKey    :: MailboxKey s
-  , dmpPredicate     :: MailboxMessagePredicate
+  { dmpPredicate     :: MailboxMessagePredicate
   }
   deriving stock (Generic)
 
@@ -71,7 +70,7 @@ data MailBoxProtoMessage s e =
     SendMessage      (Message s) -- already has signed box
   | CheckMailbox     (Maybe Word64) (MailboxKey s)
   | MailboxStatus    (SignedBox (MailBoxStatusPayload s) s) -- signed by peer
-  | DeleteMessages   (SignedBox (DeleteMessagesPayload s) s)
+  | DeleteMessages   (SignedBox (DeleteMessagesPayload s ) s)
   deriving stock (Generic)
 
 data MailBoxProto s e =
@@ -96,6 +95,12 @@ class IsMailboxProtoAdapter s a where
                         -> MessageContent s
                         -> m ()
 
+  mailboxAcceptDelete   :: forall m . (ForMailbox s, MonadIO m)
+                        => a
+                        -> MailboxRefKey s
+                        -> DeleteMessagesPayload s
+                        -> SignedBox (DeleteMessagesPayload s) s -- ^ we need this for proof
+                        -> m ()
 
 class ForMailbox s => IsMailboxService s a where
 
@@ -123,8 +128,7 @@ class ForMailbox s => IsMailboxService s a where
 
   mailboxSendDelete :: forall m . MonadIO m
                     => a
-                    -> MailboxRefKey s
-                    -> MailboxMessagePredicate
+                    -> SignedBox (DeleteMessagesPayload s) s
                     -> m (Either MailboxServiceError ())
 
   mailboxListBasic :: forall m . MonadIO m
@@ -169,6 +173,7 @@ instance IsMailboxProtoAdapter s (AnyMailboxAdapter s) where
   mailboxGetCredentials (AnyMailboxAdapter a) = mailboxGetCredentials @s a
   mailboxGetStorage (AnyMailboxAdapter a) = mailboxGetStorage @s a
   mailboxAcceptMessage (AnyMailboxAdapter a) = mailboxAcceptMessage @s a
+  mailboxAcceptDelete (AnyMailboxAdapter a) = mailboxAcceptDelete @s a
 
 instance ForMailbox s => Pretty (MailBoxStatusPayload s) where
   pretty MailBoxStatusPayload{..} =
@@ -235,7 +240,7 @@ mailboxProto inner adapter mess = deferred @p do
         --   $workflow: backlog
         (_, content) <- ContT $ maybe1 unboxed' none
 
-        let h = hashObject @HbSync (serialise msg) & HashRef
+        let h = hashObject @HbSync (serialise mess) & HashRef
 
         let routed = serialise (RoutedEntry h)
         let routedHash = hashObject routed
@@ -339,7 +344,39 @@ mailboxProto inner adapter mess = deferred @p do
 
         void $ mailboxAcceptStatus adapter (MailboxRefKey mbsMailboxKey) who content
 
-    DeleteMessages{} -> do
-      none
+    DeleteMessages box -> deferred @p do
+      flip runContT pure do
+
+        -- TODO: possible-ddos
+        --   посылаем левые сообщения, заставляем считать
+        --   подписи
+        --
+        --   Решения:  ограничивать поток сообщения от пиров
+        --
+        --   Возможно, вообще принимать только сообщения от пиров,
+        --   которые содержатся в U {Policy(Mailbox_i)}
+        --
+        --   Возможно: PoW
+
+        let r = unboxSignedBox0 box
+
+        (mbox, spp) <- ContT $ maybe1 r none
+
+        let h = hashObject @HbSync (serialise mess) & HashRef
+
+        let routed = serialise (RoutedEntry h)
+        let routedHash = hashObject routed
+
+        seen <- hasBlock sto routedHash <&> isJust
+
+        unless seen $ lift do
+          gossip mess
+          -- TODO: expire-block-and-collect-garbage
+          --   $class: leak
+          void $ putBlock sto routed
+
+        mailboxAcceptDelete adapter (MailboxRefKey mbox) spp box
+
+        none
 
 

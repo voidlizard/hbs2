@@ -31,6 +31,7 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString qualified as BS
 import Data.Either
 import Data.Coerce
 import Data.Config.Suckless.Script
@@ -227,6 +228,46 @@ runMailboxCLI rpc s = do
 
               liftIO $ print $ vcat (fmap fmtMbox v)
 
+        brief "read message"
+         $ desc [qc|;; reads message
+  read HASH
+|]
+         $ entry $ bindMatch "read" $ nil_ $ \case
+            [ HashLike mhash ] -> do
+
+              let rms = ReadMessageServices ( liftIO . runKeymanClientRO . extractGroupKeySecret)
+
+              (s,_,bs) <- getBlock sto (coerce mhash)
+                            >>= orThrowUser "message not found"
+                              <&> deserialiseOrFail @(Message HBS2Basic)
+                              >>= orThrowUser "invalid message format"
+                              >>= readMessage rms
+
+              liftIO $ BS.putStr bs
+
+              none
+
+            _ -> throwIO $ BadFormException @C nil
+
+        brief "delete message"
+          $ desc deleteMessageDesc
+          $ entry $ bindMatch "delete:message" $ nil_ $ \case
+            [ SignPubKeyLike ref, HashLike mess ] -> do
+
+               creds <- runKeymanClientRO (loadCredentials ref)
+                         >>= orThrowUser ("can't load credentials for" <+> pretty (AsBase58 ref))
+
+               let expr  = MailboxMessagePredicate1 (Op (MessageHashEq mess))
+               let messP = DeleteMessagesPayload @HBS2Basic expr
+
+               let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) messP
+
+               callRpcWaitMay @RpcMailboxDeleteMessages t api box
+                  >>= orThrowUser "rpc call timeout"
+                  >>= orThrowPassIO
+
+            _ -> throwIO $ BadFormException @C nil
+
         brief "list messages"
           $ entry $ bindMatch "list:messages" $ nil_ $ \case
              [ SignPubKeyLike m ] -> void $ runMaybeT do
@@ -358,4 +399,13 @@ setPolicyDesc = [qc|
 
 setPolicyExamples :: ManExamples
 setPolicyExamples = mempty
+
+deleteMessageDesc :: Doc a
+deleteMessageDesc = [qc|
+
+;; deletes message from mailbox
+  delete:message MAILBOX-KEY MESSAGE-HASH
+
+|]
+
 

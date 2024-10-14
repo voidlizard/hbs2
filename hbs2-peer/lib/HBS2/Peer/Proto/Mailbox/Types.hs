@@ -31,6 +31,7 @@ import Control.Exception
 
 data MailboxServiceError =
     MailboxCreateFailed String
+  | MailboxOperationError String
   | MailboxSetPolicyFailed String
   | MailboxAuthError String
   deriving stock (Typeable,Show,Generic)
