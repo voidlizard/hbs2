@@ -40,8 +40,8 @@ data RPC2Context =
   , rpcDoRefChanHeadPost   :: HashRef -> IO ()
   , rpcDoRefChanPropose    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
   , rpcDoRefChanNotify     :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
-  , rpcMailboxService      :: AnyMailboxService (Encryption L4Proto)
-  , rpcMailboxAdapter      :: AnyMailboxAdapter (Encryption L4Proto)
+  , rpcMailboxService      :: AnyMailboxService HBS2Basic
+  , rpcMailboxAdapter      :: AnyMailboxAdapter HBS2Basic
   }
 
 instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT RPC2Context m) where
