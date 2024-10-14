@@ -635,19 +635,24 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                    modifyTVar inMessageMergeQueue  (HM.delete r)
                    pure n
 
+        wipTx <- newTVarIO HS.empty
+
         newTxProvenL <- S.toList_ $
           for_ newTx $ \th -> void $ runMaybeT do
 
             tx <- getBlock sto (coerce th)
                     >>= toMPlus
-                    <&> deserialiseOrFail @MailboxEntry
-                    >>= toMPlus
 
-            case tx of
+            case deserialiseOrFail tx of
+
+              Left{} -> do
+                -- here, but lame
+                void $ putBlock sto (serialise (MergedEntry r th))
+
               -- maybe to something more sophisticated
-              Exists{} -> lift $ S.yield th
+              Right (Exists{}) -> lift $ S.yield th
 
-              Deleted (ProofOfDelete{..}) _ -> do
+              Right (Deleted (ProofOfDelete{..}) _) -> do
                 h   <- toMPlus deleteMessage
 
                 box <- getBlock sto (coerce h)
@@ -679,7 +684,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
         updateRef sto r nref
         debug $ yellow "mailbox updated" <+> pretty r <+> pretty nref
 
-        for_ newTx $ \t -> do
+        for_ newTxProven $ \t -> do
           -- FIXME: use-bloom-filter-or-something
           --  $class: leak
           putBlock sto (serialise (MergedEntry r t))
