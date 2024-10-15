@@ -29,6 +29,7 @@ import HBS2.Peer.Proto
 import HBS2.Peer.Proto.Mailbox
 import HBS2.Peer.Proto.Mailbox.Entry
 import HBS2.Peer.Proto.Mailbox.Policy
+import HBS2.Peer.Proto.Mailbox.Policy.Basic
 import HBS2.Net.Messaging.Unix
 import HBS2.Net.Auth.Credentials
 
@@ -145,71 +146,6 @@ instance IsAcceptPolicy HBS2Basic () where
   policyAcceptPeer _ _ = pure True
   policyAcceptMessage _ _ _ = pure True
 
-data BasicPolicyAction =
-  Allow | Deny
-  deriving (Eq,Ord,Show,Generic)
-
-data BasicPolicy s =
-  BasicPolicy
-  { bpDefaulPeerAction    :: BasicPolicyAction
-  , bpDefaultSenderAction :: BasicPolicyAction
-  , bpPeers               :: HashMap (PubKey 'Sign s) BasicPolicyAction
-  , bpSenders             :: HashMap (Sender s) BasicPolicyAction
-  }
-  deriving stock (Generic)
-
-instance ForMailbox s => IsAcceptPolicy s (BasicPolicy s) where
-
-  policyAcceptPeer BasicPolicy{..} p = do
-    pure False
-
-  policyAcceptMessage BasicPolicy{..} s m = do
-    pure False
-
-parseBasicPolicy :: forall s m . (s ~ HBS2Basic, ForMailbox s, MonadUnliftIO m)
-                 => [Syntax C]
-                 -> m (Maybe (BasicPolicy s))
-
-parseBasicPolicy syn = do
-
-  tpAction <- newTVarIO Deny
-  tsAction <- newTVarIO Deny
-  tpeers   <- newTVarIO mempty
-  tsenders <- newTVarIO mempty
-
-  for_ syn $ \case
-    ListVal [SymbolVal "peer", SymbolVal "allow", SymbolVal "all"]  -> do
-      atomically $ writeTVar tpAction Allow
-
-    ListVal [SymbolVal "peer", SymbolVal "deny", SymbolVal "all"]  -> do
-      atomically $ writeTVar tpAction Deny
-
-    ListVal [SymbolVal "peer", SymbolVal "allow", SignPubKeyLike who]  -> do
-      atomically $ modifyTVar tpeers (HM.insert who Allow)
-
-    ListVal [SymbolVal "peer", SymbolVal "deny", SignPubKeyLike who]  -> do
-      atomically $ modifyTVar tpeers (HM.insert who Deny)
-
-    ListVal [SymbolVal "sender", SymbolVal "allow", SymbolVal "all"]  -> do
-      atomically $ writeTVar tsAction Allow
-
-    ListVal [SymbolVal "sender", SymbolVal "deny", SymbolVal "all"]  -> do
-      atomically $ writeTVar tsAction Deny
-
-    ListVal [SymbolVal "sender", SymbolVal "allow", SignPubKeyLike who]  -> do
-      atomically $ modifyTVar tsenders (HM.insert who Allow)
-
-    ListVal [SymbolVal "sender", SymbolVal "deny", SignPubKeyLike who]  -> do
-      atomically $ modifyTVar tsenders (HM.insert who Deny)
-
-    _ -> pure ()
-
-  a <- readTVarIO tpAction
-  b <- readTVarIO tsAction
-  c <- readTVarIO tpeers
-  d <- readTVarIO tsenders
-
-  pure $ Just $ BasicPolicy  @s a b c d
 
 instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
 
@@ -988,6 +924,5 @@ instance FromField MailboxType where
 -- TODO: implement-basic-policy
 
 -- TODO: test-basic-policy
-
 
 
