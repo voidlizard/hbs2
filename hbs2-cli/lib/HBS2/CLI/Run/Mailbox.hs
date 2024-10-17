@@ -103,7 +103,14 @@ mailboxEntries = do
     _ -> throwIO (BadFormException @c nil)
 
 
-  entry $ bindMatch "hbs2:mailbox:policy:basic:create:file" $ nil_ \case
+  entry $ bindMatch "hbs2:mailbox:policy:basic:read:syntax" $ \case
+    [ListVal syn] -> do
+      po <- parseBasicPolicy syn >>= orThrowUser "malformed policy"
+      mkOpaque po
+
+    _ -> throwIO (BadFormException @c nil)
+
+  entry $ bindMatch "hbs2:mailbox:policy:basic:read:file" $ \case
     [StringLike fn] -> lift do
 
       what <- liftIO (readFile fn)
@@ -112,10 +119,33 @@ mailboxEntries = do
                >>= parseBasicPolicy
                >>= orThrowUser "invalid policy"
 
-      let s  = getAsSyntax @C what
-
-      liftIO $ print $ vcat (fmap pretty s)
+      mkOpaque what
 
     _ -> throwIO (BadFormException @c nil)
 
+
+  entry $ bindMatch "hbs2:mailbox:policy:basic:accept:peer" $ \case
+    [SignPubKeyLike who, OpaqueVal box] -> lift do
+      p <- fromOpaqueThrow @(BasicPolicy HBS2Basic) "expected BasicPolicy" box
+      r <- policyAcceptPeer @HBS2Basic p who
+      pure $ mkBool @c r
+
+    _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:mailbox:policy:basic:accept:sender" $ \case
+    [SignPubKeyLike who, OpaqueVal box] -> lift do
+      p <- fromOpaqueThrow @(BasicPolicy HBS2Basic) "expected BasicPolicy" box
+      r <- policyAcceptSender @HBS2Basic p who
+      pure $ mkBool @c r
+
+    _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:mailbox:policy:basic:dump" $ nil_ $ \case
+    [OpaqueVal box] -> lift do
+      p <- fromOpaqueThrow @(BasicPolicy HBS2Basic) "expected BasicPolicy" box
+      liftIO $ print $ vcat (fmap pretty (getAsSyntax @c p))
+
+    _ -> throwIO (BadFormException @c nil)
 

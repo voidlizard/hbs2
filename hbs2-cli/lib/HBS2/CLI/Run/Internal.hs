@@ -151,6 +151,23 @@ internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), Mo
 internalEntries = do
     SC.internalEntries
 
+    entry $ bindMatch "--run" $ \case
+      [] -> do
+        liftIO getContents
+           <&> parseTop
+           >>= either (error.show) (pure . fmap (fixContext @_ @c))
+           >>= evalTop
+
+      [StringLike fn] -> do
+        liftIO (readFile fn)
+           <&> parseTop
+           >>= either (error.show) (pure . fmap (fixContext @_ @c))
+           >>= evalTop
+
+      _ -> throwIO (BadFormException @c nil)
+
+    -- TODO: re-implement-all-on-top-of-opaque
+
     entry $ bindMatch "blob:base58" $ \case
       [LitStrVal t] -> do
         bs <- pure (Text.unpack t & BS8.pack & fromBase58)
