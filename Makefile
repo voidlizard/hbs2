@@ -42,7 +42,8 @@ rt: $(OUT_FILES)
 > @hbs2-cli \
 	 [define r [eq? [parse:top:file root $(dir $<)$(notdir $@)] \
    [parse:top:file root $(dir $<)$(basename $(notdir $@)).baseline]]] \
-   and [println '"[RT]"' space [if r OK FAIL] : space $(notdir $(basename $@))]
+   and [print '"[RT]"' space [if r [ansi green OK] [ansi red FAIL]] : space $(notdir $(basename $@))] \
+	 and println
 
 > $(RM) $(dir $<)$(notdir $@)
 
