@@ -799,6 +799,11 @@ internalEntries = do
         _ -> do
           throwIO (BadFormException @C nil)
 
+    entry $ bindMatch "quot" $ \case
+      [ syn ] -> pure syn
+      _ -> do
+          throwIO (BadFormException @C nil)
+
     entry $ bindMatch "head" $ \case
       [ ListVal es ] -> pure (head es)
       _ -> throwIO (TypeCheckError @C nil)

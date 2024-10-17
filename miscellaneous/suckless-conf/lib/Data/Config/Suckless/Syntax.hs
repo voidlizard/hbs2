@@ -9,6 +9,7 @@ module Data.Config.Suckless.Syntax
   ( Syntax(..)
   , Id(..)
   , Literal(..)
+  , Opaque(..)
   , HasContext
   , C(..)
   , Context(..)
@@ -16,6 +17,8 @@ module Data.Config.Suckless.Syntax
   , IsLiteral(..)
   , mkOpaque
   , fromOpaque
+  , fromOpaqueThrow
+  , SyntaxTypeError(..)
   , pattern SymbolVal
   , pattern ListVal
   , pattern LitIntVal
@@ -25,6 +28,7 @@ module Data.Config.Suckless.Syntax
   , pattern StringLike
   , pattern StringLikeList
   , pattern Nil
+  , pattern OpaqueVal
   )
   where
 
@@ -99,7 +103,8 @@ pattern StringLikeList e <- (stringLikeList -> e)
 pattern Nil :: forall {c} . Syntax c
 pattern Nil <- ListVal []
 
-
+pattern OpaqueVal :: forall {c} . Opaque -> Syntax c
+pattern OpaqueVal box <- OpaqueValue box
 
 data family Context c :: Type
 
@@ -121,8 +126,7 @@ newtype Id =
   deriving newtype (IsString,Pretty)
   deriving stock (Data,Generic,Show,Eq,Ord)
 
-type ForOpaque a = (Typeable a, Hashable a, Eq a, Data a)
-
+type ForOpaque a = (Typeable a, Eq a)
 
 data Opaque = forall a. ForOpaque a =>
   Opaque
@@ -141,8 +145,19 @@ mkOpaque x = do
   n <- liftIO $ atomicModifyIORef opaqueIdIORef (\n -> (succ n,n))
   pure $ OpaqueValue $ Opaque (Proxy :: Proxy a) n (someTypeRep (Proxy :: Proxy a)) (toDyn x)
 
+data SyntaxTypeError =
+  UnexpectedType String
+  deriving stock (Show,Typeable)
+
+instance Exception SyntaxTypeError
+
 fromOpaque :: forall a. Typeable a => Opaque -> Maybe a
 fromOpaque (Opaque{..}) = fromDynamic opaqueDyn
+
+fromOpaqueThrow :: forall a m . (MonadIO m, Typeable a) => String -> Opaque -> m a
+fromOpaqueThrow s (Opaque{..}) = do
+  let o = fromDynamic @a opaqueDyn
+  liftIO $ maybe (throwIO (UnexpectedType s)) pure o
 
 instance Eq Opaque where
   (Opaque p1 _  t1 d1) == (Opaque _ _ t2 d2) =
@@ -220,7 +235,7 @@ instance Pretty (Syntax c) where
   pretty (Symbol _ s)    = pretty s
   pretty (List _ (x:xs)) = parens $ align $ sep ( fmap pretty (x:xs) )
   pretty (List _ [])     = parens mempty
-  pretty (OpaqueValue v) = parens ("#opaque:" <> pretty (opaqueId v))
+  pretty (OpaqueValue v) = "#opaque:" <> viaShow (opaqueRep v) <> ":" <> pretty (opaqueId v)
 
 instance Pretty Literal where
   pretty = \case

@@ -34,7 +34,9 @@ data BasicPolicy s =
   , bpPeers                :: HashMap (PubKey 'Sign s) BasicPolicyAction
   , bpSenders              :: HashMap (Sender s) BasicPolicyAction
   }
-  deriving stock (Generic)
+  deriving stock (Generic,Typeable)
+
+deriving stock instance ForMailbox s => Eq (BasicPolicy s)
 
 instance ForMailbox s => Pretty (BasicPolicy s) where
   pretty w = pretty (getAsSyntax @C w)
@@ -42,7 +44,10 @@ instance ForMailbox s => Pretty (BasicPolicy s) where
 instance ForMailbox s => IsAcceptPolicy s (BasicPolicy s) where
 
   policyAcceptPeer BasicPolicy{..} p = do
-    pure $ Allow == fromMaybe bpDefaultSenderAction (HM.lookup p bpPeers)
+    pure $ Allow == fromMaybe bpDefaultPeerAction (HM.lookup p bpPeers)
+
+  policyAcceptSender BasicPolicy{..} p = do
+    pure $ Allow == fromMaybe bpDefaultSenderAction (HM.lookup p bpSenders)
 
   policyAcceptMessage BasicPolicy{..} s m = do
     pure $ Allow == fromMaybe bpDefaultSenderAction (HM.lookup s bpSenders)
