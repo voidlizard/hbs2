@@ -6,6 +6,7 @@ import HBS2.CLI.Run.Internal
 
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Peer.Proto.Mailbox
+import HBS2.Peer.Proto.Mailbox.Policy.Basic
 
 import HBS2.Data.Types.Refs
 import HBS2.Hash
@@ -98,6 +99,22 @@ mailboxEntries = do
                       >>= readMessage rms
 
       liftIO $ BS.putStr bs
+
+    _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:mailbox:policy:basic:create:file" $ nil_ \case
+    [StringLike fn] -> lift do
+
+      what <- liftIO (readFile fn)
+               <&> parseTop
+               >>= either (error.show) pure
+               >>= parseBasicPolicy
+               >>= orThrowUser "invalid policy"
+
+      let s  = getAsSyntax @C what
+
+      liftIO $ print $ vcat (fmap pretty s)
 
     _ -> throwIO (BadFormException @c nil)
 

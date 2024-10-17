@@ -29,10 +29,10 @@ data BasicPolicyAction =
 
 data BasicPolicy s =
   BasicPolicy
-  { bpDefaulPeerAction    :: BasicPolicyAction
-  , bpDefaultSenderAction :: BasicPolicyAction
-  , bpPeers               :: HashMap (PubKey 'Sign s) BasicPolicyAction
-  , bpSenders             :: HashMap (Sender s) BasicPolicyAction
+  { bpDefaultPeerAction    :: BasicPolicyAction
+  , bpDefaultSenderAction  :: BasicPolicyAction
+  , bpPeers                :: HashMap (PubKey 'Sign s) BasicPolicyAction
+  , bpSenders              :: HashMap (Sender s) BasicPolicyAction
   }
   deriving stock (Generic)
 
@@ -54,8 +54,8 @@ getAsSyntax BasicPolicy{..} =
   , defSenderAction
   ] <> peerActions <> senderActions
   where
-    defPeerAction   = mkList [mkSym "peer", action bpDefaulPeerAction, mkSym "all"]
-    defSenderAction = mkList [mkSym "sender", action bpDefaulPeerAction, mkSym "all"]
+    defPeerAction   = mkList [mkSym "peer", action bpDefaultPeerAction, mkSym "all"]
+    defSenderAction = mkList [mkSym "sender", action bpDefaultSenderAction, mkSym "all"]
 
     peerActions = [ mkList [mkSym "peer", action a, mkSym (show $ pretty (AsBase58 who))]
                   | (who, a) <- HM.toList bpPeers ]
