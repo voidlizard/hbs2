@@ -16,6 +16,9 @@
 (define s3 9mzDMTUouwoSkxuQWGwCnpP5TWR2DGKLobs2edjM5fDk)
 
 
+(define accept:sender hbs2:mailbox:policy:basic:accept:sender)
+(define accept:peer   hbs2:mailbox:policy:basic:accept:peer)
+
 ;; some policy
 
 println ";; test some basic policy"
@@ -26,10 +29,10 @@ hbs2:mailbox:policy:basic:dump po1
 
 println
 
-println sender || s1 || allowed || [hbs2:mailbox:policy:basic:accept:sender s1 po1]
-println sender || s2 || allowed || [hbs2:mailbox:policy:basic:accept:sender s2 po1]
+println sender || s1 || allowed || [accept:sender s1 po1]
+println sender || s2 || allowed || [accept:sender s2 po1]
 
-println peer || s3 || allowed || [hbs2:mailbox:policy:basic:accept:peer s3 po1]
+println peer || s3 || allowed || [accept:peer s3 po1]
 
 println
 
@@ -46,28 +49,37 @@ hbs2:mailbox:policy:basic:dump po0
 println
 
 
-println peer || s1 || allowed || [hbs2:mailbox:policy:basic:accept:peer s1 po0]
-println peer || s2 || allowed || [hbs2:mailbox:policy:basic:accept:peer s2 po0]
+println peer || s1 || allowed || [accept:peer s1 po0]
+println peer || s2 || allowed || [accept:peer s2 po0]
 
-println sender || s1 || allowed || [hbs2:mailbox:policy:basic:accept:sender s1 po0]
-println sender || s2 || allowed || [hbs2:mailbox:policy:basic:accept:sender s2 po0]
+println sender || s1 || allowed || [accept:sender s1 po0]
+println sender || s2 || allowed || [accept:sender s2 po0]
 
 
 define shitty-policy [hbs2:mailbox:policy:basic:read:syntax [quot [
-shit 1
-shit 2
-shit 3
+[shit 1]
+[shit 2]
+[shit 3]
+bullshit
 ]]]
 
 ;; malformed policy
 
 println
 
-println "test malformed policy"
+println ";; test malformed policy"
 
 println
 
 hbs2:mailbox:policy:basic:dump shitty-policy
+
+println
+
+println peer || s1 || allowed || [accept:peer s1 shitty-policy]
+println peer || s2 || allowed || [accept:peer s2 shitty-policy]
+
+println sender || s1 || allowed || [accept:sender s1 shitty-policy]
+println sender || s2 || allowed || [accept:sender s2 shitty-policy]
 
 
 

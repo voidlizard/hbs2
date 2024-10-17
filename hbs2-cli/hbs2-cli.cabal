@@ -112,6 +112,7 @@ library
       HBS2.CLI.Run.GroupKey
       HBS2.CLI.Run.KeyMan
       HBS2.CLI.Run.Keyring
+      HBS2.CLI.Run.Tree
       HBS2.CLI.Run.MetaData
       HBS2.CLI.Run.Peer
       HBS2.CLI.Run.RefLog
