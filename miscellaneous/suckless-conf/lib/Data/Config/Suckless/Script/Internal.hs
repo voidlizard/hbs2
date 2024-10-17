@@ -848,48 +848,57 @@ internalEntries = do
       ss     -> display (mkList ss)
 
     let colorz = HM.fromList
-          [ ("red",     (Red, True))
-          , ("red~",    (Red, False))
-          , ("green",   (Green, True))
-          , ("green~",  (Green, False))
-          , ("yellow",  (Yellow, True))
-          , ("yellow~", (Yellow, False))
-          , ("blue",    (Blue, True))
-          , ("blue~",   (Blue, False))
-          , ("magenta", (Magenta, True))
-          , ("magenta~",(Magenta, False))
-          , ("cyan",    (Cyan, True))
-          , ("cyan~",   (Cyan, False))
-          , ("white",   (White, True))
-          , ("white~",  (White, False))
-          , ("black",   (Black, True))
-          , ("black~",  (Black, False))
+          [ ("red",     pure (Red, True))
+          , ("red~",    pure (Red, False))
+          , ("green",   pure (Green, True))
+          , ("green~",  pure (Green, False))
+          , ("yellow",  pure (Yellow, True))
+          , ("yellow~", pure (Yellow, False))
+          , ("blue",    pure (Blue, True))
+          , ("blue~",   pure (Blue, False))
+          , ("magenta", pure (Magenta, True))
+          , ("magenta~",pure (Magenta, False))
+          , ("cyan",    pure (Cyan, True))
+          , ("cyan~",   pure (Cyan, False))
+          , ("white",   pure (White, True))
+          , ("white~",  pure (White, False))
+          , ("black",   pure (Black, True))
+          , ("black~",  pure (Black, False))
+          , ("_",       mzero)
           ]
 
 
-    let fgc fg = case HM.lookup fg colorz of
+    let fgc fg = case join (HM.lookup fg colorz) of
           Just (co, True)  -> color co
           Just (co, False) -> colorDull co
           Nothing             -> mempty
 
+    let niceTerm f = \case
+          LitStrVal x -> do
+            let s = renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty x)
+            mkStr s
+
+          other -> do
+            let s = renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty other)
+            mkStr s
+
     entry $ bindMatch "ansi" $  \case
       [ SymbolVal fg, SymbolVal bg, term ] | HM.member fg colorz && HM.member bg colorz -> do
-        let b = case HM.lookup bg colorz of
+        let b = case join (HM.lookup bg colorz) of
                   Just (co, True)  -> bgColor co
                   Just (co, False) -> bgColorDull co
                   Nothing -> mempty
 
         let f = b <> fgc fg
-        let wtf = show $ pretty term
-        let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
-        pure $ mkStr x
+        pure $ niceTerm f term
 
       [ SymbolVal fg, s] | HM.member fg colorz -> do
         let f = fgc fg
-        let wtf = show $ pretty s
-        let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
-        -- error $ show x
-        pure $ mkStr x
+        pure $ niceTerm f s
+        -- let wtf = show $ pretty s
+        -- let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
+        -- -- error $ show x
+        -- pure $ mkStr x
 
       _  -> throwIO (BadFormException @c nil)
 
