@@ -196,4 +196,9 @@ internalEntries = do
 
       e -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "test:opaque" $ \case
+      [ LitIntVal n ] -> mkOpaque n
+      [ StringLike s ] -> mkOpaque s
+
+      _ -> mkOpaque ()
 

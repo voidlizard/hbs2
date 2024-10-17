@@ -4,6 +4,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# Language ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards #-}
 module Data.Config.Suckless.Syntax
   ( Syntax(..)
   , Id(..)
@@ -13,6 +14,8 @@ module Data.Config.Suckless.Syntax
   , Context(..)
   , IsContext(..)
   , IsLiteral(..)
+  , mkOpaque
+  , fromOpaque
   , pattern SymbolVal
   , pattern ListVal
   , pattern LitIntVal
@@ -26,6 +29,7 @@ module Data.Config.Suckless.Syntax
   where
 
 import Data.Data
+import Data.Dynamic
 import Data.Kind
 import Data.String
 import Data.Text (Text)
@@ -41,6 +45,17 @@ import Data.Vector qualified as V
 import Data.Traversable (forM)
 import Data.Text qualified as Text
 import Data.Function
+import Data.Hashable
+import Control.Exception
+import Type.Reflection
+import Control.Monad.IO.Class
+import System.Mem.StableName
+import Foreign.Ptr (ptrToIntPtr)
+import Foreign.StablePtr
+import System.IO.Unsafe (unsafePerformIO)
+import Data.IORef
+import Data.Word
+import Data.Bits
 
 import Prettyprinter
 
@@ -106,11 +121,58 @@ newtype Id =
   deriving newtype (IsString,Pretty)
   deriving stock (Data,Generic,Show,Eq,Ord)
 
+type ForOpaque a = (Typeable a, Hashable a, Eq a, Data a)
+
+
+data Opaque = forall a. ForOpaque a =>
+  Opaque
+  { opaqueProxy :: !(Proxy a)
+  , opaqueId    :: !Word64
+  , opaqueRep   :: !SomeTypeRep
+  , opaqueDyn   :: !Dynamic
+  }
+
+opaqueIdIORef :: IORef Word64
+opaqueIdIORef = unsafePerformIO (newIORef 1)
+{-# NOINLINE opaqueIdIORef #-}
+
+mkOpaque :: forall c a m . (MonadIO m, ForOpaque a) => a -> m (Syntax c)
+mkOpaque x = do
+  n <- liftIO $ atomicModifyIORef opaqueIdIORef (\n -> (succ n,n))
+  pure $ OpaqueValue $ Opaque (Proxy :: Proxy a) n (someTypeRep (Proxy :: Proxy a)) (toDyn x)
+
+fromOpaque :: forall a. Typeable a => Opaque -> Maybe a
+fromOpaque (Opaque{..}) = fromDynamic opaqueDyn
+
+instance Eq Opaque where
+  (Opaque p1 _  t1 d1) == (Opaque _ _ t2 d2) =
+    t1 == t2 && unpack p1 d1 == unpack p1 d2
+    where
+      unpack :: forall a . (Typeable a) => Proxy a -> Dynamic -> Maybe a
+      unpack _ = fromDynamic @a
+
+-- Partial Data implementation for Opaque
+instance Data Opaque where
+  gfoldl _ z (Opaque{..}) = z (Opaque{..})
+
+  -- Can not be unfolded
+  gunfold _ z _ = z (Opaque (Proxy :: Proxy ()) 0 (someTypeRep (Proxy :: Proxy ())) (toDyn ()))
+
+  toConstr _ = opaqueConstr
+  dataTypeOf _ = opaqueDataType
+
+opaqueConstr :: Constr
+opaqueConstr = mkConstr opaqueDataType "Opaque" [] Prefix
+
+opaqueDataType :: DataType
+opaqueDataType = mkDataType "Opaque" [opaqueConstr]
+
+
 data Literal =
     LitStr   Text
   | LitInt   Integer
   | LitScientific Scientific
-  | LitBool  Bool
+  | LitBool   Bool
   deriving stock (Eq,Ord,Data,Generic,Show)
 
 instance IsLiteral Text where
@@ -141,13 +203,14 @@ data Syntax c
   = List    (Context c) [Syntax c]
   | Symbol  (Context c) Id
   | Literal (Context c) Literal
+  | OpaqueValue Opaque
   deriving stock (Generic,Typeable)
-
 
 instance Eq (Syntax c) where
   (==) (Literal _ a) (Literal _ b) = a == b
   (==) (Symbol _ a)  (Symbol _ b) = a == b
   (==) (List _ a)    (List _ b) = a == b
+  (==) (OpaqueValue a) (OpaqueValue b) = a == b
   (==) _ _ = False
 
 deriving instance (Data c, Data (Context c)) => Data (Syntax c)
@@ -157,6 +220,7 @@ instance Pretty (Syntax c) where
   pretty (Symbol _ s)    = pretty s
   pretty (List _ (x:xs)) = parens $ align $ sep ( fmap pretty (x:xs) )
   pretty (List _ [])     = parens mempty
+  pretty (OpaqueValue v) = parens ("#opaque:" <> pretty (opaqueId v))
 
 instance Pretty Literal where
   pretty = \case
@@ -175,6 +239,7 @@ instance ToJSON Literal where
     toJSON (LitBool b)      = Bool b
 
 instance ToJSON (Syntax c) where
+    toJSON (OpaqueValue{}) = Null
     toJSON (Symbol _ (Id "#nil")) = Null
     toJSON (Symbol _ (Id s)) = String s
     toJSON (Literal _ l) = toJSON l
