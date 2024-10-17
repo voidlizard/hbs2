@@ -847,6 +847,52 @@ internalEntries = do
       [ sy ] -> display sy
       ss     -> display (mkList ss)
 
+    let colorz = HM.fromList
+          [ ("red",     (Red, True))
+          , ("red~",    (Red, False))
+          , ("green",   (Green, True))
+          , ("green~",  (Green, False))
+          , ("yellow",  (Yellow, True))
+          , ("yellow~", (Yellow, False))
+          , ("blue",    (Blue, True))
+          , ("blue~",   (Blue, False))
+          , ("magenta", (Magenta, True))
+          , ("magenta~",(Magenta, False))
+          , ("cyan",    (Cyan, True))
+          , ("cyan~",   (Cyan, False))
+          , ("white",   (White, True))
+          , ("white~",  (White, False))
+          , ("black",   (Black, True))
+          , ("black~",  (Black, False))
+          ]
+
+
+    let fgc fg = case HM.lookup fg colorz of
+          Just (co, True)  -> color co
+          Just (co, False) -> colorDull co
+          Nothing             -> mempty
+
+    entry $ bindMatch "ansi" $  \case
+      [ SymbolVal fg, SymbolVal bg, term ] | HM.member fg colorz && HM.member bg colorz -> do
+        let b = case HM.lookup bg colorz of
+                  Just (co, True)  -> bgColor co
+                  Just (co, False) -> bgColorDull co
+                  Nothing -> mempty
+
+        let f = b <> fgc fg
+        let wtf = show $ pretty term
+        let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
+        pure $ mkStr x
+
+      [ SymbolVal fg, s] | HM.member fg colorz -> do
+        let f = fgc fg
+        let wtf = show $ pretty s
+        let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
+        -- error $ show x
+        pure $ mkStr x
+
+      _  -> throwIO (BadFormException @c nil)
+
     brief "prints new line character to stdout"
       $ entry $ bindMatch "newline" $ nil_ $ \case
           [] -> liftIO (putStrLn "")

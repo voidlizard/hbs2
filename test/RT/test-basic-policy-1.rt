@@ -82,4 +82,5 @@ println sender || s1 || allowed || [accept:sender s1 shitty-policy]
 println sender || s2 || allowed || [accept:sender s2 shitty-policy]
 
 
+; print :fuck
 
