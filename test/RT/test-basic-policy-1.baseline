@@ -1,0 +1,33 @@
+;; test some basic policy
+
+(peer deny all)
+(sender deny all)
+(peer allow 5tZfGUoQ79EzFUvyyY5Wh1LzN2oaqhrn9kPnfk6ByHpf)
+(peer allow yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu)
+(peer allow 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb)
+(sender allow 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb)
+
+sender yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu allowed #f
+sender 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb allowed #t
+peer 9mzDMTUouwoSkxuQWGwCnpP5TWR2DGKLobs2edjM5fDk allowed #f
+
+;; test empty policy
+
+(peer deny all)
+(sender deny all)
+
+peer yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu allowed #f
+peer 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb allowed #f
+sender yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu allowed #f
+sender 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb allowed #f
+
+;; test malformed policy
+
+(peer deny all)
+(sender deny all)
+
+peer yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu allowed #f
+peer 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb allowed #f
+sender yFSaUfb97ZRtQqzHWdERsR7KJvN8qyWX1M8rJcxnsiu allowed #f
+sender 5GnroAC8FXNRL8rcgJj6RTu9mt1AbuNd5MZVnDBcCKzb allowed #f
+

@@ -124,6 +124,19 @@ mailboxEntries = do
     _ -> throwIO (BadFormException @c nil)
 
 
+  entry $ bindMatch "hbs2:mailbox:policy:basic:read:storage" $ \case
+    [HashLike fn] -> lift do
+      error "FUCK"
+      -- what <- liftIO (readFile fn)
+      --          <&> parseTop
+      --          >>= either (error.show) pure
+      --          >>= parseBasicPolicy
+      --          >>= orThrowUser "invalid policy"
+      -- mkOpaque what
+
+    _ -> throwIO (BadFormException @c nil)
+
+
   entry $ bindMatch "hbs2:mailbox:policy:basic:accept:peer" $ \case
     [SignPubKeyLike who, OpaqueVal box] -> lift do
       p <- fromOpaqueThrow @(BasicPolicy HBS2Basic) "expected BasicPolicy" box

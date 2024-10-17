@@ -5,6 +5,13 @@ SHELL := bash
 MAKEFLAGS += --warn-undefined-variables
 MAKEFLAGS += --no-builtin-rules
 
+RT_DIR := test/RT
+
+VPATH += test/RT
+
+RT_FILES := $(wildcard $(RT_DIR)/*.rt)
+OUT_FILES := $(RT_FILES:.rt=.out)
+
 GHC_VERSION := 9.6.6
 BIN_DIR := ./bin
 BINS := \
@@ -21,10 +28,23 @@ BINS := \
   fixme-new          \
 	hbs2-storage-simple-benchmarks \
 
+RT_DIR := tests/RT
+
 ifeq ($(origin .RECIPEPREFIX), undefined)
   $(error This Make does not support .RECIPEPREFIX. Please use GNU Make 4.0 or later)
 endif
 .RECIPEPREFIX = >
+
+rt: $(OUT_FILES)
+
+%.out: %.rt
+> @hbs2-cli --run $<  > $(dir $<)$(notdir $@)
+> @hbs2-cli \
+	 [define r [eq? [parse:top:file root $(dir $<)$(notdir $@)] \
+   [parse:top:file root $(dir $<)$(basename $(notdir $@)).baseline]]] \
+   and [println '"[RT]"' space [if r OK FAIL] : space $(notdir $(basename $@))]
+
+> $(RM) $(dir $<)$(notdir $@)
 
 $(BIN_DIR):
 >	@mkdir -p $@

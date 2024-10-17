@@ -16,6 +16,8 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Data
 import Data.Function as Export
 import Data.Functor as Export
@@ -30,6 +32,8 @@ import Data.String
 import Data.Text.IO qualified as TIO
 import Data.Text qualified as Text
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding.Error (ignore)
 import Data.Time.Clock.POSIX
 import GHC.Generics hiding (C)
 import Prettyprinter
@@ -880,15 +884,24 @@ internalEntries = do
 
     entry $ bindValue "space" $ mkStr " "
 
-    entry $ bindMatch "parse-top" $ \case
+    brief "parses string as toplevel and produces a form"
+     $ desc "parse:top:string SYMBOL STRING-LIKE"
+     $ entry $ bindMatch "parse:top:string" $ \case
 
-      [SymbolVal w, LitStrVal s] -> do
-        pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
+        [SymbolVal w, LitStrVal s] -> do
+          pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
 
-      [LitStrVal s] -> do
-        pure $  parseTop s & either (const nil) (mkList . fmap fixContext)
+        _ -> throwIO (BadFormException @c nil)
 
-      _ -> throwIO (BadFormException @c nil)
+    brief "parses file as toplevel form and produces a form"
+     $ desc "parse:top:file SYMBOL <FILENAME>"
+     $ entry $ bindMatch "parse:top:file" $ \case
+
+        [SymbolVal w, StringLike fn] -> do
+          s <- liftIO $ TIO.readFile fn
+          pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
+
+        _ -> throwIO (BadFormException @c nil)
 
     let atomFrom = \case
           [StringLike s] -> pure (mkSym s)
@@ -987,4 +1000,40 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+
+    brief "decodes bytes as utf8 text"
+     $ desc "bytes:decode <BYTES>"
+     $ entry $ bindMatch "bytes:decode" $ \case
+        [ OpaqueVal box ] -> do
+
+          let lbs' = fromOpaque @LBS.ByteString box
+                      <|>
+                     (LBS.fromStrict <$> fromOpaque @BS.ByteString box)
+
+          lbs <- maybe (throwIO (UnexpectedType "unknown / ByteString")) pure lbs'
+
+          -- TODO: maybe-throw-on-invalid-encoding
+          let txt = decodeUtf8With ignore (LBS.toStrict lbs)
+
+          pure $ mkStr txt
+
+        _ -> throwIO (BadFormException @c nil)
+
+
+    brief "reads bytes from a file"
+     $ desc "bytes:read:file FILE"
+     $ entry $ bindMatch "bytes:read:file" $ \case
+        [ StringLike fn ] -> do
+          liftIO (BS.readFile fn) >>= mkOpaque
+
+        _ -> throwIO (BadFormException @c nil)
+
+
+    brief "reads bytes from a STDIN"
+     $ desc "bytes:read:stdin"
+     $ entry $ bindMatch "bytes:read:stdin" $ \case
+        [] -> do
+          liftIO BS.getContents >>= mkOpaque
+
+        _ -> throwIO (BadFormException @c nil)
 

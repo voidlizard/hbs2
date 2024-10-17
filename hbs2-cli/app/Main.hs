@@ -10,6 +10,7 @@ import HBS2.CLI.Run.Keyring
 import HBS2.CLI.Run.GroupKey
 import HBS2.CLI.Run.Sigil
 import HBS2.CLI.Run.MetaData
+import HBS2.CLI.Run.Tree
 import HBS2.CLI.Run.Peer
 import HBS2.CLI.Run.RefLog
 import HBS2.CLI.Run.RefChan
@@ -64,6 +65,7 @@ main = do
         keyringEntries
         groupKeyEntries
         sigilEntries
+        treeEntries
         metaDataEntries
         peerEntries
         reflogEntries
