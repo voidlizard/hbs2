@@ -911,7 +911,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
       -- FIXME: mailbox-check-period
       --   right now  it's 60 seconds for debug purposes
       --   remove hardcode to smth reasonable
-      let mboxes = liftIO (listMailboxes @s dbe <&> fmap (set _2 60) )
+      let mboxes = liftIO (listMailboxes @s dbe <&> fmap (set _2 600) )
 
       polling (Polling 10 10) mboxes $ \r -> do
         debug $ yellow "mailbox: SEND FETCH REQUEST FOR" <+> pretty r

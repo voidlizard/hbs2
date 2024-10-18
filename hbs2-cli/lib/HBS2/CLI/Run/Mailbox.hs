@@ -3,6 +3,7 @@ module HBS2.CLI.Run.Mailbox where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
+import HBS2.CLI.Run.Internal.Merkle
 
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Peer.Proto.Mailbox
@@ -14,6 +15,7 @@ import HBS2.Storage
 import HBS2.KeyMan.Keys.Direct as K
 
 import Codec.Serialise
+import Control.Monad.Except
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -125,14 +127,15 @@ mailboxEntries = do
 
 
   entry $ bindMatch "hbs2:mailbox:policy:basic:read:storage" $ \case
-    [HashLike fn] -> lift do
-      error "FUCK"
-      -- what <- liftIO (readFile fn)
-      --          <&> parseTop
-      --          >>= either (error.show) pure
-      --          >>= parseBasicPolicy
-      --          >>= orThrowUser "invalid policy"
-      -- mkOpaque what
+    [HashLike href] -> lift do
+      sto <- getStorage
+      what <- runExceptT (getTreeContents sto href)
+                >>= orThrowPassIO
+                <&> parseTop . LBS8.unpack
+                >>= either (error.show) pure
+                >>= parseBasicPolicy
+                >>= orThrowUser "invalid policy"
+      mkOpaque what
 
     _ -> throwIO (BadFormException @c nil)
 
