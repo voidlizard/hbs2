@@ -665,8 +665,8 @@ blockDownloadLoop env0 = do
     updateRates e rates nonces = withPeerM e do
 
       let wRtt = 5
-      let wUdp = 1.75
-      let wTcp = 1.0
+      let wUdp = 1.5
+      let wTcp = 1.1
       let wS   = 1.5
       let eps  = 1e-8
 

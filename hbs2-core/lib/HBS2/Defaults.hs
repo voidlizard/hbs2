@@ -16,11 +16,11 @@ defBurstMax :: Integral a => a
 defBurstMax = 128
 
 defBurst :: Integral a => a
-defBurst = defBurstMax `div` 8
+defBurst = defBurstMax `div` 4
 
 -- defChunkSize :: Integer
 defChunkSize :: Integral a => a
-defChunkSize = 1400
+defChunkSize = 1024
 -- defChunkSize = 480
 
 defBlockSize :: Integer
@@ -36,7 +36,7 @@ defBlockDownloadQ :: Integral a => a
 defBlockDownloadQ = 65536*10
 
 defBlockDownloadThreshold :: Integral a => a
-defBlockDownloadThreshold = 2
+defBlockDownloadThreshold = 1
 
 -- typical block hash 530+ chunks * parallel wip blocks amount
 defProtoPipelineSize :: Int
