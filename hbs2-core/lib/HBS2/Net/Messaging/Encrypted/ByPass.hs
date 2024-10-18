@@ -92,6 +92,7 @@ data ByPassStat =
   , statFlowNum      :: Int
   , statPeers        :: Int
   , statAuthFail     :: Int
+  , statMaxPkt       :: Int
   }
   deriving stock (Show,Generic)
 
@@ -118,6 +119,7 @@ data ByPass e them =
   , sentNum      :: TVar Int
   , recvNum      :: TVar Int
   , authFail     :: TVar Int
+  , maxPkt       :: TVar Int
   }
 
 type ForByPass e   = ( Hashable (Peer e)
@@ -160,6 +162,7 @@ getStat bus = liftIO $
              <*> (readTVarIO (flowKeys bus) <&> HashMap.size)
              <*> (readTVarIO (noncesByPeer bus) <&> HashMap.size)
              <*> readTVarIO (authFail bus)
+             <*> readTVarIO (maxPkt bus)
 
 cleanupByPassMessaging :: forall e w m . ( ForByPass e
                                     , MonadIO m
@@ -229,6 +232,7 @@ newByPassMessaging o w self ps sk  = do
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
+                                 <*> newTVarIO 0
 
 instance (ForByPass e, Messaging w e ByteString)
   => Messaging (ByPass e w) e ByteString where
@@ -270,7 +274,9 @@ instance (ForByPass e, Messaging w e ByteString)
     -- TODO: run-concurrently
     for_ msgs $ \(From who, mess) -> runMaybeT do
 
-      atomically $ modifyTVar (recvNum bus) succ
+      atomically do
+        modifyTVar (recvNum bus) succ
+        modifyTVar (maxPkt bus) (max (fromIntegral $ LBS.length mess))
 
       hshake <- processHey who mess
 
@@ -511,6 +517,7 @@ instance Pretty ByPassStat where
          , prettyField "flowNum"      statFlowNum
          , prettyField "peers"        statPeers
          , prettyField "authFail"     statAuthFail
+         , prettyField "maxPktLen"    statMaxPkt
          ]
     where
       prettyField x e = fill 15 (x <> colon) <+> pretty e
