@@ -20,6 +20,7 @@ import HBS2.Net.Proto
 import HBS2.Base58
 import HBS2.Storage
 import HBS2.Storage.Operations.Missed
+import HBS2.Storage.Operations.ByteString
 import HBS2.Merkle
 import HBS2.Hash
 import HBS2.Net.Auth.Credentials
@@ -53,10 +54,12 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.Except (throwError)
 import Data.Coerce
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.Either
 import Data.List qualified as L
 import Data.Maybe
 import Data.Word
@@ -125,7 +128,7 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
   , mpwStorage            :: AnyStorage
   , mpwCredentials        :: PeerCredentials s
   , mpwFetchQ             :: TVar (HashSet (MailboxRefKey s))
-  , inMessageQueue        :: TBQueue (Message s, MessageContent s)
+  , inMessageQueue        :: TBQueue (Maybe (PubKey 'Sign s), Message s, MessageContent s)
   , inMessageMergeQueue   :: TVar (HashMap (MailboxRefKey s) (HashSet HashRef))
   , inPolicyDownloadQ     :: TVar (HashMap HashRef (PolicyDownload s))
   , inMailboxDownloadQ    :: TVar (HashMap HashRef (MailboxDownload s))
@@ -145,7 +148,7 @@ pattern PlainMessageDelete x <- DeleteMessagesPayload (MailboxMessagePredicate1 
 instance IsAcceptPolicy HBS2Basic () where
   policyAcceptPeer _ _ = pure True
   policyAcceptMessage _ _ _ = pure True
-
+  policyAcceptSender _ _ = pure True
 
 instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter s (MailboxProtoWorker s e) where
 
@@ -153,15 +156,20 @@ instance (s ~ HBS2Basic, e ~ L4Proto, s ~ Encryption e) => IsMailboxProtoAdapter
 
   mailboxGetStorage = pure . mpwStorage
 
-  mailboxGetPolicy w =  pure (AnyPolicy @s ())
+  mailboxGetPolicy MailboxProtoWorker{..} mbox =  do
+    let def = AnyPolicy (defaultBasicPolicy @s)
+    fromMaybe def  <$> runMaybeT do
+      dbe <- readTVarIO mailboxDB >>= toMPlus
+      co  <- loadPolicyContent dbe mpwStorage mbox
+      pure (AnyPolicy co)
 
-  mailboxAcceptMessage MailboxProtoWorker{..} m c = do
+  mailboxAcceptMessage MailboxProtoWorker{..} peer m c = do
     atomically do
       full <- isFullTBQueue inMessageQueue
       if full then do
         modifyTVar inMessageQueueDropped succ
       else do
-        writeTBQueue inMessageQueue (m,c)
+        writeTBQueue inMessageQueue (peer, m,c)
         modifyTVar   inMessageQueueInNum succ
 
   mailboxAcceptDelete MailboxProtoWorker{..} mbox dmp box = do
@@ -494,6 +502,32 @@ loadPolicyPayloadUnboxed dbe sto mbox = do
    <&> join
    <&> fmap snd
 
+loadPolicyContent :: forall s m . (s ~ HBS2Basic, ForMailbox s, MonadIO m)
+                  => DBPipeEnv
+                  -> AnyStorage
+                  -> MailboxRefKey s
+                  -> m (BasicPolicy s)
+loadPolicyContent dbe sto mbox = do
+  let def = defaultBasicPolicy @s
+  fromMaybe def <$> runMaybeT do
+    SetPolicyPayload{..} <- loadPolicyPayloadUnboxed dbe sto mbox >>= toMPlus
+
+    lbs' <- runExceptT (readFromMerkle sto (SimpleKey (coerce sppPolicyRef)))
+
+    when (isLeft lbs') do
+      warn $ yellow "can't read policy for" <+> pretty mbox
+
+    syn' <- toMPlus lbs'
+              <&> LBS8.unpack
+              <&> parseTop
+
+    when (isLeft syn') do
+      warn $ yellow "can't parse policy for" <+> pretty mbox
+
+    syn <- toMPlus syn'
+
+    liftIO (parseBasicPolicy  syn) >>= toMPlus
+
 getMailboxType_ :: (ForMailbox s, MonadIO m) => DBPipeEnv -> MailboxRefKey s -> m (Maybe MailboxType)
 getMailboxType_ d r = do
   let sql = [qc|select type from mailbox where recipient = ? limit 1|]
@@ -586,14 +620,36 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
       forever do
         pause @'Seconds 10
         mess <- atomically $ STM.flushTBQueue inMessageQueue
-        for_ mess $ \(m,s) -> do
+        for_ mess $ \(peer, m, s) -> do
           atomically $ modifyTVar inMessageQueueInNum pred
 
           -- TODO: process-with-policy
 
           for_ (messageRecipients s) $ \rcpt -> void $ runMaybeT do
-            mbox <- getMailboxType_ @s dbe (MailboxRefKey rcpt)
+
+            let theMailbox  = MailboxRefKey @s rcpt
+
+            mbox <- getMailboxType_ @s dbe theMailbox
                        >>= toMPlus
+
+            -- FIXME: excess-sign-check
+            (sender, _) <- unboxSignedBox0 (messageContent m) & toMPlus
+
+            po <- mailboxGetPolicy @s me theMailbox
+
+            acceptPeer <- maybe1 peer (pure True) $ \p ->
+                             policyAcceptPeer @s po p
+
+            unless acceptPeer do
+              warn $ red "message dropped by peer policy"
+                      <+> pretty mbox <+> pretty (fmap AsBase58 peer)
+              mzero
+
+            accept <- policyAcceptMessage @s po sender s
+
+            unless accept do
+              warn $ red "message dropped by policy for" <+> pretty theMailbox
+              mzero
 
             -- TODO: ASAP-block-accounting
             ha' <- putBlock sto (serialise m) <&> fmap HashRef
@@ -604,9 +660,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
                       err $ red "storage error, can't store message"
                       mzero
 
-            let ref = MailboxRefKey @s rcpt
-
-            debug $ yellow "mailbox: message stored" <+> pretty ref <+> pretty ha
+            debug $ yellow "mailbox: message stored" <+> pretty theMailbox <+> pretty ha
 
             -- TODO: add-policy-reference
             let proof = ProofOfExist mzero
@@ -614,7 +668,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
             for_ h' $ \h -> do
               atomically do
-                modifyTVar inMessageMergeQueue  (HM.insertWith (<>) ref (HS.singleton (HashRef h)))
+                modifyTVar inMessageMergeQueue  (HM.insertWith (<>) theMailbox (HS.singleton (HashRef h)))
 
             -- TODO: check-attachment-policy-for-mailbox
 
@@ -829,7 +883,7 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
                               Just (_, content) -> do
                                 -- FIXME: what-if-message-queue-full?
-                                mailboxAcceptMessage me normal content
+                                mailboxAcceptMessage me mzero normal content
                                 pure ()
 
           failNum <- readTVarIO fails
@@ -918,11 +972,5 @@ instance ForMailbox s => FromField (MailboxRefKey s) where
 
 instance FromField MailboxType where
   fromField w = fromField @String w <&> fromString @MailboxType
-
--- TODO: test-multiple-recipients
-
--- TODO: implement-basic-policy
-
--- TODO: test-basic-policy
 
 

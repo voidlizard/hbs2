@@ -5,6 +5,7 @@ module HBS2.Peer.Proto.Mailbox.Policy.Basic
   , BasicPolicyAction(..)
   , getAsSyntax
   , parseBasicPolicy
+  , defaultBasicPolicy
   , BasicPolicy(..)
   ) where
 
@@ -73,6 +74,8 @@ getAsSyntax BasicPolicy{..} =
       Allow -> mkSym "allow"
       Deny  -> mkSym "deny"
 
+defaultBasicPolicy :: forall s . (ForMailbox s) => BasicPolicy s
+defaultBasicPolicy = BasicPolicy Deny Deny mempty mempty
 
 parseBasicPolicy :: forall s c m . (IsContext c, s ~ HBS2Basic, ForMailbox s, MonadUnliftIO m)
                  => [Syntax c]

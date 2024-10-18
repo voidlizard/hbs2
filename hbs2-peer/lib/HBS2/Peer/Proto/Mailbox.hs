@@ -44,10 +44,11 @@ class ForMailbox s => IsMailboxProtoAdapter s a where
 
   mailboxGetStorage     :: forall m . MonadIO m => a -> m AnyStorage
 
-  mailboxGetPolicy      :: forall m . MonadIO m => a -> m (AnyPolicy s)
+  mailboxGetPolicy      :: forall m . MonadIO m => a -> MailboxRefKey s -> m (AnyPolicy s)
 
   mailboxAcceptMessage  :: forall m . (ForMailbox s, MonadIO m)
                         => a
+                        -> Maybe (PubKey 'Sign s) -- ^ peer
                         -> Message s
                         -> MessageContent s
                         -> m ()
@@ -154,7 +155,6 @@ mailboxProto inner adapter mess = deferred @p do
   -- common stuff
 
   sto  <- mailboxGetStorage @s adapter
-  policy <- mailboxGetPolicy @s adapter
   pc <- mailboxGetCredentials @s adapter
 
   now  <- liftIO $ getPOSIXTime <&> round
@@ -163,21 +163,16 @@ mailboxProto inner adapter mess = deferred @p do
 
   flip runContT pure $ callCC \exit -> do
 
-    se <- ContT $ maybe1 se' none
-
     pip <- if inner then do
               pure $ view peerSignPk pc
             else do
+              se <- ContT $ maybe1 se' none
               pure $ view peerSignKey se
-
-    acceptPeer <- policyAcceptPeer @s policy pip
-
-    unless acceptPeer do
-      debug $ red "Peer rejected by policy" <+> pretty (AsBase58 pip)
-      exit ()
 
     case mailBoxProtoPayload mess of
       SendMessage msg -> do
+
+        debug $ red "AAAAAA!" <+> pretty now
 
         -- проверить подпись быстрее, чем читать диск
         let unboxed' = unboxSignedBox0 @(MessageContent s) (messageContent msg)
@@ -186,6 +181,7 @@ mailboxProto inner adapter mess = deferred @p do
         -- TODO: increment-malformed-messages-statistics
         --   $workflow: backlog
         (_, content) <- ContT $ maybe1 unboxed' none
+
 
         let h = hashObject @HbSync (serialise mess) & HashRef
 
@@ -196,7 +192,18 @@ mailboxProto inner adapter mess = deferred @p do
 
         unless seen $ lift do
           gossip mess
-          mailboxAcceptMessage adapter msg content
+          let whoever = if inner then Nothing else Just pip
+
+          -- TODO: maybe-dont-gossip-message-if-dropped-by-policy
+          --   сейчас policy проверяется для почтового ящика,
+          --   а тут мы еще не знаем, какой почтовый ящик и есть
+          --   ли он вообще. надо бы не рассылать, если пира
+          --   не поддерживаем.
+          --
+          --   с другой стороны -- мы не поддерживаем, а другие,
+          --   может, поддерживают.
+
+          mailboxAcceptMessage adapter whoever msg content
           -- TODO: expire-block-and-collect-garbage
           --   $class: leak
           void $ putBlock sto routed
@@ -251,7 +258,7 @@ mailboxProto inner adapter mess = deferred @p do
 
         let r = unboxSignedBox0 @(MailBoxStatusPayload s) box
 
-        let PeerData{..} = se
+        PeerData{..} <- ContT $ maybe1 se' none
 
         (who, content@MailBoxStatusPayload{..}) <- ContT $ maybe1 r none
 
