@@ -235,7 +235,7 @@ runMailboxCLI rpc s = do
          $ entry $ bindMatch "read" $ nil_ $ \case
             [ HashLike mhash ] -> do
 
-              let rms = ReadMessageServices ( liftIO . runKeymanClientRO . extractGroupKeySecret)
+              let rms = ReadMessageServices (liftIO . runKeymanClientRO . extractGroupKeySecret)
 
               (s,_,bs) <- getBlock sto (coerce mhash)
                             >>= orThrowUser "message not found"
