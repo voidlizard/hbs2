@@ -33,6 +33,7 @@ type ForSignedBox s = ( Serialise ( PubKey 'Sign s)
                       , FromStringMaybe (PubKey 'Sign s)
                       , Serialise (Signature s)
                       , Signatures s
+                      , Eq (Signature s)
                       , Hashable (PubKey 'Sign s)
                       )
 

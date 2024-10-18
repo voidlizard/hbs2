@@ -22,13 +22,13 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Coerce
 import Data.Either
 
-createMessageFromByteString :: forall s m . ( MonadUnliftIO m
+createShortMessageFromByteString :: forall s m . ( MonadUnliftIO m
                                             , s ~ HBS2Basic
                                             , HasStorage m
                                             )
                             => LBS8.ByteString
                             -> m (Message s)
-createMessageFromByteString lbs = do
+createShortMessageFromByteString lbs = do
   let ls0 = LBS8.lines lbs
   let (hbs, rest1) = break LBS8.null ls0
   let payload      = dropWhile LBS8.null rest1 & LBS8.unlines
@@ -63,12 +63,11 @@ mailboxEntries = do
     $ args [arg "string" "filename"]
     $ desc ""
     $ returns "blob" "message"
-    $ entry $ bindMatch "hbs2:mailbox:message:create" $ \case
+    $ entry $ bindMatch "hbs2:mailbox:message:create:short" $ \case
         [StringLike fn] -> lift do
           lbs <- liftIO $ LBS8.readFile fn
-          mess <- createMessageFromByteString lbs
-          let what = serialise mess
-          pure $ mkForm @c "blob" [mkStr (LBS8.unpack what)]
+          mess <- createShortMessageFromByteString lbs
+          mkOpaque (serialise mess)
 
         _ -> throwIO (BadFormException @c nil)
 

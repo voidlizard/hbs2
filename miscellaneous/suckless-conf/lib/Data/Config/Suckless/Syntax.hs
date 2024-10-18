@@ -15,9 +15,12 @@ module Data.Config.Suckless.Syntax
   , Context(..)
   , IsContext(..)
   , IsLiteral(..)
+  , ByteStringSorts(..)
   , mkOpaque
+  , isOpaqueOf
   , fromOpaque
   , fromOpaqueThrow
+  , isByteString
   , SyntaxTypeError(..)
   , pattern SymbolVal
   , pattern ListVal
@@ -40,26 +43,23 @@ import Data.Text (Text)
 import Data.Scientific
 import GHC.Generics (Generic(..))
 import Data.Maybe
--- import GHC.Generics( Fixity(..) )
--- import Data.Data as Data
 import Data.Aeson
 import Data.Aeson.Key
 import Data.Aeson.KeyMap qualified as Aeson
 import Data.Vector qualified as V
 import Data.Traversable (forM)
 import Data.Text qualified as Text
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Function
-import Data.Hashable
+import Data.Functor
+import Control.Applicative
 import Control.Exception
 import Type.Reflection
 import Control.Monad.IO.Class
-import System.Mem.StableName
-import Foreign.Ptr (ptrToIntPtr)
-import Foreign.StablePtr
 import System.IO.Unsafe (unsafePerformIO)
 import Data.IORef
 import Data.Word
-import Data.Bits
 
 import Prettyprinter
 
@@ -92,6 +92,8 @@ stringLike = \case
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
+data ByteStringSorts = ByteStringLazy LBS.ByteString | ByteStringStrict ByteString
+
 
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
@@ -107,6 +109,20 @@ pattern OpaqueVal :: forall {c} . Opaque -> Syntax c
 pattern OpaqueVal box <- OpaqueValue box
 
 data family Context c :: Type
+
+isOpaqueOf :: forall a c . (Typeable a, IsContext c) => Syntax c -> Maybe a
+isOpaqueOf = \case
+ OpaqueValue box -> fromOpaque @a box
+ _ -> Nothing
+
+isByteString :: Syntax c -> Maybe ByteStringSorts
+isByteString = \case
+  OpaqueValue box -> do
+    let lbs = fromOpaque @LBS.ByteString box <&> ByteStringLazy
+    let bs = fromOpaque @ByteString box <&> ByteStringStrict
+    lbs <|> bs
+
+  _ -> Nothing
 
 class IsContext c where
   noContext :: Context c

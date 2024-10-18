@@ -213,6 +213,8 @@ data Message s =
   }
   deriving stock Generic
 
+deriving stock instance ForMailbox s => Eq (MessageContent s)
+deriving stock instance ForMailbox s => Eq (Message s)
 
 instance Serialise MessageTimestamp
 instance Serialise MessageTTL
@@ -220,10 +222,6 @@ instance Serialise MessageCompression
 instance Serialise MessageFlags
 instance ForMailbox s => Serialise (MessageContent s)
 instance ForMailbox s => Serialise (Message s)
-
-
-
-
 
 
 data MailboxServiceError =
