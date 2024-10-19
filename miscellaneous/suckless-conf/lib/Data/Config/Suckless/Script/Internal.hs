@@ -336,14 +336,10 @@ newtype NameNotBoundException =
   deriving stock Show
   deriving newtype (Generic,Typeable)
 
-newtype NotLambda = NotLambda Id
-                    deriving stock Show
-                    deriving newtype (Generic,Typeable)
-
-instance Exception NotLambda
 
 data BadFormException c = BadFormException (Syntax c)
                         | ArityMismatch (Syntax c)
+                        | NotLambda (Syntax c)
 
 newtype TypeCheckError c = TypeCheckError (Syntax c)
 
@@ -358,6 +354,7 @@ instance Exception NameNotBoundException
 instance IsContext c => Show (BadFormException c) where
   show (BadFormException sy) = show $ "BadFormException" <+> pretty sy
   show (ArityMismatch sy) = show $ "ArityMismatch" <+> pretty sy
+  show (NotLambda sy) = show $ "NotLambda" <+> pretty sy
 
 instance IsContext c => Show (TypeCheckError c) where
   show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
@@ -491,7 +488,7 @@ apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
   SymbolVal   what  -> apply what args
   Lambda d body     -> applyLambda d body args
-  e -> throwIO $ BadFormException @c s
+  e                  -> throwIO $ NotLambda e
 
 apply :: forall c m . ( IsContext c
                       , MonadUnliftIO m
@@ -511,7 +508,7 @@ apply name args' = do
       applyLambda argz body args'
 
     Just (BindValue _) -> do
-      throwIO (NotLambda name)
+      throwIO (NotLambda (mkSym @c name))
 
     Nothing -> throwIO (NameNotBound name)
 
@@ -611,7 +608,7 @@ eval syn = handle (handleForm syn) $ do
 
       e@Literal{} -> pure e
 
-      e -> throwIO $ BadFormException @c e
+      e -> throwIO $ NotLambda @c e
 
   where
     handleForm syn = \case
@@ -619,6 +616,7 @@ eval syn = handle (handleForm syn) $ do
         throwIO (BadFormException syn)
       (ArityMismatch s  :: BadFormException c) -> do
         throwIO (ArityMismatch syn)
+      other -> throwIO other
 
 runM :: forall c m a. ( IsContext c
                       , MonadUnliftIO m
