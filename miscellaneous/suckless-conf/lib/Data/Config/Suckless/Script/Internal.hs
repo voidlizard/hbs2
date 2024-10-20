@@ -981,7 +981,7 @@ internalEntries = do
       [ sy ] -> display sy >> liftIO (putStrLn "")
       ss     -> mapM_ display ss >> liftIO (putStrLn "")
 
-    entry $ bindMatch "str:read-stdin" $ \case
+    entry $ bindMatch "str:stdin" $ \case
       [] -> liftIO getContents <&> mkStr @c
 
       _ -> throwIO (BadFormException @c nil)
@@ -991,7 +991,7 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
     brief "reads file as a string" do
-      entry $ bindMatch "str:read-file" $ \case
+      entry $ bindMatch "str:file" $ \case
         [StringLike fn] -> liftIO (TIO.readFile fn) <&> mkStr
 
         _ -> throwIO (BadFormException @c nil)
@@ -1158,19 +1158,40 @@ internalEntries = do
 
 
     brief "reads bytes from a file"
-     $ desc "bytes:read:file FILE"
-     $ entry $ bindMatch "bytes:read:file" $ \case
+     $ desc "bytes:file FILE"
+     $ entry $ bindMatch "bytes:file" $ \case
         [ StringLike fn ] -> do
-          liftIO (BS.readFile fn) >>= mkOpaque
+          liftIO (LBS.readFile fn) >>= mkOpaque
 
         _ -> throwIO (BadFormException @c nil)
 
-
     brief "reads bytes from a STDIN"
-     $ desc "bytes:read:stdin"
-     $ entry $ bindMatch "bytes:read:stdin" $ \case
+     $ desc "bytes:stdin"
+     $ entry $ bindMatch "bytes:stdin" $ \case
         [] -> do
-          liftIO BS.getContents >>= mkOpaque
+          liftIO LBS.getContents >>= mkOpaque
+
+        _ -> throwIO (BadFormException @c nil)
+
+    brief "writes bytes to STDOUT"
+     $ desc "bytes:put <BYTES>"
+     $ entry $ bindMatch "bytes:put" $ nil_ $ \case
+        [isOpaqueOf @LBS.ByteString -> Just s ] -> do
+          liftIO $ LBS.putStr s
+
+        [isOpaqueOf @ByteString -> Just s ] -> do
+          liftIO $ BS.putStr s
+
+        _ -> throwIO (BadFormException @c nil)
+
+    brief "writes bytes to FILE"
+     $ desc "bytes:write <FILE> <BYTES>"
+     $ entry $ bindMatch "bytes:write" $ nil_ $ \case
+        [StringLike fn, isOpaqueOf @LBS.ByteString -> Just s ] -> do
+          liftIO $ LBS.writeFile fn s
+
+        [StringLike fn, isOpaqueOf @ByteString -> Just s ] -> do
+          liftIO $ BS.writeFile fn s
 
         _ -> throwIO (BadFormException @c nil)
 
