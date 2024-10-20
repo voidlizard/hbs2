@@ -63,7 +63,7 @@ createMessage :: forall s m . (MonadUnliftIO m , s ~ HBS2Basic)
               -> Maybe GroupSecret
               -> Either HashRef (Sigil s)    -- ^ sender
               -> [Either HashRef (Sigil s)]  -- ^ sigil keys (recipients)
-              -> [m ([(Text, Text)], LBS.ByteString)] -- ^ message parts
+              -> [([(Text, Text)], m LBS.ByteString)] -- ^ message parts
               -> ByteString                  -- ^ payload
               -> m (Message s)
 createMessage CreateMessageServices{..} _ gks sender' rcpts' parts bs = do
@@ -88,14 +88,14 @@ createMessage CreateMessageServices{..} _ gks sender' rcpts' parts bs = do
 
   encrypted <- encryptBlock cmStorage gks (Right gk) Nothing  bs
 
-  trees <- for parts $ \mpart -> do
-    (meta, lbs) <- mpart
+  trees <- for parts $ \(meta, lbsRead)-> do
 
     let mt = vcat [ pretty k <> ":" <+> dquotes (pretty v)
                   | (k,v) <- HM.toList (HM.fromList meta)
                   ]
                & show & Text.pack
 
+    lbs <- lbsRead
     createEncryptedTree cmStorage gks gk (DefSource mt lbs)
 
   let content = MessageContent @s
