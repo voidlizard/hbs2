@@ -9,6 +9,7 @@ import HBS2.Peer.Proto.Mailbox.Types
 import HBS2.Data.Types.SmallEncryptedBlock
 import HBS2.Net.Auth.Credentials.Sigil
 import HBS2.Net.Auth.GroupKeySymm
+import HBS2.Merkle.MetaData
 
 import HBS2.OrDie
 import HBS2.Base58
@@ -21,16 +22,13 @@ import HBS2.Net.Auth.Schema()
 
 import Control.Monad.Except
 import Data.ByteString (ByteString)
-import Data.Set
+import Data.ByteString.Lazy qualified as LBS
+import Data.Text qualified as Text
 import Data.Set qualified as Set
-import Data.Word
+import Data.HashMap.Strict qualified as HM
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 import UnliftIO
-
--- TODO: mailbox-proto-handler
-
--- TODO: mailbox-proto-test?
 
 
 data CreateMessageError =
@@ -65,7 +63,7 @@ createMessage :: forall s m . (MonadUnliftIO m , s ~ HBS2Basic)
               -> Maybe GroupSecret
               -> Either HashRef (Sigil s)    -- ^ sender
               -> [Either HashRef (Sigil s)]  -- ^ sigil keys (recipients)
-              -> [HashRef]                   -- ^ message parts
+              -> [m ([(Text, Text)], LBS.ByteString)] -- ^ message parts
               -> ByteString                  -- ^ payload
               -> m (Message s)
 createMessage CreateMessageServices{..} _ gks sender' rcpts' parts bs = do
@@ -90,12 +88,21 @@ createMessage CreateMessageServices{..} _ gks sender' rcpts' parts bs = do
 
   encrypted <- encryptBlock cmStorage gks (Right gk) Nothing  bs
 
+  trees <- for parts $ \mpart -> do
+    (meta, lbs) <- mpart
+
+    let mt = vcat [ pretty k <> ":" <+> dquotes (pretty v)
+                  | (k,v) <- HM.toList (HM.fromList meta)
+                  ]
+               & show & Text.pack
+
+    createEncryptedTree cmStorage gks gk (DefSource mt lbs)
+
   let content = MessageContent @s
                   flags
                   (Set.fromList (fmap fst recipients))
                   (Right gk)
-                  -- TODO: check-if-parts-exists
-                  (Set.fromList parts)
+                  (Set.fromList trees)
                   encrypted
 
   creds <- cmLoadCredentials (fst sender)
