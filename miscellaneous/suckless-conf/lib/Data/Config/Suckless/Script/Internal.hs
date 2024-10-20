@@ -2,6 +2,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language PatternSynonyms #-}
 {-# Language ViewPatterns #-}
+{-# Language RecordWildCards #-}
 module Data.Config.Suckless.Script.Internal
   ( module Data.Config.Suckless.Script.Internal
   , module Export
@@ -340,10 +341,7 @@ newtype NameNotBoundException =
 data BadFormException c = BadFormException (Syntax c)
                         | ArityMismatch (Syntax c)
                         | NotLambda (Syntax c)
-
-newtype TypeCheckError c = TypeCheckError (Syntax c)
-
-instance Exception (TypeCheckError C)
+                        | TypeCheckError (Syntax c)
 
 newtype BadValueException = BadValueException String
                             deriving stock Show
@@ -355,8 +353,6 @@ instance IsContext c => Show (BadFormException c) where
   show (BadFormException sy) = show $ "BadFormException" <+> pretty sy
   show (ArityMismatch sy) = show $ "ArityMismatch" <+> pretty sy
   show (NotLambda sy) = show $ "NotLambda" <+> pretty sy
-
-instance IsContext c => Show (TypeCheckError c) where
   show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
 
 instance Exception (BadFormException C)
@@ -486,6 +482,8 @@ apply_ :: forall c m . ( IsContext c
 
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
+  SymbolVal "quot"       -> pure $ mkList args
+  SymbolVal "quasiquot"  -> mkList <$> mapM evalQQ args
   SymbolVal   what  -> apply what args
   Lambda d body     -> applyLambda d body args
   e                  -> throwIO $ NotLambda e
@@ -497,6 +495,13 @@ apply :: forall c m . ( IsContext c
       => Id
       -> [Syntax c]
       -> RunM c m (Syntax c)
+
+apply "quot" args = do
+  pure $ mkList args
+
+apply "quasiquot" args = do
+  mkList <$> mapM evalQQ args
+
 apply name args' = do
   -- notice $ red "APPLY" <+> pretty name
   what <- ask >>=  readTVarIO <&> HM.lookup name
@@ -544,6 +549,20 @@ bindBuiltins  dict = do
   atomically do
     modifyTVar t (<> dict)
 
+
+evalQQ :: forall c m . ( IsContext c
+                     , MonadUnliftIO m
+                     , Exception (BadFormException c)
+                     ) => Syntax c -> RunM c m (Syntax c)
+evalQQ = \case
+  SymbolVal (Id w) | Text.isPrefixOf "," w -> do
+    let what = Id (Text.drop 1 w)
+    lookupValue what >>= eval
+
+  List c es   -> List c <$> mapM evalQQ es
+
+  other       -> pure other
+
 eval :: forall c m . ( IsContext c
                      , MonadUnliftIO m
                      , Exception (BadFormException c)
@@ -552,10 +571,33 @@ eval syn = handle (handleForm syn) $ do
 
     dict <- ask >>= readTVarIO
 
+    -- liftIO $ print $ show $ "TRACE EXP" <+> pretty syn
+
     case syn of
+
+      SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
+        pure (mkSym @c (Text.drop 1 s))
 
       ListVal [ w, SymbolVal ".", b] -> do
         pure  $ mkList  [w, b]
+
+      ListVal [ SymbolVal ":", b] -> do
+        pure  $ mkList [b]
+
+      ListVal [ SymbolVal "'", ListVal b] -> do
+        pure  $ mkList b
+
+      ListVal [ SymbolVal "'", StringLike x] -> do
+        pure  $ mkSym x
+
+      ListVal [ SymbolVal "'", x] -> do
+        pure  x
+
+      ListVal [ SymbolVal "`", ListVal b] -> do
+        mkList <$> mapM evalQQ b
+
+      ListVal [ SymbolVal "quasiquot", ListVal b] -> do
+        mkList <$> mapM evalQQ b
 
       ListVal [ SymbolVal "quot", ListVal b] -> do
         pure  $ mkList  b
@@ -592,8 +634,9 @@ eval syn = handle (handleForm syn) $ do
       ListVal (SymbolVal name : args') -> do
         apply name args'
 
-      SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
-        pure (mkSym @c (Text.drop 1 s))
+      ListVal (e' : args') -> do
+        -- e <- eval e'
+        apply_ e' args'
 
       SymbolVal name | HM.member name dict -> do
         let what = HM.lookup name dict
@@ -616,6 +659,8 @@ eval syn = handle (handleForm syn) $ do
         throwIO (BadFormException syn)
       (ArityMismatch s  :: BadFormException c) -> do
         throwIO (ArityMismatch syn)
+      (TypeCheckError s  :: BadFormException c) -> do
+        throwIO (TypeCheckError syn)
       other -> throwIO other
 
 runM :: forall c m a. ( IsContext c
@@ -661,9 +706,9 @@ lookupValue :: forall c m . (IsContext c, MonadUnliftIO m)
 lookupValue i = do
   ask  >>= readTVarIO
        <&> (fmap bindAction . HM.lookup i)
-       <&> \case
-          Just (BindValue s) -> s
-          _  -> nil
+       >>= \case
+          Just (BindValue s) -> pure s
+          _  -> throwIO (NameNotBound i)
 
 nil :: forall c . IsContext c => Syntax c
 nil = List noContext []
@@ -671,14 +716,14 @@ nil = List noContext []
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
 
-fixContext :: (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
+fixContext :: forall c1 c2 . (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
 fixContext = go
   where
     go = \case
       List    _ xs -> List noContext (fmap go xs)
       Symbol  _ w  -> Symbol noContext w
       Literal _ l  -> Literal noContext l
-
+      OpaqueValue box  -> OpaqueValue box
 
 fmt :: Syntax c -> Doc ann
 fmt = \case
@@ -788,6 +833,23 @@ internalEntries = do
       z ->
         throwIO (BadFormException @C nil)
 
+
+    entry $ bindMatch "eval" $ \syn -> do
+      r <- mapM eval syn
+      pure $ lastDef nil r
+
+    entry $ bindMatch "id" $ \case
+      [ e ] -> pure e
+      _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "inc" $ \case
+      [ LitIntVal n ] -> pure (mkInt (succ n))
+      _ -> throwIO (TypeCheckError @C  nil)
+
+    entry $ bindMatch "dec" $ \case
+      [ LitIntVal n ] -> pure (mkInt (succ n))
+      _ -> throwIO (TypeCheckError @C  nil)
+
     entry $ bindMatch "map" $ \syn -> do
       case syn of
         [ListVal (SymbolVal "builtin:lambda" : SymbolVal fn : _), ListVal rs] -> do
@@ -802,7 +864,12 @@ internalEntries = do
           throwIO (BadFormException @C nil)
 
     entry $ bindMatch "quot" $ \case
-      [ syn ] -> pure syn
+      [ syn ] -> pure $ mkList [syn]
+      _ -> do
+          throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "quasiquot" $ \case
+      [ syn ] -> mkList . List.singleton <$> evalQQ syn
       _ -> do
           throwIO (BadFormException @C nil)
 
@@ -937,12 +1004,25 @@ internalEntries = do
 
     entry $ bindValue "space" $ mkStr " "
 
+    let doParseTop w l s =
+         parseTop s & either (const nil) (mkForm w . fmap ( l . fixContext) )
+
+    let wrapWith e = \case
+          List c es -> List c (e : es)
+          other     -> other
+    let lwrap = \case
+          e@(SymbolVal x) -> wrapWith e
+          _ -> id
+
     brief "parses string as toplevel and produces a form"
      $ desc "parse:top:string SYMBOL STRING-LIKE"
      $ entry $ bindMatch "parse:top:string" $ \case
 
         [SymbolVal w, LitStrVal s] -> do
-          pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
+          pure $  doParseTop w id s
+
+        [SymbolVal w, e@(SymbolVal r), LitStrVal s] -> do
+          pure $  doParseTop w (lwrap e) s
 
         _ -> throwIO (BadFormException @c nil)
 
@@ -952,7 +1032,11 @@ internalEntries = do
 
         [SymbolVal w, StringLike fn] -> do
           s <- liftIO $ TIO.readFile fn
-          pure $  parseTop s & either (const nil) (mkForm w . fmap fixContext)
+          pure $  doParseTop w id s
+
+        [SymbolVal w, e@(SymbolVal r), StringLike fn] -> do
+          s <- liftIO $ TIO.readFile fn
+          pure $  doParseTop w (lwrap e)  s
 
         _ -> throwIO (BadFormException @c nil)
 
