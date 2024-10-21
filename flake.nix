@@ -113,6 +113,36 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
     packagesDynamic = makePackages pkgs;
     packagesStatic = makePackages pkgs.pkgsStatic;
+
+    makeShell = packages_: pkgs.haskellPackages.shellFor {
+      packages = _: packages_;
+      buildInputs = (
+        with pkgs.haskellPackages; [
+          ghc
+          ghcid
+          cabal-install
+          haskell-language-server
+          hoogle
+          # htags
+          text-icu
+          pkgs.icu72
+          pkgs.openssl
+          weeder
+        ]
+        ++
+        [ pkgs.pkg-config
+          pkgs.libsodium
+          pkgs.file
+          pkgs.zlib 
+          inputs.hspup.packages.${pkgs.system}.default
+        ]
+      );
+
+      shellHook = ''
+      export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
+      '';
+
+    };
     in  {
     legacyPackages = pkgs;
     overlays.default = defaultOverlay;
@@ -134,35 +164,11 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       };
 
 
-    devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: [];
-      buildInputs = (
-        with pkgs.haskellPackages; [
-          ghc
-          ghcid
-          cabal-install
-          haskell-language-server
-          hoogle
-          # htags
-          text-icu
-          magic
-          pkgs.icu72
-          pkgs.openssl
-          weeder
-        ]
-        ++
-        [ pkgs.pkg-config
-          pkgs.libsodium
-          pkgs.file
-          pkgs.zlib
-          inputs.hspup.packages.${pkgs.system}.default
-        ]
+    devShells = {
+      default = makeShell (
+        pkgs.lib.attrVals (packageNames ++ miscellaneous) pkgs.haskellPackages
       );
-
-      shellHook = ''
-      export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
-      '';
-
+      unfuck = makeShell [];
     };
   }
  );
