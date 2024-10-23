@@ -4,7 +4,6 @@ module HBS2.Sync.Internal
 
 import HBS2.Sync.Prelude
 import HBS2.Sync.State
-
 import HBS2.System.Dir
 import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.RPC.API.RefChan
@@ -28,9 +27,11 @@ import Data.HashSet qualified as HS
 import Data.List qualified as L
 import Data.Map qualified as Map
 import Data.Ord
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
-import System.Directory (XdgDirectory(..),createDirectoryIfMissing,getXdgDirectory,listDirectory)
+import System.Directory (XdgDirectory(..), createDirectoryIfMissing, getXdgDirectory, listDirectory)
 import Text.InterpolatedString.Perl6 (qc)
 
 data ConfigException
@@ -180,7 +181,6 @@ syncEntries :: forall c m . ( MonadUnliftIO m
                             )
             => MakeDictM c m ()
 syncEntries = do
-
   entry $ bindMatch "--debug" $ nil_ $ \case
     [SymbolVal "off"] -> do
       setLoggingOff @DEBUG
@@ -231,6 +231,72 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
       _ -> do
         err "unknown parameters, please use `help init` command"
 
+  brief "deleted entries"
+    $ desc "show deleted entries"
+    $ entry $ bindMatch "deleted" $ nil_ $ \_ -> do
+      dir <- getRunDir
+      env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+      refchan <-
+        view dirSyncRefChan env
+        & orThrowUser "refchan not found"
+
+      state <- getStateFromRefChan refchan
+      let tombs = filter (isTomb . snd) state
+      for_ tombs $ \(path, entry)  -> do
+        when (isTomb entry) do
+          liftIO $ putStrLn path
+
+  brief "history"
+    $ desc "show history of changes, T - stands for Tomb, F - stands for file"
+    $ entry $ bindMatch "history" $ nil_ $ \_ -> do
+      dir <- getRunDir
+      env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+      refchan <-
+        view dirSyncRefChan env
+        & orThrowUser "refchan not found"
+
+      accepted <- getAccepted refchan <&> L.sortOn getEntryTimestamp
+
+      for_ accepted $ \entry -> do
+        let action = if isTomb entry then red "T" else green "F"
+        let utcTime = posixSecondsToUTCTime $ fromIntegral $ getEntryTimestamp entry
+        let datetime = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" utcTime
+        notice $ action <+> pretty datetime <+>  pretty (getEntryHash entry) <+> pretty (entryPath entry)
+
+  brief "revert file to a hash"
+    $ args [arg "hash" "<href>"]
+    $ desc "revert file to a href, href is a hash of a merkle tree of a file, which can be obtained from history command"
+    $ examples [qc|
+hbs2-sync revert F8ppALwrYEBKRqmu3KCadXN8pFgzn3JevaZoSTtn9KZG
+    |]
+    $ entry $ bindMatch "revert" $ nil_ $ \case
+      [StringLike stringHash] -> do
+        dir <- getRunDir
+        env <- getRunDirEnv dir >>= orThrow DirNotSet
+
+        refchan <-
+          view dirSyncRefChan env
+          & orThrowUser "refchan not found"
+
+        accepted <- getAccepted refchan <&> L.sortOn getEntryTimestamp
+        let maybeEntry = L.find (\entry -> show (pretty $ getEntryHash entry) == stringHash) accepted
+        case maybeEntry of
+          Nothing ->
+            err "entry not found"
+
+          Just entry ->
+            repostFileTx refchan entry >>= \case
+              Right () ->
+                liftIO $ putStrLn "entry reverted"
+
+              Left error ->
+                err (pretty error)
+
+      _ ->
+        err "unknown parameters, please use `help revert` command"
+
   entry $ bindMatch "sync" $ nil_ $ \case
     [StringLike d] -> do
 
@@ -239,7 +305,6 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
                      ]
 
     [] -> do
-
       void $ evalTop [ mkList [mkSym "dir", mkStr "."]
                      , mkList [mkSym "run"]
                      ]

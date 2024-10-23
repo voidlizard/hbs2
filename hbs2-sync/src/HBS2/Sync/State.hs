@@ -7,13 +7,10 @@ import HBS2.Sync.Prelude
 
 import HBS2.System.Dir
 import HBS2.Data.Types.SignedBox
-import HBS2.Merkle
-import HBS2.Data.Detect
 import HBS2.Merkle.MetaData
 import HBS2.Net.Auth.GroupKeySymm as Symm
 import HBS2.Storage.Compact as Compact
 import HBS2.Storage.Operations.Class
-import HBS2.Storage.Operations.ByteString
 
 import HBS2.Peer.Proto.RefChan
 import HBS2.Peer.RPC.API.RefChan
@@ -44,7 +41,7 @@ import Data.Ord
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import Data.Word
+import Data.Word (Word64)
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 import System.TimeIt
@@ -81,9 +78,9 @@ instance IsContext c => ToSexp c EntryType where
 
 instance IsContext c => ToSexp c EntryDesc where
   toSexp EntryDesc{..} = case entryType of
-    File -> mkForm @c  "F"  [mkInt entryTimestamp, hash]
-    Dir  ->  mkForm @c "D " [mkInt entryTimestamp, hash]
-    Tomb ->  mkForm @c "T " [mkInt entryTimestamp, hash]
+    File -> mkForm @c "F" [mkInt entryTimestamp, hash]
+    Dir  -> mkForm @c "D" [mkInt entryTimestamp, hash]
+    Tomb -> mkForm @c "T" [mkInt entryTimestamp, hash]
 
     where
       hash = case entryRemoteHash of
@@ -240,6 +237,62 @@ getStateFromDir seed path incl excl = do
 
            S.yield (p,e)
 
+getAccepted ::
+  forall m .
+  ( MonadUnliftIO  m
+  , HasClientAPI RefChanAPI UNIX m
+  , HasClientAPI StorageAPI UNIX m
+  , HasStorage m
+  , HasKeyManClient m
+  )
+  => MyRefChan
+  -> m [Entry]
+getAccepted refchan = do
+  storage <- getStorage
+  keymanEnv <- getKeyManClientEnv
+  outq <- newTQueueIO
+  tss <- newTVarIO mempty
+
+  let findKey = lift . lift . withKeymanClientRO keymanEnv . findMatchedGroupKeySecret storage
+
+  walkRefChanTx @UNIX (const (pure True)) refchan $ \_ unpacked -> do
+    case unpacked of
+      A (AcceptTran acceptTime _ what) -> do
+        for_ acceptTime $ \timestamp -> do
+          atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 timestamp))
+
+      P proposeHash (ProposeTran _ box) -> void $ runMaybeT do
+        (_, unboxed) <- unboxSignedBox0 box & toMPlus
+        AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict unboxed)
+                                    & toMPlus . either (const Nothing) Just
+
+        meta <- runExceptT (extractMetaData @'HBS2Basic findKey storage href) >>= toMPlus
+        atomically $ writeTQueue outq (proposeHash, href, meta)
+
+  trees <- atomically (flushTQueue outq)
+  tsmap <- readTVarIO tss
+
+  pure $ concatMap (makeEntry tsmap) trees
+
+  where
+    makeEntry tsmap (hash, tree, meta) = do
+      let what = parseTop meta & fromRight mempty
+      let location = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
+
+      let maybeFileName = headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+      let maybeTimestamp = HM.lookup hash tsmap
+      case (maybeFileName, maybeTimestamp) of
+        (Just fileName, Just timestamp) -> do
+          let isTombSet = or [ True | TombLikeOpt <- what ]
+          let fullPath = location </> fileName
+
+          if isTombSet then
+            [makeTomb timestamp fullPath (Just tree)]
+          else
+            [DirEntry (EntryDesc File timestamp (Just tree)) fullPath]
+
+        _ ->
+          []
 
 getStateFromRefChan :: forall m . ( MonadUnliftIO  m
                                   , HasClientAPI RefChanAPI UNIX m
@@ -408,6 +461,41 @@ findDeleted = do
       when (not here && isJust n) do
         S.yield (D (f0, makeTomb now f0 Nothing) n)
         trace $ "found deleted" <+> pretty n <+> pretty f0
+
+
+repostFileTx ::
+  ( MonadUnliftIO m
+  , HasClientAPI RefChanAPI UNIX m
+  , HasClientAPI StorageAPI UNIX m
+  , HasRunDir m
+  , HasStorage m
+  ) =>
+  MyRefChan ->
+  Entry ->
+  m (Either String ())
+repostFileTx refchan entry = do
+  if isFile entry then
+    case getEntryHash entry of
+      Just href -> do
+        dir <- getRunDir
+        env <- getRunDirEnv dir >>= orThrow DirNotSet
+        creds <- view dirSyncCreds env & orThrow DirNotSet
+
+        let tx = AnnotatedHashRef Nothing href
+        let spk = view peerSignPk creds
+        let ssk = view peerSignSk creds
+
+        nonce <- liftIO $ getPOSIXTime <&> round <&> BS.take 6 . coerce  . hashObject @HbSync . serialise
+        let box = makeSignedBox @HBS2Basic spk ssk (LBS.toStrict $ serialise tx <> LBS.fromStrict nonce)
+
+        postRefChanTx @UNIX refchan box
+        pure (Right ())
+
+      _ ->
+        pure (Left "entry has no hash")
+
+  else
+    pure (Left "entry is not a file")
 
 
 postEntryTx :: ( MonadUnliftIO m
@@ -794,5 +882,3 @@ runDirectory = do
 
           E (p,_) -> do
             notice $ "skip entry" <+> pretty p
-
-

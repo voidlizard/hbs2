@@ -36,7 +36,6 @@ helpBanner = liftIO do
 
 main :: IO ()
 main = do
-
   cli <- liftIO getArgs <&> unlines . fmap unwords . splitForms
            >>= either (error.show) pure . parseTop
            <&> \case
