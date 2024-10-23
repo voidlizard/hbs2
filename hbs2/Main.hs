@@ -1027,5 +1027,3 @@ main = join . customExecParser (prefs showHelpOnError) $
 
 
     pPubKey = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
-
-

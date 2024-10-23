@@ -449,5 +449,3 @@ die :: forall a m . (MonadUnliftIO m, Pretty a) => a -> m ()
 die what = liftIO do
   hPutDoc stderr (pretty what)
   Exit.exitFailure
-
-
