@@ -33,6 +33,7 @@ module HBS2.Prelude
   , AnyProbe(..)
   , newSimpleProbe
   , whenTrue, whenFalse
+  , dontHandle
   ) where
 
 import HBS2.Clock
@@ -249,4 +250,8 @@ instance Probe SimpleProbe where
     atomically do
       writeTVar spTimestamp t
       modifyTVar spProbeValues (<> HM.fromList values)
+
+
+dontHandle :: Applicative f => a -> f ()
+dontHandle = const $ pure ()
 
