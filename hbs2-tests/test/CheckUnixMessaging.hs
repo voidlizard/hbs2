@@ -74,9 +74,10 @@ instance
     where
     deferred m = void (async m)
 
-withServer :: (() -> IO r) -> IO r
-withServer = runContT do
+withServer :: AnyProbe -> (() -> IO r) -> IO r
+withServer p = runContT do
     server <- newMessagingUnixOpts [] True 0.10 soname
+    setProbe server p
     (link <=< ContT . withAsync) do
         runMessagingUnix server
     (link <=< ContT . withAsync) do
@@ -105,15 +106,17 @@ main = do
 
   totfuck <- newTVarIO 0
 
+  p <- newSimpleProbe "MessagingUnix"
+
   flip runContT pure do
-    void $ ContT withServer
-    -- pause @'Seconds 1
+    void $ ContT (withServer p)
+    pause @'Seconds 1
     s <- replicateM 16 $ lift $ async do
       void $ flip runContT pure do
         caller <- ContT withClient
         tsucc <- newTVarIO 0
         tfail <- newTVarIO 0
-        for_ [1..1000] $ \i -> do
+        for_ [1..10000] $ \i -> do
           lift (callRpcWaitMay @EchoH (TimeoutSec 2) caller ((cs . show) i))
             >>= \case
                 Just (Right _) -> atomically $ modifyTVar tsucc succ
@@ -124,11 +127,17 @@ main = do
         atomically $ modifyTVar totfuck (+fuck)
         notice $ "Finished:" <+> "succeed" <+> pretty ok <+> "failed" <+> pretty fuck
 
+    pause @'Seconds 3
     mapM_ wait s
 
   tf <- readTVarIO totfuck
 
   notice $ "total errors" <+> pretty tf
+
+  -- notice "waiting for metrics"
+  -- pause @'Seconds 10
+  -- s <- probeSnapshot [p]
+  -- liftIO $ print $ "probes" <> line <> vcat (fmap pretty s)
 
   setLoggingOff @ERROR
   setLoggingOff @WARN

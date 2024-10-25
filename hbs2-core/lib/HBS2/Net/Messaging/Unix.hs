@@ -16,15 +16,14 @@ import HBS2.Net.Messaging.Stream
 
 import HBS2.System.Logger.Simple
 
-import Control.Monad
-import Control.Monad.Fix
 import Control.Monad.Reader hiding (reader)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Hashable
-import Data.HashMap.Strict qualified as HashMap
+import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict (HashMap)
 import Data.Maybe
+import Data.List qualified as List
 import Network.ByteOrder hiding (ByteString)
 import Network.Socket
 import Network.Socket.ByteString hiding (sendTo)
@@ -36,6 +35,7 @@ import Lens.Micro.Platform
 import Control.Monad.Trans.Cont
 import UnliftIO
 import Control.Concurrent.STM (retry)
+import Streaming.Prelude qualified as S
 
 data UNIX = UNIX
             deriving (Eq,Ord,Show,Generic)
@@ -80,6 +80,7 @@ data MessagingUnix =
   , msgUnixRetryTime   :: Timeout 'Seconds
   , msgUnixSelf        :: Peer UNIX
   , msgUnixOpts        :: Set MessagingUnixOpts
+  , msgAnyProbe        :: TVar AnyProbe
   , msgUnixSendTo      :: TVar (HashMap (Peer UNIX) (TQueue ByteString))
   , msgUnixRecv        :: TQueue (From UNIX, ByteString)
   , msgUnixLast        :: TVar TimeSpec
@@ -111,7 +112,8 @@ newMessagingUnixOpts opts server tsec path = do
                 tsec
                 (PeerUNIX path)
                 (Set.fromList opts)
-                <$> liftIO (newTVarIO mempty)
+                <$> newTVarIO (AnyProbe ())
+                <*> liftIO (newTVarIO mempty)
                 <*> liftIO newTQueueIO
                 <*> liftIO (newTVarIO now)
                 <*> liftIO (newTVarIO 0)
@@ -123,6 +125,15 @@ instance Exception ReadTimeoutException
 data UnixMessagingStopped = UnixMessagingStopped deriving (Show,Typeable)
 
 instance Exception UnixMessagingStopped
+
+setProbe :: MonadIO m => MessagingUnix -> AnyProbe -> m ()
+setProbe MessagingUnix{..} p = atomically $ writeTVar msgAnyProbe p
+
+myAcceptReport :: MonadUnliftIO m => MessagingUnix -> [(Text,Integer)] -> m ()
+myAcceptReport MessagingUnix{..} values = do
+  p <- readTVarIO msgAnyProbe
+  debug "myAcceptReport"
+  acceptReport p values
 
 runMessagingUnix :: MonadUnliftIO m => MessagingUnix -> m ()
 runMessagingUnix env = do
@@ -166,9 +177,20 @@ runMessagingUnix env = do
       liftIO $ listen sock 1024
 
       void $ ContT $ withAsync do
-        pause @'Seconds 5
+        pause @'Seconds 10
         readTVarIO forked >>= filterM (fmap isNothing . poll)
            >>= atomically . writeTVar forked
+        n1 <- readTVarIO forked <&> List.length
+        myAcceptReport env [("forked", fromIntegral n1)]
+
+      let reportStuff = forever do
+           pause @'Seconds 10
+           what <- S.toList_ do
+             n1 <- atomically $ readTVar (msgUnixSendTo env) <&> fromIntegral . HM.size
+             S.yield ("msgUnixSendTo", n1)
+           myAcceptReport env what
+
+      void $ ContT $ bracket (async reportStuff) cancel
 
       forever do
         (so, _sa) <- liftIO $ accept sock
@@ -189,7 +211,7 @@ runMessagingUnix env = do
 
           let writer = liftIO $ async do
                -- FIXME: check!
-               mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup that
+               mq <- atomically $ readTVar (msgUnixSendTo env) <&> HM.lookup that
                for_ mq $ \q -> do
 
                  forever do
@@ -292,9 +314,9 @@ runMessagingUnix env = do
                     -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
                     -- У нас один контрагент, имя сокета (файла) == адрес пира.
                     -- Как в TCP порт сервиса (а отвечает тот с другого порта)
-                    mq <- atomically $ readTVar (msgUnixSendTo env) <&> HashMap.lookup who
+                    mq <- atomically $ readTVar (msgUnixSendTo env) <&> HM.lookup who
 
-                    maybe1 mq (err "unix: no queue!") $ \q -> do
+                    maybe1 mq (err "MessagingUnix. no queue") $ \q -> do
                       -- если WD установлен, то просыпаемся, скажем, wd/2 и
                       -- шлём пустую строку серверу
                       -- withWD do
@@ -358,20 +380,20 @@ runMessagingUnix env = do
     dropQueuesFor :: MonadIO m => Peer UNIX -> m ()
     dropQueuesFor who = liftIO do
       atomically do
-        modifyTVar (msgUnixSendTo env) (HashMap.delete who)
+        modifyTVar (msgUnixSendTo env) (HM.delete who)
         -- modifyTVar (msgUnixRecvFrom env) (HashMap.delete who)
 
 createQueues :: MonadIO m => MessagingUnix -> Peer UNIX -> m (Peer UNIX)
 createQueues env who = liftIO do
   atomically $ do
 
-    sHere <- readTVar (msgUnixSendTo env) <&> HashMap.member who
+    sHere <- readTVar (msgUnixSendTo env) <&> HM.member who
 
     if sHere then do
       pure False
     else do
       sendToQ   <- newTQueue
-      modifyTVar (msgUnixSendTo env) (HashMap.insert who sendToQ)
+      modifyTVar (msgUnixSendTo env) (HM.insert who sendToQ)
       pure True
 
   pure who
@@ -384,7 +406,7 @@ instance Messaging MessagingUnix UNIX ByteString where
 
     -- FIXME: handle-no-queue-for-rcpt-situation-1
 
-    mq <- atomically $ readTVar (msgUnixSendTo bus) <&> HashMap.lookup who
+    mq <- atomically $ readTVar (msgUnixSendTo bus) <&> HM.lookup who
 
     maybe1 mq none $ \q -> do
       atomically $ writeTQueue q msg
