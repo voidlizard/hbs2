@@ -254,6 +254,7 @@ runCLI = do
                 <> command "log"       (info pLog   (progDesc "set logging level"))
                 <> command "bypass"    (info pByPass (progDesc "bypass"))
                 <> command "gc"        (info pRunGC (progDesc "run RAM garbage collector"))
+                <> command "probes"    (info pRunProbes (progDesc "show probes"))
                 <> command "version"   (info pVersion (progDesc "show program version"))
                 )
 
@@ -590,6 +591,17 @@ runCLI = do
           void $ runMaybeT do
            void $ callService @RpcPerformGC caller ()
 
+    pRunProbes = do
+      rpc <- pRpcCommon
+      pure do
+        withMyRPC @PeerAPI rpc $ \caller -> do
+          void $ runMaybeT do
+
+           p <- callService @RpcGetProbes caller ()
+                  >>= toMPlus
+
+           liftIO $ print $ vcat (fmap pretty p)
+
     refP :: ReadM (PubKey 'Sign 'HBS2Basic)
     refP = maybeReader fromStringMay
 
@@ -694,6 +706,8 @@ runPeer :: forall e s . ( e ~ L4Proto
 
 runPeer opts = respawnOnError opts $ runResourceT do
 
+  probes <- liftIO $ newTVarIO (mempty :: [AnyProbe])
+
   myself <- liftIO myThreadId
 
   metrics <- liftIO newStore
@@ -714,6 +728,8 @@ runPeer opts = respawnOnError opts $ runResourceT do
   let tcpListen       = runReader (cfgValue @PeerListenTCPKey) syn & fromMaybe ""
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
+
+  let addProbe p = liftIO $ atomically $ modifyTVar probes (p:)
 
   -- let downloadThreadNum = runReader (cfgValue @PeerDownloadThreadKey) syn & fromMaybe 1
 
@@ -1212,6 +1228,9 @@ runPeer opts = respawnOnError opts $ runResourceT do
   let rpcSa = getRpcSocketName conf
   rpcmsg <- newMessagingUnix True 1.0 rpcSa
 
+  rpcProbe <- newSimpleProbe "RPC.MessagingUnix"
+  setProbe rpcmsg rpcProbe
+  addProbe rpcProbe
 
   let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
                            , rpcMessaging = rpcmsg
@@ -1221,6 +1240,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
                            , rpcStorage = AnyStorage s
                            , rpcBrains = SomeBrains brains
                            , rpcByPassInfo = liftIO (getStat byPass)
+                           , rpcProbes = probes
                            , rpcDoFetch = liftIO . fetchHash penv denv
                            , rpcDoRefChanHeadPost = refChanHeadPostAction
                            , rpcDoRefChanPropose = refChanProposeAction
