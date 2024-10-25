@@ -258,6 +258,7 @@ executable hbs2-peer
                     , RPC2.Fetch
                     , RPC2.Die
                     , RPC2.ByPassStat
+                    , RPC2.Probes
                     , RPC2.LogLevel
                     , RPC2.Peers
                     , RPC2.PexInfo

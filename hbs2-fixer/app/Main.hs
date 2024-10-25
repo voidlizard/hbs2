@@ -186,7 +186,7 @@ withApp cfgPath action = do
 
       mn <- ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-      let o = [MUWatchdog 20,MUDontRetry]
+      let o = [MUDontRetry]
       clientN <- newMessagingUnixOpts o False 1.0 soname
 
       notif <- ContT $ withAsync (runMessagingUnix clientN)
