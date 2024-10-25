@@ -21,6 +21,7 @@ import Data.Kind
 import Data.List qualified as List
 import GHC.TypeLits
 -- import Lens.Micro.Platform
+import UnliftIO
 import UnliftIO.Async
 import UnliftIO qualified as UIO
 import UnliftIO (TVar,TQueue,atomically)
@@ -28,7 +29,9 @@ import System.Random (randomIO)
 import Data.Word
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Control.Exception (bracket_)
+-- import Control.Exception (bracket_)
+import Control.Monad.Trans.Cont
+import System.IO.Unsafe (unsafePerformIO)
 
 type family Input a  :: Type
 type family Output a :: Type
@@ -117,13 +120,21 @@ makeRequest rnum input = ServiceRequest rnum (serialise (fromIntegral idx :: Int
   where
     idx = findMethodIndex @method @api
 
+rnumnum :: TVar Word64
+rnumnum = unsafePerformIO (newTVarIO 1)
+{-# NOINLINE rnumnum #-}
+
 makeRequestR :: forall api method e m . ( KnownNat (FromJust (FindMethodIndex 0 method api))
                                        , Serialise (Input method)
                                        , MonadIO m
                                        )
             => Input method -> m (ServiceProto api e)
 makeRequestR input = do
-  rnum  <- liftIO $ randomIO
+  rnum  <- atomically do
+              n <- readTVar rnumnum
+              modifyTVar rnumnum succ
+              pure n
+
   pure $ ServiceRequest rnum (serialise (fromIntegral idx :: Int, serialise input))
   where
     idx = findMethodIndex @method @api
@@ -172,13 +183,12 @@ runServiceClient :: forall api e m . ( MonadIO m
                   -> m ()
 
 runServiceClient caller = do
-  proto <- async $ runProto @e [ makeResponse (makeClient @api caller) ]
-  link proto
-  forever do
-    req <- getRequest caller
-    request @e (callPeer caller) req
-
-  wait proto
+  flip runContT pure do
+    p <- ContT $ withAsync (runProto @e [ makeResponse (makeClient @api caller) ])
+    link p
+    forever $ lift do
+      req <- getRequest caller
+      request @e (callPeer caller) req
 
 data Endpoint e m = forall (api :: [Type]) . ( HasProtocol e (ServiceProto api e)
                                              , HasTimeLimits e (ServiceProto api e) m
@@ -276,11 +286,12 @@ callRpcWaitMay :: forall method (api :: [Type]) m e proto t . ( MonadUnliftIO m
            -> m (Maybe (Output method))
 
 callRpcWaitMay t caller args = do
-  race (pause t) (callService @method @api @e @m caller args)
-    >>= \case
-      Right (Right x) -> pure (Just x)
-      _               -> pure Nothing
-
+  flip fix 0 $ \next i -> do
+    race (pause t) (callService @method @api @e @m caller args)
+      >>= \case
+        Right (Right x) -> pure (Just x)
+        -- _  | i < 1      -> next (succ i)
+        _               -> pure Nothing
 
 makeClient :: forall api e m  . ( MonadIO m
                                 , HasProtocol e (ServiceProto api e)
