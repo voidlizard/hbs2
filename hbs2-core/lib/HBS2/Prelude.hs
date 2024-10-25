@@ -9,7 +9,6 @@ module HBS2.Prelude
   , module Numeric.Natural
   , module HBS2.Clock
   , MonadIO(..), MonadPlus(..)
-  , void, guard, when, unless
   , maybe1
   , eitherToMaybe
   , asyncLinked
@@ -27,6 +26,12 @@ module HBS2.Prelude
   , (&), (<&>), for_, for
   , HasErrorStatus(..), ErrorStatus(..), SomeError(..), WithSomeError(..), mayE, someE
   , ByFirst(..)
+  , Probe(..)
+  , ProbeSnapshot(..)
+  , ToProbeSnapshot(..)
+  , ProbeSnapshotElement(..)
+  , AnyProbe(..)
+  , newSimpleProbe
   , whenTrue, whenFalse
   ) where
 
@@ -51,14 +56,19 @@ import Data.Function
 import Data.Functor
 import Data.Char qualified as Char
 import Data.Text qualified as Text
+import Data.Text (Text)
 import Data.Hashable
+import Data.HashMap.Strict(HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.Set qualified as Set
 import Prettyprinter
 import Data.Word
 import GHC.Generics
 import Control.Monad.Except
 import Numeric.Natural
-
+import Streaming.Prelude qualified as S
 import UnliftIO
+import Codec.Serialise
 
 none :: forall m . Monad m => m ()
 none = pure ()
@@ -174,11 +184,69 @@ instance Eq a => Eq (ByFirst a b) where
 instance Hashable a => Hashable (ByFirst a b) where
   hashWithSalt s (ByFirst a _) = hashWithSalt s a
 
+class ToProbeSnapshot a => Probe a where
+  acceptReport :: forall m . MonadIO m => a -> [(Text, Integer)] -> m ()
 
--- asyncLinked :: forall m . MonadUnliftIO m =>
+data ProbeSnapshotElement =
+  ProbeSnapshotElement Text Integer
+  deriving stock (Eq,Ord,Show,Generic)
+
+instance Serialise ProbeSnapshotElement
+
+instance Pretty ProbeSnapshotElement where
+  pretty (ProbeSnapshotElement x y) = pretty x <+> pretty y
+
+class ProbeSnapshot a where
+  probeSnapshot :: MonadIO m => a -> m [ProbeSnapshotElement]
+
+class ToProbeSnapshot a where
+  toSnapshotElements :: forall m . MonadIO m => a -> m [ProbeSnapshotElement]
+
+data SimpleProbe =
+  SimpleProbe
+  { spName        :: Text
+  , spTimestamp   :: TVar Word64
+  , spProbeValues :: TVar (HashMap Text Integer)
+  }
+
+instance ToProbeSnapshot SimpleProbe where
+  toSnapshotElements SimpleProbe{..} = do
+      vs <- readTVarIO spProbeValues <&> HM.toList
+      pure [ ProbeSnapshotElement (spName <> "." <> n) i | (n,i) <- vs ]
 
 
+instance ProbeSnapshot [AnyProbe] where
+  probeSnapshot spx = do
+    what <- S.toList_ do
+      for_ spx $ \s ->  do
+        toSnapshotElements s >>= S.each
+    pure $ Set.toList $ Set.fromList what
 
+newSimpleProbe :: forall m . MonadIO m => Text -> m AnyProbe
+newSimpleProbe name = do
+  s <- SimpleProbe name
+        <$> (liftIO getPOSIXTime >>= newTVarIO . round)
+        <*> newTVarIO mempty
+  pure $ AnyProbe s
 
+instance ToProbeSnapshot () where
+  toSnapshotElements _ = pure mempty
 
+instance Probe () where
+  acceptReport _ _ = pure ()
+
+data AnyProbe = forall a . Probe a => AnyProbe a
+
+instance Probe AnyProbe where
+  acceptReport (AnyProbe p) = acceptReport p
+
+instance ToProbeSnapshot AnyProbe where
+  toSnapshotElements (AnyProbe p) = toSnapshotElements p
+
+instance Probe SimpleProbe where
+  acceptReport SimpleProbe{..} values = do
+    t <- liftIO getPOSIXTime <&> round
+    atomically do
+      writeTVar spTimestamp t
+      modifyTVar spProbeValues (<> HM.fromList values)
 

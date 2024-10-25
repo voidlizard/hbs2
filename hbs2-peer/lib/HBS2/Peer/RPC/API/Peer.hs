@@ -36,6 +36,8 @@ data RpcByPassInfo
 
 data RpcPerformGC
 
+data RpcGetProbes
+
 type PeerAPI = '[ RpcPoke
                 , RpcPing
                 , RpcAnnounce
@@ -52,6 +54,7 @@ type PeerAPI = '[ RpcPoke
                 , RpcByPassInfo
                 , RpcPerformGC
                 , RpcPollList2
+                , RpcGetProbes
                 ]
 
 instance HasProtocol UNIX  (ServiceProto PeerAPI UNIX) where
@@ -112,6 +115,9 @@ type instance Output RpcByPassInfo = ByPassStat
 
 type instance Input RpcPerformGC = ()
 type instance Output RpcPerformGC = ()
+
+type instance Input RpcGetProbes = ()
+type instance Output RpcGetProbes = [ProbeSnapshotElement]
 
 data SetLogging =
     DebugOn Bool

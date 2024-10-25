@@ -4,9 +4,9 @@ module HBS2.Peer.RPC.Internal.Types
   , module HBS2.Peer.RPC.Class
   ) where
 
+import HBS2.Prelude
 import HBS2.Actors.Peer
 import HBS2.Net.Auth.Credentials
-import HBS2.Net.Proto.Types
 import HBS2.Storage()
 import HBS2.Data.Types.Refs (HashRef)
 import HBS2.Data.Types.SignedBox
@@ -17,10 +17,8 @@ import HBS2.Peer.RPC.Class
 import HBS2.Peer.Brains
 
 import Data.Config.Suckless.Syntax
-import Data.Config.Suckless.Parse
 
 import Data.Kind
-import Control.Monad
 import Control.Monad.Reader
 import Data.ByteString ( ByteString )
 import UnliftIO
@@ -35,6 +33,7 @@ data RPC2Context =
   , rpcStorage            :: AnyStorage
   , rpcBrains             :: SomeBrains L4Proto
   , rpcByPassInfo         :: IO ByPassStat
+  , rpcProbes             :: TVar [AnyProbe]
   , rpcDoFetch            :: HashRef -> IO ()
   , rpcDoRefChanHeadPost  :: HashRef -> IO ()
   , rpcDoRefChanPropose   :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()

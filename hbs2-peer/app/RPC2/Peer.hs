@@ -19,5 +19,5 @@ import RPC2.LogLevel()
 import RPC2.Poll()
 import RPC2.Downloads()
 import RPC2.ByPassStat()
-
+import RPC2.Probes()
 
