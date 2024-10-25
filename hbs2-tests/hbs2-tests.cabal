@@ -1144,3 +1144,21 @@ executable test-walk-merkletree-cornercase
         , serialise
         , streaming
         , text
+
+
+executable test-unix-messaging
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+    ghc-options:
+    hs-source-dirs:   test
+    main-is:          CheckUnixMessaging.hs
+    build-depends:
+          base, hbs2-core
+        , network
+        , string-conversions
+        , text
+        , time
+
+
+                    
