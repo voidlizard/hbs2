@@ -15,6 +15,8 @@ import System.FilePath
 import System.FilePattern
 import Data.HashSet qualified as HS
 
+import Prettyprinter
+
 import Lens.Micro.Platform
 import UnliftIO
 import Control.Concurrent.STM qualified as STM
@@ -67,12 +69,12 @@ entries = do
   entry $ bindMatch "glob" $ \syn -> do
 
     (p,i,d) <- case syn of
-                 [] -> pure (["*"], [], ".")
+                 [] -> pure (["**/*"], ["**/.*"], ".")
 
-                 [StringLike d, StringLike i, StringLike e] -> do
-                    pure ([i], [e], d)
+                 s@[StringLike d, ListVal (StringLikeList i) ] -> do
+                    pure (i, [], d)
 
-                 [StringLike d, ListVal (StringLikeList i), ListVal (StringLikeList e)] -> do
+                 s@[StringLike d, ListVal (StringLikeList i), ListVal (StringLikeList e) ] -> do
                     pure (i, e, d)
 
                  _ -> throwIO (BadFormException @c nil)

@@ -60,7 +60,6 @@ sigilEntries = do
     $ entry $ bindMatch "hbs2:sigil:load:base58" $ \case
       [HashLike key] -> lift do
         sto <- getStorage
-        warn $ pretty key
         r <- loadSigil @HBS2Basic sto key >>= orThrowUser "no sigil found"
         pure $ mkStr @c ( show $ pretty $ AsBase58 r  )
 
@@ -80,37 +79,57 @@ sigilEntries = do
       _ -> throwIO $ BadFormException @c nil
 
 
-  entry $ bindMatch "hbs2:sigil:create:from-keyring" $ \syn -> do
+  brief "create sigil from keyring" $
+   desc [qc|
 
-    args <- case syn of
-      [ StringLike s ] -> pure (fmap snd . headMay, s)
-      [ StringLike p, StringLike s ] -> pure ( findKey p, s)
-      [ LitIntVal n, StringLike s ] -> pure ( L.lookup n, s)
+;; creates from keyring, uses first encryption key if found
 
-      _ -> throwIO $ BadFormException @C nil
+hbs2:sigil:create:from-keyring KEYRING-FILE
 
-    let lbs = BS8.pack (snd args)
+;; creates from keyring, uses n-th encryption key if found, N starts from 1
 
-    cred <- pure (parseCredentials @'HBS2Basic (AsCredFile lbs))
-               `orDie` "bad keyring data"
+hbs2:sigil:create:from-keyring KEYRING-FILE N
 
-    let es = zip [0..]
-                 [ p | KeyringEntry p _ _
-                     <- view peerKeyring cred
-                 ]
+;; creates from keyring, uses encryption key wit prefix S if found
 
-    enc <- pure (fst args es)
-           `orDie` "key not found"
+hbs2:sigil:create:from-keyring KEYRING-FILE S
 
-    sigil <- pure (makeSigilFromCredentials @'HBS2Basic cred enc Nothing Nothing)
-              `orDie` "can't create a sigil"
+   |]
+   $ entry $ bindMatch "hbs2:sigil:create:from-keyring" $ \syn -> do
 
-    pure $ mkStr (show $ pretty $ AsBase58 sigil)
+      let readKeyring fn = liftIO (BS8.readFile fn)
+                             <&>  parseCredentials @'HBS2Basic . AsCredFile
+                             >>= orThrowUser "malformed keyring file"
 
-  where
-    findKey s xs = headMay [ k
-                           | e@(_,k) <- xs
-                           , L.isPrefixOf s (show $ pretty (AsBase58 k))
-                           ]
 
+      (cred, KeyringEntry enc _ _) <- case syn of
+            [ StringLike fn ] -> do
+              s <- readKeyring fn
+              kr <- headMay (view peerKeyring s) & orThrowUser "encryption key missed"
+              pure (s,kr)
+
+            [ StringLike fn, LitIntVal n ] -> do
+              s <- readKeyring fn
+              kr <- headMay (drop (fromIntegral (max 0 (n-1))) (view peerKeyring s))
+                      & orThrowUser "encryption key not found"
+              pure (s,kr)
+
+            [ StringLike fn, StringLike p ] -> do
+
+              s <- readKeyring fn
+              kr <- findKey p (view peerKeyring s)  & orThrowUser "encryption key not found"
+              pure (s,kr)
+
+            _ -> throwIO $ BadFormException @c nil
+
+      sigil <- pure (makeSigilFromCredentials @'HBS2Basic cred enc Nothing Nothing)
+                `orDie` "can't create a sigil"
+
+      pure $ mkStr (show $ pretty $ AsBase58 sigil)
+
+    where
+      findKey s xs = headMay [ e
+                             | e@(KeyringEntry k _ _) <- xs
+                             , L.isPrefixOf s (show $ pretty (AsBase58 k))
+                             ]
 

@@ -11,6 +11,7 @@ import HBS2.Actors.Peer
 import HBS2.Base58
 import HBS2.Merkle
 import HBS2.Defaults
+import HBS2.System.Dir (takeDirectory,(</>))
 import HBS2.Events
 import HBS2.Hash
 import HBS2.Data.Types.Refs
@@ -28,6 +29,7 @@ import HBS2.Peer.Proto
 import HBS2.Peer.Proto.RefChan qualified as R
 import HBS2.Peer.Proto.RefChan.Adapter
 import HBS2.Net.Proto.Notify
+import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.Missed
@@ -53,12 +55,14 @@ import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
 import LWWRef (lwwRefWorker)
+import MailboxProtoWorker
 import HttpWorker
 import DispatchProxy
 import PeerMeta
 import CLI.Common
 import CLI.RefChan
 import CLI.LWWRef
+import CLI.Mailbox
 import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
@@ -73,12 +77,15 @@ import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefLog
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.LWWRef
+import HBS2.Peer.RPC.API.Mailbox
 import HBS2.Peer.Notify
 import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2.Peer.Proto.LWWRef.Internal
 
 import RPC2(RPC2Context(..))
+
+import Data.Config.Suckless.Script hiding (optional)
 
 import Codec.Serialise as Serialise
 import Control.Concurrent (myThreadId)
@@ -92,6 +99,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Cache qualified as Cache
+import Data.Coerce
 import Data.Fixed
 import Data.List qualified as L
 import Data.Map (Map)
@@ -247,6 +255,7 @@ runCLI = do
                 <> command "reflog"    (info pRefLog (progDesc "reflog commands"))
                 <> command "refchan"   (info pRefChan (progDesc "refchan commands"))
                 <> command "lwwref"    (info pLwwRef (progDesc "lwwref commands"))
+                <> command "mailbox"   (info pMailBox (progDesc "mailbox commands"))
                 <> command "peers"     (info pPeers (progDesc "show known peers"))
                 <> command "pexinfo"   (info pPexInfo (progDesc "show pex"))
                 <> command "download"  (info pDownload  (progDesc "download management"))
@@ -775,6 +784,9 @@ runPeer opts = respawnOnError opts $ runResourceT do
   s <- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
 
+  stoProbe <- newSimpleProbe "StorageSimple"
+  simpleStorageSetProbe s stoProbe
+  addProbe stoProbe
 
   w <- replicateM defStorageThreads $ async $ liftIO $ simpleStorageWorker s
 
@@ -921,6 +933,8 @@ runPeer opts = respawnOnError opts $ runResourceT do
         }
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
+
+  mailboxWorker <- createMailboxProtoWorker pc  penv denv (AnyStorage s)
 
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
@@ -1130,6 +1144,14 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
                 peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
 
+                -- setup mailboxes stuff
+                let defConf = coerce conf
+                let mboxConf = maybe1 pref defConf $ \p -> do
+                       let mboxDir = takeDirectory (coerce p) </> "hbs2-mailbox"
+                       mkList [mkSym hbs2MailboxDirOpt, mkStr mboxDir] : coerce defConf
+
+                peerThread "mailboxProtoWorker" (mailboxProtoWorker (pure mboxConf) mailboxWorker)
+
                 liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
@@ -1146,6 +1168,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
                     , makeResponse (refChanNotifyProto False refChanAdapter)
                     -- TODO: change-all-to-authorized
                     , makeResponse ((authorized . subscribed (SomeBrains brains)) lwwRefProtoA)
+                    , makeResponse ((authorized . mailboxProto False) mailboxWorker)
                     ]
 
 
@@ -1245,6 +1268,8 @@ runPeer opts = respawnOnError opts $ runResourceT do
                            , rpcDoRefChanHeadPost = refChanHeadPostAction
                            , rpcDoRefChanPropose = refChanProposeAction
                            , rpcDoRefChanNotify = refChanNotifyAction
+                           , rpcMailboxService = AnyMailboxService @s mailboxWorker
+                           , rpcMailboxAdapter  = AnyMailboxAdapter @s mailboxWorker
                            }
 
   m1 <- async $ runMessagingUnix rpcmsg
@@ -1260,6 +1285,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
       , makeResponse (makeServer @RefChanAPI)
       , makeResponse (makeServer @StorageAPI)
       , makeResponse (makeServer @LWWRefAPI)
+      , makeResponse (makeServer @MailboxAPI)
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
