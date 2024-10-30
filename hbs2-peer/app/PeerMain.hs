@@ -945,6 +945,10 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
   mailboxWorker <- createMailboxProtoWorker pc  penv denv (AnyStorage s)
 
+  p <- newSimpleProbe "MailboxProtoWorker"
+  mailboxProtoWorkerSetProbe mailboxWorker p
+  addProbe p
+
   let onNoBlock (p, h) = do
         already <- liftIO $ Cache.lookup nbcache (p,h) <&> isJust
         unless already do

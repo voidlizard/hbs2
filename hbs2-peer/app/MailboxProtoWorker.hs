@@ -5,6 +5,7 @@
 {-# Language PatternSynonyms #-}
 module MailboxProtoWorker ( mailboxProtoWorker
                           , createMailboxProtoWorker
+                          , mailboxProtoWorkerSetProbe
                           , MailboxProtoWorker
                           , IsMailboxProtoAdapter
                           , MailboxProtoException(..)
@@ -137,6 +138,7 @@ data MailboxProtoWorker (s :: CryptoScheme) e =
   , inMessageQueueDropped :: TVar Int
   , inMessageDeclined     :: TVar Int
   , mailboxDB             :: TVar (Maybe DBPipeEnv)
+  , probe                 :: TVar AnyProbe
   }
 
 okay :: Monad m => good -> m (Either bad good)
@@ -533,6 +535,17 @@ getMailboxType_ d r = do
      <&> fmap (fromStringMay @MailboxType  . fromOnly)
      <&> headMay . catMaybes
 
+mailboxProtoWorkerSetProbe :: forall s e m . ( MonadIO m
+                                           , s ~ Encryption e
+                                           , ForMailbox s
+                                           )
+                           => MailboxProtoWorker s e
+                           -> AnyProbe
+                           -> m ()
+mailboxProtoWorkerSetProbe MailboxProtoWorker{..} p
+  = atomically  $ writeTVar probe p
+
+
 createMailboxProtoWorker :: forall s e m . ( MonadIO m
                                            , s ~ Encryption e
                                            , ForMailbox s
@@ -556,6 +569,7 @@ createMailboxProtoWorker pc pe de sto = do
     <*> newTVarIO 0
     <*> newTVarIO 0
     <*> newTVarIO Nothing
+    <*> newTVarIO (AnyProbe ())
 
 mailboxProtoWorker :: forall e s m . ( MonadIO m
                                      , MonadUnliftIO m
@@ -600,6 +614,20 @@ mailboxProtoWorker readConf me@MailboxProtoWorker{..} = do
 
       forever do
         pause @'Seconds 10
+
+        pro <- readTVarIO probe
+
+        values <- atomically do
+          mpwFetchQSize <- readTVar mpwFetchQ <&> HS.size
+          inMessageMergeQueueSize <- readTVar inMessageMergeQueue <&> HM.size
+          inPolicyDownloadQSize <- readTVar inPolicyDownloadQ <&> HM.size
+          inMailboxDownloadQSize <- readTVar inMailboxDownloadQ <&> HM.size
+          pure $ [ ("mpwFetchQ", fromIntegral mpwFetchQSize)
+                 , ("inMessageMergeQueue", fromIntegral inMessageMergeQueueSize)
+                 , ("inPolicyDownloadQ", fromIntegral inPolicyDownloadQSize)
+                 , ("inMailboxDownloadQ", fromIntegral inMailboxDownloadQSize)
+                 ]
+        acceptReport pro values
         debug $ "I'm" <+> yellow "mailboxProtoWorker"
 
     void $ waitAnyCancel [bs,dpipe,inq,mergeQ,pDownQ,sDownQ,mCheckQ,mFetchQ]
