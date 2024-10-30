@@ -28,6 +28,7 @@ import Control.Monad
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Control.Monad.Reader
+import Control.Monad.Writer.CPS qualified as CPS
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache
@@ -41,6 +42,8 @@ import Data.HashMap.Strict qualified as HashMap
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM
 import Control.Monad.IO.Unlift
+import Data.List qualified as L
+import Data.Monoid qualified as Monoid
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
@@ -127,6 +130,7 @@ data PeerEnv e =
   , _envSweepers      :: TVar (HashMap SKey [PeerM e IO ()])
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
+  , _envProbe         :: TVar AnyProbe
   }
 
 newtype PeerM e m a = PeerM { fromPeerM :: ReaderT (PeerEnv e) m a }
@@ -388,7 +392,37 @@ newPeerEnv pl s bus p = do
   _envSweepers      <- liftIO (newTVarIO mempty)
   _envReqMsgLimit   <- liftIO (Cache.newCache (Just defRequestLimit))
   _envReqProtoLimit <- liftIO (Cache.newCache (Just defRequestLimit))
+  _envProbe         <- liftIO (newTVarIO (AnyProbe ()))
   pure PeerEnv {..}
+
+peerEnvSetProbe :: (MonadIO m) => PeerEnv e -> AnyProbe -> m ()
+peerEnvSetProbe PeerEnv {..} p = liftIO $ atomically $ writeTVar _envProbe p
+
+peerEnvCollectProbes :: (MonadIO m) => PeerEnv e -> m ()
+peerEnvCollectProbes PeerEnv {..} = do
+  probe <- liftIO $ readTVarIO _envProbe
+  acceptReport probe =<< CPS.execWriterT do
+    -- _envDeferred :: Pipeline IO ()
+
+    item "sessions" =<< (liftIO . Cache.size) _envSessions
+
+    events <- liftReadTVar _envEvents
+    item "events-keys" $ HashMap.size events
+    item "events-values-all" $ calcValuesLengthTotal events
+
+    item "expire-times" =<< (liftIO . Cache.size) _envExpireTimes
+
+    sweepers <- liftReadTVar _envSweepers
+    item "sweepers-keys" $ HashMap.size sweepers
+    item "sweepers-values-all" $ calcValuesLengthTotal sweepers
+
+    item "req-msg-limit" =<< (liftIO . Cache.size) _envReqMsgLimit
+    item "req-proto-limit" =<< (liftIO . Cache.size) _envReqProtoLimit
+
+  where
+    calcValuesLengthTotal = Monoid.getSum . foldMap (Monoid.Sum . L.length)
+    liftReadTVar = liftIO . atomically . readTVar
+    item k v = CPS.tell [(k, fromIntegral v)]
 
 runPeerM :: forall e m . ( MonadIO m
                          , HasPeer e
