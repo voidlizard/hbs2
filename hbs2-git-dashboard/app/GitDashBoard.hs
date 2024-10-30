@@ -158,7 +158,6 @@ runDashBoardM m = do
   setLogging @WARN   warnPrefix
   setLogging @NOTICE noticePrefix
 
-  mkdir dataDir
 
   flip runContT pure do
 
@@ -185,6 +184,7 @@ runDashBoardM m = do
 
     void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
+
     env <- newDashBoardEnv
                 dataDir
                 peerAPI
@@ -193,6 +193,11 @@ runDashBoardM m = do
                 lwwAPI
                 sto
 
+    lift $ withDashBoardEnv env do
+      mkdir dataDir
+      notice "evolving db"
+      withState evolveDB
+
     void $ ContT $ withAsync do
       fix \next -> do
         dbe' <- readTVarIO (_db env)
@@ -200,15 +205,18 @@ runDashBoardM m = do
           Just dbe -> do
             notice $ green "Aquired database!"
             runPipe dbe
+            forever do
+              pause @'Seconds 30
 
           Nothing -> do
             pause @'Seconds 5
             next
 
-    void $ ContT $ withAsync do
-      q <- withDashBoardEnv env $ asks _pipeline
-      forever do
-        liftIO (atomically $ readTQueue q) & liftIO . join
+    replicateM_ 2 do
+      ContT $ withAsync do
+        q <- withDashBoardEnv env $ asks _pipeline
+        forever do
+          liftIO (atomically $ readTQueue q) & liftIO . join
 
     lift $ withDashBoardEnv env m
       `finally` do
@@ -398,9 +406,6 @@ runScotty  = do
 
     env <- ask
 
-    notice "evolving db"
-    withState evolveDB
-
     notice "running config"
     conf <- readConfig
 
@@ -470,6 +475,9 @@ runRPC = do
     void $ waitAnyCatchCancel [m1,p1]
 
 
+
+  -- pure ()
+
 updateIndexPeriodially :: DashBoardPerks m => DashBoardM m ()
 updateIndexPeriodially = do
 
@@ -480,18 +488,26 @@ updateIndexPeriodially = do
 
   changes <- newTQueueIO
 
+  -- queues <- newTVarIO ( mempty :: HashMap RepoLww (TQueue (IO ()) ) )
+
   flip runContT pure do
 
-    p1 <- ContT $ withAsync $ forever do
-      rs <- atomically $ peekTQueue changes >> flushTQueue changes
-      addJob (withDashBoardEnv env updateIndex)
-      pause @'Seconds 1
+    lift $ addJob (withDashBoardEnv env updateIndex)
+
+    p1 <- ContT $ withAsync $ do
+      pause @'Seconds 30
+      forever do
+        rs <- atomically $ peekTQueue changes >> flushTQueue changes
+        addJob (withDashBoardEnv env updateIndex)
+      -- pause @'Seconds 1
 
     p2 <- pollRepos changes
 
     p3 <- pollFixmies
 
-    void $ waitAnyCatchCancel [p1,p2,p3]
+    p4 <- pollRepoIndex
+
+    void $ waitAnyCatchCancel [p1,p2,p3,p4]
 
   where
 
@@ -507,7 +523,7 @@ updateIndexPeriodially = do
                    <&> fmap (,60)
 
       ContT $ withAsync $ do
-        polling (Polling 1 30) chans $ \(l,r) -> do
+        polling (Polling 10 30) chans $ \(l,r) -> do
           debug $ yellow "POLL FIXME CHAN" <+> pretty (AsBase58 r)
 
           void $ runMaybeT do
@@ -518,13 +534,14 @@ updateIndexPeriodially = do
 
             old <- readTVarIO cached <&> HM.lookup r
 
+            atomically $ modifyTVar cached (HM.insert r new)
+
             when (Just new /= old) $ lift do
               debug $ yellow "fixme refchan changed" <+> "run update" <+> pretty new
               addJob do
                 -- TODO: this-is-not-100-percent-reliable
                 --   $workflow: backlog
                 --   откуда нам вообще знать, что там всё получилось?
-                atomically $ modifyTVar cached (HM.insert r new)
                 void $ try @_ @SomeException (withDashBoardEnv env $ updateFixmeFor l r)
 
 
@@ -536,7 +553,7 @@ updateIndexPeriodially = do
       let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 60)
 
       ContT $ withAsync $ do
-        polling (Polling 1 30) rlogs $ \r -> do
+        polling (Polling 10 30) rlogs $ \r -> do
 
           debug $ yellow "POLL REFLOG" <+> pretty r
 
@@ -545,7 +562,10 @@ updateIndexPeriodially = do
 
           old <- readTVarIO cached <&> HM.lookup r
 
+
           for_ rv $ \x -> do
+
+            atomically $ modifyTVar cached (HM.insert r x)
 
             when (rv /= old) do
               debug $ yellow "REFLOG UPDATED" <+> pretty r <+> pretty x
@@ -570,8 +590,15 @@ updateIndexPeriodially = do
                 debug $ red "SYNC" <+> pretty cmd
                 void $ runProcess $ shell cmd
 
-                lift $ buildCommitTreeIndex (coerce lww)
+    pollRepoIndex = do
 
+      api <- asks _refLogAPI
+      let rlogs = selectRefLogs <&> fmap (over _1 (coerce @_ @MyRefLogKey)) . fmap (, 600)
+
+      ContT $ withAsync $ do
+        polling (Polling 1 30) rlogs $ \r -> do
+          lww' <- selectLwwByRefLog (RepoRefLog r)
+          for_ lww' $ addRepoIndexJob . coerce
 
 quit :: DashBoardPerks m => m ()
 quit = liftIO exitSuccess

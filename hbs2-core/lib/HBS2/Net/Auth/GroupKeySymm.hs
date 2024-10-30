@@ -559,26 +559,31 @@ decryptBlock :: forall t s sto h m . ( MonadIO m
              -> SmallEncryptedBlock t
              -> m t
 
-decryptBlock sto findKey (SmallEncryptedBlock{..}) = do
-
+decryptBlock sto findKey seb@(SmallEncryptedBlock{..}) = do
   gkbs <- readFromMerkle sto (SimpleKey (fromHashRef sebGK0))
   gk <- either (const $ throwError (GroupKeyNotFound 1)) pure (deserialiseOrFail @(GroupKey 'Symm s) gkbs)
-
   gksec' <- findKey gk
-  -- [ lookupGroupKey sk pk gk | KeyringKeys pk sk <- keys ] & catMaybes & headMay
-
   gksec <- maybe1 gksec' (throwError (GroupKeyNotFound 2)) pure
+  decryptBlockWithSecret @_ @s gksec seb
 
+decryptBlockWithSecret :: forall t s h m . ( MonadIO m
+                                           , MonadError OperationError m
+                                           , ForGroupKeySymm s
+                                           , h ~ HbSync
+                                           , Serialise t
+                                           )
+
+             => GroupSecret
+             -> SmallEncryptedBlock t
+             -> m t
+
+decryptBlockWithSecret gksec (SmallEncryptedBlock{..}) = do
   let prk = HKDF.extractSkip @_ @HbSyncHash (Saltine.encode gksec)
   let key0 = HKDF.expand prk sebNonce typicalKeyLength & Saltine.decode & fromJust
   let nonce0 = nonceFrom @SK.Nonce sebNonce
-
   let unboxed = SK.secretboxOpen key0 nonce0 (unEncryptedBox sebBox)
-
   lbs <- maybe1 unboxed (throwError DecryptionError) (pure . LBS.fromStrict)
-
   either (const $ throwError UnsupportedFormat) pure (deserialiseOrFail lbs)
-
 
 deriveGroupSecret :: NonceFrom SK.Nonce n => n -> BS.ByteString -> GroupSecret
 deriveGroupSecret n bs = key0

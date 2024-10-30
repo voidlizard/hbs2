@@ -13,11 +13,30 @@ import HBS2.System.Dir
 
 import Streaming.Prelude qualified as S
 
+import Data.HashMap.Strict qualified as HM
 import System.Process.Typed
 
 {- HLINT ignore "Functor law" -}
 
 seconds = TimeoutSec
+
+
+addRepoIndexJob :: (DashBoardPerks m, MonadReader DashBoardEnv m) => LWWRefKey 'HBS2Basic -> m ()
+addRepoIndexJob lww = do
+
+    e <- ask
+    let wip = _repoCommitIndexWIP e
+
+    n <- atomically do
+           modifyTVar wip (HM.insertWith (+) (coerce lww) 1)
+           readTVar wip <&> HM.lookup (coerce lww) <&> fromMaybe 0
+
+    when ( n < 2 ) do
+      addJob $ withDashBoardEnv e do
+        buildCommitTreeIndex (coerce lww)
+         `finally` do
+            atomically do
+              modifyTVar wip (HM.adjust pred (coerce lww))
 
 updateFixmeFor :: ( MonadUnliftIO m
                   , MonadReader DashBoardEnv m
@@ -101,6 +120,7 @@ updateIndexFromPeer = do
           lift $ S.yield (lw, RepoHeadTx tx, RepoHeadRef rhh, rhead, fme)
 
       withState $ transactional do
+      -- withState do
         for_ headz $ \(l, tx, rh, rhead, fme) -> do
           let rlwwseq = RepoLwwSeq (fromIntegral $ lwwSeq wv)
           insertRepoHead l rlwwseq (RepoRefLog rk) tx rh rhead
@@ -110,7 +130,9 @@ updateIndexFromPeer = do
           for_ fme $ \f -> do
             insertRepoFixme l rlwwseq f
 
-      -- buildCommitTreeIndex (coerce lw)
+    -- WTF?
+    env <- ask
+    buildCommitTreeIndex (coerce lw)
 
   fxe <- selectRepoFixme
 

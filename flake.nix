@@ -164,9 +164,32 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       };
 
 
-    devShells = {
-      default = makeShell (
-        pkgs.lib.attrVals (packageNames ++ miscellaneous) pkgs.haskellPackages
+    devShells.default = pkgs.haskellPackages.shellFor {
+      packages = _:
+        pkgs.lib.attrVals packageNames pkgs.haskellPackages ++
+        pkgs.lib.attrVals miscellaneous pkgs.haskellPackages;
+      # withHoogle = true;
+      buildInputs = (
+        with pkgs.haskellPackages; [
+          ghc
+          ghcid
+          cabal-install
+          haskell-language-server
+          hoogle
+          # htags
+          text-icu
+          magic
+          pkgs.icu72
+          pkgs.openssl
+          weeder
+        ]
+        ++
+        [ pkgs.pkg-config
+          pkgs.libsodium
+          pkgs.file
+          pkgs.zlib
+          inputs.hspup.packages.${pkgs.system}.default
+        ]
       );
       unfuck = makeShell [];
     };

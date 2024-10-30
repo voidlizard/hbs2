@@ -62,7 +62,6 @@ data MyPeerClientEndpoints =
 makeLenses 'MyPeerClientEndpoints
 
 -- FIXME: move-to-suckless-conf
-deriving stock instance Ord (Syntax C)
 
 pattern FixmeHashLike :: forall {c} . Text -> Syntax c
 pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
