@@ -93,7 +93,7 @@ common shared-properties
         -threaded
         -rtsopts
         -- "-with-rtsopts=-N -A64m -AL256m -I0 -T"
-        "-with-rtsopts=-N -A4m -AL16m -I0 -T"
+        "-with-rtsopts=-N -A4m -AL16m -Iw60 -T"
 
   default-language:    Haskell2010
 
