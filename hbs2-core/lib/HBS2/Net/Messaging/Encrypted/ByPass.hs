@@ -7,6 +7,7 @@ module HBS2.Net.Messaging.Encrypted.ByPass
   , ByPassStat(..)
   , byPassDef
   , newByPassMessaging
+  , byPassMessagingSetProbe
   , cleanupByPassMessaging
   , getStat
   ) where
@@ -120,6 +121,7 @@ data ByPass e them =
   , recvNum      :: TVar Int
   , authFail     :: TVar Int
   , maxPkt       :: TVar Int
+  , probe        :: TVar AnyProbe
   }
 
 type ForByPass e   = ( Hashable (Peer e)
@@ -207,6 +209,13 @@ byPassDef =
   , byPassTimeRange  = Nothing
   }
 
+byPassMessagingSetProbe :: forall e w m . ( ForByPass e, MonadIO m, Messaging w e ByteString)
+                        => ByPass e w
+                        -> AnyProbe
+                        -> m ()
+
+byPassMessagingSetProbe ByPass{..} p = atomically $ writeTVar probe p
+
 newByPassMessaging :: forall e w m . ( ForByPass e
                                      , MonadIO m
                                      , Messaging w e ByteString
@@ -233,6 +242,7 @@ newByPassMessaging o w self ps sk  = do
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
+                                 <*> newTVarIO (AnyProbe ())
 
 instance (ForByPass e, Messaging w e ByteString)
   => Messaging (ByPass e w) e ByteString where
