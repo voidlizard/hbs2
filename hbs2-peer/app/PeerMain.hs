@@ -888,6 +888,13 @@ runPeer opts = Exception.handle (\e -> myException e
                           (view peerSignSk pc)
 
   penv <- newPeerEnv pl (AnyStorage s) (Fabriq byPass) peerSelf
+  do
+    probe <- newSimpleProbe "PeerEnv_Main"
+    addProbe probe
+    peerEnvSetProbe penv probe
+  probesPenv <- liftIO $ async $ forever do
+      pause @'Seconds 10
+      peerEnvCollectProbes penv
 
   proxyThread <- async $ runDispatchProxy proxy
 
@@ -1212,6 +1219,13 @@ runPeer opts = Exception.handle (\e -> myException e
             lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (R.Notify @e puk box)
 
   menv <- newPeerEnv pl (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
+  do
+    probe <- newSimpleProbe "PeerEnv_Announce"
+    addProbe probe
+    peerEnvSetProbe menv probe
+  probesMenv <- liftIO $ async $ forever do
+      pause @'Seconds 10
+      peerEnvCollectProbes menv
 
   ann <- liftIO $ async $ runPeerM menv $ do
 
@@ -1294,8 +1308,10 @@ runPeer opts = Exception.handle (\e -> myException e
   void $ waitAnyCancel $ w <> [ loop
                               , m1
                               , rpcProto
+                              , probesMenv
                               , ann
                               , messMcast
+                              , probesPenv
                               , proxyThread
                               , brainsThread
                               , messWatchDog
