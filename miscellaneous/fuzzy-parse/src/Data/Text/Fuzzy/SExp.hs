@@ -179,7 +179,7 @@ instance MonadError SExpParseError m => MonadError SExpParseError (SExpM m) wher
 tokenizeSexp :: Text -> [TTok]
 tokenizeSexp txt =  do
   let spec = delims " \r\t" <> comment ";"
-                            <> punct "'{}()[]\n"
+                            <> punct "`'{}()[]\n"
                             <> sqq
                             <> uw
   tokenize spec txt
@@ -237,8 +237,13 @@ sexp s = case s of
 
   (TStrLit l : w) -> pure (String l, w)
 
-  -- so far ignored
-  (TPunct '\'' : rest) -> sexp rest
+  (TPunct '\'' : rest) -> do
+    (w, t) <- sexp rest
+    pure (List [Symbol "'", w], t)
+
+  (TPunct '`' : rest) -> do
+    (w, t) <- sexp rest
+    pure (List [Symbol "`", w], t)
 
   (TPunct '\n' : rest) -> succLno >> sexp rest
 

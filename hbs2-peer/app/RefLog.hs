@@ -176,7 +176,7 @@ reflogWorker conf brains adapter = do
             if not (null missed) then do
               for_ missed $ reflogDownload adapter . fromHashRef
               pause @'Seconds 1
-              debug $ "reflogWorker: MISSED REFS FOR" <+> pretty h <+> pretty missed
+              debug $ "reflogWorker: MISSED REFS FOR" <+> pretty (AsBase58 reflog) <+> pretty h <+> pretty (length missed)
               next
             else do
               trace $ "block" <+> pretty h <+> "is downloaded"

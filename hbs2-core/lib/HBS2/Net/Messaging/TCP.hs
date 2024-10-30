@@ -36,7 +36,8 @@ import Network.ByteOrder hiding (ByteString)
 import Network.Simple.TCP
 import Network.Socket hiding (listen,connect)
 import System.Random hiding (next)
-import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Cont
+import Control.Exception
 
 import UnliftIO.Async
 import UnliftIO.STM
@@ -177,7 +178,7 @@ spawnConnection :: forall m . MonadIO m
 
 spawnConnection tp env so sa = liftIO do
 
-  runResourceT do
+  flip runContT pure $ do
 
     let myCookie = view tcpCookie env
     let own = view tcpOwnPeer env
@@ -209,7 +210,7 @@ spawnConnection tp env so sa = liftIO do
               readTVar (view tcpConnUsed env) <&> HashMap.findWithDefault 0 connId
 
 
-    void $ allocate (pure connId) cleanupConn
+    void $ ContT $ bracket (pure connId) cleanupConn
 
     debug $ "USED:" <+> viaShow tp <+> pretty own <+> pretty used
 
@@ -225,7 +226,7 @@ spawnConnection tp env so sa = liftIO do
                          <+> pretty newP
                          <+> parens ("used:" <+> pretty used)
 
-      rd <- async $ fix \next -> do
+      rd <- ContT $ withAsync $ fix \next -> do
 
             spx <- readFromSocket so 4 <&> LBS.toStrict
             ssize <- readFromSocket so 4 <&> LBS.toStrict --- УУУ, фреейминг
@@ -247,7 +248,7 @@ spawnConnection tp env so sa = liftIO do
 
             next
 
-      wr <- async $ fix \next -> do
+      wr <- ContT $ withAsync $ fix \next -> do
               (rcpt, bs) <- atomically $ readTQueue q
 
               pq <- makeReqId rcpt
