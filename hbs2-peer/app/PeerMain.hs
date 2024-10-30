@@ -857,6 +857,11 @@ runPeer opts = respawnOnError opts $ runResourceT do
                              <&> set tcpOnClientStarted (onClientTCPConnected brains)
                              <&> set tcpSOCKS5 socks5
 
+                lift do
+                  tcpProbe <- newSimpleProbe "MessagingTCP"
+                  addProbe tcpProbe
+                  messagingTCPSetProbe tcpEnv tcpProbe
+
                 void $ liftIO ( async do
                           runMessagingTCP tcpEnv
                             `U.withException` \(e :: SomeException) -> do
@@ -908,6 +913,10 @@ runPeer opts = respawnOnError opts $ runResourceT do
     liftIO $ Cache.purgeExpired nbcache
 
   rce <- refChanWorkerEnv conf penv denv refChanNotifySource
+
+  rcwProbe <- newSimpleProbe "RefChanWorker"
+  addProbe rcwProbe
+  refChanWorkerEnvSetProbe rce rcwProbe
 
   let refChanAdapter =
         RefChanAdapter

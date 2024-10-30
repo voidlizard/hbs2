@@ -12,6 +12,7 @@ module RefChan (
   , runRefChanRelyWorker
   , refChanWorkerEnv
   , refChanNotifyOnUpdated
+  , refChanWorkerEnvSetProbe
   ) where
 
 import HBS2.Prelude.Plated
@@ -105,9 +106,17 @@ data RefChanWorkerEnv e =
   , _refChanWorkerNotifiersInbox  :: TQueue (RefChanNotify e) -- ^ to rely messages from clients to gossip
   , _refChanWorkerNotifiersDone   :: Cache (Hash HbSync) ()
   , _refChanWorkerLocalRelyDone   :: Cache (Peer UNIX, Hash HbSync) ()
+  , _refChanWorkerProbe           :: TVar AnyProbe
   }
 
 makeLenses 'RefChanWorkerEnv
+
+refChanWorkerEnvSetProbe :: forall m e . (MonadIO m, ForRefChans e)
+                         => RefChanWorkerEnv e
+                         -> AnyProbe
+                         -> m ()
+refChanWorkerEnvSetProbe RefChanWorkerEnv{..} probe = do
+  liftIO $ atomically $ writeTVar _refChanWorkerProbe probe
 
 refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
                  => PeerConfig
@@ -127,6 +136,8 @@ refChanWorkerEnv conf pe de nsource =
     <*> newTQueueIO
     <*> Cache.newCache (Just defRequestLimit)
     <*> Cache.newCache (Just defRequestLimit)
+    <*> newTVarIO (AnyProbe ())
+
 
 refChanOnHeadFn :: forall e m . (ForRefChans e, MonadIO m) => RefChanWorkerEnv e -> RefChanId e -> RefChanHeadBlockTran e -> m ()
 refChanOnHeadFn env chan tran = do
@@ -595,6 +606,15 @@ refChanWorker env@RefChanWorkerEnv{..} brains = do
 
     bullshit <- ContT $ withAsync $ forever do
      pause @'Seconds 10
+     probe <- readTVarIO _refChanWorkerProbe
+     values <- atomically do
+      refChanWorkerEnvDownloadSize <- readTVar _refChanWorkerEnvDownload <&> HashMap.size
+      refChanWorkerNotifiersSize   <-  readTVar _refChanWorkerNotifiers <&> HashMap.size
+      pure [ ("refChanWorkerEnvDownloadSize", fromIntegral refChanWorkerEnvDownloadSize)
+           ,  ("refChanWorkerNotifiersSize", fromIntegral refChanWorkerNotifiersSize)
+           ]
+
+     acceptReport probe values
      debug "I'm refchan worker"
 
     waitAnyCatchCancel [hw,downloads,polls,wtrans,merge,cleanup1,bullshit]
