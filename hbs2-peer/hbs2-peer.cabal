@@ -18,7 +18,7 @@ common warnings
 
 common common-deps
     build-depends:
-          base, hbs2-core, hbs2-storage-simple
+          base, hbs2-core, hbs2-storage-simple, db-pipe
         , aeson
         , async
         , bytestring
@@ -162,6 +162,13 @@ library
       HBS2.Peer.Proto.AnyRef
       HBS2.Peer.Proto.LWWRef
       HBS2.Peer.Proto.LWWRef.Internal
+      HBS2.Peer.Proto.Mailbox
+      HBS2.Peer.Proto.Mailbox.Types
+      HBS2.Peer.Proto.Mailbox.Message
+      HBS2.Peer.Proto.Mailbox.Entry
+      HBS2.Peer.Proto.Mailbox.Ref
+      HBS2.Peer.Proto.Mailbox.Policy
+      HBS2.Peer.Proto.Mailbox.Policy.Basic
       HBS2.Peer.Proto.BrowserPlugin
 
       HBS2.Peer.RPC.Client
@@ -173,6 +180,7 @@ library
       HBS2.Peer.RPC.API.RefLog
       HBS2.Peer.RPC.API.RefChan
       HBS2.Peer.RPC.API.LWWRef
+      HBS2.Peer.RPC.API.Mailbox
       HBS2.Peer.RPC.API.Storage
       HBS2.Peer.RPC.Client.Unix
       HBS2.Peer.RPC.Client.StorageClient
@@ -268,6 +276,7 @@ executable hbs2-peer
                     , RPC2.RefLog
                     , RPC2.RefChan
                     , RPC2.LWWRef
+                    , RPC2.Mailbox
                     , PeerTypes
                     , PeerLogger
                     , PeerConfig
@@ -275,6 +284,7 @@ executable hbs2-peer
                     , RefChan
                     , RefChanNotifyLog
                     , LWWRef
+                    , MailboxProtoWorker
                     , CheckMetrics
                     , HttpWorker
                     , Brains
@@ -282,6 +292,7 @@ executable hbs2-peer
                     , CLI.Common
                     , CLI.RefChan
                     , CLI.LWWRef
+                    , CLI.Mailbox
 
                     , Paths_hbs2_peer
 

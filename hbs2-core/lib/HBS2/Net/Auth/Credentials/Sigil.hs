@@ -63,6 +63,7 @@ type ForSigil s = ( Serialise (PubKey 'Encrypt s)
                   , Hashable (PubKey 'Sign s)
                   , IsEncoding (PubKey 'Encrypt s)
                   , Eq (PubKey 'Encrypt s)
+                  , Eq (Signature s)
                   , FromStringMaybe (PubKey 'Sign s)
                   )
 

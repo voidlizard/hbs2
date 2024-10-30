@@ -70,6 +70,7 @@ common shared-properties
       , exceptions
       , filepath
       , filepattern
+      , generic-lens
       , hashable
       , interpolatedstring-perl6
       , memory
@@ -111,11 +112,13 @@ library
       HBS2.CLI.Run.GroupKey
       HBS2.CLI.Run.KeyMan
       HBS2.CLI.Run.Keyring
+      HBS2.CLI.Run.Tree
       HBS2.CLI.Run.MetaData
       HBS2.CLI.Run.Peer
       HBS2.CLI.Run.RefLog
       HBS2.CLI.Run.RefChan
       HBS2.CLI.Run.LWWRef
+      HBS2.CLI.Run.Mailbox
       HBS2.CLI.Run.Sigil
 
       HBS2.CLI.Run.Help

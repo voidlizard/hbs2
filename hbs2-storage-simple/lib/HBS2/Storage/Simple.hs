@@ -1,6 +1,7 @@
 {-# Language TemplateHaskell #-}
 {-# Language ScopedTypeVariables #-}
 {-# Language UndecidableInstances #-}
+{-# Language RecordWildCards #-}
 module HBS2.Storage.Simple
   ( module HBS2.Storage.Simple
   , StoragePrefix(..)
@@ -18,30 +19,20 @@ import HBS2.System.Logger.Simple
 
 import Control.Concurrent.Async
 import Control.Exception
-import Control.Monad
-import Control.Monad.Fix
-import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString qualified as BS
 import Data.ByteString (ByteString)
-import Data.Foldable
 import Data.List qualified as L
 import Data.Maybe
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Either
 import Lens.Micro.Platform
-import Prettyprinter
 import System.Directory
 import System.FilePath.Posix
-import System.IO
 import System.IO.Error
-import System.IO.Temp
-import System.AtomicWrite.Writer.LazyByteString qualified as AwLBS
 import System.AtomicWrite.Writer.ByteString qualified as AwBS
-import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict (HashMap)
@@ -59,8 +50,6 @@ import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TV
 
 import Codec.Serialise
-import System.Random
-import System.Mem
 
 
 -- NOTE:  random accessing files in a git-like storage
@@ -87,6 +76,7 @@ newtype StorageQueueSize = StorageQueueSize { fromQueueSize :: Int }
 data SimpleStorage a =
   SimpleStorage
   { _storageDir         :: FilePath
+  , _storageProbe       :: TVar AnyProbe
   , _storageOpQ         :: TBMQueue ( IO () )
   , _storageStopWriting :: TVar Bool
   , _storageMMaped      :: TVar (HashMap (Key a) ByteString)
@@ -133,15 +123,24 @@ touchForRead ss k  = liftIO $ do
     mmaped = ss ^. storageMMaped
 
 
+simpleStorageSetProbe :: forall h m . (MonadIO m, IsSimpleStorageKey h)
+                      => SimpleStorage h
+                      -> AnyProbe
+                      -> m ()
+
+simpleStorageSetProbe SimpleStorage{..} probe = do
+  liftIO $ atomically $ writeTVar _storageProbe probe
+
 simpleStorageInit :: forall h m opts . (MonadIO m, Data opts, IsSimpleStorageKey h)
                    => opts -> m (SimpleStorage h)
 
 simpleStorageInit opts = liftIO $ do
   let prefix = uniLastDef "." opts :: StoragePrefix
-  let qSize  = uniLastDef 2000 opts :: StorageQueueSize -- FIXME: defaults ?
+  let qSize  = uniLastDef 16000 opts :: StorageQueueSize -- FIXME: defaults ?
 
   stor <- SimpleStorage
                 <$> canonicalizePath (fromPrefix prefix)
+                <*> newTVarIO (AnyProbe ())
                 <*> TBMQ.newTBMQueueIO (fromIntegral (fromQueueSize qSize))
                 <*> TV.newTVarIO False
                 <*> TV.newTVarIO mempty
@@ -178,11 +177,25 @@ simpleStorageStop ss = do
       pause ( 0.01 :: Timeout 'Seconds ) >> next
 
 simpleStorageWorker :: IsSimpleStorageKey h => SimpleStorage h -> IO ()
-simpleStorageWorker ss = do
+simpleStorageWorker ss@SimpleStorage{..} = do
 
   lastKick <- newTVarIO =<< getTimeCoarse
 
   flip runContT pure do
+    ContT $ withAsync $ forever $ liftIO do
+      pause @'Seconds 10
+      probe <- readTVarIO _storageProbe
+      values <- atomically do
+                  mmapedSize     <- readTVar  _storageMMaped     <&> HashMap.size
+                  mmapedLRUSize  <- readTVar  _storageMMapedLRU  <&> HashMap.size
+                  sizeCacheSize  <- Cache.sizeSTM _storageSizeCache
+                  opQ           <- TBMQ.estimateFreeSlotsTBMQueue  _storageOpQ
+                  pure $ [ ("mmapedSize",    mmapedSize)
+                         , ("mmapedLRUSize", mmapedLRUSize)
+                         , ("sizeCacheSize", sizeCacheSize)
+                         , ("opQueueSlots",  fromIntegral opQ)
+                         ]
+      acceptReport probe (fmap (over _2 fromIntegral) values)
 
     ContT $ withAsync $ forever $ do
       pause ( 30 :: Timeout 'Seconds ) -- FIXME: setting

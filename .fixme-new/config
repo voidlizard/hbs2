@@ -17,7 +17,7 @@ fixme-attribs :committer-name :commit-time
 
 fixme-value-set :workflow :new :backlog :wip :test :fixed :done :ready :merged
 
-fixme-value-set class hardcode performance boilerplate
+fixme-value-set class hardcode performance boilerplate ui
 
 ; fixme-value-set cat bug feat refactor
 
@@ -50,7 +50,7 @@ fixme-comments ";" "--"
          (align 8  $class)  " "
          (align 12 $assigned)  " "
          (align 20 (trim 20 $committer-name)) " "
-         (trim 50  ($fixme-title)) " "
+         (trim 40  ($fixme-title)) " "
          (nl))
     )
 )

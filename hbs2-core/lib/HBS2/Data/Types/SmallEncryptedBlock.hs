@@ -14,7 +14,7 @@ data SmallEncryptedBlock t =
   , sebNonce :: ByteString
   , sebBox   :: EncryptedBox t
   }
-  deriving stock (Generic)
+  deriving stock (Eq,Generic)
 
 instance Serialise  (SmallEncryptedBlock t)
 

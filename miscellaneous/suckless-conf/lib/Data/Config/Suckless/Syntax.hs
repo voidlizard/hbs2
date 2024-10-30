@@ -4,15 +4,24 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# Language ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards #-}
 module Data.Config.Suckless.Syntax
   ( Syntax(..)
   , Id(..)
   , Literal(..)
+  , Opaque(..)
   , HasContext
   , C(..)
   , Context(..)
   , IsContext(..)
   , IsLiteral(..)
+  , ByteStringSorts(..)
+  , mkOpaque
+  , isOpaqueOf
+  , fromOpaque
+  , fromOpaqueThrow
+  , isByteString
+  , SyntaxTypeError(..)
   , pattern SymbolVal
   , pattern ListVal
   , pattern LitIntVal
@@ -22,25 +31,35 @@ module Data.Config.Suckless.Syntax
   , pattern StringLike
   , pattern StringLikeList
   , pattern Nil
+  , pattern OpaqueVal
   )
   where
 
 import Data.Data
+import Data.Dynamic
 import Data.Kind
 import Data.String
 import Data.Text (Text)
 import Data.Scientific
 import GHC.Generics (Generic(..))
 import Data.Maybe
--- import GHC.Generics( Fixity(..) )
--- import Data.Data as Data
 import Data.Aeson
 import Data.Aeson.Key
 import Data.Aeson.KeyMap qualified as Aeson
 import Data.Vector qualified as V
 import Data.Traversable (forM)
 import Data.Text qualified as Text
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Function
+import Data.Functor
+import Control.Applicative
+import Control.Exception
+import Type.Reflection
+import Control.Monad.IO.Class
+import System.IO.Unsafe (unsafePerformIO)
+import Data.IORef
+import Data.Word
 
 import Prettyprinter
 
@@ -73,6 +92,8 @@ stringLike = \case
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
+data ByteStringSorts = ByteStringLazy LBS.ByteString | ByteStringStrict ByteString
+
 
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
@@ -84,9 +105,24 @@ pattern StringLikeList e <- (stringLikeList -> e)
 pattern Nil :: forall {c} . Syntax c
 pattern Nil <- ListVal []
 
-
+pattern OpaqueVal :: forall {c} . Opaque -> Syntax c
+pattern OpaqueVal box <- OpaqueValue box
 
 data family Context c :: Type
+
+isOpaqueOf :: forall a c . (Typeable a, IsContext c) => Syntax c -> Maybe a
+isOpaqueOf = \case
+ OpaqueValue box -> fromOpaque @a box
+ _ -> Nothing
+
+isByteString :: Syntax c -> Maybe ByteStringSorts
+isByteString = \case
+  OpaqueValue box -> do
+    let lbs = fromOpaque @LBS.ByteString box <&> ByteStringLazy
+    let bs = fromOpaque @ByteString box <&> ByteStringStrict
+    lbs <|> bs
+
+  _ -> Nothing
 
 class IsContext c where
   noContext :: Context c
@@ -106,11 +142,68 @@ newtype Id =
   deriving newtype (IsString,Pretty)
   deriving stock (Data,Generic,Show,Eq,Ord)
 
+type ForOpaque a = (Typeable a, Eq a)
+
+data Opaque = forall a. ForOpaque a =>
+  Opaque
+  { opaqueProxy :: !(Proxy a)
+  , opaqueId    :: !Word64
+  , opaqueRep   :: !SomeTypeRep
+  , opaqueDyn   :: !Dynamic
+  }
+
+opaqueIdIORef :: IORef Word64
+opaqueIdIORef = unsafePerformIO (newIORef 1)
+{-# NOINLINE opaqueIdIORef #-}
+
+mkOpaque :: forall c a m . (MonadIO m, ForOpaque a) => a -> m (Syntax c)
+mkOpaque x = do
+  n <- liftIO $ atomicModifyIORef opaqueIdIORef (\n -> (succ n,n))
+  pure $ OpaqueValue $ Opaque (Proxy :: Proxy a) n (someTypeRep (Proxy :: Proxy a)) (toDyn x)
+
+data SyntaxTypeError =
+  UnexpectedType String
+  deriving stock (Show,Typeable)
+
+instance Exception SyntaxTypeError
+
+fromOpaque :: forall a. Typeable a => Opaque -> Maybe a
+fromOpaque (Opaque{..}) = fromDynamic opaqueDyn
+
+fromOpaqueThrow :: forall a m . (MonadIO m, Typeable a) => String -> Opaque -> m a
+fromOpaqueThrow s (Opaque{..}) = do
+  let o = fromDynamic @a opaqueDyn
+  liftIO $ maybe (throwIO (UnexpectedType s)) pure o
+
+instance Eq Opaque where
+  (Opaque p1 _  t1 d1) == (Opaque _ _ t2 d2) =
+    t1 == t2 && unpack p1 d1 == unpack p1 d2
+    where
+      unpack :: forall a . (Typeable a) => Proxy a -> Dynamic -> Maybe a
+      unpack _ = fromDynamic @a
+
+-- Partial Data implementation for Opaque
+instance Data Opaque where
+  gfoldl _ z (Opaque{..}) = z (Opaque{..})
+
+  -- Can not be unfolded
+  gunfold _ z _ = z (Opaque (Proxy :: Proxy ()) 0 (someTypeRep (Proxy :: Proxy ())) (toDyn ()))
+
+  toConstr _ = opaqueConstr
+  dataTypeOf _ = opaqueDataType
+
+opaqueConstr :: Constr
+opaqueConstr = mkConstr opaqueDataType "Opaque" [] Prefix
+
+opaqueDataType :: DataType
+opaqueDataType = mkDataType "Opaque" [opaqueConstr]
+
+
 data Literal =
     LitStr   Text
   | LitInt   Integer
   | LitScientific Scientific
-  | LitBool  Bool
+  | LitBool   Bool
   deriving stock (Eq,Ord,Data,Generic,Show)
 
 instance IsLiteral Text where
@@ -141,13 +234,14 @@ data Syntax c
   = List    (Context c) [Syntax c]
   | Symbol  (Context c) Id
   | Literal (Context c) Literal
+  | OpaqueValue Opaque
   deriving stock (Generic,Typeable)
-
 
 instance Eq (Syntax c) where
   (==) (Literal _ a) (Literal _ b) = a == b
   (==) (Symbol _ a)  (Symbol _ b) = a == b
   (==) (List _ a)    (List _ b) = a == b
+  (==) (OpaqueValue a) (OpaqueValue b) = a == b
   (==) _ _ = False
 
 deriving instance (Data c, Data (Context c)) => Data (Syntax c)
@@ -157,6 +251,7 @@ instance Pretty (Syntax c) where
   pretty (Symbol _ s)    = pretty s
   pretty (List _ (x:xs)) = parens $ align $ sep ( fmap pretty (x:xs) )
   pretty (List _ [])     = parens mempty
+  pretty (OpaqueValue v) = "#opaque:" <> viaShow (opaqueRep v) <> ":" <> pretty (opaqueId v)
 
 instance Pretty Literal where
   pretty = \case
@@ -175,6 +270,7 @@ instance ToJSON Literal where
     toJSON (LitBool b)      = Bool b
 
 instance ToJSON (Syntax c) where
+    toJSON (OpaqueValue{}) = Null
     toJSON (Symbol _ (Id "#nil")) = Null
     toJSON (Symbol _ (Id s)) = String s
     toJSON (Literal _ l) = toJSON l

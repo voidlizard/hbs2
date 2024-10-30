@@ -1,3 +1,5 @@
+{-# Language ViewPatterns #-}
+{-# Language PatternSynonyms #-}
 module HBS2.CLI.Run.Peer where
 
 import HBS2.CLI.Prelude
@@ -20,7 +22,9 @@ import Data.List qualified as L
 import Data.Maybe
 import Control.Monad.Trans.Cont
 import Data.Text qualified as Text
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Lazy qualified as LBS
 import Lens.Micro.Platform
 
 import Text.InterpolatedString.Perl6 (qc)
@@ -51,7 +55,7 @@ peerEntries = do
   entry $ bindMatch "hbs2:peer:detect" $ \case
     _ -> detectRPC <&> maybe (nil @c) mkStr
 
-  entry $ bindMatch "hbs2:peer:get-block" $ \case
+  entry $ bindMatch "hbs2:peer:storage:block:get" $ \case
     [StringLike s] -> do
       flip runContT pure do
 
@@ -66,23 +70,29 @@ peerEntries = do
 
     _ -> throwIO $ BadFormException @c nil
 
-  entry $ bindMatch "hbs2:peer:has-block" $ \case
-    [StringLike s] -> do
+  entry $ bindMatch "hbs2:peer:storage:block:size" $ \case
+    [HashLike ha] -> do
       flip runContT pure do
-
         sto <- getStorage
-
-        ha <- pure (fromStringMay @HashRef s)
-               `orDie` "invalid hash"
-
         mbsz <- hasBlock sto (fromHashRef ha)
-
         pure $ maybe (mkSym "no-block") mkInt mbsz
 
     _ -> throwIO $ BadFormException @c nil
 
   -- stores *small* block
-  entry $ bindMatch "hbs2:peer:put-block" $ \case
+  entry $ bindMatch "hbs2:peer:storage:block:put" $ \case
+
+    [isOpaqueOf @LBS.ByteString -> Just lbs] -> do
+      sto <- getStorage
+      (putBlock sto lbs <&> fmap (mkStr . show . pretty . HashRef) )
+        >>= orThrowUser "storage error"
+
+    [isOpaqueOf @BS.ByteString -> Just bs] -> do
+      sto <- getStorage
+      (putBlock sto (LBS.fromStrict bs) <&> fmap (mkStr . show . pretty . HashRef) )
+        >>= orThrowUser "storage error"
+
+    -- FIXME: deprecate-this
     [ListVal [SymbolVal "blob", LitStrVal s]] -> do
       flip runContT pure do
         sto <- getStorage
