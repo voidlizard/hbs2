@@ -126,6 +126,8 @@ import Streaming.Prelude qualified as S
 import Graphics.Vty qualified as Vty
 import Graphics.Vty.Platform.Unix qualified as Vty
 
+import Control.Concurrent.Async (ExceptionInLinkedThread(..))
+
 data GoAgainException = GoAgainException
                         deriving (Eq,Ord,Show,Typeable)
 
@@ -670,6 +672,20 @@ respawn opts =
     print (self, args)
     executeFile self False args Nothing
 
+respawnOnError :: PeerOpts -> IO () -> IO ()
+respawnOnError opts act =
+  Exception.try act >>= match
+  where match (Right r) = return r
+        match (Left e)
+          | Just (ExceptionInLinkedThread _ e') <- Exception.fromException e = do
+             match (Left e')
+          | Just ec <- Exception.fromException @ExitCode e =
+            notice $ viaShow ec
+          | Just UserInterrupt <- Exception.fromException e =
+            notice "Interrupted by user"
+          | otherwise =
+            myException e >> performGC >> respawn opts
+
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
                         , s ~ Encryption e
@@ -678,10 +694,7 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
-runPeer opts = Exception.handle (\e -> myException e
-                                  >> performGC
-                                  >> respawn opts
-                                ) $ runResourceT do
+runPeer opts = respawnOnError opts $ runResourceT do
 
   myself <- liftIO myThreadId
 
@@ -1223,8 +1236,8 @@ runPeer opts = Exception.handle (\e -> myException e
   rpcProto <- async $ flip runReaderT rpcctx do
     env <- newNotifyEnvServer @(RefChanEvents L4Proto) refChanNotifySource
     envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
-    w1 <- asyncLinked $ runNotifyWorkerServer env
-    w2 <- asyncLinked $ runNotifyWorkerServer envrl
+    w1 <- async $ runNotifyWorkerServer env
+    w2 <- async $ runNotifyWorkerServer envrl
     wws <- replicateM 1 $ async $ runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)
@@ -1234,7 +1247,7 @@ runPeer opts = Exception.handle (\e -> myException e
       , makeResponse (makeNotifyServer @(RefChanEvents L4Proto) env)
       , makeResponse (makeNotifyServer @(RefLogEvents L4Proto) envrl)
       ]
-    mapM_ wait (w1 : w2 : wws )
+    void $ waitAnyCancel (w1 : w2 : wws )
 
   void $ waitAnyCancel $ w <> [ loop
                               , m1
