@@ -268,9 +268,10 @@ spawnConnection tp env so sa = liftIO do
               sendLazy so frame --(LBS.toStrict frame)
               next
 
-      void $ waitAnyCatchCancel [rd,wr]
+      ContT $ bracket none $ \_ -> mapM cancel [rd,wr]
+      ContT $ bracket (pure connId) cleanupConn
 
-    -- lift $ cleanupConn connId
+      void $ waitAnyCatchCancel [rd,wr]
 
   -- gracefulClose so 1000
   debug $ "spawnConnection exit" <+> pretty sa
