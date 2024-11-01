@@ -807,6 +807,10 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
   brains <- newBasicBrains @e conf
 
+  bProbe <- newSimpleProbe "Brains"
+  addProbe bProbe
+  basicBrainsSetProbe brains bProbe
+
   brainsThread <- async $ runBasicBrains conf brains
 
   denv <- newDownloadEnv brains
