@@ -738,7 +738,9 @@ runPeer opts = respawnOnError opts $ runResourceT do
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
 
-  let addProbe p = liftIO $ atomically $ modifyTVar probes (p:)
+  let
+    addProbe :: forall m . MonadIO m => AnyProbe -> m ()
+    addProbe p = liftIO $ atomically $ modifyTVar probes (p:)
 
   -- let downloadThreadNum = runReader (cfgValue @PeerDownloadThreadKey) syn & fromMaybe 1
 
@@ -1140,7 +1142,10 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
                 peerThread "httpWorker" (httpWorker conf peerMeta denv)
 
-                peerThread "checkMetrics" (checkMetrics metrics)
+                metricsProbe <- newSimpleProbe "ghc.runtime"
+                addProbe metricsProbe
+
+                peerThread "checkMetrics" (checkMetrics metrics metricsProbe)
 
                 peerThread "peerPingLoop" (peerPingLoop @e conf penv)
 

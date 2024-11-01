@@ -1,17 +1,16 @@
 module CheckMetrics where
 
 import HBS2.Prelude.Plated
-import HBS2.Clock
 
 import PeerLogger
 
-import Control.Monad
 import System.Metrics
 import Data.HashMap.Strict qualified as HashMap
 
+import Streaming.Prelude qualified as S
 
-checkMetrics :: MonadIO m => Store -> m ()
-checkMetrics store = do
+checkMetrics :: MonadIO m => Store -> AnyProbe -> m ()
+checkMetrics store probe = do
 
   liftIO $ registerGcMetrics store
 
@@ -26,11 +25,13 @@ checkMetrics store = do
     pause @'Seconds 30
     debug "checkMetrics"
     me <- liftIO $ sampleAll store <&> flip HashMap.intersection supported <&> HashMap.toList
-    for_ me $ \(k,v) -> do
-      let vv = case v of
-                 Gauge x   -> pretty x
-                 Counter x -> pretty x
-                 other     -> pretty (show other)
+    values <- S.toList_ $ for_ me $ \(k,v) -> do
+      vv <- case v of
+                 Gauge x   -> S.yield (k, fromIntegral x) >> pure (pretty x)
+                 Counter x -> S.yield (k, fromIntegral x) >> pure (pretty x)
+                 other     -> pure (pretty (show other))
 
       debug $ "metric" <+> pretty k <> colon <+> vv
+
+    acceptReport probe values
 
