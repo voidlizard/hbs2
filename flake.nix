@@ -133,7 +133,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         [ pkgs.pkg-config
           pkgs.libsodium
           pkgs.file
-          pkgs.zlib 
+          pkgs.zlib
           inputs.hspup.packages.${pkgs.system}.default
         ]
       );
@@ -176,6 +176,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           cabal-install
           haskell-language-server
           hoogle
+          threadscope
+          eventlog2html
           # htags
           text-icu
           magic
