@@ -443,7 +443,6 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
 
           when (isNothing co') do
             debug $ red "No session for" <+> pretty pip
-            pure ()
 
           maybe1 co' (void $ fireTCP env pip (connectPeerTCP env pip)) $ \co -> do
             q' <- atomically $ readTVar (view tcpConnQ env) <&> HashMap.lookup co
