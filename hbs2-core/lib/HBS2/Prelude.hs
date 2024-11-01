@@ -249,7 +249,8 @@ instance Probe SimpleProbe where
     t <- liftIO getPOSIXTime <&> round
     atomically do
       writeTVar spTimestamp t
-      modifyTVar spProbeValues (<> HM.fromList values)
+      old <- readTVar spProbeValues
+      writeTVar spProbeValues (HM.fromList values <> old)
 
 
 dontHandle :: Applicative f => a -> f ()
