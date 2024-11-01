@@ -122,11 +122,11 @@ import System.Metrics
 import System.Posix.Process
 import Control.Monad.Trans.Cont
 
+import UnliftIO (MonadUnliftIO(..))
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
 import UnliftIO.Async
 
-import Control.Monad.Trans.Resource
 import Streaming.Prelude qualified as S
 
 import Graphics.Vty qualified as Vty
@@ -713,7 +713,7 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
-runPeer opts = respawnOnError opts $ runResourceT do
+runPeer opts = respawnOnError opts $ do
 
   probes <- liftIO $ newTVarIO (mempty :: [AnyProbe])
 
@@ -842,7 +842,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
   udpPoint <- runMaybeT do
                 sa <- toMPlus listenSa
-                env <- toMPlus =<< newMessagingUDP False (Just sa)
+                env <- toMPlus =<< liftIO (newMessagingUDP False (Just sa))
 
                 void $ liftIO ( async do
                                   runMessagingUDP env
@@ -1328,8 +1328,8 @@ runPeer opts = respawnOnError opts $ runResourceT do
   rpcProto <- async $ flip runReaderT rpcctx do
     env <- newNotifyEnvServer @(RefChanEvents L4Proto) refChanNotifySource
     envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
-    w1 <- async $ runNotifyWorkerServer env
-    w2 <- async $ runNotifyWorkerServer envrl
+    w1 <- asyncLinked $ runNotifyWorkerServer env
+    w2 <- asyncLinked $ runNotifyWorkerServer envrl
     wws <- replicateM 1 $ async $ runProto @UNIX
       [ makeResponse (makeServer @PeerAPI)
       , makeResponse (makeServer @RefLogAPI)
@@ -1358,7 +1358,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
   pause @'Seconds 1
 
   -- we want to clean up all resources
-  throwM GoAgainException
+  throwIO GoAgainException
 
 emitToPeer :: ( MonadIO m
               , EventEmitter e a (PeerM e IO)

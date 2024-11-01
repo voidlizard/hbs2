@@ -5,25 +5,28 @@ import HBS2.Prelude.Plated
 import HBS2.Net.Proto
 import HBS2.Net.Messaging.UDP
 import HBS2.Actors.Peer
+import HBS2.Misc.PrettyStuff
 import HBS2.OrDie
 
 import Control.Monad.Reader
+import Control.Monad.Trans.Cont
+import Control.Concurrent.STM (retry)
 import Data.ByteString.Lazy (ByteString)
 import Prettyprinter
-import System.IO
+import System.IO (hPrint)
 import Lens.Micro.Platform
 
 import Codec.Serialise
 -- import Control.Concurrent.Async
 
-import Control.Monad.Trans.Resource
+import UnliftIO
 import UnliftIO.Async
+import UnliftIO.STM
 
 type UDP = L4Proto
 
 debug :: (MonadIO m) => Doc ann -> m ()
 debug p = liftIO $ hPrint stderr p
-
 
 data PingPong e = Ping Int
                 | Pong Int
@@ -43,15 +46,20 @@ pingPongHandler :: forall e m  . ( MonadIO m
                                  , Response e (PingPong e) m
                                  , HasProtocol e (PingPong e)
                                  )
-                => Int
+                => TVar Int
+                -> Int
                 -> PingPong e
                 -> m ()
 
-pingPongHandler n = \case
+pingPongHandler tv n = \case
 
     Ping c -> debug ("Ping" <+> pretty c) >> response (Pong @e c)
 
-    Pong c | c < n -> debug ("Pong" <+> pretty c) >> response (Ping @e (succ c))
+    Pong c | c < n -> do
+      debug ("Pong" <+> pretty c)
+      liftIO $ atomically $ writeTVar tv c
+      response (Ping @e (succ c))
+
            | otherwise -> pure ()
 
 data PPEnv =
@@ -84,28 +92,58 @@ instance HasTimeLimits UDP (PingPong UDP) IO where
   tryLockForPeriod _ _ = pure True
 
 main :: IO ()
-main = runResourceT do
+main = do
   liftIO $ hSetBuffering stdout LineBuffering
   liftIO $ hSetBuffering stderr LineBuffering
 
-  udp1 <- newMessagingUDP False (Just "127.0.0.1:10001") `orDie` "Can't start listener on 10001"
-  udp2 <- newMessagingUDP False (Just "127.0.0.1:10002") `orDie` "Can't start listener on 10002"
+  let tries = 1000
 
-  m1 <- async $ runMessagingUDP udp1
-  m2 <- async $ runMessagingUDP udp2
+  replicateM_ 10 do
 
-  p1 <- async $ runPingPong udp1 do
-                  request (getOwnPeer udp2) (Ping @UDP 0)
-                  runProto @UDP
-                    [ makeResponse (pingPongHandler 3)
-                    ]
+    udp1 <- newMessagingUDP False (Just "127.0.0.1:10001") `orDie` "Can't start listener on 10001"
+    udp2 <- newMessagingUDP False (Just "127.0.0.1:10002") `orDie` "Can't start listener on 10002"
 
-  p2 <- async $ runPingPong udp2 do
-                  -- request (getOwnPeer udp1) (Ping @UDP 0)
-                  runProto @UDP
-                    [ makeResponse (pingPongHandler 3)
-                    ]
+    void $ flip runContT pure do
 
-  mapM_ wait [p1,p2,m1,m2]
+      m1 <- ContT $ withAsync $ runMessagingUDP udp1
+      m2 <- ContT $ withAsync $ runMessagingUDP udp2
+
+      tping1 <- newTVarIO 0
+      tping2 <- newTVarIO 0
+
+      pause @'Seconds 0.01
+
+      p1 <- ContT $ withAsync $ runPingPong udp1 do
+                      request (getOwnPeer udp2) (Ping @UDP 0)
+                      runProto @UDP
+                        [ makeResponse (pingPongHandler tping1 tries)
+                        ]
+
+      p2 <- ContT $ withAsync $ runPingPong udp2 do
+                      -- request (getOwnPeer udp1) (Ping @UDP 0)
+                      runProto @UDP
+                        [ makeResponse (pingPongHandler tping2 tries)
+                        ]
+
+      r <- liftIO $ race (pause @'Seconds 2) do
+        atomically do
+          r1 <- readTVar tping1
+          r2 <- readTVar tping2
+          if (max r1 r2) >= (tries-1) then pure () else retry
+
+      let done = either (const "fail") (const "okay") r
+
+      v1 <- readTVarIO tping1
+      v2 <- readTVarIO tping2
+
+      liftIO $ hPrint stdout $ pretty "finished" <+> pretty done <+> pretty (max v1 v2)
+
+      mapM_ cancel [m1,m2,p1,p2]
+
+      c1 <- liftIO $ isUDPSocketClosed udp1
+      c2 <- liftIO $ isUDPSocketClosed udp2
+
+      liftIO $ hPrint stdout $ pretty "socket1 closed" <+> pretty c1
+      liftIO $ hPrint stdout $ pretty "socket2 closed" <+> pretty c2
 
 
