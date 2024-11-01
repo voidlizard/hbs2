@@ -606,7 +606,7 @@ runCLI = do
         withMyRPC @PeerAPI rpc $ \caller -> do
           void $ runMaybeT do
 
-           p <- callService @RpcGetProbes caller ()
+           p <- lift (callRpcWaitRetry @RpcGetProbes (TimeoutSec 1) 3 caller ())
                   >>= toMPlus
 
            liftIO $ print $ vcat (fmap pretty p)
