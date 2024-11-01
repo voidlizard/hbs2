@@ -19,9 +19,9 @@ import HBS2.Prelude.Plated
 import HBS2.Net.Messaging.Stream
 
 import HBS2.System.Logger.Simple
+import HBS2.Misc.PrettyStuff
 
 import Control.Concurrent.STM (flushTQueue)
-import Control.Exception (try,SomeException)
 import Control.Monad
 import Data.Bits
 import Data.ByteString.Lazy (ByteString)
@@ -389,7 +389,10 @@ fireTCP MessagingTCP{..} pip what = do
     when fire do
       debug $ "Fire TCP" <+> pretty pa
       atomically (modifyTVar _tcpFired succ)
-      void $ async (what >> atomically (modifyTVar _tcpFired pred))
+      void $ async do
+        r <- U.try @_ @SomeException what
+        atomically (modifyTVar _tcpFired pred)
+        either U.throwIO dontHandle r
 
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()
 runMessagingTCP env@MessagingTCP{..} = liftIO do
@@ -437,6 +440,10 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
             atomically $ modifyTVar defs (HashMap.adjust (L.drop (len - 10)) pip)
 
           co' <- atomically $ readTVar (view tcpPeerConn env) <&> HashMap.lookup pip
+
+          when (isNothing co') do
+            debug $ red "No session for" <+> pretty pip
+            pure ()
 
           maybe1 co' (void $ fireTCP env pip (connectPeerTCP env pip)) $ \co -> do
             q' <- atomically $ readTVar (view tcpConnQ env) <&> HashMap.lookup co
