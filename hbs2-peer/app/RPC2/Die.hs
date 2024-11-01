@@ -17,8 +17,7 @@ instance (MonadIO m) => HandleMethod m RpcDie where
   handleMethod _ = do
     debug $ "rpc.die: exiting"
     void $ liftIO $ do
-      w <- async $ pause @'Seconds 0.5 >> Exit.exitSuccess
-      link w
+      pause @'Seconds 0.5 >> Exit.exitSuccess
 
 
 
