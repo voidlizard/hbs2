@@ -108,28 +108,10 @@ newMessagingUDP reuse saddr =
 
 udpWorker :: MessagingUDP -> TVar Socket -> IO ()
 udpWorker env tso = do
-
   so <- readTVarIO tso
-
-  rcvLoop <- async $ forever $ do
-    -- so <- readTVarIO tso
-    -- pause ( 10 :: Timeout 'Seconds )
+  forever $ do
     (msg, from) <- recvFrom so defMaxDatagram
-  -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
-  -- FIXME: ASAP-check-addr-type
     liftIO $ atomically $ Q0.writeTQueue (sink env) (From (PeerL4 UDP from), LBS.fromStrict msg)
-
-  sndLoop <- async $ forever $ do
-    pause ( 10 :: Timeout 'Seconds )
-    -- (To whom, msg) <- atomically $ Q0.readTQueue (inbox env)
-    -- print "YAY!"
-    -- sendAllTo so (LBS.toStrict msg) (view sockAddr whom)
-
-    -- (msg, from) <- recvFrom so defMaxDatagram
-  -- liftIO $ print $ "recv:" <+> pretty (BS.length msg)
-    -- atomically $ Q.writeTBQueue (sink env) (From (PeerUDP from), LBS.fromStrict msg)
-
-  void $ waitAnyCatchCancel [rcvLoop,sndLoop]
 
 -- FIXME: stopping
 
