@@ -350,7 +350,7 @@ blockDownloadLoop env0 = do
     -- UPDATE-STATS-LOOP
     void $ ContT $ withAsync $ updateRates e rates nonces
 
-    replicateM_ downT $ ContT $ withAsync do
+    void $ ContT $ withAsync do
       forever do
         pause @'Seconds 120
         atomically do
@@ -637,6 +637,10 @@ blockDownloadLoop env0 = do
         S.yield =<< liftIO (readTVarIO sizes <&> ("sizes",) . fromIntegral . HashMap.size)
         S.yield =<< liftIO (readTVarIO sizeReq <&> ("sizeReq",) . fromIntegral . HashMap.size)
         S.yield =<< liftIO (readTVarIO seen <&> ("seen",) . fromIntegral . HashMap.size)
+
+        b <- liftIO (readTVarIO busy) <&> HM.elems
+        let reallyBusy = sum [ 1 | v <- b, v > 0 ]
+        S.yield ("reallyBusy", reallyBusy)
 
     forever do
       withPeerM e $ withDownload env0 do
