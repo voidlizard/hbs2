@@ -102,12 +102,16 @@ httpWorker (PeerConfig syn) pmeta e = do
 
       get "/size/:hash" do
 
-        what <- param @String "hash" <&> fromString
-        size <- liftIO $ hasBlock sto what
-        case size of
-          Nothing -> status status404
-          Just n -> do
-            json n
+        void $ flip runContT pure do
+          what <- lift (param @String "hash")
+                    <&> fromStringMay
+                    >>= orElse (status status404)
+
+          size <- liftIO $ hasBlock sto what
+          case size of
+            Nothing -> lift $ status status404
+            Just n -> do
+              lift $ json n
 
       -- TODO: key-to-disable-tree-streaming
 
@@ -131,18 +135,26 @@ httpWorker (PeerConfig syn) pmeta e = do
 
       -- TODO: define-parsable-instance-for-our-types
       get "/tree/:hash" do
-        what <- param @String "hash" <&> fromString
-        getTreeHash sto what
+        void $ flip runContT pure do
+          what <- lift (param @String "hash")
+                    <&> fromStringMay
+                    >>= orElse (status status404)
+
+          lift $ getTreeHash sto what
 
       get "/cat/:hash" do
-        what <- param @String "hash" <&> fromString
-        blob <- liftIO $ getBlock sto what
-        case blob of
-          Nothing -> status status404
-          Just lbs -> do
-            addHeader "content-type" "application/octet-stream"
-            addHeader "content-length" [qc|{LBS.length lbs}|]
-            raw lbs
+        void $ flip runContT pure do
+          what <- lift (param @String "hash")
+                    <&> fromStringMay
+                    >>= orElse (status status404)
+          lift do
+            blob <- liftIO $ getBlock sto what
+            case blob of
+              Nothing -> status status404
+              Just lbs -> do
+                addHeader "content-type" "application/octet-stream"
+                addHeader "content-length" [qc|{LBS.length lbs}|]
+                raw lbs
 
       get "/reflog/:ref" do
         re <- param @String "ref" <&> fromStringMay
