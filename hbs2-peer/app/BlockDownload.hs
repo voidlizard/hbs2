@@ -3,7 +3,6 @@
 module BlockDownload where
 
 import HBS2.Peer.Prelude
-import HBS2.Base58
 import HBS2.Actors.Peer
 import HBS2.Data.Types.Peer
 import HBS2.Data.Detect
@@ -22,20 +21,16 @@ import HBS2.Misc.PrettyStuff
 
 import PeerTypes
 import PeerInfo
-import Brains
-import DownloadMon
 
 import Control.Concurrent.STM qualified as STM
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Data.Cache qualified as Cache
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
-import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
 import Data.Maybe
@@ -44,9 +39,6 @@ import Data.ByteString.Lazy (ByteString)
 import Data.List qualified as L
 import Lens.Micro.Platform
 import Codec.Serialise
-import Data.Hashable
-import System.Random.Shuffle (shuffleM)
-import Control.Concurrent (getNumCapabilities)
 import Streaming.Prelude qualified as S
 import System.Random
 
@@ -629,6 +621,22 @@ blockDownloadLoop env0 = do
             _ -> do
                 debug $ red "WAIT FOR PEERS TIMEOUT" <+> pretty blk
                 atomically $ writeTVar busy mempty
+
+    void $ ContT $ withAsync $ forever do
+      pause @'Seconds 10
+      let DownloadEnv{..} = env0
+      let DownloadMonEnv{..} = _downloadMon
+      p <- readTVarIO _downloadProbe
+      acceptReport p =<< S.toList_ do
+        S.yield =<< liftIO (readTVarIO _blockInQ <&> ("blockInQ",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO _downloads <&> ("downloads",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO nonces <&> ("nonces",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO busy <&> ("busy",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO rates <&> ("rates",) . fromIntegral . IntMap.size)
+        S.yield =<< liftIO (readTVarIO fetchH <&> ("fetchH",) . fromIntegral . HS.size)
+        S.yield =<< liftIO (readTVarIO sizes <&> ("sizes",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO sizeReq <&> ("sizeReq",) . fromIntegral . HashMap.size)
+        S.yield =<< liftIO (readTVarIO seen <&> ("seen",) . fromIntegral . HashMap.size)
 
     forever do
       withPeerM e $ withDownload env0 do
