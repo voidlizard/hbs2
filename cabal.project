@@ -11,5 +11,5 @@ constraints:
 
 -- executable-static: True
 -- profiling: True
--- library-profiling: False
+--library-profiling: False
 
