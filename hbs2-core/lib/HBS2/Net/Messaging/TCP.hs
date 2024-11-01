@@ -432,6 +432,8 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
         -- FIXME: make-sure-it-is-correct
         already <- readTVarIO _tcpPeerXp <&> HashMap.member pip
 
+        guard (not already)
+
         msgs <- readTVarIO defs <&> HashMap.findWithDefault mempty pip
 
         unless (L.null msgs) do
@@ -455,8 +457,6 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
                 mss <- readTVar defs <&> HashMap.findWithDefault mempty pip
                 modifyTVar defs $ HashMap.delete pip
                 forM_ mss $ \m -> writeTQueue q (pip, snd m)
-
-          pure ()
 
     stat <- ContT $ withAsync $ forever do
       pause @'Seconds 120
