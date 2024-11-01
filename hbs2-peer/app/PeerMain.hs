@@ -895,12 +895,16 @@ runPeer opts = respawnOnError opts $ runResourceT do
   --   через TQueue. Нужно его удалить повсеместно
   --   Или сделать некий AnyAddr/DefaultAddr
   peerSelf <- fromPeerAddr "0.0.0.0:7351"
+  byPassProbe <- newSimpleProbe "Messaging.Encrypted.ByPass"
+  addProbe byPassProbe
   byPass <- newByPassMessaging @L4Proto
                           byPassDef
                           proxy
                           peerSelf
                           (view peerSignPk pc)
                           (view peerSignSk pc)
+
+  byPassMessagingSetProbe byPass byPassProbe
 
   penv <- newPeerEnv pl (AnyStorage s) (Fabriq byPass) peerSelf
   do
@@ -1138,7 +1142,7 @@ runPeer opts = respawnOnError opts $ runResourceT do
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
 
-                peerThread "byPassWorker" (byPassWorker byPass penv)
+                peerThread "byPassWorker" (byPassWorker byPass)
 
                 peerThread "httpWorker" (httpWorker conf peerMeta denv)
 

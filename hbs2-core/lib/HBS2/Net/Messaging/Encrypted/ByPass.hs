@@ -2,7 +2,7 @@
 {-# Language RecordWildCards #-}
 module HBS2.Net.Messaging.Encrypted.ByPass
   ( ForByPass
-  , ByPass
+  , ByPass(..)
   , ByPassOpts(..)
   , ByPassStat(..)
   , byPassDef
