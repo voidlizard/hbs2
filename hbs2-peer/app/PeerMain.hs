@@ -1151,6 +1151,13 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
                 peerThread "checkMetrics" (checkMetrics metrics metricsProbe)
 
+                t0 <- getTimeCoarse
+
+                peerThread "monotonicTime" $ forever do
+                  pause @'Seconds 10
+                  tx <- getTimeCoarse
+                  acceptReport metricsProbe [("monotonicTime", fromIntegral (tx-t0) `div` round 1e9)]
+
                 peerThread "peerPingLoop" (peerPingLoop @e conf penv)
 
                 peerThread "knownPeersPingLoop" (knownPeersPingLoop @e conf (SomeBrains brains))
