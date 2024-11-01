@@ -4,6 +4,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language MultiWayIf #-}
 {-# Language FunctionalDependencies #-}
+{-# Language RecordWildCards #-}
 module PeerTypes
   ( module PeerTypes
   , module PeerLogger
@@ -257,10 +258,18 @@ data DownloadEnv e =
   -- , _blockProposed  :: Cache (Hash HbSync, Peer e) ()
   , _downloadMon    :: DownloadMonEnv
   , _downloadBrains :: SomeBrains e
+  , _downloadProbe  :: TVar AnyProbe
   }
 
 makeLenses 'DownloadEnv
 
+
+downloadEnvSetProbe :: forall e m . (MonadIO m, MyPeer e)
+                    => DownloadEnv e
+                    -> AnyProbe
+                    -> m ()
+downloadEnvSetProbe DownloadEnv{..} p = do
+  atomically $ writeTVar _downloadProbe p
 
 newDownloadEnv :: (MonadIO m, MyPeer e, HasBrains e brains) => brains -> m (DownloadEnv e)
 newDownloadEnv brains = liftIO do
@@ -271,6 +280,7 @@ newDownloadEnv brains = liftIO do
               -- <*> Cache.newCache (Just (toTimeSpec (2 :: Timeout 'Seconds)))
               <*> downloadMonNew
               <*> pure (SomeBrains brains)
+              <*> newTVarIO (AnyProbe ())
 
 newtype BlockDownloadM e m a =
   BlockDownloadM { fromBlockDownloadM :: ReaderT (DownloadEnv e) m a }

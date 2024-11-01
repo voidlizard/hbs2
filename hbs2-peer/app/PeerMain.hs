@@ -815,6 +815,10 @@ runPeer opts = respawnOnError opts $ runResourceT do
 
   denv <- newDownloadEnv brains
 
+  dProbe <- newSimpleProbe "BlockDownload"
+  addProbe dProbe
+  downloadEnvSetProbe denv dProbe
+
   pl <- AnyPeerLocator <$> newBrainyPeerLocator @e (SomeBrains @e brains) mempty
 
   -- FIXME: messaing-watchdog
