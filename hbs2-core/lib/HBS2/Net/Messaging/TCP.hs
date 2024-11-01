@@ -22,7 +22,7 @@ import HBS2.System.Logger.Simple
 import HBS2.Misc.PrettyStuff
 
 import Control.Concurrent.STM (flushTQueue)
-import Control.Monad
+import Control.Monad.Trans.Maybe
 import Data.Bits
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -228,8 +228,8 @@ spawnConnection tp env@MessagingTCP{..} so sa = liftIO do
 
     debug $ "USED:" <+> viaShow tp <+> pretty own <+> pretty used
 
-    when ( used <= 2 ) do
-      atomically $ modifyTVar (view tcpPeerConn env) (HashMap.insert newP connId)
+    -- when ( used <= 2 ) do
+    atomically $ modifyTVar (view tcpPeerConn env) (HashMap.insert newP connId)
 
     when (used == 1) do
 
@@ -427,7 +427,11 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
       dePips <- readTVarIO defs <&> HashMap.keys
 
 
-      forM_ dePips $ \pip -> do
+      forM_ dePips $ \pip -> void $ runMaybeT do
+
+        -- FIXME: make-sure-it-is-correct
+        already <- readTVarIO _tcpPeerXp <&> HashMap.member pip
+
         msgs <- readTVarIO defs <&> HashMap.findWithDefault mempty pip
 
         unless (L.null msgs) do
@@ -442,9 +446,9 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
           co' <- atomically $ readTVar (view tcpPeerConn env) <&> HashMap.lookup pip
 
           when (isNothing co') do
-            debug $ red "No session for" <+> pretty pip
+            trace $ red "No session for" <+> pretty pip
 
-          maybe1 co' (void $ fireTCP env pip (connectPeerTCP env pip)) $ \co -> do
+          lift $ maybe1 co' (void $ fireTCP env pip (connectPeerTCP env pip)) $ \co -> do
             q' <- atomically $ readTVar (view tcpConnQ env) <&> HashMap.lookup co
             maybe1 q' none $ \q -> do
               atomically do
