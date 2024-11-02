@@ -296,7 +296,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
         let (L4Address _ (IPAddrPort (i,p))) = own
         let myCookie = view tcpCookie env
 
-        pause @'Seconds 30
+        pause @'Seconds 10
 
         forever $ void $ runMaybeT do
             -- client sockets

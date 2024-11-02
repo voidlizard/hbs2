@@ -313,13 +313,10 @@ runCLI = do
     pPoke = do
       rpc <- pRpcCommon
       pure $ withMyRPC @PeerAPI rpc $ \caller -> do
-        e <- race ( pause @'Seconds 0.25) do
-          r <- callService @RpcPoke caller ()
-          case r of
-            Left e -> die (show e)
-            Right txt -> putStrLn txt >> exitSuccess
-
-        liftIO $ either (const $ exitFailure) (const $ exitSuccess) e
+        r <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 caller ()
+        case r of
+          Nothing -> exitFailure
+          Just s -> putStrLn s >> exitSuccess
 
     pAnnounce = do
       rpc <- pRpcCommon
