@@ -188,10 +188,12 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
 
   void $ flip runContT pure do
 
-    p1 <- ContT $ withAsync runClient
-    p2 <- ContT $ withAsync runServer
+    forever do
 
-    waitAnyCatchCancel [p1,p2]
+      p1 <- ContT $ withAsync runClient
+      p2 <- ContT $ withAsync runServer
+
+      waitAnyCatchCancel [p1,p2]
     -- waitAnyCatchCancel [p2]
     -- waitAnyCatchCancel [p1]
 
@@ -277,9 +279,9 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
 
               void $ ContT $ bracket none $ const do
                 debug $ "SHUTDOWN SOCKET AND SHIT" <+> pretty remote
+                shutdown so ShutdownBoth
                 cancel rd
                 cancel wr
-                shutdown so ShutdownBoth
 
                 atomically do
                   modifyTVar _tcpSent (HM.delete newP)
@@ -312,7 +314,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
               mzero
 
             -- FIXME: !!!
-            liftIO $ asyncLinked do
+            liftIO $ async do
               let (L4Address _ (IPAddrPort (ip,port))) = whoAddr
               connect (show ip) (show port) $ \(so, remoteAddr) -> do
                 flip runContT pure $ callCC \exit -> do
