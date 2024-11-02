@@ -55,6 +55,7 @@ instance Monad m => HasOwnPeer UNIX (ReaderT RPC2Context m) where
 
 instance (MonadUnliftIO m, HasProtocol UNIX (ServiceProto (api :: [Type]) UNIX))
   => HasDeferred (ServiceProto api UNIX) UNIX  m where
-  deferred m = void $ asyncLinked m
+  deferred m = void $ async m
+
 
 
