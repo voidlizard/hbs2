@@ -17,50 +17,81 @@ inputs = {
 };
 
 outputs = { self, nixpkgs, flake-utils, ... }@inputs:
-  flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"]
+  let
+    packageNames =
+      topLevelPackages ++ keymanPackages;
+
+    keymanPackages =
+      [
+      "hbs2-keyman"
+      "hbs2-keyman-direct-lib"
+      ];
+
+    topLevelPackages =
+      [
+      "hbs2"
+      "hbs2-peer"
+      "hbs2-core"
+      "hbs2-storage-simple"
+      "hbs2-git"
+      "hbs2-git-dashboard"
+      "hbs2-qblf"
+      "hbs2-fixer"
+      "hbs2-cli"
+      "hbs2-sync"
+      "fixme-new"
+      ];
+
+    miscellaneous =
+      [
+      "bytestring-mmap"
+      "db-pipe"
+      "fuzzy-parse"
+      "suckless-conf"
+      ];
+
+    jailbreakUnbreak = pkgs: pkg:
+        pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
+
+    hpOverridesPre = pkgs: new: old: with pkgs.haskell.lib; {
+      scotty = new.callHackage "scotty" "0.21" {};
+      skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
+      wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak pkgs old.wai-app-file-cgi));
+    };
+
+    overrideComposable = pkgs: hpkgs: overrides:
+      hpkgs.override (oldAttrs: {
+        overrides = pkgs.lib.composeExtensions (oldAttrs.overrides or (_: _: { })) overrides;
+      });
+
+    makePkgsFromDir = pkgs: pkgNames: mkPath:
+      pkgs.lib.genAttrs pkgNames (name:
+        pkgs.haskellPackages.callCabal2nix name "${self}/${mkPath name}" {});
+
+    ourHaskellPackages = pkgs: ({}
+      // makePkgsFromDir pkgs topLevelPackages (n: n)
+      // makePkgsFromDir pkgs keymanPackages (name: "hbs2-keyman/${name}")
+      // makePkgsFromDir pkgs miscellaneous (name: "miscellaneous/${name}")
+    );
+
+    overlay = final: prev: {
+      haskellPackages = overrideComposable prev prev.haskellPackages
+        (new: old:
+          hpOverridesPre prev new old
+            // ourHaskellPackages final
+        );
+      };
+
+  in
+  { overlays.default = overlay; }
+  //
+  (flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"]
   (system:
     let
-      packageNames =
-        topLevelPackages ++ keymanPackages;
-
-      keymanPackages =
-        [
-        "hbs2-keyman"
-        "hbs2-keyman-direct-lib"
-        ];
-
-      topLevelPackages =
-        [
-        "hbs2"
-        "hbs2-peer"
-        "hbs2-core"
-        "hbs2-storage-simple"
-        "hbs2-git"
-        "hbs2-git-dashboard"
-        "hbs2-qblf"
-        "hbs2-fixer"
-        "hbs2-cli"
-        "hbs2-sync"
-        "fixme-new"
-        ];
-
-      miscellaneous =
-        [
-        "bytestring-mmap"
-        "db-pipe"
-        "fuzzy-parse"
-        "suckless-conf"
-        ];
-
       pkgs = import nixpkgs {
-          inherit system;
-          overlays = [defaultOverlay];
-        };
-
-      defaultOverlay = final: prev:
-        (prev.lib.composeManyExtensions # no-op
-        [ overlay
-        ]) final prev;
+        inherit system;
+        overlays = [overlay];
+      };
 
       packagePostOverrides = pkg: with pkgs.haskell.lib.compose; pkgs.lib.pipe pkg [
         disableExecutableProfiling
@@ -83,39 +114,16 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           }))
       ];
 
-
-    jailbreakUnbreak = pkg:
-        pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
-
-    makePkgsFromDir = hp: pkgNames: mkPath:
-      pkgs.lib.genAttrs pkgNames (name:
-        hp.callCabal2nix name "${self}/${mkPath name}" {});
-
-    overlay = final: prev: let pkgs = prev; in
-    {
-      haskellPackages = pkgs.haskellPackages.override {
-        overrides = new: old: with pkgs.haskell.lib;
-          {
-            scotty = new.callHackage "scotty" "0.21" {};
-            skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
-            wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak old.wai-app-file-cgi));
-          }
-          // makePkgsFromDir old topLevelPackages (n: n)
-          // makePkgsFromDir old keymanPackages (name: "hbs2-keyman/${name}")
-          // makePkgsFromDir old miscellaneous (name: "miscellaneous/${name}");
-        };
-      };
-
     makePackages = pkgs:
       pkgs.lib.mapAttrs
         (_name: packagePostOverrides) # we can't apply overrides inside our overlay because it will remove linking info
-        (pkgs.lib.getAttrs packageNames pkgs.haskellPackages);
+        (pkgs.lib.getAttrs packageNames (ourHaskellPackages pkgs))
+        ;
 
     packagesDynamic = makePackages pkgs;
     packagesStatic = makePackages pkgs.pkgsStatic;
     in  {
     legacyPackages = pkgs;
-    overlays.default = defaultOverlay;
     homeManagerModules.default = import ./nix/hm-module.nix self;
 
     packages =
@@ -135,7 +143,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
 
     devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: [];
+      packages = _: builtins.attrValues (ourHaskellPackages pkgs);
+      # withHoogle = true;
       buildInputs = (
         with pkgs.haskellPackages; [
           ghc
@@ -165,7 +174,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
     };
   }
- );
+ ));
 
 }
 
