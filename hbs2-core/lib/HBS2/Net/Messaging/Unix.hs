@@ -234,7 +234,7 @@ runMessagingUnix env = do
           void $ ContT $ bracket ( debug $ "Client thread started" <+> pretty that )
                                  ( \_ -> debug $ "Client thread finished" <+> pretty that  )
 
-          void $ ContT $ bracket writer (\x -> pause @'Seconds 0.1 >> cancel x)
+          void $ ContT $ bracket writer (\x -> pause @'Seconds 0.25 >> cancel x)
 
           fix \next -> do
 

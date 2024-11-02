@@ -220,6 +220,15 @@ simpleStorageWorker ss@SimpleStorage{..} = do
         atomically do
           modifyTVar lru (HashMap.filter notExpired)
 
+    ContT $ withAsync $ do
+      forever $ do
+        pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
+        purgeExpired _storageSizeCache
+        -- now <- getTimeCoarse
+        -- let notExpired t0 = not (expired timeout (now - t0))
+        -- atomically do
+        --   modifyTVar lru (HashMap.filter notExpired)
+
     liftIO do
       fix \next -> do
         s <- atomically $ do TBMQ.readTBMQueue ( ss ^. storageOpQ )
@@ -364,7 +373,7 @@ simpleBlockExists ss hash = runMaybeT $ do
     _ -> do
         exists <- liftIO $ doesFileExist fn
         unless exists mzero
-        s <- liftIO $ getFileSize fn
+        s <- liftIO $! getFileSize fn
         liftIO $ Cache.insert cache hash (Just s)
         pure s
 
