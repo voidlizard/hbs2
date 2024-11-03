@@ -364,7 +364,13 @@ refChanWorkerInitNotifiers env = do
            debug "Rely notification request"
            request @UNIX (fromString sa) req
 
-      r <- waitAnyCatchCancel [msg, disp, rely]
+      kill <- ContT $ withAsync $ forever do
+        pause @'Seconds 30
+        let RefChanWorkerEnv{..} = env
+        liftIO $ Cache.purgeExpired _refChanWorkerNotifiersDone
+        liftIO $ Cache.purgeExpired _refChanWorkerLocalRelyDone
+
+      r <- waitAnyCatchCancel [msg, disp, rely, kill]
 
       warn $ ">>> Notifier thread for" <+> pretty sa  <+> "terminated" <+> viaShow (snd r)
 

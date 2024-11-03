@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
