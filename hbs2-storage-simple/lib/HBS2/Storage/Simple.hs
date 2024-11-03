@@ -183,7 +183,7 @@ simpleStorageWorker ss@SimpleStorage{..} = do
 
   flip runContT pure do
     ContT $ withAsync $ forever $ liftIO do
-      pause @'Seconds 10
+      pause @'Seconds 20
       probe <- readTVarIO _storageProbe
       values <- atomically do
                   mmapedSize     <- readTVar  _storageMMaped     <&> HashMap.size
@@ -222,7 +222,7 @@ simpleStorageWorker ss@SimpleStorage{..} = do
 
     ContT $ withAsync $ do
       forever $ do
-        pause ( 10 :: Timeout 'Seconds ) -- FIXME: setting
+        pause ( 60 :: Timeout 'Seconds ) -- FIXME: setting
         purgeExpired _storageSizeCache
         -- now <- getTimeCoarse
         -- let notExpired t0 = not (expired timeout (now - t0))
