@@ -60,6 +60,7 @@ data MessagingTCP =
   , _tcpCookie             :: Word32
   , _tcpPeerConn           :: TVar (HashMap (Peer L4Proto) Word64)
   , _tcpPeerCookie         :: TVar (HashMap Word32 Int)
+  , _tcpPeerSocket         :: TVar (HashMap (Peer L4Proto) Socket)
   , _tcpConnDemand         :: TQueue (Peer L4Proto)
   , _tcpReceived           :: TBQueue (Peer L4Proto, ByteString)
   , _tcpSent               :: TVar (HashMap (Peer L4Proto) (TBQueue ByteString))
@@ -98,6 +99,7 @@ newMessagingTCP pa = liftIO do
   MessagingTCP Nothing
     <$> fromPeerAddr pa
     <*> randomIO
+    <*> newTVarIO mempty
     <*> newTVarIO mempty
     <*> newTVarIO mempty
     <*> newTQueueIO
@@ -234,6 +236,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
         atomically do
           pips <- readTVar _tcpPeerConn
           modifyTVar _tcpSent (HM.filterWithKey (\k _ -> HM.member k pips))
+          modifyTVar _tcpPeerSocket (HM.filterWithKey (\k _ -> HM.member k pips))
           modifyTVar _tcpPeerCookie (HM.filter (>=1))
 
       waitAnyCatchCancel [p1,p2,probes,sweep]
@@ -310,6 +313,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
               atomically do
                 modifyTVar _tcpSent (HM.insert newP newOutQ)
                 modifyTVar _tcpPeerConn (HM.insert newP (connectionId myCookie cookie))
+                modifyTVar _tcpPeerSocket (HM.insert newP so)
 
               wr <- ContT $ withAsync $ forever  do
                       bs <- atomically $ readTBQueue newOutQ
@@ -330,6 +334,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
               void $ ContT $ bracket none $ const do
                 debug $ "SHUTDOWN SOCKET AND SHIT" <+> pretty remote
                 atomically $ modifyTVar _tcpServerThreadsCount pred
+                atomically $ modifyTVar _tcpPeerSocket (HM.delete newP)
                 shutdown so ShutdownBoth
                 cancel rd
                 cancel wr
@@ -343,11 +348,9 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
 
       runClient = flip runContT pure do
 
-        own <- toPeerAddr $ view tcpOwnPeer env
-        let (L4Address _ (IPAddrPort (i,_))) = own
         let myCookie = view tcpCookie env
 
-        pause @'Seconds 10
+        pause @'Seconds 3.14
 
         void $ ContT $ bracket none $ const $ do
           what <- atomically $ stateTVar _tcpClientThreads (\x -> (HM.elems x, mempty))
@@ -363,76 +366,78 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
           atomically $ modifyTVar _tcpClientThreads (HM.filterWithKey (\k _ -> not (HS.member k done)))
 
         forever $ void $ runMaybeT do
-            -- client sockets
+          -- client sockets
 
-            -- смотрим к кому надо
-            who <- atomically $ readTQueue _tcpConnDemand
-            whoAddr <- toPeerAddr who
+          -- смотрим к кому надо
+          who <- atomically $ readTQueue _tcpConnDemand
+          whoAddr <- toPeerAddr who
 
-            debug $ "DEMAND:" <+> pretty who
+          debug $ "DEMAND:" <+> pretty who
 
-            already <- atomically $ readTVar _tcpPeerConn <&> HM.member who
+          already <- atomically $ readTVar _tcpPeerConn <&> HM.member who
 
-            when already do
-              debug "SHIT? BUSYLOOP?"
-              mzero
+          when already do
+            debug "SHIT? BUSYLOOP?"
+            mzero
 
-            liftIO $ newClientThread env $ do
-              let (L4Address _ (IPAddrPort (ip,port))) = whoAddr
-              connect (show ip) (show port) $ \(so, remoteAddr) -> do
+          liftIO $ newClientThread env $ do
+            let (L4Address _ (IPAddrPort (ip,port))) = whoAddr
+            connect (show ip) (show port) $ \(so, remoteAddr) -> do
 
-                let ?env = env
+              let ?env = env
 
-                flip runContT pure $ callCC \exit -> do
+              flip runContT pure $ callCC \exit -> do
 
-                  debug $ "OPEN CLIENT CONNECTION" <+> pretty ip <+> pretty port <+> pretty remoteAddr
-                  cookie <- handshake Client env so
-                  let connId = connectionId cookie myCookie
+                debug $ "OPEN CLIENT CONNECTION" <+> pretty ip <+> pretty port <+> pretty remoteAddr
+                cookie <- handshake Client env so
+                let connId = connectionId cookie myCookie
 
-                  when (cookie == myCookie) $ do
-                    debug $ "same peer, exit" <+> pretty remoteAddr
-                    exit ()
+                when (cookie == myCookie) $ do
+                  debug $ "same peer, exit" <+> pretty remoteAddr
+                  exit ()
 
-                  here <- useCookie cookie
+                here <- useCookie cookie
 
-                  -- TODO: handshake notification
-                  liftIO $ _tcpOnClientStarted whoAddr connId
+                -- TODO: handshake notification
+                liftIO $ _tcpOnClientStarted whoAddr connId
 
-                  when here do
-                    debug $ "CLIENT: ALREADY CONNECTED" <+> pretty cookie <+> pretty ip <+> pretty port
-                    exit ()
+                when here do
+                  debug $ "CLIENT: ALREADY CONNECTED" <+> pretty cookie <+> pretty ip <+> pretty port
+                  exit ()
 
+                atomically do
+                  modifyTVar _tcpPeerCookie (HM.insertWith (+) cookie 1)
+                  modifyTVar _tcpPeerConn (HM.insert who connId)
+                  modifyTVar _tcpPeerSocket (HM.insert who so)
+
+                wr <- ContT $ withAsync $ forever  do
+                        bss <- atomically do
+                                 q' <- readTVar _tcpSent <&> HM.lookup who
+                                 maybe1 q' mempty $ \q -> do
+                                  s <- readTBQueue q
+                                  sx <- flushTBQueue q
+                                  pure (s:sx)
+
+                        for_ bss $ \bs -> do
+                          -- FIXME: check-this!
+                          let pq = myCookie -- randomIO
+                          let qids = bytestring32 pq
+                          let size = bytestring32 (fromIntegral $ LBS.length bs)
+
+                          let frame = LBS.fromStrict qids
+                                       <> LBS.fromStrict size -- req-size
+                                       <> bs -- payload
+
+                          sendLazy so frame --(LBS.toStrict frame)
+
+                void $ ContT $ bracket none $ const $ do
+                  debug "!!! TCP: BRACKET FIRED IN CLIENT !!!"
                   atomically do
-                    modifyTVar _tcpPeerCookie (HM.insertWith (+) cookie 1)
-                    modifyTVar _tcpPeerConn (HM.insert who connId)
+                    modifyTVar _tcpPeerConn (HM.delete who)
+                    modifyTVar _tcpPeerCookie (HM.update killCookie cookie)
+                    modifyTVar _tcpPeerSocket (HM.delete who)
 
-                  wr <- ContT $ withAsync $ forever  do
-                          bss <- atomically do
-                                   q' <- readTVar _tcpSent <&> HM.lookup who
-                                   maybe1 q' mempty $ \q -> do
-                                    s <- readTBQueue q
-                                    sx <- flushTBQueue q
-                                    pure (s:sx)
+                void $ ContT $ bracket none (const $ cancel wr)
 
-                          for_ bss $ \bs -> do
-                            -- FIXME: check-this!
-                            let pq = myCookie -- randomIO
-                            let qids = bytestring32 pq
-                            let size = bytestring32 (fromIntegral $ LBS.length bs)
-
-                            let frame = LBS.fromStrict qids
-                                         <> LBS.fromStrict size -- req-size
-                                         <> bs -- payload
-
-                            sendLazy so frame --(LBS.toStrict frame)
-
-                  void $ ContT $ bracket none (const $ cancel wr)
-
-                  void $ ContT $ bracket none $ const $ do
-                    debug "!!! TCP: BRACKET FIRED IN CLIENT !!!"
-                    atomically do
-                      modifyTVar _tcpPeerConn (HM.delete who)
-                      modifyTVar _tcpPeerCookie (HM.update killCookie cookie)
-
-                  readFrames so who _tcpReceived
+                readFrames so who _tcpReceived
 

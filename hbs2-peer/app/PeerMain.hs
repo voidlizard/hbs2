@@ -105,8 +105,11 @@ import Data.List qualified as L
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe
+import Data.Either
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Data.Time.Clock.POSIX
 import Data.Time.Format
 import Lens.Micro.Platform as Lens
@@ -264,6 +267,7 @@ runCLI = do
                 <> command "bypass"    (info pByPass (progDesc "bypass"))
                 <> command "gc"        (info pRunGC (progDesc "run RAM garbage collector"))
                 <> command "probes"    (info pRunProbes (progDesc "show probes"))
+                <> command "do"        (info pDoScript (progDesc "execute a command in peer context"))
                 <> command "version"   (info pVersion (progDesc "show program version"))
                 )
 
@@ -391,11 +395,9 @@ runCLI = do
     pPeers = do
       rpc <- pRpcCommon
       pure $ withMyRPC @PeerAPI rpc $ \caller -> do
-        r <- callService @RpcPeers caller ()
-        case r of
-          Left e -> err (viaShow e)
-          Right p -> do
-            print $ vcat (fmap fmt p)
+        r <- callRpcWaitRetry @RpcPeers (TimeoutSec 1) 2 caller ()
+                >>= orThrowUser "rpc timeout"
+        liftIO $ print $ vcat (fmap fmt r)
       where
         fmt (a, b) = pretty (AsBase58 a) <+> pretty b
 
@@ -607,6 +609,20 @@ runCLI = do
                   >>= toMPlus
 
            liftIO $ print $ vcat (fmap pretty p)
+
+    pDoScript = do
+      rpc <- pRpcCommon
+      argz <- many (strArgument (metavar "TERM" <> help "script terms"))
+      pure do
+        let s = unlines $ unwords <$> splitForms argz
+
+        withMyRPC @PeerAPI rpc $ \caller -> do
+
+           r <- callRpcWaitRetry @RpcRunScript (TimeoutSec 1) 3 caller (Text.pack s)
+                  >>= orThrowUser "rpc timeout"
+
+           for_ (parseTop r & fromRight mempty) \sexy -> do
+             liftIO $ hPutDoc stdout (pretty sexy)
 
     refP :: ReadM (PubKey 'Sign 'HBS2Basic)
     refP = maybeReader fromStringMay
