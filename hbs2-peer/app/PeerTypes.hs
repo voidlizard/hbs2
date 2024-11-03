@@ -16,7 +16,6 @@ import HBS2.Polling
 import HBS2.Actors.Peer
 import HBS2.Clock
 import HBS2.Net.Auth.Schema
-import HBS2.Net.Auth.Credentials
 import HBS2.Data.Types.SignedBox
 import HBS2.Data.Types.Peer
 import HBS2.Data.Types.Refs
@@ -25,7 +24,6 @@ import HBS2.Events
 import HBS2.Hash
 import HBS2.Merkle (AnnMetaData)
 import HBS2.Net.IP.Addr
-import HBS2.Net.Proto
 import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.BlockInfo
 import HBS2.Peer.Proto.LWWRef
@@ -44,11 +42,8 @@ import Prelude hiding (log)
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
 import Data.ByteString.Lazy (ByteString)
-import Data.Cache (Cache)
-import Data.Cache qualified as Cache
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet (HashSet)
 import Data.List qualified as L
 import Data.Maybe
 import Lens.Micro.Platform

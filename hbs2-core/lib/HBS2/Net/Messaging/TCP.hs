@@ -323,7 +323,9 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
                   cookie <- handshake Client env so
                   let connId = connectionId cookie myCookie
 
-                  when (cookie == myCookie) $ exit ()
+                  when (cookie == myCookie) $ do
+                    debug $ "same peer, exit" <+> pretty remoteAddr
+                    exit ()
 
                   here <- atomically do
                         n <- readTVar _tcpPeerCookie <&> HM.member cookie
