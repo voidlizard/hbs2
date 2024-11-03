@@ -145,7 +145,7 @@ simpleStorageInit opts = liftIO $ do
                 <*> TV.newTVarIO False
                 <*> TV.newTVarIO mempty
                 <*> TV.newTVarIO mempty
-                <*> Cache.newCache (Just (toTimeSpec (10 :: Timeout 'Seconds)))
+                <*> Cache.newCache (Just (toTimeSpec (60 :: Timeout 'Seconds)))
 
   createDirectoryIfMissing True (stor ^. storageBlocks)
   createDirectoryIfMissing True (stor ^. storageTemp)

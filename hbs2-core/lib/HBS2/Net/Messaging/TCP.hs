@@ -51,7 +51,7 @@ import Streaming.Prelude qualified as S
 -- FIXME: control-recv-capacity-to-avoid-leaks
 
 outMessageQLen :: Natural
-outMessageQLen = 256
+outMessageQLen = 1024*32
 
 -- | TCP Messaging environment
 data MessagingTCP =
@@ -106,7 +106,7 @@ newMessagingTCP pa = liftIO do
     <*> newTVarIO mempty
     <*> newTVarIO mempty
     <*> newTQueueIO
-    <*> newTBQueueIO outMessageQLen
+    <*> newTBQueueIO (10 * outMessageQLen)
     <*> newTVarIO mempty
     <*> newTVarIO 0
     <*> newTVarIO mempty
