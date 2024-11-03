@@ -269,6 +269,12 @@ eatNil f = \case
 class IsContext c => MkInt c s where
   mkInt :: s -> Syntax c
 
+class IsContext c => MkDouble c s where
+  mkDouble :: s -> Syntax c
+
+instance (IsContext c, RealFrac s) => MkDouble c s where
+  mkDouble v = Literal noContext $ LitScientific (realToFrac v)
+
 instance (Integral i, IsContext c) => MkInt c i where
   mkInt n = Literal noContext $ LitInt (fromIntegral n)
 
