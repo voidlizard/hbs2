@@ -9,6 +9,7 @@ module HBS2.Net.Messaging.TCP
   , tcpPeerConn
   , tcpCookie
   , tcpOnClientStarted
+  , tcpPeerKick
   , messagingTCPSetProbe
   ) where
 
@@ -204,6 +205,13 @@ data TCPMessagingError =
   deriving stock (Show,Typeable)
 
 instance Exception TCPMessagingError
+
+tcpPeerKick :: forall m . MonadIO m => MessagingTCP -> Peer L4Proto -> m ()
+tcpPeerKick MessagingTCP{..} p = do
+  whoever <- readTVarIO _tcpPeerSocket <&> HM.lookup p
+  for_ whoever $ \so -> do
+    debug $ "tcpPeerKick" <+> pretty p
+    liftIO $ shutdown so ShutdownBoth
 
 runMessagingTCP :: forall m . MonadIO m => MessagingTCP -> m ()
 runMessagingTCP env@MessagingTCP{..} = liftIO do

@@ -12,6 +12,7 @@ import HBS2.Storage()
 import HBS2.Data.Types.Refs (HashRef)
 import HBS2.Data.Types.SignedBox
 import HBS2.Net.Messaging.Unix
+import HBS2.Net.Messaging.TCP
 import HBS2.Net.Messaging.Encrypted.ByPass (ByPassStat)
 import HBS2.Net.Proto.Service
 import HBS2.Peer.Proto.Mailbox
@@ -32,6 +33,7 @@ data RPC2Context =
   RPC2Context
   { rpcConfig              :: [Syntax C]
   , rpcMessaging           :: MessagingUnix
+  , rpcTCP                 :: Maybe MessagingTCP
   , rpcPokeAnswer          :: String
   , rpcPeerEnv             :: PeerEnv L4Proto
   , rpcLocalMultiCast      :: Peer L4Proto
