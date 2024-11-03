@@ -1321,6 +1321,7 @@ runPeer opts = respawnOnError opts $ do
 
   let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
                            , rpcMessaging = rpcmsg
+                           , rpcTCP = tcp
                            , rpcPokeAnswer = pokeAnsw
                            , rpcPeerEnv = penv
                            , rpcLocalMultiCast = localMulticast
