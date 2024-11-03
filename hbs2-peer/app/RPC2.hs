@@ -24,6 +24,8 @@ import HBS2.Net.Auth.Schema
 import HBS2.Peer.RPC.Internal.Types
 import HBS2.Peer.RPC.API.Peer
 
+import HBS2.Net.Messaging.TCP
+
 import Data.Config.Suckless.Script
 
 import RPC2.Peer
@@ -35,12 +37,13 @@ import RPC2.Mailbox()
 import PeerTypes
 import PeerInfo
 
-import UnliftIO
-
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Cont
 import Data.Text qualified as Text
 import Data.Either
 import Data.Maybe
 import Numeric
+import UnliftIO
 
 instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcRunScript where
   handleMethod top = do
@@ -58,6 +61,29 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
     dict RPC2Context{..} = makeDict @_ @m do
         entry $ bindMatch "hey" $ const do
           pure $ mkSym @C "hey"
+
+        entry $ bindMatch "tcp:peer:kick" $ \case
+          [ StringLike addr ] -> flip runContT pure $ callCC \exit -> do
+
+            peer' <- liftIO $ try @_ @SomeException do
+                      let pa = fromString @(PeerAddr L4Proto) addr
+                      fromPeerAddr pa
+
+            peer <- either (const $ exit (mkSym "error:invalid-address")) pure peer'
+
+            mess <- ContT $ maybe1 rpcTCP (pure nil)
+
+            tcpPeerKick mess peer
+
+            liftIO $ withPeerM rpcPeerEnv do
+              pl <- getPeerLocator @e
+              delPeers pl [peer]
+              expire (PeerInfoKey peer)
+              expire (KnownPeerKey peer)
+
+            pure $ mkList [mkSym "kicked", mkSym (show $ pretty peer) ]
+
+          _ -> pure nil
 
         entry $ bindMatch "peer-info" $ const do
 
