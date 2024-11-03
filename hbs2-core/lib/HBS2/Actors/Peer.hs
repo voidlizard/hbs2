@@ -26,7 +26,8 @@ import Data.Config.Suckless.KeyValue (HasConf(..))
 
 import Control.Monad
 import Control.Monad.Trans.Maybe
-import Control.Concurrent.Async
+import Control.Monad.Trans.Cont
+-- import Control.Concurrent.Async
 import Control.Monad.Reader
 import Control.Monad.Writer.CPS qualified as CPS
 import Data.ByteString.Lazy (ByteString)
@@ -39,11 +40,13 @@ import GHC.TypeLits
 import Lens.Micro.Platform as Lens
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Control.Concurrent.STM.TVar
-import Control.Concurrent.STM
+-- import Control.Concurrent.STM.TVar
+-- import Control.Concurrent.STM
 import Control.Monad.IO.Unlift
 import Data.List qualified as L
 import Data.Monoid qualified as Monoid
+
+import UnliftIO
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
@@ -421,32 +424,40 @@ peerEnvCollectProbes PeerEnv {..} = do
 
   where
     calcValuesLengthTotal = Monoid.getSum . foldMap (Monoid.Sum . L.length)
-    liftReadTVar = liftIO . atomically . readTVar
+    liftReadTVar = liftIO . readTVarIO
     item k v = CPS.tell [(k, fromIntegral v)]
 
-runPeerM :: forall e m . ( MonadIO m
+runPeerM :: forall e m . ( MonadUnliftIO m
                          , HasPeer e
                          , Ord (Peer e)
                          , Pretty (Peer e)
+                         , Hashable (Encoded e)
                          , HasNonces () m
                          )
          => PeerEnv e
          -> PeerM e m ()
          -> m ()
 
-runPeerM env f  = do
+runPeerM env@PeerEnv{..} f  = flip runContT pure do
 
-  let de = view envDeferred env
-  as <- liftIO $ replicateM 16 $ async $ runPipeline de
+  as <- liftIO $ replicateM 16 $ async $ runPipeline _envDeferred
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
-          pause defSweepTimeout
-          se <- asks (view envSessions)
-          liftIO $ Cache.purgeExpired se
-          sweep
+      pause defSweepTimeout
 
-  void $ runReaderT (fromPeerM f) env
-  void $ liftIO $ stopPipeline de
+      liftIO do
+        Cache.purgeExpired _envSessions
+        Cache.purgeExpired _envReqMsgLimit
+        Cache.purgeExpired _envReqProtoLimit
+
+      sweep
+
+  void $ ContT $ bracket none $ const $ do
+    pure ()
+
+  lift $ void $ runReaderT (fromPeerM f) env
+
+  void $ liftIO $ stopPipeline _envDeferred
   liftIO $ mapM_ cancel (as <> [sw])
 
 withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m a

@@ -942,7 +942,7 @@ newBasicBrains cfg = liftIO do
               <*> newTQueueIO
               <*> newTQueueIO
               <*> newTQueueIO
-              <*> Cache.newCache (Just (toTimeSpec (1200:: Timeout 'Seconds)))
+              <*> Cache.newCache (Just (toTimeSpec (600:: Timeout 'Seconds)))
               <*> newTVarIO mempty
               <*> newTVarIO (AnyProbe ())
 
@@ -1041,14 +1041,16 @@ runBasicBrains cfg brains@BasicBrains{..} = do
         -- commitNow brains True
 
     void $ forever do
-      pause @'Seconds 20
+      pause @'Seconds 30
       ee <- liftIO $ Cache.toList expire
       let eee = [ h | (h,_,Just{}) <- ee ]
       forM_ eee $ \h -> do
         cleanupPostponed brains h
 
-      liftIO $ Cache.purgeExpired expire
-      liftIO $ Cache.purgeExpired sizes
+      liftIO do
+        Cache.purgeExpired expire
+        Cache.purgeExpired sizes
+        Cache.purgeExpired _brainsRemoved
 
       del <- liftIO $ atomically $ flushTQueue _brainsDelDownload
       for_ del $ \d -> do
