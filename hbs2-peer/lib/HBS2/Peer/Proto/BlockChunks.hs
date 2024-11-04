@@ -6,8 +6,8 @@ import HBS2.Hash
 import HBS2.Net.Proto
 import HBS2.Peer.Proto.Peer
 import HBS2.Prelude.Plated
-import HBS2.Storage
 import HBS2.Actors.Peer
+import HBS2.Storage
 import HBS2.Net.Proto.Sessions
 
 import Data.Word

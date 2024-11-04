@@ -28,6 +28,7 @@ blockSizeProto :: forall e m proto . ( MonadIO m
                                      , Response e proto m
                                      , HasDeferred proto e m
                                      , EventEmitter e proto m
+                                     , EventEmitter e (AnyBlockSizeEvent e) m
                                      , Sessions e (KnownPeer e) m
                                      , proto ~ BlockInfo e
                                      )
@@ -52,15 +53,34 @@ blockSizeProto getBlockSize evHasBlock onNoBlock =
               onNoBlock (p, h)
               response (NoBlock @e h)
 
-    NoBlock h       -> do
+    NoBlock h -> deferred @proto do
       that <- thatPeer @proto
       emit @e (BlockSizeEventKey that) (NoBlockEvent (that, h))
+      emit @e AnyBlockSizeEventKey (AnyBlockSizeEvent h Nothing that)
       evHasBlock ( that, h, Nothing )
 
-    BlockSize h sz  -> do
+    BlockSize h sz  -> deferred @proto do
       that <- thatPeer @proto
       emit @e (BlockSizeEventKey @e that) (BlockSizeEvent (that, h, sz))
+      emit @e AnyBlockSizeEventKey (AnyBlockSizeEvent h (Just sz) that)
       evHasBlock ( that, h, Just sz )
+
+data AnyBlockSizeEvent e
+
+data instance EventKey e (AnyBlockSizeEvent e) =
+  AnyBlockSizeEventKey
+  deriving stock (Typeable, Generic, Eq)
+
+instance Hashable (EventKey e (AnyBlockSizeEvent e)) where
+  hashWithSalt s _ = hashWithSalt s ("AnyBlockSizeEventKey_1730696922" :: ByteString)
+
+data instance Event e (AnyBlockSizeEvent e) =
+  AnyBlockSizeEvent
+  { anyBlockSizeHash :: Hash HbSync
+  , anyBlockSize     :: Maybe Integer
+  , anyBlockSizePeer :: Peer e
+  }
+  deriving stock (Generic,Typeable)
 
 newtype instance SessionKey e (BlockInfo e) =
   BlockSizeKey (Hash HbSync)
