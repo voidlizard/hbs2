@@ -315,13 +315,13 @@ blockDownloadLoop env0 = do
 
   let blkInfoLock = 5  :: Timeout 'Seconds
   let blkWaitLock = 60 :: Timeout 'Seconds
-  let workloadFactor = 1.10
+  let workloadFactor = 2.5
 
   e <- ask
   sto <- getStorage
 
   let downT = 16
-  let sizeT = 16
+  let sizeT = 4
 
   inQ    <- withDownload env0 $ asks (view blockInQ)
   checkQ <- withDownload env0 $ asks (view blockCheckQ)
