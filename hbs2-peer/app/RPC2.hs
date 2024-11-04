@@ -27,6 +27,7 @@ import HBS2.Actors.Peer
 import HBS2.Peer.Proto.Peer
 import HBS2.Peer.Proto.BlockInfo
 import HBS2.Peer.Proto.BlockChunks
+import HBS2.Peer.Brains
 import HBS2.Storage
 import HBS2.Clock
 import HBS2.Net.Auth.Schema
@@ -105,6 +106,10 @@ instance BlockSizeCache e () where
   cacheBlockSize _ _ _ _ = pure ()
   findBlockSize _ _ _ = pure Nothing
 
+instance BlockSizeCache e (SomeBrains e) where
+  cacheBlockSize = brainsCacheBlockSize @e
+  findBlockSize = brainsFindBlockSize @e
+
 queryBlockSizeFromPeer :: forall e cache m . ( e ~ L4Proto
                                              , MonadUnliftIO m
                                              , BlockSizeCache e cache
@@ -119,23 +124,33 @@ queryBlockSizeFromPeer cache e h peer = do
 
   what <- try @_ @(DownloadError e) $ liftIO $ withPeerM e do
 
-    PeerData{..} <- find (KnownPeerKey peer) id
-                     >>= orThrow (UnknownPeerError peer)
+    flip runContT pure $ callCC \exit -> do
 
-    sizeQ <- newTQueueIO
+      PeerData{..} <- lift $ find (KnownPeerKey peer) id
+                       >>= orThrow (UnknownPeerError peer)
 
-    subscribe @e (BlockSizeEventKey peer) $ \case
-      BlockSizeEvent (that, hx, sz) | hx == h -> do
-        atomically $ writeTQueue sizeQ (Just sz)
-        cacheBlockSize @e cache _peerSignKey h sz
+      s <- lift $ findBlockSize @e cache _peerSignKey h
 
-      _ -> do
-        atomically $ writeTQueue sizeQ Nothing
+      debug $ "FOUND CACHED VALUE" <+> pretty h <+> pretty s
 
-    request peer (GetBlockSize @e h)
+      maybe none (exit . Just) s
 
-    race ( pause defBlockInfoTimeout ) (atomically $ readTQueue sizeQ )
-       >>= orThrow (PeerRequestTimeout peer)
+      lift do
+
+        sizeQ <- newTQueueIO
+
+        subscribe @e (BlockSizeEventKey peer) $ \case
+          BlockSizeEvent (that, hx, sz) | hx == h -> do
+            atomically $ writeTQueue sizeQ (Just sz)
+            cacheBlockSize @e cache _peerSignKey h sz
+
+          _ -> do
+            atomically $ writeTQueue sizeQ Nothing
+
+        request peer (GetBlockSize @e h)
+
+        race ( pause defBlockInfoTimeout ) (atomically $ readTQueue sizeQ )
+           >>= orThrow (PeerRequestTimeout peer)
 
   case what of
     Left{}  -> pure $ Left (PeerRequestTimeout peer)
@@ -268,7 +283,7 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
 
             peer <- either (const $ exit (mkSym "error:invalid-address")) pure peer'
 
-            what <- lift $ downloadFromPeer defChunkWaitMax () rpcPeerEnv (coerce blk) peer
+            what <- lift $ downloadFromPeer defChunkWaitMax rpcBrains rpcPeerEnv (coerce blk) peer
 
             case what of
               Left e   -> pure $ mkList @C [ mkSym "error" , mkStr (show e) ]
@@ -285,7 +300,7 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
 
             peer <- either (const $ exit (mkSym "error:invalid-address")) pure peer'
 
-            sz <- lift $ queryBlockSizeFromPeer @e () rpcPeerEnv  (coerce blk) peer
+            sz <- lift $ queryBlockSizeFromPeer @e rpcBrains rpcPeerEnv  (coerce blk) peer
 
             case sz of
               Left e         -> pure $ mkList @C [ mkSym "error", mkStr (show e) ]
