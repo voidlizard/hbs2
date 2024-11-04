@@ -623,7 +623,7 @@ SAVEPOINT zzz1;
 
 DELETE FROM ancestors WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM seenby WHERE strftime('%s','now') - strftime('%s', ts) > 600;
-DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > 1200;
+DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > (86400*7);
 DELETE FROM statedb.pexinfo where seen <  datetime('now', '-7 days');
 DELETE FROM seen where ts < datetime('now');
 
@@ -805,9 +805,9 @@ newBasicBrains cfg = liftIO do
   brains <- runReaderT (cfgValue @PeerBrainsDb @(Maybe String)) cfg
               <&> fromMaybe ":memory:"
 
-  unless ( brains == ":memory:" ) do
-    here <- doesFileExist brains
-    when here $ do removeFile brains
+  -- unless ( brains == ":memory:" ) do
+  --   here <- doesFileExist brains
+    -- when here $ do removeFile brains
 
   conn <- open brains
 
@@ -860,6 +860,15 @@ newBasicBrains cfg = liftIO do
 
   execute_ conn [qc|
     create table if not exists blocksize
+    ( block text not null
+    , peer text not null
+    , size int
+    , ts DATE DEFAULT (datetime('now','localtime'))
+    , primary key (block,peer))
+  |]
+
+  execute_ conn [qc|
+    create table if not exists blocksize2
     ( block text not null
     , peer text not null
     , size int
