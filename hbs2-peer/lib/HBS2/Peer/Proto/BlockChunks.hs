@@ -95,7 +95,7 @@ blockChunksProto adapter (BlockChunks c p) = do
 
   case p of
 
-    BlockGetChunks h size n1 num | auth -> do
+    BlockGetChunks h size n1 num | auth -> deferred @proto do
 
       bsz' <- blkSize adapter h
 
@@ -104,11 +104,11 @@ blockChunksProto adapter (BlockChunks c p) = do
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = take (fromIntegral num) $ drop (fromIntegral n1) $ zip offsets' [0..]
 
-        for_ offsets $ \((o,sz),i) -> deferred @proto do
+        for_ offsets $ \((o,sz),i) -> do
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
-    BlockGetAllChunks h size | auth -> do
+    BlockGetAllChunks h size | auth -> deferred @proto do
 
       bsz' <- blkSize adapter h
 
@@ -117,7 +117,7 @@ blockChunksProto adapter (BlockChunks c p) = do
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = zip offsets' [0..]
 
-        for_ offsets $ \((o,sz),i) -> deferred @proto do
+        for_ offsets $ \((o,sz),i) -> do
           chunk <- blkChunk adapter h o sz
           maybe (pure ()) (response_ . BlockChunk @e i) chunk
 
