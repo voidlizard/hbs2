@@ -67,6 +67,23 @@ class HasBrains e a where
   onKnownPeers :: MonadIO m => a -> [Peer e] -> m ()
   onKnownPeers _ _ = none
 
+  brainsCacheBlockSize :: MonadIO m
+                       => a
+                       -> PubKey 'Sign (Encryption e)
+                       -> Hash HbSync
+                       -> Integer
+                       -> m ()
+
+  brainsCacheBlockSize _ _ _ _ = none
+
+  brainsFindBlockSize :: MonadIO m
+                      => a
+                      -> PubKey 'Sign (Encryption e)
+                      -> Hash HbSync
+                      -> m (Maybe Integer)
+
+  brainsFindBlockSize _ _ _ = pure Nothing
+
   onBlockSize :: ( MonadIO m
                  , IsPeerAddr e m
                  )
@@ -196,4 +213,7 @@ instance HasBrains e (SomeBrains e) where
 
   setSeen (SomeBrains a) = setSeen @e a
   isSeen (SomeBrains a) = isSeen @e a
+
+  brainsCacheBlockSize (SomeBrains a) = brainsCacheBlockSize @e a
+  brainsFindBlockSize (SomeBrains a) = brainsFindBlockSize @e a
 
