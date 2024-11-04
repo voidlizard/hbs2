@@ -315,6 +315,35 @@ instance ( Hashable (Peer e)
       r <- query @_ @(Only Int) conn [qc|select 1 from seen where hash = ? limit 1|] (Only h)
       pure $ not $ List.null r
 
+  brainsCacheBlockSize b pk ha s  = do
+    updateOP b $ do
+      let conn = view brainsDb b
+
+      let sql = [qc|
+         insert into blocksizecache (block,peer,size)
+         values(?,?,?)
+         on conflict (block,peer) do update set size = excluded.size
+      |]
+
+      void $ execute conn sql (hash,peer,s)
+
+    where
+      peer = show $ pretty (AsBase58 pk)
+      hash = show $ pretty ha
+
+  brainsFindBlockSize brains pk ha = do
+     let conn = view brainsDb brains
+     let peer = show $ pretty (AsBase58 pk)
+     let hash = show $ pretty ha
+     liftIO do
+       result <- query @_ @(Only Integer) conn [qc|
+         select size
+         from blocksizecache
+         where block = ? and peer = ?
+         limit 1
+       |] (hash, peer)
+       pure $ fromOnly <$> listToMaybe result
+
 commitNow :: forall e m . MonadIO m
           => BasicBrains e
           -> Bool
@@ -624,6 +653,7 @@ SAVEPOINT zzz1;
 DELETE FROM ancestors WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM seenby WHERE strftime('%s','now') - strftime('%s', ts) > 600;
 DELETE FROM blocksize WHERE strftime('%s','now') - strftime('%s', ts) > (86400*7);
+DELETE FROM blocksizecache WHERE strftime('%s','now') - strftime('%s', ts) > (86400*7);
 DELETE FROM statedb.pexinfo where seen <  datetime('now', '-7 days');
 DELETE FROM seen where ts < datetime('now');
 
@@ -868,7 +898,7 @@ newBasicBrains cfg = liftIO do
   |]
 
   execute_ conn [qc|
-    create table if not exists blocksize2
+    create table if not exists blocksizecache
     ( block text not null
     , peer text not null
     , size int
