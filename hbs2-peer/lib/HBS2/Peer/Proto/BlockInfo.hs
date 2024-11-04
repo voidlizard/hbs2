@@ -1,3 +1,4 @@
+{-# Language UndecidableInstances #-}
 module HBS2.Peer.Proto.BlockInfo where
 
 import HBS2.Prelude.Plated
@@ -9,7 +10,9 @@ import HBS2.Hash
 
 import HBS2.System.Logger.Simple
 
+import Data.Hashable
 import Data.Maybe
+import Data.ByteString (ByteString)
 
 data BlockInfo e = GetBlockSize (Hash HbSync)
                  | NoBlock (Hash HbSync)
@@ -51,12 +54,12 @@ blockSizeProto getBlockSize evHasBlock onNoBlock =
 
     NoBlock h       -> do
       that <- thatPeer @proto
-      emit @e (BlockSizeEventKey h) (NoBlockEvent that)
+      emit @e (BlockSizeEventKey that) (NoBlockEvent (that, h))
       evHasBlock ( that, h, Nothing )
 
     BlockSize h sz  -> do
       that <- thatPeer @proto
-      emit @e (BlockSizeEventKey h) (BlockSizeEvent (that, h, sz))
+      emit @e (BlockSizeEventKey @e that) (BlockSizeEvent (that, h, sz))
       evHasBlock ( that, h, Just sz )
 
 newtype instance SessionKey e (BlockInfo e) =
@@ -64,16 +67,17 @@ newtype instance SessionKey e (BlockInfo e) =
   deriving stock (Typeable,Eq,Show)
   deriving newtype (Hashable,IsString)
 
-
 newtype instance EventKey e (BlockInfo e) =
-  BlockSizeEventKey (Hash HbSync)
-  deriving stock (Typeable, Eq,Generic)
+  BlockSizeEventKey (Peer e)
+  deriving stock (Typeable, Generic)
 
-deriving  instance Hashable (EventKey e (BlockInfo e))
+deriving stock instance Eq (Peer e) => Eq (EventKey e (BlockInfo e))
+
+instance (Eq (Peer e), Hashable (Peer e)) => Hashable (EventKey e (BlockInfo e))
 
 data instance Event e (BlockInfo e) =
     BlockSizeEvent (Peer e, Hash HbSync, Integer)
-  | NoBlockEvent (Peer e)
+  | NoBlockEvent (Peer e, Hash HbSync)
   deriving stock (Typeable)
 
 

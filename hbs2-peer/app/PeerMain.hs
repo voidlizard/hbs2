@@ -612,13 +612,23 @@ runCLI = do
 
     pDoScript = do
       rpc <- pRpcCommon
+
+      w    <- option (auto @Double) ( short 'w'
+                                     <> long "timeout"
+                                     <> value 1.00
+                                     <> help "timeout in seconds (float)"
+                                     <> showDefault
+                                    )
+
       argz <- many (strArgument (metavar "TERM" <> help "script terms"))
+
       pure do
         let s = unlines $ unwords <$> splitForms argz
 
+
         withMyRPC @PeerAPI rpc $ \caller -> do
 
-           r <- callRpcWaitRetry @RpcRunScript (TimeoutSec 1) 3 caller (Text.pack s)
+           r <- callRpcWaitRetry @RpcRunScript (TimeoutSec (realToFrac w)) 3 caller (Text.pack s)
                   >>= orThrowUser "rpc timeout"
 
            for_ (parseTop r & fromRight mempty) \sexy -> do
@@ -1038,6 +1048,11 @@ runPeer opts = respawnOnError opts $ do
               pl <- getPeerLocator @e
 
               addPeers @e pl ps
+
+              -- subscribe @e (BlockSizeEventKey h) $ \case
+              --   BlockSizeEvent (that, hx, sz) -> do
+              --     debug $ "FUCKING GOT BLOCK SIZE!" <+> pretty (AsBase58 hx) <+> pretty sz
+                  -- atomically $ writeTQueue answ (sz, that)
 
               subscribe @e PeerAnnounceEventKey $ \(PeerAnnounceEvent pip nonce) -> do
                unless (nonce == pnonce) $ do
