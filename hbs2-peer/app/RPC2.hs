@@ -184,6 +184,7 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
 
   sto <- withPeerM env getStorage
 
+  p <- newTQueueIO
   q <- newTQueueIO
   done <- newTVarIO (mempty :: HashSet (Hash HbSync))
 
@@ -195,9 +196,16 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
 
   flip runContT pure $ callCC \exit -> do
 
+    ContT $ withAsync $ liftIO $ forever do
+      atomically (readTQueue p)
+
     fix \next -> do
 
-      mt <- atomically $ isEmptyTQueue q
+      mt <- atomically do
+               pe <- isEmptyTQueue p
+               qe <- isEmptyTQueue q
+               when ( qe && not pe ) retry
+               pure qe
 
       when mt $ exit $ Right ()
 
@@ -213,10 +221,18 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
 
       case w of
         Right bs -> do
+
           h' <- enqueueBlock sto bs
           h3 <- ContT $ maybe1 h' (pure $ Left StorageError)
-          let refs = extractBlockRefs h3 bs
-          atomically $ mapM_ (writeTQueue q . coerce) refs
+
+          let
+            parse :: IO ()
+            parse = do
+                let refs = extractBlockRefs h3 bs
+                atomically $ mapM_ (writeTQueue q . coerce) refs
+
+          atomically $ writeTQueue p parse
+
           next
 
         Left e -> do
