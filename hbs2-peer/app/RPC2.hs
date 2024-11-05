@@ -337,7 +337,7 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
              s1 <- readTVarIO _sBlockChunks2 <&> IntMap.size
              pause @'MilliSeconds ( max (realToFrac chunkN * rtt) 2000 )
              s2 <- readTVarIO _sBlockChunks2 <&> IntMap.size
-             when (s1 == s2)  next
+             when (s1 /= s2)  next
 
         r <- liftIO $ race watchdog do
 
