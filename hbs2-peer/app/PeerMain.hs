@@ -1202,6 +1202,7 @@ runPeer opts = respawnOnError opts $ do
 
                 peerThread "pexLoop" (pexLoop @e brains tcp)
 
+                -- FIXME: new-download-loop
                 peerThread "blockDownloadLoop" (blockDownloadLoop denv)
 
                 peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
