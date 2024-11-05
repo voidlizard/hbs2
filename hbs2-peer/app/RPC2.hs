@@ -294,16 +294,21 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
     callCC $ \exit2 -> do
 
       for_ bursts $ \(i,chunkN) -> do
+
+        -- s0 <- readTVarIO _sBlockChunks2 <&> IntMap.size
+
+        -- count <- newTVarIO 0
+        atomically $ flushTQueue chuQ
+
         let req = BlockChunks @e coo (BlockGetChunks h chunkSize (fromIntegral i) (fromIntegral chunkN))
         lift $ request peer req
 
         r <- liftIO $ race (pause t) do
 
           atomically do
-             -- readTQueue chuQ
-             pieces <- readTVar _sBlockChunks2
-             let done = and [ IntMap.member j pieces | j <- [i .. i + chunkN-1] ]
-             unless done retry
+            pieces <- readTVar _sBlockChunks2
+            let done  = and [ IntMap.member j pieces | j <- [i .. i + chunkN-1] ]
+            unless done retry
 
         atomically $ flushTQueue chuQ
 
