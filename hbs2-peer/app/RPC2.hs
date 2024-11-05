@@ -225,7 +225,7 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
         done <- atomically do
           pe <- isEmptyTQueue p
           qe <- isEmptyTQueue q
-          unless pe retry
+          when (qe && not pe) retry
           pure qe
 
         if done then
