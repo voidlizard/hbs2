@@ -18,6 +18,7 @@ import Data.Either
 -- import Data.Function
 -- import Data.Functor
 
+import Data.Coerce
 import Data.Maybe
 import Control.Concurrent.STM
 import Data.HashMap.Strict qualified as HashMap
@@ -47,6 +48,38 @@ tryDetect hash obj = rights [mbAnn, mbLink, mbMerkle, mbSeq] & headDef orBlob
     orBlob   = Blob hash
 
 data ScanLevel = ScanShallow | ScanDeep
+
+extractBlockRefs :: Hash HbSync -> ByteString -> [Hash HbSync]
+extractBlockRefs hx bs =
+  case tryDetect hx bs of
+   (SeqRef (SequentialRef _ (AnnotatedHashRef a' b))) ->
+    coerce <$> catMaybes [a', Just b]
+
+   AnnRef (AnnotatedHashRef ann h) -> do
+    coerce <$> catMaybes [ann, Just h]
+
+   Merkle (MNode _ hs) -> hs
+
+   MerkleAnn (MTreeAnn{..}) -> do
+
+     let meta = case _mtaMeta of
+                  AnnHashRef ha -> [ha]
+                  _ -> mempty
+
+     let c = case _mtaCrypt of
+               CryptAccessKeyNaClAsymm hs -> [hs]
+               EncryptGroupNaClSymm1 hs _ -> [hs]
+               EncryptGroupNaClSymm2 _ hs _ -> [hs]
+               _ -> mempty
+
+     let t = case _mtaTree of
+               MNode _ hs -> hs
+               _ -> mempty
+
+     meta <> c <> t
+
+   _ -> mempty
+
 
 
 -- TODO: control-nesting-level-to-avoid-abuse
