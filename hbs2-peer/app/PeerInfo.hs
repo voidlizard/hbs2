@@ -45,17 +45,6 @@ instance HasCfgKey PeerPingIntervalKey (Maybe Integer) where
   key = "ping-interval"
 
 
--- | Compute the median of a list
-median :: (Ord a, Integral a) => [a] -> Maybe a
-median [] = Nothing
-median xs = Just
-  if odd n
-    then sorted !! half
-    else ((sorted !! (half - 1)) + (sorted !! half)) `div` 2
-  where n = length xs
-        sorted = List.sort xs
-        half = n `div` 2
-
 -- | Get the median RTT for a given peer.
 medianPeerRTT :: MonadIO m => PeerInfo e -> m (Maybe Integer)
 medianPeerRTT pinfo = do
