@@ -242,15 +242,13 @@ runBurstMachine BurstMachine{..} = do
         pause @'Seconds 600
         atomically $ writeTVar _buMaxReal buMax
 
-    forever do
-
-      e1 <- readTVarIO _buErrors
+    flip fix 0 $ \next e1 -> do
 
       let dt = realToFrac _buTimeout
 
       pause @'Seconds dt
 
-      atomically do
+      eNew <- atomically do
 
         e2      <- readTVar _buErrors
         current <- readTVar _buCurrent
@@ -269,6 +267,10 @@ runBurstMachine BurstMachine{..} = do
         writeTVar _dEdT (realToFrac dedt)
 
         modifyTVar _rates ( Map.insertWith max dedt current )
+
+        pure e2
+
+      next eNew
 
 data S =
     SInit
