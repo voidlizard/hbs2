@@ -268,7 +268,7 @@ runBurstMachine BurstMachine{..} = do
 
         new <- if e2 > e1 then do
                     let d = max 2.0 (current * (1.0 - down))
-                    nrates <- readTVar _rates <&> drop 2 . Map.toList
+                    nrates <- readTVar _rates <&> drop 10 . Map.toList
                     let newFucked = maybe d snd (headMay nrates)
                     writeTVar _rates (Map.fromList nrates)
                     pure newFucked
@@ -336,7 +336,7 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
       txs <- readTVarIO toq <&> L.take 1000
       let m1 = fromMaybe m0 $ median txs
       when ( m1 > m0 ) $ burstMachineAddErrors bm 1
-      pause @'Seconds 5
+      pause @'Seconds 3
       next m1
 
     ContT $ withAsync $ runBurstMachine bm
@@ -466,6 +466,8 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
 
     callCC $ \exit2 -> do
 
+      _wx <- newTVarIO waity
+
       for_ bursts $ \(i,chunkN) -> do
 
         -- atomically $ flushTQueue chuQ
@@ -474,15 +476,14 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
 
         lift $ request peer req
 
+        t0 <- getTimeCoarse
+
         let watchdog = fix \next -> do
+             wx <- readTVarIO _wx <&> realToFrac
+             -- debug $ "WATCHDOG" <+> pretty wx <+> pretty waity
              r <- race (pause @'MilliSeconds waity) do
                     void $ atomically $ readTQueue chuQ
              either (const none) (const next) r
-             -- next
-             -- s1 <- readTVarIO _sBlockChunks2 <&> IntMap.size
-             -- pause @'MilliSeconds 1000
-             -- s2 <- readTVarIO _sBlockChunks2 <&> IntMap.size
-             -- when (s1 /= s2)  next
 
         r <- liftIO $ race watchdog do
 
@@ -493,9 +494,17 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
 
         atomically $ flushTQueue chuQ
 
+        t1 <- getTimeCoarse
+
+        atomically do
+          wx0 <- readTVar _wx
+          let wx1 = realToFrac (t1 - t0) * 100 / 1e6 -- millis
+          writeTVar _wx wx1
+
         case r of
           Left{} -> exit2 (Left $ DownloadStuckError (HashRef h) peer)
           _ -> pure ()
+
 
       blk <- readTVarIO _sBlockChunks2
       let rs = LBS.concat $ IntMap.elems blk
