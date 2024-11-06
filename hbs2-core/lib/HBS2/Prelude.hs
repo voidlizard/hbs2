@@ -34,6 +34,7 @@ module HBS2.Prelude
   , newSimpleProbe
   , whenTrue, whenFalse
   , dontHandle
+  , median
   ) where
 
 import HBS2.Clock
@@ -58,6 +59,7 @@ import Data.Functor
 import Data.Char qualified as Char
 import Data.Text qualified as Text
 import Data.Text (Text)
+import Data.List qualified as List
 import Data.Hashable
 import Data.HashMap.Strict(HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -255,4 +257,15 @@ instance Probe SimpleProbe where
 
 dontHandle :: Applicative f => a -> f ()
 dontHandle = const $ pure ()
+
+-- | Compute the median of a list
+median :: (Ord a, Integral a) => [a] -> Maybe a
+median [] = Nothing
+median xs = Just
+  if odd n
+    then sorted !! half
+    else ((sorted !! (half - 1)) + (sorted !! half)) `div` 2
+  where n = length xs
+        sorted = List.sort xs
+        half = n `div` 2
 
