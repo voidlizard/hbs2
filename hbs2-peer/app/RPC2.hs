@@ -234,7 +234,6 @@ runBurstMachine BurstMachine{..} = do
 
         atomically do
           e <- headDef bu0 . Map.elems <$> readTVar _rates
-          writeTVar _rates mempty
           nrates <- readTVar _rates <&> take 100 . Map.toList
           writeTVar _rates (Map.fromList nrates)
           modifyTVar _buMaxReal (max e)
