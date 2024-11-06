@@ -267,7 +267,7 @@ runBurstMachine BurstMachine{..} = do
 
         new <- if e2 > e1 then do
                     let d = max 2.0 (current * (1.0 - down))
-                    nrates <- readTVar _rates <&> drop 10 . Map.toList
+                    nrates <- readTVar _rates <&> drop 3 . Map.toList
                     let newFucked = maybe d snd (headMay nrates)
                     writeTVar _rates (Map.fromList nrates)
                     pure newFucked
@@ -480,7 +480,7 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
         let watchdog = fix \next -> do
              wx <- readTVarIO _wx <&> realToFrac
              -- debug $ "WATCHDOG" <+> pretty wx <+> pretty waity
-             r <- race (pause @'MilliSeconds waity) do
+             r <- race (pause @'MilliSeconds (min wx waity)) do
                     void $ atomically $ readTQueue chuQ
              either (const none) (const next) r
 
