@@ -44,10 +44,9 @@ import Brains
 import BrainyPeerLocator
 import ByPassWorker
 import PeerTypes hiding (info)
-import BlockDownload
+import BlockDownloadNew
 import CheckBlockAnnounce (checkBlockAnnounce)
 import CheckPeer (peerBanned)
-import DownloadQ
 import PeerInfo
 import PeerConfig
 import Bootstrap
@@ -836,11 +835,6 @@ runPeer opts = respawnOnError opts $ do
 
   brainsThread <- async $ runBasicBrains conf brains
 
-  denv <- newDownloadEnv brains
-
-  dProbe <- newSimpleProbe "BlockDownload"
-  addProbe dProbe
-  downloadEnvSetProbe denv dProbe
 
   pl <- AnyPeerLocator <$> newBrainyPeerLocator @e (SomeBrains @e brains) mempty
 
@@ -956,7 +950,7 @@ runPeer opts = respawnOnError opts $ do
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
-  rce <- refChanWorkerEnv conf penv denv refChanNotifySource
+  rce <- refChanWorkerEnv conf penv refChanNotifySource
 
   rcwProbe <- newSimpleProbe "RefChanWorker"
   addProbe rcwProbe
@@ -987,7 +981,7 @@ runPeer opts = respawnOnError opts $ do
 
   rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
-  mailboxWorker <- createMailboxProtoWorker pc  penv denv (AnyStorage s)
+  mailboxWorker <- createMailboxProtoWorker pc  penv (AnyStorage s)
 
   p <- newSimpleProbe "MailboxProtoWorker"
   mailboxProtoWorkerSetProbe mailboxWorker p
@@ -1002,7 +996,7 @@ runPeer opts = respawnOnError opts $ do
             when (Set.member pk helpFetchKeys) do
               liftIO $ Cache.insert nbcache (p,h) ()
               -- debug  $ "onNoBlock" <+> pretty p <+> pretty h
-              withPeerM penv $ withDownload denv (addDownload mzero h)
+              liftIO $ withPeerM penv $ addDownload @e mzero h
 
   loop <- liftIO $ async do
 
@@ -1014,10 +1008,10 @@ runPeer opts = respawnOnError opts $ do
               let doDownload h = do
                     pro <- isReflogProcessed @e brains h
                     if pro then do
-                      withPeerM penv $ withDownload denv (addDownload mzero h)
+                      withPeerM penv $ addDownload @e mzero h
                     else do
                       -- FIXME: separate-process-to-mark-logs-processed
-                      withPeerM penv $ withDownload denv (addDownload Nothing h)
+                      withPeerM penv $ addDownload @e Nothing h
 
               let doFetchRef puk = do
                    withPeerM penv $ do
@@ -1064,7 +1058,7 @@ runPeer opts = respawnOnError opts $ do
 
               subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                  pa <- toPeerAddr p
-                 checkBlockAnnounce conf denv no pa (view biHash bi)
+                 checkBlockAnnounce conf penv no pa (view biHash bi)
 
               subscribe @e AnyKnownPeerEventKey $ \(KnownPeerEvent p pd) -> do
 
@@ -1169,7 +1163,7 @@ runPeer opts = respawnOnError opts $ do
 
 
               let lwwRefProtoA = lwwRefProto (LWWRefProtoAdapter { lwwFetchBlock = download })
-                   where download h = withPeerM env $ withDownload denv (addDownload Nothing h)
+                   where download h = liftIO $ withPeerM env $ addDownload @e Nothing h
 
               flip runContT pure do
 
@@ -1180,7 +1174,7 @@ runPeer opts = respawnOnError opts $ do
 
                 peerThread "byPassWorker" (byPassWorker byPass)
 
-                peerThread "httpWorker" (httpWorker conf peerMeta denv)
+                peerThread "httpWorker" (httpWorker conf peerMeta)
 
                 metricsProbe <- newSimpleProbe "ghc.runtime"
                 addProbe metricsProbe
@@ -1203,9 +1197,7 @@ runPeer opts = respawnOnError opts $ do
                 peerThread "pexLoop" (pexLoop @e brains tcp)
 
                 -- FIXME: new-download-loop
-                peerThread "blockDownloadLoop" (blockDownloadLoop denv)
-
-                peerThread "blockDownloadQ" (downloadQueue conf (SomeBrains brains) denv)
+                peerThread "downloadDispatcher" (downloadDispatcher env)
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
@@ -1227,7 +1219,7 @@ runPeer opts = respawnOnError opts $ do
 
                 liftIO $ withPeerM penv do
                   runProto @e
-                    [ makeResponse (blockSizeProto blk (downloadOnBlockSize denv) onNoBlock)
+                    [ makeResponse (blockSizeProto blk onNoBlock)
                     , makeResponse (blockChunksProto adapter)
                     , makeResponse blockAnnounceProto
                     , makeResponse (withCredentials @e pc . peerHandShakeProto hshakeAdapter penv)
@@ -1300,7 +1292,7 @@ runPeer opts = respawnOnError opts $ do
                    subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
                     unless (p == self) do
                       pa <- toPeerAddr p
-                      checkBlockAnnounce conf denv no pa (view biHash bi)
+                      checkBlockAnnounce conf penv no pa (view biHash bi)
 
                    subscribe @e PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent{}) -> do
                       -- debug $ "Got peer announce!" <+> pretty pip
@@ -1345,7 +1337,7 @@ runPeer opts = respawnOnError opts $ do
                            , rpcBrains = SomeBrains brains
                            , rpcByPassInfo = liftIO (getStat byPass)
                            , rpcProbes = probes
-                           , rpcDoFetch = liftIO . fetchHash penv denv
+                           , rpcDoFetch = liftIO . fetchHash penv
                            , rpcDoRefChanHeadPost = refChanHeadPostAction
                            , rpcDoRefChanPropose = refChanProposeAction
                            , rpcDoRefChanNotify = refChanNotifyAction

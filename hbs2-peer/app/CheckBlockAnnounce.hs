@@ -13,8 +13,6 @@ import HBS2.Net.Proto.Types
 import PeerTypes
 import PeerConfig
 import CheckPeer (peerBanned)
-import BlockDownload()
-import DownloadQ()
 
 import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
@@ -90,13 +88,13 @@ checkBlockAnnounce :: forall e m . ( e ~ L4Proto
                                    , m ~ PeerM e IO
                                    )
                    => PeerConfig
-                   -> DownloadEnv e
+                   -> PeerEnv e
                    -> PeerNonce
                    -> PeerAddr e
                    -> Hash HbSync
                    -> m ()
 
-checkBlockAnnounce conf denv nonce pa h = void $ runMaybeT do
+checkBlockAnnounce conf penv nonce pa h = void $ runMaybeT do
 
   accept <- lift $ acceptAnnouncesFromPeer conf pa
 
@@ -108,8 +106,6 @@ checkBlockAnnounce conf denv nonce pa h = void $ runMaybeT do
 
   guard accept
 
-  lift do
-    withDownload denv $ do
-      -- TODO: use-brains-to-download-direct
-      addDownload Nothing h
+  liftIO $ withPeerM penv do
+      addDownload @e Nothing h
 

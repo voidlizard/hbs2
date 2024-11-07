@@ -84,9 +84,9 @@ httpWorker :: forall e s m . ( MyPeer e
                              , m ~ PeerM e IO
                              , e ~ L4Proto
                              -- , ForLWWRefProto e
-                             ) => PeerConfig -> AnnMetaData -> DownloadEnv e -> m ()
+                             ) => PeerConfig -> AnnMetaData -> m ()
 
-httpWorker (PeerConfig syn) pmeta e = do
+httpWorker (PeerConfig syn) pmeta = do
 
   sto <- getStorage
   let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
