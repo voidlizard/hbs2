@@ -245,10 +245,9 @@ executable hbs2-peer
     main-is:          PeerMain.hs
 
     other-modules:
-                      BlockDownload
+                      BlockDownloadNew
                     , BrainyPeerLocator
                     , ByPassWorker
-                    , DownloadQ
                     , DownloadMon
                     , Bootstrap
                     , PeerInfo

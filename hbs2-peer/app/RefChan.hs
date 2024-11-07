@@ -38,7 +38,6 @@ import HBS2.Storage
 
 import PeerTypes hiding (downloads)
 import PeerConfig
-import BlockDownload()
 import Brains
 
 import Control.Monad.Trans.Cont
@@ -91,7 +90,6 @@ data RefChanWorkerEnv e =
   RefChanWorkerEnv
   { _refChanWorkerConf            :: PeerConfig
   , _refChanPeerEnv               :: PeerEnv e
-  , _refChanWorkerEnvDEnv         :: DownloadEnv e
   , _refChanNotifySource          :: SomeNotifySource (RefChanEvents e)
   , _refChanWorkerEnvHeadQ        :: TQueue (RefChanId e, RefChanHeadBlockTran e)
   , _refChanWorkerEnvDownload     :: TVar (HashMap HashRef (RefChanId e, (TimeSpec, OnDownloadComplete)))
@@ -121,12 +119,11 @@ refChanWorkerEnvSetProbe RefChanWorkerEnv{..} probe = do
 refChanWorkerEnv :: forall m e . (MonadIO m, ForRefChans e)
                  => PeerConfig
                  -> PeerEnv e
-                 -> DownloadEnv e
                  -> SomeNotifySource (RefChanEvents e)
                  -> m (RefChanWorkerEnv e)
 
-refChanWorkerEnv conf pe de nsource =
-  liftIO $ RefChanWorkerEnv @e conf pe de nsource
+refChanWorkerEnv conf pe nsource =
+  liftIO $ RefChanWorkerEnv @e conf pe nsource
     <$> newTQueueIO
     <*> newTVarIO mempty
     <*> newTVarIO mempty
@@ -217,8 +214,7 @@ refChanAddDownload :: forall e m . ( m ~ PeerM e IO
 refChanAddDownload env chan r onComlete = do
   penv <- ask
   t <- getTimeCoarse
-  withPeerM penv $ withDownload (_refChanWorkerEnvDEnv env)
-                 $ addDownload @e Nothing (fromHashRef r)
+  liftIO $ withPeerM penv $ addDownload @e Nothing (fromHashRef r)
 
   atomically $ modifyTVar (view refChanWorkerEnvDownload env) (HashMap.insert r (chan,(t, onComlete)))
 
@@ -903,7 +899,11 @@ logMergeProcess penv env q = withPeerM penv do
           atomically $ modifyTVar (mergeHeads e) (HashMap.insert h headblk)
           pure headblk
 
-    downloadMissedHead :: AnyStorage -> RefChanId e -> HashRef -> m ()
+    downloadMissedHead :: EventEmitter e (DownloadReq e) m
+                       => AnyStorage
+                       -> RefChanId e
+                       -> HashRef
+                       -> m ()
     downloadMissedHead sto chan headRef = do
       penv <- ask
       here <- liftIO $ hasBlock sto (fromHashRef headRef) <&> isJust
