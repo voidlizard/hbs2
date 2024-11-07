@@ -3,7 +3,7 @@
 module HBS2.Clock
   ( module HBS2.Clock
   , module System.Clock
-  , POSIXTime, getPOSIXTime
+  , POSIXTime, getPOSIXTime, NominalDiffTime
   )where
 
 import Data.Functor
