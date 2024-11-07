@@ -42,7 +42,6 @@ import HBS2.Misc.PrettyStuff
 import Brains
 import PeerConfig
 import PeerTypes
-import BlockDownload()
 
 import DBPipe.SQLite as Q
 
@@ -125,7 +124,6 @@ instance ForMailbox s => Hashable (MailboxDownload s)
 data MailboxProtoWorker (s :: CryptoScheme) e =
   MailboxProtoWorker
   { mpwPeerEnv            :: PeerEnv e
-  , mpwDownloadEnv        :: DownloadEnv e
   , mpwStorage            :: AnyStorage
   , mpwCredentials        :: PeerCredentials s
   , mpwFetchQ             :: TVar (HashSet (MailboxRefKey s))
@@ -457,7 +455,7 @@ startDownloadStuff :: forall s e m . (ForMailbox s, s ~ Encryption e, MyPeer e, 
               -> m ()
 
 startDownloadStuff MailboxProtoWorker{..} href = do
-  liftIO $ withPeerM mpwPeerEnv $ withDownload mpwDownloadEnv
+  liftIO $ withPeerM mpwPeerEnv
     $ do
       debug $ "startDownloadStuff" <+> pretty href
       addDownload @e Nothing (coerce href)
@@ -552,13 +550,12 @@ createMailboxProtoWorker :: forall s e m . ( MonadIO m
                                            )
                          => PeerCredentials s
                          -> PeerEnv e
-                         -> DownloadEnv e
                          -> AnyStorage
                          -> m (MailboxProtoWorker s e)
-createMailboxProtoWorker pc pe de sto = do
+createMailboxProtoWorker pc pe sto = do
   -- FIXME: queue-size-hardcode
   --   $class: hardcode
-  MailboxProtoWorker pe de sto pc
+  MailboxProtoWorker pe sto pc
     <$> newTVarIO mempty
     <*> newTBQueueIO 8000
     <*> newTVarIO mempty

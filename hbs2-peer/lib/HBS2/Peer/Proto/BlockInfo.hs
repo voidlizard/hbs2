@@ -10,6 +10,7 @@ import HBS2.Hash
 
 import HBS2.System.Logger.Simple
 
+import Type.Reflection (someTypeRep)
 import Data.Hashable
 import Data.Maybe
 import Data.ByteString (ByteString)
@@ -33,13 +34,12 @@ blockSizeProto :: forall e m proto . ( MonadIO m
                                      , proto ~ BlockInfo e
                                      )
                => GetBlockSize  HbSync m
-               -> HasBlockEvent HbSync e m
                -> ( (Peer e, Hash HbSync) -> m () )
                -> BlockInfo e
                -> m ()
 
 -- FIXME: with-auth-combinator
-blockSizeProto getBlockSize evHasBlock onNoBlock =
+blockSizeProto getBlockSize onNoBlock =
   \case
     GetBlockSize h -> do
       -- liftIO $ print "GetBlockSize"
@@ -57,13 +57,13 @@ blockSizeProto getBlockSize evHasBlock onNoBlock =
       that <- thatPeer @proto
       emit @e (BlockSizeEventKey that) (NoBlockEvent (that, h))
       emit @e AnyBlockSizeEventKey (AnyBlockSizeEvent h Nothing that)
-      evHasBlock ( that, h, Nothing )
+      -- evHasBlock ( that, h, Nothing )
 
     BlockSize h sz  -> deferred @proto do
       that <- thatPeer @proto
       emit @e (BlockSizeEventKey @e that) (BlockSizeEvent (that, h, sz))
       emit @e AnyBlockSizeEventKey (AnyBlockSizeEvent h (Just sz) that)
-      evHasBlock ( that, h, Just sz )
+      -- evHasBlock ( that, h, Just sz )
 
 data AnyBlockSizeEvent e
 
@@ -71,8 +71,15 @@ data instance EventKey e (AnyBlockSizeEvent e) =
   AnyBlockSizeEventKey
   deriving stock (Typeable, Generic, Eq)
 
-instance Hashable (EventKey e (AnyBlockSizeEvent e)) where
-  hashWithSalt s _ = hashWithSalt s ("AnyBlockSizeEventKey_1730696922" :: ByteString)
+instance Typeable e => Hashable (EventKey e (AnyBlockSizeEvent e)) where
+  hashWithSalt s _ =
+    hashWithSalt s (someTypeRep (Proxy :: Proxy (EventKey e (AnyBlockSizeEvent e))) :: TypeRep)
+
+instance EventType (Event e (AnyBlockSizeEvent e)) where
+  isPersistent = True
+
+instance Expires (EventKey e (AnyBlockSizeEvent e)) where
+  expiresIn = const Nothing -- (Just defCookieTimeoutSec)
 
 data instance Event e (AnyBlockSizeEvent e) =
   AnyBlockSizeEvent

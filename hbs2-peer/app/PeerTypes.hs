@@ -39,6 +39,7 @@ import PeerConfig
 import PeerLogger
 
 import Prelude hiding (log)
+import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
 import Data.ByteString.Lazy (ByteString)
@@ -49,6 +50,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Data.Hashable
 import Type.Reflection
+import Data.IntMap qualified as IntMap
 import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.Text qualified as Text
@@ -122,11 +124,11 @@ instance Expires (SessionKey L4Proto (PeerInfo L4Proto)) where
   expiresIn = const (Just defCookieTimeoutSec)
 
 
-
 type MyPeer e = ( Eq (Peer e)
                 , Hashable (Peer e)
                 , Pretty (Peer e)
                 , HasPeer e
+                , Typeable e
                 , ForSignedBox (Encryption e)
                 )
 
@@ -243,121 +245,19 @@ downloadMonAdd :: forall m . MonadIO m
 downloadMonAdd env h whenDone = do
   atomically $ modifyTVar (view downloads env) (HashMap.insert h whenDone)
 
-data DownloadEnv e =
-  DownloadEnv
-  { _blockInQ       :: TVar (HashMap (Hash HbSync) BlockState)
-  , _blockInDirty   :: TVar Bool
-  , _blockCheckQ    :: TQueue (Hash HbSync)
-  , _blockSizeRecvQ :: TQueue (Peer e, Hash HbSync, Maybe Integer)
-     -- FIXME: trim!!
-  -- , _blockProposed  :: Cache (Hash HbSync, Peer e) ()
-  , _downloadMon    :: DownloadMonEnv
-  , _downloadBrains :: SomeBrains e
-  , _downloadProbe  :: TVar AnyProbe
-  }
 
-makeLenses 'DownloadEnv
-
-
-downloadEnvSetProbe :: forall e m . (MonadIO m, MyPeer e)
-                    => DownloadEnv e
-                    -> AnyProbe
-                    -> m ()
-downloadEnvSetProbe DownloadEnv{..} p = do
-  atomically $ writeTVar _downloadProbe p
-
-newDownloadEnv :: (MonadIO m, MyPeer e, HasBrains e brains) => brains -> m (DownloadEnv e)
-newDownloadEnv brains = liftIO do
-  DownloadEnv <$> newTVarIO mempty
-              <*> newTVarIO False
-              <*> newTQueueIO
-              <*> newTQueueIO
-              -- <*> Cache.newCache (Just (toTimeSpec (2 :: Timeout 'Seconds)))
-              <*> downloadMonNew
-              <*> pure (SomeBrains brains)
-              <*> newTVarIO (AnyProbe ())
-
-newtype BlockDownloadM e m a =
-  BlockDownloadM { fromBlockDownloadM :: ReaderT (DownloadEnv e) m a }
-  deriving newtype ( Functor
-                   , Applicative
-                   , Monad
-                   , MonadIO
-                   , MonadUnliftIO
-                   , MonadReader (DownloadEnv e)
-                   , MonadTrans
-                   )
-
-withDownload :: (MyPeer e, HasPeerLocator e m, MonadIO m) => DownloadEnv e -> BlockDownloadM e m a -> m a
-withDownload e m = runReaderT ( fromBlockDownloadM m ) e
-
-
-isBlockHereCached :: forall e m . ( MyPeer e
-                                  , MonadIO m
-                                  , HasStorage m
-                                  )
-            => Hash HbSync -> BlockDownloadM e m Bool
-
-isBlockHereCached h = do
-  sto <- lift getStorage
-  liftIO $ hasBlock sto h <&> isJust
-
-
-type DownloadConstr e m = ( MyPeer e
-                          , MonadIO m
-                          , HasPeerLocator e (BlockDownloadM e m)
-                          , HasStorage m -- (BlockDownloadM e m)
+type DownloadConstr e m = ( MonadIO m
+                          , EventEmitter e (DownloadReq e) m
                           )
 
 addDownload :: forall e m . ( DownloadConstr e m
                             )
             => Maybe (Hash HbSync)
             -> Hash HbSync
-            -> BlockDownloadM e m ()
+            -> m ()
 
 addDownload mbh h = do
-
-  tinq <- asks (view blockInQ)
-  checkQ <- asks (view blockCheckQ)
-  dirty <- asks (view blockInDirty)
-  brains <- asks (view downloadBrains)
-  here <- isBlockHereCached h
-
-  if here then do
-    deleteBlockFromQ h
-  else do
-    newBlock <- BlockState
-                  <$> liftIO getTimeCoarse
-                  <*> pure Nothing
-                  <*> liftIO (newTVarIO BlkNew)
-
-    claimBlockCameFrom @e brains mbh h
-    -- Cache.insert
-    liftIO $ atomically $ do
-      modifyTVar tinq $ HashMap.insert h newBlock
-      writeTQueue checkQ h
-      writeTVar dirty True
-
-
-deleteBlockFromQ :: MonadIO m => Hash HbSync -> BlockDownloadM e m ()
-deleteBlockFromQ h = do
-  inq <- asks (view blockInQ)
-  liftIO $ atomically $ modifyTVar' inq (HashMap.delete h)
-
-failedDownload :: forall e m . ( MyPeer e
-                               , MonadIO m
-                               , HasPeer e
-                               , HasPeerLocator e (BlockDownloadM e m)
-                               , HasStorage m
-                               )
-               => Peer e
-               -> Hash HbSync
-               -> BlockDownloadM e m ()
-
-failedDownload p h = do
-  trace $ "failedDownload" <+> pretty p <+> pretty h
-  addDownload mzero h
-  -- FIXME: brains-download-fail
+  emit @e DownloadReqKey (DownloadReqData h)
 
 type ForGossip e p m =
   ( MonadIO m
@@ -525,5 +425,48 @@ authorized f req = do
   p <- thatPeer @proto
   auth <- find (KnownPeerKey p) id <&> isJust
   when auth (f req)
+
+
+-- NOTE: this is an adapter for a ResponseM monad
+--       because response is working in ResponseM monad (ha!)
+--       So don't be confused with types
+--
+mkAdapter :: forall e m . ( m ~  PeerM e IO
+                          , HasProtocol e (BlockChunks e)
+                          , Hashable (SessionKey e (BlockChunks e))
+                          , Sessions e (BlockChunks e) (ResponseM e m)
+                          , Typeable (SessionKey e (BlockChunks e))
+                          , EventEmitter e (BlockChunks e) m
+                          , Pretty (Peer e)
+                          )
+          => m (BlockChunksI e (ResponseM e m ))
+mkAdapter = do
+  storage <- getStorage
+  pure $
+    BlockChunksI
+    { blkSize     = liftIO . hasBlock storage
+    , blkChunk    = \h o s -> liftIO (getChunk storage h o s)
+    , blkGetHash  = \c -> find (DownloadSessionKey @e c) (view sBlockHash)
+
+    , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
+        let cKey = DownloadSessionKey (p,c)
+
+        dodo <- lift $ find cKey (view sBlockChunks)
+
+        unless (isJust dodo) $ do
+          debug $ "session lost for peer !" <+> pretty p
+
+--        debug $ "FINDING-SESSION:" <+> pretty c <+> pretty n
+--        debug $ "GOT SHIT" <+> pretty c <+> pretty n
+
+        se <- MaybeT $ find cKey id
+        let dwnld  = view sBlockChunks se
+        let dwnld2 = view sBlockChunks2 se
+
+        -- debug $ "WRITE SHIT" <+> pretty c <+> pretty n
+        liftIO $ atomically do
+          writeTQueue dwnld (n, bs)
+          modifyTVar' dwnld2 (IntMap.insert (fromIntegral n) bs)
+    }
 
 
