@@ -553,7 +553,8 @@ downloadDispatcher brains env = flip runContT pure do
 
   rq <- newTQueueIO
 
-  seen <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef Int TimeSpec )
+  let seenLimit = 1000
+  seen <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef TimeSpec () )
 
   blkQ <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef Int NominalDiffTime )
 
@@ -568,6 +569,16 @@ downloadDispatcher brains env = flip runContT pure do
   ContT $ withAsync $ forever do
     join $ atomically (readTQueue work)
 
+  ContT $ withAsync $ forever do
+    pause @'Seconds 600
+    debug $ "CLEANUP SEEN"
+    atomically do
+      fix \next -> do
+        n <- readTVar seen <&> HPSQ.size
+        when (n > seenLimit) do
+          modifyTVar seen HPSQ.deleteMin
+          next
+
   liftIO $ withPeerM env do
     subscribe @e DownloadReqKey $ \(DownloadReqData h) -> do
       now <- getTimeCoarse
@@ -576,7 +587,7 @@ downloadDispatcher brains env = flip runContT pure do
                 if already then do
                   pure False
                 else do
-                  modifyTVar seen ( HPSQ.insert (HashRef h) 1 now )
+                  modifyTVar seen ( HPSQ.insert (HashRef h) now () )
                   modifyTVar blkQ ( HPSQ.insert (HashRef h) 1 t0 )
                   pure True
       when new do
@@ -610,8 +621,10 @@ downloadDispatcher brains env = flip runContT pure do
   forever do
     pause @'Seconds 10
     size <- atomically $ readTVar blkQ <&> HPSQ.size
+    seenSize <- atomically $ readTVar seen <&> HPSQ.size
     debug $ yellow $ "I'm download dispatcher"
     debug $ yellow $ "wip:" <+> pretty size
+    debug $ yellow $ "seen:" <+> pretty seenSize
 
   where
 
