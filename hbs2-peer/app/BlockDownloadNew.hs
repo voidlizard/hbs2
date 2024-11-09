@@ -554,9 +554,16 @@ downloadDispatcher brains env = flip runContT pure do
   rq <- newTQueueIO
 
   let seenLimit = 1000
+
   seen <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef TimeSpec () )
 
   blkQ <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef Int NominalDiffTime )
+
+  let sizeCacheLimit = 10000
+
+  sizeCache <- newTVarIO ( HPSQ.empty :: HashPSQ (HashRef,Peer e) TimeSpec (Maybe Integer) )
+
+  sizeQ <- newTVarIO ( HPSQ.empty :: HashPSQ HashRef NominalDiffTime () )
 
   sto <- withPeerM env getStorage
 
@@ -571,12 +578,21 @@ downloadDispatcher brains env = flip runContT pure do
 
   ContT $ withAsync $ forever do
     pause @'Seconds 600
+
     debug $ "CLEANUP SEEN"
     atomically do
       fix \next -> do
         n <- readTVar seen <&> HPSQ.size
         when (n > seenLimit) do
           modifyTVar seen HPSQ.deleteMin
+          next
+
+    debug $ "CLEANUP SIZES"
+    atomically do
+      fix \next -> do
+        n <- readTVar sizeCache <&> HPSQ.size
+        when (n > sizeCacheLimit) do
+          modifyTVar sizeCache HPSQ.deleteMin
           next
 
   liftIO $ withPeerM env do
@@ -599,6 +615,23 @@ downloadDispatcher brains env = flip runContT pure do
   let shiftPrio = \case
         Nothing -> ((), Nothing)
         Just (p,v) -> ((), Just (succ p, v * 1.10 ))
+
+  ContT $ withAsync $
+    polling (Polling 1 1) missChk $ \h -> do
+      pips <- readTVarIO pts <&> HM.keys
+      forConcurrently_ pips $ \p -> do
+        now <- getTimeCoarse
+        here <- readTVarIO sizeCache <&> HPSQ.member (h,p)
+        hereB <- hasBlock sto (coerce h) <&> isJust
+        when (not here && not hereB) do
+          size <- queryBlockSizeFromPeer brains env (coerce h) p
+          case size of
+            Left{} -> pure ()
+            Right w -> do
+              atomically $ modifyTVar sizeCache ( HPSQ.insert (h,p) now w )
+              debug $ green "GOT SIZE" <+> pretty w <+> pretty h <+> pretty p
+
+      atomically $ modifyTVar blkQ ( snd . HPSQ.alter shiftPrio h )
 
   ContT $ withAsync $ forever do
     polling (Polling 1 1) missChk $ \h -> do
