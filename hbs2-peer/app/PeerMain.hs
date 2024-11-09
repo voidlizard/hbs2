@@ -1197,7 +1197,7 @@ runPeer opts = respawnOnError opts $ do
                 peerThread "pexLoop" (pexLoop @e brains tcp)
 
                 -- FIXME: new-download-loop
-                peerThread "downloadDispatcher" (downloadDispatcher (SomeBrains brains) env)
+                peerThread "downloadDispatcher" (downloadDispatcher2 (SomeBrains brains) env)
 
                 peerThread "fillPeerMeta" (fillPeerMeta tcp tcpProbeWait)
 
