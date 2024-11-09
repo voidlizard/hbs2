@@ -655,9 +655,11 @@ downloadDispatcher brains env = flip runContT pure do
     pause @'Seconds 10
     size <- atomically $ readTVar blkQ <&> HPSQ.size
     seenSize <- atomically $ readTVar seen <&> HPSQ.size
+    sizeCacheSize <- atomically $ readTVar sizeCache <&> HPSQ.size
     debug $ yellow $ "I'm download dispatcher"
     debug $ yellow $ "wip:" <+> pretty size
     debug $ yellow $ "seen:" <+> pretty seenSize
+    debug $ yellow $ "sizes:" <+> pretty sizeCacheSize
 
   where
 
