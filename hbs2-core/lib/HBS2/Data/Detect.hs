@@ -49,7 +49,7 @@ tryDetect hash obj = rights [mbAnn, mbLink, mbMerkle, mbSeq] & headDef orBlob
 
 data ScanLevel = ScanShallow | ScanDeep
 
-extractBlockRefs :: Hash HbSync -> ByteString -> [Hash HbSync]
+extractBlockRefs :: Hash HbSync -> ByteString -> [HashRef]
 extractBlockRefs hx bs =
   case tryDetect hx bs of
    (SeqRef (SequentialRef _ (AnnotatedHashRef a' b))) ->
@@ -58,7 +58,7 @@ extractBlockRefs hx bs =
    AnnRef (AnnotatedHashRef ann h) -> do
     coerce <$> catMaybes [ann, Just h]
 
-   Merkle (MNode _ hs) -> hs
+   Merkle (MNode _ hs) -> fmap HashRef hs
 
    MerkleAnn (MTreeAnn{..}) -> do
 
@@ -76,7 +76,7 @@ extractBlockRefs hx bs =
                MNode _ hs -> hs
                _ -> mempty
 
-     meta <> c <> t
+     fmap HashRef (meta <> c <> t)
 
    _ -> mempty
 
