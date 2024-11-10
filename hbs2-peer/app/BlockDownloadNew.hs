@@ -614,28 +614,22 @@ downloadDispatcher brains env = flip runContT pure do
     blk' <- atomically $ readTVar blkQ <&> HPSQ.findMin
     (h,prio,bi@(BInfo _bstate)) <- maybe (pause @'Seconds 0.5 >> exit ()) pure blk'
 
-    atomically do
-      free <- readTVar peerQ <&> HPSQ.size
-      unless (free > 0) retry
-
-    debug $ green "JERK OFF" <+> pretty h
 
     bstate <- readTVarIO _bstate
 
     case bstate of
       BNone -> do
         now <- getTimeCoarse
-        who' <- atomically do
+        who <- atomically do
           p <- readTVar peerQ <&> HPSQ.findMin
           case p of
             Just some -> do
               modifyTVar peerQ HPSQ.deleteMin
               writeTVar _bstate (BWaitSize now)
-              pure (Just some)
+              modifyTVar blkQ (HPSQ.insert h (succ prio) bi)
+              pure some
 
-            Nothing -> pure Nothing
-
-        who <- maybe (exit2 ()) pure who'
+            Nothing -> retry
 
         let work _bs (p,pprio,i@PInfo{..}) = liftIO $ flip runContT pure do
              ContT $ bracket none $ const do
@@ -662,11 +656,12 @@ downloadDispatcher brains env = flip runContT pure do
 
                      Left{} -> do
                        debug $ red "DOWNLOAD FAIL" <+> pretty h <+> pretty p
+                       atomically $ writeTVar _bstate BNone
                        burstMachineAddErrors pinfoBm 1
 
                  Right Nothing -> do
                    debug $ yellow "NO BLOCK" <+> pretty h <+> pretty p
-                   pure ()
+                   atomically $ writeTVar _bstate BNone
 
                  Left{} -> do
                    pure ()
