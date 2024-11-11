@@ -609,16 +609,18 @@ downloadDispatcher brains env = flip runContT pure do
 
         -- let color = if isJust s then green  else red
         -- debug $ color "GOT BLOCK SIZE" <+> pretty h <+> pretty s <+> pretty p
-        -- dtt <- randomRIO (-0.05, 0.05)
-        let dtt = 0
+        dtt <- randomRIO (-0.01, 0.01)
+        -- let dtt = 0
         here <- hasBlock sto (coerce h) <&> isJust
         unless here do
-          dt <- readTVarIO stat <&> (+dtt) . fromMaybe 1.0 . HM.lookup p
+          dt <- readTVarIO stat <&> (*(1+dtt)) . fromMaybe 1.0 . HM.lookup p
           atomically do
             -- blkNum <- stateTVar _blkNum (\x -> (x, succ x))
             modifyTVar sizeCache (HM.insert (p,h) s)
+            choo <- readTVar choosen <&> HS.member h
             maybe1 s none $ \size -> do
-              modifyTVar downWip (HPSQ.insert (p,h) dt size)
+              unless choo do
+                modifyTVar downWip (HPSQ.insert (p,h) dt size)
 
   parseQ <- newTQueueIO
 
@@ -628,7 +630,7 @@ downloadDispatcher brains env = flip runContT pure do
         atomically do
           modifyTVar wip (HM.delete h)
           modifyTVar sizeRq (HPSQ.delete h)
-          modifyTVar choosen (HS.delete h)
+          -- modifyTVar choosen (HS.delete h)
           srwq <- readTVar sizeRqWip <&> HM.toList
           writeTVar sizeRqWip (HM.fromList $ [ x | x@((_,hi),_) <- srwq, hi /= h ])
           dw <- readTVar downWip <&> HPSQ.toList
@@ -645,9 +647,9 @@ downloadDispatcher brains env = flip runContT pure do
        BlockFetched bs -> do
          -- debug $ green "GOT BLOCK" <+> pretty h <+> pretty (LBS.length bs) <+> pretty p
          void $ putBlock sto bs
-         atomically $ writeTQueue parseQ (h, bs)
-         -- atomically $ modifyTVar done (HS.insert h)
-         -- deleteBlockFromWip h
+         atomically do
+          writeTQueue parseQ (h, bs)
+          modifyTVar fuckup (HM.insertWith (<>) h (HS.singleton p))
 
        BlockFetchError -> do
          now <- getTimeCoarse
@@ -656,7 +658,7 @@ downloadDispatcher brains env = flip runContT pure do
          atomically $ modifyTVar choosen (HS.delete h)
 
   ContT $ withAsync $ forever do
-    let blkz = readTVarIO choosen <&> fmap (,5) . HS.toList
+    let blkz = readTVarIO choosen <&> fmap (,30) . HS.toList
     polling (Polling 1 1) blkz $ \h -> do
       here <- hasBlock sto (coerce h) <&> isJust
       if here then do
@@ -735,7 +737,7 @@ downloadDispatcher brains env = flip runContT pure do
 
         dw <- readTVar downWip
 
-        let total = [ x | x@((p,_),_,_) <- L.take 256 (HPSQ.toList dw), HM.member p peers ]
+        let total = [ x | x@((p,_),_,_) <- L.take 16 (HPSQ.toList dw), HM.member p peers ]
 
         let queue = total
 
@@ -762,10 +764,10 @@ downloadDispatcher brains env = flip runContT pure do
           (_,size) <- ContT $ maybe1 (HPSQ.lookup (p0,h) dw) (warn $ red "FUCKED SIZE")
 
           atomically do
-            modifyTVar fuckup (HM.insertWith (<>) h (HS.singleton p0))
-            writeTQueue who (FetchBlock h size (onBlock p0 h))
-            modifyTVar choosen (HS.insert h)
-
+            choo <- readTVar choosen <&> HS.member h
+            unless choo do
+              writeTQueue who (FetchBlock h size (onBlock p0 h))
+              modifyTVar choosen (HS.insert h)
 
   forever $ (>> pause @'Seconds 10) do
     sw0  <- readTVarIO wip <&> HM.size
