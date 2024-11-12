@@ -13,6 +13,7 @@ import Streaming.Prelude qualified as S
 import Streaming.Prelude (Stream, Of(..))
 import Control.Monad.Trans.Maybe
 import Control.Monad
+import Data.Coerce
 import Data.Maybe
 
 -- TODO: slow-dangerous
@@ -39,6 +40,12 @@ findMissedBlocks2 sto href = do
 
               maybe1 blk none $ \bs -> do
                 let w = tryDetect (fromHashRef hx) bs
+                let refs = extractBlockRefs (coerce hx) bs
+
+                for_ refs $ \r -> do
+                  here <- hasBlock sto (coerce r) <&> isJust
+                  unless here $ lift $ S.yield r
+
                 r <- case w of
                       Merkle{}    -> lift $ lift $ findMissedBlocks sto hx
                       MerkleAnn t -> lift $ lift do
