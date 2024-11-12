@@ -248,7 +248,7 @@ runCat opts ss = do
 
         MerkleAnn (MTreeAnn {_mtaCrypt = NullEncryption }) -> do
           bs <- runExceptT (readFromMerkle (AnyStorage ss) (SimpleKey mhash))
-                   >>= orThrowUser "can't read/decode tree"
+                   >>= orThrowPassIO -- User "can't read/decode tree"
           LBS.putStr bs
 
         MerkleAnn ann@(MTreeAnn {_mtaCrypt = EncryptGroupNaClSymm gkh _}) -> do
