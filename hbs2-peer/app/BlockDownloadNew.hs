@@ -665,7 +665,7 @@ downloadDispatcher brains env = flip runContT pure do
 
       _sizeCache <- newTVarIO ( mempty :: HashMap HashRef (Maybe Integer) )
 
-      bm <- liftIO $ newBurstMachine 2.5 256 (Just 50) 0.10 0.25
+      bm <- liftIO $ newBurstMachine 10 256 (Just 50) 0.10 0.25
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
@@ -691,8 +691,8 @@ downloadDispatcher brains env = flip runContT pure do
         what <- atomically $ readTQueue parseQ
         missed <- findMissedBlocks sto what
         now <- getTimeCoarse
-        atomically do
-          for_ missed $ \hi -> do
+        for_ missed $ \hi -> do
+          atomically do
             dcb <- newDcbSTM now
             modifyTVar wip (HPSQ.insert hi 1.0 dcb)
 
@@ -740,7 +740,7 @@ downloadDispatcher brains env = flip runContT pure do
                 if erno > 50 then do
                   pause @'Seconds 60
                 else do
-                  pause @'Seconds 1.0
+                  pause @'Seconds 1
                 go PChoose
 
           PInit hx dcb -> do
