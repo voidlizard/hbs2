@@ -510,6 +510,7 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
       blk <- readTVarIO _sBlockChunks2
       let rs = LBS.concat $ IntMap.elems blk
 
+      -- ha <- putBlock sto rs
       ha <- putBlock sto rs
 
       -- let ha = Just $ hashObject @HbSync rs
@@ -536,34 +537,11 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
         Right (Just s) -> pure s
 
 
-
-data S1 =
-    S1Init
-  | S1QuerySize (Hash HbSync)
-  | S1CheckMissed (Hash HbSync)
-
-
-data S2 =
-    S2Init (Hash HbSync)
-  | S2CheckBlock1 (Hash HbSync) ByteString
-  | S2CheckBlock2 (Hash HbSync)
-  | S2FetchBlock (Hash HbSync)
-  | S2Exit
-
 newtype KnownSize = KnownSize Integer
 
 instance BlockSizeCache  e KnownSize where
   cacheBlockSize _ y_ _ _ = pure ()
   findBlockSize (KnownSize s) _ _ = pure (Just s)
-
-data BlockFetchResult =
-        BlockFetchError
-      | BlockFetched ByteString
-      | BlockAlreadyHere
-
-data Work =
-    RequestSize HashRef (Maybe Integer -> IO ())
-  | FetchBlock  HashRef Integer (BlockFetchResult -> IO ())
 
 
 -- | Download control block
@@ -730,34 +708,30 @@ downloadDispatcher brains env = flip runContT pure do
                      blocks <- readTVar wip <&> HPSQ.toList
                      let todo = blocks
                      flip fix todo $ \loop w -> do
-                       erno <- readTVar _errors
-                       if erno > 10 then
-                         pure ()
-                       else do
-                         case w of
-                           []  -> none
+                       case w of
+                         []  -> none
 
-                           (h,_,dcb@DCB{..}):xs -> do
-                            wpsize <- readTVar wip <&> HPSQ.size
-                            let trsh = if wpsize < 10 then 3 else 0
-                            busy   <- readTVar dcbBusy
-                            down   <- readTVar dcbDownloaded
-                            absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
-                            if busy > trsh || down || absent then
-                              loop xs
-                            else do
-                              sizeCache <- readTVar _sizeCache
+                         (h,_,dcb@DCB{..}):xs -> do
+                          wpsize <- readTVar wip <&> HPSQ.size
+                          let trsh = if wpsize < 10 then 3 else 0
+                          busy   <- readTVar dcbBusy
+                          down   <- readTVar dcbDownloaded
+                          absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
+                          if busy > trsh || down || absent then
+                            loop xs
+                          else do
+                            sizeCache <- readTVar _sizeCache
 
-                              let eps = case dcbParent of
-                                          Nothing -> 1.0
-                                          Just hp -> case HM.lookup hp sizeCache of
-                                                       Just (Just _) -> 0.5
-                                                       Just Nothing  -> 1.5
-                                                       Nothing       -> 1.0
+                            let eps = case dcbParent of
+                                        Nothing -> 1.0
+                                        Just hp -> case HM.lookup hp sizeCache of
+                                                     Just (Just _) -> 0.5
+                                                     Just Nothing  -> 1.5
+                                                     Nothing       -> 1.0
 
-                              modifyTVar r (HPSQ.insert h eps dcb)
-                              s <- readTVar r <&> HPSQ.size
-                              if s >= 8 then pure () else loop xs
+                            modifyTVar r (HPSQ.insert h eps dcb)
+                            s <- readTVar r <&> HPSQ.size
+                            if s >= 8 then pure () else loop xs
 
                      w <- readTVar r <&> HPSQ.findMin
                      case w of
