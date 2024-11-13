@@ -267,7 +267,7 @@ runBurstMachine BurstMachine{..} = do
 
         new <- if e2 > e1 then do
                     let d = max 2.0 (current * (1.0 - down))
-                    nrates <- readTVar _rates <&> drop 3 . Map.toList
+                    nrates <- readTVar _rates <&> drop 1 . Map.toList
                     let newFucked = maybe d snd (headMay nrates)
                     writeTVar _rates (Map.fromList nrates)
                     pure newFucked
@@ -481,7 +481,7 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
         let watchdog = fix \next -> do
              wx <- readTVarIO _wx <&> realToFrac
              -- debug $ "WATCHDOG" <+> pretty wx <+> pretty waity
-             r <- race (pause @'MilliSeconds (min wx waity)) do
+             r <- race (pause @'MilliSeconds wx) do
                     void $ atomically $ readTQueue chuQ
              either (const none) (const next) r
 
@@ -666,7 +666,7 @@ downloadDispatcher brains env = flip runContT pure do
 
       _sizeCache <- newTVarIO ( mempty :: HashMap HashRef (Maybe Integer) )
 
-      bm <- liftIO $ newBurstMachine 5 256 (Just 80) 0.10 0.25
+      bm <- liftIO $ newBurstMachine 0.5 256 (Just 50) 0.05 0.15
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
@@ -750,7 +750,7 @@ downloadDispatcher brains env = flip runContT pure do
 
           PInit hx dcb -> do
 
-            debug $ yellow "Block choosen" <+> pretty p <+> pretty hx
+            trace $ yellow "Block choosen" <+> pretty p <+> pretty hx
 
             hereSize <- readTVarIO _sizeCache <&> HM.lookup hx
 
@@ -763,19 +763,19 @@ downloadDispatcher brains env = flip runContT pure do
                 go (PReleaseBlock hx dcb False)
 
               Nothing -> do
-                debug $ blue "Query size" <+> pretty p <+> pretty hx
+                trace $ blue "Query size" <+> pretty p <+> pretty hx
                 go (PQuerySize hx dcb)
 
           PQuerySize hx dcb -> do
             s <- queryBlockSizeFromPeer brains env (coerce hx) p
             case s of
               Right (Just size) -> do
-                debug $ green "HAS BLOCK" <+> pretty p <+> pretty hx <+> pretty size
+                trace $ green "HAS BLOCK" <+> pretty p <+> pretty hx <+> pretty size
                 atomically $ modifyTVar _sizeCache (HM.insert hx (Just size))
                 go (PFetchBlock hx dcb size)
 
               Right Nothing -> do
-                debug $ red "HAS NO BLOCK" <+> pretty p <+> pretty hx
+                trace $ red "HAS NO BLOCK" <+> pretty p <+> pretty hx
                 atomically $ modifyTVar _sizeCache (HM.insert hx Nothing)
                 go (PReleaseBlock hx dcb False)
 
@@ -798,7 +798,7 @@ downloadDispatcher brains env = flip runContT pure do
 
                 avg <- readTVarIO _avg
 
-                when (dtsec > avg * 2) do
+                when (dtsec > avg * 1.5) do
                   burstMachineAddErrors bm 1
 
                 atomically do
@@ -820,8 +820,8 @@ downloadDispatcher brains env = flip runContT pure do
               if not done  then do
                 modifyTVar (dcbBusy dcb) pred
               else do
-                -- modifyTVar (dcbBusy dcb) pred
                 modifyTVar wip (HM.delete hx)
+            go PChoose
 
       bs <- ContT $ withAsync $ forever do
         pause @'Seconds 10
