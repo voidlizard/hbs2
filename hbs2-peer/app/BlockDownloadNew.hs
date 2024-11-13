@@ -644,7 +644,9 @@ downloadDispatcher brains env = flip runContT pure do
       atomically do
         dcb <- newDcbSTM now
         let w = realToFrac now
-        modifyTVar wip (HPSQ.insert hi 1.0 dcb)
+        already <- readTVar wip <&> HPSQ.member hi
+        unless already do
+          modifyTVar wip (HPSQ.insert hi 1.0 dcb)
 
   forever $ (>> pause @'Seconds 10) do
     sw0  <- readTVarIO wip <&> HPSQ.size
@@ -702,8 +704,6 @@ downloadDispatcher brains env = flip runContT pure do
             here <- readTVar wip <&> HPSQ.member h
             unless here do
               modifyTVar _sizeCache (HM.delete h)
-
-      parseQ <- newTQueueIO
 
       bmt <- ContT $ withAsync $ runBurstMachine bm
 
@@ -797,6 +797,7 @@ downloadDispatcher brains env = flip runContT pure do
 
             case r of
               Right bs -> do
+
                 let dtsec = realToFrac (toNanoSeconds (TimeoutTS (t1 - t0))) / 1e9
 
                 avg <- readTVarIO _avg
@@ -804,8 +805,10 @@ downloadDispatcher brains env = flip runContT pure do
                 when (dtsec > avg * 1.10) do
                   burstMachineAddErrors bm 1
 
-                atomically $ modifyTVar  btimes ( take 100 . (dtsec :) )
-                atomically $ writeTVar (dcbDownloaded dcb) True
+                atomically do
+                  modifyTVar  btimes ( take 100 . (dtsec :) )
+                  writeTVar (dcbDownloaded dcb) True
+                  onBlock hx
 
                 go (PReleaseBlock hx dcb True)
 
@@ -823,7 +826,6 @@ downloadDispatcher brains env = flip runContT pure do
               else do
                 -- modifyTVar (dcbBusy dcb) pred
                 modifyTVar wip (HPSQ.delete hx)
-                onBlock hx
 
       bs <- ContT $ withAsync $ forever do
         pause @'Seconds 10
