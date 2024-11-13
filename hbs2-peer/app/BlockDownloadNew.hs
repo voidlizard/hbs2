@@ -496,9 +496,10 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
         t1 <- getTimeCoarse
 
         atomically do
-          -- wx0 <- readTVar _wx
-          let wx1 = 100 * realToFrac (t1 - t0) / 1e6 -- millis
-          writeTVar _wx wx1
+          when (isRight r) do
+            -- wx0 <- readTVar _wx
+            let wx1 = 20000 -- min 10000 (2.5 * 100 * realToFrac (t1 - t0) / 1e6) -- millis
+            writeTVar _wx wx1
 
         case r of
           Left{} -> exit2 (Left $ DownloadStuckError (HashRef h) peer)
@@ -662,11 +663,12 @@ downloadDispatcher brains env = flip runContT pure do
       _errors <- newTVarIO 0
       _avg <- newTVarIO 600
 
-      sto <- withPeerM env getStorage
-
       _sizeCache <- newTVarIO ( mempty :: HashMap HashRef (Maybe Integer) )
 
-      bm <- liftIO $ newBurstMachine 0.5 256 (Just 50) 0.05 0.15
+      bm <- liftIO do
+              case _sockType p of
+                TCP -> newBurstMachine 10 256 (Just 256) 0.25 0.45
+                UDP -> newBurstMachine 10 256 (Just 50)  0.10 0.25
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
@@ -798,7 +800,7 @@ downloadDispatcher brains env = flip runContT pure do
 
                 avg <- readTVarIO _avg
 
-                when (dtsec > avg * 1.5) do
+                when (dtsec > avg) do
                   burstMachineAddErrors bm 1
 
                 atomically do
