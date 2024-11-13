@@ -575,7 +575,7 @@ downloadDispatcher brains env = flip runContT pure do
   -- tasks <- newTVarIO ( HPSQ.empty :: HashPSQ (Work e) Double (TVar Int) )
 
   _blkNum   <- newTVarIO 0
-  wip       <- newTVarIO ( HPSQ.empty @HashRef @Double @DCB )
+  wip       <- newTVarIO ( mempty :: HashMap HashRef DCB )
   parseQ    <- newTQueueIO
 
 
@@ -594,25 +594,25 @@ downloadDispatcher brains env = flip runContT pure do
         now <- getTimeCoarse
         debug $ green "New download request" <+> pretty h
         atomically do
-          already <- readTVar wip <&> HPSQ.member (HashRef h)
+          already <- readTVar wip <&> HM.member (HashRef h)
           dcb <- newDcbSTM now mzero
           let w = 1.0 -- realToFrac now
           unless already do
-            modifyTVar wip  (HPSQ.insert (HashRef h) w dcb)
+            modifyTVar wip  (HM.insert (HashRef h) dcb)
 
   ContT $ withAsync $ forever $ (>> pause @'Seconds 30) do
     debug "Sweep blocks"
     atomically do
-      total <- readTVar wip <&> HPSQ.toList
+      total <- readTVar wip <&> HM.toList
 
-      alive <- for total $ \e@(h,_,DCB{..}) -> do
+      alive <- for total $ \e@(h,DCB{..}) -> do
         down <- readTVar dcbDownloaded
         if down then
           pure Nothing
         else
           pure (Just e)
 
-      writeTVar wip (HPSQ.fromList (catMaybes alive))
+      writeTVar wip (HM.fromList (catMaybes alive))
 
 
   ContT $ withAsync $ forever do
@@ -623,12 +623,12 @@ downloadDispatcher brains env = flip runContT pure do
       atomically do
         dcb <- newDcbSTM now (Just what)
         let w = realToFrac now
-        already <- readTVar wip <&> HPSQ.member hi
+        already <- readTVar wip <&> HM.member hi
         unless already do
-          modifyTVar wip (HPSQ.insert hi 1.0 dcb)
+          modifyTVar wip (HM.insert hi dcb)
 
   forever $ (>> pause @'Seconds 10) do
-    sw0  <- readTVarIO wip <&> HPSQ.size
+    sw0  <- readTVarIO wip <&> HM.size
     debug $ yellow $ "wip0"   <+> pretty sw0
 
   where
@@ -684,7 +684,7 @@ downloadDispatcher brains env = flip runContT pure do
         let hashes = readTVarIO _sizeCache <&> fmap (,60) . HM.keys
         polling (Polling 1 10) hashes $ \h -> do
           atomically do
-            here <- readTVar wip <&> HPSQ.member h
+            here <- readTVar wip <&> HM.member h
             unless here do
               modifyTVar _sizeCache (HM.delete h)
 
@@ -705,14 +705,14 @@ downloadDispatcher brains env = flip runContT pure do
 
             what <- atomically do
                      r <- newTVar ( HPSQ.empty @HashRef @Double @DCB )
-                     blocks <- readTVar wip <&> HPSQ.toList
+                     blocks <- readTVar wip <&> HM.toList
                      let todo = blocks
                      flip fix todo $ \loop w -> do
                        case w of
                          []  -> none
 
-                         (h,_,dcb@DCB{..}):xs -> do
-                          wpsize <- readTVar wip <&> HPSQ.size
+                         (h,dcb@DCB{..}):xs -> do
+                          wpsize <- readTVar wip <&> HM.size
                           let trsh = if wpsize < 10 then 3 else 0
                           busy   <- readTVar dcbBusy
                           down   <- readTVar dcbDownloaded
@@ -823,7 +823,7 @@ downloadDispatcher brains env = flip runContT pure do
                 modifyTVar (dcbBusy dcb) pred
               else do
                 -- modifyTVar (dcbBusy dcb) pred
-                modifyTVar wip (HPSQ.delete hx)
+                modifyTVar wip (HM.delete hx)
 
       bs <- ContT $ withAsync $ forever do
         pause @'Seconds 10
