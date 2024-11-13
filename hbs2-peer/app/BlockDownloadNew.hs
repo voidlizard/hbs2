@@ -476,8 +476,6 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
 
         lift $ request peer req
 
-        -- pause @'MilliSeconds ( rtt * 0.01 )
-
         t0 <- getTimeCoarse
 
         let watchdog = fix \next -> do
@@ -499,7 +497,7 @@ downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
 
         atomically do
           -- wx0 <- readTVar _wx
-          let wx1 = 1.50 * realToFrac (t1 - t0) * 100 / 1e6 -- millis
+          let wx1 = 100 * realToFrac (t1 - t0) / 1e6 -- millis
           writeTVar _wx wx1
 
         case r of
