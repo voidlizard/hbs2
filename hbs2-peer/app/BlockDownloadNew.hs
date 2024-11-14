@@ -645,7 +645,7 @@ downloadDispatcher brains env = flip runContT pure do
                          Just s -> pure s
                          Nothing -> do
                           -- TODO: semaphore-hardcode
-                          new <- TSem.newTSem 2
+                          new <- TSem.newTSem 10
                           modifyTVar _psem (HM.insert nonce new)
                           pure new
 
