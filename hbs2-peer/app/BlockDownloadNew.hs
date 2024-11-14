@@ -562,12 +562,9 @@ downloadDispatcher :: forall e m . ( e ~ L4Proto
 downloadDispatcher brains env = flip runContT pure do
 
   pts   <- newTVarIO ( mempty :: HashMap (Peer e) (Async (), PeerNonce) )
-  -- tasks <- newTVarIO ( HPSQ.empty :: HashPSQ (Work e) Double (TVar Int) )
 
-  _blkNum   <- newTVarIO 0
   wip       <- newTVarIO ( mempty :: HashMap HashRef DCB )
   parseQ    <- newTQueueIO
-
 
   let
     onBlockSTM :: HashRef -> STM ()
@@ -745,7 +742,7 @@ downloadDispatcher brains env = flip runContT pure do
           down <- readTVar _blknum
           writeTVar _peerErrorsLast erno
           writeTVar _peerBurst bu
-          writeTVar _peerDownloadedLast down
+          writeTVar _peerDownloaded down
 
       rndGen <- liftIO newStdGen >>= newTVarIO
 

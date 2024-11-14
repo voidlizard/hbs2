@@ -194,7 +194,7 @@ peerPingLoop (PeerConfig syn) penv = do
         burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
         errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
         downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
-        down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
+        down      <- liftIO $ readTVarIO (view peerDownloaded pinfo)
         rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
         httpDownloaded <- liftIO $ readTVarIO (_peerHttpDownloaded pinfo)
         seen      <- liftIO $ readTVarIO (view peerLastWatched pinfo)
