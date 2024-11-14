@@ -706,7 +706,7 @@ downloadDispatcher brains env = flip runContT pure do
       bm <- liftIO do
               case _sockType p of
                 TCP -> AnyBurstMachine @IO <$> newBurstMachine 30 256 (Just 256) 0.20 0.10
-                UDP -> AnyBurstMachine @IO <$> newBurstMachine  5 256 (Just 100) 0.15 0.35
+                UDP -> AnyBurstMachine @IO <$> newBurstMachine 10 256 (Just 128) 0.20 0.35
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
