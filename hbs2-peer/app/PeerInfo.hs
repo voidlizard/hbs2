@@ -192,9 +192,7 @@ peerPingLoop (PeerConfig syn) penv = do
       for_ pee $ \p -> do
         pinfo <- fetch True npi (PeerInfoKey p) id
         burst  <- liftIO $ readTVarIO (view peerBurst pinfo)
-        buM    <- liftIO $ readTVarIO (view peerBurstMax pinfo)
         errors <- liftIO $ readTVarIO (view peerErrorsPerSec pinfo)
-        downFails <- liftIO $ readTVarIO (view peerDownloadFail pinfo)
         downMiss  <- liftIO $ readTVarIO (view peerDownloadMiss pinfo)
         down      <- liftIO $ readTVarIO (view peerDownloadedBlk pinfo)
         rtt       <- liftIO $ medianPeerRTT pinfo <&> fmap realToFrac
@@ -206,8 +204,7 @@ peerPingLoop (PeerConfig syn) penv = do
         let ls = showGFloat (Just 2) l "" <> "s"
 
         notice $ "peer" <+> pretty p <+> "burst:" <+> pretty burst
-                                     <+> "burst-max:" <+> pretty buM
-                                     <+> "errors:" <+> pretty (downFails + errors)
+                                     <+> "errors:" <+> pretty errors
                                      <+> "down:" <+> pretty down
                                      <+> "miss:" <+> pretty downMiss
                                      <+> "rtt:" <+> pretty rttMs
