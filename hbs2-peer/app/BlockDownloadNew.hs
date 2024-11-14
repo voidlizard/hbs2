@@ -366,7 +366,7 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
           bu <- lift $ getCurrentBurst bm
 
           t0 <- getTimeCoarse
-          w  <- lift $ downloadFromPeer t bu cache env (coerce h) peer
+          w  <- lift $ downloadFromPeer bu cache env (coerce h) peer
           t1 <- getTimeCoarse
           let dt = toMicroSeconds $ TimeoutTS (t1 - t0)
           atomically $ modifyTVar toq ( dt : )
@@ -402,20 +402,18 @@ downloadFromPeerRec t bu0 cache env h0 peer = do
     pure $ Right ()
 
 
-downloadFromPeer :: forall e t cache m . ( e ~ L4Proto
-                                         , MonadUnliftIO m
-                                         , IsTimeout t
-                                         , BlockSizeCache e cache
-                                         )
-                 => Timeout t
-                 -> Int
+downloadFromPeer :: forall e  cache m . ( e ~ L4Proto
+                                        , MonadUnliftIO m
+                                        , BlockSizeCache e cache
+                                        )
+                 => Int
                  -> cache
                  -> PeerEnv e
                  -> Hash HbSync
                  -> Peer e
                  -> m (Either (DownloadError e) ByteString)
 
-downloadFromPeer t bu cache env h peer = liftIO $ withPeerM env do
+downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
 
   pd@PeerData{..} <- find (KnownPeerKey peer) id
                    >>= orThrow (UnknownPeerError peer)
@@ -832,7 +830,7 @@ downloadDispatcher brains env = flip runContT pure do
             bu <- lift $ getCurrentBurst bm
 
             t0 <- getTimeCoarse
-            r <- lift $ downloadFromPeer (TimeoutSec 10) bu (KnownSize size) env (coerce hx) p
+            r <- lift $ downloadFromPeer bu (KnownSize size) env (coerce hx) p
             t1 <- getTimeCoarse
 
             case r of
