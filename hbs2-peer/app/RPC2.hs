@@ -76,7 +76,6 @@ import UnliftIO.Concurrent
 import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 
-
 instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcRunScript where
   handleMethod top = do
 
@@ -93,6 +92,10 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
     dict RPC2Context{..} = makeDict @_ @m do
         entry $ bindMatch "hey" $ const do
           pure $ mkSym @C "hey"
+
+        entry $ bindMatch "system:capabilities" $ const $ do
+          n <- getNumCapabilities
+          pure $ mkForm "capabilities" [mkInt n]
 
         entry $ bindMatch "tcp:peer:kick" $ \case
           [ StringLike addr ] -> flip runContT pure $ callCC \exit -> do

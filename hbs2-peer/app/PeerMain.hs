@@ -128,6 +128,7 @@ import UnliftIO (MonadUnliftIO(..))
 import UnliftIO.Exception qualified as U
 -- import UnliftIO.STM
 import UnliftIO.Async
+import UnliftIO.Concurrent (getNumCapabilities)
 
 import Streaming.Prelude qualified as S
 
@@ -812,7 +813,9 @@ runPeer opts = respawnOnError opts $ do
   simpleStorageSetProbe s stoProbe
   addProbe stoProbe
 
-  w <- replicateM defStorageThreads $ async $ liftIO $ simpleStorageWorker s
+  stn <- getNumCapabilities <&> max 2 . div 4
+
+  w <- replicateM 2 $ async $ liftIO $ simpleStorageWorker s
 
   localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )
