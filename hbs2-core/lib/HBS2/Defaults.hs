@@ -4,7 +4,7 @@ import HBS2.Clock
 import Data.String
 
 defMaxDatagram :: Int
-defMaxDatagram = 2048
+defMaxDatagram = 4096
 
 defMaxDatagramRPC :: Int
 defMaxDatagramRPC = 4096
