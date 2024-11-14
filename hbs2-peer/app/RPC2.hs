@@ -150,7 +150,7 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
 
             peer <- either (const $ exit (mkSym "error:invalid-address")) pure peer'
 
-            what <- lift $ downloadFromPeer defChunkWaitMax 4 rpcBrains rpcPeerEnv (coerce blk) peer
+            what <- lift $ downloadFromPeer 50 rpcBrains rpcPeerEnv (coerce blk) peer
 
             case what of
               Left e   -> pure $ mkList @C [ mkSym "error" , mkStr (show e) ]
