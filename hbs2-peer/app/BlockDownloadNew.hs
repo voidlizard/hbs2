@@ -54,6 +54,8 @@ import Control.Concurrent.STM.TSem qualified as TSem
 import UnliftIO.Concurrent
 import UnliftIO.STM
 import Lens.Micro.Platform
+import System.Random
+import System.Random.Shuffle (shuffleM,shuffle')
 
 import Streaming.Prelude qualified as S
 
@@ -733,17 +735,33 @@ downloadDispatcher brains env = flip runContT pure do
                   atomically do
                     writeTVar _avg avg
 
+      rndGen <- liftIO newStdGen >>= newTVarIO
+
       twork <- ContT $ withAsync $ forever do
 
         flip fix PChoose $ \go -> \case
 
           PChoose -> do
 
+            -- liftIO newStdGen >>= writeTVar rndGen
+            -- gen <- liftIO $ readTVarIO rndGen
+            let grab = 64
+
             what <- atomically do
                      TSem.waitTSem sem
                      r <- newTVar ( HPSQ.empty @HashRef @Double @DCB )
+
                      blocks <- readTVar wip <&> HM.toList
+                     let len = L.length blocks
+
+                     -- k <- stateTVar rndGen (randomR (0, len))
+                     -- let k = (me + grab) `mod` len -- stateTVar rndGen (randomR (0, len `div` 2))
+
+                     -- let todo = let (a,b) = L.splitAt (min 0 k) blocks in (b <> a)
+                     -- et (a,b) = L.splitAt (min 0 k) blocks in (b <> a)
+                     -- let todo = shuffle' blocks len gen
                      let todo = blocks
+
                      flip fix todo $ \loop w -> do
                        case w of
                          []  -> none
@@ -767,7 +785,7 @@ downloadDispatcher brains env = flip runContT pure do
 
                             modifyTVar r (HPSQ.insert h eps dcb)
                             s <- readTVar r <&> HPSQ.size
-                            if s >= 4 then pure () else loop xs
+                            if s >= grab then pure () else loop xs
 
                      w <- readTVar r <&> HPSQ.findMin
                      case w of
