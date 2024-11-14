@@ -40,13 +40,11 @@ import GHC.TypeLits
 import Lens.Micro.Platform as Lens
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
--- import Control.Concurrent.STM.TVar
--- import Control.Concurrent.STM
 import Control.Monad.IO.Unlift
 import Data.List qualified as L
 import Data.Monoid qualified as Monoid
-
 import UnliftIO
+import UnliftIO.Concurrent (getNumCapabilities)
 
 import Codec.Serialise (serialise, deserialiseOrFail)
 
@@ -440,7 +438,9 @@ runPeerM :: forall e m . ( MonadUnliftIO m
 
 runPeerM env@PeerEnv{..} f  = flip runContT pure do
 
-  as <- liftIO $ replicateM 16 $ async $ runPipeline _envDeferred
+  n <- liftIO getNumCapabilities <&> max 2 . div 2
+
+  as <- liftIO $ replicateM n $ async $ runPipeline _envDeferred
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
       pause defSweepTimeout
@@ -453,12 +453,12 @@ runPeerM env@PeerEnv{..} f  = flip runContT pure do
       sweep
 
   void $ ContT $ bracket none $ const $ do
+    void $ liftIO $ stopPipeline _envDeferred
+    liftIO $ mapM_ cancel (as <> [sw])
     pure ()
 
   lift $ void $ runReaderT (fromPeerM f) env
 
-  void $ liftIO $ stopPipeline _envDeferred
-  liftIO $ mapM_ cancel (as <> [sw])
 
 withPeerM :: MonadIO m => PeerEnv e -> PeerM e m a -> m a
 withPeerM env action = runReaderT (fromPeerM action) env
