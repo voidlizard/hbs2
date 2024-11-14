@@ -726,8 +726,7 @@ downloadDispatcher brains env = flip runContT pure do
                                         Nothing -> 1.0
                                         Just hp -> case HM.lookup hp sizeCache of
                                                      Just (Just _) -> 0.5
-                                                     Just Nothing  -> 1.5
-                                                     Nothing       -> 1.0
+                                                     _             -> 1.0
 
                             modifyTVar r (HPSQ.insert h eps dcb)
                             s <- readTVar r <&> HPSQ.size
