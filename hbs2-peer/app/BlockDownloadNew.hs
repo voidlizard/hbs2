@@ -470,9 +470,11 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
 
     callCC $ \exit2 -> do
 
-      _wx <- newTVarIO waity
+      _wx <- newTVarIO 10000 -- waity
 
       for_ bursts $ \(i,chunkN) -> do
+
+        wx <- readTVarIO _wx
 
         flip fix 0 \again n -> do
 
@@ -480,11 +482,7 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
 
           lift $ request peer req
 
-          t0 <- getTimeCoarse
-
           _num <- newTVarIO 0
-
-          wx <- readTVarIO _wx
 
           let w0 = 2.0 :: Timeout 'MilliSeconds
 
@@ -494,6 +492,8 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
                         y <- readTVar _num
                         if x == y then retry else pure y
                either (const none) next r
+
+          t0 <- getTimeCoarse
 
           r <- liftIO $ pause w0 >> race watchdog do
                 atomically do
@@ -507,13 +507,14 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
           atomically do
             when (isRight r) do
               let nano = toNanoSeconds $ TimeoutTS (t1 - t0)
-              let wx1 = 100 * realToFrac nano / 1e6 -- millis
+              let wx1 = max 1000 (100 * realToFrac nano / 1e6) -- millis
               writeTVar _wx wx1
 
           case r of
             Left{} -> do
               if n < 2 then do
-                debug $ red "Retry" <+> pretty i <+> pretty chunkN <+> pretty h <+> pretty peer
+                w <- readTVarIO _wx
+                debug $ red "Retry" <+> pretty w <+> pretty i <+> pretty chunkN <+> pretty h <+> pretty peer
                 again (succ n)
               else do
                 exit2 (Left $ DownloadStuckError (HashRef h) peer)
