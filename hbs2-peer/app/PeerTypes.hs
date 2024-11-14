@@ -74,9 +74,7 @@ data PeerInfo e =
   , _peerErrorsPerSec   :: TVar Int
   , _peerLastWatched    :: TVar TimeSpec
   , _peerDownloaded     :: TVar Int
-  , _peerDownloadedLast :: TVar Int
   , _peerPingFailed     :: TVar Int
-  , _peerDownloadedBlk  :: TVar Int
   , _peerDownloadFail   :: TVar Int
   , _peerDownloadMiss   :: TVar Int
   , _peerRTTBuffer      :: TVar [Integer] -- ^ Contains a list of the last few round-trip time (RTT) values, measured in nanoseconds.
@@ -99,9 +97,7 @@ newPeerInfo = liftIO do
   _peerErrorsPerSec   <- newTVarIO 0
   _peerLastWatched    <- newTVarIO 0
   _peerDownloaded     <- newTVarIO 0
-  _peerDownloadedLast <- newTVarIO 0
   _peerPingFailed     <- newTVarIO 0
-  _peerDownloadedBlk  <- newTVarIO 0
   _peerDownloadFail   <- newTVarIO 0
   _peerDownloadMiss   <- newTVarIO 0
   _peerRTTBuffer      <- newTVarIO []

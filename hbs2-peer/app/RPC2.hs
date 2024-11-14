@@ -231,7 +231,7 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
               errors    <- readTVarIO _peerErrorsPerSec
               downFails <- readTVarIO _peerDownloadFail
               downMiss  <- readTVarIO _peerDownloadMiss
-              down      <- readTVarIO _peerDownloadedBlk
+              down      <- readTVarIO _peerDownloaded
               rtt       <- medianPeerRTT pinfo <&> fmap realToFrac
               seen      <- readTVarIO _peerLastWatched
               let l = realToFrac (toNanoSecs $ now - seen) / 1e9
