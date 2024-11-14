@@ -746,7 +746,7 @@ downloadDispatcher brains env = flip runContT pure do
             what <- atomically do
                e <- readTVar _errors
 
-               if e > 10 then
+               if e > 5 then
                  pure Nothing
                else do
                  TSem.waitTSem sem
@@ -780,7 +780,7 @@ downloadDispatcher brains env = flip runContT pure do
                 if erno > 50 then do
                   pause @'Seconds 60
                 else do
-                  pause @'Seconds 1.00
+                  pause @'Seconds 0.5
                 go PChoose
 
           PInit hx dcb -> do
