@@ -694,8 +694,8 @@ downloadDispatcher brains env = flip runContT pure do
 
       bm <- liftIO do
               case _sockType p of
-                TCP -> newBurstMachine 10 256 (Just 256) 0.25 0.45
-                UDP -> newBurstMachine 10 256 (Just 50)  0.10 0.25
+                TCP -> newBurstMachine 20 256 (Just 256) 0.25 0.45
+                UDP -> newBurstMachine 3 256 (Just 50)  0.10 0.25
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
@@ -744,29 +744,34 @@ downloadDispatcher brains env = flip runContT pure do
           PChoose -> do
 
             what <- atomically do
-                     TSem.waitTSem sem
+               e <- readTVar _errors
 
-                     wpsize <- readTVar wip <&> HM.size
-                     let trsh = if wpsize < 10 then 3 else 0
+               if e > 10 then
+                 pure Nothing
+               else do
+                 TSem.waitTSem sem
 
-                     blocks <- readTVar wip
+                 wpsize <- readTVar wip <&> HM.size
+                 let trsh = if wpsize < 10 then 3 else 0
 
-                     when (HM.null blocks) retry
+                 blocks <- readTVar wip
 
-                     let todo = V.fromList (HM.toList blocks)
-                     let len = V.length todo
-                     i <- stateTVar rndGen ( randomR (0, len - 1) )
+                 when (HM.null blocks) retry
 
-                     let (h,dcb@DCB{..}) = V.unsafeIndex todo (i `mod` len)
+                 let todo = V.fromList (HM.toList blocks)
+                 let len = V.length todo
+                 i <- stateTVar rndGen ( randomR (0, len - 1) )
 
-                     busy   <- readTVar dcbBusy
-                     down   <- readTVar dcbDownloaded
-                     absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
+                 let (h,dcb@DCB{..}) = V.unsafeIndex todo (i `mod` len)
 
-                     if busy > trsh || down || absent then
-                       retry
-                     else do
-                       pure (Just (h,dcb))
+                 busy   <- readTVar dcbBusy
+                 down   <- readTVar dcbDownloaded
+                 absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
+
+                 if busy > trsh || down || absent then
+                   retry
+                 else do
+                   pure (Just (h,dcb))
 
             case what of
               Just (hx, dcb) -> go (PInit hx dcb)
@@ -775,7 +780,7 @@ downloadDispatcher brains env = flip runContT pure do
                 if erno > 50 then do
                   pause @'Seconds 60
                 else do
-                  pause @'Seconds 0.25
+                  pause @'Seconds 1.00
                 go PChoose
 
           PInit hx dcb -> do
