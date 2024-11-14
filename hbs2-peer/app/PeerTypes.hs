@@ -184,11 +184,10 @@ calcBursts bu pieces = go seed
 
 data BlockDownload =
   BlockDownload
-  { _sBlockHash      :: Hash HbSync
-  , _sBlockSize      :: Size
-  , _sBlockChunkSize :: ChunkSize
-  , _sBlockChunks    :: TQueue (ChunkNum, ByteString)
-  , _sBlockChunks2   :: TVar (IntMap ByteString)
+  { _sBlockHash      :: !(Hash HbSync)
+  , _sBlockSize      :: !Size
+  , _sBlockChunkSize :: !ChunkSize
+  , _sBlockChunks2   :: !(TVar (IntMap ByteString))
   }
   deriving stock (Typeable)
 
@@ -196,8 +195,7 @@ makeLenses 'BlockDownload
 
 newBlockDownload :: MonadIO m => Hash HbSync -> m BlockDownload
 newBlockDownload h = liftIO do
-  BlockDownload h 0 0 <$> newTQueueIO <*> newTVarIO mempty
-
+  BlockDownload h 0 0 <$> newTVarIO mempty
 
 type instance SessionData e (BlockChunks e) = BlockDownload
 
@@ -207,20 +205,6 @@ newtype instance SessionKey e (BlockChunks e) =
 
 deriving newtype instance Hashable (SessionKey L4Proto (BlockChunks L4Proto))
 deriving stock instance Eq (SessionKey L4Proto (BlockChunks L4Proto))
-
-data BlkS =
-    BlkNew
-  | BlkSizeAsked       TimeSpec
-  | BlkDownloadStarted TimeSpec
-
-data BlockState =
-  BlockState
-  { _bsStart  :: TimeSpec
-  , _bsWip    :: Maybe TimeSpec
-  , _bsState  :: TVar BlkS
-  }
-
-makeLenses 'BlockState
 
 data DownloadMonEnv =
   DownloadMonEnv
@@ -447,21 +431,10 @@ mkAdapter = do
     , blkAcceptChunk = \(c,p,h,n,bs) -> void $ runMaybeT $ do
         let cKey = DownloadSessionKey (p,c)
 
-        dodo <- lift $ find cKey (view sBlockChunks)
-
-        unless (isJust dodo) $ do
-          debug $ "session lost for peer !" <+> pretty p
-
---        debug $ "FINDING-SESSION:" <+> pretty c <+> pretty n
---        debug $ "GOT SHIT" <+> pretty c <+> pretty n
-
         se <- MaybeT $ find cKey id
-        let dwnld  = view sBlockChunks se
         let dwnld2 = view sBlockChunks2 se
 
-        -- debug $ "WRITE SHIT" <+> pretty c <+> pretty n
         liftIO $ atomically do
-          writeTQueue dwnld (n, bs)
           modifyTVar' dwnld2 (IntMap.insert (fromIntegral n) bs)
     }
 
