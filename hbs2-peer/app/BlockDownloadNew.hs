@@ -169,6 +169,7 @@ data BurstMachine =
   , _buStepUp   :: Double
   , _buStepDown :: Double
   , _buCurrent  :: TVar Double
+  , _buMaxReal  :: TVar Double
   , _buErrors   :: TVar Int
   }
 
@@ -193,6 +194,7 @@ newBurstMachine :: MonadUnliftIO m
 newBurstMachine t0 buMax buStart up' down' = do
   BurstMachine t0 bu0 buMax up down
     <$> newTVarIO bu0
+    <*> newTVarIO bu0
     <*> newTVarIO 0
 
   where
@@ -208,7 +210,8 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
 
   burstMachineReset BurstMachine{..} = do
     atomically do
-        writeTVar _buCurrent _buStart
+        bmr <- readTVar _buMaxReal
+        writeTVar _buCurrent (min bmr _buStart)
         writeTVar _buErrors 0
 
   runBurstMachine BurstMachine{..} = do
@@ -222,8 +225,6 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
     _dEdT <- newTVarIO 0.00
 
     _rates <- newTVarIO (mempty :: Map Double Double)
-
-    _buMaxReal <- newTVarIO buMax
 
     pause @'Seconds (realToFrac _buTimeout)
 
