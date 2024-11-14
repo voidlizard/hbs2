@@ -743,56 +743,30 @@ downloadDispatcher brains env = flip runContT pure do
 
           PChoose -> do
 
-            -- liftIO newStdGen >>= writeTVar rndGen
-            -- gen <- liftIO $ readTVarIO rndGen
-            let grab = 64
-
             what <- atomically do
                      TSem.waitTSem sem
-                     r <- newTVar ( HPSQ.empty @HashRef @Double @DCB )
 
-                     blocks <- readTVar wip <&> HM.toList
-                     let len = L.length blocks
+                     wpsize <- readTVar wip <&> HM.size
+                     let trsh = if wpsize < 10 then 3 else 0
 
-                     -- k <- stateTVar rndGen (randomR (0, len))
-                     -- let k = (me + grab) `mod` len -- stateTVar rndGen (randomR (0, len `div` 2))
+                     blocks <- readTVar wip
 
-                     -- let todo = let (a,b) = L.splitAt (min 0 k) blocks in (b <> a)
-                     -- et (a,b) = L.splitAt (min 0 k) blocks in (b <> a)
-                     -- let todo = shuffle' blocks len gen
-                     let todo = blocks
+                     when (HM.null blocks) retry
 
-                     flip fix todo $ \loop w -> do
-                       case w of
-                         []  -> none
+                     let todo = V.fromList (HM.toList blocks)
+                     let len = V.length todo
+                     i <- stateTVar rndGen ( randomR (0, len - 1) )
 
-                         (h,dcb@DCB{..}):xs -> do
-                          wpsize <- readTVar wip <&> HM.size
-                          let trsh = if wpsize < 10 then 3 else 0
-                          busy   <- readTVar dcbBusy
-                          down   <- readTVar dcbDownloaded
-                          absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
-                          if busy > trsh || down || absent then
-                            loop xs
-                          else do
-                            sizeCache <- readTVar _sizeCache
+                     let (h,dcb@DCB{..}) = V.unsafeIndex todo (i `mod` len)
 
-                            let eps = case dcbParent of
-                                        Nothing -> 1.0
-                                        Just hp -> case HM.lookup hp sizeCache of
-                                                     Just (Just _) -> 0.5
-                                                     _             -> 1.0
+                     busy   <- readTVar dcbBusy
+                     down   <- readTVar dcbDownloaded
+                     absent <- readTVar _sizeCache <&> (== Just Nothing) . HM.lookup h
 
-                            modifyTVar r (HPSQ.insert h eps dcb)
-                            s <- readTVar r <&> HPSQ.size
-                            if s >= grab then pure () else loop xs
-
-                     w <- readTVar r <&> HPSQ.findMin
-                     case w of
-                      Nothing -> retry
-                      Just (h,_,d) -> do
-                        modifyTVar (dcbBusy d) succ
-                        pure (Just (h,d))
+                     if busy > trsh || down || absent then
+                       retry
+                     else do
+                       pure (Just (h,dcb))
 
             case what of
               Just (hx, dcb) -> go (PInit hx dcb)
