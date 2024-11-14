@@ -735,6 +735,18 @@ downloadDispatcher brains env = flip runContT pure do
                   atomically do
                     writeTVar _avg avg
 
+      tpinfo <- ContT $ withAsync $ forever $ (>> pause @'Seconds 30) $ flip runContT pure do
+        pinfo' <- lift $ find @e (PeerInfoKey p) id
+        PeerInfo{..} <- ContT $ maybe1 pinfo' none
+
+        bu <- lift $ getCurrentBurst bm
+        atomically do
+          erno <- readTVar _errors
+          down <- readTVar _blknum
+          writeTVar _peerErrorsLast erno
+          writeTVar _peerBurst bu
+          writeTVar _peerDownloadedLast down
+
       rndGen <- liftIO newStdGen >>= newTVarIO
 
       twork <- ContT $ withAsync $ forever do
@@ -864,5 +876,5 @@ downloadDispatcher brains env = flip runContT pure do
         pause @'Seconds 10
         debug $ yellow "I'm thread" <+> pretty p
 
-      void $ waitAnyCatchCancel [bmt,bs,twork,tstat,tsweep]
+      void $ waitAnyCatchCancel [bmt,bs,twork,tstat,tsweep,tpinfo]
 
