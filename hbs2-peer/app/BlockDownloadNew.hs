@@ -494,43 +494,43 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
                       atomically do
                         y <- readTVar _num
                         if x == y then retry else pure y
-               either (const none) next r
+               either dontHandle next r
 
           t0 <- getTimeCoarse
 
-          r <- liftIO $ race watchdog do
+          r <- liftIO $ race (pause w0 >> watchdog) do
                 atomically do
                   pieces <- readTVar _sBlockChunks2
                   writeTVar _num ( IntMap.size pieces )
                   let done =  and [ IntMap.member j pieces | j <- parts ]
-                  unless done retry -- $ pause @'MilliSeconds ( 0.25 * rtt ) >> next
+                  unless done retry
 
           t1 <- getTimeCoarse
 
-          atomically do
-            when (isRight r) do
-              let nano = toNanoSeconds $ TimeoutTS (t1 - t0)
-              let wx1 = 100 * realToFrac nano / 1e6 -- millis
-              writeTVar _wx wx1
 
           case r of
+
+            Right{} -> do
+              atomically do
+                when (isRight r) do
+                  let nano = toNanoSeconds $ TimeoutTS (t1 - t0)
+                  let wx1 = 100 * realToFrac nano / 1e6 -- millis
+                  writeTVar _wx wx1
+
             Left{} -> do
               if n < 2 then do
                 w <- readTVarIO _wx
                 pieces <- readTVarIO _sBlockChunks2
                 let missed  =  IntMap.difference pieces (IntMap.fromList [ (j,()) | j <- parts ] )
 
-                debug $ red "Retry" <+> pretty w
+                debug $ red "Retry" <+> pretty i
+                                    <+> pretty w
                                     <+> pretty (length missed)
                                     <+> pretty h
                                     <+> pretty peer
-
-                if L.null missed then none else again (succ n)
+                again (succ n)
               else do
                 exit2 (Left $ DownloadStuckError (HashRef h) peer)
-
-            _ -> pure ()
-
 
       blk <- readTVarIO _sBlockChunks2
       let rs = LBS.concat $ IntMap.elems blk
