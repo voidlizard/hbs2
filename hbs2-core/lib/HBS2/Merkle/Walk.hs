@@ -22,6 +22,15 @@ import HBS2.Data.Types.Refs
 import HBS2.Hash
 import HBS2.Merkle
 
+walkMerkleDem
+    :: forall a m
+     . (Serialise (MTree a), Serialise (MTreeAnn a), Serialise a, Monad m)
+    => Hash HbSync
+    -> (Hash HbSync -> m (Maybe BSL.ByteString))
+    -> (Either WalkMerkleError a -> m ())
+    -> m ()
+walkMerkleDem h flookup sink = walkMerkleV2 flookup sink h
+
 walkMerkleV2
     :: forall a m
      . (Serialise (MTree a), Serialise (MTreeAnn a), Serialise a, Monad m)
