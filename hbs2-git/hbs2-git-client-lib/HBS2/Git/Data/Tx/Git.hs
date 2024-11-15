@@ -20,6 +20,7 @@ import HBS2.Git.Data.GK
 import HBS2.Git.Data.RepoHead
 
 import HBS2.Git.Local
+import HBS2.Merkle.Walk
 
 
 import Data.Maybe
@@ -267,18 +268,12 @@ readBundleRefs :: (MonadIO m)
                -> m (Either [HashRef] [HashRef])
 
 readBundleRefs sto bunh = do
-  r <- S.toList_ $
-      walkMerkle @[HashRef] (fromHashRef bunh) (getBlock sto) $ \case
-        Left h -> S.yield (Left h)
-        Right ( bundles :: [HashRef] ) -> do
-          mapM_ (S.yield . Right) bundles
-
-  let missed = lefts r
-
-  if not (null missed) then do
-    pure (Left (fmap HashRef missed))
-  else do
-    pure (Right $ rights r)
+  (hs S.:> er) <- S.toList $ streamMerkle @HashRef (getBlock sto) (fromHashRef bunh)
+  case er of
+      Left wme -> case wme of
+          MerkleHashNotFound h -> pure (Left [HashRef h])
+          MerkleDeserialiseFailure h _ -> pure (Left [HashRef h])
+      Right () -> pure (Right hs)
 
 
 type GitPack = LBS.ByteString
