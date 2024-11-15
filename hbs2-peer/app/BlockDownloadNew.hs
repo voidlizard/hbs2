@@ -269,7 +269,7 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
 
           new <- if e2 > e1 then do
                       let d = max 2.0 (current * (1.0 - down))
-                      nrates <- readTVar _rates <&> drop 2 . Map.toList
+                      nrates <- readTVar _rates <&> drop 3 . Map.toList
                       let newFucked = maybe d snd (headMay nrates)
                       writeTVar _rates (Map.fromList nrates)
                       pure newFucked
@@ -443,7 +443,7 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
              <&> fromMaybe 1000
              <&> (/1e6)
 
-  let waity = 20 * rtt
+  let waity = 10 * rtt
 
   sto <- getStorage
 
@@ -469,7 +469,7 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
 
     let bursts = calcBursts bu chunkNums
 
-    _wx <- newTVarIO 1000
+    _wx <- newTVarIO (max 2000 waity) -- 1000
 
     callCC $ \exit2 -> do
 
@@ -725,10 +725,12 @@ downloadDispatcher brains env = flip runContT pure do
 
       _sizeCache <- newTVarIO ( mempty :: HashMap HashRef (Maybe Integer) )
 
+
+ -- pure (ConstBurstMachine 256) -- newBurstMachine 60 256 (Just 256) 0.20 0.10
       bm <- liftIO do
               case _sockType p of
-                TCP -> AnyBurstMachine @IO <$> pure (ConstBurstMachine 256) -- newBurstMachine 60 256 (Just 256) 0.20 0.10
-                UDP -> AnyBurstMachine @IO <$> newBurstMachine 10 256 (Just 128) 0.05 0.25
+                TCP -> AnyBurstMachine @IO <$> newBurstMachine 3 256 (Just 50) 0.10 0.35
+                UDP -> AnyBurstMachine @IO <$> newBurstMachine 3 256 (Just 50) 0.10 0.35
 
       void $ ContT $ bracket none $ const do
         debug $ "Cancelling thread for" <+> pretty p
@@ -738,7 +740,7 @@ downloadDispatcher brains env = flip runContT pure do
       ContT $ withAsync $ forever do
 
         b0 <- readTVarIO _blknum
-        pause @'Seconds 60
+        pause @'Seconds 300
         atomically $ writeTVar _errors 0
         b1 <- readTVarIO _blknum
 
