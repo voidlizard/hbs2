@@ -122,6 +122,11 @@ instance ( Hashable (Peer e)
 
   listDownloads = liftIO . selectDownloads
 
+  countDownloads b = do
+    let conn = view brainsDb b
+    liftIO $ query_ conn [qc|select count(hash) from download|]
+               <&> headDef 0 . fmap fromOnly
+
   listPexInfo = liftIO . selectPexInfo
 
   updatePexInfo b pex = updateOP b $ insertPexInfo b pex
@@ -129,6 +134,10 @@ instance ( Hashable (Peer e)
   delDownload br what  = do
     liftIO $ Cache.insert (view brainsRemoved br) what ()
     updateOP br (deleteDownload br what)
+
+  newDownload br what  = do
+    -- debug $ "Brains: newDownload" <+> pretty what
+    updateOP br (insertDownload br mzero what)
 
   onKnownPeers br ps = do
     trace $ "BRAINS: onKnownPeers" <+> pretty ps

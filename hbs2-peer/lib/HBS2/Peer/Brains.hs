@@ -58,8 +58,14 @@ class HasBrains e a where
   updatePexInfo :: MonadIO m => a -> [PeerAddr e] -> m ()
   updatePexInfo _ _ = pure ()
 
+  countDownloads :: MonadIO m => a -> m Int
+  countDownloads _ = pure 0
+
   listDownloads :: MonadIO m => a -> m [(HashRef, Integer)]
   listDownloads _ = pure mempty
+
+  newDownload :: MonadIO m => a -> HashRef -> m ()
+  newDownload _ _ = none
 
   delDownload :: MonadIO m => a -> HashRef -> m ()
   delDownload _ _ = pure ()
@@ -196,7 +202,9 @@ instance HasBrains e (SomeBrains e) where
   updatePexInfo (SomeBrains a) = updatePexInfo @e a
 
   listDownloads (SomeBrains a) = listDownloads @e a
+  countDownloads (SomeBrains a) = countDownloads @e a
   delDownload (SomeBrains a) = delDownload @e a
+  newDownload (SomeBrains a) = newDownload @e a
 
   onKnownPeers (SomeBrains a) = onKnownPeers a
   onBlockSize (SomeBrains a) = onBlockSize a
