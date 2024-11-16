@@ -592,10 +592,12 @@ data PSt =
 downloadDispatcher :: forall e m . ( e ~ L4Proto
                                    , MonadUnliftIO m
                                    )
-                 => SomeBrains e
+                 => AnyProbe
+                 -> SomeBrains e
                  -> PeerEnv e
                  -> m ()
-downloadDispatcher brains env = flip runContT pure do
+downloadDispatcher probe brains env = flip runContT pure do
+
 
   pts   <- newTVarIO ( mempty :: HashMap (Peer e) (Async (), PeerNonce) )
 
@@ -631,6 +633,13 @@ downloadDispatcher brains env = flip runContT pure do
         insertNewDownload (HashRef h)
 
   dupes <- newTVarIO ( mempty :: HashMap HashRef Int )
+
+  ContT $ withAsync $ forever $ pause @'Seconds 10 >> do
+    acceptReport probe =<< S.toList_ do
+      wip <- readTVarIO wip <&> HM.size
+      pn  <- readTVarIO pts <&> HM.size
+      S.yield ( "wip", fromIntegral wip )
+      S.yield ( "peerThreads", fromIntegral pn )
 
   ContT $ withAsync do
     polling (Polling 10 10) (readTVarIO dupes <&> fmap (,60) . HM.keys) $ \h -> do
@@ -678,6 +687,11 @@ downloadDispatcher brains env = flip runContT pure do
 
   where
 
+    manageThreads :: (HashRef -> STM ())
+                  -> TVar (HashMap HashRef DCB)
+                  -> TVar (HashMap (Peer e) (Async (), PeerNonce))
+                  -> m ()
+
     manageThreads onBlock wip pts = do
       _pnum <- newTVarIO 1
 
@@ -685,6 +699,10 @@ downloadDispatcher brains env = flip runContT pure do
 
       forever $ (>> pause @'Seconds 10) $ withPeerM env do
         debug "MANAGE THREADS"
+
+        acceptReport probe =<< S.toList_ do
+          n <- readTVarIO _psem <&> HM.size
+          S.yield ( "psem", fromIntegral n )
 
         peers <- HM.fromList <$> do
                   pips <- getKnownPeers @e <&> HS.fromList
