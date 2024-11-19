@@ -27,6 +27,8 @@ BINS := \
   hbs2-sync          \
   fixme-new          \
 	hbs2-storage-simple-benchmarks \
+	hbs2-git3
+
 
 RT_DIR := tests/RT
 
