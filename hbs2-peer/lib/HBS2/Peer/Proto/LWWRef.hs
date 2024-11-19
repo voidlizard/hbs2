@@ -79,6 +79,11 @@ instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (AsBase58 (LWWRefKey s)) 
 instance Pretty (AsBase58 (PubKey 'Sign s )) => Pretty (LWWRefKey s) where
   pretty (LWWRefKey k) = pretty (AsBase58 k)
 
+instance Pretty (AsBase58 (PubKey 'Sign s )) => Show (AsBase58 (LWWRefKey s)) where
+  -- show = show . pretty
+  -- show (AsBase58 (LWWRefKey k)) = show $ pretty (AsBase58 k)
+  show (AsBase58 lww) = show $ pretty lww
+
 
 instance Pretty (LWWRef e) where
   pretty (LWWRef{..}) = parens ( "lwwref" <> line

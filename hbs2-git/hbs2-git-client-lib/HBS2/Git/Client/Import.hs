@@ -11,8 +11,20 @@ import HBS2.Git.Data.Tx.Git
 import HBS2.Git.Data.LWWBlock
 import HBS2.Git.Data.RepoHead
 
+import HBS2.Data.Detect (readLogThrow)
+import HBS2.Merkle.Walk
+import HBS2.Peer.Proto.LWWRef
+import HBS2.Storage
+import HBS2.Storage.Operations.Missed
+import HBS2.Storage.Operations.ByteString
+-- import HBS2.Git.Data.GK
+-- import HBS2.Git.Data.RepoHead
+import HBS2.Storage.Operations.Class
+
 import Data.ByteString.Lazy qualified as LBS
 
+import Control.Arrow ((>>>))
+import Control.Concurrent (threadDelay)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Text.InterpolatedString.Perl6 (qc)
@@ -231,6 +243,142 @@ importRepoWait lwwKey = do
       else do
         pause @'Seconds 2
         pure (IWaitLWWBlock 5)
+
+newtype CanNotReadLWWBlock = CanNotReadLWWBlock (LWWRefKey HBS2Basic)
+  deriving (Show) via (AsBase58 (LWWRefKey HBS2Basic))
+instance Exception CanNotReadLWWBlock
+
+newtype CanNotReadLWWHashRef = CanNotReadLWWHashRef (PubKey Sign HBS2Basic)
+  deriving (Show)
+instance Exception CanNotReadLWWHashRef
+
+newtype NoBlocksInMerkle = NoBlocksInMerkle HashRef
+  deriving (Show)
+instance Exception NoBlocksInMerkle
+
+newtype GetBlockError = GetBlockError HashRef
+  deriving (Show)
+instance Exception GetBlockError
+
+newtype GetOrFetchBlockError = GetOrFetchBlockError (Hash HbSync)
+  deriving (Show)
+instance Exception GetOrFetchBlockError
+
+newtype FsckError = FsckError Text
+  deriving (Show)
+instance Exception FsckError
+
+fsckRepo :: ( GitPerks m
+                  , MonadReader GitEnv m
+                  , HasAPI PeerAPI UNIX m
+                  , HasAPI LWWRefAPI UNIX m
+                  , HasAPI RefLogAPI UNIX m
+                  )
+               => LWWRefKey 'HBS2Basic
+               -> m ()
+
+fsckRepo lwwKey = do
+  env <- ask
+  sto' <- asks _storage
+  peerAPI <- getAPI @PeerAPI @UNIX
+
+  let
+    getBF = getBlockOrFetch callBlockFetch (getBlock sto')
+    getBJ = fmap Just . getBF
+
+  let
+    getBJ' :: Hash HbSync -> IO (Maybe LBS.ByteString)
+    getBJ' = fmap Just . getBlockOrFetch (callBlockFetchIO peerAPI) (getBlock sto')
+    sto = AnyStorage (AdHocStorage @IO sto' getBJ')
+
+  (LWWRef{..}, LWWBlockData{..}) <- maybe (throwIO (CanNotReadLWWBlock lwwKey)) pure
+    =<< readLWWBlock sto lwwKey
+
+  hr <- maybe (throwIO (CanNotReadLWWHashRef lwwRefLogPubKey)) pure
+    =<< getRefLogMerkle lwwRefLogPubKey
+  liftIO . print $ "Reflog merkle hash:" <+> pretty hr
+
+  -- mapM_ (liftIO . print . pretty) =<< readLogThrow getBJ hr
+
+  -- readLogThrow getBJ hr >>= mapM_ \txh -> do
+
+  txh <- maybe (throwIO (NoBlocksInMerkle hr)) pure
+    =<< S.last_ do
+      (orThrowPassIO <=< streamMerkle @HashRef getBJ)
+        (fromHashRef hr)
+  do
+
+      liftIO . print $ "tx:" <+> pretty txh
+
+      txbs <- getBF (fromHashRef txh)
+               <&> deserialiseOrFail @(RefLogUpdate L4Proto)
+               >>= orThrow UnsupportedFormat
+
+      (n, rhh, blkh) <- unpackTx txbs
+
+      rh <- catFromMerkle
+                (fmap Just . getBF)
+                (fromHashRef rhh)
+              >>= orThrowPassIO
+              >>= (deserialiseOrFail @RepoHead >>> orThrow UnsupportedFormat)
+
+      findMissedBlocks2 sto blkh
+          & S.mapM_ (getBF . fromHashRef)
+
+      liftIO . print $ "All blocks fetched for tx" <+> pretty txh
+
+      -- Double check. Ensure readTx has everything needed
+      _ <- (orThrowPassIO <=< runExceptT) do
+          readTx sto txh
+
+      bundlesCount <- (orThrowPassIO . runStreamOfA <=< S.length) do
+        streamMerkle @HashRef getBJ (fromHashRef blkh)
+          & S.mapM (\bh -> bh <$ getBF (fromHashRef blkh))
+          & S.mapM (orThrowPassIO <=< runExceptT . readBundle sto rh)
+
+      liftIO . print $ "All bundles (" <+> pretty bundlesCount
+          <+> ") fetched and checked for tx" <+> pretty txh
+
+  where
+    callBlockFetch
+          :: ( MonadUnliftIO m
+             , HasAPI PeerAPI UNIX m
+             )
+          => Hash HbSync -> m ()
+    callBlockFetch h = do
+      peerAPI <- getAPI @PeerAPI @UNIX
+      liftIO $ callBlockFetchIO peerAPI h
+
+    callBlockFetchIO :: ServiceCaller PeerAPI UNIX -> Hash HbSync -> IO ()
+    callBlockFetchIO peerAPI h = do
+      race (pause @'Seconds 1)
+           (callService @RpcFetch peerAPI (HashRef h))
+        >>= orThrow BlockFetchRequestTimeout
+        >>= orThrow BlockFetchRequestError
+
+data BlockFetchRequestTimeout = BlockFetchRequestTimeout deriving (Show)
+instance Exception BlockFetchRequestTimeout
+
+data BlockFetchRequestError = BlockFetchRequestError deriving (Show)
+instance Exception BlockFetchRequestError
+
+getBlockOrFetch
+    :: (MonadIO m)
+    => (Hash HbSync -> m ())
+    -> (Hash HbSync -> m (Maybe LBS.ByteString))
+    -> Hash HbSync -> m LBS.ByteString
+getBlockOrFetch fetch getB h = do
+  getB h >>= flip maybe pure do
+    fetch h
+    liftIO . print $ "Fetch block:" <+> pretty h
+    flip fix 1 \go attempt -> do
+      liftIO $ threadDelay (attempt * 10^6)
+      getB h >>= flip maybe pure do
+        if attempt < numAttempts
+          then go (attempt + 1)
+          else throwIO (GetOrFetchBlockError h)
+  where
+    numAttempts = 12
 
 scanRefLog :: (GitPerks m, MonadReader GitEnv m)
            => RefLogId
