@@ -64,6 +64,7 @@ commands :: GitPerks m => Parser (GitCLI m ())
 commands =
   hsubparser (  command "export"   (info pExport   (progDesc "export repo to hbs2-git"))
              <> command "import"   (info pImport   (progDesc "import repo from reflog"))
+             <> command "fsck"     (info pFsck     (progDesc "check objects from a last reflog transaction"))
              <> command "key"      (info pKey      (progDesc "key management"))
              <> command "manifest" (info pManifest (progDesc "manifest commands"))
              <> command "track"    (info pTrack    (progDesc "track tools"))
@@ -129,6 +130,13 @@ pImport = do
   pure do
     git <- Git.gitDir >>= orThrowUser "not a git dir"
     importRepoWait puk
+
+pFsck :: GitPerks m => Parser (GitCLI m ())
+pFsck = do
+  lww <- argument pLwwKey (metavar "LWWREF")
+  pure do
+    git <- Git.gitDir >>= orThrowUser "not a git dir"
+    fsckRepo lww
 
 pTools :: GitPerks m => Parser (GitCLI m ())
 pTools = hsubparser (  command "dump-pack" (info pDumpPack (progDesc "dump hbs2 git pack"))
@@ -467,6 +475,12 @@ theDict = do
 
 
     myEntries = do
+        entry $ bindMatch "lww:fsck" $ nil_ $ \case
+          [StringLike puk] -> lift do
+            lww <- orThrowUser "bad lwwref key" (fromStringMay puk)
+            git <- Git.gitDir >>= orThrowUser "not a git dir"
+            fsckRepo lww
+
         entry $ bindMatch "remote:hbs2:show" $ nil_ $ \case
           _ -> do
             -- TODO: move-to-HBS2.Local.CLI

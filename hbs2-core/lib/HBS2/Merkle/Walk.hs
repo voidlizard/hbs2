@@ -147,6 +147,15 @@ catFromMerkle getB =
         . Q.fromChunks
         . (S.map cs . streamCatFromMerkle getB)
 
+streamToListEither
+    :: (Monad m)
+    => Stream (Of a) m (Either e ())
+    -> m (Either e [a])
+streamToListEither = fmap runStreamOfA . S.toList
+
+runStreamOfA :: (Functor m) => Of a (m ()) -> m a
+runStreamOfA (a S.:> e) = a <$ e
+
 ---
 
 streamMerkle1

@@ -17,10 +17,10 @@ import Data.Maybe
 import Data.Set qualified as Set
 
 data RepoHeadType = RepoHeadType1
-                    deriving stock (Enum,Generic)
+                    deriving stock (Enum,Generic,Show)
 
 data RepoHeadExt = RepoHeadExt
-                   deriving stock Generic
+                   deriving stock (Generic,Show)
 
 data RepoHead =
   RepoHeadSimple
@@ -33,7 +33,7 @@ data RepoHead =
   ,  repoHeadRefs'  :: [(GitRef, GitHash)]
   , _repoHeadExt    :: [RepoHeadExt]
   }
-  deriving stock (Generic)
+  deriving stock (Generic,Show)
 
 makeLenses ''RepoHead
 
