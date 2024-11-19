@@ -17,7 +17,7 @@ import Data.Config.Suckless.Script
 
 import Codec.Compression.Zstd qualified as Z
 
-import Codec.Compression.GZip qualified as GZ1
+import Codec.Compression.GZip as GZ1
 import Codec.Compression.Zlib.Internal qualified as GZ
 
 import Data.Maybe
@@ -90,6 +90,7 @@ gitReadTree what =
           GitTreeEntryView v -> do
             Just v
           _ -> Nothing
+     <&> \s -> HM.elems (HM.fromList [ (gitEntryHash e, e) | e <- s])
 
 gitReadObjectThrow :: (Pretty h, MonadIO m) => GitObjectType -> h -> m ByteString
 gitReadObjectThrow t h = do
@@ -247,7 +248,8 @@ theDict = do
                    go outh =<< next
                 go _ GZ.CompressStreamEnd = return ()
 
-            let compressStream = GZ.compressIO GZ.gzipFormat GZ.defaultCompressParams
+            let params = defaultCompressParams { compressLevel = compressionLevel 7 }
+            let compressStream = GZ.compressIO GZ.gzipFormat params
 
             liftIO $ go stdout compressStream
 
