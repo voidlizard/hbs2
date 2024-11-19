@@ -61,7 +61,6 @@ class ( Monad m
 
   delRef :: (Hashed h k, RefMetaData k) => a -> k -> m ()
 
-
 data AnyStorage = forall zu  . ( Storage zu HbSync ByteString IO
                                ) => AnyStorage zu
 
@@ -87,9 +86,6 @@ instance (IsKey HbSync, MonadIO m) => Storage AnyStorage HbSync ByteString m  wh
   getRef (AnyStorage s) = liftIO . getRef s
   delBlock (AnyStorage s) = liftIO . delBlock s
   delRef (AnyStorage s) = liftIO . delRef s
-
-
-
 
 
 calcChunks :: forall a b . (Integral a, Integral b)

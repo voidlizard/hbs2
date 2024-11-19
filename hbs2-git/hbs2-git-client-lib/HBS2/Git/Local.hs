@@ -46,7 +46,7 @@ instance Pretty GitRef where
   pretty (GitRef x) = pretty @String [qc|{x}|]
 
 data GitObjectType = Commit | Tree | Blob
-                     deriving stock (Eq,Ord,Show,Generic)
+                     deriving stock (Eq,Ord,Show,Generic,Enum)
 
 instance Serialise GitObjectType
 
