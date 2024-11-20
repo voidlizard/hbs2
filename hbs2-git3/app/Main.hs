@@ -15,10 +15,12 @@ import HBS2.Misc.PrettyStuff as Exported
 
 import Data.Config.Suckless.Script
 
-import Codec.Compression.Zstd qualified as Z
+-- import Codec.Compression.GZip as GZ1
+-- import Codec.Compression.Zlib.Internal qualified as GZ
 
-import Codec.Compression.GZip as GZ1
-import Codec.Compression.Zlib.Internal qualified as GZ
+import Codec.Compression.BZip as BZ1
+import Codec.Compression.BZip.Internal qualified as BZ
+-- import Codec.Compression.Zlib.Internal qualified as GZ
 
 import Data.Maybe
 import Data.List qualified as L
@@ -162,7 +164,7 @@ theDict = do
         entry $ bindMatch "test:git:tree:pack:dump" $ nil_ $ \case
           [ StringLike fn ] -> do
 
-            content <- liftIO $ fmap GZ1.decompress (LBS8.readFile fn)
+            content <- BZ.decompress defaultDecompressParams <$> liftIO (LBS8.readFile fn)
 
             flip fix (UHead content) $ \next -> \case
               UHead "" -> none
@@ -218,8 +220,8 @@ theDict = do
                 writeTQueue inq (gitEntryType, gitEntryHash)
 
             let
-                go ::  Handle -> GZ.CompressStream IO -> IO ()
-                go outh (GZ.CompressInputRequired next) = do
+                go ::  Handle -> BZ.CompressStream IO -> IO ()
+                go outh (BZ.CompressInputRequired next) = do
 
                    inO <- atomically $ tryReadTQueue inq
 
@@ -243,13 +245,13 @@ theDict = do
 
                         e -> error (show e)
 
-                go outh (GZ.CompressOutputAvailable outchunk next) = do
+                go outh (BZ.CompressOutputAvailable outchunk next) = do
                    BS.hPut outh outchunk
                    go outh =<< next
-                go _ GZ.CompressStreamEnd = return ()
+                go _ BZ.CompressStreamEnd = return ()
 
-            let params = defaultCompressParams { compressLevel = compressionLevel 7 }
-            let compressStream = GZ.compressIO GZ.gzipFormat params
+            let params = defaultCompressParams
+            let compressStream = BZ.compressIO params
 
             liftIO $ go stdout compressStream
 
