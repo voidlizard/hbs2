@@ -15,6 +15,7 @@ import HBS2.Data.Detect (readLogThrow)
 import HBS2.Merkle.Walk
 import HBS2.Peer.Proto.LWWRef
 import HBS2.Storage
+import HBS2.Storage.AdHocStorage
 import HBS2.Storage.Operations.Missed
 import HBS2.Storage.Operations.ByteString
 -- import HBS2.Git.Data.GK

@@ -122,6 +122,7 @@ library
                     , HBS2.Prelude
                     , HBS2.Prelude.Plated
                     , HBS2.Storage
+                    , HBS2.Storage.AdHocStorage
                     , HBS2.Storage.Operations.Class
                     , HBS2.Storage.Operations.ByteString
                     , HBS2.Storage.Operations.Missed
