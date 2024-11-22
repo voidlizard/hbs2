@@ -342,8 +342,8 @@ gitReadCommitParents bs = do
           | ListVal [ StringLike "parent", StringLike hash ] <- what
           ] & catMaybes
 
-gitWriteCommitPackIO :: (GitWritePacksOpts opt, Pretty what) => opt -> what -> ( BS.ByteString -> IO () ) -> IO ()
-gitWriteCommitPackIO opts what action = do
+gitWriteCommitPackIO :: (GitWritePacksOpts opt, GitObjectReader reader, Pretty what) => opt -> reader -> what -> ( BS.ByteString -> IO () ) -> IO ()
+gitWriteCommitPackIO opts reader what action = do
     hhead <- gitRevParse what >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty what)
 
     parents <- gitReadObjectThrow Commit hhead >>= gitReadCommitParents
@@ -361,9 +361,6 @@ gitWriteCommitPackIO opts what action = do
            <&> sortGitTreeEntries
 
     flip runContT pure do
-      ph <- ContT withGitCat
-      let ssin  = getStdin ph
-      let ssout = getStdout ph
 
       inq <- newTQueueIO
 
@@ -384,21 +381,9 @@ gitWriteCommitPackIO opts what action = do
           Nothing -> go =<< next mempty
 
           Just (t,ha) -> do
-
-            liftIO $ hPrint ssin $ pretty ha
-            liftIO $ hFlush ssin
-
-            s <- liftIO $ hGetLine ssout
-
-            case words s of
-              [_,_,s] -> do
-                n <- readMay @Int s & orThrow (OtherGitError "git cat-file --batch error")
-                co <- liftIO $ LBS.hGet ssout n
-                void $ liftIO $ hGetLine ssout
-                let header = [qc|{pretty (Short t)} {s} {pretty ha}|]
-                go =<< next (LBS.toStrict (LBS8.intercalate "\n" [header, co]))
-
-              e -> throwIO $ OtherGitError ("git cat-file --batch error: " <> show e)
+            (tt,bs) <- gitReadObjectMaybe reader ha >>= orThrow (GitReadError (show $ pretty ha))
+            let header = [qc|{pretty (Short tt)} {pretty $ LBS.length bs} {pretty ha}|]
+            go =<< next (LBS.toStrict (LBS8.intercalate "\n" [header, bs]))
 
         BZ.CompressOutputAvailable outchunk next -> do
          action outchunk
@@ -507,7 +492,9 @@ theDict = do
 
              _ -> pure ( "HEAD", stdout )
 
-          liftIO $ gitWriteCommitPackIO o what $ \bs -> do
+          rd <- ContT withGitCat
+
+          liftIO $ gitWriteCommitPackIO o rd what $ \bs -> do
             BS.hPut to bs
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> do
