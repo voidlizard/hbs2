@@ -1,10 +1,14 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# Language ViewPatterns #-}
 {-# Language PatternSynonyms #-}
 {-# Language RecordWildCards #-}
+{-# Language UndecidableInstances #-}
+{-# Language AllowAmbiguousTypes #-}
 module Main where
 
 import HBS2.Prelude.Plated
 import HBS2.OrDie
+import HBS2.Base58
 
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
@@ -24,7 +28,12 @@ import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.System.Dir
 import HBS2.Misc.PrettyStuff as Exported
 
+import HBS2.Git3.Types
+import HBS2.Git3.State.Direct
+import HBS2.Git3.Config.Local
+
 import Data.Config.Suckless.Script
+import DBPipe.SQLite
 
 -- import Codec.Compression.GZip as GZ1
 -- import Codec.Compression.Zlib.Internal qualified as GZ
@@ -33,6 +42,7 @@ import Codec.Compression.BZip as BZ1
 import Codec.Compression.BZip.Internal qualified as BZ
 -- import Codec.Compression.Zlib.Internal qualified as GZ
 
+import Data.HashPSQ qualified as HPSQ
 import Data.Maybe
 import Data.List qualified as L
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -50,6 +60,7 @@ import System.Exit qualified as Q
 import System.Environment qualified as E
 import System.Process.Typed
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
 import System.IO (hPrint,hGetLine,IOMode(..))
 import System.IO qualified as IO
@@ -73,6 +84,8 @@ data GitException =
   | InvalidObjectFormat GitObjectType (Maybe GitHash)
   | InvalidGitPack ByteString
   | OtherGitError String
+  | UnknownRev String
+  | GitReadError String
   deriving stock (Eq,Show,Typeable,Generic)
 
 instance Exception GitException
@@ -111,6 +124,10 @@ gitReadTree what =
           _ -> Nothing
      <&> \s -> HM.elems (HM.fromList [ (gitEntryHash e, e) | e <- s])
 
+
+class GitObjectReader a where
+  gitReadObjectMaybe :: forall m . MonadIO m => a -> GitHash -> m (Maybe (GitObjectType, ByteString))
+
 gitReadObjectThrow :: (Pretty h, MonadIO m) => GitObjectType -> h -> m ByteString
 gitReadObjectThrow t h = do
   gitRunCommand [qc|git cat-file {pretty t} {pretty h}|]
@@ -123,6 +140,9 @@ gitRevParse ref = do
     <&> LBS8.words
     <&> maybe Nothing (fromStringMay . LBS8.unpack) . headMay
 
+gitRevParseThrow :: (Pretty ref, MonadIO m) => ref -> m GitHash
+gitRevParseThrow r = gitRevParse r >>= orThrow (UnknownRev (show $ pretty r))
+
 withGitCat ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
 withGitCat action = do
   let cmd = "git"
@@ -130,6 +150,29 @@ withGitCat action = do
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
   p <- startProcess config
   action p
+
+instance GitObjectReader (Process Handle Handle ()) where
+  gitReadObjectMaybe ph co = liftIO do
+
+    let ssin = getStdin ph
+    let ssout = getStdout ph
+
+    hPrint ssin $ pretty co
+    hFlush ssin
+
+    s <- hGetLine ssout
+
+    runMaybeT do
+
+      case words s of
+        [_,t,ss] -> do
+          n <- readMay @Int ss & toMPlus
+          o <- fromStringMay @GitObjectType t & toMPlus
+          bs <- lift $ LBS.hGet ssout n
+          void $ lift $ hGetLine ssout
+          pure (o,bs)
+
+        _ -> mzero
 
 newtype Short x = Short x
 
@@ -166,10 +209,38 @@ instance Exception Git3Exception
 
 data Git3Env =
     Git3Disconnected
-  | Git3Connected
-    { peerSocket  :: FilePath
-    , peerAPI :: ServiceCaller PeerAPI UNIX
+    { gitRefLog   :: TVar (Maybe GitRemoteKey)
     }
+  | Git3Connected
+    { stateDb     :: DBPipeEnv
+    , peerSocket  :: FilePath
+    , peerStorage :: AnyStorage
+    , peerAPI     :: ServiceCaller PeerAPI UNIX
+    , gitRefLog   :: TVar (Maybe GitRemoteKey)
+    }
+
+class HasGitRemoteKey m where
+  getGitRemoteKey :: m (Maybe GitRemoteKey)
+  setGitRemoteKey :: GitRemoteKey -> m ()
+
+instance (MonadIO m, MonadReader Git3Env m) => HasGitRemoteKey m where
+  getGitRemoteKey = do
+    e <- ask
+    liftIO $ readTVarIO (gitRefLog e)
+
+  setGitRemoteKey k = do
+    e <- ask
+    liftIO $ atomically $ writeTVar (gitRefLog e) (Just k)
+
+instance (MonadIO m) => HasStateDB (Git3 m) where
+  getStateDB = asks stateDb
+
+instance (MonadIO m, MonadReader Git3Env m) => HasStorage m where
+  getStorage = do
+    e <- ask
+    case e of
+      Git3Disconnected{} -> throwIO Git3PeerNotConnected
+      Git3Connected{..} -> pure peerStorage
 
 newtype Git3 (m :: Type -> Type) a = Git3M { fromGit3 :: ReaderT Git3Env m a }
                    deriving newtype ( Applicative
@@ -188,7 +259,7 @@ type Git3Perks m = ( MonadIO m
 instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
   getClientAPI = do
     ask  >>= \case
-       Git3Disconnected -> throwIO Git3PeerNotConnected
+       Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure peerAPI
 
 instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (RunM c m) where
@@ -198,7 +269,17 @@ instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (
   getClientAPI = lift $ getClientAPI @api @proto
 
 nullGit3Env :: MonadIO m => m Git3Env
-nullGit3Env = pure Git3Disconnected
+nullGit3Env = Git3Disconnected <$> newTVarIO Nothing
+
+connectedDo :: (MonadIO m, MonadReader Git3Env m) => m a -> m a
+connectedDo what = do
+  env <- ask
+  debug $ red "connectedDo"
+  case env of
+    Git3Disconnected{} -> do
+      throwIO Git3PeerNotConnected
+
+    _ -> what
 
 withGit3Env :: Git3Perks m => Git3Env -> Git3 m a -> m a
 withGit3Env env a = runReaderT (fromGit3 a) env
@@ -236,26 +317,36 @@ recover m = fix \again -> do
 
         void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
-        let connected = Git3Connected soname peerAPI
+        ref <- getGitRemoteKey >>= orThrowUser "remote ref not set"
 
-        liftIO $ withGit3Env connected again
+        dbPath <- getStatePathDB (AsBase58 ref)
+
+        touch dbPath
+        db <- newDBPipeEnv dbPipeOptsDef dbPath
+
+        let sto = AnyStorage (StorageClient storageAPI)
+
+        connected <- Git3Connected db soname sto peerAPI <$> newTVarIO (Just ref)
+
+        liftIO $ withGit3Env connected (evolveState >> again)
+
+gitReadCommitParents :: MonadIO m => ByteString -> m [GitHash]
+gitReadCommitParents bs = do
+   what <- LBS8.lines bs
+             & takeWhile ( not . LBS8.null )
+             & LBS8.unpack . LBS8.unlines
+             & parseTop
+             & orThrow (OtherGitError "invalid commit format")
+
+   pure $ [ fromStringMay @GitHash hash
+          | ListVal [ StringLike "parent", StringLike hash ] <- what
+          ] & catMaybes
 
 gitWriteCommitPackIO :: (GitWritePacksOpts opt, Pretty what) => opt -> what -> ( BS.ByteString -> IO () ) -> IO ()
 gitWriteCommitPackIO opts what action = do
     hhead <- gitRevParse what >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty what)
 
-    co <- gitReadObjectThrow Commit hhead
-           <&> LBS8.lines
-           <&> takeWhile ( not . LBS8.null )
-           <&> LBS8.unpack . LBS8.unlines
-           <&> parseTop
-           >>= orThrow (OtherGitError "invalid commit format")
-
-    let parents =  [ fromStringMay @GitHash hash
-                   | ListVal [ StringLike "parent", StringLike hash ] <- co
-                   ] & catMaybes
-
-    -- debug $ "EXCLUDE PARENTS" <+> pretty (excludeParents opts)
+    parents <- gitReadObjectThrow Commit hhead >>= gitReadCommitParents
 
     skip <- if not (excludeParents opts) then do
                  pure mempty
@@ -328,8 +419,15 @@ unpackPEntry = \case
   ["T", s, h] -> (Tree,,)   <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
   _ -> Nothing
 
+data ExportState =
+    ExportGetCommit
+  | ExportCheck
+
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
+                      , HasStorage m
+                      , HasGitRemoteKey m
+                      , MonadReader Git3Env m
                       ) => Dict C m
 theDict = do
   makeDict @C do
@@ -349,6 +447,23 @@ theDict = do
           r <- gitReadTree "HEAD"
           for_ r $ \GitTreeEntry{..} -> do
             liftIO $ print $ pretty gitEntryHash <+> pretty gitEntryType <+> pretty gitEntrySize <+> pretty gitEntryName
+
+
+        entry $ bindMatch "reflog" $ nil_ $ \case
+          [ SignPubKeyLike what ] -> do
+            debug $ "set reflog" <+> pretty (AsBase58 what)
+            lift $ setGitRemoteKey what
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "test:state:init" $ nil_ $ \case
+          [ ] -> do
+            lift $ connectedDo do
+              r <- getGitRemoteKey >>= orThrowUser "git remote not set"
+              p <- getStatePathDB (AsBase58 r)
+              debug $ "test:state:init" <+> pretty p
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:tree:pack:dump" $ nil_ $ \case
           [ StringLike fn ] -> do
@@ -376,8 +491,6 @@ theDict = do
           r    <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 peer () >>= orThrowUser "hbs2-peer not found"
           notice $ pretty r
 
-        entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> flip runContT pure do
-          pure ()
 
         entry $ bindMatch "test:git:tree:pack:write" $ nil_ $ \syn -> flip runContT pure do
 
@@ -396,6 +509,124 @@ theDict = do
 
           liftIO $ gitWriteCommitPackIO o what $ \bs -> do
             BS.hPut to bs
+
+        entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> do
+
+            r <- case syn of
+                    [] -> gitRevParseThrow "HEAD"
+                    [ StringLike co ] -> gitRevParseThrow co
+                    _ -> throwIO (BadFormException @C nil)
+
+            debug $ "process commit"  <+> pretty r
+
+            q <- newTVarIO ( HPSQ.empty @GitHash @Double @() )
+            done <- newTVarIO ( mempty :: HashSet GitHash )
+
+            atomically $ modifyTVar q (HPSQ.insert r 1.0 ())
+
+            lift $ connectedDo do
+
+              sto <- getStorage
+
+              flip runContT pure do
+
+                reader <- ContT $ withGitCat
+
+                ContT $ bracket none $ const do
+                  hClose $ getStdin reader
+
+                flip fix ExportGetCommit $ \next -> \case
+
+                  ExportGetCommit -> do
+
+                    co' <- atomically $ stateTVar q $ HPSQ.alterMin \case
+                            Nothing      -> (Nothing, Nothing)
+                            Just (k,p,v) -> (Just (k,p), Nothing)
+
+                    case co' of
+                      Nothing -> next ExportCheck
+
+                      Just (co,prio) -> do
+                        debug $ "Process commit" <+> pretty co
+                        debug $ "check-pack-for" <+> pretty co
+
+                        already <- readTVarIO done <&> HS.member co
+
+                        if already
+                          then next ExportGetCommit
+                          else do
+                            (t,bs) <- liftIO (gitReadObjectMaybe reader co)
+                                          >>= orThrow (GitReadError (show $ pretty co))
+
+                            parents <- gitReadCommitParents bs
+
+                            for_ (zip [1..] parents) $ \(i,gh) -> do
+                              atomically $ modifyTVar q (HPSQ.insert gh (prio-i) ())
+
+                            atomically $ modifyTVar done (HS.insert co)
+
+                            next ExportGetCommit
+
+                  ExportCheck -> do
+                    debug $ "ExportCheck dummy" <+> pretty r
+                    debug "exit export"
+
+              -- case co' of
+              --   Just co -> do
+              --     debug $ "Process commit" <+> pretty co
+
+              --     parents <- gitReadObjectThrow Commit co >>= gitReadCommitParents
+
+              --     debug $ pretty parents
+
+              --     pure ()
+
+
+              --   Nothing -> do
+              --     debug $ "check result for" <+> pretty r
+
+              -- none
+              -- readTVarIO q <&> HPSQ.null
+
+              -- when mt do
+              --   debug $ "check pack for" <+> pretty r
+
+          -- делаем очередь коммитов
+          -- кладём коммит в очередь с приоритетом 1
+          -- поехали мутить
+          --
+          -- мутим:
+          --
+          --   очередь пуста:
+          --     проверяем, для начального коммита есть пак?
+          --       есть -- возвращаем хэш, выходим
+          --       нет  -- приплыли
+          --
+          --   достали из очереди то, что наименьшим приоритетом
+          --
+          --   смотрим, нет ли уже бандла
+          --     есть -> мутим
+          --
+          --     нет  -> делаем
+          --        взяли всех парентов
+          --
+          --        если есть бандл для всех парента - мутим пак
+          --          как ^^^^^^^^^^^^^^^^^^^^^^^^^^
+          --
+          --        если нет - кладём в очередь с приоритетом меньше, чем у того, что
+          --        достали
+          --
+          --        то, что достали кладём обратно (с большим приоритетом)
+          --
+          --    пак:
+          --
+          --      gitWriteCommitPackIO
+          --
+          --      мутим
+          --
+          --
+          --  почему не рекурсия: она тут не хвостовая, а коммитов тысячи и миллионы (linux)
+          --
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
@@ -434,6 +665,7 @@ main = flip runContT pure do
   env <- nullGit3Env
 
   void $ lift $ withGit3Env env do
+    conf <- readLocalConf
     let dict = theDict
-    recover $ run dict cli
+    recover $ run dict (conf <> cli)
 
