@@ -545,7 +545,7 @@ theDict = do
                         inDb <- lift $ withState (selectGitPack co) <&> isJust
                         isDone <- readTVarIO done <&> HS.member co
 
-                        let already = inDb || isDone
+                        let already = isDone || inDb
 
                         if already
                           then next ExportGetCommit
