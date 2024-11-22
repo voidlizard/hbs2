@@ -9,6 +9,7 @@ module Main where
 import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.Base58
+import HBS2.Merkle
 
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
@@ -586,8 +587,23 @@ theDict = do
 
                               debug $ "pack-merkle-tree-hash" <+> pretty href
 
-                              withState do
+                              debug $ "make cblock"
+
+                              phashes <- withState $ for parents \p -> do
+                                             selectCBlock p
+                                              >>= orThrowUser ("pack export failed" <+> pretty p)
+
+                              debug $ "write cblock"
+
+                              let cblock = href : phashes
+                              let pt = toPTree (MaxSize 1024) (MaxNum 1024) cblock
+
+                              root <- makeMerkle 0 pt $ \(_,_,s) -> do
+                                         void $ putBlock sto s
+
+                              withState $ transactional do
                                 insertGitPack co href
+                                insertCBlock co (HashRef root)
 
                               atomically $ modifyTVar done (HS.insert co)
                             else do
@@ -597,7 +613,8 @@ theDict = do
 
                   ExportCheck -> do
                     debug $ "ExportCheck dummy" <+> pretty r
-                    debug "exit export"
+                    c <- lift $ withState $ selectCBlock r >>= orThrowUser "export failed"
+                    liftIO $ hPrint stdout (pretty c)
 
               -- case co' of
               --   Just co -> do
