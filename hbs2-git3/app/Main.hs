@@ -409,6 +409,7 @@ unpackPEntry = \case
 data ExportState =
     ExportGetCommit
   | ExportCheck
+  | ExportStart
 
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
@@ -529,6 +530,10 @@ theDict = do
 
                 flip fix ExportGetCommit $ \next -> \case
 
+                  ExportStart -> do
+                    here <- lift $ withState $ selectGitPack r <&> isJust
+                    if here then next ExportCheck else next ExportGetCommit
+
                   ExportGetCommit -> do
 
                     co' <- atomically $ stateTVar q $ HPSQ.alterMin \case
@@ -542,10 +547,9 @@ theDict = do
                         debug $ "Process commit" <+> pretty co
                         debug $ "check-pack-for" <+> pretty prio <+> pretty co
 
-                        inDb <- lift $ withState (selectGitPack co) <&> isJust
                         isDone <- readTVarIO done <&> HS.member co
 
-                        let already = isDone || inDb
+                        let already = isDone
 
                         if already
                           then next ExportGetCommit
@@ -556,9 +560,10 @@ theDict = do
                             parents <- gitReadCommitParents bs
 
                             n <- for (zip [1..] parents) $ \(i,gh) -> do
+                                   here <- lift $ withState $ selectGitPack gh <&> isJust
                                    atomically do
                                      pdone <- readTVar done <&> HS.member gh
-                                     if pdone then do
+                                     if pdone || here then do
                                        pure 0
                                      else do
                                        modifyTVar q (HPSQ.insert gh (prio-i) ())
