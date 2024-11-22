@@ -49,6 +49,15 @@ gitpack
   )
 |]
 
+    ddl [qc|
+create table if not exists
+cblock
+  ( kommit  text not null primary key
+  , cblock  text not null
+  )
+|]
+
+
 
 instance ToField GitHash where
   toField h = toField (show $ pretty h)
@@ -80,4 +89,16 @@ selectGitPack gh = do
   select [qc|select pack from gitpack where kommit = ? limit 1|] (Only gh)
    <&> listToMaybe . fmap fromOnly
 
+
+insertCBlock :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
+insertCBlock co cblk = do
+  insert [qc|
+    insert into cblock (kommit, cblock) values(?,?)
+    on conflict (kommit) do update set cblock = excluded.cblock
+         |] (co, cblk)
+
+selectCBlock :: MonadIO m => GitHash -> DBPipeM m (Maybe HashRef)
+selectCBlock gh = do
+  select [qc|select cblock from cblock where kommit = ? limit 1|] (Only gh)
+   <&> listToMaybe . fmap fromOnly
 
