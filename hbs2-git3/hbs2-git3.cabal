@@ -49,6 +49,9 @@ common shared-properties
                      , TupleSections
                      , TypeApplications
                      , TypeFamilies
+                     , PatternSynonyms
+                     , ViewPatterns
+                     , RecordWildCards
 
 
   build-depends:
@@ -109,11 +112,16 @@ library
     other-modules:
 
     exposed-modules:
+      HBS2.Git3.Types
+      HBS2.Git3.State.Types
+      HBS2.Git3.State.Direct
+      HBS2.Git3.Config.Local
 
     build-depends:    base
                     , base16-bytestring
                     , binary
                     , bzlib
+                    , psqueues
                     , unix
 
     hs-source-dirs:  lib
@@ -128,9 +136,25 @@ executable hbs2-git3
         base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
         , bzlib
         , binary
+        , psqueues
         , vector
 
     hs-source-dirs:   app
     default-language: GHC2021
+
+executable hbs2-git-daemon
+    import:           shared-properties
+    main-is:          Daemon.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:
+        base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
+        , bzlib
+        , binary
+        , vector
+
+    hs-source-dirs:   app
+    default-language: GHC2021
+
 
 
