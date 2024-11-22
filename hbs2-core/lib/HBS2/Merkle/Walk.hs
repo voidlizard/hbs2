@@ -1,11 +1,12 @@
 module HBS2.Merkle.Walk where
 
-import Codec.Serialise (DeserialiseFailure, deserialiseOrFail, serialise)
+import Codec.Serialise
 import Control.Exception
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Fix
 import Control.Monad.Trans.Class
+import Data.Bool
 import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable
 import Data.Functor
@@ -39,44 +40,65 @@ walkMerkleV2
     -> Hash HbSync
     -> m ()
 walkMerkleV2 flookup sink =
-    walkMerkleV2' flookup \case
-        (Right (MLeaf s)) -> sink (Right s)
-        (Right (MNode _ _)) -> pure ()
-        Left e -> sink (Left e)
+    either (sink . Left) pure <=< runExceptT . go
   where
-    walkMerkleV2'
-        :: forall a m
-         . (Serialise (MTree a), Serialise (MTreeAnn a), Monad m)
-        => (Hash HbSync -> m (Maybe BSL.ByteString))
-        -> (Either WalkMerkleError (MTree a) -> m ())
-        -> Hash HbSync
-        -> m ()
+    go :: Hash HbSync -> ExceptT WalkMerkleError m ()
+    go = fix \go' hash -> do
+        bs <-
+            maybe (throwError $ MerkleHashNotFound hash) pure
+                =<< lift (flookup hash)
+        either
+            (throwError . MerkleDeserialiseFailure hash)
+            (runWithTree (withMLeaf (lift . sink . Right)) (traverse_ go'))
+            ( (deserialiseOrFail @(MTree a) bs)
+                <> (deserialiseOrFail bs <&> \(MTreeAnn {_mtaTree = t}) -> t)
+            )
 
-    walkMerkleV2' flookup sink root =
-        either (sink . Left) pure =<< runExceptT (go root)
-      where
-        go :: Hash HbSync -> ExceptT WalkMerkleError m ()
-        go = fix \go' hash -> do
-            bs <-
-                maybe (throwError $ MerkleHashNotFound hash) pure
-                    =<< lift (flookup hash)
+data WalkStep a
+    = WalkLeaf a
+    | WalkProcessedTree (Hash HbSync)
+    | WalkSkippedTree (Hash HbSync)
+
+walkMerkleConditional
+    :: forall a m
+     . (Serialise (MTree a), Serialise (MTreeAnn a), Monad m)
+    => (Hash HbSync -> m (Maybe BSL.ByteString))
+    -> (Hash HbSync -> m Bool)
+    -> (Either WalkMerkleError (WalkStep a) -> m ())
+    -> Hash HbSync
+    -> m ()
+walkMerkleConditional getB p sink =
+    either (sink . Left) pure <=< runExceptT . go
+  where
+    go :: Hash HbSync -> ExceptT WalkMerkleError m ()
+    go = fix \go' h ->
+        (lift . p) h >>= bool (sinkRight (WalkSkippedTree h)) do
+            bs <- maybe (throwError $ MerkleHashNotFound h) pure =<< (lift . getB) h
             either
-                (throwError . MerkleDeserialiseFailure hash)
-                (runWithTree (lift . sink . Right) (traverse_ go'))
+                (throwError . MerkleDeserialiseFailure h)
+                (runWithTree (withMLeaf (sinkRight . WalkLeaf)) (traverse_ go'))
                 ( (deserialiseOrFail @(MTree a) bs)
                     <> (deserialiseOrFail bs <&> \(MTreeAnn {_mtaTree = t}) -> t)
                 )
-          where
-            runWithTree
-                :: forall m a
-                 . (Monad m)
-                => (MTree a -> m ())
-                -> ([Hash HbSync] -> m ())
-                -> MTree a
-                -> m ()
-            runWithTree h run = \case
-                n@(MLeaf _) -> h n
-                n@(MNode _ hashes) -> h n >> run hashes
+            sinkRight (WalkProcessedTree h)
+      where
+        sinkRight = lift . sink . Right
+
+withMLeaf :: (Applicative m) => (a -> m ()) -> MTree a -> m ()
+withMLeaf f = \case
+    MLeaf s -> f s
+    MNode _ _ -> pure ()
+
+runWithTree
+    :: forall m a
+     . (Monad m)
+    => (MTree a -> m ())
+    -> ([Hash HbSync] -> m ())
+    -> MTree a
+    -> m ()
+runWithTree f run = \case
+    n@(MLeaf _) -> f n
+    n@(MNode _ hashes) -> f n >> run hashes
 
 type WalkMerkleError = WalkMerkleError' (Hash HbSync)
 data WalkMerkleError' h
@@ -98,6 +120,32 @@ instance Exception WalkMerkleError
 
 ---
 
+streamMerkleConditionalEither
+    :: forall a m
+     . (Serialise a, Monad m)
+    => (Hash HbSync -> m (Maybe BSL.ByteString))
+    -> (Hash HbSync -> m Bool)
+    -> Hash HbSync
+    -> Stream (Of (WalkStep a)) m (Either WalkMerkleError ())
+streamMerkleConditionalEither getB p h =
+    (runExceptT . S.distribute) do
+        streamMerkleConditional (lift . getB) (lift . p) h
+
+streamMerkleConditional
+    :: forall a m
+     . ( Serialise a
+       , Monad m
+       , MonadError WalkMerkleError m
+       )
+    => (Hash HbSync -> m (Maybe BSL.ByteString))
+    -> (Hash HbSync -> m Bool)
+    -> Hash HbSync
+    -> Stream (Of (WalkStep a)) m ()
+streamMerkleConditional getB p = do
+    walkMerkleConditional (lift . getB) (lift . p) \case
+        Left hashNotFound -> throwError hashNotFound
+        Right as -> S.yield as
+
 streamMerkle
     :: forall a m
      . (Serialise a, Monad m)
@@ -107,6 +155,7 @@ streamMerkle
 streamMerkle getB rv = (runExceptT . S.distribute) do
     streamMerkle' getB rv
 
+-- | Работает для деревьев, у которых в узлах лежат [a]
 streamMerkle'
     :: forall a m
      . (Serialise a, Monad m)
@@ -114,7 +163,7 @@ streamMerkle'
     -> Hash HbSync
     -> Stream (Of a) (ExceptT WalkMerkleError m) ()
 streamMerkle' getB = do
-    walkMerkleV2 getB' \case
+    walkMerkleV2 @[a] getB' \case
         Left hashNotFound -> throwError hashNotFound
         Right as -> S.each as
   where
