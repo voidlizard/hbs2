@@ -24,6 +24,8 @@ import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
+import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
+
 import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.System.Dir
 import HBS2.Misc.PrettyStuff as Exported
@@ -262,11 +264,11 @@ instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure peerAPI
 
-instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (RunM c m) where
-  getClientAPI = lift (getClientAPI @api @proto)
+-- instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (RunM c m) where
+--   getClientAPI = lift (getClientAPI @api @proto)
 
-instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (ContT a (RunM c m)) where
-  getClientAPI = lift $ getClientAPI @api @proto
+-- instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (ContT a (RunM c m)) where
+--   getClientAPI = lift $ getClientAPI @api @proto
 
 nullGit3Env :: MonadIO m => m Git3Env
 nullGit3Env = Git3Disconnected <$> newTVarIO Nothing
@@ -412,6 +414,7 @@ theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
                       , HasStorage m
                       , HasGitRemoteKey m
+                      , HasStateDB m
                       , MonadReader Git3Env m
                       ) => Dict C m
 theDict = do
@@ -499,6 +502,8 @@ theDict = do
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> do
 
+            mkdir "export"
+
             r <- case syn of
                     [] -> gitRevParseThrow "HEAD"
                     [ StringLike co ] -> gitRevParseThrow co
@@ -535,9 +540,12 @@ theDict = do
 
                       Just (co,prio) -> do
                         debug $ "Process commit" <+> pretty co
-                        debug $ "check-pack-for" <+> pretty co
+                        debug $ "check-pack-for" <+> pretty prio <+> pretty co
 
-                        already <- readTVarIO done <&> HS.member co
+                        inDb <- lift $ withState (selectGitPack co) <&> isJust
+                        isDone <- readTVarIO done <&> HS.member co
+
+                        let already = inDb || isDone
 
                         if already
                           then next ExportGetCommit
@@ -547,10 +555,38 @@ theDict = do
 
                             parents <- gitReadCommitParents bs
 
-                            for_ (zip [1..] parents) $ \(i,gh) -> do
-                              atomically $ modifyTVar q (HPSQ.insert gh (prio-i) ())
+                            n <- for (zip [1..] parents) $ \(i,gh) -> do
+                                   atomically do
+                                     pdone <- readTVar done <&> HS.member gh
+                                     if pdone then do
+                                       pure 0
+                                     else do
+                                       modifyTVar q (HPSQ.insert gh (prio-i) ())
+                                       pure 1
 
-                            atomically $ modifyTVar done (HS.insert co)
+                            if sum n == 0 then lift do
+                              debug $ "write pack for" <+> pretty co
+
+                              let fn = "export" </> show (pretty co) <> ".pack"
+
+                              liftIO $ withFile fn WriteMode $ \to -> do
+                                gitWriteCommitPackIO () reader co $ \pss -> do
+                                  BS.hPut to pss
+
+                              -- FIXME: support-encryption!
+                              lbs <- liftIO $ LBS.readFile fn
+
+                              href <- createTreeWithMetadata sto mzero mempty lbs
+                                        >>= orThrowUser "can't write merkle tree"
+
+                              debug $ "pack-merkle-tree-hash" <+> pretty href
+
+                              withState do
+                                insertGitPack co href
+
+                              atomically $ modifyTVar done (HS.insert co)
+                            else do
+                              atomically $ modifyTVar q (HPSQ.insert co prio ())
 
                             next ExportGetCommit
 
