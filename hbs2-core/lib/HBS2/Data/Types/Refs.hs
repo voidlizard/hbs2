@@ -26,7 +26,10 @@ class RefMetaData a where
 
 newtype HashRef = HashRef { fromHashRef :: Hash HbSync }
                   deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)
-                  deriving stock (Data,Generic,Show)
+                  deriving stock (Data,Generic)
+
+instance Show HashRef where
+  show (HashRef h) = show . pretty $  h
 
 newtype TaggedHashRef t = TaggedHashRef { fromTaggedHashRef :: HashRef }
                           deriving newtype (Eq,Ord,IsString,Pretty,Hashable,Hashed HbSync)

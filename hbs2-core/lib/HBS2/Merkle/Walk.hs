@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module HBS2.Merkle.Walk where
 
 import Codec.Serialise
@@ -7,10 +9,13 @@ import Control.Monad.Except
 import Control.Monad.Fix
 import Control.Monad.Trans.Class
 import Data.Bool
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable
 import Data.Functor
+import Data.Functor.Identity
 import Data.String.Conversions (cs)
+import Data.Text (Text)
 import GHC.Generics (Generic)
 import Prettyprinter
 import Streaming (Of (..), Stream)
@@ -54,10 +59,25 @@ walkMerkleV2 flookup sink =
                 <> (deserialiseOrFail bs <&> \(MTreeAnn {_mtaTree = t}) -> t)
             )
 
-data WalkStep a
+type WalkStep a = WalkStep' (Hash HbSync) a
+data WalkStep' h a
     = WalkLeaf a
-    | WalkProcessedTree (Hash HbSync)
-    | WalkSkippedTree (Hash HbSync)
+    | WalkProcessedTree h
+    | WalkSkipTree h
+    deriving (Generic, Functor, Foldable, Traversable)
+
+withWalkProcessedTree :: (Applicative m) => (h -> m ()) -> WalkStep' h a -> m ()
+withWalkProcessedTree f = \case
+    WalkLeaf _ -> pure ()
+    WalkProcessedTree h -> f h
+    WalkSkipTree _ -> pure ()
+
+deriving instance (Show b) => Show (WalkStep' (AsBase58 (Hash HbSync)) b)
+deriving via (WalkStep' (AsBase58 (Hash HbSync)) [a]) instance (Show a) => Show (WalkStep [a])
+deriving via (WalkStep' (AsBase58 (Hash HbSync)) (AsBase58 BSL.ByteString)) instance Show (WalkStep BSL.ByteString)
+deriving via (WalkStep' (AsBase58 (Hash HbSync)) (AsBase58 BS.ByteString)) instance Show (WalkStep BS.ByteString)
+deriving via (WalkStep' (AsBase58 (Hash HbSync)) String) instance Show (WalkStep String)
+deriving via (WalkStep' (AsBase58 (Hash HbSync)) Text) instance Show (WalkStep Text)
 
 walkMerkleConditional
     :: forall a m
@@ -72,7 +92,7 @@ walkMerkleConditional getB p sink =
   where
     go :: Hash HbSync -> ExceptT WalkMerkleError m ()
     go = fix \go' h ->
-        (lift . p) h >>= bool (sinkRight (WalkSkippedTree h)) do
+        (lift . p) h >>= bool (sinkRight (WalkSkipTree h)) do
             bs <- maybe (throwError $ MerkleHashNotFound h) pure =<< (lift . getB) h
             either
                 (throwError . MerkleDeserialiseFailure h)
