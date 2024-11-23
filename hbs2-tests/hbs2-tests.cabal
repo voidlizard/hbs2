@@ -45,6 +45,7 @@ common common-deps
         , suckless-conf
         , tasty
         , tasty-hunit
+        , tasty-quickcheck
         , temporary
         , timeit
         , transformers
@@ -53,6 +54,7 @@ common common-deps
         , vector
         , prettyprinter-ansi-terminal
         , interpolatedstring-perl6
+        , string-conversions
         , unliftio
 
 common shared-properties
@@ -99,6 +101,13 @@ common shared-properties
                      , TypeOperators
                      , TypeFamilies
 
+library
+    import:           shared-properties
+    import:           common-deps
+    hs-source-dirs:   lib
+    exposed-modules:
+        HBS2.Tests.MapStore
+        HBS2.Tests.StoreAsMerkle
 
 test-suite test-skey
     import:           shared-properties
@@ -1124,23 +1133,14 @@ executable test-refchan-notify
 
 
 executable test-walk-merkletree-cornercase
-    import:           shared-properties
-    import:           common-deps
-    default-language: Haskell2010
-    ghc-options:
-    -- other-extensions:
+    import:           shared-properties, common-deps
     hs-source-dirs:   test
     main-is:          TestWalkMerkleTreeCorner.hs
-    build-depends:
-          base, hbs2-core
-        , bytestring
-        , containers
-        , string-conversions
-        , interpolatedstring-perl6
-        -- , mtl
-        -- , mwc-random
-        -- , random
-        , safe
-        , serialise
-        , streaming
-        , text
+    build-depends:    hbs2-tests
+
+test-suite test-walk-merkle-conditional
+    import:           shared-properties, common-deps
+    type: exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          TestWalkMerkleConditional.hs
+    build-depends:    hbs2-tests

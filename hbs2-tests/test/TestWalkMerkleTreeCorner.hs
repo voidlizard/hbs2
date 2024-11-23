@@ -13,6 +13,8 @@ import HBS2.Data.Types.Refs
 import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Merkle.Walk
+import HBS2.Tests.MapStore
+import HBS2.Tests.StoreAsMerkle
 
 main :: IO ()
 main = do
@@ -41,43 +43,3 @@ main = do
         r2 <- (,) <$> catFromMerkle mapStoreReadBlock h <*> catFromMerkle1 mapStoreReadBlock h
 
         pure [r1, r2]
-
-type MapStore = Map (Hash HbSync) ByteString
-newtype MapStoreM a = MapStoreM {unMapStoreM :: State MapStore a}
-    deriving newtype (Functor, Applicative, Monad, MonadState MapStore)
-
-runMapStoreM :: MapStoreM a -> a
-runMapStoreM = flip evalState mempty . unMapStoreM
-
-mapStorePutBlock :: ByteString -> MapStoreM (Hash HbSync)
-mapStorePutBlock bs =
-    h <$ State.modify (Map.insert h bs)
-  where
-    h = hashObject bs
-
-mapStoreReadBlock :: (Hash HbSync) -> MapStoreM (Maybe ByteString)
-mapStoreReadBlock h =
-    State.gets (Map.lookup h)
-
-mapStoreDeleteBlock :: (Hash HbSync) -> MapStoreM ()
-mapStoreDeleteBlock h =
-    State.modify (Map.delete h)
-
----
-
-class (Monad m) => StoreAsMerkle m h b a where
-    storeAsMerkle :: (b -> m h) -> a -> m MerkleHash
-
-instance StoreAsMerkle MapStoreM (Hash HbSync) ByteString [ByteString] where
-    storeAsMerkle = \putB bs -> do
-        hashes <- mapM putB bs
-        storeAsMerkle putB (HashRef <$> hashes)
-
-instance StoreAsMerkle MapStoreM (Hash HbSync) ByteString [HashRef] where
-    storeAsMerkle = \putB hrs -> do
-        let
-            treeChildNum = 3
-            hashListChunk = 2
-            ptree = toPTree (MaxSize hashListChunk) (MaxNum treeChildNum) hrs
-        MerkleHash <$> do
-            makeMerkle 0 ptree \(_, _, bs) -> (void . putB) bs

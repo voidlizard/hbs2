@@ -41,8 +41,10 @@ common shared-properties
                      , ConstraintKinds
                      , DataKinds
                      , DeriveDataTypeable
+                     , DeriveFoldable
                      , DeriveFunctor
                      , DeriveGeneric
+                     , DeriveTraversable
                      , DerivingStrategies
                      , DerivingVia
                      , ExtendedDefaultRules

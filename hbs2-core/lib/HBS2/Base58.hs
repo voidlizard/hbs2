@@ -39,6 +39,9 @@ instance Pretty (AsBase58 LBS.ByteString) where
 instance Show (AsBase58 ByteString) where
   show (AsBase58 bs) = BS8.unpack $ toBase58 bs
 
+instance Show (AsBase58 LBS.ByteString) where
+  show (AsBase58 bs) = BS8.unpack . toBase58 . LBS.toStrict $ bs
+
 
 byteToHex :: Word8 -> String
 byteToHex byte = pad $ showHex byte ""
