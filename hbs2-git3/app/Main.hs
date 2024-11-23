@@ -10,6 +10,8 @@ import HBS2.Prelude.Plated
 import HBS2.OrDie
 import HBS2.Base58
 import HBS2.Merkle
+import HBS2.Data.Detect hiding (Blob)
+import HBS2.Data.Detect qualified as Detect
 
 import HBS2.Storage
 import HBS2.Peer.CLI.Detect
@@ -68,6 +70,7 @@ import Control.Monad.Reader
 import System.IO (hPrint,hGetLine,IOMode(..))
 import System.IO qualified as IO
 
+import Data.Coerce
 import Data.Kind
 import Data.List (sortOn)
 import Data.Ord (Down(..))
@@ -412,6 +415,18 @@ data ExportState =
   | ExportCheck
   | ExportStart
 
+data WState =
+    WStart
+  | WReadSBlock HashRef
+  | WCheckSBlock HashRef ByteString
+  | WWalkSBlock HashRef (MTree [HashRef])
+  | WGetInput
+  | WEnd
+
+data WInput =
+    WInputSBlock
+  | WInputCBlock
+
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
                       , HasStorage m
@@ -501,6 +516,77 @@ theDict = do
 
           liftIO $ gitWriteCommitPackIO o rd what $ \bs -> do
             BS.hPut to bs
+
+
+        entry $ bindMatch "test:git:tree:walk" $ nil_ $ \syn -> do
+          sref <- case syn of
+                    [ HashLike s ] -> pure s
+                    _ -> throwIO (BadFormException @C nil)
+
+          sto <- lift getStorage
+          lift $ connectedDo $ flip runContT pure $ do
+
+            _p  <- newTVarIO 0
+            wq  <- newTVarIO ( HPSQ.empty @HashRef @Int @WInput )
+            notice $ "sblock" <+> pretty sref
+
+            atomically $ modifyTVar wq (HPSQ.insert sref 0 WInputSBlock)
+
+            flip fix WGetInput \next -> \case
+              WStart -> do
+                debug $ "start" <+> pretty sref
+                next WEnd --  (WReadSBlock sref)
+
+              WReadSBlock h -> do
+                blk' <- getBlock sto (coerce h)
+                maybe1 blk' (next WEnd) (next . WCheckSBlock h)
+
+              WCheckSBlock h bs -> do
+                let what = tryDetect (coerce h) bs
+                case what of
+                  Merkle mt -> next (WWalkSBlock h mt)
+                  _ -> next WEnd
+
+              WWalkSBlock self x -> case x of
+                MLeaf ( (c:parents) :: [HashRef]) -> do
+
+                  debug $ "walk sblock yay!" <+> pretty self <+> pretty parents
+                  debug $ "sblok content" <+> pretty c
+
+                  atomically do
+                    p0 <- stateTVar _p $ \x -> (x, pred x)
+                    for_ (zip [1 ..] parents) $ \(i,p) -> do
+                      modifyTVar _p $ \x -> x - i
+                      modifyTVar wq (HPSQ.insert p (p0-i) WInputSBlock)
+
+                    modifyTVar wq (HPSQ.insert c (p0+1) WInputCBlock)
+
+                  next WGetInput
+
+                _ -> next WEnd
+
+              WGetInput -> do
+                n <- readTVarIO wq <&> HPSQ.size
+                debug $ "get input!" <+> pretty n
+
+                inp <- atomically $ stateTVar wq $ HPSQ.alterMin \case
+                         Nothing      -> (Nothing, Nothing)
+                         Just (k,p,v) -> (Just (k,p,v), Nothing)
+
+                case inp of
+                  Just (h, _, WInputSBlock) -> do
+                    debug $ "goto sblock" <+> pretty h
+                    next (WReadSBlock h)
+
+                  Just (h, _, WInputCBlock) -> do
+                    debug $ "process cblock" <+> pretty h
+                    next WGetInput
+
+                  Nothing -> next WEnd
+
+              WEnd -> do
+                debug "exit"
+
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> do
 
@@ -616,62 +702,6 @@ theDict = do
                     c <- lift $ withState $ selectCBlock r >>= orThrowUser "export failed"
                     liftIO $ hPrint stdout (pretty c)
 
-              -- case co' of
-              --   Just co -> do
-              --     debug $ "Process commit" <+> pretty co
-
-              --     parents <- gitReadObjectThrow Commit co >>= gitReadCommitParents
-
-              --     debug $ pretty parents
-
-              --     pure ()
-
-
-              --   Nothing -> do
-              --     debug $ "check result for" <+> pretty r
-
-              -- none
-              -- readTVarIO q <&> HPSQ.null
-
-              -- when mt do
-              --   debug $ "check pack for" <+> pretty r
-
-          -- делаем очередь коммитов
-          -- кладём коммит в очередь с приоритетом 1
-          -- поехали мутить
-          --
-          -- мутим:
-          --
-          --   очередь пуста:
-          --     проверяем, для начального коммита есть пак?
-          --       есть -- возвращаем хэш, выходим
-          --       нет  -- приплыли
-          --
-          --   достали из очереди то, что наименьшим приоритетом
-          --
-          --   смотрим, нет ли уже бандла
-          --     есть -> мутим
-          --
-          --     нет  -> делаем
-          --        взяли всех парентов
-          --
-          --        если есть бандл для всех парента - мутим пак
-          --          как ^^^^^^^^^^^^^^^^^^^^^^^^^^
-          --
-          --        если нет - кладём в очередь с приоритетом меньше, чем у того, что
-          --        достали
-          --
-          --        то, что достали кладём обратно (с большим приоритетом)
-          --
-          --    пак:
-          --
-          --      gitWriteCommitPackIO
-          --
-          --      мутим
-          --
-          --
-          --  почему не рекурсия: она тут не хвостовая, а коммитов тысячи и миллионы (linux)
-          --
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
