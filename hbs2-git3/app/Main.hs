@@ -14,6 +14,7 @@ import HBS2.Data.Detect hiding (Blob)
 import HBS2.Data.Detect qualified as Detect
 
 import HBS2.Storage
+import HBS2.Storage.Operations.Class
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
@@ -23,6 +24,8 @@ import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
+
+import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
@@ -67,6 +70,7 @@ import System.Process.Typed
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
+import Control.Monad.Except
 import System.IO (hPrint,hGetLine,IOMode(..))
 import System.IO qualified as IO
 
@@ -410,6 +414,29 @@ unpackPEntry = \case
   ["T", s, h] -> (Tree,,)   <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
   _ -> Nothing
 
+
+enumGitPackObjectsFromLBS :: MonadIO m
+                          => ByteString
+                          -> ( GitObjectType -> Word32 -> GitHash -> m Bool )
+                          -> m ()
+enumGitPackObjectsFromLBS lbs action = do
+  let content = BZ.decompress defaultDecompressParams lbs
+
+  flip fix (UHead content) $ \next -> \case
+    UHead "" -> none
+    UHead bs -> do
+
+      let (hd,rest) = LBS8.span (/='\n') bs
+
+      case LBS8.words hd of
+        PEntryView t s h -> do
+          -- liftIO $ print $ pretty h <+> pretty t <+> pretty s
+          deeper <- action t s h
+          when deeper do
+            next $ UHead (LBS8.drop (1 + fromIntegral s) rest)
+
+        _ -> throwIO (InvalidGitPack hd)
+
 data ExportState =
     ExportGetCommit
   | ExportCheck
@@ -420,12 +447,13 @@ data WState =
   | WReadSBlock HashRef
   | WCheckSBlock HashRef ByteString
   | WWalkSBlock HashRef (MTree [HashRef])
+  | WProcessCBlock HashRef HashRef ByteString
   | WGetInput
   | WEnd
 
 data WInput =
     WInputSBlock
-  | WInputCBlock
+  | WInputCBlock HashRef
 
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
@@ -473,23 +501,13 @@ theDict = do
         entry $ bindMatch "test:git:tree:pack:dump" $ nil_ $ \case
           [ StringLike fn ] -> do
 
-            content <- BZ.decompress defaultDecompressParams <$> liftIO (LBS8.readFile fn)
+            lbs <- liftIO (LBS8.readFile fn)
 
-            flip fix (UHead content) $ \next -> \case
-              UHead "" -> none
-              UHead bs -> do
-
-                let (hd,rest) = LBS8.span (/='\n') bs
-
-                case LBS8.words hd of
-                  PEntryView t s h -> do
-                    liftIO $ print $ pretty h <+> pretty t <+> pretty s
-                    next $ UHead (LBS8.drop (1 + fromIntegral s) rest)
-
-                  _ -> throwIO (InvalidGitPack hd)
+            enumGitPackObjectsFromLBS lbs $ \t s h -> do
+              liftIO $ print $ pretty h <+> pretty t <+> pretty s
+              pure True
 
           _ -> throwIO (BadFormException @C nil)
-
 
         entry $ bindMatch "test:hbs2:peer:poke" $ nil_ $ \syn -> do
           peer <- getClientAPI @PeerAPI @UNIX
@@ -559,7 +577,7 @@ theDict = do
                       modifyTVar _p $ \x -> x - i
                       modifyTVar wq (HPSQ.insert p (p0-i) WInputSBlock)
 
-                    modifyTVar wq (HPSQ.insert c (p0+1) WInputCBlock)
+                    modifyTVar wq (HPSQ.insert c (p0+1) (WInputCBlock self))
 
                   next WGetInput
 
@@ -578,15 +596,40 @@ theDict = do
                     debug $ "goto sblock" <+> pretty h
                     next (WReadSBlock h)
 
-                  Just (h, _, WInputCBlock) -> do
-                    debug $ "process cblock" <+> pretty h
-                    next WGetInput
+                  Just (h, _, WInputCBlock sblk) -> do
+                    debug $ "process cblock" <+> pretty h <+> pretty "from" <+> pretty sblk
+
+                    r <- liftIO $ runExceptT (getTreeContents sto h)
+
+                    case r of
+                      Left{} -> next WEnd
+                      Right lbs -> do
+                        next $ WProcessCBlock h sblk lbs
 
                   Nothing -> next WEnd
 
+              WProcessCBlock cblk sblk lbs -> do
+
+                r <- S.toList_ do
+                  enumGitPackObjectsFromLBS lbs $ \t s h -> do
+                    S.yield (t,h,s)
+                    pure False
+
+                case r of
+                  [(Commit, h, _)] -> do
+                    debug $ green "BLOCK" <+> pretty cblk <+> pretty h
+
+                    lift $ withState $ transactional do
+                      insertGitPack  h cblk
+                      insertCBlock h sblk
+
+                    next WGetInput
+
+                  _ -> next WEnd
+
+
               WEnd -> do
                 debug "exit"
-
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> do
 
