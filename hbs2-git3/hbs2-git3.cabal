@@ -138,6 +138,7 @@ executable hbs2-git3
         , binary
         , psqueues
         , vector
+        , zstd
 
     hs-source-dirs:   app
     default-language: GHC2021

@@ -44,8 +44,9 @@ evolveState = do
     ddl [qc|
 create table if not exists
 gitpack
-  ( kommit  text not null primary key
+  ( kommit  text not null
   , pack    text not null
+  , primary key (kommit,pack)
   )
 |]
 
@@ -81,14 +82,13 @@ insertGitPack :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
 insertGitPack co pack = do
   insert [qc|
     insert into gitpack (kommit,pack) values(?,?)
-    on conflict (kommit) do update set pack = excluded.pack
+    on conflict (kommit,pack) do nothing
          |] (co, pack)
 
-selectGitPack :: MonadIO m => GitHash -> DBPipeM m (Maybe HashRef)
-selectGitPack gh = do
-  select [qc|select pack from gitpack where kommit = ? limit 1|] (Only gh)
-   <&> listToMaybe . fmap fromOnly
-
+selectGitPacks :: MonadIO m => GitHash -> DBPipeM m [HashRef]
+selectGitPacks gh = do
+  select [qc|select pack from gitpack where kommit = ? |] (Only gh)
+   <&> fmap fromOnly
 
 insertCBlock :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
 insertCBlock co cblk = do
