@@ -1160,3 +1160,24 @@ executable test-unix-messaging
         , text
         , time
 
+
+executable test-scripts
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+    ghc-options:
+    hs-source-dirs:   test
+    main-is:          TestScripts.hs
+    build-depends:
+          base, hbs2-core
+        , network
+        , string-conversions
+        , suckless-conf
+        , text
+        , time
+        , zstd
+        , bzlib
+
+
+
+
