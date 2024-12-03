@@ -140,7 +140,7 @@ isGitLsTreeEntry = \case
 gitReadTree :: (Pretty what, MonadIO m) => what -> m [GitTreeEntry]
 gitReadTree what =
   gitRunCommand [qc|git ls-tree -t -l -r {pretty what}|]
-     >>= orThrowPassIO
+     >>= orThrow (GitReadError (show $ pretty what))
      <&> fmap LBS8.words . LBS8.lines
      <&> mapMaybe \case
           GitTreeEntryView v -> do
@@ -522,7 +522,6 @@ export r = connectedDo $ flip runContT pure do
               parents <- gitReadCommitParents bs
 
               n <- for (zip [1..] parents) $ \(i,gh) -> do
-                     -- exists <- cached missed gh (gitObjectExists gh)
                      exists <- liftIO $ cached missed gh (isJust <$> gitReadObjectMaybe reader gh)
                      here <- withState $ selectCBlock gh <&> isJust
 
@@ -547,86 +546,85 @@ export r = connectedDo $ flip runContT pure do
                 next ExportGetCommit
 
     ExportProcessCommit co bs -> do
-        debug $ "write pack for" <+> pretty co
+      debug $ "write pack for" <+> pretty co
 
-        hhead <- gitRevParse co
-                       >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty co)
+      hhead <- gitRevParse co
+                     >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty co)
 
 
-        parents <- gitReadObjectThrow Commit hhead
-                      >>= gitReadCommitParents
+      parents <- gitReadObjectThrow Commit hhead
+                    >>= gitReadCommitParents
 
-        skip <- if not (excludeParents ()) then do
-                     pure mempty
-                   else do
-                      skip' <- S.toList_ $ for parents $ \p -> do
-                                -- exists <- liftIO $ cached missed p (gitObjectExists p)
-                                exists <- liftIO $ cached missed p (isJust <$> gitReadObjectMaybe reader p)
-                                when exists do
-                                  gitReadTree p <&> fmap gitEntryHash >>= S.each
+      skip <- if not (excludeParents ()) then do
+                   pure mempty
+                 else do
+                    skip' <- S.toList_ $ for parents $ \p -> do
+                        lift (try @_ @GitException (gitReadTree p))
+                          <&> fromRight mempty
+                          <&> fmap gitEntryHash >>= S.each
 
-                      pure $ HS.fromList skip'
+                    pure $ HS.fromList skip'
 
-        r <- gitReadTree hhead
-               <&> L.filter (\GitTreeEntry{..} -> not (HS.member gitEntryHash skip))
-               -- <&> L.filter (\GitTreeEntry{..} -> gitEntryType /= Tree)
-               <&> sortGitTreeEntries
+      r <- gitReadTree hhead
+             <&> L.filter (\GitTreeEntry{..} -> not (HS.member gitEntryHash skip))
+             -- <&> L.filter (\GitTreeEntry{..} -> gitEntryType /= Tree)
+             <&> sortGitTreeEntries
 
-        let blkMax = 1048576
+      let blkMax = 1048576
 
-        out  <- newTQueueIO
+      out  <- newTQueueIO
 
-        flip fix (EWAcc 1 r 0 [(co,Commit,Nothing,bs)]) $ \go -> \case
+      flip fix (EWAcc 1 r 0 [(co,Commit,Nothing,bs)]) $ \go -> \case
 
-          EWAcc _ [] _ [] -> none
+        EWAcc _ [] _ [] -> none
 
-          EWAcc i [] l acc -> do
-            writePack sto l acc >>= atomically . writeTQueue out
+        EWAcc i [] l acc -> do
+          writePack sto l acc >>= atomically . writeTQueue out
 
-          EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
-            writeLargeBlob sto reader r >>= atomically . writeTQueue out
-            go (EWAcc (succ i) rs l acc)
+        EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
+          writeLargeBlob sto reader r >>= atomically . writeTQueue out
+          go (EWAcc (succ i) rs l acc)
 
-          EWAcc i rs l acc | l >= blkMax -> do
-            writePack sto l acc  >>= atomically . writeTQueue out
-            go (EWAcc (succ i) rs 0 mempty)
+        EWAcc i rs l acc | l >= blkMax -> do
+          writePack sto l acc  >>= atomically . writeTQueue out
+          go (EWAcc (succ i) rs 0 mempty)
 
-          EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
+        EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
 
-            lbs <- gitReadObjectMaybe reader gitEntryHash
-                     >>= orThrow (GitReadError (show $ pretty gitEntryHash))
-                     <&> snd
+          lbs <- gitReadObjectMaybe reader gitEntryHash
+                   >>= orThrow (GitReadError (show $ pretty gitEntryHash))
+                   <&> snd
 
-            go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) ((gitEntryHash,gitEntryType, Just e, lbs) : acc))
+          go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) ((gitEntryHash,gitEntryType, Just e, lbs) : acc))
 
-        packs <- atomically $ STM.flushTQueue out
+      packs <- atomically $ STM.flushTQueue out
 
-        phashes <- catMaybes <$> withState (for parents selectCBlock)
+      phashes <- catMaybes <$> withState (for parents selectCBlock)
 
-        let v = "hbs2-git 3.0 zstd"
-        let pps = vcat $ mconcat $ for phashes $ \p -> ["p" <+> pretty p]
-        let meta = LBS8.pack $ show $ pretty v <> line <> pps
+      let v = "hbs2-git 3.0 zstd"
+      let pps = vcat $ mconcat $ for phashes $ \p -> ["p" <+> pretty p]
+      let meta = LBS8.pack $ show $ pretty v <> line <> pps
 
-        hmeta <- putBlock sto meta >>= orThrow StorageError <&> HashRef
+      hmeta <- putBlock sto meta >>= orThrow StorageError <&> HashRef
 
-        let cblock = hmeta : phashes <> packs
-        let pt = toPTree (MaxSize 1024) (MaxNum 1024) cblock
+      let cblock = hmeta : phashes <> packs
+      let pt = toPTree (MaxSize 1024) (MaxNum 1024) cblock
 
-        root <- makeMerkle 0 pt $ \(_,_,s) -> do
-                   void $ putBlock sto s
+      root <- makeMerkle 0 pt $ \(_,_,s) -> do
+                 void $ putBlock sto s
 
-        withState $ transactional do
-          for_ packs $ \href -> do
-            insertGitPack co href
-          insertCBlock co (HashRef root)
+      withState $ transactional do
+        for_ packs $ \href -> do
+          insertGitPack co href
+        insertCBlock co (HashRef root)
 
-        notice $ "cblock" <+> pretty root
+      notice $ "cblock" <+> pretty root
 
-        atomically do
-          modifyTVar done (HS.insert co)
-          modifyTVar q (HPSQ.delete co)
+      atomically do
+        modifyTVar done (HS.insert co)
+        modifyTVar q (HPSQ.delete co)
 
-        next ExportGetCommit
+      next ExportGetCommit
 
     ExportCheck -> do
       debug $ "ExportCheck dummy" <+> pretty r
