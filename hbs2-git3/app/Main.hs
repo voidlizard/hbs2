@@ -57,6 +57,7 @@ import Codec.Compression.Zstd.Streaming (Result(..))
 import Codec.Compression.Zstd (maxCLevel)
 
 import Data.HashPSQ qualified as HPSQ
+import Data.HashPSQ (HashPSQ)
 import Data.Maybe
 import Data.List qualified as L
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -100,7 +101,8 @@ quit :: MonadUnliftIO m => m ()
 quit = liftIO Q.exitSuccess
 
 class Cached cache k v | cache -> k, cache -> v where
-  cached :: forall m . MonadIO m => cache -> k -> m v -> m v
+  cached  :: forall m . MonadIO m => cache -> k -> m v -> m v
+  uncache :: forall m . MonadIO m => cache -> k -> m ()
 
 data GitException =
     CompressionError String
@@ -454,6 +456,7 @@ data EWState =
 newtype CacheTVH k v = CacheTVH (TVar (HashMap k v))
 
 instance Hashable k => Cached (CacheTVH k v) k v where
+  uncache (CacheTVH t) k = atomically (modifyTVar t (HM.delete k))
   cached (CacheTVH t) k a = do
     what <- readTVarIO t <&> HM.lookup k
     case what of
@@ -462,6 +465,37 @@ instance Hashable k => Cached (CacheTVH k v) k v where
         r <- a
         atomically $ modifyTVar t (HM.insert k r)
         pure r
+
+data CacheFixedHPSQ  k v =
+  CacheFixedHPSQ
+  { _cacheSize :: Int
+  , _theCache  :: TVar (HashPSQ k TimeSpec v)
+  }
+
+newCacheFixedHPSQ :: MonadIO m => Int -> m (CacheFixedHPSQ k v)
+newCacheFixedHPSQ l = CacheFixedHPSQ l <$> newTVarIO HPSQ.empty
+
+instance (Ord k, Hashable k) => Cached (CacheFixedHPSQ k v) k v where
+  uncache CacheFixedHPSQ{..} k = atomically $ modifyTVar _theCache (HPSQ.delete k)
+
+  cached CacheFixedHPSQ{..} k a = do
+    w <- readTVarIO _theCache <&> HPSQ.lookup k
+    case w of
+      Just (_,e) -> pure e
+      Nothing -> do
+        v <- a
+
+        t <- getTimeCoarse
+
+        atomically do
+          s <- readTVar _theCache <&> HPSQ.size
+
+          when (s >= _cacheSize) do
+            modifyTVar _theCache HPSQ.deleteMin
+
+          modifyTVar _theCache (HPSQ.insert k t v)
+
+          pure v
 
 export :: ( HBS2GitPerks m
           , MonadUnliftIO m
@@ -483,6 +517,7 @@ export r = connectedDo $ flip runContT pure do
   reader <- ContT $ withGitCat
 
   missed <- CacheTVH <$> newTVarIO mempty
+  commits <- newCacheFixedHPSQ 1000
 
   ContT $ bracket none $ const do
     hClose $ getStdin reader
@@ -516,13 +551,13 @@ export r = connectedDo $ flip runContT pure do
             then do
               next ExportGetCommit
             else do
-              (t,bs) <- liftIO (gitReadObjectMaybe reader co)
+              (_,bs) <- liftIO (cached commits co (gitReadObjectMaybe reader co))
                             >>= orThrow (GitReadError (show $ pretty co))
 
               parents <- gitReadCommitParents bs
 
               n <- for (zip [1..] parents) $ \(i,gh) -> do
-                     exists <- liftIO $ cached missed gh (isJust <$> gitReadObjectMaybe reader gh)
+                     exists <- liftIO $ cached missed gh (isJust <$> cached commits gh (gitReadObjectMaybe reader gh))
                      here <- withState $ selectCBlock gh <&> isJust
 
                      unless exists do
@@ -538,6 +573,7 @@ export r = connectedDo $ flip runContT pure do
                          pure 1
 
               if sum n == 0 then do
+                uncache commits co
                 next $ ExportProcessCommit co bs
               else do
                 -- error "FUCK!"
@@ -572,21 +608,19 @@ export r = connectedDo $ flip runContT pure do
 
       let blkMax = 1048576
 
-      out  <- newTQueueIO
-
-      flip fix (EWAcc 1 r 0 [(co,Commit,Nothing,bs)]) $ \go -> \case
+      packs <- S.toList_ $ flip fix (EWAcc 1 r 0 [(co,Commit,Nothing,bs)]) $ \go -> \case
 
         EWAcc _ [] _ [] -> none
 
         EWAcc i [] l acc -> do
-          writePack sto l acc >>= atomically . writeTQueue out
+          lift (writePack sto l acc) >>= S.yield
 
         EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
-          writeLargeBlob sto reader r >>= atomically . writeTQueue out
+          writeLargeBlob sto reader r >>= S.yield
           go (EWAcc (succ i) rs l acc)
 
         EWAcc i rs l acc | l >= blkMax -> do
-          writePack sto l acc  >>= atomically . writeTQueue out
+          lift (writePack sto l acc) >>= S.yield
           go (EWAcc (succ i) rs 0 mempty)
 
         EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
@@ -596,8 +630,6 @@ export r = connectedDo $ flip runContT pure do
                    <&> snd
 
           go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) ((gitEntryHash,gitEntryType, Just e, lbs) : acc))
-
-      packs <- atomically $ STM.flushTQueue out
 
       phashes <- catMaybes <$> withState (for parents selectCBlock)
 
