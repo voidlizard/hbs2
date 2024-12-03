@@ -841,8 +841,8 @@ theDict = do
           notice $ pretty r
 
 
-        entry $ bindMatch "test:git:sblock:list" $ nil_ $ \syn -> lift do
-          hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "sblock hash not given"
+        entry $ bindMatch "test:git:cblock:list" $ nil_ $ \syn -> lift do
+          hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
           sto <- getStorage
 
           liftIO do
