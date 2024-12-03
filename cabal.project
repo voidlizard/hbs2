@@ -10,6 +10,6 @@ constraints:
   , http-client >=0.7.16 && <0.8
 
 -- executable-static: True
--- profiling: True
+profiling: True
 --library-profiling: False
 
