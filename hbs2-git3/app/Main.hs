@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language MultiWayIf #-}
 {-# Language FunctionalDependencies #-}
 {-# Language ViewPatterns #-}
 {-# Language PatternSynonyms #-}
@@ -45,12 +46,6 @@ import HBS2.Git3.Config.Local
 import Data.Config.Suckless.Script
 import DBPipe.SQLite
 
--- import Codec.Compression.GZip as GZ1
--- import Codec.Compression.Zlib.Internal qualified as GZ
-
-import Codec.Compression.BZip as BZ1
-import Codec.Compression.BZip.Internal qualified as BZ
--- import Codec.Compression.Zlib.Internal qualified as GZ
 import Codec.Compression.Zstd qualified as Zstd
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
@@ -63,6 +58,7 @@ import Data.List qualified as L
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Builder as Builder
 import Text.InterpolatedString.Perl6 (qc)
@@ -77,6 +73,7 @@ import Streaming.Prelude qualified as S
 import System.Exit qualified as Q
 import System.Environment qualified as E
 import System.Process.Typed
+import Control.Applicative
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
@@ -130,6 +127,13 @@ data GitTreeEntry =
 pattern GitTreeEntryView :: GitTreeEntry -> [ByteString]
 pattern GitTreeEntryView e <- (isGitLsTreeEntry -> Just e)
 
+gitNormaliseRef :: GitRef -> GitRef
+gitNormaliseRef r@(GitRef what) =
+  if BS8.isPrefixOf "refs/" what || what == "HEAD" then
+    r
+  else
+    fromString (joinPath $ splitPath $ "refs" </> "heads" </> BS8.unpack what)
+
 isGitLsTreeEntry :: [ByteString] -> Maybe GitTreeEntry
 isGitLsTreeEntry = \case
   [sa,st,sh,ss,sn] -> do
@@ -170,6 +174,14 @@ gitRevParse ref = do
 
 gitRevParseThrow :: (Pretty ref, MonadIO m) => ref -> m GitHash
 gitRevParseThrow r = gitRevParse r >>= orThrow (UnknownRev (show $ pretty r))
+
+gitReadHEAD :: MonadIO m => m (Maybe GitRef)
+gitReadHEAD = runMaybeT do
+  gitRunCommand [qc|git symbolic-ref HEAD|]
+   >>= toMPlus
+   <&> headMay . LBS8.lines
+   >>= toMPlus
+   <&> GitRef . LBS8.toStrict
 
 withGitCat ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
 withGitCat action = do
@@ -377,9 +389,6 @@ gitObjectExists what = do
 data UState =
   UHead ByteString
 
-pattern PEntryView :: GitObjectType -> Word32 -> GitHash -> [ByteString]
-pattern PEntryView t s h <- ( unpackPEntry -> Just (t,s,h) )
-
 unpackPEntry :: [ByteString] -> Maybe (GitObjectType, Word32, GitHash)
 unpackPEntry = \case
   ("C" : s : h : _) -> (Commit,,) <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
@@ -393,7 +402,7 @@ data ES =
 
 enumGitPackObjectsFromLBS :: MonadIO m
                           => ByteString
-                          -> ( GitObjectType -> Word32 -> GitHash -> m Bool )
+                          -> ( IOp -> m Bool )
                           -> m ()
 enumGitPackObjectsFromLBS lbs action = do
 
@@ -424,12 +433,14 @@ enumGitPackObjectsFromLBS lbs action = do
       let s0 = LBS8.dropWhile (=='\n') chunk
       unless (LBS.null s0) do
         let (hdr,rest) = LBS8.break (=='\n') s0
-        (t,s,h) <- unpackPEntry (LBS8.words hdr) & orThrow (InvalidGitPack hdr)
-        void $ action t s h
+
+        iop@(IOp s _) <- unpackIOp (LBS8.words hdr) & orThrow (InvalidGitPack hdr)
+
+        void $ action iop
+
         let o = LBS.drop 1 rest
         let (_, rest2) = LBS.splitAt (fromIntegral s) o
         next (UHead rest2)
-
 
 data ExportState =
     ExportGetCommit
@@ -452,8 +463,55 @@ data WInput =
   | WInputCBlock HashRef
 
 
+data EOp =
+    EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
+  | EGitRef    GitRef Int (Maybe GitHash)
+
+data IOpType
+  = IOGitObject GitObjectType GitHash
+  | IOSetRef GitRef Int (Maybe GitHash)
+  deriving (Show, Eq)
+
+data IOp = IOp Word32 IOpType
+  deriving (Show, Eq)
+
+unpackIOp :: [ByteString] -> Maybe IOp
+unpackIOp = \case
+  ("C" : s : h : _) -> do
+    size <- fromLBS s
+    hash <- fromLBS' h
+    pure $ IOp size (IOGitObject Commit hash)
+
+  ("B" : s : h : _) -> do
+    size <- fromLBS s
+    hash <- fromLBS' h
+    pure $ IOp size (IOGitObject Blob hash)
+
+  ("T" : s : h : _) -> do
+    size <- fromLBS s
+    hash <- fromLBS' h
+    pure $ IOp size (IOGitObject Tree hash)
+
+  ("R" : s : n : r : rest) -> do
+    size <- fromLBS s
+    weight <- fromLBS n
+    refName <- pure (GitRef $ LBS8.toStrict r)
+    hash <- case rest of
+      (h : _) -> Just <$> fromStringMay (LBS8.unpack h)
+      _       -> pure Nothing
+    pure $ IOp size (IOSetRef refName weight hash)
+
+  _ -> Nothing
+
+  where
+    fromLBS :: forall a . Read a => ByteString -> Maybe a
+    fromLBS = readMay . LBS8.unpack
+
+    fromLBS' :: forall a. FromStringMaybe a => ByteString -> Maybe a
+    fromLBS' = fromStringMay . LBS8.unpack
+
 data EWState =
-    EWAcc Int [GitTreeEntry] Int [(GitHash, GitObjectType,Maybe GitTreeEntry, ByteString)]
+    EWAcc Int [GitTreeEntry] Int [EOp]
 
 newtype CacheTVH k v = CacheTVH (TVar (HashMap k v))
 
@@ -509,9 +567,11 @@ export :: ( HBS2GitPerks m
           , HasStorage m
           , HasStateDB m
           )
-       => GitHash -> m ()
-export r = connectedDo $ flip runContT pure do
+       => Maybe GitRef -> GitHash -> m ()
+export mref' r = connectedDo $ flip runContT pure do
   debug $ green "export"  <+> pretty r
+
+  let mref = gitNormaliseRef <$> mref'
 
   q <- newTVarIO ( HPSQ.empty @GitHash @Double @() )
   done <- newTVarIO ( mempty :: HashSet GitHash )
@@ -538,19 +598,6 @@ export r = connectedDo $ flip runContT pure do
 
   ContT $ withAsync $ replicateM_ 2 $ forever do
     join $ atomically (readTQueue deferred)
-
-  -- let noCBlock x = do
-  --      here <- withState $ selectCBlock x
-  --      pure (isNothing here)
-
-  -- pre <- gitRunCommand [qc|git rev-list {pretty r}|]
-  --         <&> fromRight mempty
-  --         <&> LBS8.lines
-  --         <&> mapMaybe ( fromStringMay @GitHash . LBS8.unpack )
-  --         <&> take (10 * commitCacheSize)
-  --         >>= filterM (lift . noCBlock)
-  --         <&> take commitCacheSize
-  --         >>= \xs -> lift (mapM_ (\x -> cached commits x (gitReadObjectMaybe reader x)) xs)
 
   lift $ flip fix ExportGetCommit $ \next -> \case
 
@@ -642,7 +689,7 @@ export r = connectedDo $ flip runContT pure do
 
       out <- newTQueueIO
 
-      flip fix (EWAcc 1 r 0 [(co,Commit,Nothing,bs)]) $ \go -> \case
+      flip fix (EWAcc 1 r 0 [EGitObject Commit co Nothing bs]) $ \go -> \case
 
         EWAcc _ [] _ [] -> none
 
@@ -663,7 +710,8 @@ export r = connectedDo $ flip runContT pure do
                    >>= orThrow (GitReadError (show $ pretty gitEntryHash))
                    <&> snd
 
-          go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) ((gitEntryHash,gitEntryType, Just e, lbs) : acc))
+          let new = EGitObject gitEntryType gitEntryHash (Just e) lbs
+          go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) (new : acc))
 
       packs <- atomically do
                  allDone <- isEmptyTQueue deferred
@@ -756,10 +804,15 @@ export r = connectedDo $ flip runContT pure do
       -- write
       -- pack
       -- merkle
+      --
       let acc = reverse racc
       debug $ green "write pack of objects" <+> pretty l <+> pretty (length acc)
 
-      parts <- for acc $ \(h,t,e,lbs) -> liftIO do
+      let refs =  [ Builder.byteString [qc|R 0 {w} {show $ pretty ref} {show $ pretty h}|]
+                  | EGitRef ref w h <- acc
+                  ] & mconcat & (<> Builder.byteString "\n")
+
+      parts <- for [ (h,t,e,lbs) | EGitObject t h e lbs <- acc ] $ \(h,t,e,lbs) -> liftIO do
         let ename = [qc|{fromMaybe mempty $ gitEntryName <$> e}|] :: ByteString
 
         -- notice $ "pack" <+> pretty h <+> pretty t
@@ -824,15 +877,8 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:tree:pack:dump" $ nil_ $ \case
-          [ StringLike fn ] -> do
-
-            lbs <- liftIO (LBS8.readFile fn)
-
-            enumGitPackObjectsFromLBS lbs $ \t s h -> do
-              liftIO $ print $ pretty h <+> pretty t <+> pretty s
-              pure True
-
+        entry $ bindMatch "test:git:normalize-ref" $ nil_  \case
+          [ StringLike s ] -> display $ mkStr @C (show $ pretty $ gitNormaliseRef (fromString s))
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:hbs2:peer:poke" $ nil_ $ \syn -> do
@@ -872,17 +918,25 @@ theDict = do
             for_ rs $ \r -> do
               what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
               debug $ yellow "reading" <+> pretty r
-              enumGitPackObjectsFromLBS what $ \t s h -> do
+              enumGitPackObjectsFromLBS what $ \case
+                IOp s (IOGitObject t h) -> do
                  putStrLn $ show $ pretty t <+> pretty h <+> pretty s
                  pure True
 
+                IOp _ (IOSetRef ref w h ) -> do
+                  putStrLn $ show $ pretty ref <+> pretty w <+> pretty h
+                  pure True
+
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
-            r <- case syn of
-                    [] -> gitRevParseThrow "HEAD"
-                    [ StringLike co ] -> gitRevParseThrow co
+            (w, r) <- case syn of
+                    [] -> (Nothing,) <$> gitRevParseThrow "HEAD"
+                    [ StringLike co ] -> (Just (fromString co),) <$> gitRevParseThrow co
                     _ -> throwIO (BadFormException @C nil)
 
-            export r
+            let re = headMay [ GitRef (BS8.pack x) | ListVal [StringLike "--ref", StringLike x ] <- syn ]
+            hd <- gitReadHEAD
+
+            export (w <|> re <|> hd) r
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "

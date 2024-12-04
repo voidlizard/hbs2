@@ -120,7 +120,6 @@ library
     build-depends:    base
                     , base16-bytestring
                     , binary
-                    , bzlib
                     , psqueues
                     , unix
 
@@ -134,7 +133,6 @@ executable hbs2-git3
     -- other-extensions:
     build-depends:
         base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
-        , bzlib
         , binary
         , psqueues
         , vector
@@ -150,7 +148,6 @@ executable hbs2-git-daemon
     -- other-extensions:
     build-depends:
         base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
-        , bzlib
         , binary
         , vector
 
