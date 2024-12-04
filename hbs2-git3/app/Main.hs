@@ -599,7 +599,7 @@ export mref' r = connectedDo $ flip runContT pure do
   ContT $ withAsync $ replicateM_ 2 $ forever do
     join $ atomically (readTQueue deferred)
 
-  lift $ flip fix ExportGetCommit $ \next -> \case
+  lift $ flip fix ExportStart $ \next -> \case
 
     ExportStart -> do
       here <- withState $ selectCBlock r <&> isJust
