@@ -468,8 +468,8 @@ data EOp =
   | EGitRef    GitRef Int (Maybe GitHash)
 
 data IOpType
-  = IOGitObject GitObjectType GitHash
-  | IOSetRef GitRef Int (Maybe GitHash)
+  = IGitObject GitObjectType GitHash
+  | ISetRef GitRef Int (Maybe GitHash)
   deriving (Show, Eq)
 
 data IOp = IOp Word32 IOpType
@@ -480,17 +480,17 @@ unpackIOp = \case
   ("C" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IOGitObject Commit hash)
+    pure $ IOp size (IGitObject Commit hash)
 
   ("B" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IOGitObject Blob hash)
+    pure $ IOp size (IGitObject Blob hash)
 
   ("T" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IOGitObject Tree hash)
+    pure $ IOp size (IGitObject Tree hash)
 
   ("R" : s : n : r : rest) -> do
     size <- fromLBS s
@@ -499,7 +499,7 @@ unpackIOp = \case
     hash <- case rest of
       (h : _) -> Just <$> fromStringMay (LBS8.unpack h)
       _       -> pure Nothing
-    pure $ IOp size (IOSetRef refName weight hash)
+    pure $ IOp size (ISetRef refName weight hash)
 
   _ -> Nothing
 
@@ -684,12 +684,15 @@ export mref' r = connectedDo $ flip runContT pure do
 
       let blkMax = 1048576
 
-      -- wtf <- ContT $ withAsync do
-      --           pure ()
-
       out <- newTQueueIO
 
-      flip fix (EWAcc 1 r 0 [EGitObject Commit co Nothing bs]) $ \go -> \case
+      now <- liftIO getPOSIXTime <&> round
+
+      let ref = maybeToList $ EGitRef <$> mref <*> pure now <*> pure (Just co)
+
+      let seed = ref <> [EGitObject Commit co Nothing bs]
+
+      flip fix (EWAcc 1 r 0 seed) $ \go -> \case
 
         EWAcc _ [] _ [] -> none
 
@@ -822,7 +825,7 @@ export mref' r = connectedDo $ flip runContT pure do
                 <> Builder.byteString "\n"
         pure p
 
-      let packed = Zstd.compress maxCLevel (LBS.toStrict $ Builder.toLazyByteString $ mconcat parts)
+      let packed = Zstd.compress maxCLevel (LBS.toStrict $ Builder.toLazyByteString $ refs <> mconcat parts)
 
       createTreeWithMetadata sto mzero mempty (LBS.fromStrict packed)
         >>= orThrowPassIO
@@ -919,12 +922,12 @@ theDict = do
               what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
               debug $ yellow "reading" <+> pretty r
               enumGitPackObjectsFromLBS what $ \case
-                IOp s (IOGitObject t h) -> do
+                IOp s (IGitObject t h) -> do
                  putStrLn $ show $ pretty t <+> pretty h <+> pretty s
                  pure True
 
-                IOp _ (IOSetRef ref w h ) -> do
-                  putStrLn $ show $ pretty ref <+> pretty w <+> pretty h
+                IOp _ (ISetRef ref w h ) -> do
+                  putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
                   pure True
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
