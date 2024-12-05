@@ -51,6 +51,7 @@ import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
 import Codec.Compression.Zstd (maxCLevel)
 
+import qualified Data.Attoparsec.ByteString as A
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
 import Data.Maybe
@@ -387,7 +388,7 @@ gitObjectExists what = do
   gitRunCommand [qc|git cat-file -e {pretty what}|] <&> isRight
 
 data UState =
-  UHead ByteString
+  UHead Word32 ByteString
 
 
 data ES =
@@ -421,19 +422,34 @@ enumGitPackObjectsFromLBS lbs action = do
         ES _ (Done s) -> do
           S.yield s
 
-  void $ flip fix (UHead (LBS.fromChunks chunks)) $ \next -> \case
-    UHead chunk -> do
-      let s0 = LBS8.dropWhile (=='\n') chunk
+  void $ flip fix (UHead 0 (LBS.fromChunks chunks)) $ \next -> \case
+    UHead off chunk -> do
+      let (skipped1,s0) = LBS8.span (=='\n') chunk
+      -- read += len skipped
+
       unless (LBS.null s0) do
         let (hdr,rest) = LBS8.break (=='\n') s0
+        -- read += len hdr
 
-        iop@(IOp s _) <- unpackIOp (LBS8.words hdr) & orThrow (InvalidGitPack hdr)
+        let o = LBS.drop 1 rest -- skip '\n'. read+1
+        -- read += 1
 
-        void $ action iop
+        let skipped2 = fromIntegral $ LBS8.length skipped1
+                                    + LBS8.length hdr
+                                    + 1
 
-        let o = LBS.drop 1 rest
-        let (_, rest2) = LBS.splitAt (fromIntegral s) o
-        next (UHead rest2)
+        let entryOffset = off + fromIntegral skipped2
+
+        iop@(IOp{..}) <- unpackIOp 0 (LBS8.words hdr) & orThrow (InvalidGitPack hdr)
+
+        let (rn, rest2) = LBS.splitAt (fromIntegral iopSize) o
+        -- read += len rn        --
+
+        let consumed = fromIntegral $ skipped2 + LBS.length rn
+
+        void $ action (iop { iopOffset = entryOffset })
+
+        next (UHead (off + consumed) rest2)
 
 data ExportState =
     ExportGetCommit
@@ -452,25 +468,29 @@ data IOpType
   | ISetRef GitRef Int (Maybe GitHash)
   deriving (Show, Eq)
 
-data IOp = IOp Word32 IOpType
+data IOp =
+  IOp { iopOffset :: Word32
+      , iopSize   :: Word32
+      , opType    :: IOpType
+      }
   deriving (Show, Eq)
 
-unpackIOp :: [ByteString] -> Maybe IOp
-unpackIOp = \case
+unpackIOp :: Word32 -> [ByteString] -> Maybe IOp
+unpackIOp off = \case
   ("C" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IGitObject Commit hash)
+    pure $ IOp off size (IGitObject Commit hash)
 
   ("B" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IGitObject Blob hash)
+    pure $ IOp off size (IGitObject Blob hash)
 
   ("T" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp size (IGitObject Tree hash)
+    pure $ IOp off size (IGitObject Tree hash)
 
   ("R" : s : n : r : rest) -> do
     size <- fromLBS s
@@ -479,7 +499,7 @@ unpackIOp = \case
     hash <- case rest of
       (h : _) -> Just <$> fromStringMay (LBS8.unpack h)
       _       -> pure Nothing
-    pure $ IOp size (ISetRef refName weight hash)
+    pure $ IOp off size (ISetRef refName weight hash)
 
   _ -> Nothing
 
@@ -1023,13 +1043,60 @@ theDict = do
                   what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
                   debug $ yellow "reading" <+> pretty r
                   enumGitPackObjectsFromLBS what $ \case
-                    IOp s (IGitObject t h) -> do
-                     putStrLn $ show $ pretty t <+> pretty h <+> pretty s
+                    IOp o s (IGitObject t h) -> do
+                     putStrLn $ show $ pretty t <+> pretty h <+> pretty o <+> pretty s
                      pure True
 
-                    IOp _ (ISetRef ref w h ) -> do
+                    IOp _ _ (ISetRef ref w h ) -> do
                       putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
                       pure True
+
+
+        entry $ bindMatch "test:git:cblock:object:cat" $ nil_ $ \case
+          [ HashLike cblock, StringLike g ] -> lift do
+
+            sto <- getStorage
+            h <- fromStringMay @GitHash g & orThrowUser "invalid git hash"
+
+            readCBlock sto cblock $ \case
+              CBlockParents{} -> none
+              CBlockData rs -> do
+                for_ rs $ \r -> do
+                  what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
+                  debug $ yellow "reading" <+> pretty r
+                  enumGitPackObjectsFromLBS what $ \case
+                    IOp _ s (IGitObject t h) -> do
+                     -- putStrLn $ show $ pretty t <+> pretty h <+> pretty s
+                     pure True
+
+                    IOp _ _ (ISetRef ref w h ) -> do
+                      -- putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
+                      pure True
+
+
+            pure ()
+          _ -> throwIO (BadFormException @C nil)
+          -- hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
+
+          -- sto <- getStorage
+
+          -- liftIO do
+
+          --   readCBlock sto hash $ \case
+          --     CBlockParents{} -> none
+          --     CBlockData rs -> do
+          --       for_ rs $ \r -> do
+          --         what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
+          --         debug $ yellow "reading" <+> pretty r
+          --         enumGitPackObjectsFromLBS what $ \case
+          --           IOp s (IGitObject t h) -> do
+          --            putStrLn $ show $ pretty t <+> pretty h <+> pretty s
+          --            pure True
+
+          --           IOp _ (ISetRef ref w h ) -> do
+          --             putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
+          --             pure True
+
 
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
