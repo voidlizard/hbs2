@@ -661,6 +661,10 @@ export mref' r = connectedDo $ flip runContT pure do
     ExportProcessCommit co bs -> do
       debug $ "write pack for" <+> pretty co
 
+      l <- readTVarIO q<&> HPSQ.keys
+
+      let lastBlock = co == r && L.null l
+
       hhead <- gitRevParse co
                      >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty co)
 
@@ -690,7 +694,7 @@ export mref' r = connectedDo $ flip runContT pure do
 
       let ref = maybeToList $ EGitRef <$> mref <*> pure now <*> pure (Just co)
 
-      let seed = ref <> [EGitObject Commit co Nothing bs]
+      let seed = (if lastBlock then ref else mempty) <> [EGitObject Commit co Nothing bs]
 
       flip fix (EWAcc 1 r 0 seed) $ \go -> \case
 
@@ -927,6 +931,12 @@ theDict = do
                 IOp _ (ISetRef ref w h ) -> do
                   putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
                   pure True
+
+        entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
+          [ HashLike cblock ] -> do
+            none
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
             (w, r) <- case syn of
