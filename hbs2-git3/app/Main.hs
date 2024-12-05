@@ -736,8 +736,6 @@ export mref' r = connectedDo $ flip runContT pure do
                  void $ putBlock sto s
 
       withState $ transactional do
-        for_ packs $ \href -> do
-          insertGitPack co href
         insertCBlock co (HashRef root)
 
       notice $ "cblock" <+> pretty root

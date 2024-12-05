@@ -43,21 +43,11 @@ evolveState = do
 
     ddl [qc|
 create table if not exists
-gitpack
-  ( kommit  text not null
-  , pack    text not null
-  , primary key (kommit,pack)
-  )
-|]
-
-    ddl [qc|
-create table if not exists
 cblock
   ( kommit  text not null primary key
   , cblock  text not null
   )
 |]
-
 
 
 instance ToField GitHash where
@@ -77,18 +67,6 @@ instance ToField HashRef where
 
 instance FromField HashRef where
   fromField = fmap (fromString @HashRef) . fromField @String
-
-insertGitPack :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
-insertGitPack co pack = do
-  insert [qc|
-    insert into gitpack (kommit,pack) values(?,?)
-    on conflict (kommit,pack) do nothing
-         |] (co, pack)
-
-selectGitPacks :: MonadIO m => GitHash -> DBPipeM m [HashRef]
-selectGitPacks gh = do
-  select [qc|select pack from gitpack where kommit = ? |] (Only gh)
-   <&> fmap fromOnly
 
 insertCBlock :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
 insertCBlock co cblk = do
