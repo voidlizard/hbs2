@@ -451,10 +451,11 @@ data ExportState =
 
 data WState =
     WStart
-  | WReadSBlock HashRef
+  | WNextSBlock
+  | WReadSBlock Int HashRef
   | WCheckSBlock HashRef ByteString
   | WWalkSBlock HashRef (MTree [HashRef])
-  | WProcessCBlock HashRef HashRef ByteString
+  | WProcessCBlock HashRef
   | WGetInput
   | WEnd
 
@@ -832,6 +833,68 @@ export mref' r = connectedDo $ flip runContT pure do
       createTreeWithMetadata sto mzero mempty (LBS.fromStrict packed)
         >>= orThrowPassIO
 
+data CBlockReadError =
+    EmptyCBlock
+  | BadMetaData
+  | MissedCBlock
+  deriving stock (Show,Eq,Typeable)
+
+data CBlockReadException =
+ CBlockReadException HashRef CBlockReadError
+ deriving stock (Show,Typeable)
+
+instance Exception CBlockReadException
+
+data CBlockSection =
+    CBlockParents [HashRef]
+  | CBlockData [HashRef]
+
+readCBlock :: forall m . ( MonadIO m
+                         )
+           => AnyStorage
+           -> HashRef
+           -> ( CBlockSection  -> m () )
+           -> m ()
+
+readCBlock sto hash action = do
+
+    hzz <- S.toList_ $ walkMerkle (coerce hash) (getBlock sto)  $ \case
+      Left h -> throwIO MissedBlockError
+      Right ( hs :: [HashRef] ) -> S.each hs
+
+    hmeta <- headMay hzz & orThrow (CBlockReadException hash EmptyCBlock)
+
+    what <- getBlock sto (coerce hmeta)
+               >>= orThrow StorageError
+               <&> LBS8.unpack
+               <&> parseTop
+               <&> fromRight mempty
+
+    _ <- headMay [ ()
+                 | ListVal [ StringLike "hbs2-git", _, StringLike "zstd" ] <- what
+                 ] & orThrow (CBlockReadException hash BadMetaData)
+
+    let pps = [ ph
+              | ListVal [ StringLike "p", HashLike ph ] <- what
+              ] & HS.fromList
+
+    let rs = filter (\x -> not (HS.member x pps)) (tail hzz)
+
+    action $ CBlockParents (HS.toList pps)
+    action $ CBlockData rs
+
+            -- for_ rs $ \r -> do
+            --   what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
+            --   debug $ yellow "reading" <+> pretty r
+            --   enumGitPackObjectsFromLBS what $ \case
+            --     IOp s (IGitObject t h) -> do
+            --      putStrLn $ show $ pretty t <+> pretty h <+> pretty s
+            --      pure True
+
+            --     IOp _ (ISetRef ref w h ) -> do
+            --       putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
+            --       pure True
+
 
 
 theDict :: forall m . ( HBS2GitPerks m
@@ -894,47 +957,93 @@ theDict = do
 
         entry $ bindMatch "test:git:cblock:list" $ nil_ $ \syn -> lift do
           hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
+
           sto <- getStorage
 
           liftIO do
 
-            hzz <- S.toList_ $ walkMerkle (coerce hash) (getBlock sto)  $ \case
-              Left h -> throwIO MissedBlockError
-              Right ( hs :: [HashRef] ) -> S.each hs
+            readCBlock sto hash $ \case
+              CBlockParents{} -> none
+              CBlockData rs -> do
+                for_ rs $ \r -> do
+                  what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
+                  debug $ yellow "reading" <+> pretty r
+                  enumGitPackObjectsFromLBS what $ \case
+                    IOp s (IGitObject t h) -> do
+                     putStrLn $ show $ pretty t <+> pretty h <+> pretty s
+                     pure True
 
-            hmeta <- headMay hzz & orThrowUser "empty sblock"
-
-            what <- getBlock sto (coerce hmeta)
-                       >>= orThrow StorageError
-                       <&> LBS8.unpack
-                       <&> parseTop
-                       <&> fromRight mempty
-
-            _ <- headMay [ ()
-                         | ListVal [ StringLike "hbs2-git", _, StringLike "zstd" ] <- what
-                         ] & orThrowUser "invalid sblock metadata"
-
-            let pps = [ ph
-                      | ListVal [ StringLike "p", HashLike ph ] <- what
-                      ] & HS.fromList
-
-            let rs = filter (\x -> not (HS.member x pps)) (tail hzz)
-
-            for_ rs $ \r -> do
-              what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
-              debug $ yellow "reading" <+> pretty r
-              enumGitPackObjectsFromLBS what $ \case
-                IOp s (IGitObject t h) -> do
-                 putStrLn $ show $ pretty t <+> pretty h <+> pretty s
-                 pure True
-
-                IOp _ (ISetRef ref w h ) -> do
-                  putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
-                  pure True
+                    IOp _ (ISetRef ref w h ) -> do
+                      putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
+                      pure True
 
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
-          [ HashLike cblock ] -> do
-            none
+          [ HashLike cblock ] -> lift do
+
+            sto <- getStorage
+
+            q <- newTVarIO ( HPSQ.empty @HashRef @Int @() )
+            done <- newTVarIO ( mempty :: HashSet HashRef )
+            cache <- newCacheFixedHPSQ 1000
+
+            flip fix WStart $ \next -> \case
+              WStart -> do
+                atomically $ modifyTVar q (HPSQ.insert cblock 1 ())
+                next WNextSBlock
+
+              WNextSBlock -> do
+
+                blk' <- atomically $ stateTVar q $ HPSQ.alterMin \case
+                          Nothing      -> (Nothing, Nothing)
+                          Just (k,p,_) -> (Just (k,p), Nothing)
+
+                debug $ "WNextSBlock" <+> pretty blk'
+
+                maybe1 blk' none $ \(k,p) -> do
+                  next (WReadSBlock p k)
+
+              WReadSBlock prio h -> do
+                debug $ "WReadSBlock" <+> pretty h
+
+                sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+
+                for_ sections $ \case
+                  CBlockData _ -> none
+                  CBlockParents p -> do
+                    debug $ "parents" <+> pretty p
+                    next =<< atomically do
+                      for_ (zip [1..] p) $ \(i,x) -> do
+                        isDone <- readTVar done <&> HS.member x
+                        unless isDone do
+                          modifyTVar q (HPSQ.insert x (prio-i) ())
+
+                      isDone <- readTVar done <&> HS.member h
+                      unless isDone do
+                        modifyTVar q (HPSQ.insert h prio ())
+
+                      qq <- readTVar q
+                      if not (any (`HPSQ.member` qq) p) && not isDone then do
+                        pure $ WProcessCBlock h
+                      else do
+                        pure WNextSBlock
+
+              WProcessCBlock h -> do
+                what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+
+                debug $ "process cblock" <+> pretty h
+
+                for_ what \case
+                  CBlockParents{} -> do
+                    none
+
+                  CBlockData{} -> do
+                    debug $ green "process cblock data" <+> pretty h
+
+                atomically $ modifyTVar done ( HS.insert h )
+                uncache cache h
+                next $ WNextSBlock
+
+              _ -> debug "WTF?" -- none
 
           _ -> throwIO (BadFormException @C nil)
 
