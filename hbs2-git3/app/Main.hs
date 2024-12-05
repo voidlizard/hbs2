@@ -442,11 +442,6 @@ data ExportState =
   | ExportStart
   | ExportExit
 
-data WState =
-    WStart
-  | WNextSBlock
-  | WReadSBlock Int HashRef
-  | WProcessCBlock Int HashRef
 
 data EOp =
     EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
@@ -880,6 +875,81 @@ readCBlock sto hash action = do
             --       pure True
 
 
+data WState =
+    WStart
+  | WNextSBlock
+  | WReadSBlock Int HashRef
+  | WProcessCBlock Int HashRef
+
+traverseToCBlock :: forall m . MonadIO m
+           => AnyStorage
+           -> HashRef
+           -> ( Int -> HashRef -> [HashRef] -> m () )
+           -> m ()
+traverseToCBlock sto cblock action = do
+
+  q <- newTVarIO ( HPSQ.empty @HashRef @Int @() )
+  done <- newTVarIO ( mempty :: HashSet HashRef )
+  cache <- newCacheFixedHPSQ 1000
+
+  flip fix WStart $ \next -> \case
+    WStart -> do
+      atomically $ modifyTVar q (HPSQ.insert cblock 1 ())
+      next WNextSBlock
+
+    WNextSBlock -> do
+
+      blk' <- atomically $ stateTVar q $ HPSQ.alterMin \case
+                Nothing      -> (Nothing, Nothing)
+                Just (k,p,_) -> (Just (k,p), Nothing)
+
+      debug $ "WNextSBlock" <+> pretty blk'
+
+      maybe1 blk' none $ \(k,p) -> do
+        next (WReadSBlock p k)
+
+    WReadSBlock prio h -> do
+      debug $ "WReadSBlock" <+> pretty h
+
+      sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+
+      for_ sections $ \case
+        CBlockData _ -> none
+        CBlockParents p -> do
+          debug $ "parents" <+> pretty p
+          next =<< atomically do
+            d <- readTVar done
+            for_ (zip [1..] p) $ \(i,x) -> do
+              unless (HS.member x d) do
+                modifyTVar q (HPSQ.insert x (prio-i) ())
+
+            let hDone = HS.member h d
+
+            unless hDone do
+              modifyTVar q (HPSQ.insert h prio ())
+
+            qq <- readTVar q
+            if not (any (`HPSQ.member` qq) p) && not hDone then do
+              pure $ WProcessCBlock prio h
+            else do
+              pure WNextSBlock
+
+    WProcessCBlock i h -> do
+      what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+      atomically $ modifyTVar done ( HS.insert h )
+      uncache cache h
+
+      debug $ "process cblock" <+> pretty h
+
+      for_ what \case
+        CBlockParents{} -> do
+          none
+
+        CBlockData hrefs -> do
+          action i h hrefs
+
+      next $ WNextSBlock
+
 
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
@@ -966,67 +1036,8 @@ theDict = do
 
             sto <- getStorage
 
-            q <- newTVarIO ( HPSQ.empty @HashRef @Int @() )
-            done <- newTVarIO ( mempty :: HashSet HashRef )
-            cache <- newCacheFixedHPSQ 1000
-
-            flip fix WStart $ \next -> \case
-              WStart -> do
-                atomically $ modifyTVar q (HPSQ.insert cblock 1 ())
-                next WNextSBlock
-
-              WNextSBlock -> do
-
-                blk' <- atomically $ stateTVar q $ HPSQ.alterMin \case
-                          Nothing      -> (Nothing, Nothing)
-                          Just (k,p,_) -> (Just (k,p), Nothing)
-
-                debug $ "WNextSBlock" <+> pretty blk'
-
-                maybe1 blk' none $ \(k,p) -> do
-                  next (WReadSBlock p k)
-
-              WReadSBlock prio h -> do
-                debug $ "WReadSBlock" <+> pretty h
-
-                sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
-
-                for_ sections $ \case
-                  CBlockData _ -> none
-                  CBlockParents p -> do
-                    debug $ "parents" <+> pretty p
-                    next =<< atomically do
-                      d <- readTVar done
-                      for_ (zip [1..] p) $ \(i,x) -> do
-                        unless (HS.member x d) do
-                          modifyTVar q (HPSQ.insert x (prio-i) ())
-
-                      let hDone = HS.member h d
-
-                      unless hDone do
-                        modifyTVar q (HPSQ.insert h prio ())
-
-                      qq <- readTVar q
-                      if not (any (`HPSQ.member` qq) p) && not hDone then do
-                        pure $ WProcessCBlock prio h
-                      else do
-                        pure WNextSBlock
-
-              WProcessCBlock _ h -> do
-                what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
-                atomically $ modifyTVar done ( HS.insert h )
-                uncache cache h
-
-                debug $ "process cblock" <+> pretty h
-
-                for_ what \case
-                  CBlockParents{} -> do
-                    none
-
-                  CBlockData{} -> do
-                    debug $ green "process cblock data" <+> pretty h
-
-                next $ WNextSBlock
+            traverseToCBlock sto cblock $ \i h _ -> do
+              debug $ green "process cblock data" <+> pretty i <+> pretty h
 
           _ -> throwIO (BadFormException @C nil)
 
