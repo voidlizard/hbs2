@@ -389,13 +389,6 @@ gitObjectExists what = do
 data UState =
   UHead ByteString
 
-unpackPEntry :: [ByteString] -> Maybe (GitObjectType, Word32, GitHash)
-unpackPEntry = \case
-  ("C" : s : h : _) -> (Commit,,) <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
-  ("B" : s : h : _) -> (Blob,,)   <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
-  ("T" : s : h : _) -> (Tree,,)   <$> readMay (LBS8.unpack s) <*> fromStringMay (LBS8.unpack h)
-  _ -> Nothing
-
 
 data ES =
   ES [BS.ByteString] Result
@@ -453,16 +446,7 @@ data WState =
     WStart
   | WNextSBlock
   | WReadSBlock Int HashRef
-  | WCheckSBlock HashRef ByteString
-  | WWalkSBlock HashRef (MTree [HashRef])
-  | WProcessCBlock HashRef
-  | WGetInput
-  | WEnd
-
-data WInput =
-    WInputSBlock
-  | WInputCBlock HashRef
-
+  | WProcessCBlock Int HashRef
 
 data EOp =
     EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
@@ -1012,23 +996,26 @@ theDict = do
                   CBlockParents p -> do
                     debug $ "parents" <+> pretty p
                     next =<< atomically do
+                      d <- readTVar done
                       for_ (zip [1..] p) $ \(i,x) -> do
-                        isDone <- readTVar done <&> HS.member x
-                        unless isDone do
+                        unless (HS.member x d) do
                           modifyTVar q (HPSQ.insert x (prio-i) ())
 
-                      isDone <- readTVar done <&> HS.member h
-                      unless isDone do
+                      let hDone = HS.member h d
+
+                      unless hDone do
                         modifyTVar q (HPSQ.insert h prio ())
 
                       qq <- readTVar q
-                      if not (any (`HPSQ.member` qq) p) && not isDone then do
-                        pure $ WProcessCBlock h
+                      if not (any (`HPSQ.member` qq) p) && not hDone then do
+                        pure $ WProcessCBlock prio h
                       else do
                         pure WNextSBlock
 
-              WProcessCBlock h -> do
+              WProcessCBlock _ h -> do
                 what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+                atomically $ modifyTVar done ( HS.insert h )
+                uncache cache h
 
                 debug $ "process cblock" <+> pretty h
 
@@ -1039,11 +1026,7 @@ theDict = do
                   CBlockData{} -> do
                     debug $ green "process cblock data" <+> pretty h
 
-                atomically $ modifyTVar done ( HS.insert h )
-                uncache cache h
                 next $ WNextSBlock
-
-              _ -> debug "WTF?" -- none
 
           _ -> throwIO (BadFormException @C nil)
 
