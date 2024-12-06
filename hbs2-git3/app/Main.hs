@@ -620,22 +620,16 @@ export mref' r = connectedDo $ flip runContT pure do
   sto <- lift getStorage
 
   reader  <- ContT $ withGitCat
-  reader2 <- ContT $ withGitCat
 
   let commitCacheSize = 2000
 
   commits <- newCacheFixedHPSQ commitCacheSize
 
-  deferred <- newTQueueIO
-
   ContT $ bracket none $ const do
     hClose $ getStdin reader
 
-  ContT $ bracket none $ const do
-    hClose $ getStdin reader2
-
-  ContT $ withAsync $ replicateM_ 2 $ forever do
-    join $ atomically (readTQueue deferred)
+  -- ContT $ withAsync $ replicateM_ 2 $ forever do
+  --   join $ atomically (readTQueue deferred)
 
   lift $ flip fix ExportStart $ \next -> \case
 
@@ -725,7 +719,7 @@ export mref' r = connectedDo $ flip runContT pure do
                     pure $ HS.fromList skip'
 
       r <- gitReadTree hhead
-             <&> L.filter (\GitTreeEntry{..} -> not (HS.member gitEntryHash skip))
+             <&> L.filter (\GitTreeEntry{..} -> L.null parents || not (HS.member gitEntryHash skip))
              -- <&> L.filter (\GitTreeEntry{..} -> gitEntryType /= Tree)
              <&> sortGitTreeEntries
 
@@ -751,11 +745,11 @@ export mref' r = connectedDo $ flip runContT pure do
           writePack sto l acc >>= atomically . writeTQueue out
 
         EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
-          atomically $ writeTQueue deferred $ writeLargeBlob sto reader2 r >>= atomically . writeTQueue out
+          writeLargeBlob sto reader r >>= atomically . writeTQueue out
           go (EWAcc (succ i) rs l acc)
 
         EWAcc i rs l acc | l >= blkMax -> do
-          atomically $ writeTQueue deferred $  writePack sto l acc >>=  atomically . writeTQueue out
+          writePack sto l acc >>=  atomically . writeTQueue out
           go (EWAcc (succ i) rs 0 mempty)
 
         EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
@@ -767,10 +761,8 @@ export mref' r = connectedDo $ flip runContT pure do
           let new = EGitObject gitEntryType gitEntryHash (Just e) lbs
           go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) (new : acc))
 
-      packs <- atomically do
-                 allDone <- isEmptyTQueue deferred
-                 unless allDone STM.retry
-                 STM.flushTQueue out
+
+      packs <- atomically $ STM.flushTQueue out
 
       phashes <- catMaybes <$> withState (for parents selectCBlock)
 
@@ -812,10 +804,12 @@ export mref' r = connectedDo $ flip runContT pure do
 
     writeLargeBlob sto reader GitTreeEntry{..} = liftIO do
       size <- gitEntrySize & orThrow (GitReadError (show $ "expected blob" <+> pretty gitEntryHash))
-      debug $ yellow "write large object" <+> pretty gitEntryHash
+      debug $ yellow $ "write large object" <+> pretty gitEntryHash
       let p =    Builder.byteString [qc|{pretty $ Short gitEntryType} {pretty size} {pretty gitEntryHash} {gitEntryName}|]
               <> Builder.byteString "\n"
               &  LBS.toStrict . Builder.toLazyByteString
+
+      -- liftIO $ print $ "MOTHERFUCKER1" <+> pretty gitEntryHash
 
       -- TODO: check-if-work-on-large-files
       pieces <- S.toList_ do
@@ -848,9 +842,14 @@ export mref' r = connectedDo $ flip runContT pure do
           (_,Error s1 s2) -> do
             throwIO (CompressionError (s1  <> " " <> s2))
 
+      -- liftIO $ print $ "MOTHERFUCKER2" <+> pretty gitEntryHash
+
       -- TODO: check-if-work-on-large-files
       createTreeWithMetadata sto mzero mempty (LBS.fromChunks pieces)
-        >>= orThrowPassIO
+             >>= orThrowPassIO
+
+      -- liftIO $ print $ "WRITTEN" <+> pretty gitEntryHash <+> pretty w
+      -- pure w
 
     writePack sto l racc = do
       -- write
