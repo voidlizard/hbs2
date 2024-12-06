@@ -1228,6 +1228,12 @@ theDict = do
 
                   pure True
 
+                IOp _ _ (ISetRef ref w h ) -> do
+                  let path = d </> show (pretty $ gitNormaliseRef ref)
+                  touch path
+                  UIO.writeBinaryFileAtomic path ( BS8.pack ( show (pretty h) <> "\n" ) )
+                  pure True
+
                 _ -> pure True
 
               pure ()
