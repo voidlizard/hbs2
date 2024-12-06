@@ -968,7 +968,8 @@ traverseToCBlock sto cblock dig process = do
 
       deeper <- dig h
 
-      if not deeper then
+      if not deeper then do
+        atomically $ modifyTVar done ( HS.insert h )
         next WNextSBlock
       else do
         sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
