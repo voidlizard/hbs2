@@ -303,12 +303,6 @@ instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure peerAPI
 
--- instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (RunM c m) where
---   getClientAPI = lift (getClientAPI @api @proto)
-
--- instance (MonadUnliftIO m, HasClientAPI api proto m) => HasClientAPI api proto (ContT a (RunM c m)) where
---   getClientAPI = lift $ getClientAPI @api @proto
-
 nullGit3Env :: MonadIO m => m Git3Env
 nullGit3Env = Git3Disconnected <$> newTVarIO Nothing
 
@@ -390,15 +384,39 @@ gitObjectExists what = do
 data UState =
   UHead Word32 ByteString
 
+data IOpType
+  = IGitObject GitObjectType GitHash (Maybe ByteString)
+  | ISetRef GitRef Int (Maybe GitHash)
+  deriving (Show, Eq)
+
+data IOp =
+  IOp { iopOffset :: Word32
+      , iopSize   :: Word32
+      , iopType   :: IOpType
+      }
+  deriving (Show, Eq)
 
 data ES =
   ES [BS.ByteString] Result
 
-enumGitPackObjectsFromLBS :: MonadIO m
-                          => ByteString
+
+class EnumGitPackObjectsOpts a where
+  enumObjectPayload :: a -> Bool
+
+instance EnumGitPackObjectsOpts () where
+  enumObjectPayload = const False
+
+data DoEnumPayload = DoEnumPayload
+
+instance EnumGitPackObjectsOpts DoEnumPayload where
+  enumObjectPayload = const True
+
+enumGitPackObjectsFromLBS :: (MonadIO m, EnumGitPackObjectsOpts opts)
+                          => opts
+                          -> ByteString
                           -> ( IOp -> m Bool )
                           -> m ()
-enumGitPackObjectsFromLBS lbs action = do
+enumGitPackObjectsFromLBS opts lbs action = do
 
   let chunks = LBS.toChunks lbs
 
@@ -447,9 +465,18 @@ enumGitPackObjectsFromLBS lbs action = do
 
         let consumed = fromIntegral $ skipped2 + LBS.length rn
 
-        void $ action (iop { iopOffset = entryOffset })
+        let pl = case ( enumObjectPayload opts, iopType ) of
+                   (True, IGitObject t h _) -> IGitObject t h (Just rn)
+                   (_, t) -> t
 
-        next (UHead (off + consumed) rest2)
+        let actualIop  = iop { iopOffset = entryOffset
+                             , iopType = pl
+                             }
+
+        continue <- action actualIop
+
+        when continue do
+          next (UHead (off + consumed) rest2)
 
 data ExportState =
     ExportGetCommit
@@ -463,34 +490,23 @@ data EOp =
     EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
   | EGitRef    GitRef Int (Maybe GitHash)
 
-data IOpType
-  = IGitObject GitObjectType GitHash
-  | ISetRef GitRef Int (Maybe GitHash)
-  deriving (Show, Eq)
-
-data IOp =
-  IOp { iopOffset :: Word32
-      , iopSize   :: Word32
-      , opType    :: IOpType
-      }
-  deriving (Show, Eq)
 
 unpackIOp :: Word32 -> [ByteString] -> Maybe IOp
 unpackIOp off = \case
   ("C" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Commit hash)
+    pure $ IOp off size (IGitObject Commit hash Nothing)
 
   ("B" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Blob hash)
+    pure $ IOp off size (IGitObject Blob hash Nothing)
 
   ("T" : s : h : _) -> do
     size <- fromLBS s
     hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Tree hash)
+    pure $ IOp off size (IGitObject Tree hash Nothing)
 
   ("R" : s : n : r : rest) -> do
     size <- fromLBS s
@@ -882,19 +898,6 @@ readCBlock sto hash action = do
     action $ CBlockParents (HS.toList pps)
     action $ CBlockData rs
 
-            -- for_ rs $ \r -> do
-            --   what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
-            --   debug $ yellow "reading" <+> pretty r
-            --   enumGitPackObjectsFromLBS what $ \case
-            --     IOp s (IGitObject t h) -> do
-            --      putStrLn $ show $ pretty t <+> pretty h <+> pretty s
-            --      pure True
-
-            --     IOp _ (ISetRef ref w h ) -> do
-            --       putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
-            --       pure True
-
-
 data WState =
     WStart
   | WNextSBlock
@@ -1042,8 +1045,8 @@ theDict = do
                 for_ rs $ \r -> do
                   what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
                   debug $ yellow "reading" <+> pretty r
-                  enumGitPackObjectsFromLBS what $ \case
-                    IOp o s (IGitObject t h) -> do
+                  enumGitPackObjectsFromLBS () what $ \case
+                    IOp o s (IGitObject t h _) -> do
                      putStrLn $ show $ pretty t <+> pretty h <+> pretty o <+> pretty s
                      pure True
 
@@ -1056,7 +1059,7 @@ theDict = do
           [ HashLike cblock, StringLike g ] -> lift do
 
             sto <- getStorage
-            h <- fromStringMay @GitHash g & orThrowUser "invalid git hash"
+            h0 <- fromStringMay @GitHash g & orThrowUser "invalid git hash"
 
             readCBlock sto cblock $ \case
               CBlockParents{} -> none
@@ -1064,39 +1067,15 @@ theDict = do
                 for_ rs $ \r -> do
                   what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
                   debug $ yellow "reading" <+> pretty r
-                  enumGitPackObjectsFromLBS what $ \case
-                    IOp _ s (IGitObject t h) -> do
-                     -- putStrLn $ show $ pretty t <+> pretty h <+> pretty s
-                     pure True
+                  enumGitPackObjectsFromLBS DoEnumPayload what $ \case
 
-                    IOp _ _ (ISetRef ref w h ) -> do
-                      -- putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
-                      pure True
+                    IOp _ _ (IGitObject _ h (Just body)) | h == h0 -> do
+                      liftIO $ LBS.putStr body
+                      pure False
 
+                    _ -> pure True
 
-            pure ()
           _ -> throwIO (BadFormException @C nil)
-          -- hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
-
-          -- sto <- getStorage
-
-          -- liftIO do
-
-          --   readCBlock sto hash $ \case
-          --     CBlockParents{} -> none
-          --     CBlockData rs -> do
-          --       for_ rs $ \r -> do
-          --         what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
-          --         debug $ yellow "reading" <+> pretty r
-          --         enumGitPackObjectsFromLBS what $ \case
-          --           IOp s (IGitObject t h) -> do
-          --            putStrLn $ show $ pretty t <+> pretty h <+> pretty s
-          --            pure True
-
-          --           IOp _ (ISetRef ref w h ) -> do
-          --             putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
-          --             pure True
-
 
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
