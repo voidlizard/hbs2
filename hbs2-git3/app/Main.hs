@@ -1194,8 +1194,8 @@ theDict = do
                 co <- withState $ selectCommitsByCBlock cb
                 e <- mapM gitObjectExists co <&> and
                 debug $ "WHATEVER" <+> pretty e <+> pretty cb <+> pretty co
-                pure True
-                -- pure $ not e
+                -- pure True
+                pure $ not e
 
           traverseToCBlock sto cb whatever  $ \i h hs -> do
             debug $ green "process cblock data" <+> pretty i <+> pretty h
