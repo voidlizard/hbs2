@@ -44,8 +44,9 @@ evolveState = do
     ddl [qc|
 create table if not exists
 cblock
-  ( kommit  text not null primary key
+  ( kommit  text not null
   , cblock  text not null
+  , primary key (kommit, cblock)
   )
 |]
 
@@ -72,11 +73,17 @@ insertCBlock :: MonadIO m => GitHash -> HashRef -> DBPipeM m ()
 insertCBlock co cblk = do
   insert [qc|
     insert into cblock (kommit, cblock) values(?,?)
-    on conflict (kommit) do update set cblock = excluded.cblock
+    on conflict (kommit,cblock) do update set cblock = excluded.cblock
          |] (co, cblk)
 
 selectCBlock :: MonadIO m => GitHash -> DBPipeM m (Maybe HashRef)
 selectCBlock gh = do
   select [qc|select cblock from cblock where kommit = ? limit 1|] (Only gh)
    <&> listToMaybe . fmap fromOnly
+
+selectCommitsByCBlock :: MonadIO m => HashRef -> DBPipeM m [GitHash]
+selectCommitsByCBlock cb = do
+  select [qc|select kommit from cblock where cblock = ? limit 1|] (Only cb)
+   <&> fmap fromOnly
+
 

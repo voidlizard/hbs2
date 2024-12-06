@@ -51,6 +51,8 @@ import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
 import Codec.Compression.Zstd (maxCLevel)
 
+import Codec.Compression.Zlib qualified as Zlib
+
 import qualified Data.Attoparsec.ByteString as A
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
@@ -91,6 +93,7 @@ import Data.List (sortOn)
 import Data.Ord (Down(..))
 
 import UnliftIO
+import UnliftIO.IO.File qualified as UIO
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -381,6 +384,22 @@ gitReadCommitParents bs = do
           | ListVal [ StringLike "parent", StringLike hash ] <- what
           ] & catMaybes
 
+
+gitReadCommitTree :: MonadIO m => ByteString -> m GitHash
+gitReadCommitTree bs = do
+
+   what <- LBS8.lines bs
+             & takeWhile ( not . LBS8.null )
+             & LBS8.unpack . LBS8.unlines
+             & parseTop
+             & orThrow (OtherGitError "invalid commit format")
+
+   let r = [ fromStringMay @GitHash hash
+           | ListVal [ StringLike "tree", StringLike hash ] <- what
+           ]
+
+   catMaybes r & headMay & orThrow (InvalidObjectFormat Commit Nothing)
+
 gitObjectExists :: (MonadIO m, Pretty what) => what -> m Bool
 gitObjectExists what = do
   gitRunCommand [qc|git cat-file -e {pretty what}|] <&> isRight
@@ -654,14 +673,8 @@ export mref' r = connectedDo $ flip runContT pure do
 
               n <- for (zip [1..] parents) $ \(i,gh) -> do
 
-                     -- exists <- gitObjectExists gh
                      exists <- liftIO (cached commits gh (gitReadObjectMaybe reader gh))
                                   <&> isJust
-
-                     -- unless exists do
-                     --  really <- gitObjectExists gh
-                     --  unless really do
-                     --    throwIO (GitReadError (show $ "export" <+> pretty co))
 
                      here <- withState $ selectCBlock gh <&> isJust
 
@@ -699,6 +712,8 @@ export mref' r = connectedDo $ flip runContT pure do
       parents <- gitReadObjectThrow Commit hhead
                     >>= gitReadCommitParents
 
+      tree <- gitReadCommitTree bs
+
       skip <- if not (excludeParents ()) then do
                    pure mempty
                  else do
@@ -722,7 +737,11 @@ export mref' r = connectedDo $ flip runContT pure do
 
       let ref = maybeToList $ EGitRef <$> mref <*> pure now <*> pure (Just co)
 
-      let seed = (if lastBlock then ref else mempty) <> [EGitObject Commit co Nothing bs]
+      (_,tbs) <- gitReadObjectMaybe reader tree
+                   >>= orThrow (GitReadError (show $ pretty tree))
+
+      let commitItself = [EGitObject Tree tree Nothing tbs, EGitObject Commit co Nothing bs]
+      let seed = (if lastBlock then ref else mempty) <> commitItself
 
       flip fix (EWAcc 1 r 0 seed) $ \go -> \case
 
@@ -991,6 +1010,15 @@ traverseToCBlock sto cblock dig process = do
 
       next $ WNextSBlock
 
+indexCBlockCommits :: forall m . ( MonadIO m
+                          , HasStateDB m
+                          , HasStorage m
+                          )
+           => HashRef -> m ()
+
+indexCBlockCommits cb = do
+  pure ()
+
 -- FIXME: move-to-suckless-script
 splitOpts :: [(Id,Int)]
           -> [Syntax C]
@@ -1139,12 +1167,21 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
+        entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
+          LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
+
         entry $ bindMatch "test:git:cblock:import" $ nil_ $ \syn -> lift do
           let opts = splitOpts [("--deep",0),("--shallow",0),("--dry",0)] syn
 
+          d <- findGitDir >>= orThrowUser "not a git directory"
+
           debug $ pretty opts
 
+          debug $ "DIR" <+> pretty d
+
           cb  <- [ x | HashLike x <- snd opts ] & headMay & orThrowUser "import: cblock not set"
+
+          indexCBlockCommits cb
 
           let shallow = or [ True | ListVal [StringLike "--shallow"] <- fst opts ]
           let deep    = or [ True | ListVal [StringLike "--deep"]    <- fst opts ] && not shallow
@@ -1153,14 +1190,42 @@ theDict = do
 
           sto <- getStorage
 
-          let whatever _ = do
-                -- shallow:
-                -- 1. get commits
-                -- 2. if all commits here -> stop
+          let whatever cb = do
+                co <- withState $ selectCommitsByCBlock cb
+                e <- mapM gitObjectExists co <&> and
+                debug $ "WHATEVER" <+> pretty e <+> pretty cb <+> pretty co
                 pure True
+                -- pure $ not e
 
-          traverseToCBlock sto cb whatever  $ \i h _ -> do
+          traverseToCBlock sto cb whatever  $ \i h hs -> do
             debug $ green "process cblock data" <+> pretty i <+> pretty h
+
+            for_ hs $ \hx -> do
+
+              what <- runExceptT (getTreeContents sto hx) >>= orThrowPassIO
+
+              enumGitPackObjectsFromLBS DoEnumPayload what $ \case
+
+                IOp _ s (IGitObject t h (Just body)) -> liftIO do
+                  let signature = [qc|{pretty t} {pretty s}|] <> "\x00" :: LBS8.ByteString
+                  let gitHash = show $ pretty h
+                  let (prefix,name) = L.splitAt 2 gitHash
+                  let path = joinPath [d, "objects", prefix, name]
+
+                  touch path
+
+                  liftIO $ print $ pretty t <+> pretty s <+> pretty h <+> pretty path
+
+                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                    let contents = Zlib.compressWith params (signature <> body)
+                    LBS.hPutStr fh contents
+
+                  pure True
+
+                _ -> pure True
+
+              pure ()
 
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
