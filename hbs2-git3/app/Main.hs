@@ -214,7 +214,10 @@ instance GitObjectReader (Process Handle Handle ()) where
           void $ lift $ hGetLine ssout
           pure (o,bs)
 
-        _ -> mzero
+        [_,"missing"] -> do
+          mzero
+
+        w -> throwIO (GitReadError $ show (pretty w))
 
 newtype Short x = Short x
 
@@ -602,7 +605,6 @@ export mref' r = connectedDo $ flip runContT pure do
 
   let commitCacheSize = 2000
 
-  missed <- CacheTVH <$> newTVarIO mempty
   commits <- newCacheFixedHPSQ commitCacheSize
 
   deferred <- newTQueueIO
@@ -646,16 +648,25 @@ export mref' r = connectedDo $ flip runContT pure do
               next ExportGetCommit
             else do
               (_,bs) <- liftIO (cached commits co (gitReadObjectMaybe reader co))
-                            >>= orThrow (GitReadError (show $ pretty co))
+                            >>= orThrow (GitReadError (show $ pretty co <+> pretty prio))
 
               parents <- gitReadCommitParents bs
 
               n <- for (zip [1..] parents) $ \(i,gh) -> do
-                     exists <- liftIO $ cached missed gh (isJust <$> cached commits gh (gitReadObjectMaybe reader gh))
+
+                     -- exists <- gitObjectExists gh
+                     exists <- liftIO (cached commits gh (gitReadObjectMaybe reader gh))
+                                  <&> isJust
+
+                     -- unless exists do
+                     --  really <- gitObjectExists gh
+                     --  unless really do
+                     --    throwIO (GitReadError (show $ "export" <+> pretty co))
+
                      here <- withState $ selectCBlock gh <&> isJust
 
                      unless exists do
-                      debug $ red "missed!" <+> pretty gh
+                      warn $ red "missed!" <+> pretty gh
                       -- atomically $ modifyTVar done (HS.insert gh)
 
                      atomically do
@@ -1058,6 +1069,30 @@ theDict = do
           r    <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 peer () >>= orThrowUser "hbs2-peer not found"
           notice $ pretty r
 
+        entry $ bindMatch "test:git:read-commits" $ nil_ $ \syn -> do
+          let hdr = headDef "HEAD" [ w | StringLike w <- syn ] :: String
+
+          commits <- gitRunCommand [qc|git rev-list -100000 {hdr}|]
+                      >>= orThrowPassIO
+                      <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
+
+          liftIO $ print $ pretty $ length commits
+
+        entry $ bindMatch "test:git:exists:fast" $ nil_ \case
+          [ StringLike x ] -> lift $ flip runContT pure do
+
+            h <- fromStringMay @GitHash x & orThrowUser "invalid hash"
+
+            cache <- newCacheFixedHPSQ 10
+            reader <- ContT $ withGitCat
+            ContT $ bracket none $ const $ stopProcess reader
+
+            what <- liftIO (cached cache h (gitReadObjectMaybe reader h))
+                      <&> isJust
+
+            liftIO $ print $ pretty what
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:cblock:list" $ nil_ $ \syn -> lift do
           hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
@@ -1120,7 +1155,7 @@ theDict = do
 
           let whatever _ = do
                 -- shallow:
-                -- 1. get commit
+                -- 1. get commits
                 -- 2. if all commits here -> stop
                 pure True
 
@@ -1140,6 +1175,8 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
+
+
             (w, r) <- case syn of
                     [] -> (Nothing,) <$> gitRevParseThrow "HEAD"
                     [ StringLike co ] -> (Just (fromString co),) <$> gitRevParseThrow co
