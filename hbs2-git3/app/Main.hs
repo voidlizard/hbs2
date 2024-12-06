@@ -1213,14 +1213,18 @@ theDict = do
                   let (prefix,name) = L.splitAt 2 gitHash
                   let path = joinPath [d, "objects", prefix, name]
 
-                  touch path
+                  here <- doesPathExist path
 
-                  liftIO $ print $ pretty t <+> pretty s <+> pretty h <+> pretty path
+                  unless here do
 
-                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                    let contents = Zlib.compressWith params (signature <> body)
-                    LBS.hPutStr fh contents
+                    touch path
+
+                    liftIO $ print $ pretty t <+> pretty s <+> pretty h <+> pretty path
+
+                    let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                    UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                      let contents = Zlib.compressWith params (signature <> body)
+                      LBS.hPutStr fh contents
 
                   pure True
 
