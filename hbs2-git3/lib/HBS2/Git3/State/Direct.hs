@@ -46,6 +46,7 @@ create table if not exists
 cblock
   ( kommit  text not null primary key
   , cblock  text not null
+  , unique (kommit,cblock)
   )
 |]
 
@@ -73,6 +74,7 @@ insertCBlock co cblk = do
   insert [qc|
     insert into cblock (kommit, cblock) values(?,?)
     on conflict (kommit) do update set cblock = excluded.cblock
+    on conflict (kommit,cblock) do nothing
          |] (co, cblk)
 
 selectCBlock :: MonadIO m => GitHash -> DBPipeM m (Maybe HashRef)

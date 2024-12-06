@@ -64,6 +64,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Builder as Builder
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
+import Data.Map qualified as Map
 import Data.HashSet qualified as HS
 import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
@@ -907,9 +908,10 @@ data WState =
 traverseToCBlock :: forall m . MonadIO m
            => AnyStorage
            -> HashRef
+           -> ( HashRef -> m Bool )
            -> ( Int -> HashRef -> [HashRef] -> m () )
            -> m ()
-traverseToCBlock sto cblock action = do
+traverseToCBlock sto cblock dig process = do
 
   q <- newTVarIO ( HPSQ.empty @HashRef @Int @() )
   done <- newTVarIO ( mempty :: HashSet HashRef )
@@ -934,28 +936,33 @@ traverseToCBlock sto cblock action = do
     WReadSBlock prio h -> do
       debug $ "WReadSBlock" <+> pretty h
 
-      sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
+      deeper <- dig h
 
-      for_ sections $ \case
-        CBlockData _ -> none
-        CBlockParents p -> do
-          debug $ "parents" <+> pretty p
-          next =<< atomically do
-            d <- readTVar done
-            for_ (zip [1..] p) $ \(i,x) -> do
-              unless (HS.member x d) do
-                modifyTVar q (HPSQ.insert x (prio-i) ())
+      if not deeper then
+        next WNextSBlock
+      else do
+        sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
 
-            let hDone = HS.member h d
+        for_ sections $ \case
+          CBlockData _ -> none
+          CBlockParents p -> do
+            debug $ "parents" <+> pretty p
+            next =<< atomically do
+              d <- readTVar done
+              for_ (zip [1..] p) $ \(i,x) -> do
+                unless (HS.member x d) do
+                  modifyTVar q (HPSQ.insert x (prio-i) ())
 
-            unless hDone do
-              modifyTVar q (HPSQ.insert h prio ())
+              let hDone = HS.member h d
 
-            qq <- readTVar q
-            if not (any (`HPSQ.member` qq) p) && not hDone then do
-              pure $ WProcessCBlock prio h
-            else do
-              pure WNextSBlock
+              unless hDone do
+                modifyTVar q (HPSQ.insert h prio ())
+
+              qq <- readTVar q
+              if not (any (`HPSQ.member` qq) p) && not hDone then do
+                pure $ WProcessCBlock prio h
+              else do
+                pure WNextSBlock
 
     WProcessCBlock i h -> do
       what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
@@ -969,10 +976,30 @@ traverseToCBlock sto cblock action = do
           none
 
         CBlockData hrefs -> do
-          action i h hrefs
+          process i h hrefs
 
       next $ WNextSBlock
 
+-- FIXME: move-to-suckless-script
+splitOpts :: [(Id,Int)]
+          -> [Syntax C]
+          -> ([Syntax C], [Syntax C])
+
+splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
+  (acc, []) -> acc
+  ( (o,a), r@(StringLike x) : rs ) -> do
+    case HM.lookup (fromString x) omap of
+      Nothing -> go ((o, a <> [r]), rs)
+      Just n  -> do
+        let (w, rest) = L.splitAt n rs
+        let result = mkList @C ( r : w )
+        go ( (o <> [result], a), rest )
+  ( (o,a), r : rs ) -> do
+      go ((o, a <> [r]), rs)
+
+  where
+    omap = HM.fromList [ (p, x) | (p,x) <- def ]
+    opts = opts'
 
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
@@ -1077,12 +1104,37 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
+        entry $ bindMatch "test:git:cblock:import" $ nil_ $ \syn -> lift do
+          let opts = splitOpts [("--deep",0),("--shallow",0),("--dry",0)] syn
+
+          debug $ pretty opts
+
+          cb  <- [ x | HashLike x <- snd opts ] & headMay & orThrowUser "import: cblock not set"
+
+          let shallow = or [ True | ListVal [StringLike "--shallow"] <- fst opts ]
+          let deep    = or [ True | ListVal [StringLike "--deep"]    <- fst opts ] && not shallow
+
+          debug $ "cblock" <+> pretty deep <+> pretty cb
+
+          sto <- getStorage
+
+          let whatever _ = do
+                -- shallow:
+                -- 1. get commit
+                -- 2. if all commits here -> stop
+                pure True
+
+          traverseToCBlock sto cb whatever  $ \i h _ -> do
+            debug $ green "process cblock data" <+> pretty i <+> pretty h
+
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
 
             sto <- getStorage
 
-            traverseToCBlock sto cblock $ \i h _ -> do
+            let whatever _ = pure True
+
+            traverseToCBlock sto cblock whatever  $ \i h _ -> do
               debug $ green "process cblock data" <+> pretty i <+> pretty h
 
           _ -> throwIO (BadFormException @C nil)

@@ -1176,7 +1176,6 @@ executable test-scripts
         , text
         , time
         , zstd
-        , bzlib
 
 
 
