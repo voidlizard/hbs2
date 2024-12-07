@@ -411,6 +411,7 @@ data UState =
 data IOpType
   = IGitObject GitObjectType GitHash (Maybe ByteString)
   | ISetRef GitRef Int (Maybe GitHash)
+  | IOrphan GitHash
   deriving (Show, Eq)
 
 data IOp =
@@ -513,7 +514,7 @@ data ExportState =
 data EOp =
     EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
   | EGitRef    GitRef Int (Maybe GitHash)
-
+  | EOrphan GitHash
 
 unpackIOp :: Word32 -> [ByteString] -> Maybe IOp
 unpackIOp off = \case
@@ -531,6 +532,11 @@ unpackIOp off = \case
     size <- fromLBS s
     hash <- fromLBS' h
     pure $ IOp off size (IGitObject Tree hash Nothing)
+
+  ("O" : s : h : _) -> do
+    size <- fromLBS s
+    hash <- fromLBS' h
+    pure $ IOp off size (IOrphan hash)
 
   ("R" : s : n : r : rest) -> do
     size <- fromLBS s
@@ -623,6 +629,14 @@ export mref' r = connectedDo $ flip runContT pure do
   reader  <- ContT $ withGitCat
 
   let commitCacheSize = 2000
+
+  d <- findGitDir >>= orThrow (OtherGitError "git dir not set")
+
+  shallow <- liftIO (readFile (d </> "shallow"))
+               <&> mapMaybe (fromStringMay @GitHash) . lines
+               <&> HS.fromList
+
+  let orphans = [ EOrphan x | x <- HS.toList shallow ]
 
   commits <- newCacheFixedHPSQ commitCacheSize
 
@@ -730,13 +744,16 @@ export mref' r = connectedDo $ flip runContT pure do
 
       now <- liftIO getPOSIXTime <&> round
 
-      let ref = maybeToList $ EGitRef <$> mref <*> pure now <*> pure (Just co)
+      let ref = maybeToList (EGitRef <$> mref <*> pure now <*> pure (Just co))
 
       (_,tbs) <- gitReadObjectMaybe reader tree
                    >>= orThrow (GitReadError (show $ pretty tree))
 
-      let commitItself = [EGitObject Tree tree Nothing tbs, EGitObject Commit co Nothing bs]
-      let seed = (if lastBlock then ref else mempty) <> commitItself
+      let commitItself = [ EGitObject Tree tree Nothing tbs
+                         , EGitObject Commit co Nothing bs
+                         ]
+
+      let seed = (if lastBlock then ref <> orphans else mempty) <> commitItself
 
       flip fix (EWAcc 1 r 0 seed) $ \go -> \case
 
@@ -869,9 +886,14 @@ export mref' r = connectedDo $ flip runContT pure do
       let acc = reverse racc
       debug $ green "write pack of objects" <+> pretty l <+> pretty (length acc)
 
-      let refs =  [ Builder.byteString [qc|R 0 {w} {show $ pretty ref} {show $ pretty h}|]
-                  | EGitRef ref w h <- acc
-                  ] & mconcat & (<> Builder.byteString "\n")
+      let refs = [ Builder.byteString [qc|R 0 {w} {show $ pretty ref} {show $ pretty h}|]
+                 | EGitRef ref w h <- acc
+                 ] & mconcat & (<> Builder.byteString "\n")
+
+      -- 'O' for 'orphan'
+      let sh =   [ Builder.byteString [qc|O 0 {show $ pretty h}|]
+                 | EOrphan h <- acc
+                 ] & mconcat & (<> Builder.byteString "\n")
 
       parts <- for [ (h,t,e,lbs) | EGitObject t h e lbs <- acc ] $ \(h,t,e,lbs) -> liftIO do
         let ename = [qc|{fromMaybe mempty $ gitEntryName <$> e}|] :: ByteString
@@ -883,7 +905,7 @@ export mref' r = connectedDo $ flip runContT pure do
                 <> Builder.byteString "\n"
         pure p
 
-      let packed = Zstd.compress maxCLevel (LBS.toStrict $ Builder.toLazyByteString $ refs <> mconcat parts)
+      let packed = Zstd.compress maxCLevel (LBS.toStrict $ Builder.toLazyByteString $ refs <> mconcat parts <> sh)
 
       createTreeWithMetadata sto mzero mempty (LBS.fromStrict packed)
         >>= orThrowPassIO
@@ -954,6 +976,7 @@ listOnlyCommitsFromCBlock sto cblock = do
       enumGitPackObjectsFromLBS () what $ \case
         IOp _ _ (IGitObject Commit h _) -> lift (S.yield h) >> pure True
         IOp _ _ (ISetRef{}) -> pure True
+        IOp _ _ (IOrphan{}) -> pure True
         _ -> exit ()
 
 data WState =
@@ -1180,6 +1203,9 @@ theDict = do
                       putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
                       pure True
 
+                    IOp _ _ (IOrphan h) -> do
+                      putStrLn $ show $ "shallow" <+> pretty h
+                      pure True
 
         entry $ bindMatch "test:git:cblock:object:cat" $ nil_ $ \case
           [ HashLike cblock, StringLike g ] -> lift do
@@ -1235,6 +1261,8 @@ theDict = do
           traverseToCBlock sto cb whatever  $ \i h hs -> do
             debug $ green "process cblock data" <+> pretty i <+> pretty h
 
+            _orphans <- newTVarIO ( mempty :: HashSet GitHash )
+
             for_ hs $ \hx -> do
 
               what <- runExceptT (getTreeContents sto hx) >>= orThrowPassIO
@@ -1268,9 +1296,24 @@ theDict = do
                   UIO.writeBinaryFileAtomic path ( BS8.pack ( show (pretty h) <> "\n" ) )
                   pure True
 
+                IOp _ _ (IOrphan o) -> do
+                  atomically $ modifyTVar _orphans (HS.insert o)
+                  pure True
+
                 _ -> pure True
 
-              pure ()
+            debug "updating .git/shallow"
+            let shallowFile = d </> "shallow"
+            new <- readTVarIO _orphans
+
+            current <- try @_ @IOError (liftIO $ LBS8.readFile shallowFile)
+                         <&> fromRight mempty
+                         <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
+                         <&> HS.union new . HS.fromList
+                         <&> LBS8.unlines . fmap (LBS8.pack . show . pretty) . HS.toList
+                         <&> LBS.toStrict
+
+            UIO.writeBinaryFileAtomic shallowFile current
 
         entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
@@ -1321,7 +1364,6 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
-
 
             (w, r) <- case syn of
                     [] -> (Nothing,) <$> gitRevParseThrow "HEAD"
