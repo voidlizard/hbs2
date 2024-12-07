@@ -632,7 +632,8 @@ export mref' r = connectedDo $ flip runContT pure do
 
   d <- findGitDir >>= orThrow (OtherGitError "git dir not set")
 
-  shallow <- liftIO (readFile (d </> "shallow"))
+  shallow <- liftIO (try @_ @IOException (readFile (d </> "shallow")))
+               <&> fromRight mempty
                <&> mapMaybe (fromStringMay @GitHash) . lines
                <&> HS.fromList
 
@@ -1306,7 +1307,7 @@ theDict = do
             let shallowFile = d </> "shallow"
             new <- readTVarIO _orphans
 
-            current <- try @_ @IOError (liftIO $ LBS8.readFile shallowFile)
+            current <- try @_ @IOException (liftIO $ LBS8.readFile shallowFile)
                          <&> fromRight mempty
                          <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
                          <&> HS.union new . HS.fromList
