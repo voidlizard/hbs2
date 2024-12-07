@@ -67,6 +67,7 @@ import Data.ByteString.Builder as Builder
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
 import Data.Map qualified as Map
+import Data.IntMap qualified as IntMap
 import Data.HashSet qualified as HS
 import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
@@ -742,14 +743,14 @@ export mref' r = connectedDo $ flip runContT pure do
         EWAcc _ [] _ [] -> none
 
         EWAcc i [] l acc -> do
-          writePack sto l acc >>= atomically . writeTQueue out
+          writePack sto l acc >>= atomically . writeTQueue out . (i,)
 
         EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
-          writeLargeBlob sto reader r >>= atomically . writeTQueue out
+          writeLargeBlob sto reader r >>= atomically . writeTQueue out . (i,)
           go (EWAcc (succ i) rs l acc)
 
         EWAcc i rs l acc | l >= blkMax -> do
-          writePack sto l acc >>=  atomically . writeTQueue out
+          writePack sto l acc >>=  atomically . writeTQueue out . (i,)
           go (EWAcc (succ i) rs 0 mempty)
 
         EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
@@ -772,7 +773,8 @@ export mref' r = connectedDo $ flip runContT pure do
 
       hmeta <- putBlock sto meta >>= orThrow StorageError <&> HashRef
 
-      let cblock = hmeta : uniqAndOrdered phashes <> uniqAndOrdered packs
+      let cblock = hmeta : uniqAndOrdered phashes <> uniqAndOrderedByKey packs
+
       let pt = toPTree (MaxSize 1024) (MaxNum 1024) cblock
 
       root <- makeMerkle 0 pt $ \(_,_,s) -> do
@@ -795,16 +797,21 @@ export mref' r = connectedDo $ flip runContT pure do
       liftIO $ hPrint stdout (pretty c)
       next ExportExit
 
-    ExportExit -> finish
+    ExportExit -> none
 
   where
-    finish = none
+
+    uniqAndOrderedByKey xs = L.sortOn fst xs & uniq
+      where
+        uniq items = flip fix (items, mempty, mempty) $ \next -> \case
+          ([],   _, acc) -> L.reverse acc
+          ((_,v):es, seen, acc) | HS.member v seen -> next (es, seen, acc)
+          ((_,v):es, seen, acc) -> next (es, HS.insert v seen, v:acc)
 
     uniqAndOrdered = Set.toList . Set.fromList
 
     writeLargeBlob sto reader GitTreeEntry{..} = liftIO do
       size <- gitEntrySize & orThrow (GitReadError (show $ "expected blob" <+> pretty gitEntryHash))
-      debug $ yellow $ "write large object" <+> pretty gitEntryHash
       let p =    Builder.byteString [qc|{pretty $ Short gitEntryType} {pretty size} {pretty gitEntryHash} {gitEntryName}|]
               <> Builder.byteString "\n"
               &  LBS.toStrict . Builder.toLazyByteString
@@ -845,9 +852,12 @@ export mref' r = connectedDo $ flip runContT pure do
       -- liftIO $ print $ "MOTHERFUCKER2" <+> pretty gitEntryHash
 
       -- TODO: check-if-work-on-large-files
-      createTreeWithMetadata sto mzero mempty (LBS.fromChunks pieces)
+      r <- createTreeWithMetadata sto mzero mempty (LBS.fromChunks pieces)
              >>= orThrowPassIO
 
+      debug $ yellow $ "write large object" <+> pretty r <+> pretty gitEntryHash
+
+      pure r
       -- liftIO $ print $ "WRITTEN" <+> pretty gitEntryHash <+> pretty w
       -- pure w
 
@@ -910,7 +920,7 @@ readCBlock sto hash action = do
     hmeta <- headMay hzz & orThrow (CBlockReadException hash EmptyCBlock)
 
     what <- getBlock sto (coerce hmeta)
-               >>= orThrow StorageError
+               >>= orThrow (CBlockReadException hmeta BadMetaData)
                <&> LBS8.unpack
                <&> parseTop
                <&> fromRight mempty
@@ -927,6 +937,24 @@ readCBlock sto hash action = do
 
     action $ CBlockParents (HS.toList pps)
     action $ CBlockData rs
+
+listOnlyCommitsFromCBlock :: forall m . MonadIO m
+                          => AnyStorage
+                          -> HashRef
+                          -> m [GitHash]
+
+listOnlyCommitsFromCBlock sto cblock = do
+  cbs <- S.toList_ $ readCBlock sto cblock $ \case
+            CBlockData rs -> S.each rs
+            _ -> none
+
+  S.toList_ $ flip runContT pure $ callCC \exit -> do
+    for_ cbs  $ \c -> do
+      what <- liftIO $ runExceptT (getTreeContents sto c) >>= orThrowPassIO
+      enumGitPackObjectsFromLBS () what $ \case
+        IOp _ _ (IGitObject Commit h _) -> lift (S.yield h) >> pure True
+        IOp _ _ (ISetRef{}) -> pure True
+        _ -> exit ()
 
 data WState =
     WStart
@@ -1122,6 +1150,14 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
+        entry $ bindMatch "test:git:cblock:list:only:commits" $ nil_ $ \case
+          [ HashLike ha ] -> lift do
+            sto <- getStorage
+            co <- listOnlyCommitsFromCBlock sto ha
+            liftIO $ mapM_ ( print . pretty ) co
+
+          _ -> throwIO (BadFormException @C nil)
+
         entry $ bindMatch "test:git:cblock:list" $ nil_ $ \syn -> lift do
           hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
 
@@ -1190,11 +1226,10 @@ theDict = do
 
           sto <- getStorage
 
-          let whatever cb = do
-                co <- withState $ selectCommitsByCBlock cb
+          let whatever cblock = do
+                co <- listOnlyCommitsFromCBlock sto cblock
                 e <- mapM gitObjectExists co <&> and
                 debug $ "WHATEVER" <+> pretty e <+> pretty cb <+> pretty co
-                -- pure True
                 pure $ not e
 
           traverseToCBlock sto cb whatever  $ \i h hs -> do
@@ -1218,7 +1253,7 @@ theDict = do
 
                     touch path
 
-                    liftIO $ print $ pretty t <+> pretty s <+> pretty h <+> pretty path
+                    debug $ pretty t <+> pretty s <+> pretty h <+> pretty path
 
                     let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
                     UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
@@ -1244,8 +1279,8 @@ theDict = do
 
             let whatever _ = pure True
 
-            traverseToCBlock sto cblock whatever  $ \i h _ -> do
-              debug $ green "process cblock data" <+> pretty i <+> pretty h
+            traverseToCBlock sto cblock whatever  $ \i h hs -> do
+              notice $ pretty i <+> pretty h <+> pretty (length hs)
 
           _ -> throwIO (BadFormException @C nil)
 
@@ -1301,6 +1336,6 @@ main = flip runContT pure do
   void $ lift $ withGit3Env env do
     conf <- readLocalConf
     let dict = theDict
-    recover $ run dict (conf <> cli)
+    recover $ setupLogger >> run dict (conf <> cli)
       `finally` silence
 
