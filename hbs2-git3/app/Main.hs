@@ -1234,7 +1234,7 @@ theDict = do
           LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
 
         entry $ bindMatch "test:git:cblock:import" $ nil_ $ \syn -> lift do
-          let opts = splitOpts [("--deep",0),("--shallow",0),("--dry",0)] syn
+          let opts = splitOpts [("--deep",0),("--only",0),("--dry",0)] syn
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
@@ -1242,88 +1242,108 @@ theDict = do
 
           debug $ "DIR" <+> pretty d
 
-          cb  <- [ x | HashLike x <- snd opts ] & headMay & orThrowUser "import: cblock not set"
+          cb0  <- [ x | HashLike x <- snd opts ] & headMay & orThrowUser "import: cblock not set"
 
-          indexCBlockCommits cb
+          indexCBlockCommits cb0
 
-          let shallow = or [ True | ListVal [StringLike "--shallow"] <- fst opts ]
-          let deep    = or [ True | ListVal [StringLike "--deep"]    <- fst opts ] && not shallow
+          _done <- newTVarIO ( mempty :: HashSet HashRef )
 
-          debug $ "cblock" <+> pretty deep <+> pretty cb
+          let deep  = or [ True | ListVal [StringLike "--deep"] <- fst opts ]
+          let only  = or [ True | ListVal [StringLike "--only"] <- fst opts ]
+
+          debug $ "cblock" <+> pretty deep <+> pretty cb0 <+> pretty only <+> pretty deep
 
           sto <- getStorage
 
           let whatever cblock = do
                 co <- listOnlyCommitsFromCBlock sto cblock
                 e <- mapM gitObjectExists co <&> and
-                debug $ "WHATEVER" <+> pretty e <+> pretty cb <+> pretty co
-                pure $ not e
+                let continue = deep || not e || (only  && cblock == cb0)
 
-          traverseToCBlock sto cb whatever  $ \i theCblk hs -> do
-            debug $ green "process cblock data" <+> pretty i <+> pretty theCblk
+                debug $ "WHATEVER" <+> pretty e <+> pretty cblock <+> pretty co
 
-            _orphans <- newTVarIO ( mempty :: HashSet GitHash )
-            _cblocks <- newTQueueIO
+                unless continue do
+                  debug $ "STOPPED" <+> pretty e <+> pretty cblock <+> pretty co
 
-            for_ hs $ \hx -> do
+                pure continue
 
-              what <- runExceptT (getTreeContents sto hx) >>= orThrowPassIO
+          flip runContT pure $ callCC \exit -> do
 
-              enumGitPackObjectsFromLBS DoEnumPayload what $ \case
+            traverseToCBlock sto cb0 whatever  $ \i theCblk hs -> do
+              debug $ green "process cblock data" <+> pretty i <+> pretty theCblk
 
-                IOp _ s (IGitObject t h (Just body)) -> liftIO do
-                  let signature = [qc|{pretty t} {pretty s}|] <> "\x00" :: LBS8.ByteString
-                  let gitHash = show $ pretty h
-                  let (prefix,name) = L.splitAt 2 gitHash
-                  let path = joinPath [d, "objects", prefix, name]
+              _orphans <- newTVarIO ( mempty :: HashSet GitHash )
+              _cblocks <- newTQueueIO
 
-                  here <- doesPathExist path
+              for_ hs $ \hx -> do
 
-                  unless here do
+                what <- lift $ runExceptT (getTreeContents sto hx) >>= orThrowPassIO
 
+                enumGitPackObjectsFromLBS DoEnumPayload what $ \case
+
+                  IOp _ s (IGitObject t h (Just body)) -> liftIO do
+
+                    debug $ red "AAAAQA!" <+> pretty h
+
+                    let signature = [qc|{pretty t} {pretty s}|] <> "\x00" :: LBS8.ByteString
+                    let gitHash = show $ pretty h
+                    let (prefix,name) = L.splitAt 2 gitHash
+                    let path = joinPath [d, "objects", prefix, name]
+
+                    here <- doesPathExist path
+
+                    unless here do
+
+                      touch path
+
+                      debug $ pretty t <+> pretty s <+> pretty h <+> pretty path
+
+                      let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                      UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                        let contents = Zlib.compressWith params (signature <> body)
+                        LBS.hPutStr fh contents
+
+                    when (t == Commit) do
+                      atomically $ writeTQueue _cblocks (theCblk, h)
+
+                    pure True
+
+                  IOp _ _ (ISetRef ref w h ) -> do
+                    let path = d </> show (pretty $ gitNormaliseRef ref)
                     touch path
+                    UIO.writeBinaryFileAtomic path ( BS8.pack ( show (pretty h) <> "\n" ) )
+                    pure True
 
-                    debug $ pretty t <+> pretty s <+> pretty h <+> pretty path
+                  IOp _ _ (IOrphan o) -> do
+                    atomically $ modifyTVar _orphans (HS.insert o)
+                    pure True
 
-                    let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                    UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                      let contents = Zlib.compressWith params (signature <> body)
-                      LBS.hPutStr fh contents
+                  _ -> pure True
 
-                  when (t == Commit) do
-                    atomically $ writeTQueue _cblocks (theCblk, h)
+                atomically $ modifyTVar _done (HS.insert hx)
 
-                  pure True
+              isDone <- readTVarIO _done <&> HS.member cb0
 
-                IOp _ _ (ISetRef ref w h ) -> do
-                  let path = d </> show (pretty $ gitNormaliseRef ref)
-                  touch path
-                  UIO.writeBinaryFileAtomic path ( BS8.pack ( show (pretty h) <> "\n" ) )
-                  pure True
+              when (only && isDone) $ exit ()
 
-                IOp _ _ (IOrphan o) -> do
-                  atomically $ modifyTVar _orphans (HS.insert o)
-                  pure True
+              lift do
+                debug "updating .git/shallow"
+                let shallowFile = d </> "shallow"
+                new <- readTVarIO _orphans
 
-                _ -> pure True
+                current <- try @_ @IOException (liftIO $ LBS8.readFile shallowFile)
+                             <&> fromRight mempty
+                             <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
+                             <&> HS.union new . HS.fromList
+                             <&> LBS8.unlines . fmap (LBS8.pack . show . pretty) . HS.toList
+                             <&> LBS.toStrict
 
-            debug "updating .git/shallow"
-            let shallowFile = d </> "shallow"
-            new <- readTVarIO _orphans
+                UIO.writeBinaryFileAtomic shallowFile current
 
-            current <- try @_ @IOException (liftIO $ LBS8.readFile shallowFile)
-                         <&> fromRight mempty
-                         <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
-                         <&> HS.union new . HS.fromList
-                         <&> LBS8.unlines . fmap (LBS8.pack . show . pretty) . HS.toList
-                         <&> LBS.toStrict
-
-            UIO.writeBinaryFileAtomic shallowFile current
-
-            withState $ transactional do
-              cbs <- atomically $ STM.flushTQueue _cblocks
-              for_ cbs $ \(cbh, commit) -> do
-                insertCBlock commit cbh
+                withState $ transactional do
+                  cbs <- atomically $ STM.flushTQueue _cblocks
+                  for_ cbs $ \(cbh, commit) -> do
+                    insertCBlock commit cbh
 
         entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
