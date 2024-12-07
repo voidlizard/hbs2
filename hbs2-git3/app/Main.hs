@@ -1259,10 +1259,11 @@ theDict = do
                 debug $ "WHATEVER" <+> pretty e <+> pretty cb <+> pretty co
                 pure $ not e
 
-          traverseToCBlock sto cb whatever  $ \i h hs -> do
-            debug $ green "process cblock data" <+> pretty i <+> pretty h
+          traverseToCBlock sto cb whatever  $ \i theCblk hs -> do
+            debug $ green "process cblock data" <+> pretty i <+> pretty theCblk
 
             _orphans <- newTVarIO ( mempty :: HashSet GitHash )
+            _cblocks <- newTQueueIO
 
             for_ hs $ \hx -> do
 
@@ -1288,6 +1289,9 @@ theDict = do
                     UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
                       let contents = Zlib.compressWith params (signature <> body)
                       LBS.hPutStr fh contents
+
+                  when (t == Commit) do
+                    atomically $ writeTQueue _cblocks (theCblk, h)
 
                   pure True
 
@@ -1315,6 +1319,11 @@ theDict = do
                          <&> LBS.toStrict
 
             UIO.writeBinaryFileAtomic shallowFile current
+
+            withState $ transactional do
+              cbs <- atomically $ STM.flushTQueue _cblocks
+              for_ cbs $ \(cbh, commit) -> do
+                insertCBlock commit cbh
 
         entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
