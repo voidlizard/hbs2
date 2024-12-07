@@ -1272,6 +1272,42 @@ theDict = do
 
               pure ()
 
+        entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
+          [ HashLike cblock ] -> lift do
+
+            sto <- getStorage
+
+            _s <- newTVarIO 0
+
+            deepScan ScanDeep
+                (\_ -> throwIO MissedBlockError)
+                (coerce cblock)
+                (liftIO . getBlock sto)
+                $ \h -> do
+                    blk <- hasBlock sto h <&> fromMaybe 0
+                    atomically $ modifyTVar _s (+ blk)
+
+            s <- readTVarIO _s
+            notice $ pretty s
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "test:git:cblock:blocks:all" $ nil_ $ \case
+          [ HashLike cblock ] -> lift do
+
+            sto <- getStorage
+
+            blkz <- S.toList_ $ deepScan ScanDeep
+                                        (\_ -> throwIO MissedBlockError)
+                                        (coerce cblock)
+                                        (liftIO . getBlock sto)
+                                        S.yield
+            for_ blkz $ \b -> do
+              s <- fromMaybe 0 <$> hasBlock sto b
+              notice $ pretty b <+> pretty s
+
+          _ -> throwIO (BadFormException @C nil)
+
         entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
 
