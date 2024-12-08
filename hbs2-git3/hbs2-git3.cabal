@@ -71,6 +71,7 @@ common shared-properties
       , atomic-write
       , bytestring
       , binary
+      , bitvec
       , containers
       , directory
       , exceptions

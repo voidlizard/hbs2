@@ -783,7 +783,7 @@ export mref' r = connectedDo $ flip runContT pure do
 
       packs <- atomically $ STM.flushTQueue out
 
-      phashes <- catMaybes <$> withState (for parents selectCBlock)
+      phashes <- catMaybes <$> withState (for parents (fmap (fmap snd) . selectCBlock))
 
       let v = "hbs2-git 3.0 zstd"
       let pps = vcat $ mconcat $ for phashes $ \p -> ["p" <+> pretty p]
@@ -1256,16 +1256,15 @@ theDict = do
           sto <- getStorage
 
           let whatever cblock = do
-                co <- listOnlyCommitsFromCBlock sto cblock
-                e <- mapM gitObjectExists co <&> and
-                let continue = deep || not e || (only  && cblock == cb0)
+                -- co <- listOnlyCommitsFromCBlock sto cblock
+                -- e <- mapM gitObjectExists co <&> and
+                -- let continue = deep || not e || (only  && cblock == cb0)
 
-                debug $ "WHATEVER" <+> pretty e <+> pretty cblock <+> pretty co
+                -- debug $ "WHATEVER" <+> pretty e <+> pretty cblock <+> pretty co
 
-                unless continue do
-                  debug $ "STOPPED" <+> pretty e <+> pretty cblock <+> pretty co
-
-                pure continue
+                -- unless continue do
+                --   debug $ "STOPPED" <+> pretty e <+> pretty cblock <+> pretty co
+                pure True
 
           flip runContT pure $ callCC \exit -> do
 

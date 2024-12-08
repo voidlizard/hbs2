@@ -17,6 +17,7 @@ import DBPipe.SQLite
 
 import System.Directory
 import Data.Maybe
+import Data.Word
 
 import Text.InterpolatedString.Perl6 (qc)
 
@@ -44,9 +45,10 @@ evolveState = do
     ddl [qc|
 create table if not exists
 cblock
-  ( kommit  text not null
+  ( id      integer primary key autoincrement
+  , kommit  text not null
   , cblock  text not null
-  , primary key (kommit, cblock)
+  , unique  (kommit, cblock)
   )
 |]
 
@@ -74,16 +76,17 @@ insertCBlock co cblk = do
   insert [qc|
     insert into cblock (kommit, cblock) values(?,?)
     on conflict (kommit,cblock) do update set cblock = excluded.cblock
+    on conflict (id) do update set kommit = excluded.kommit
+                                 , cblock = excluded.cblock
          |] (co, cblk)
 
-selectCBlock :: MonadIO m => GitHash -> DBPipeM m (Maybe HashRef)
+selectCBlock :: MonadIO m => GitHash -> DBPipeM m (Maybe (Word32, HashRef))
 selectCBlock gh = do
-  select [qc|select cblock from cblock where kommit = ? limit 1|] (Only gh)
-   <&> listToMaybe . fmap fromOnly
+  select [qc|select id, cblock from cblock where kommit = ? limit 1|] (Only gh)
+   <&> listToMaybe
 
 selectCommitsByCBlock :: MonadIO m => HashRef -> DBPipeM m [GitHash]
 selectCommitsByCBlock cb = do
   select [qc|select kommit from cblock where cblock = ? limit 1|] (Only cb)
    <&> fmap fromOnly
-
 
