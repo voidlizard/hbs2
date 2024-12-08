@@ -12,18 +12,23 @@ import Data.Config.Suckless.Script
 
 import Data.Text.IO qualified as IO
 
+getConfigPath :: MonadIO m => m FilePath
+getConfigPath = do
+
+  let name = ".hbs2-git3"
+
+  findGitDir
+    >>= orThrowUser ".git not found"
+    <&> (</> name) . takeDirectory
+
 readLocalConf :: MonadIO m => m [Syntax C]
 readLocalConf = do
 
-  let name = ".hbs2-git3/config"
+  conf <- getConfigPath <&> (</> "config")
 
-  g <- findGitDir
-          >>= orThrowUser ".git not found"
-          <&> (</> name) . takeDirectory
+  touch conf
 
-  touch g
-
-  liftIO (IO.readFile g)
+  liftIO (IO.readFile conf)
     <&> parseTop
     >>= either (error.show) pure
 

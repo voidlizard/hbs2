@@ -68,6 +68,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
 import Data.Map qualified as Map
 import Data.IntMap qualified as IntMap
+import Data.IntMap (IntMap(..))
 import Data.HashSet qualified as HS
 import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
@@ -1256,19 +1257,17 @@ theDict = do
           sto <- getStorage
 
           let whatever cblock = do
-                -- co <- listOnlyCommitsFromCBlock sto cblock
-                -- e <- mapM gitObjectExists co <&> and
-                -- let continue = deep || not e || (only  && cblock == cb0)
-
-                -- debug $ "WHATEVER" <+> pretty e <+> pretty cblock <+> pretty co
-
-                -- unless continue do
-                --   debug $ "STOPPED" <+> pretty e <+> pretty cblock <+> pretty co
-                pure True
+                r <- lift (withState $ selectImported cblock)
+                pure (not r)
 
           flip runContT pure $ callCC \exit -> do
 
+            ContT $ bracket none $ const do
+              doneSize <- readTVarIO _done <&> HS.size
+              notice $ red "DONE" <+> pretty doneSize
+
             traverseToCBlock sto cb0 whatever  $ \i theCblk hs -> do
+
               debug $ green "process cblock data" <+> pretty i <+> pretty theCblk
 
               _orphans <- newTVarIO ( mempty :: HashSet GitHash )
@@ -1343,6 +1342,7 @@ theDict = do
                   cbs <- atomically $ STM.flushTQueue _cblocks
                   for_ cbs $ \(cbh, commit) -> do
                     insertCBlock commit cbh
+                    insertImported cbh
 
         entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
           [ HashLike cblock ] -> lift do
