@@ -374,18 +374,14 @@ recover m = fix \again -> do
 
         liftIO $ withGit3Env connected (evolveState >> again)
 
-gitReadCommitParents :: MonadIO m => ByteString -> m [GitHash]
-gitReadCommitParents bs = do
-   what <- LBS8.lines bs
-             & takeWhile ( not . LBS8.null )
-             & LBS8.unpack . LBS8.unlines
-             & parseTop
-             & orThrow (OtherGitError "invalid commit format")
-
-   pure $ [ fromStringMay @GitHash hash
-          | ListVal [ StringLike "parent", StringLike hash ] <- what
-          ] & catMaybes
-
+gitReadCommitParents :: MonadIO m => Maybe GitHash -> ByteString -> m [GitHash]
+gitReadCommitParents _ bs = do
+   pure $ LBS8.lines bs
+    & takeWhile ( not . LBS8.null )
+    & fmap (words . LBS8.unpack)
+    & mapMaybe \case
+        ["parent", x]  -> fromStringMay @GitHash x
+        _ -> Nothing
 
 gitReadCommitTree :: MonadIO m => ByteString -> m GitHash
 gitReadCommitTree bs = do
@@ -608,6 +604,37 @@ instance (Ord k, Hashable k) => Cached (CacheFixedHPSQ k v) k v where
 
           pure v
 
+readCommitChain :: ( HBS2GitPerks m
+                   , MonadUnliftIO m
+                   , MonadReader Git3Env m
+                   , HasStorage m
+                   , HasStateDB m
+                   )
+       => Maybe GitRef
+       -> GitHash
+       -> m ()
+
+readCommitChain _ h0 = flip runContT pure do
+  theReader  <- ContT $ withGitCat
+  void $ ContT $ bracket (pure theReader) stopProcess
+
+  _g <- newTVarIO ( mempty :: HashMap GitHash (HashSet GitHash) )
+
+  flip fix [h0] $ \next  -> \case
+    [] -> none
+    ( h : hs ) -> do
+      co <- gitReadObjectMaybe theReader h >>= orThrowUser ("object not found" <+> pretty h)
+      parents <- gitReadCommitParents (Just h) (snd co)
+      debug $ "processed commit" <+> pretty h
+      next ( parents <> hs )
+      -- atomically $ modifyTVar _g (HM.insertWith (<>) h (HS.fromList parents))
+      -- debug $ "processed commit" <+> pretty h
+
+  where
+    checkIsCommit x = do
+      none
+
+
 export :: ( HBS2GitPerks m
           , MonadUnliftIO m
           , MonadReader Git3Env m
@@ -680,7 +707,7 @@ export mref' r = connectedDo $ flip runContT pure do
               (_,bs) <- liftIO (cached commits co (gitReadObjectMaybe reader co))
                             >>= orThrow (GitReadError (show $ pretty co <+> pretty prio))
 
-              parents <- gitReadCommitParents bs
+              parents <- gitReadCommitParents (Just co) bs
 
               n <- for (zip [1..] parents) $ \(i,gh) -> do
 
@@ -721,7 +748,7 @@ export mref' r = connectedDo $ flip runContT pure do
                      >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty co)
 
       parents <- gitReadObjectThrow Commit hhead
-                    >>= gitReadCommitParents
+                    >>= gitReadCommitParents (Just hhead)
 
       tree <- gitReadCommitTree bs
 
@@ -1403,6 +1430,11 @@ theDict = do
             hd <- gitReadHEAD
 
             export (w <|> re <|> hd) r
+
+        entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> lift do
+          let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
+          h <- gitRevParseThrow hss
+          readCommitChain Nothing h
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
