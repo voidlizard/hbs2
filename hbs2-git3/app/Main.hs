@@ -691,16 +691,17 @@ readCommitChain :: ( HBS2GitPerks m
                    )
        => Maybe GitRef
        -> GitHash
-       -> m ()
+       -> ( GitHash -> m () )
+       -> m (HashMap GitHash (HashSet GitHash))
 
-readCommitChain _ h0 = flip runContT pure do
+readCommitChain _ h0 action = flip runContT pure $ callCC \_ -> do
   theReader  <- ContT $ withGitCat
   void $ ContT $ bracket (pure theReader) stopProcess
-
   flip fix (RCC [h0] mempty) $ \next  -> \case
-    RCC [] _ -> none
+    RCC [] seen -> pure seen
     RCC ( h : hs ) seen | HM.member h seen -> next  ( RCC hs seen )
     RCC ( h : hs ) seen -> do
+      lift (action h)
       co <- gitReadObjectMaybe theReader h >>= orThrowUser ("object not found" <+> pretty h)
       parents <- gitReadCommitParents (Just h) (snd co)
       debug $ "processed commit" <+> pretty h
@@ -1548,6 +1549,14 @@ theDict = do
 
             export (w <|> re <|> hd) r
 
+        entry $ bindMatch "test:git:read-commit-chain-full" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          xead <- headDef "HEAD" [ x | StringLike x <- argz ] & gitRevParseThrow
+          co <- readCommitChain Nothing xead dontHandle <&> HM.keys
+          for_ co $ \c -> do
+            t <- gitReadTree c
+            debug $ "entries" <+> pretty c <+> pretty (length t)
+
         entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> do
           (mpath, hss) <- case syn of
             [ HashLike s ] -> pure (Nothing, s)
@@ -1558,7 +1567,8 @@ theDict = do
           liftIO $ mapM_ setCurrentDirectory mpath
           -- let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
           h <- gitRevParseThrow hss
-          lift $ readCommitChain Nothing h
+          r <- lift $ readCommitChain Nothing h dontHandle
+          liftIO $ print ( HM.size r )
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
