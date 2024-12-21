@@ -680,6 +680,9 @@ instance (Ord k, Hashable k) => Cached (CacheFixedHPSQ k v) k v where
 
           pure v
 
+data RCC =
+  RCC [GitHash] (HashMap GitHash (HashSet GitHash))
+
 readCommitChain :: ( HBS2GitPerks m
                    , MonadUnliftIO m
                    , MonadReader Git3Env m
@@ -694,26 +697,14 @@ readCommitChain _ h0 = flip runContT pure do
   theReader  <- ContT $ withGitCat
   void $ ContT $ bracket (pure theReader) stopProcess
 
-  _g <- newTVarIO ( mempty :: HashMap GitHash (HashSet GitHash) )
-  _s <- newIORef ( mempty :: HashSet GitHash )
-
-  flip fix [h0] $ \next  -> \case
-    [] -> none
-    ( h : hs ) -> do
-      modifyIORef' _s (HS.insert h)
-      liftIO $ print $ pretty h
+  flip fix (RCC [h0] mempty) $ \next  -> \case
+    RCC [] _ -> none
+    RCC ( h : hs ) seen | HM.member h seen -> next  ( RCC hs seen )
+    RCC ( h : hs ) seen -> do
       co <- gitReadObjectMaybe theReader h >>= orThrowUser ("object not found" <+> pretty h)
       parents <- gitReadCommitParents (Just h) (snd co)
       debug $ "processed commit" <+> pretty h
-      parents' <- flip filterM parents \p -> readIORef _s <&> (not . HS.member p)
-      next ( parents' <> hs )
-      -- atomically $ modifyTVar _g (HM.insertWith (<>) h (HS.fromList parents))
-      -- debug $ "processed commit" <+> pretty h
-
-  where
-    checkIsCommit x = do
-      none
-
+      next $ RCC ( parents <> hs ) (HM.insertWith (<>) h (HS.fromList parents) seen)
 
 export :: ( HBS2GitPerks m
           , MonadUnliftIO m
