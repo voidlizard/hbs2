@@ -6,6 +6,7 @@
 {-# Language RecordWildCards #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language OverloadedLabels #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -74,6 +75,9 @@ import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict (HashMap(..))
 import Data.Word
+import Data.Generics.Labels
+import Data.Generics.Product
+import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
 import System.Exit qualified as Q
@@ -82,9 +86,12 @@ import System.Process.Typed
 import Control.Applicative
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
+import Control.Monad.State qualified as State
 import Control.Monad.Reader
 import Control.Monad.Except
+import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
+import System.Directory (setCurrentDirectory)
 import System.IO (hPrint,hGetLine,IOMode(..))
 import System.IO qualified as IO
 
@@ -130,6 +137,7 @@ data GitTreeEntry =
   , gitEntrySize    :: Maybe Word32
   , gitEntryName    :: FilePath
   }
+  deriving (Show)
 
 pattern GitTreeEntryView :: GitTreeEntry -> [ByteString]
 pattern GitTreeEntryView e <- (isGitLsTreeEntry -> Just e)
@@ -166,6 +174,10 @@ gitReadTree what =
 
 class GitObjectReader a where
   gitReadObjectMaybe :: forall m . MonadIO m => a -> GitHash -> m (Maybe (GitObjectType, ByteString))
+
+gitReadObjectOrThrow :: forall m a . (MonadIO m, GitObjectReader a) => a -> GitHash -> m (GitObjectType, ByteString)
+gitReadObjectOrThrow r co =
+  gitReadObjectMaybe r co >>= orThrow (GitReadError (show $ pretty co))
 
 gitReadObjectThrow :: (Pretty h, MonadIO m) => GitObjectType -> h -> m ByteString
 gitReadObjectThrow t h = do
@@ -373,6 +385,70 @@ recover m = fix \again -> do
         connected <- Git3Connected db soname sto peerAPI <$> newTVarIO (Just ref)
 
         liftIO $ withGit3Env connected (evolveState >> again)
+
+---
+
+data TreeReadState = TreeReadState
+  { treeReadKnownObjects :: HashSet GitHash
+  , treeReadKnownTrees :: HashSet GitHash
+  , treeReadKnownCommits :: HashSet GitHash
+  , treeReadQueue :: [(GitObjectType, GitHash)]
+  }
+  deriving (Generic)
+
+emptyTreeReadState :: TreeReadState
+emptyTreeReadState = TreeReadState
+  { treeReadKnownObjects = mempty
+  , treeReadKnownTrees = mempty
+  , treeReadKnownCommits = mempty
+  , treeReadQueue = mempty
+  }
+
+pushKnownObject :: (State.MonadState TreeReadState m) => GitHash -> m ()
+pushKnownObject co = State.modify' (over #treeReadKnownObjects (HS.insert co))
+
+queryIsKnownObject :: (State.MonadState TreeReadState m) => GitHash -> m Bool
+queryIsKnownObject co = State.gets (HS.member co . view #treeReadKnownObjects)
+
+pushKnownTree :: (State.MonadState TreeReadState m) => GitHash -> m ()
+pushKnownTree co = State.modify' (over #treeReadKnownTrees (HS.insert co))
+
+queryIsKnownTree :: (State.MonadState TreeReadState m) => GitHash -> m Bool
+queryIsKnownTree co = State.gets (HS.member co . view #treeReadKnownTrees)
+
+pushKnownCommit :: (State.MonadState TreeReadState m) => GitHash -> m ()
+pushKnownCommit co = State.modify' (over #treeReadKnownCommits (HS.insert co))
+
+queryIsKnownCommit :: (State.MonadState TreeReadState m) => GitHash -> m Bool
+queryIsKnownCommit co = State.gets (HS.member co . view #treeReadKnownCommits)
+
+pushObjHash :: (State.MonadState TreeReadState m) => (GitObjectType, GitHash) -> m ()
+pushObjHash p = State.modify' (over #treeReadQueue (p:))
+
+popObjHash :: (State.MonadState TreeReadState m) => m (Maybe (GitObjectType, GitHash))
+popObjHash = State.state \s -> case treeReadQueue s of
+  [] -> (Nothing, s)
+  a:as -> (Just a, s { treeReadQueue = as })
+
+queueCondBlob :: (State.MonadState TreeReadState m) => GitHash -> m ()
+queueCondBlob co = do
+  queryIsKnownObject co >>= flip unless do
+    pushObjHash (Blob, co)
+    pushKnownObject co
+
+queueCondTree :: (State.MonadState TreeReadState m) => GitHash -> m ()
+queueCondTree co = do
+  queryIsKnownTree co >>= flip unless do
+    pushObjHash (Tree, co)
+    pushKnownTree co
+
+queueCondCommit :: (State.MonadState TreeReadState m) => GitHash -> m ()
+queueCondCommit co = do
+  queryIsKnownCommit co >>= flip unless do
+    pushObjHash (Commit, co)
+    pushKnownCommit co
+
+---
 
 gitReadCommitParents :: MonadIO m => Maybe GitHash -> ByteString -> m [GitHash]
 gitReadCommitParents _ bs = do
@@ -619,14 +695,18 @@ readCommitChain _ h0 = flip runContT pure do
   void $ ContT $ bracket (pure theReader) stopProcess
 
   _g <- newTVarIO ( mempty :: HashMap GitHash (HashSet GitHash) )
+  _s <- newIORef ( mempty :: HashSet GitHash )
 
   flip fix [h0] $ \next  -> \case
     [] -> none
     ( h : hs ) -> do
+      modifyIORef' _s (HS.insert h)
+      liftIO $ print $ pretty h
       co <- gitReadObjectMaybe theReader h >>= orThrowUser ("object not found" <+> pretty h)
       parents <- gitReadCommitParents (Just h) (snd co)
       debug $ "processed commit" <+> pretty h
-      next ( parents <> hs )
+      parents' <- flip filterM parents \p -> readIORef _s <&> (not . HS.member p)
+      next ( parents' <> hs )
       -- atomically $ modifyTVar _g (HM.insertWith (<>) h (HS.fromList parents))
       -- debug $ "processed commit" <+> pretty h
 
@@ -1149,6 +1229,52 @@ theDict = do
                           <+> pretty gitEntrySize
                           <+> pretty gitEntryName
 
+        entry $ bindMatch "test:git:tree:read:bench" $ nil_ $ \syn -> do
+          (mpath, sref) <- case syn of
+            [ HashLike s ] -> pure (Nothing, s)
+            [ StringLike path , HashLike s ] -> pure (Just path, s)
+            [ StringLike path ] -> pure (Just path, "HEAD")
+            [] -> pure (Nothing, "HEAD")
+            _ -> throwIO (BadFormException @C nil)
+          liftIO $ mapM_ setCurrentDirectory mpath
+          ref0 <- gitRevParse sref
+                  `orDie` (show $ "Can not find revision" <+> pretty sref)
+          liftIO $ print sref
+          liftIO $ print $ pretty ref0
+          withGitCat \reader -> do
+            cs :: [GitHash] <- Writer.execWriterT $ flip State.evalStateT emptyTreeReadState do
+              pushObjHash (Commit, ref0)
+              fix \go ->
+                popObjHash >>= maybe (pure ()) \(ty', co) -> (>> go) do
+                  unless (ty' == Commit) do
+                      throwIO $ userError $ show $ "Only commits should be in queue. Got" <+> pretty ty'
+                  -- lift $ Writer.tell [co]
+                  (ty, bs) <- gitReadObjectOrThrow reader co
+                  liftIO . print $ pretty co <+> viaShow ty <+> pretty (LBS.length bs)
+                  unless (ty' == ty) do
+                      throwIO $ userError $ show $ "object types do not match" <+> pretty ty' <+> pretty ty
+                  case ty of
+                    Commit -> do
+                      commitParents <- gitReadCommitParents Nothing bs
+                      mapM_ queueCondCommit commitParents
+                      -- queueCondTree commitTree
+                    Tree -> do
+                      gitReadTree co >>= mapM_ \GitTreeEntry {..} ->
+                        case gitEntryType of
+                            Commit -> do
+                              throwIO $ userError "Impossible commit entry in a git tree"
+                            Tree -> do
+                              queryIsKnownTree gitEntryHash >>= flip unless do
+                                (ty'', bs'') <- gitReadObjectOrThrow reader gitEntryHash
+                                liftIO . print $ pretty gitEntryHash <+> viaShow ty'' <+> pretty (LBS.length bs'')
+                                pushKnownTree gitEntryHash
+                            Blob -> do
+                              queueCondBlob gitEntryHash
+                    Blob -> do
+                      pure ()
+            -- liftIO $ print $ "Commits:" <+> pretty (length cs)
+            pure ()
+
         entry $ bindMatch "reflog" $ nil_ $ \case
           [ SignPubKeyLike what ] -> do
             debug $ "set reflog" <+> pretty (AsBase58 what)
@@ -1431,10 +1557,17 @@ theDict = do
 
             export (w <|> re <|> hd) r
 
-        entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> lift do
-          let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
+        entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> do
+          (mpath, hss) <- case syn of
+            [ HashLike s ] -> pure (Nothing, s)
+            [ StringLike path , HashLike s ] -> pure (Just path, s)
+            [ StringLike path ] -> pure (Just path, "HEAD")
+            [] -> pure (Nothing, "HEAD")
+            _ -> throwIO (BadFormException @C nil)
+          liftIO $ mapM_ setCurrentDirectory mpath
+          -- let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
           h <- gitRevParseThrow hss
-          readCommitChain Nothing h
+          lift $ readCommitChain Nothing h
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
