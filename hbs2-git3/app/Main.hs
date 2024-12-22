@@ -59,11 +59,13 @@ import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
 import Data.Maybe
 import Data.List qualified as L
+import Data.List (sortBy)
+import Data.List.Split (chunksOf)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Builder as Builder
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
@@ -75,6 +77,8 @@ import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict (HashMap(..))
 import Data.Word
+import Data.Fixed
+import Data.Ord (comparing)
 import Data.Generics.Labels
 import Data.Generics.Product
 import Lens.Micro.Platform
@@ -99,9 +103,12 @@ import Data.Either
 import Data.Coerce
 import Data.Kind
 import Data.List (sortOn)
+import Data.Vector qualified as Vector
+import Data.Vector ((!))
 import Data.Ord (Down(..))
 
 import UnliftIO
+import UnliftIO.Concurrent
 import UnliftIO.IO.File qualified as UIO
 
 {- HLINT ignore "Functor law" -}
@@ -160,6 +167,15 @@ isGitLsTreeEntry = \case
 
   _ -> Nothing
 
+gitReadTreeObjectsOnly :: (Pretty what, MonadIO m) => what -> m [GitHash]
+gitReadTreeObjectsOnly what =
+  gitRunCommand [qc|git ls-tree -t -r --object-only {pretty what}|]
+     >>= orThrow (GitReadError (show $ pretty what))
+     <&> fmap LBS8.words . LBS8.lines
+     <&> mapMaybe \case
+          [ x ] -> fromStringMay @GitHash (LBS8.unpack x)
+          _ -> Nothing
+
 gitReadTree :: (Pretty what, MonadIO m) => what -> m [GitTreeEntry]
 gitReadTree what =
   gitRunCommand [qc|git ls-tree -t -l -r {pretty what}|]
@@ -170,7 +186,6 @@ gitReadTree what =
             Just v
           _ -> Nothing
      <&> \s -> HM.elems (HM.fromList [ (gitEntryHash e, e) | e <- s])
-
 
 class GitObjectReader a where
   gitReadObjectMaybe :: forall m . MonadIO m => a -> GitHash -> m (Maybe (GitObjectType, ByteString))
@@ -706,6 +721,43 @@ readCommitChain _ h0 action = flip runContT pure $ callCC \_ -> do
       parents <- gitReadCommitParents (Just h) (snd co)
       debug $ "processed commit" <+> pretty h
       next $ RCC ( parents <> hs ) (HM.insertWith (<>) h (HS.fromList parents) seen)
+
+
+data HCC = HCC Int [GitHash] (HashPSQ GitHash Int (HashSet GitHash))
+
+readCommitChainHPSQ :: ( HBS2GitPerks m
+                       , MonadUnliftIO m
+                       , MonadReader Git3Env m
+                       , HasStorage m
+                       , HasStateDB m
+                       )
+       => Maybe GitRef
+       -> GitHash
+       -> (GitHash -> m ())
+       -> m (HashPSQ GitHash Int (HashSet GitHash))
+
+readCommitChainHPSQ _ h0 action = flip runContT pure $ callCC \_ -> do
+  theReader  <- ContT $ withGitCat
+  void $ ContT $ bracket (pure theReader) stopProcess
+  flip fix (HCC 0 [h0] HPSQ.empty) $ \next  -> \case
+    HCC _ [] seen -> pure seen
+    HCC n ( h : hs ) seen | HPSQ.member h seen -> next  ( HCC n hs seen )
+    HCC n ( h : hs ) seen -> do
+      co <- gitReadObjectMaybe theReader h
+                 >>= orThrow(GitReadError $ show $ pretty "object not found" <+> pretty h)
+      parents <- gitReadCommitParents (Just h) (snd co)
+      lift $ action h
+      next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h seen )
+  where
+    addParents :: a
+               -> Int
+               -> [GitHash]
+               -> Maybe (Int, HashSet GitHash)
+               -> (a, Maybe (Int, HashSet GitHash))
+
+    addParents a n p = \case
+      Nothing -> (a, Just (n, HS.fromList p))
+      Just (l,s) -> (a, Just (min l n, s <> HS.fromList p))
 
 export :: ( HBS2GitPerks m
           , MonadUnliftIO m
@@ -1550,12 +1602,72 @@ theDict = do
             export (w <|> re <|> hd) r
 
         entry $ bindMatch "test:git:read-commit-chain-full" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
+          let (opts, argz) = splitOpts [("--threads",1)] syn
+
+
           xead <- headDef "HEAD" [ x | StringLike x <- argz ] & gitRevParseThrow
-          co <- readCommitChain Nothing xead dontHandle <&> HM.keys
-          for_ co $ \c -> do
-            t <- gitReadTree c
-            debug $ "entries" <+> pretty c <+> pretty (length t)
+          let tnum = headDef 1 [fromIntegral x | ListVal [StringLike "--threads", LitIntVal x] <- opts]
+
+          co <- readCommitChain Nothing xead dontHandle
+          let total = HM.size co
+          _n <- newTVarIO 0
+
+          t0 <- getTimeCoarse
+
+          flip runContT pure do
+
+            _fake <- newTVarIO 0
+
+            void $ ContT $ withAsync $ flip fix (0,t0) $ \next (x,tt0) -> do
+              pause @'Seconds 1
+              t1 <- getTimeCoarse
+              n <- readTVarIO _n
+              let dt = 1e-9 * realToFrac (t1 - tt0)
+
+              -- when (dt <= 0) $ next (n,t1)
+
+              let dn = realToFrac (n-x)
+              let v = realToFrac $ dn / dt
+              let est = if v > 0 then realToFrac (total - n) / v :: Fixed E2  else 0
+              sz <- readTVarIO _fake
+
+              debug $ "read"
+                  <+> pretty n <+> "/" <+> pretty total
+                  <+> "elapsed" <+> pretty (ceiling $ realToFrac (t1-t0)  * 1e-9 )
+                  <+> "dn" <+> pretty dn
+                  <+> "sz" <+> pretty (realToFrac sz / (1024*1024) :: Fixed E2)
+                  <+> pretty (realToFrac @(Fixed E2) v) <+> "per sec"
+                  <+> "est." <+> pretty est
+
+              next (n,t1)
+
+            _already <- newTVarIO ( mempty :: HashSet GitHash )
+
+            let chunks = chunksOf (total `div` tnum) (HM.keys co)
+
+            liftIO $ pooledForConcurrentlyN_ tnum chunks $ \chunk -> flip runContT pure do
+              theReader <- ContT $ withGitCat
+              void $ ContT $ bracket none (const $ stopProcess theReader)
+              for_ chunk $ \commit -> do
+
+                hashes <- gitReadTreeObjectsOnly commit
+                            >>= filterM ( \x -> readTVarIO _already <&> not . HS.member x)
+
+                atomically $ modifyTVar _n succ
+
+                for_ hashes $ \gh -> do
+
+                  (_t,lbs) <- gitReadObjectMaybe theReader gh
+                                 >>= orThrow (GitReadError (show $ pretty gh))
+
+                  let l = sum $ fmap BS.length (LBS.toChunks lbs)
+
+                  atomically do
+                    modifyTVar' _fake (+ l)
+                    modifyTVar' _already (HS.insert gh)
+
+            n <- readTVarIO _n
+            liftIO $ print $ pretty "read objects" <+> pretty n <+> "of" <+> pretty total
 
         entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> do
           (mpath, hss) <- case syn of
@@ -1569,6 +1681,16 @@ theDict = do
           h <- gitRevParseThrow hss
           r <- lift $ readCommitChain Nothing h dontHandle
           liftIO $ print ( HM.size r )
+
+        entry $ bindMatch "test:git:read-commit-chain-dfs" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          let hd = headDef "HEAD" [ x | StringLike x <- argz]
+          h <- gitRevParseThrow hd
+          r <- readCommitChainHPSQ Nothing h (\c -> debug $ "commit" <+> pretty c)
+                  <&> HPSQ.toList
+                  <&> sortBy (comparing (view _2))
+          for_ r $ \(c,_,_) -> do
+            liftIO $ print $ pretty c
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
