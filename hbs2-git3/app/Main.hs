@@ -67,6 +67,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Builder as Builder
+import Network.ByteOrder qualified as N
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
 import Data.Map qualified as Map
@@ -92,11 +93,13 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Control.Monad.State qualified as State
 import Control.Monad.Reader
+import Control.Monad.State hiding (withState)
 import Control.Monad.Except
 import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
 import System.Directory (setCurrentDirectory)
 import System.IO (hPrint,hGetLine,IOMode(..))
+import System.Random
 import System.IO qualified as IO
 
 import Data.Either
@@ -723,7 +726,11 @@ readCommitChain _ h0 action = flip runContT pure $ callCC \_ -> do
       next $ RCC ( parents <> hs ) (HM.insertWith (<>) h (HS.fromList parents) seen)
 
 
-data HCC = HCC Int [GitHash] (HashPSQ GitHash Int (HashSet GitHash))
+data HCC =
+  HCC { hccHeight :: Int
+      , hccRest   :: [GitHash]
+      , hccResult :: HashPSQ GitHash Int (HashSet GitHash)
+      }
 
 readCommitChainHPSQ :: ( HBS2GitPerks m
                        , MonadUnliftIO m
@@ -740,14 +747,14 @@ readCommitChainHPSQ _ h0 action = flip runContT pure $ callCC \_ -> do
   theReader  <- ContT $ withGitCat
   void $ ContT $ bracket (pure theReader) stopProcess
   flip fix (HCC 0 [h0] HPSQ.empty) $ \next  -> \case
-    HCC _ [] seen -> pure seen
-    HCC n ( h : hs ) seen | HPSQ.member h seen -> next  ( HCC n hs seen )
-    HCC n ( h : hs ) seen -> do
+    HCC _ [] result -> pure result
+    HCC n ( h : hs ) result | HPSQ.member h result -> next  ( HCC n hs result )
+    HCC n ( h : hs ) result -> do
       co <- gitReadObjectMaybe theReader h
                  >>= orThrow(GitReadError $ show $ pretty "object not found" <+> pretty h)
       parents <- gitReadCommitParents (Just h) (snd co)
       lift $ action h
-      next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h seen )
+      next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h result )
   where
     addParents :: a
                -> Int
@@ -1223,6 +1230,59 @@ indexCBlockCommits :: forall m . ( MonadIO m
 indexCBlockCommits cb = do
   pure ()
 
+class ReadLogOpts a where
+
+data ReadLogError = SomeReadLogError
+  deriving stock (Typeable, Show)
+
+instance Exception ReadLogError
+
+instance ReadLogOpts ()
+
+newtype ConsumeLBS m a = ConsumeLBS { fromConsumeLBS :: StateT ByteString m a  }
+                         deriving newtype ( Applicative
+                                          , Functor
+                                          , Monad
+                                          , MonadState ByteString
+                                          , MonadIO
+                                          , MonadTrans
+                                          )
+
+readChunkThrow :: MonadIO m => Int -> ConsumeLBS m ByteString
+readChunkThrow n = do
+  lbs <- get
+  let (this, that) = LBS.splitAt (fromIntegral n) lbs
+  if LBS.length this /= fromIntegral n then
+      throwIO SomeReadLogError
+  else do
+    put $! that
+    pure this
+
+reminds :: Monad m => ConsumeLBS m Int
+reminds = gets (fromIntegral . LBS.length)
+
+consumed  :: Monad m => ConsumeLBS m Bool
+consumed = gets LBS.null
+
+runConsumeLBS :: Monad m => ByteString -> ConsumeLBS m a -> m a
+runConsumeLBS s m  = evalStateT (fromConsumeLBS m) s
+
+readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts )
+               => opts
+               -> ByteString
+               -> ( GitHash -> Int -> ByteString -> m () )
+               -> m Int
+
+readLogFileLBS _ lbs action = runConsumeLBS lbs $ flip fix 0 \go n -> do
+  done <- consumed
+  if done then pure n
+    else do
+      ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+      hash  <- readChunkThrow 20 <&> GitHash . LBS.toStrict
+      sdata <- readChunkThrow ( ssize - 20 )
+      void $ lift $ action hash (fromIntegral ssize) sdata
+      go (succ n)
+
 -- FIXME: move-to-suckless-script
 splitOpts :: [(Id,Int)]
           -> [Syntax C]
@@ -1653,6 +1713,10 @@ theDict = do
                 hashes <- gitReadTreeObjectsOnly commit
                             >>= filterM ( \x -> readTVarIO _already <&> not . HS.member x)
 
+--                 hashes <- gitReadTree commit
+--                             <&> fmap gitEntryHash
+--                             >>= filterM ( \x -> readTVarIO _already <&> not . HS.member x)
+
                 atomically $ modifyTVar _n succ
 
                 for_ hashes $ \gh -> do
@@ -1691,6 +1755,103 @@ theDict = do
                   <&> sortBy (comparing (view _2))
           for_ r $ \(c,_,_) -> do
             liftIO $ print $ pretty c
+
+
+        entry $ bindMatch "test:git:search-in-log" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+
+          let argzz = [ x | StringLike x <- argz ]
+          what <- headMay argzz >>= fromStringMay @GitHash & orThrowUser "hash not set"
+          let files = tail argzz
+
+          r <- S.toList_ $ for_ files $ \f -> do
+            lbs <- liftIO $ LBS.readFile f
+            readLogFileLBS () lbs $ \h _ _ -> do
+              when (h == what) (S.yield f)
+
+          for_ (HS.fromList r) $ \x -> do
+            liftIO $ print x
+
+        entry $ bindMatch "test:git:read-log-file" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          fname <- headMay [ x | StringLike x <- argz] & orThrowUser "log file not set"
+          flip runContT pure do
+            h <- ContT $ bracket (openFile fname ReadMode) hClose
+
+            fix \next -> do
+              eof <- hIsEOF h
+              unless eof do
+                size   <- liftIO (BS.hGet h 4) <&> fromIntegral . N.word32
+                debug $ "size" <+> pretty size
+                bshash <- liftIO (BS.hGet h 20) <&> GitHash
+                hSeek h RelativeSeek (size - 20)
+                -- lbs <- liftIO (LBS.hGet h (size - 20))
+                debug $ "object" <+> pretty bshash
+                next
+
+        entry $ bindMatch "test:git:read-log-lbs" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          fname <- headMay [ x | StringLike x <- argz] & orThrowUser "log file not set"
+          theLog <- liftIO $ LBS.readFile fname
+          void $ readLogFileLBS () theLog $ \h s lbs -> do
+            debug $ "object" <+> pretty h
+
+        entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          let hd = headDef "HEAD" [ x | StringLike x <- argz]
+          h <- gitRevParseThrow hd
+          hpsq <- readCommitChainHPSQ Nothing h (\c -> debug $ "commit" <+> pretty c)
+
+          let r = HPSQ.toList hpsq
+                    & sortBy (comparing (view _2))
+                    & fmap (view _1)
+
+          let total = HPSQ.size hpsq
+
+          _already <- newTVarIO mempty
+
+          let notWrittenYet x = do
+                readTVarIO _already <&> not . HS.member x
+
+          flip runContT pure do
+
+            tnum <- getNumCapabilities
+
+            let chunks = chunksOf (total `div` tnum) r
+
+            liftIO $ forConcurrently_ chunks $ \chunk -> flip runContT pure do
+
+              suff <- liftIO $ randomIO @Word32
+              theReader <- ContT $ withGitCat
+              ofile <- ContT $ withBinaryFile (show $ pretty "export-" <> pretty suff <>".log") AppendMode
+
+              void $ ContT $ bracket none (const $ stopProcess theReader)
+              for_ chunk $ \commit -> do
+
+                hashes <- gitReadTreeObjectsOnly commit
+                            <&> (commit:)
+                            >>= filterM notWrittenYet
+
+                for_ hashes $ \gh -> do
+
+                  (_t,lbs) <- gitReadObjectMaybe theReader gh
+                                 >>= orThrow (GitReadError (show $ pretty gh))
+
+                  let kbs  = coerce @_ @BS.ByteString gh
+                  let keySize = BS.length kbs
+
+                  -- debug $ pretty gh <+> pretty keySize
+
+                  let objectSize = LBS.length lbs  & fromIntegral
+                  let entrySize  = fromIntegral $ keySize + objectSize
+                  let entry = LBS.toStrict $ Builder.toLazyByteString  $ Builder.word32BE entrySize
+
+                  liftIO do
+                    atomically $ modifyTVar _already (HS.insert gh)
+                    liftIO $ print $ "entry size" <+> pretty (BS.length entry) <+> pretty gh <+> pretty entrySize
+                    BS.hPutStr  ofile entry
+                    BS.hPutStr  ofile kbs
+                    LBS.hPutStr ofile lbs
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "

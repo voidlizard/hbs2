@@ -83,6 +83,7 @@ common shared-properties
       , memory
       , microlens-platform
       , mtl
+      , network-byte-order
       , safe
       , serialise
       , scientific
