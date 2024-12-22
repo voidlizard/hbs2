@@ -100,6 +100,7 @@ import Control.Concurrent.STM qualified as STM
 import System.Directory (setCurrentDirectory)
 import System.IO (hPrint,hGetLine,IOMode(..))
 import System.Random
+import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
 
 import Data.Either
@@ -107,6 +108,8 @@ import Data.Coerce
 import Data.Kind
 import Data.List (sortOn)
 import Data.Vector qualified as Vector
+import Data.Vector.Mutable qualified as MV
+import Data.Vector.Algorithms.Search qualified as MV
 import Data.Vector ((!))
 import Data.Ord (Down(..))
 
@@ -1772,6 +1775,7 @@ theDict = do
           for_ (HS.fromList r) $ \x -> do
             liftIO $ print x
 
+
         entry $ bindMatch "test:git:read-log-file" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
           fname <- headMay [ x | StringLike x <- argz] & orThrowUser "log file not set"
@@ -1796,11 +1800,246 @@ theDict = do
           void $ readLogFileLBS () theLog $ \h s lbs -> do
             debug $ "object" <+> pretty h
 
-        entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
+
+        entry $ bindMatch "test:git:log:index:naive:dump" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
+          fname <- headMay [ x | StringLike x <- argz] & orThrowUser  "no file"
+
+          lbs <- liftIO $ LBS.readFile fname
+
+          runConsumeLBS lbs $ flip fix 0 \go n -> do
+            done <- consumed
+            if done then pure ()
+              else do
+                ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+                hash   <- readChunkThrow 20 <&> GitHash . LBS.toStrict
+                liftIO $ print $ pretty hash <+> pretty ssize
+                go (succ n)
+
+        entry $ bindMatch "test:git:log:index:naive:search:binary:test" $ nil_ \case
+          [ StringLike fn ] -> do
+
+            lbs <- liftIO $ LBS.readFile fn
+
+            hashes <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
+              done <- consumed
+              if done then pure ()
+                else do
+                  ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+                  hash   <- readChunkThrow 20 <&> GitHash . LBS.toStrict
+                  lift $ S.yield hash
+                  go (succ n)
+
+            file <- liftIO $ mmapFileByteString fn Nothing
+
+            for_ hashes $ \h -> do
+             -- found <- binSearchBS 24 (BS.take 20 . BS.drop 4) ( show . pretty . GitHash ) (coerce h) file
+              found <- liftIO $ binSearchWTF 24 (BS.take 20 . BS.drop 4) (coerce h) file
+              liftIO $ print $ pretty h <+> pretty (isJust found)
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "test:git:log:index:naive:search:binary" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+
+          let argzz = [ x | StringLike x <- argz ]
+
+          hash <- headMay argzz
+                    >>= fromStringMay @GitHash
+                    & orThrowUser "no hash specified"
+
+          idxName <- headMay (tail argzz)
+                        & orThrowUser "no index specified"
+
+          file <- liftIO $ mmapFileByteString idxName Nothing
+          r <- liftIO $ binSearchWTF 24 (BS.take 20 . BS.drop 4) (coerce hash) file
+
+          liftIO $ print $ pretty r
+
+        entry $ bindMatch "test:git:log:index:naive:search:linear:test" $ nil_ $ \case
+          [ StringLike fn ] -> do
+
+            lbs <- liftIO $ LBS.readFile fn
+
+            hashes <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
+              done <- consumed
+              if done then pure ()
+                else do
+                  ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+                  hash   <- readChunkThrow 20 <&> GitHash . LBS.toStrict
+                  lift $ S.yield hash
+                  go (succ n)
+
+            for_ hashes $ \h ->do
+              found <- linearSearch h lbs
+              liftIO $ print $ pretty h <+> pretty (isJust found)
+
+          _ -> throwIO (BadFormException @C nil)
+
+
+
+        entry $ bindMatch "test:git:log:index:naive:search:vector:test" $ nil_ $ \case
+          [ StringLike fn ] -> do
+
+            lbs <- liftIO $ LBS.readFile fn
+
+            hashes <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
+              done <- consumed
+              if done then pure ()
+                else do
+                  shit <- LBS.toStrict <$> readChunkThrow 24
+                  lift $ S.yield shit
+                  go (succ n)
+
+            let wat = Vector.fromList hashes
+            vec <- liftIO $ Vector.thaw wat
+
+            let cmp bs1 bs2 = compare (BS.take 20 $ BS.drop 4 bs1) (BS.take 20 $ BS.drop 4 bs2)
+
+            for_ hashes $ \h -> do
+              found <- liftIO $ MV.binarySearchBy cmp vec h
+              liftIO $ print $ pretty (GitHash h) <+> pretty found
+
+          _ -> throwIO (BadFormException @C nil)
+
+            -- let m = HS.fromList (fmap (coerce @_ @BS.ByteString) hashes)
+
+
+            -- for_ hashes $ \h -> do
+            --   let found = HS.member (coerce h) m
+            --   liftIO $ print $ pretty h <+> pretty found
+
+
+        entry $ bindMatch "test:git:log:index:naive:search:map:test" $ nil_ $ \case
+          [ StringLike fn ] -> do
+
+            lbs <- liftIO $ LBS.readFile fn
+
+            hashes <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
+              done <- consumed
+              if done then pure ()
+                else do
+                  ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+                  hash   <- readChunkThrow 20 <&> GitHash . LBS.toStrict
+                  lift $ S.yield hash
+                  go (succ n)
+
+            let m = HS.fromList (fmap (coerce @_ @BS.ByteString) hashes)
+
+
+            for_ hashes $ \h -> do
+              let found = HS.member (coerce h) m
+              liftIO $ print $ pretty h <+> pretty found
+
+--             for_ hashes $ \h ->do
+--               found <- linearSearch h lbs
+--               liftIO $ print $ pretty h <+> pretty (isJust found)
+
+          _ -> throwIO (BadFormException @C nil)
+
+
+        entry $ bindMatch "test:git:log:index:naive:search:linear" $ nil_ $ \case
+          [ StringLike ha, StringLike fn ] -> lift do
+            hash <- fromStringMay @GitHash ha & orThrowUser "not a git hash"
+
+            lbs <- liftIO $ LBS.readFile fn
+            found <- linearSearch hash lbs
+            liftIO $ print $ pretty found
+
+          _ -> throwIO (BadFormException @C nil)
+
+
+        entry $ bindMatch "test:git:log:index:naive:search:linear2" $ nil_ $ \case
+          [ StringLike ha, StringLike fn ] -> lift do
+            hash <- fromStringMay @GitHash ha & orThrowUser "not a git hash"
+
+            file <- liftIO $ mmapFileByteString fn Nothing
+
+            found <- S.toList_ $ flip fix (0,file) \go (o,bs) -> do
+              unless (BS.null bs) do
+                let (hdr, rest) = BS.splitAt 24 bs
+                let hx = BS.take 20 $ BS.drop 4 hdr
+
+                when (hx == coerce @_ @BS.ByteString hash ) do
+                  S.yield o
+
+                go (o+1, rest)
+
+            liftIO $ print $ listToMaybe found
+
+          _ -> throwIO (BadFormException @C nil)
+
+          -- let (_, argz) = splitOpts [] syn
+          -- let fnames = [ x | StringLike x <- argz]
+
+          -- s <- randomIO @Word16
+          -- liftIO $ withBinaryFile (show ("index" <> pretty s <> ".idx")) AppendMode $ \fh -> do
+
+          --   for_ fnames $ \f -> do
+          --     theLog <- liftIO $ LBS.readFile f
+
+          --     all <- S.toList_ $ void $ readLogFileLBS () theLog $ \h s lbs -> do
+          --               S.yield (coerce @_ @BS.ByteString h)
+          --               debug $ "object" <+> pretty h
+
+          --     let sorted = L.sort all
+
+          --     for_ sorted $ \ghs -> do
+          --       let ks = BS.length ghs
+          --       let entrySize = N.bytestring32 (fromIntegral ks)
+          --       BS.hPutStr fh entrySize
+          --       BS.hPutStr fh ghs
+
+        entry $ bindMatch "test:git:log:index:entry" $ nil_ $ \case
+          [LitIntVal i, StringLike fn] -> lift do
+
+            bs <- liftIO $ mmapFileByteString fn Nothing
+            -- Проблемное смещение
+            let index = fromIntegral i
+            let offset = index * 24
+
+            let record = BS.take 24 (BS.drop offset bs)
+            let n = BS.take 4 record & N.word32
+            let key = BS.take 20 $ BS.drop 4 record
+            liftIO $ print $ pretty n <+> pretty (GitHash key)
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "test:git:log:index:naive" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          let fnames = [ x | StringLike x <- argz]
+
+          s <- randomIO @Word16
+          liftIO $ withBinaryFile (show ("index" <> pretty s <> ".idx")) AppendMode $ \fh -> do
+
+            all <- S.toList_ do
+
+              for_ fnames $ \f -> do
+                theLog <- liftIO $ LBS.readFile f
+
+                void $ readLogFileLBS () theLog $ \h s lbs -> do
+                  S.yield (coerce @_ @BS.ByteString h)
+                  debug $ "object" <+> pretty h
+
+            let sorted = Set.toList $ Set.fromList all
+
+            for_ sorted $ \ghs -> do
+              let ks = BS.length ghs
+              let entrySize = N.bytestring32 (fromIntegral ks)
+              BS.hPutStr fh entrySize
+              BS.hPutStr fh ghs
+
+        entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
+          let (opts, argz) = splitOpts [("--index",1)] syn
           let hd = headDef "HEAD" [ x | StringLike x <- argz]
           h <- gitRevParseThrow hd
           hpsq <- readCommitChainHPSQ Nothing h (\c -> debug $ "commit" <+> pretty c)
+
+          let useIndex = headMay [ f | ListVal [StringLike "--index", StringLike f] <- opts ]
+
+          mmaped <- runMaybeT do
+                      fname <- toMPlus useIndex
+                      liftIO $ mmapFileByteString fname Nothing
 
           let r = HPSQ.toList hpsq
                     & sortBy (comparing (view _2))
@@ -1811,7 +2050,13 @@ theDict = do
           _already <- newTVarIO mempty
 
           let notWrittenYet x = do
-                readTVarIO _already <&> not . HS.member x
+                already <- readTVarIO _already <&> HS.member x
+                -- alsoInIdx <- maybe1 mmaped (pure False) $ \m -> do
+                --   let found = binarySearch m 24 (coerce x) & isJust
+                --   -- error $ show $ "MOTHERFUCKER!" <+> pretty x <+> pretty found
+                --   pure found
+
+                pure (not already) --  &&  not alsoInIdx)
 
           flip runContT pure do
 
@@ -1848,10 +2093,206 @@ theDict = do
 
                   liftIO do
                     atomically $ modifyTVar _already (HS.insert gh)
-                    liftIO $ print $ "entry size" <+> pretty (BS.length entry) <+> pretty gh <+> pretty entrySize
+                    debug $ "entry size" <+> pretty (BS.length entry) <+> pretty gh <+> pretty entrySize
                     BS.hPutStr  ofile entry
                     BS.hPutStr  ofile kbs
                     LBS.hPutStr ofile lbs
+
+linearSearch hash lbs = do
+
+  found <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
+    done <- consumed
+    if done then pure ()
+      else do
+        ssize  <- readChunkThrow 4  <&> fromIntegral . N.word32 . LBS.toStrict
+        hash1   <- readChunkThrow 20 <&> LBS.toStrict
+
+        case (compare hash1 (coerce hash)) of
+          EQ -> lift $ S.yield n
+          _  -> go (succ n)
+
+  pure $ listToMaybe found
+
+-- binarySearch :: BS.ByteString -> Int -> BS.ByteString -> Maybe Int
+-- binarySearch file recordSize targetKey = go 0 (BS.length file `div` recordSize - 1)
+--   where
+--     go lo hi
+--       | lo > hi = do
+--           -- putStrLn $ "Key not found: " ++ BSC.unpack targetKey
+--           pure Nothing
+--       | otherwise = do
+--           let mid = (lo + hi) `div` 2
+--           let offset = mid * recordSize
+--           let record = BS.take recordSize (BS.drop offset file)
+--           let key = getKey record
+--           -- putStrLn $ "lo: " ++ show lo ++ ", hi: " ++ show hi ++ ", mid: " ++ show mid ++ ", offset: " ++ show offset
+--           -- putStrLn $ "Key at offset: " ++ BSC.unpack key ++ ", Target key: " ++ BSC.unpack targetKey
+--           case compare key targetKey of
+--             EQ -> do
+--               -- putStrLn $ "Key found at offset: " ++ show offset
+--               pure (Just offset)
+--             LT -> go (mid + 1) hi
+--             GT -> go lo (mid - 1)
+
+--     getKey :: BS.ByteString -> BS.ByteString
+--     getKey bs = BS.take 20 $ BS.drop 4 bs
+
+-- binarySearchByBounds :: (PrimMonad m, MVector v e)
+--                      => Comparison e -> v (PrimState m) e -> e -> Int -> Int -> m Int
+-- binarySearchByBounds cmp vec e = loop
+--  where
+--  loop !l !u
+--    | u <= l    = return l
+--    | otherwise = do e' <- unsafeRead vec k
+--                     case cmp e' e of
+--                       LT -> loop (k+1) u
+--                       EQ -> return k
+--                       GT -> loop l     k
+--   where k = midPoint u l
+-- {-# INLINE binarySearchByBounds #-}
+
+
+binSearchWTF :: MonadIO m
+             => Int -- ^ record size
+             -> ( BS.ByteString -> BS.ByteString ) -- ^ key extractor
+             ->  BS.ByteString -- ^ key
+             -> BS.ByteString -- ^ source
+             -> m (Maybe Int)
+
+binSearchWTF rs getKey s source = do
+  let maxn = BS.length source `div` rs
+  loop 0 maxn
+  where
+    loop l u | u <= l = pure Nothing
+             | otherwise = do
+                 let e = getKey (BS.drop ( k * rs ) source)
+                 case compare e s of
+                  EQ -> pure $ Just (k * rs)
+                  LT -> loop (k+1) u
+                  GT -> loop l k
+
+      where k = (l + u) `div` 2
+
+binSearchBS :: MonadIO m
+            => Int
+            -> ( BS.ByteString -> BS.ByteString )
+            -> ( BS.ByteString -> String )
+            -> BS.ByteString
+            -> BS.ByteString
+            -> m (Maybe Int)
+
+binSearchBS rlen getKey nice s source = do
+
+  flip fix (0,source) $ \next (i,bs) -> do
+
+    let num = BS.length bs `quot` rlen
+
+    let n = BS.length bs `mod` rlen
+
+    when (n /= 0 ) $ error "FUCKED!"
+
+    if | num == 0 -> pure Nothing
+       | num == 1 && getKey bs == s -> pure (Just i)
+       | num == 1 -> pure Nothing
+       | otherwise  -> do
+
+        let iMid  = (num `div` 2)
+        let iOff  = iMid * rlen
+
+        let (sa,sb) = BS.splitAt iOff bs
+
+        let el = getKey sb
+
+        if | s < el -> next (i, sa)
+           | s > el -> next (i, sb)
+           | otherwise -> pure $ Just i
+
+        -- case compare s el of
+        --   EQ -> pure (Just iOff)
+        --   LT -> next (i, sa)
+        --   GT -> next (i+iMid, BS.drop rlen sb)
+
+-- binarySearchIO :: BS.ByteString -> Int -> BS.ByteString -> IO (Maybe Int)
+-- binarySearchIO file recordSize targetKey = go 0 (BS.length file `div` recordSize - 1)
+--   where
+--     go lo hi
+--       | lo > hi = do
+--           print $ "Key not found: " <+> pretty (GitHash targetKey)
+--           pure Nothing
+--       | lo == hi = do
+--           let offset = lo * recordSize
+--           let record = BS.take recordSize (BS.drop offset file)
+--           let key = getKey record
+--           print $ "Final check at offset: " <+> pretty offset
+--           print $ "Key at offset: " <+> pretty (GitHash key) <+> "Target key: " <+> pretty (GitHash targetKey)
+--           if key == targetKey
+--             then do
+--               print $ "Key found at offset: " <+> pretty offset
+--               pure (Just lo)
+--             else do
+--               print $ "Key not found in final check: " <+> pretty (GitHash targetKey)
+--               pure Nothing
+--       | otherwise = do
+--           let mid = (lo + hi) `div` 2
+--           let offset = mid * recordSize
+--           let record = BS.take recordSize (BS.drop offset file)
+--           let key = getKey record
+
+--           print $ "lo: " <+> pretty lo <+> ", hi: " <+> pretty hi <+> ", mid: " <+> pretty mid <+> ", offset: " <+> pretty offset
+--           print $ "Key at offset: " <+> pretty (GitHash key) <+> "Target key: " <+> pretty (GitHash targetKey)
+
+--           case compare key targetKey of
+--             EQ -> do
+--               print $ "Key found at mid: " <+> pretty mid <+> ", offset: " <+> pretty offset
+--               pure (Just mid)
+--             LT -> do
+--               print $ "Moving right"
+--               go (mid + 1) hi
+--             GT -> do
+--               print $ "Moving left"
+--               go lo (mid - 1)
+
+--     getKey :: BS.ByteString -> BS.ByteString
+--     getKey bs = BS.take 20 $ BS.drop 4 bs
+
+
+binarySearchIO :: BS.ByteString -> Int -> BS.ByteString -> IO (Maybe Int)
+binarySearchIO file recordSize targetKey = go 0 (BS.length file `div` recordSize - 1)
+  where
+    go lo hi
+      | lo > hi = do
+          pure Nothing
+      | otherwise = do
+          let mid = (lo + hi) `div` 2
+          let offset = mid * recordSize
+          let record = BS.take recordSize (BS.drop offset file)
+          let key = getKey record
+          case compare key targetKey of
+            EQ -> do
+              pure (Just mid)
+            LT -> do
+              go (mid + 1) hi
+            GT -> do
+              go lo (mid - 1)
+
+    getKey :: BS.ByteString -> BS.ByteString
+    getKey bs = BS.take 20 $ BS.drop 4 bs
+
+
+-- binarySearch :: BS.ByteString -> Int -> BS.ByteString -> Maybe Int
+-- binarySearch file recordSize targetKey = go 0 (BS.length file `div` recordSize - 1)
+--   where
+--     go lo hi
+--       | lo > hi = Nothing
+--       | otherwise =
+--           let mid = (lo + hi) `div` 2
+--               offset = mid * recordSize
+--               record = BS.take recordSize (BS.drop offset file)
+--               key = BS.take 20 $ BS.drop 4 record
+--           in case compare key targetKey of
+--                EQ -> Just mid
+--                LT -> go (mid + 1) hi
+--                GT -> go lo (mid - 1)
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "

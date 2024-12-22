@@ -81,6 +81,7 @@ common shared-properties
       , generic-deriving
       , interpolatedstring-perl6
       , memory
+      , mmap
       , microlens-platform
       , mtl
       , network-byte-order
@@ -106,6 +107,7 @@ common shared-properties
       , vector
       , unix
       , uuid
+      , vector-algorithms
 
 
 library
