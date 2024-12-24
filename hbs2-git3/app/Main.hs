@@ -2090,7 +2090,7 @@ theDict = do
               for_ fnames $ \f -> do
                 theLog <- liftIO $ LBS.readFile f
 
-                void $ runConsumeLBS theLog $  readLogFileLBS () $ \h s lbs -> do
+                void $ runConsumeLBS (ZstdL.decompress theLog) $  readLogFileLBS () $ \h s lbs -> do
                   lift $ S.yield (coerce @_ @BS.ByteString h)
                   debug $ "object" <+> pretty h
 
@@ -2101,6 +2101,20 @@ theDict = do
               let entrySize = N.bytestring32 (fromIntegral ks)
               BS.hPutStr fh entrySize
               BS.hPutStr fh ghs
+
+
+        entry $ bindMatch "test:sqlite" $ nil_ $ \case
+          [ StringLike fn ] -> lift do
+              db <- newDBPipeEnv dbPipeOptsDef fn
+              withDB db do
+                all <- select_ @_ @(Only Text) [qc|select hash from githash|]
+                for_ all $ \x -> do
+                  n <- select @(Only Int) [qc|select 1 from githash where hash = ?|] (Only (fromOnly x))
+                           <&> L.null
+                  unless n do
+                    liftIO $ print $ pretty (fromOnly x)
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
@@ -2136,43 +2150,68 @@ theDict = do
 
           liftIO $ flip runContT pure do
 
-            sourceQ <- newTBQueueIO 1000
+            tn <- getNumCapabilities
 
-            theReader <- ContT $ withGitCat
+            sourceQ <- newTBQueueIO (fromIntegral tn * 100)
 
             seed <- randomIO @Word16
             logFile <- ContT $ withBinaryFile (show $ "export-" <> pretty seed <> ".log") AppendMode
 
             l <- lift $ async $ do
-                    stream <- ZstdS.compress maxCLevel
-                    q <- newTQueueIO
-                    writeSections (atomically (readTBQueue sourceQ)) (atomically . writeTQueue q . Just)
-                    atomically $ writeTQueue q Nothing
-                    writeCompressedStreamZstd stream (atomically $ readTQueue q) $ \shit -> do
-                      liftIO $ LBS.hPutStr logFile shit
+                  zstd <- ZstdS.compress maxCLevel
+                  flip fix zstd \jerk sn -> do
+                    atomically (readTBQueue sourceQ) >>= \case
+                      Nothing  -> writeCompressedChunkZstd (LBS.hPutStr logFile) sn Nothing
+                      Just s -> do
+                        lbs <- S.toList_ (writeSection s $ S.yield) <&> mconcat
+                        writeCompressedChunkZstd (LBS.hPutStr logFile) sn (Just lbs) >>= jerk
 
             link l
 
-            for_ r $ \commit -> do
-              hashes <- gitReadTreeObjectsOnly commit
-                          <&> (commit:)
-                          >>= filterM notWrittenYet
+            let commitz = chunksOf (total `div` tn) r
 
-              for_ hashes $ \gh -> do
-                (_t,lbs) <- gitReadObjectMaybe theReader gh
-                               >>= orThrow (GitReadError (show $ pretty gh))
+            progress_ <- newTVarIO 0
 
-                let section = [ Builder.byteString (coerce gh)
-                              , Builder.lazyByteString lbs
-                              ] & Builder.toLazyByteString . mconcat
+            workers <- lift $ forM (zip [0..] commitz) $ \(i,chunk) -> async $ flip runContT pure do
+              theReader <- ContT withGitCat
 
-                atomically do
-                  modifyTVar _already (HS.insert gh)
-                  writeTBQueue sourceQ (Just section)
+              for_ chunk  \commit -> do
+
+                  atomically $ modifyTVar progress_ succ
+
+                  hashes <- gitReadTreeObjectsOnly commit
+                                <&> (commit:)
+                                >>= filterM notWrittenYet
+
+                  for_ hashes $ \gh -> do
+                    (_t,lbs) <- gitReadObjectMaybe theReader gh
+                                   >>= orThrow (GitReadError (show $ pretty gh))
+
+                    let e = [ Builder.byteString (coerce gh)
+                            , Builder.lazyByteString lbs
+                            ] & Builder.toLazyByteString . mconcat
+
+                    atomically do
+                      modifyTVar _already (HS.insert gh)
+                      writeTBQueue sourceQ (Just e)
+
+            ContT $ withAsync $ forever do
+              pause @'Seconds 1
+              p <- readTVarIO progress_
+
+              let pp = fromIntegral p / (fromIntegral total :: Double) * 100
+                           & realToFrac @_ @(Fixed E2)
+
+              liftIO $ IO.hPutStr stderr  $ show $ "           \r" <> pretty pp <> "%"
+              pure ()
+
+            mapM_ link workers
+            mapM_ wait workers
 
             atomically $ writeTBQueue sourceQ Nothing
 
             wait l
+
 
 linearSearchLBS hash lbs = do
 
