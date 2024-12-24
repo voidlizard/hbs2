@@ -108,6 +108,7 @@ common shared-properties
       , unix
       , uuid
       , vector-algorithms
+      , zstd
 
 
 library
@@ -120,6 +121,8 @@ library
       HBS2.Git3.State.Types
       HBS2.Git3.State.Direct
       HBS2.Git3.Config.Local
+
+      HBS2.Data.Log.Structured
 
     build-depends:    base
                     , base16-bytestring
