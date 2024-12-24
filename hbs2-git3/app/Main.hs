@@ -88,6 +88,7 @@ import Data.Generics.Labels
 import Data.Generics.Product
 import Lens.Micro.Platform
 
+import Streaming qualified as S
 import Streaming.Prelude qualified as S
 import System.Exit qualified as Q
 import System.Environment qualified as E
@@ -1834,7 +1835,7 @@ theDict = do
             lbs <- liftIO$ LBS.readFile fn
 
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
-              debug $ "object" <+> pretty h <+> pretty s
+              liftIO $ print $ "object" <+> pretty h <+> pretty s
 
           _ -> throwIO (BadFormException @C nil)
 
@@ -2142,8 +2143,13 @@ theDict = do
             seed <- randomIO @Word16
             logFile <- ContT $ withBinaryFile (show $ "export-" <> pretty seed <> ".log") AppendMode
 
-            l <- lift $ async $ writeSections (atomically (readTBQueue sourceQ)) \output -> do
-                    liftIO $ LBS.hPutStr logFile output
+            l <- lift $ async $ do
+                    stream <- ZstdS.compress maxCLevel
+                    q <- newTQueueIO
+                    writeSections (atomically (readTBQueue sourceQ)) (atomically . writeTQueue q . Just)
+                    atomically $ writeTQueue q Nothing
+                    writeCompressedStreamZstd stream (atomically $ readTQueue q) $ \shit -> do
+                      liftIO $ LBS.hPutStr logFile shit
 
             link l
 
