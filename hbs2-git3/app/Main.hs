@@ -731,21 +731,22 @@ readCommitChainHPSQ filt _ h0 action = flip runContT pure $ callCC \_ -> do
 
     HCC _ [] result -> pure result
 
-    HCC n ( h : hs ) result | HPSQ.member h result -> next  ( HCC n hs result )
+    HCC n ( h : hs ) result | HPSQ.member h result -> do
+      next  ( HCC n hs result )
 
     HCC n ( h : hs ) result -> do
 
-      done <- not <$> lift ( filt h )
+        done <- not <$> lift (filt h)
 
-      if done then next (HCC n hs result) else do
+        if done then next  ( HCC n hs result ) else do
 
-        co <- gitReadObjectMaybe theReader h
-                   >>= orThrow(GitReadError $ show $ pretty "object not found" <+> pretty h)
+          co <- gitReadObjectMaybe theReader h
+                     >>= orThrow(GitReadError $ show $ pretty "object not found" <+> pretty h)
 
-        parents <- gitReadCommitParents (Just h) (snd co)
+          parents <- gitReadCommitParents (Just h) (snd co)
 
-        lift $ action h
-        next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h result )
+          lift $ action h
+          next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h result )
 
 
   where
@@ -1245,6 +1246,31 @@ readLogFileLBS _ action = flip fix 0 \go n -> do
 
       void $ action hash (fromIntegral ssize) sdata
       go (succ n)
+
+
+readIndexFromFile :: forall m . MonadIO m
+                  => FilePath
+                  -> m (HashSet GitHash)
+readIndexFromFile fname = do
+
+    bs <- liftIO $ LBS.readFile fname
+
+    r <- S.toList_ $ runConsumeLBS bs $ flip fix 0 \go n -> do
+      done <- noBytesLeft
+      if done then pure ()
+        else do
+          _  <- readBytesMaybe 4
+                  >>= orThrow SomeReadLogError
+                  <&> fromIntegral . N.word32 . LBS.toStrict
+
+          hash   <- readBytesMaybe 20
+                       >>= orThrow SomeReadLogError
+                       <&> GitHash . LBS.toStrict
+
+          lift (S.yield hash)
+          go (succ n)
+
+    pure $ HS.fromList r
 
 -- FIXME: move-to-suckless-script
 splitOpts :: [(Id,Int)]
@@ -1972,6 +1998,10 @@ theDict = do
                   pure (isJust found)
                 pure (not already &&  not alsoInIdx)
 
+          hs <- maybe1 useIndex (pure mempty) $ \fn -> readIndexFromFile fn
+
+          debug $ "INDEX" <+> pretty (HS.size hs)
+
           hpsq <- readCommitChainHPSQ notWrittenYet Nothing h (\c -> debug $ "commit" <+> pretty c)
 
           let r = HPSQ.toList hpsq
@@ -1979,6 +2009,8 @@ theDict = do
                     & fmap (view _1)
 
           let total = HPSQ.size hpsq
+
+          debug $ "TOTAL" <+> pretty total
 
           liftIO $ flip runContT pure do
 
@@ -2000,7 +2032,8 @@ theDict = do
 
             link l
 
-            let commitz = chunksOf (total `div` tn) r
+            let chunkSize = if total > tn*2 then total `div` tn else total
+            let commitz = chunksOf chunkSize r
 
             progress_ <- newTVarIO 0
 
