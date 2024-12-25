@@ -8,6 +8,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.Maybe
 import Network.ByteOrder hiding (ByteString)
+import Control.Monad.State
 
 import Codec.Compression.Zstd qualified as Zstd
 import Codec.Compression.Zstd.Streaming qualified as Zstd
@@ -16,6 +17,92 @@ import Codec.Compression.Zstd.Streaming (Result(..))
 import Control.Exception
 
 -- import UnliftIO
+
+class ReadLogOpts a where
+
+data ReadLogError = SomeReadLogError
+  deriving stock (Typeable, Show)
+
+instance Exception ReadLogError
+
+instance ReadLogOpts ()
+
+type NumBytes = Int
+
+class Monad m => BytesReader m where
+  noBytesLeft    :: m Bool
+  readBytes      :: NumBytes -> m ByteString
+
+  readBytesMaybe :: NumBytes -> m (Maybe ByteString)
+  readBytesMaybe n = do
+    bs <- readBytes n
+    if LBS.length bs == fromIntegral n then pure (Just bs) else pure Nothing
+
+newtype ConsumeLBS m a = ConsumeLBS { fromConsumeLBS :: StateT ByteString m a  }
+                         deriving newtype ( Applicative
+                                          , Functor
+                                          , Monad
+                                          , MonadState ByteString
+                                          , MonadIO
+                                          , MonadTrans
+                                          )
+
+readChunkThrow :: MonadIO m => Int -> ConsumeLBS m ByteString
+readChunkThrow n = do
+  lbs <- get
+  let (this, that) = LBS.splitAt (fromIntegral n) lbs
+  if LBS.length this /= fromIntegral n then
+      liftIO $ throwIO SomeReadLogError
+  else do
+    put $! that
+    pure this
+
+readChunkSimple :: Monad m => Int -> ConsumeLBS m ByteString
+readChunkSimple n = do
+  lbs <- get
+  let (this, that) = LBS.splitAt (fromIntegral n) lbs
+  put $! that
+  pure this
+
+reminds :: Monad m => ConsumeLBS m Int
+reminds = gets (fromIntegral . LBS.length)
+
+consumed  :: Monad m => ConsumeLBS m Bool
+consumed = gets LBS.null
+
+runConsumeLBS :: Monad m => ByteString -> ConsumeLBS m a -> m a
+runConsumeLBS s m  = evalStateT (fromConsumeLBS m) s
+
+newtype ConsumeBS m a = ConsumeBS { fromConsumeBS :: StateT BS.ByteString m a  }
+                        deriving newtype ( Applicative
+                                         , Functor
+                                         , Monad
+                                         , MonadState BS.ByteString
+                                         , MonadIO
+                                         , MonadTrans
+                                         )
+
+
+instance Monad m => BytesReader (ConsumeLBS m) where
+  readBytes n = readChunkSimple n
+  noBytesLeft = consumed
+
+instance Monad m => BytesReader (ConsumeBS m) where
+  noBytesLeft = gets BS.null
+  readBytes n = do
+    s <- get
+    let (a,b) = BS.splitAt n s
+    put $! b
+    pure (LBS.fromStrict a)
+
+runConsumeBS :: Monad m => BS.ByteString -> ConsumeBS m a -> m a
+runConsumeBS s m = evalStateT (fromConsumeBS m) s
+
+
+
+
+
+
 
 writeSection :: forall m . Monad m
              => ByteString

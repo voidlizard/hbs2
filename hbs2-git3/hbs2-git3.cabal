@@ -19,7 +19,7 @@ common shared-properties
         -threaded
         -rtsopts
         -O2
-        "-with-rtsopts=-N4 -A64m -AL256m -I0"
+        "-with-rtsopts=-N4 -A64m -AL256m -I0 -M4G"
 
   default-language: GHC2021
 
