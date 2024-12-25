@@ -1752,19 +1752,47 @@ theDict = do
             liftIO $ print x
 
 
-        entry $ bindMatch "test:git:zstd:packed:cat" $ nil_ $ \case
-          [ GitHashLike gh, StringLike fn ] -> lift do
+        entry $ bindMatch "test:git:zstd:packed:cat" $ nil_ $ \syn -> lift do
 
-            src <- liftIO$ LBS.readFile fn
+          let (opts, argz) = splitOpts [("--git",0),("--packed",0),("--import",1)] syn
 
-            what <- S.toList_ $ runConsumeLBS (ZstdL.decompress src) $ readLogFileLBS () $ \h s src -> do
-              when ( h == gh ) $ lift $ S.yield (LBS.drop 1 src)
+          err $ pretty opts
 
-            liftIO $ maybe1 (listToMaybe what) (Q.exitFailure) $ \s -> do
-              LBS.hPutStr stdout  s
+          let git    = or [ True | ListVal [StringLike "--git"] <- opts ]
+          let packed = or [ True | ListVal [StringLike "--packed"] <- opts ]
+          let imp    = or [ True | ListVal [StringLike "--import"] <- opts ]
 
-          _ -> throwIO (BadFormException @C nil)
+          (gh, fn) <- case argz of
+                       [ GitHashLike a, StringLike b ] -> do
+                        pure (a, b)
 
+                       _ -> throwIO (BadFormException @C nil)
+
+
+          src <- liftIO$ LBS.readFile fn
+
+          what <- S.toList_ $ runConsumeLBS (ZstdL.decompress src) $ readLogFileLBS () $ \h s src -> do
+            let (t,rest) = LBS.splitAt 1 src
+
+            let tp = case t of
+                      "T" -> Tree
+                      "C" -> Commit
+                      "B" -> Blob
+                      _   -> Blob
+
+            when ( h == gh ) $ lift $ S.yield (tp,rest)
+
+          liftIO $ maybe1 (listToMaybe what) (Q.exitFailure) $ \(t,s) -> do
+
+            let raw = if not git then s else do
+                      let signature = [qc|{pretty t} {pretty $ LBS.length s}|] <> "\x00" :: LBS8.ByteString
+                      signature <> s
+
+            let result = if not packed then raw else do
+                            let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                            Zlib.compressWith params  raw
+
+            LBS.hPutStr stdout result
 
         entry $ bindMatch "test:git:zstd:packed:list" $ nil_ $ \syn -> do
           let (_, argz) = splitOpts [] syn
@@ -2007,8 +2035,10 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
+          let (opts, argz) = splitOpts [("--scary",0)] syn
           let logs = [ x| StringLike x <- argz ]
+
+          let scary = or [ True | ListVal [StringLike "--scary"] <- opts ]
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
@@ -2019,7 +2049,7 @@ theDict = do
             lbs <- liftIO $ LBS.readFile lfn
 
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
-              let (t, content) = LBS.splitAt 1 lbs
+              let (t, body) = LBS.splitAt 1 lbs
 
               let tp = case t of
                         "T" -> Tree
@@ -2028,7 +2058,30 @@ theDict = do
                         _   -> Blob
 
               debug $ "FUCKING IMPORT OBJECT" <+> pretty h <+> pretty tp
-              gitImportObjectSlow tp content >>= orThrow (GitImportError (show $ pretty tp <+> pretty h))
+
+              if not scary then do
+                gitImportObjectSlow tp body >>= orThrow (GitImportError (show $ pretty tp <+> pretty h))
+              else do
+
+                let gitHash = show $ pretty h
+                let (prefix,name) = L.splitAt 2 gitHash
+                let path = joinPath [d, "objects", prefix, name]
+
+                let signature = [qc|{pretty tp} {pretty $ LBS.length lbs}|] <> "\x00" :: LBS8.ByteString
+                let o = signature <> body
+
+                here <- doesPathExist path
+
+                unless here $ liftIO do
+
+                  touch path
+
+                  debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
+
+                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                    let contents = Zlib.compressWith params  o
+                    LBS.hPutStr fh contents
 
         entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
@@ -2136,7 +2189,7 @@ theDict = do
 
                   for_ hashes $ \gh -> do
                     atomically $ modifyTVar _already (HS.insert gh)
-                    debug $ "object" <+> pretty gh
+                    -- debug $ "object" <+> pretty gh
                     (_t,lbs) <- gitReadObjectMaybe theReader gh
                                    >>= orThrow (GitReadError (show $ pretty gh))
 
