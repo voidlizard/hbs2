@@ -298,6 +298,7 @@ instance Exception Git3Exception
 data Git3Env =
     Git3Disconnected
     { gitRefLog   :: TVar (Maybe GitRemoteKey)
+    , gitPackedSegmentSize :: TVar Int
     }
   | Git3Connected
     { stateDb     :: DBPipeEnv
@@ -305,6 +306,7 @@ data Git3Env =
     , peerStorage :: AnyStorage
     , peerAPI     :: ServiceCaller PeerAPI UNIX
     , gitRefLog   :: TVar (Maybe GitRemoteKey)
+    , gitPackedSegmentSize :: TVar Int
     }
 
 class HasGitRemoteKey m where
@@ -319,6 +321,12 @@ instance (MonadIO m, MonadReader Git3Env m) => HasGitRemoteKey m where
   setGitRemoteKey k = do
     e <- ask
     liftIO $ atomically $ writeTVar (gitRefLog e) (Just k)
+
+instance (MonadIO m, MonadReader Git3Env m) => HasExportOpts m where
+  getPackedSegmetSize = asks gitPackedSegmentSize >>= readTVarIO
+  setPackedSegmedSize x = do
+    e <- asks gitPackedSegmentSize
+    atomically $ writeTVar e x
 
 instance (MonadIO m) => HasStateDB (Git3 m) where
   getStateDB = asks stateDb
@@ -351,7 +359,9 @@ instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
        Git3Connected{..} -> pure peerAPI
 
 nullGit3Env :: MonadIO m => m Git3Env
-nullGit3Env = Git3Disconnected <$> newTVarIO Nothing
+nullGit3Env = Git3Disconnected
+                <$> newTVarIO Nothing
+                <*> newTVarIO ( 100 * 1024 * 1024 )
 
 connectedDo :: (MonadIO m, MonadReader Git3Env m) => m a -> m a
 connectedDo what = do
@@ -408,7 +418,9 @@ recover m = fix \again -> do
 
         let sto = AnyStorage (StorageClient storageAPI)
 
-        connected <- Git3Connected db soname sto peerAPI <$> newTVarIO (Just ref)
+        connected <- Git3Connected db soname sto peerAPI
+                        <$> newTVarIO (Just ref)
+                        <*> newTVarIO (100 * 1024 * 1024 )
 
         liftIO $ withGit3Env connected (evolveState >> again)
 
@@ -1239,7 +1251,7 @@ readLogFileLBS _ action = flip fix 0 \go n -> do
 
       hash  <- readBytesMaybe 20
                   >>= orThrow SomeReadLogError
-                  <&> GitHash . LBS.toStrict
+                  <&> GitHash . BS.copy . LBS.toStrict
 
       sdata <- readBytesMaybe ( ssize - 20 )
                   >>= orThrow SomeReadLogError
@@ -1293,6 +1305,15 @@ splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
     omap = HM.fromList [ (p, x) | (p,x) <- def ]
     opts = opts'
 
+data ECC =
+    ECCInit
+  | ECCWrite Int Handle Result
+  | ECCFinalize Bool Handle Result
+
+class HasExportOpts m where
+  setPackedSegmedSize :: Int -> m ()
+  getPackedSegmetSize :: m Int
+
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
                       , HasStorage m
@@ -1313,6 +1334,12 @@ theDict = do
             quit
 
           _ -> helpList False Nothing >> quit
+
+        entry $ bindMatch "segment" $ nil_ $ \case
+          [ LitIntVal n ] -> lift do
+            setPackedSegmedSize (fromIntegral n)
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "git:tree:ls" $ nil_ $ const do
           r <- gitReadTree "HEAD"
@@ -1978,6 +2005,8 @@ theDict = do
         entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
 
+          maxW <- getPackedSegmetSize
+
           let useIndex = headMay [ f | ListVal [StringLike "--index", StringLike f] <- opts ]
 
           let hd = headDef "HEAD" [ x | StringLike x <- argz]
@@ -2018,17 +2047,41 @@ theDict = do
 
             sourceQ <- newTBQueueIO (fromIntegral tn * 100)
 
-            seed <- randomIO @Word16
-            logFile <- ContT $ withBinaryFile (show $ "export-" <> pretty seed <> ".log") AppendMode
-
             l <- lift $ async $ do
-                  zstd <- ZstdS.compress maxCLevel
-                  flip fix zstd \jerk sn -> do
-                    atomically (readTBQueue sourceQ) >>= \case
-                      Nothing  -> writeCompressedChunkZstd (LBS.hPutStr logFile) sn Nothing
-                      Just s -> do
-                        lbs <- S.toList_ (writeSection s $ S.yield) <&> mconcat
-                        writeCompressedChunkZstd (LBS.hPutStr logFile) sn (Just lbs) >>= jerk
+
+                    flip fix ECCInit $ \loop -> \case
+                      ECCInit -> do
+                        zstd <- ZstdS.compress maxCLevel
+                        seed <- randomIO @Word16
+                        let fn = show $ "export-" <> pretty seed <> ".log"
+                        logFile <- IO.openBinaryFile fn WriteMode
+                        debug $ red "NEW FILE" <+> pretty fn
+                        loop $ ECCWrite 0 logFile zstd
+
+                      ECCWrite bnum fh sn | bnum >= maxW -> do
+                        loop (ECCFinalize True fh sn)
+
+                      ECCWrite bnum fh sn -> do
+                        atomically (readTBQueue sourceQ) >>= \case
+                           Nothing  -> loop (ECCFinalize False fh sn)
+                           Just s -> do
+                              lbs <- S.toList_ (writeSection s $ S.yield) <&> mconcat
+
+                              sz_ <- newTVarIO 0
+                              let write ss = do
+                                   LBS.hPutStr fh ss
+                                   atomically $ modifyTVar sz_ (+ LBS.length ss)
+
+                              sn1 <- writeCompressedChunkZstd write sn (Just lbs)
+
+                              sz <- readTVarIO sz_ <&> fromIntegral
+
+                              loop (ECCWrite (bnum + sz) fh sn1)
+
+                      ECCFinalize again fh sn -> do
+                        void $ writeCompressedChunkZstd (LBS.hPutStr fh) sn Nothing
+                        hClose fh
+                        when again $ loop ECCInit
 
             link l
 
