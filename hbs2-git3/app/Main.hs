@@ -125,6 +125,14 @@ import UnliftIO.IO.File qualified as UIO
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
 
+
+pattern GitHashLike:: forall {c} . GitHash -> Syntax c
+pattern GitHashLike x <- (
+  \case
+    StringLike s      -> fromStringMay @GitHash s
+    _                -> Nothing
+      -> Just x )
+
 type HBS2GitPerks m = (MonadUnliftIO  m)
 
 quit :: MonadUnliftIO m => m ()
@@ -143,6 +151,7 @@ data GitException =
   | OtherGitError String
   | UnknownRev String
   | GitReadError String
+  | GitImportError String
   deriving stock (Eq,Show,Typeable,Generic)
 
 instance Exception GitException
@@ -219,6 +228,14 @@ gitRevParse ref = do
 
 gitRevParseThrow :: (Pretty ref, MonadIO m) => ref -> m GitHash
 gitRevParseThrow r = gitRevParse r >>= orThrow (UnknownRev (show $ pretty r))
+
+gitImportObjectSlow :: MonadIO m => GitObjectType -> ByteString -> m (Either ExitCode ())
+gitImportObjectSlow t lbs = do
+  let cmd = "git"
+  let args = ["hash-object", "-w", "--stdin", "-t", (show $ pretty t)]
+  let config = setStdin (byteStringInput lbs) $ setStdout closed $ setStderr closed $ proc cmd args
+  code <- runProcess config
+  pure $ if (code /= ExitSuccess) then Left code else Right ()
 
 gitReadHEAD :: MonadIO m => m (Maybe GitRef)
 gitReadHEAD = runMaybeT do
@@ -299,6 +316,7 @@ data Git3Env =
     Git3Disconnected
     { gitRefLog   :: TVar (Maybe GitRemoteKey)
     , gitPackedSegmentSize :: TVar Int
+    , gitCompressionLevel  :: TVar Int
     }
   | Git3Connected
     { stateDb     :: DBPipeEnv
@@ -307,6 +325,7 @@ data Git3Env =
     , peerAPI     :: ServiceCaller PeerAPI UNIX
     , gitRefLog   :: TVar (Maybe GitRemoteKey)
     , gitPackedSegmentSize :: TVar Int
+    , gitCompressionLevel  :: TVar Int
     }
 
 class HasGitRemoteKey m where
@@ -327,6 +346,11 @@ instance (MonadIO m, MonadReader Git3Env m) => HasExportOpts m where
   setPackedSegmedSize x = do
     e <- asks gitPackedSegmentSize
     atomically $ writeTVar e x
+
+  getCompressionLevel = asks gitCompressionLevel >>= readTVarIO
+  setCompressionLevel x = do
+    e <- asks gitCompressionLevel
+    atomically $ writeTVar e (min maxCLevel x)
 
 instance (MonadIO m) => HasStateDB (Git3 m) where
   getStateDB = asks stateDb
@@ -362,6 +386,7 @@ nullGit3Env :: MonadIO m => m Git3Env
 nullGit3Env = Git3Disconnected
                 <$> newTVarIO Nothing
                 <*> newTVarIO ( 100 * 1024 * 1024 )
+                <*> newTVarIO maxCLevel
 
 connectedDo :: (MonadIO m, MonadReader Git3Env m) => m a -> m a
 connectedDo what = do
@@ -421,6 +446,7 @@ recover m = fix \again -> do
         connected <- Git3Connected db soname sto peerAPI
                         <$> newTVarIO (Just ref)
                         <*> newTVarIO (100 * 1024 * 1024 )
+                        <*> newTVarIO maxCLevel
 
         liftIO $ withGit3Env connected (evolveState >> again)
 
@@ -1313,6 +1339,9 @@ data ECC =
 class HasExportOpts m where
   setPackedSegmedSize :: Int -> m ()
   getPackedSegmetSize :: m Int
+  getCompressionLevel :: m Int
+  setCompressionLevel :: Int -> m ()
+
 
 theDict :: forall m . ( HBS2GitPerks m
                       , HasClientAPI PeerAPI UNIX m
@@ -1334,6 +1363,12 @@ theDict = do
             quit
 
           _ -> helpList False Nothing >> quit
+
+        entry $ bindMatch "compression" $ nil_ $ \case
+          [ LitIntVal n ] -> lift do
+            setCompressionLevel (fromIntegral n)
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "segment" $ nil_ $ \case
           [ LitIntVal n ] -> lift do
@@ -1716,14 +1751,30 @@ theDict = do
           for_ (HS.fromList r) $ \x -> do
             liftIO $ print x
 
-        entry $ bindMatch "test:git:zstd:packed:list" $ nil_ $ \case
-          [StringLike fn] -> lift do
-            lbs <- liftIO$ LBS.readFile fn
 
-            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
-              liftIO $ print $ "object" <+> pretty h <+> pretty s
+        entry $ bindMatch "test:git:zstd:packed:cat" $ nil_ $ \case
+          [ GitHashLike gh, StringLike fn ] -> lift do
+
+            src <- liftIO$ LBS.readFile fn
+
+            what <- S.toList_ $ runConsumeLBS (ZstdL.decompress src) $ readLogFileLBS () $ \h s src -> do
+              when ( h == gh ) $ lift $ S.yield (LBS.drop 1 src)
+
+            liftIO $ maybe1 (listToMaybe what) (Q.exitFailure) $ \s -> do
+              LBS.hPutStr stdout  s
 
           _ -> throwIO (BadFormException @C nil)
+
+
+        entry $ bindMatch "test:git:zstd:packed:list" $ nil_ $ \syn -> do
+          let (_, argz) = splitOpts [] syn
+
+          let fs = [fn | StringLike fn <- argz]
+
+          for_ fs $ \f -> do
+            lbs <- liftIO$ LBS.readFile f
+            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
+              liftIO $ print $ "object" <+> pretty h <+> pretty s
 
         entry $ bindMatch "test:git:zstd:pack" $ nil_ $ \syn -> do
 
@@ -1736,53 +1787,6 @@ theDict = do
           let z = ZstdL.compress l file
           liftIO $ LBS.writeFile (fn <> ".z") z
 
-        entry $ bindMatch "test:git:zstd:train" $ nil_ $ \case
-          [ StringLike fn ] -> lift do
-            file <- liftIO $ mmapFileByteString fn Nothing
-
-            _total <- newTVarIO 0
-
-            samples' <- S.toList_ ( runConsumeBS file $  readLogFileLBS () $ \h s lbs -> do
-
-              atomically $ modifyTVar _total succ
-              lift $ S.yield (LBS.toStrict (LBS.take  (256*1024)  lbs)) )
-
-            let samples = [x | (1,x) <- zip (cycle [1..10]) samples' ]
-
-            dictionary <- Zstd.trainFromSamples (256 * 1024) samples
-                            & orThrowUser "can't train dictionary"
-
-            debug $ "dict size" <+> pretty (BS.length $ Zstd.fromDict dictionary)
-
-            flip runContT pure do
-
-              ContT $ withAsync $ forever do
-                pause @'Seconds 1
-                p <- readTVarIO _total
-                liftIO $ IO.hPutStr stderr ("           \r" <> show (pretty p))
-
-              fh <- ContT $ withBinaryFile (fn <> ".packed") AppendMode
-              void $ runConsumeBS file $  readLogFileLBS () $ \h s lbs -> do
-
-                let packed = Zstd.compressUsingDict dictionary maxCLevel (LBS.toStrict lbs)
-                -- let packed = Zstd.compress maxCLevel (LBS.toStrict lbs)
-
-                let kbs  = coerce @_ @BS.ByteString h
-                let keySize = BS.length kbs
-
-                let objectSize = BS.length packed  & fromIntegral
-                let entrySize  = fromIntegral $ keySize + objectSize
-                let entry = LBS.toStrict $ Builder.toLazyByteString  $ Builder.word32BE entrySize
-
-                liftIO do
-                  atomically $ modifyTVar _total pred
-                  -- debug $ "entry size" <+> pretty (BS.length entry) <+> pretty h <+> pretty entrySize
-                  BS.hPutStr fh entry
-                  BS.hPutStr fh kbs
-                  BS.hPutStr fh packed
-
-
-          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "test:git:read-log-file" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
@@ -2002,6 +2006,30 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
+        entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          let logs = [ x| StringLike x <- argz ]
+
+          d <- findGitDir >>= orThrowUser "not a git directory"
+
+          for_ logs $ \lfn -> do
+
+            debug $ pretty lfn
+
+            lbs <- liftIO $ LBS.readFile lfn
+
+            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
+              let (t, content) = LBS.splitAt 1 lbs
+
+              let tp = case t of
+                        "T" -> Tree
+                        "C" -> Commit
+                        "B" -> Blob
+                        _   -> Blob
+
+              debug $ "FUCKING IMPORT OBJECT" <+> pretty h <+> pretty tp
+              gitImportObjectSlow tp content >>= orThrow (GitImportError (show $ pretty tp <+> pretty h))
+
         entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
 
@@ -2097,12 +2125,18 @@ theDict = do
 
                   atomically $ modifyTVar progress_ succ
 
+                  (_,self) <- gitReadObjectMaybe theReader commit
+                                 >>= orThrow (GitReadError (show $ pretty commit))
+
+                  tree <- gitReadCommitTree self
+
                   hashes <- gitReadTreeObjectsOnly commit
-                                <&> (commit:)
+                                <&> ([commit,tree]<>)
                                 >>= filterM notWrittenYet
 
                   for_ hashes $ \gh -> do
                     atomically $ modifyTVar _already (HS.insert gh)
+                    debug $ "object" <+> pretty gh
                     (_t,lbs) <- gitReadObjectMaybe theReader gh
                                    >>= orThrow (GitReadError (show $ pretty gh))
 
