@@ -79,6 +79,8 @@ import Data.HashMap.Strict (HashMap(..))
 import Data.Word
 import Data.Fixed
 import Data.Ord (comparing)
+import Data.Generics.Labels
+import Data.Generics.Product
 import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
@@ -97,16 +99,13 @@ import System.Directory (setCurrentDirectory)
 import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
+import System.IO (hPrint)
 
 import Data.Either
 import Data.Coerce
 import Data.Kind
-import Data.List (sortOn)
 import Data.Vector qualified as Vector
-import Data.Vector.Mutable qualified as MV
 import Data.Vector.Algorithms.Search qualified as MV
-import Data.Vector ((!))
-import Data.Ord (Down(..))
 
 import UnliftIO
 import UnliftIO.Concurrent
