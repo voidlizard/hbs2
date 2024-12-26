@@ -104,7 +104,7 @@ import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
 import System.Directory (setCurrentDirectory)
 import System.IO (hPrint,hGetLine,IOMode(..))
-import System.Random
+import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
 
@@ -252,6 +252,38 @@ withGitCat action = do
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
   p <- startProcess config
   action p
+
+withGitCatCheck ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
+withGitCatCheck action = do
+  let cmd = "git"
+  let args = ["cat-file", "--batch-check"]
+  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
+  p <- startProcess config
+  action p
+
+gitCheckObjectFromHandle :: MonadIO m => Process Handle Handle a -> GitHash -> m (Maybe (GitObjectType, Int))
+gitCheckObjectFromHandle ph gh = liftIO do
+
+  let ssin = getStdin ph
+  let ssout = getStdout ph
+
+  hPrint ssin (pretty gh) >> hFlush ssin
+
+  s <- hGetLine ssout
+
+  runMaybeT do
+
+    case words s of
+      [_,t,ss] -> do
+        n <- readMay @Int ss & toMPlus
+        o <- fromStringMay @GitObjectType t & toMPlus
+        pure $ (o,n)
+
+      [_,"missing"] -> do
+        mzero
+
+      w -> throwIO (GitReadError $ show (pretty w))
+
 
 instance GitObjectReader (Process Handle Handle ()) where
   gitReadObjectMaybe ph co = liftIO do
@@ -2067,15 +2099,24 @@ data {LBS.length body}|]
 
                 _ -> none
 
-        entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift do
-          let (opts, argz) = splitOpts [("--scary",0)] syn
+        entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift $ flip runContT pure do
+          let (opts, argz) = splitOpts [] syn
           let logs = [ x| StringLike x <- argz ]
-
-          let scary = or [ True | ListVal [StringLike "--scary"] <- opts ]
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
-          forConcurrently_ logs $ \lfn -> do
+          inQ <- newTQueueIO
+          rr <- replicateM 8 $ ContT $ withAsync $ liftIO $ flip runContT pure do
+            che <- ContT $ withGitCatCheck
+            fix \next -> do
+              (o, answ) <- atomically $ readTQueue inQ
+              w <- gitCheckObjectFromHandle che o
+              atomically $ writeTQueue answ w
+              next
+
+          mapM_ link rr
+
+          lift $ forConcurrently_ logs $ \lfn -> do
 
             debug $ pretty lfn
 
@@ -2084,37 +2125,35 @@ data {LBS.length body}|]
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
               let (t, body) = LBS.splitAt 1 lbs
 
-              let tp = case t of
-                        "T" -> Tree
-                        "C" -> Commit
-                        "B" -> Blob
-                        _   -> Blob
+              let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
+                           & maybe Blob coerce
 
-              debug $ "FUCKING IMPORT OBJECT" <+> pretty h <+> pretty tp
+              answ <- newTQueueIO
 
-              if not scary then do
-                gitImportObjectSlow tp body >>= orThrow (GitImportError (show $ pretty tp <+> pretty h))
-              else do
+              atomically $ writeTQueue inQ (h, answ)
+              here <- atomically do
+                        readTQueue answ <&> isJust
 
-                let gitHash = show $ pretty h
-                let (prefix,name) = L.splitAt 2 gitHash
-                let path = joinPath [d, "objects", prefix, name]
+              let gitHash = show $ pretty h
+              let (prefix,name) = L.splitAt 2 gitHash
+              let path = joinPath [d, "objects", prefix, name]
 
-                let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
-                let o = signature <> body
+              let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
+              let o = signature <> body
 
-                here <- doesPathExist path
 
-                unless here $ liftIO do
+              unless here $ liftIO do
 
-                  touch path
+                debug $ "FUCKING IMPORT OBJECT" <+> pretty here <+> pretty h <+> pretty tp
 
-                  debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
+                touch path
 
-                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                    let contents = Zlib.compressWith params  o
-                    LBS.hPutStr fh contents
+                debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
+
+                let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                  let contents = Zlib.compressWith params  o
+                  LBS.hPutStr fh contents
 
         entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
