@@ -288,6 +288,13 @@ instance Pretty (Short GitObjectType) where
     (Short Commit) -> "C"
 
 
+instance FromStringMaybe (Short GitObjectType) where
+  fromStringMay = \case
+    "T" -> Just (Short Tree)
+    "B" -> Just (Short Blob)
+    "C" -> Just (Short Commit)
+    _   -> Just (Short Blob)
+
 sortGitTreeEntries :: [GitTreeEntry] -> [GitTreeEntry]
 sortGitTreeEntries = sortOn (\e -> (gitEntryType e, gitEntrySize e))
 
@@ -2034,6 +2041,32 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
+
+        entry $ bindMatch "test:git:zstd:blobs:fast-export" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          let logz = [ x | StringLike x <- argz ]
+
+          _mark <- newTVarIO 1
+
+          for_ logz $ \lfn -> do
+            lbs <- liftIO $ LBS.readFile lfn
+
+            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
+              let (t, body) = LBS.splitAt 1 lbs
+              tp <- fromStringMay @(Short GitObjectType) (LBS8.unpack t) & orThrowUser "fucked"
+              case tp of
+                Short Blob -> do
+
+                  mark <- atomically ( stateTVar _mark (\x -> (x, succ x)) )
+                  let what = [qc|blob
+mark :{mark}
+data {LBS.length body}|]
+
+                  liftIO $ LBS8.hPutStrLn stdout what
+                  liftIO $ LBS.hPutStr stdout body
+
+                _ -> none
+
         entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--scary",0)] syn
           let logs = [ x| StringLike x <- argz ]
@@ -2042,7 +2075,7 @@ theDict = do
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
-          for_ logs $ \lfn -> do
+          forConcurrently_ logs $ \lfn -> do
 
             debug $ pretty lfn
 
@@ -2067,7 +2100,7 @@ theDict = do
                 let (prefix,name) = L.splitAt 2 gitHash
                 let path = joinPath [d, "objects", prefix, name]
 
-                let signature = [qc|{pretty tp} {pretty $ LBS.length lbs}|] <> "\x00" :: LBS8.ByteString
+                let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
                 let o = signature <> body
 
                 here <- doesPathExist path
