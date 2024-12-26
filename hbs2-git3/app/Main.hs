@@ -34,8 +34,6 @@ import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 -- move to a sepatate library
 import HBS2.Data.Log.Structured
 
-import HBS2.Git.Local
-import HBS2.Git.Local.CLI
 
 import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
 
@@ -46,6 +44,7 @@ import HBS2.Misc.PrettyStuff as Exported
 import HBS2.Git3.Types
 import HBS2.Git3.State.Direct
 import HBS2.Git3.Config.Local
+import HBS2.Git3.Git
 
 import Data.Config.Suckless.Script
 import DBPipe.SQLite
@@ -58,7 +57,6 @@ import Codec.Compression.Zstd.Lazy qualified as ZstdL
 
 import Codec.Compression.Zlib qualified as Zlib
 
-import qualified Data.Attoparsec.ByteString as A
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
 import Data.Maybe
@@ -74,9 +72,6 @@ import Data.ByteString.Builder as Builder
 import Network.ByteOrder qualified as N
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
-import Data.Map qualified as Map
-import Data.IntMap qualified as IntMap
-import Data.IntMap (IntMap(..))
 import Data.HashSet qualified as HS
 import Data.HashSet (HashSet(..))
 import Data.HashMap.Strict qualified as HM
@@ -84,11 +79,8 @@ import Data.HashMap.Strict (HashMap(..))
 import Data.Word
 import Data.Fixed
 import Data.Ord (comparing)
-import Data.Generics.Labels
-import Data.Generics.Product
 import Lens.Micro.Platform
 
-import Streaming qualified as S
 import Streaming.Prelude qualified as S
 import System.Exit qualified as Q
 import System.Environment qualified as E
@@ -98,12 +90,10 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Control.Monad.State qualified as State
 import Control.Monad.Reader
-import Control.Monad.State hiding (withState)
 import Control.Monad.Except
 import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
 import System.Directory (setCurrentDirectory)
-import System.IO (hPrint,hGetLine,IOMode(..))
 import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
@@ -126,12 +116,6 @@ import UnliftIO.IO.File qualified as UIO
 {- HLINT ignore "Eta reduce" -}
 
 
-pattern GitHashLike:: forall {c} . GitHash -> Syntax c
-pattern GitHashLike x <- (
-  \case
-    StringLike s      -> fromStringMay @GitHash s
-    _                -> Nothing
-      -> Just x )
 
 type HBS2GitPerks m = (MonadUnliftIO  m)
 
@@ -143,192 +127,6 @@ class Cached cache k v | cache -> k, cache -> v where
   cached   :: forall m . MonadIO m => cache -> k -> m v -> m v
   uncache  :: forall m . MonadIO m => cache -> k -> m ()
 
-data GitException =
-    CompressionError String
-  | DecompressionError String
-  | InvalidObjectFormat GitObjectType (Maybe GitHash)
-  | InvalidGitPack ByteString
-  | OtherGitError String
-  | UnknownRev String
-  | GitReadError String
-  | GitImportError String
-  deriving stock (Eq,Show,Typeable,Generic)
-
-instance Exception GitException
-
-data GitTreeEntry =
-  GitTreeEntry
-  { gitEntryAttribs :: Word16
-  , gitEntryType    :: GitObjectType
-  , gitEntryHash    :: GitHash
-  , gitEntrySize    :: Maybe Word32
-  , gitEntryName    :: FilePath
-  }
-  deriving (Show)
-
-pattern GitTreeEntryView :: GitTreeEntry -> [ByteString]
-pattern GitTreeEntryView e <- (isGitLsTreeEntry -> Just e)
-
-gitNormaliseRef :: GitRef -> GitRef
-gitNormaliseRef r@(GitRef what) =
-  if BS8.isPrefixOf "refs/" what || what == "HEAD" then
-    r
-  else
-    fromString (joinPath $ splitPath $ "refs" </> "heads" </> BS8.unpack what)
-
-isGitLsTreeEntry :: [ByteString] -> Maybe GitTreeEntry
-isGitLsTreeEntry = \case
-  [sa,st,sh,ss,sn] -> do
-    GitTreeEntry <$> readMay @Word16 (LBS8.unpack sa)
-                 <*> fromStringMay (LBS8.unpack st)
-                 <*> fromStringMay (LBS8.unpack sh)
-                 <*> pure (readMay (LBS8.unpack ss))
-                 <*> pure (LBS8.unpack sn)
-
-  _ -> Nothing
-
-gitReadTreeObjectsOnly :: (Pretty what, MonadIO m) => what -> m [GitHash]
-gitReadTreeObjectsOnly what =
-  gitRunCommand [qc|git ls-tree -t -r --object-only {pretty what}|]
-     >>= orThrow (GitReadError (show $ pretty what))
-     <&> fmap LBS8.words . LBS8.lines
-     <&> mapMaybe \case
-          [ x ] -> fromStringMay @GitHash (LBS8.unpack x)
-          _ -> Nothing
-
-gitReadTree :: (Pretty what, MonadIO m) => what -> m [GitTreeEntry]
-gitReadTree what =
-  gitRunCommand [qc|git ls-tree -t -l -r {pretty what}|]
-     >>= orThrow (GitReadError (show $ pretty what))
-     <&> fmap LBS8.words . LBS8.lines
-     <&> mapMaybe \case
-          GitTreeEntryView v -> do
-            Just v
-          _ -> Nothing
-     <&> \s -> HM.elems (HM.fromList [ (gitEntryHash e, e) | e <- s])
-
-class GitObjectReader a where
-  gitReadObjectMaybe :: forall m . MonadIO m => a -> GitHash -> m (Maybe (GitObjectType, ByteString))
-
-gitReadObjectOrThrow :: forall m a . (MonadIO m, GitObjectReader a) => a -> GitHash -> m (GitObjectType, ByteString)
-gitReadObjectOrThrow r co =
-  gitReadObjectMaybe r co >>= orThrow (GitReadError (show $ pretty co))
-
-gitReadObjectThrow :: (Pretty h, MonadIO m) => GitObjectType -> h -> m ByteString
-gitReadObjectThrow t h = do
-  gitRunCommand [qc|git cat-file {pretty t} {pretty h}|]
-    >>= orThrowPassIO
-
-gitRevParse :: (Pretty ref, MonadIO m) => ref -> m (Maybe GitHash)
-gitRevParse ref = do
-  gitRunCommand [qc|git rev-parse {pretty ref}|]
-    >>= orThrowPassIO
-    <&> LBS8.words
-    <&> maybe Nothing (fromStringMay . LBS8.unpack) . headMay
-
-gitRevParseThrow :: (Pretty ref, MonadIO m) => ref -> m GitHash
-gitRevParseThrow r = gitRevParse r >>= orThrow (UnknownRev (show $ pretty r))
-
-gitImportObjectSlow :: MonadIO m => GitObjectType -> ByteString -> m (Either ExitCode ())
-gitImportObjectSlow t lbs = do
-  let cmd = "git"
-  let args = ["hash-object", "-w", "--stdin", "-t", (show $ pretty t)]
-  let config = setStdin (byteStringInput lbs) $ setStdout closed $ setStderr closed $ proc cmd args
-  code <- runProcess config
-  pure $ if (code /= ExitSuccess) then Left code else Right ()
-
-gitReadHEAD :: MonadIO m => m (Maybe GitRef)
-gitReadHEAD = runMaybeT do
-  gitRunCommand [qc|git symbolic-ref HEAD|]
-   >>= toMPlus
-   <&> headMay . LBS8.lines
-   >>= toMPlus
-   <&> GitRef . LBS8.toStrict
-
-withGitCat ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
-withGitCat action = do
-  let cmd = "git"
-  let args = ["cat-file", "--batch"]
-  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
-  p <- startProcess config
-  action p
-
-withGitCatCheck ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
-withGitCatCheck action = do
-  let cmd = "git"
-  let args = ["cat-file", "--batch-check"]
-  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
-  p <- startProcess config
-  action p
-
-gitCheckObjectFromHandle :: MonadIO m => Process Handle Handle a -> GitHash -> m (Maybe (GitObjectType, Int))
-gitCheckObjectFromHandle ph gh = liftIO do
-
-  let ssin = getStdin ph
-  let ssout = getStdout ph
-
-  hPrint ssin (pretty gh) >> hFlush ssin
-
-  s <- hGetLine ssout
-
-  runMaybeT do
-
-    case words s of
-      [_,t,ss] -> do
-        n <- readMay @Int ss & toMPlus
-        o <- fromStringMay @GitObjectType t & toMPlus
-        pure $ (o,n)
-
-      [_,"missing"] -> do
-        mzero
-
-      w -> throwIO (GitReadError $ show (pretty w))
-
-
-instance GitObjectReader (Process Handle Handle ()) where
-  gitReadObjectMaybe ph co = liftIO do
-
-    let ssin = getStdin ph
-    let ssout = getStdout ph
-
-    hPrint ssin $ pretty co
-    hFlush ssin
-
-    s <- hGetLine ssout
-
-    runMaybeT do
-
-      case words s of
-        [_,t,ss] -> do
-          n <- readMay @Int ss & toMPlus
-          o <- fromStringMay @GitObjectType t & toMPlus
-          bs <- lift $ LBS.hGet ssout n
-          void $ lift $ hGetLine ssout
-          pure (o,bs)
-
-        [_,"missing"] -> do
-          mzero
-
-        w -> throwIO (GitReadError $ show (pretty w))
-
-newtype Short x = Short x
-
-instance Pretty (Short GitObjectType) where
-  pretty = \case
-    (Short Tree)   -> "T"
-    (Short Blob)   -> "B"
-    (Short Commit) -> "C"
-
-
-instance FromStringMaybe (Short GitObjectType) where
-  fromStringMay = \case
-    "T" -> Just (Short Tree)
-    "B" -> Just (Short Blob)
-    "C" -> Just (Short Commit)
-    _   -> Just (Short Blob)
-
-sortGitTreeEntries :: [GitTreeEntry] -> [GitTreeEntry]
-sortGitTreeEntries = sortOn (\e -> (gitEntryType e, gitEntrySize e))
 
 class GitWritePacksOpts a where
   excludeParents :: a -> Bool
@@ -552,34 +350,6 @@ queueCondCommit co = do
     pushKnownCommit co
 
 ---
-
-gitReadCommitParents :: MonadIO m => Maybe GitHash -> ByteString -> m [GitHash]
-gitReadCommitParents _ bs = do
-   pure $ LBS8.lines bs
-    & takeWhile ( not . LBS8.null )
-    & fmap (words . LBS8.unpack)
-    & mapMaybe \case
-        ["parent", x]  -> fromStringMay @GitHash x
-        _ -> Nothing
-
-gitReadCommitTree :: MonadIO m => ByteString -> m GitHash
-gitReadCommitTree bs = do
-
-   what <- LBS8.lines bs
-             & takeWhile ( not . LBS8.null )
-             & LBS8.unpack . LBS8.unlines
-             & parseTop
-             & orThrow (OtherGitError "invalid commit format")
-
-   let r = [ fromStringMay @GitHash hash
-           | ListVal [ StringLike "tree", StringLike hash ] <- what
-           ]
-
-   catMaybes r & headMay & orThrow (InvalidObjectFormat Commit Nothing)
-
-gitObjectExists :: (MonadIO m, Pretty what) => what -> m Bool
-gitObjectExists what = do
-  gitRunCommand [qc|git cat-file -e {pretty what}|] <&> isRight
 
 data UState =
   UHead Word32 ByteString
@@ -1855,20 +1625,6 @@ theDict = do
           liftIO $ LBS.writeFile (fn <> ".z") z
 
 
-        entry $ bindMatch "test:git:read-log-file" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          fname <- headMay [ x | StringLike x <- argz] & orThrowUser "log file not set"
-          file <- liftIO $ mmapFileByteString fname Nothing
-          void $ runConsumeBS file $  readLogFileLBS () $ \h s lbs -> do
-            liftIO $ print $ "object" <+> pretty h <+> pretty s
-
-        entry $ bindMatch "test:git:read-log-lbs" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          fname <- headMay [ x | StringLike x <- argz] & orThrowUser "log file not set"
-          theLog <- liftIO $ LBS.readFile fname
-          void $ runConsumeLBS theLog $  readLogFileLBS () $ \h s lbs -> do
-            liftIO $ print $ "object" <+> pretty h <+> pretty s
-
         entry $ bindMatch "test:git:log:index:naive:dump" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
           fname <- headMay [ x | StringLike x <- argz] & orThrowUser  "no file"
@@ -2024,7 +1780,6 @@ theDict = do
           [LitIntVal i, StringLike fn] -> lift do
 
             bs <- liftIO $ mmapFileByteString fn Nothing
-            -- Проблемное смещение
             let index = fromIntegral i
             let offset = index * 24
 
