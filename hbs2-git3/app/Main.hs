@@ -1011,6 +1011,9 @@ theDict = do
 
           _already <- newTVarIO mempty
 
+          level <- getCompressionLevel
+          segment  <- getPackedSegmetSize
+
           let
             notWrittenYet :: forall m . MonadIO m => GitHash -> m Bool
             notWrittenYet x = do
@@ -1031,6 +1034,7 @@ theDict = do
                     & fmap (view _1)
 
           let total = HPSQ.size hpsq
+          bytes_ <- newTVarIO 0
 
           debug $ "TOTAL" <+> pretty total
 
@@ -1038,13 +1042,18 @@ theDict = do
 
             tn <- getNumCapabilities
 
-            sourceQ <- newTBQueueIO (fromIntegral tn * 100)
+            sourceQ <- newTBQueueIO (fromIntegral tn * 10)
+
+
+            let write sz_ fh ss = do
+                 LBS.hPutStr fh ss
+                 atomically $ modifyTVar sz_ (+ LBS.length ss)
 
             l <- lift $ async $ do
 
                     flip fix ECCInit $ \loop -> \case
                       ECCInit -> do
-                        zstd <- ZstdS.compress maxCLevel
+                        zstd <- ZstdS.compress level
                         seed <- randomIO @Word16
                         let fn = show $ "export-" <> pretty seed <> ".log"
                         logFile <- IO.openBinaryFile fn WriteMode
@@ -1061,18 +1070,16 @@ theDict = do
                               lbs <- S.toList_ (writeSection s $ S.yield) <&> mconcat
 
                               sz_ <- newTVarIO 0
-                              let write ss = do
-                                   LBS.hPutStr fh ss
-                                   atomically $ modifyTVar sz_ (+ LBS.length ss)
 
-                              sn1 <- writeCompressedChunkZstd write sn (Just lbs)
+                              sn1 <- writeCompressedChunkZstd (write sz_ fh) sn (Just lbs)
 
                               sz <- readTVarIO sz_ <&> fromIntegral
+                              atomically $ modifyTVar bytes_ (+ fromIntegral sz)
 
                               loop (ECCWrite (bnum + sz) fh sn1)
 
                       ECCFinalize again fh sn -> do
-                        void $ writeCompressedChunkZstd (LBS.hPutStr fh) sn Nothing
+                        void $ writeCompressedChunkZstd (write bytes_ fh) sn Nothing
                         hClose fh
                         when again $ loop ECCInit
 
@@ -1113,15 +1120,42 @@ theDict = do
                     atomically do
                       writeTBQueue sourceQ (Just e)
 
-            ContT $ withAsync $ forever do
-              pause @'Seconds 1
-              p <- readTVarIO progress_
+            t0 <- getTimeCoarse
+            ContT $ withAsync $ do
 
-              let pp = fromIntegral p / (fromIntegral total :: Double) * 100
+              liftIO $ hPrint stderr $
+                                   "segment" <+> pretty segment <> comma
+                                <> "compression level" <+> pretty level
+
+              flip fix (t0,0)  $ \next (tPrev,bytesPrev) -> do
+
+                pause @'Seconds 1
+
+                p <- readTVarIO progress_
+                b <- readTVarIO bytes_
+
+                let pp = fromIntegral p / (fromIntegral total :: Double) * 100
+                             & realToFrac @_ @(Fixed E2)
+
+                t1 <- getTimeCoarse
+
+                let dt = realToFrac @_ @Double (t1 - tPrev) * 1e-9
                            & realToFrac @_ @(Fixed E2)
 
-              liftIO $ IO.hPutStr stderr  $ show $ "           \r" <> pretty pp <> "%"
-              pure ()
+                let tspent = realToFrac (t1 - t0) * 1e-9 & realToFrac @_ @(Fixed E2)
+
+                let mbytes = realToFrac b / 1024/1024  & realToFrac @_ @(Fixed E2)
+
+                let dbdt = mbytes / tspent
+
+                liftIO $ IO.hPutStr stderr  $ show $
+                    "                 \r"
+                    <+> pretty tspent <> "s"
+                    <+> pretty mbytes <> "mb"
+                    <+> pretty dbdt <> "mbs"
+                    <+> pretty pp <> "%"
+
+                next (t1,b)
 
             mapM_ link workers
             mapM_ wait workers
