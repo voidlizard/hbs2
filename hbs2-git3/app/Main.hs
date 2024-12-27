@@ -348,161 +348,6 @@ queueCondCommit co = do
     pushObjHash (Commit, co)
     pushKnownCommit co
 
----
-
-data UState =
-  UHead Word32 ByteString
-
-data IOpType
-  = IGitObject GitObjectType GitHash (Maybe ByteString)
-  | ISetRef GitRef Int (Maybe GitHash)
-  | IOrphan GitHash
-  deriving (Show, Eq)
-
-data IOp =
-  IOp { iopOffset :: Word32
-      , iopSize   :: Word32
-      , iopType   :: IOpType
-      }
-  deriving (Show, Eq)
-
-data ES =
-  ES [BS.ByteString] Result
-
-
-class EnumGitPackObjectsOpts a where
-  enumObjectPayload :: a -> Bool
-
-instance EnumGitPackObjectsOpts () where
-  enumObjectPayload = const False
-
-data DoEnumPayload = DoEnumPayload
-
-instance EnumGitPackObjectsOpts DoEnumPayload where
-  enumObjectPayload = const True
-
-enumGitPackObjectsFromLBS :: (MonadIO m, EnumGitPackObjectsOpts opts)
-                          => opts
-                          -> ByteString
-                          -> ( IOp -> m Bool )
-                          -> m ()
-enumGitPackObjectsFromLBS opts lbs action = do
-
-  let chunks = LBS.toChunks lbs
-
-  stream <- liftIO ZstdS.decompress
-
-  chunks <- S.toList_ do
-
-    flip fix (ES chunks stream) $ \go -> \case
-        ES _ (Error s1 s2) -> throwIO (DecompressionError (s1 <> s2))
-
-        ES [] (Consume work) ->
-          go . ES [] =<< liftIO (work mempty)
-
-        ES (r:rs) (Consume work) -> do
-          go . ES rs =<< liftIO (work r)
-
-        ES rs (Produce s continue) -> do
-          S.yield s
-          go . ES rs =<< liftIO continue
-
-        ES _ (Done s) -> do
-          S.yield s
-
-  void $ flip fix (UHead 0 (LBS.fromChunks chunks)) $ \next -> \case
-    UHead off chunk -> do
-      let (skipped1,s0) = LBS8.span (=='\n') chunk
-      -- read += len skipped
-
-      unless (LBS.null s0) do
-        let (hdr,rest) = LBS8.break (=='\n') s0
-        -- read += len hdr
-
-        let o = LBS.drop 1 rest -- skip '\n'. read+1
-        -- read += 1
-
-        let skipped2 = fromIntegral $ LBS8.length skipped1
-                                    + LBS8.length hdr
-                                    + 1
-
-        let entryOffset = off + fromIntegral skipped2
-
-        iop@(IOp{..}) <- unpackIOp 0 (LBS8.words hdr) & orThrow (InvalidGitPack hdr)
-
-        let (rn, rest2) = LBS.splitAt (fromIntegral iopSize) o
-        -- read += len rn        --
-
-        let consumed = fromIntegral $ skipped2 + LBS.length rn
-
-        let pl = case ( enumObjectPayload opts, iopType ) of
-                   (True, IGitObject t h _) -> IGitObject t h (Just rn)
-                   (_, t) -> t
-
-        let actualIop  = iop { iopOffset = entryOffset
-                             , iopType = pl
-                             }
-
-        continue <- action actualIop
-
-        when continue do
-          next (UHead (off + consumed) rest2)
-
-data ExportState =
-    ExportGetCommit
-  | ExportProcessCommit GitHash ByteString
-  | ExportCheck
-  | ExportStart
-  | ExportExit
-
-
-data EOp =
-    EGitObject GitObjectType GitHash (Maybe GitTreeEntry) ByteString
-  | EGitRef    GitRef Int (Maybe GitHash)
-  | EOrphan GitHash
-
-unpackIOp :: Word32 -> [ByteString] -> Maybe IOp
-unpackIOp off = \case
-  ("C" : s : h : _) -> do
-    size <- fromLBS s
-    hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Commit hash Nothing)
-
-  ("B" : s : h : _) -> do
-    size <- fromLBS s
-    hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Blob hash Nothing)
-
-  ("T" : s : h : _) -> do
-    size <- fromLBS s
-    hash <- fromLBS' h
-    pure $ IOp off size (IGitObject Tree hash Nothing)
-
-  ("O" : s : h : _) -> do
-    size <- fromLBS s
-    hash <- fromLBS' h
-    pure $ IOp off size (IOrphan hash)
-
-  ("R" : s : n : r : rest) -> do
-    size <- fromLBS s
-    weight <- fromLBS n
-    refName <- pure (GitRef $ LBS8.toStrict r)
-    hash <- case rest of
-      (h : _) -> Just <$> fromStringMay (LBS8.unpack h)
-      _       -> pure Nothing
-    pure $ IOp off size (ISetRef refName weight hash)
-
-  _ -> Nothing
-
-  where
-    fromLBS :: forall a . Read a => ByteString -> Maybe a
-    fromLBS = readMay . LBS8.unpack
-
-    fromLBS' :: forall a. FromStringMaybe a => ByteString -> Maybe a
-    fromLBS' = fromStringMay . LBS8.unpack
-
-data EWState =
-    EWAcc Int [GitTreeEntry] Int [EOp]
 
 newtype CacheTVH k v = CacheTVH (TVar (HashMap k v))
 
@@ -605,470 +450,6 @@ readCommitChainHPSQ filt _ h0 action = flip runContT pure $ callCC \_ -> do
     addParents a n p = \case
       Nothing -> (a, Just (n, HS.fromList p))
       Just (l,s) -> (a, Just (min l n, s <> HS.fromList p))
-
-export :: ( HBS2GitPerks m
-          , MonadUnliftIO m
-          , MonadReader Git3Env m
-          , HasStorage m
-          , HasStateDB m
-          )
-       => Maybe GitRef -> GitHash -> m ()
-export mref' r = connectedDo $ flip runContT pure do
-  debug $ green "export"  <+> pretty r
-
-  let mref = gitNormaliseRef <$> mref'
-
-  q <- newTVarIO ( HPSQ.empty @GitHash @Double @() )
-  done <- newTVarIO ( mempty :: HashSet GitHash )
-
-  atomically $ modifyTVar q (HPSQ.insert r 1.0 ())
-
-  sto <- lift getStorage
-
-  reader  <- ContT $ withGitCat
-
-  let commitCacheSize = 2000
-
-  d <- findGitDir >>= orThrow (OtherGitError "git dir not set")
-
-  shallow <- liftIO (try @_ @IOException (readFile (d </> "shallow")))
-               <&> fromRight mempty
-               <&> mapMaybe (fromStringMay @GitHash) . lines
-               <&> HS.fromList
-
-  let orphans = [ EOrphan x | x <- HS.toList shallow ]
-
-  commits <- newCacheFixedHPSQ commitCacheSize
-
-  ContT $ bracket none $ const do
-    hClose $ getStdin reader
-
-  -- ContT $ withAsync $ replicateM_ 2 $ forever do
-  --   join $ atomically (readTQueue deferred)
-
-  lift $ flip fix ExportStart $ \next -> \case
-
-    ExportStart -> do
-      here <- withState $ selectCBlock r <&> isJust
-      if here then next ExportCheck else next ExportGetCommit
-
-    ExportGetCommit -> do
-
-      co' <- atomically $ stateTVar q $ HPSQ.alterMin \case
-              Nothing      -> (Nothing, Nothing)
-              Just (k,p,v) -> (Just (k,p), Nothing)
-
-      case co' of
-        Nothing -> do
-          debug $ red "go ExportCheck"
-          next ExportCheck
-
-        Just (co,prio) -> do
-          debug $ "Process commit" <+> pretty co <+> pretty prio
-          debug $ "check-pack-for" <+> pretty prio <+> pretty co
-
-          isDone <- readTVarIO done <&> HS.member co
-
-          let already = isDone
-
-          if already
-            then do
-              next ExportGetCommit
-            else do
-              (_,bs) <- liftIO (cached commits co (gitReadObjectMaybe reader co))
-                            >>= orThrow (GitReadError (show $ pretty co <+> pretty prio))
-
-              parents <- gitReadCommitParents (Just co) bs
-
-              n <- for (zip [1..] parents) $ \(i,gh) -> do
-
-                     exists <- liftIO (cached commits gh (gitReadObjectMaybe reader gh))
-                                  <&> isJust
-
-                     here <- withState $ selectCBlock gh <&> isJust
-
-                     unless exists do
-                      warn $ red "missed!" <+> pretty gh
-                      -- atomically $ modifyTVar done (HS.insert gh)
-
-                     atomically do
-                       pdone <- readTVar done <&> HS.member gh
-                       if pdone || here || not exists then do -- for shallow commits?
-                         pure 0
-                       else do
-                         modifyTVar q (HPSQ.insert gh (prio-i) ())
-                         pure 1
-
-              if sum n == 0 then do
-                uncache commits co
-                next $ ExportProcessCommit co bs
-              else do
-                -- error "FUCK!"
-                debug $ yellow "put commit back" <+> pretty co
-                atomically $ modifyTVar q (HPSQ.insert co prio ())
-                next ExportGetCommit
-
-    ExportProcessCommit co bs -> do
-      debug $ "write pack for" <+> pretty co
-
-      l <- readTVarIO q<&> HPSQ.keys
-
-      let lastBlock = co == r && L.null l
-
-      hhead <- gitRevParse co
-                     >>= orThrow (OtherGitError $ show $ "can't parse" <+> pretty co)
-
-      parents <- gitReadObjectThrow Commit hhead
-                    >>= gitReadCommitParents (Just hhead)
-
-      tree <- gitReadCommitTree bs
-
-      skip <- if not (excludeParents ()) then do
-                   pure mempty
-                 else do
-                    skip' <- S.toList_ $ for parents $ \p -> do
-                        lift (try @_ @GitException (gitReadTree p))
-                          <&> fromRight mempty
-                          <&> fmap gitEntryHash >>= S.each
-
-                    pure $ HS.fromList skip'
-
-      r <- gitReadTree hhead
-             <&> L.filter (\GitTreeEntry{..} -> L.null parents || not (HS.member gitEntryHash skip))
-             -- <&> L.filter (\GitTreeEntry{..} -> gitEntryType /= Tree)
-             <&> sortGitTreeEntries
-
-      let blkMax = 1048576
-
-      out <- newTQueueIO
-
-      now <- liftIO getPOSIXTime <&> round
-
-      let ref = maybeToList (EGitRef <$> mref <*> pure now <*> pure (Just co))
-
-      (_,tbs) <- gitReadObjectMaybe reader tree
-                   >>= orThrow (GitReadError (show $ pretty tree))
-
-      let commitItself = [ EGitObject Tree tree Nothing tbs
-                         , EGitObject Commit co Nothing bs
-                         ]
-
-      let seed = (if lastBlock then ref <> orphans else mempty) <> commitItself
-
-      flip fix (EWAcc 1 r 0 seed) $ \go -> \case
-
-        EWAcc _ [] _ [] -> none
-
-        EWAcc i [] l acc -> do
-          writePack sto l acc >>= atomically . writeTQueue out . (i,)
-
-        EWAcc i (r@GitTreeEntry{..}:rs) l acc | gitEntrySize >= Just (fromIntegral blkMax) -> do
-          writeLargeBlob sto reader r >>= atomically . writeTQueue out . (i,)
-          go (EWAcc (succ i) rs l acc)
-
-        EWAcc i rs l acc | l >= blkMax -> do
-          writePack sto l acc >>=  atomically . writeTQueue out . (i,)
-          go (EWAcc (succ i) rs 0 mempty)
-
-        EWAcc i (e@GitTreeEntry{..}:rs) l acc -> do
-
-          lbs <- gitReadObjectMaybe reader gitEntryHash
-                   >>= orThrow (GitReadError (show $ pretty gitEntryHash))
-                   <&> snd
-
-          let new = EGitObject gitEntryType gitEntryHash (Just e) lbs
-          go (EWAcc i rs (l + fromIntegral (LBS.length lbs)) (new : acc))
-
-
-      packs <- atomically $ STM.flushTQueue out
-
-      phashes <- catMaybes <$> withState (for parents (fmap (fmap snd) . selectCBlock))
-
-      let v = "hbs2-git 3.0 zstd"
-      let pps = vcat $ mconcat $ for phashes $ \p -> ["p" <+> pretty p]
-      let meta = LBS8.pack $ show $ pretty v <> line <> pps
-
-      hmeta <- putBlock sto meta >>= orThrow StorageError <&> HashRef
-
-      let cblock = hmeta : uniqAndOrdered phashes <> uniqAndOrderedByKey packs
-
-      let pt = toPTree (MaxSize 1024) (MaxNum 1024) cblock
-
-      root <- makeMerkle 0 pt $ \(_,_,s) -> do
-                 void $ putBlock sto s
-
-      withState $ transactional do
-        insertCBlock co (HashRef root)
-
-      notice $ "cblock" <+> pretty root
-
-      atomically do
-        modifyTVar done (HS.insert co)
-        modifyTVar q (HPSQ.delete co)
-
-      next ExportGetCommit
-
-    ExportCheck -> do
-      debug $ "ExportCheck dummy" <+> pretty r
-      c <- withState $ selectCBlock r >>= orThrowUser "export failed"
-      liftIO $ hPrint stdout (pretty c)
-      next ExportExit
-
-    ExportExit -> none
-
-  where
-
-    uniqAndOrderedByKey xs = L.sortOn fst xs & uniq
-      where
-        uniq items = flip fix (items, mempty, mempty) $ \next -> \case
-          ([],   _, acc) -> L.reverse acc
-          ((_,v):es, seen, acc) | HS.member v seen -> next (es, seen, acc)
-          ((_,v):es, seen, acc) -> next (es, HS.insert v seen, v:acc)
-
-    uniqAndOrdered = Set.toList . Set.fromList
-
-    writeLargeBlob sto reader GitTreeEntry{..} = liftIO do
-      size <- gitEntrySize & orThrow (GitReadError (show $ "expected blob" <+> pretty gitEntryHash))
-      let p =    Builder.byteString [qc|{pretty $ Short gitEntryType} {pretty size} {pretty gitEntryHash} {gitEntryName}|]
-              <> Builder.byteString "\n"
-              &  LBS.toStrict . Builder.toLazyByteString
-
-      -- liftIO $ print $ "MOTHERFUCKER1" <+> pretty gitEntryHash
-
-      -- TODO: check-if-work-on-large-files
-      pieces <- S.toList_ do
-
-        stream <- lift $ ZstdS.compress maxCLevel
-
-        (t,lbs) <- gitReadObjectMaybe reader gitEntryHash
-                      >>= orThrow (GitReadError (show $ pretty gitEntryHash))
-
-        let chunks = p : LBS.toChunks lbs
-
-        flip fix (chunks, stream) $ \go r ->
-          case r of
-          (c, Produce chunk continue)  -> do
-            S.yield chunk
-            w <- lift continue
-            go (c,w)
-
-          ([], Consume consume) -> do
-            x <- lift $ consume mempty
-            go ([],x)
-
-          (s:ss, Consume consume) -> do
-            x <- lift $ consume s
-            go (ss,x)
-
-          (_,Done bs) -> do
-            S.yield bs
-
-          (_,Error s1 s2) -> do
-            throwIO (CompressionError (s1  <> " " <> s2))
-
-      -- liftIO $ print $ "MOTHERFUCKER2" <+> pretty gitEntryHash
-
-      -- TODO: check-if-work-on-large-files
-      r <- createTreeWithMetadata sto mzero mempty (LBS.fromChunks pieces)
-             >>= orThrowPassIO
-
-      debug $ yellow $ "write large object" <+> pretty r <+> pretty gitEntryHash
-
-      pure r
-      -- liftIO $ print $ "WRITTEN" <+> pretty gitEntryHash <+> pretty w
-      -- pure w
-
-    writePack sto l racc = do
-      -- write
-      -- pack
-      -- merkle
-      --
-      let acc = reverse racc
-      debug $ green "write pack of objects" <+> pretty l <+> pretty (length acc)
-
-      let refs = [ Builder.byteString [qc|R 0 {w} {show $ pretty ref} {show $ pretty h}|]
-                 | EGitRef ref w h <- acc
-                 ] & mconcat & (<> Builder.byteString "\n")
-
-      -- 'O' for 'orphan'
-      let sh =   [ Builder.byteString [qc|O 0 {show $ pretty h}|]
-                 | EOrphan h <- acc
-                 ] & mconcat & (<> Builder.byteString "\n")
-
-      parts <- for [ (h,t,e,lbs) | EGitObject t h e lbs <- acc ] $ \(h,t,e,lbs) -> liftIO do
-        let ename = [qc|{fromMaybe mempty $ gitEntryName <$> e}|] :: ByteString
-
-        -- notice $ "pack" <+> pretty h <+> pretty t
-        let p =    Builder.byteString [qc|{pretty $ Short t} {pretty (LBS.length lbs)} {pretty h} {ename}|]
-                <> Builder.byteString "\n"
-                <> Builder.lazyByteString lbs
-                <> Builder.byteString "\n"
-        pure p
-
-      let packed = Zstd.compress maxCLevel (LBS.toStrict $ Builder.toLazyByteString $ refs <> mconcat parts <> sh)
-
-      createTreeWithMetadata sto mzero mempty (LBS.fromStrict packed)
-        >>= orThrowPassIO
-
-data CBlockReadError =
-    EmptyCBlock
-  | BadMetaData
-  | MissedCBlock
-  deriving stock (Show,Eq,Typeable)
-
-data CBlockReadException =
- CBlockReadException HashRef CBlockReadError
- deriving stock (Show,Typeable)
-
-instance Exception CBlockReadException
-
-data CBlockSection =
-    CBlockParents [HashRef]
-  | CBlockData [HashRef]
-
-readCBlock :: forall m . ( MonadIO m
-                         )
-           => AnyStorage
-           -> HashRef
-           -> ( CBlockSection  -> m () )
-           -> m ()
-
-readCBlock sto hash action = do
-
-    hzz <- S.toList_ $ walkMerkle (coerce hash) (getBlock sto)  $ \case
-      Left h -> throwIO MissedBlockError
-      Right ( hs :: [HashRef] ) -> S.each hs
-
-    hmeta <- headMay hzz & orThrow (CBlockReadException hash EmptyCBlock)
-
-    what <- getBlock sto (coerce hmeta)
-               >>= orThrow (CBlockReadException hmeta BadMetaData)
-               <&> LBS8.unpack
-               <&> parseTop
-               <&> fromRight mempty
-
-    _ <- headMay [ ()
-                 | ListVal [ StringLike "hbs2-git", _, StringLike "zstd" ] <- what
-                 ] & orThrow (CBlockReadException hash BadMetaData)
-
-    let pps = [ ph
-              | ListVal [ StringLike "p", HashLike ph ] <- what
-              ] & HS.fromList
-
-    let rs = filter (\x -> not (HS.member x pps)) (tail hzz)
-
-    action $ CBlockParents (HS.toList pps)
-    action $ CBlockData rs
-
-listOnlyCommitsFromCBlock :: forall m . MonadIO m
-                          => AnyStorage
-                          -> HashRef
-                          -> m [GitHash]
-
-listOnlyCommitsFromCBlock sto cblock = do
-  cbs <- S.toList_ $ readCBlock sto cblock $ \case
-            CBlockData rs -> S.each rs
-            _ -> none
-
-  S.toList_ $ flip runContT pure $ callCC \exit -> do
-    for_ cbs  $ \c -> do
-      what <- liftIO $ runExceptT (getTreeContents sto c) >>= orThrowPassIO
-      enumGitPackObjectsFromLBS () what $ \case
-        IOp _ _ (IGitObject Commit h _) -> lift (S.yield h) >> pure True
-        IOp _ _ (ISetRef{}) -> pure True
-        IOp _ _ (IOrphan{}) -> pure True
-        _ -> exit ()
-
-data WState =
-    WStart
-  | WNextSBlock
-  | WReadSBlock Int HashRef
-  | WProcessCBlock Int HashRef
-
-traverseToCBlock :: forall m . MonadIO m
-           => AnyStorage
-           -> HashRef
-           -> ( HashRef -> m Bool )
-           -> ( Int -> HashRef -> [HashRef] -> m () )
-           -> m ()
-traverseToCBlock sto cblock dig process = do
-
-  q <- newTVarIO ( HPSQ.empty @HashRef @Int @() )
-  done <- newTVarIO ( mempty :: HashSet HashRef )
-  cache <- newCacheFixedHPSQ 1000
-
-  flip fix WStart $ \next -> \case
-    WStart -> do
-      atomically $ modifyTVar q (HPSQ.insert cblock 1 ())
-      next WNextSBlock
-
-    WNextSBlock -> do
-
-      blk' <- atomically $ stateTVar q $ HPSQ.alterMin \case
-                Nothing      -> (Nothing, Nothing)
-                Just (k,p,_) -> (Just (k,p), Nothing)
-
-      debug $ "WNextSBlock" <+> pretty blk'
-
-      maybe1 blk' none $ \(k,p) -> do
-        next (WReadSBlock p k)
-
-    WReadSBlock prio h -> do
-      debug $ "WReadSBlock" <+> pretty h
-
-      deeper <- dig h
-
-      if not deeper then do
-        atomically $ modifyTVar done ( HS.insert h )
-        next WNextSBlock
-      else do
-        sections <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
-
-        for_ sections $ \case
-          CBlockData _ -> none
-          CBlockParents p -> do
-            debug $ "parents" <+> pretty p
-            next =<< atomically do
-              d <- readTVar done
-              for_ (zip [1..] p) $ \(i,x) -> do
-                unless (HS.member x d) do
-                  modifyTVar q (HPSQ.insert x (prio-i) ())
-
-              let hDone = HS.member h d
-
-              unless hDone do
-                modifyTVar q (HPSQ.insert h prio ())
-
-              qq <- readTVar q
-              if not (any (`HPSQ.member` qq) p) && not hDone then do
-                pure $ WProcessCBlock prio h
-              else do
-                pure WNextSBlock
-
-    WProcessCBlock i h -> do
-      what <- cached cache h $ S.toList_ (readCBlock sto h S.yield)
-      atomically $ modifyTVar done ( HS.insert h )
-      uncache cache h
-
-      debug $ "process cblock" <+> pretty h
-
-      for_ what \case
-        CBlockParents{} -> do
-          none
-
-        CBlockData hrefs -> do
-          process i h hrefs
-
-      next $ WNextSBlock
-
-indexCBlockCommits :: forall m . ( MonadIO m
-                          , HasStateDB m
-                          , HasStorage m
-                          )
-           => HashRef -> m ()
-
-indexCBlockCommits cb = do
-  pure ()
 
 readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts, BytesReader m )
                => opts
@@ -1291,234 +672,8 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:cblock:list:only:commits" $ nil_ $ \case
-          [ HashLike ha ] -> lift do
-            sto <- getStorage
-            co <- listOnlyCommitsFromCBlock sto ha
-            liftIO $ mapM_ ( print . pretty ) co
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:cblock:list" $ nil_ $ \syn -> lift do
-          hash <- headMay [ x | HashLike x <- syn ] & orThrowUser "cblock hash not given"
-
-          sto <- getStorage
-
-          liftIO do
-
-            readCBlock sto hash $ \case
-              CBlockParents{} -> none
-              CBlockData rs -> do
-                for_ rs $ \r -> do
-                  what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
-                  debug $ yellow "reading" <+> pretty r
-                  enumGitPackObjectsFromLBS () what $ \case
-                    IOp o s (IGitObject t h _) -> do
-                     putStrLn $ show $ pretty t <+> pretty h <+> pretty o <+> pretty s
-                     pure True
-
-                    IOp _ _ (ISetRef ref w h ) -> do
-                      putStrLn $ show $ "ref" <+> pretty ref <+> pretty w <+> pretty h
-                      pure True
-
-                    IOp _ _ (IOrphan h) -> do
-                      putStrLn $ show $ "shallow" <+> pretty h
-                      pure True
-
-        entry $ bindMatch "test:git:cblock:object:cat" $ nil_ $ \case
-          [ HashLike cblock, StringLike g ] -> lift do
-
-            sto <- getStorage
-            h0 <- fromStringMay @GitHash g & orThrowUser "invalid git hash"
-
-            readCBlock sto cblock $ \case
-              CBlockParents{} -> none
-              CBlockData rs -> do
-                for_ rs $ \r -> do
-                  what <- runExceptT (getTreeContents sto r) >>= orThrowPassIO
-                  debug $ yellow "reading" <+> pretty r
-                  enumGitPackObjectsFromLBS DoEnumPayload what $ \case
-
-                    IOp _ _ (IGitObject _ h (Just body)) | h == h0 -> do
-                      liftIO $ LBS.putStr body
-                      pure False
-
-                    _ -> pure True
-
-          _ -> throwIO (BadFormException @C nil)
-
         entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
           LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
-
-        entry $ bindMatch "test:git:cblock:import" $ nil_ $ \syn -> lift do
-          let opts = splitOpts [("--deep",0),("--only",0),("--dry",0)] syn
-
-          d <- findGitDir >>= orThrowUser "not a git directory"
-
-          debug $ pretty opts
-
-          debug $ "DIR" <+> pretty d
-
-          cb0  <- [ x | HashLike x <- snd opts ] & headMay & orThrowUser "import: cblock not set"
-
-          indexCBlockCommits cb0
-
-          _done <- newTVarIO ( mempty :: HashSet HashRef )
-
-          let deep  = or [ True | ListVal [StringLike "--deep"] <- fst opts ]
-          let only  = or [ True | ListVal [StringLike "--only"] <- fst opts ]
-
-          debug $ "cblock" <+> pretty deep <+> pretty cb0 <+> pretty only <+> pretty deep
-
-          sto <- getStorage
-
-          let whatever cblock = do
-                r <- lift (withState $ selectImported cblock)
-                pure (not r)
-
-          flip runContT pure $ callCC \exit -> do
-
-            ContT $ bracket none $ const do
-              doneSize <- readTVarIO _done <&> HS.size
-              notice $ red "DONE" <+> pretty doneSize
-
-            traverseToCBlock sto cb0 whatever  $ \i theCblk hs -> do
-
-              debug $ green "process cblock data" <+> pretty i <+> pretty theCblk
-
-              _orphans <- newTVarIO ( mempty :: HashSet GitHash )
-              _cblocks <- newTQueueIO
-
-              for_ hs $ \hx -> do
-
-                what <- lift $ runExceptT (getTreeContents sto hx) >>= orThrowPassIO
-
-                enumGitPackObjectsFromLBS DoEnumPayload what $ \case
-
-                  IOp _ s (IGitObject t h (Just body)) -> liftIO do
-
-                    debug $ red "AAAAQA!" <+> pretty h
-
-                    let signature = [qc|{pretty t} {pretty s}|] <> "\x00" :: LBS8.ByteString
-                    let gitHash = show $ pretty h
-                    let (prefix,name) = L.splitAt 2 gitHash
-                    let path = joinPath [d, "objects", prefix, name]
-
-                    here <- doesPathExist path
-
-                    unless here do
-
-                      touch path
-
-                      debug $ pretty t <+> pretty s <+> pretty h <+> pretty path
-
-                      let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                      UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                        let contents = Zlib.compressWith params (signature <> body)
-                        LBS.hPutStr fh contents
-
-                    when (t == Commit) do
-                      atomically $ writeTQueue _cblocks (theCblk, h)
-
-                    pure True
-
-                  IOp _ _ (ISetRef ref w h ) -> do
-                    let path = d </> show (pretty $ gitNormaliseRef ref)
-                    touch path
-                    UIO.writeBinaryFileAtomic path ( BS8.pack ( show (pretty h) <> "\n" ) )
-                    pure True
-
-                  IOp _ _ (IOrphan o) -> do
-                    atomically $ modifyTVar _orphans (HS.insert o)
-                    pure True
-
-                  _ -> pure True
-
-                atomically $ modifyTVar _done (HS.insert hx)
-
-              isDone <- readTVarIO _done <&> HS.member cb0
-
-              when (only && isDone) $ exit ()
-
-              lift do
-                debug "updating .git/shallow"
-                let shallowFile = d </> "shallow"
-                new <- readTVarIO _orphans
-
-                current <- try @_ @IOException (liftIO $ LBS8.readFile shallowFile)
-                             <&> fromRight mempty
-                             <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack) . LBS8.lines
-                             <&> HS.union new . HS.fromList
-                             <&> LBS8.unlines . fmap (LBS8.pack . show . pretty) . HS.toList
-                             <&> LBS.toStrict
-
-                UIO.writeBinaryFileAtomic shallowFile current
-
-                withState $ transactional do
-                  cbs <- atomically $ STM.flushTQueue _cblocks
-                  for_ cbs $ \(cbh, commit) -> do
-                    insertCBlock commit cbh
-                    insertImported cbh
-
-        entry $ bindMatch "test:git:cblock:size:deep" $ nil_ $ \case
-          [ HashLike cblock ] -> lift do
-
-            sto <- getStorage
-
-            _s <- newTVarIO 0
-
-            deepScan ScanDeep
-                (\_ -> throwIO MissedBlockError)
-                (coerce cblock)
-                (liftIO . getBlock sto)
-                $ \h -> do
-                    blk <- hasBlock sto h <&> fromMaybe 0
-                    atomically $ modifyTVar _s (+ blk)
-
-            s <- readTVarIO _s
-            notice $ pretty s
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:cblock:blocks:all" $ nil_ $ \case
-          [ HashLike cblock ] -> lift do
-
-            sto <- getStorage
-
-            blkz <- S.toList_ $ deepScan ScanDeep
-                                        (\_ -> throwIO MissedBlockError)
-                                        (coerce cblock)
-                                        (liftIO . getBlock sto)
-                                        S.yield
-            for_ blkz $ \b -> do
-              s <- fromMaybe 0 <$> hasBlock sto b
-              notice $ pretty b <+> pretty s
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:cblock:scan" $ nil_ $ \case
-          [ HashLike cblock ] -> lift do
-
-            sto <- getStorage
-
-            let whatever _ = pure True
-
-            traverseToCBlock sto cblock whatever  $ \i h hs -> do
-              notice $ pretty i <+> pretty h <+> pretty (length hs)
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:tree:export" $ nil_ $ \syn -> lift do
-
-            (w, r) <- case syn of
-                    [] -> (Nothing,) <$> gitRevParseThrow "HEAD"
-                    [ StringLike co ] -> (Just (fromString co),) <$> gitRevParseThrow co
-                    _ -> throwIO (BadFormException @C nil)
-
-            let re = headMay [ GitRef (BS8.pack x) | ListVal [StringLike "--ref", StringLike x ] <- syn ]
-            hd <- gitReadHEAD
-
-            export (w <|> re <|> hd) r
 
         entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> do
           (mpath, hss) <- case syn of
@@ -1544,23 +699,7 @@ theDict = do
             liftIO $ print $ pretty c
 
 
-        entry $ bindMatch "test:git:search-in-log" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-
-          let argzz = [ x | StringLike x <- argz ]
-          what <- headMay argzz >>= fromStringMay @GitHash & orThrowUser "hash not set"
-          let files = tail argzz
-
-          r <- S.toList_ $ for_ files $ \f -> do
-            lbs <- liftIO $ LBS.readFile f
-            runConsumeLBS lbs $ readLogFileLBS () $ \h _ _ -> do
-              when (h == what) (lift $ S.yield f)
-
-          for_ (HS.fromList r) $ \x -> do
-            liftIO $ print x
-
-
-        entry $ bindMatch "test:git:zstd:packed:cat" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "test:git:log:cat" $ nil_ $ \syn -> lift do
 
           let (opts, argz) = splitOpts [("--git",0),("--packed",0),("--import",1)] syn
 
@@ -1568,7 +707,6 @@ theDict = do
 
           let git    = or [ True | ListVal [StringLike "--git"] <- opts ]
           let packed = or [ True | ListVal [StringLike "--packed"] <- opts ]
-          let imp    = or [ True | ListVal [StringLike "--import"] <- opts ]
 
           (gh, fn) <- case argz of
                        [ GitHashLike a, StringLike b ] -> do
@@ -1582,11 +720,8 @@ theDict = do
           what <- S.toList_ $ runConsumeLBS (ZstdL.decompress src) $ readLogFileLBS () $ \h s src -> do
             let (t,rest) = LBS.splitAt 1 src
 
-            let tp = case t of
-                      "T" -> Tree
-                      "C" -> Commit
-                      "B" -> Blob
-                      _   -> Blob
+            Short tp <- fromStringMay @(Short GitObjectType) (LBS8.unpack t)
+                          & orThrowUser "Invalid object type"
 
             when ( h == gh ) $ lift $ S.yield (tp,rest)
 
@@ -1602,7 +737,7 @@ theDict = do
 
             LBS.hPutStr stdout result
 
-        entry $ bindMatch "test:git:zstd:packed:list" $ nil_ $ \syn -> do
+        entry $ bindMatch "test:git:log:list" $ nil_ $ \syn -> do
           let (_, argz) = splitOpts [] syn
 
           let fs = [fn | StringLike fn <- argz]
@@ -1612,19 +747,8 @@ theDict = do
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
               liftIO $ print $ "object" <+> pretty h <+> pretty s
 
-        entry $ bindMatch "test:git:zstd:pack" $ nil_ $ \syn -> do
 
-          let (opts,argz) = splitOpts [("-l",1)] syn
-
-          fn <- headMay [ x | StringLike x <- argz ] & orThrowUser "filename not set"
-          let l = headDef 5 [ fromIntegral l | ListVal [StringLike "-l", LitIntVal l ] <- opts ]
-
-          file <- liftIO $ LBS.readFile fn
-          let z = ZstdL.compress l file
-          liftIO $ LBS.writeFile (fn <> ".z") z
-
-
-        entry $ bindMatch "test:git:log:index:naive:dump" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "test:git:log:index:flat:dump" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
           fname <- headMay [ x | StringLike x <- argz] & orThrowUser  "no file"
 
@@ -1645,7 +769,7 @@ theDict = do
                 liftIO $ print $ pretty hash <+> pretty ssize
                 go (succ n)
 
-        entry $ bindMatch "test:git:log:index:naive:search:binary:test" $ nil_ \case
+        entry $ bindMatch "test:git:log:index:flat:search:binary:test" $ nil_ \case
           [ StringLike fn ] -> do
 
             lbs <- liftIO $ LBS.readFile fn
@@ -1674,7 +798,7 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:log:index:naive:search:binary" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "test:git:log:index:flat:search:binary" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
 
           let argzz = [ x | StringLike x <- argz ]
@@ -1691,7 +815,7 @@ theDict = do
 
           liftIO $ print $ pretty r
 
-        entry $ bindMatch "test:git:log:index:naive:search:linear:test" $ nil_ $ \case
+        entry $ bindMatch "test:git:log:index:flat:search:linear:test" $ nil_ $ \case
           [ StringLike fn ] -> do
 
             lbs <- liftIO $ LBS.readFile fn
@@ -1718,8 +842,7 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
 
-
-        entry $ bindMatch "test:git:log:index:naive:search:vector:test" $ nil_ $ \case
+        entry $ bindMatch "test:git:log:index:flat:search:vector:test" $ nil_ $ \case
           [ StringLike fn ] -> do
 
             lbs <- liftIO $ LBS.readFile fn
@@ -1743,7 +866,7 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:log:index:naive:search:linear" $ nil_ $ \case
+        entry $ bindMatch "test:git:log:index:flat:search:linear" $ nil_ $ \case
           [ StringLike ha, StringLike fn ] -> lift do
             hash <- fromStringMay @GitHash ha & orThrowUser "not a git hash"
 
@@ -1754,7 +877,7 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
 
-        entry $ bindMatch "test:git:log:index:naive:search:linear2" $ nil_ $ \case
+        entry $ bindMatch "test:git:log:index:flat:search:linear2" $ nil_ $ \case
           [ StringLike ha, StringLike fn ] -> lift do
             hash <- fromStringMay @GitHash ha & orThrowUser "not a git hash"
 
@@ -1789,7 +912,7 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:log:index:naive" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "test:git:log:index:flat" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
           let fnames = [ x | StringLike x <- argz]
 
@@ -1828,47 +951,15 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
 
-        entry $ bindMatch "test:git:zstd:blobs:fast-export" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          let logz = [ x | StringLike x <- argz ]
-
-          _mark <- newTVarIO 1
-
-          for_ logz $ \lfn -> do
-            lbs <- liftIO $ LBS.readFile lfn
-
-            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
-              let (t, body) = LBS.splitAt 1 lbs
-              tp <- fromStringMay @(Short GitObjectType) (LBS8.unpack t) & orThrowUser "fucked"
-              case tp of
-                Short Blob -> do
-
-                  mark <- atomically ( stateTVar _mark (\x -> (x, succ x)) )
-                  let what = [qc|blob
-mark :{mark}
-data {LBS.length body}|]
-
-                  liftIO $ LBS8.hPutStrLn stdout what
-                  liftIO $ LBS.hPutStr stdout body
-
-                _ -> none
-
         entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift $ flip runContT pure do
           let (opts, argz) = splitOpts [] syn
           let logs = [ x| StringLike x <- argz ]
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
-          inQ <- newTQueueIO
-          rr <- replicateM 8 $ ContT $ withAsync $ liftIO $ flip runContT pure do
-            che <- ContT $ withGitCatCheck
-            fix \next -> do
-              (o, answ) <- atomically $ readTQueue inQ
-              w <- gitCheckObjectFromHandle che o
-              atomically $ writeTQueue answ w
-              next
-
-          mapM_ link rr
+          gitCatCheck <- contWorkerPool 8 do
+            che <- ContT withGitCatCheck
+            pure $ gitCheckObjectFromHandle che
 
           lift $ forConcurrently_ logs $ \lfn -> do
 
@@ -1882,11 +973,7 @@ data {LBS.length body}|]
               let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
                            & maybe Blob coerce
 
-              answ <- newTQueueIO
-
-              atomically $ writeTQueue inQ (h, answ)
-              here <- atomically do
-                        readTQueue answ <&> isJust
+              here <- isJust <$> lift (gitCatCheck h)
 
               let gitHash = show $ pretty h
               let (prefix,name) = L.splitAt 2 gitHash
@@ -1894,7 +981,6 @@ data {LBS.length body}|]
 
               let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
               let o = signature <> body
-
 
               unless here $ liftIO do
 
@@ -1909,7 +995,7 @@ data {LBS.length body}|]
                   let contents = Zlib.compressWith params  o
                   LBS.hPutStr fh contents
 
-        entry $ bindMatch "test:git:export-commit-dfs" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("--index",1)] syn
 
           maxW <- getPackedSegmetSize
@@ -2044,6 +1130,35 @@ data {LBS.length body}|]
 
             wait l
 
+contWorkerPool :: (MonadUnliftIO m)
+  => Int
+  -> ContT () m (a -> m b)
+  -> ContT () m (a -> m b)
+contWorkerPool n w = (fmap . fmap) join $ contWorkerPool' n w
+
+-- | здесь: a -> m (m b)
+-- первое m - чтобы задать вопрос
+-- второе m - чтобы получить ответ
+contWorkerPool' :: (MonadUnliftIO m)
+  => Int
+  -> ContT () m (a -> m b)
+  -> ContT () m (a -> m (m b))
+contWorkerPool' n contWorker = do
+    inQ <- newTQueueIO
+    -- запускаем воркеров
+    replicateM_ n do
+      (link <=< ContT . withAsync) do
+        runContT contWorker \w -> do
+          (fix . (>>)) do
+            (a, reply) <- atomically $ readTQueue inQ
+            reply =<< tryAny (w a)
+    -- возвращаем функцию, с помощью которой отправлять воркерам запрос
+    -- и получать ответ
+    pure \a -> do
+      tmv <- atomically newEmptyTMVar
+      atomically $ writeTQueue inQ (a, atomically . STM.putTMVar tmv)
+      pure do
+        either throwIO pure =<< atomically (readTMVar tmv)
 
 linearSearchLBS hash lbs = do
 
