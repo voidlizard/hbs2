@@ -659,6 +659,10 @@ theDict = do
 
           liftIO $ print $ pretty $ length commits
 
+        entry $ bindMatch "test:git:hash:blob" $ nil_ $ const $ liftIO do
+          co <- LBS.hGetContents stdin
+          print $ pretty $ gitHashBlobPure co
+
         entry $ bindMatch "test:git:exists:fast" $ nil_ \case
           [ StringLike x ] -> lift $ flip runContT pure do
 
@@ -706,8 +710,6 @@ theDict = do
 
           let (opts, argz) = splitOpts [("--git",0),("--packed",0),("--import",1)] syn
 
-          err $ pretty opts
-
           let git    = or [ True | ListVal [StringLike "--git"] <- opts ]
           let packed = or [ True | ListVal [StringLike "--packed"] <- opts ]
 
@@ -750,6 +752,24 @@ theDict = do
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
               liftIO $ print $ "object" <+> pretty h <+> pretty s
 
+
+        entry $ bindMatch "test:git:log:list:refs" $ nil_ $ \syn -> do
+          let (_, argz) = splitOpts [] syn
+
+          let fs = [fn | StringLike fn <- argz]
+
+          for_ fs $ \f -> do
+            lbs <- liftIO$ LBS.readFile f
+            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
+              let (sign,rest) = LBS.splitAt 1 lbs
+
+              let tp = fromStringMay @(Short SegmentObjectType) (LBS8.unpack sign)
+
+              case tp of
+                Just (Short RefObject) -> do
+                  liftIO $ LBS.hPutStr stdout rest
+
+                _ -> pure ()
 
         entry $ bindMatch "test:git:log:index:flat:dump" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
@@ -999,7 +1019,7 @@ theDict = do
                   LBS.hPutStr fh contents
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift do
-          let (opts, argz) = splitOpts [("--index",1)] syn
+          let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
 
           maxW <- getPackedSegmetSize
 
@@ -1007,6 +1027,10 @@ theDict = do
 
           let hd = headDef "HEAD" [ x | StringLike x <- argz]
           h <- gitRevParseThrow hd
+
+          let refs = [ gitNormaliseRef (fromString x)
+                     | ListVal [StringLike "--ref", StringLike x] <- opts
+                     ]
 
           mmaped <- runMaybeT do
                       fname <- toMPlus useIndex
@@ -1102,6 +1126,8 @@ theDict = do
 
             -- void $ ContT $ bracket (pure pool) cancel
 
+            let lastCommit = last r
+
             workers <- lift $ forM (zip [0..] commitz) $ \(i,chunk) -> async $ flip runContT pure do
 
               -- let gitCatBatchQ commit = gitReadObjectMaybe theReader commit
@@ -1128,6 +1154,26 @@ theDict = do
                     let e = [ Builder.byteString (coerce gh)
                             , Builder.char8 (headDef 'B' $ show $ pretty $ Short _t)
                             , Builder.lazyByteString lbs
+                            ] & Builder.toLazyByteString . mconcat
+
+                    atomically do
+                      writeTBQueue sourceQ (Just e)
+
+                  when (commit == lastCommit) do
+
+                    ts <- liftIO $ getPOSIXTime <&> round
+
+                    let brefs = [ LBS8.pack (show $ pretty ts <+> pretty commit <+> pretty x)
+                                | x <- refs
+                                ] & LBS8.unlines
+
+                    let sha1 = gitHashBlobPure brefs
+
+                    debug $ green "THIS IS THE LAST COMMIT BLOCK" <+> pretty commit <+> "ADDING REF INFO" <+> pretty sha1
+
+                    let e = [ Builder.byteString (coerce sha1)
+                            , Builder.char8 'R'
+                            , Builder.lazyByteString brefs
                             ] & Builder.toLazyByteString . mconcat
 
                     atomically do
@@ -1174,6 +1220,8 @@ theDict = do
             mapM_ wait workers
 
             atomically $ writeTBQueue sourceQ Nothing
+
+            debug "writing refs"
 
             wait l
 

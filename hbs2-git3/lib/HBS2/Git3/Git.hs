@@ -7,12 +7,17 @@ module HBS2.Git3.Git
 import HBS2.Prelude.Plated
 import HBS2.OrDie
 
+import HBS2.Git3.Types
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
 import Data.Config.Suckless.Script
 
+import Crypto.Hash (hashlazy)
+import Crypto.Hash qualified as Crypton
 import Control.Monad.Trans.Maybe
+import Data.ByteArray qualified as BA
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -236,22 +241,12 @@ instance GitObjectReader (Process Handle Handle ()) where
 
         w -> throwIO (GitReadError $ show (pretty w))
 
-newtype Short x = Short x
-
-instance Pretty (Short GitObjectType) where
-  pretty = \case
-    (Short Tree)   -> "T"
-    (Short Blob)   -> "B"
-    (Short Commit) -> "C"
-
-
-instance FromStringMaybe (Short GitObjectType) where
-  fromStringMay = \case
-    "T" -> Just (Short Tree)
-    "B" -> Just (Short Blob)
-    "C" -> Just (Short Commit)
-    _   -> Just (Short Blob)
 
 sortGitTreeEntries :: [GitTreeEntry] -> [GitTreeEntry]
 sortGitTreeEntries = sortOn (\e -> (gitEntryType e, gitEntrySize e))
+
+gitHashBlobPure :: ByteString -> GitHash
+gitHashBlobPure body = do
+  let preamble = [qc|{pretty Blob} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
+  GitHash $ BS.pack $ BA.unpack $ hashlazy @Crypton.SHA1 (preamble <> body)
 
