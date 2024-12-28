@@ -139,11 +139,15 @@ gitReadHEAD = runMaybeT do
 
 withGitCat ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
 withGitCat action = do
+  p <- startGitCat
+  action p
+
+startGitCat :: MonadIO m => m (Process Handle Handle ())
+startGitCat = do
   let cmd = "git"
   let args = ["cat-file", "--batch"]
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
-  p <- startProcess config
-  action p
+  startProcess config
 
 withGitCatCheck ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
 withGitCatCheck action = do
