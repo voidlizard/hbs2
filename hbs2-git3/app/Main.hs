@@ -543,6 +543,9 @@ theDict = do
   makeDict @C do
     -- TODO: write-man-entries
     myHelpEntry
+    entry $ bindValue "best" (mkInt 22)
+    internalEntries
+
   where
 
     myHelpEntry = do
