@@ -908,6 +908,8 @@ theDict = do
                                 >>= orThrow SomeReadLogError
                                 <&> GitHash . LBS.toStrict
 
+                  void $ readBytesMaybe 32
+
                   lift $ S.yield hash
                   go (succ n)
 
@@ -915,7 +917,7 @@ theDict = do
 
             for_ hashes $ \h -> do
              -- found <- binSearchBS 24 (BS.take 20 . BS.drop 4) ( show . pretty . GitHash ) (coerce h) file
-              found <- liftIO $ binarySearchBS 24 (BS.take 20 . BS.drop 4) (coerce h) file
+              found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
               liftIO $ print $ pretty h <+> pretty (isJust found)
 
           _ -> throwIO (BadFormException @C nil)
@@ -933,7 +935,7 @@ theDict = do
                         & orThrowUser "no index specified"
 
           file <- liftIO $ mmapFileByteString idxName Nothing
-          r <- liftIO $ binarySearchBS 24 (BS.take 20 . BS.drop 4) (coerce hash) file
+          r <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce hash) file
 
           liftIO $ print $ pretty r
 
@@ -1122,11 +1124,13 @@ theDict = do
           [ StringLike f ] -> lift do
             bs <- liftIO $ mmapFileByteString f Nothing
             scanBS bs $ \segment  -> do
-              let (sha1,blake) = BS.splitAt 20 segment
-                                      & over _1 (coerce @_ @GitHash)
-                                      & over _2 (coerce @_ @HashRef)
+              none
+              -- let (sha1,blake) = BS.splitAt 20 segment
+              --                         & over _1 (coerce @_ @GitHash)
+              --                         & over _2 (coerce @_ @HashRef)
 
-              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
+              -- notice $ pretty sha1 <+> pretty blake
+            liftIO $ print $ pretty "okay"
 
           _ -> throwIO (BadFormException @C nil)
 
@@ -1599,6 +1603,8 @@ linearSearchLBS hash lbs = do
         hash1   <- readBytesMaybe 20
                        >>= orThrow SomeReadLogError
                        <&> LBS.toStrict
+
+        void $ readBytesMaybe 32
 
         case (compare hash1 (coerce hash)) of
           EQ -> lift $ S.yield n
