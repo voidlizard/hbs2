@@ -97,6 +97,21 @@ instance Monad m => BytesReader (ConsumeBS m) where
     put $! b
     pure (LBS.fromStrict a)
 
+scanBS :: Monad m => BS.ByteString -> ( BS.ByteString -> m () ) -> m ()
+scanBS bs action = do
+  let hsz = 4
+  flip fix bs $ \next bss -> do
+    if BS.length bss < hsz then pure ()
+    else do
+      let (ssize, rest) = BS.splitAt hsz bss
+      let size =  N.word32 ssize & fromIntegral
+      let (sdata, rest2) = BS.splitAt size rest
+      if BS.length sdata < size  then
+        pure ()
+      else do
+        action sdata
+        next rest2
+
 runConsumeBS :: Monad m => BS.ByteString -> ConsumeBS m a -> m a
 runConsumeBS s m = evalStateT (fromConsumeBS m) s
 

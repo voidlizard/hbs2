@@ -80,6 +80,7 @@ common shared-properties
       , filepattern
       , generic-lens
       , generic-deriving
+      , heaps
       , interpolatedstring-perl6
       , memory
       , mmap

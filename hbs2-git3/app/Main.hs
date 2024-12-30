@@ -87,6 +87,9 @@ import Data.Generics.Labels
 import Data.Generics.Product
 import Lens.Micro.Platform
 
+import Data.Heap (Entry(..))
+import Data.Heap qualified as Heap
+
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
 
@@ -589,52 +592,45 @@ mergeSortedFiles getKey file1 file2 outFile = do
 
 
 mergeSortedFilesN :: forall m . MonadUnliftIO m
-                  => (ByteString -> ByteString) -- ^ Функция извлечения ключа
+                  => (N.ByteString -> N.ByteString) -- ^ Функция извлечения ключа
                   -> [FilePath]                -- ^ Входные файлы
                   -> FilePath                  -- ^ Выходной файл
                   -> m ()
+
+mergeSortedFilesN _ [] out  = rm out
+
+mergeSortedFilesN _ [_] out = rm out
+
 mergeSortedFilesN getKey inputFiles outFile = do
-  -- Парсим все файлы
-  lists <- traverse parseFile inputFiles
 
-  -- Используем ленивые списки для обработки
-  UIO.withBinaryFileAtomic outFile WriteMode $ \hOut ->
-    mergeEntriesN lists getKey (\s -> writeSection s (liftIO . LBS.hPutStr hOut))
+  mmaped <- for inputFiles $ \fn -> do
+     liftIO (mmapFileByteString fn Nothing)
 
-  -- Удаляем исходные файлы
+  liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut ->
+
+    flip fix (mmaped, Heap.empty) $ \next (mmf, win) -> do
+      let (entries, files) = fmap readEntry mmf & unzip
+      let values = [ Entry (getKey e) e | e <- catMaybes entries ]
+      let e' = (win <> Heap.fromList values) & Heap.uncons
+      maybe1 e' none $ \(Entry _ e, newWin) -> do
+        liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
+        next (catMaybes files, newWin)
+
   mapM_ rm inputFiles
 
   where
-    parseFile :: FilePath -> m [ByteString]
-    parseFile path = do
-      lbs <- liftIO $ LBS.readFile path
-      S.toList_ $ runConsumeLBS lbs $ readSections $ \_ sdata -> lift $ S.yield sdata
+    readEntry :: BS.ByteString -> (Maybe BS.ByteString, Maybe BS.ByteString)
 
-    mergeEntriesN :: [[ByteString]]           -- ^ Списки данных
-                  -> (ByteString -> ByteString) -- ^ Функция извлечения ключа
-                  -> (ByteString -> m ())      -- ^ Функция записи
-                  -> m ()
-    mergeEntriesN lists extractKey write = do
-      let initialQueue = buildQueue lists extractKey
-      mergeQueue initialQueue extractKey write
+    readEntry src | BS.length src < 4 = (mzero, mzero)
 
-    buildQueue :: [[ByteString]]
-               -> (ByteString -> ByteString)
-               -> PSQ.OrdPSQ ByteString Int [ByteString]
-    buildQueue xs extractKey =
-      foldr (\(i, x:xs') queue -> PSQ.insert (extractKey x) i (x:xs') queue) PSQ.empty (zip [0..] xs)
+    readEntry src = do
+      let (size, rest) = BS.splitAt 4 src & over _1 ( fromIntegral . N.word32 )
+      let (e, rest2) = BS.splitAt size rest
 
-    mergeQueue :: PSQ.OrdPSQ ByteString Int [ByteString]
-               -> (ByteString -> ByteString)
-               -> (ByteString -> m ())
-               -> m ()
-    mergeQueue queue extractKey write = unless (PSQ.null queue) $ do
-      let Just (key, _, x:xs', queue') = PSQ.minView queue
-      write x
-      let updatedQueue = if null xs'
-                         then queue'
-                         else PSQ.insert (extractKey (head xs')) 0 xs' queue'
-      mergeQueue updatedQueue extractKey write
+      if BS.length e < size then
+        (mzero, mzero)
+      else
+        (Just e, Just rest2)
 
 
 theDict :: forall m . ( HBS2GitPerks m
@@ -1123,20 +1119,15 @@ theDict = do
                   LBS.hPutStr fh contents
 
 
-        entry $ bindMatch "test:git:reflog:index:list:fucked" $ nil_ $ \case
+        entry $ bindMatch "test:git:reflog:index:list:fast" $ nil_ $ \case
           [ StringLike f ] -> lift do
             bs <- liftIO $ mmapFileByteString f Nothing
-            let len = BS.length bs
+            scanBS bs $ \segment  -> do
+              let (sha1,blake) = BS.splitAt 20 segment
+                                      & over _1 (coerce @_ @GitHash)
+                                      & over _2 (coerce @_ @HashRef)
 
-            let pnum = 20 + 32 + 4
-
-            num <- flip fix (0 :: Int,len,bs) $ \next (n,l,bss) -> do
-              if l < pnum then pure n
-              else do
-                let (_,rest) = BS.splitAt pnum bss
-                next (n+1,l-pnum,rest)
-
-            liftIO $ print $ "okay" <+> pretty num
+              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
           _ -> throwIO (BadFormException @C nil)
 
@@ -1151,8 +1142,7 @@ theDict = do
                                       & over _1 (coerce @_ @GitHash . LBS.toStrict)
                                       & over _2 (coerce @_ @HashRef . LBS.toStrict)
 
-              -- liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
-              void $ pure ()
+              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
         entry $ bindMatch "test:git:reflog:index:sqlite" $ nil_ $ \syn -> lift $ connectedDo do
 
@@ -1232,7 +1222,7 @@ theDict = do
 
           out <- liftIO $ emptyTempFile idxPath "objects-.idx"
 
-          mergeSortedFilesN (LBS.take 20) files out
+          mergeSortedFilesN (BS.take 20) files out
 
           -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
         entry $ bindMatch "test:git:reflog:index:files" $ nil_ $ \syn -> lift do
@@ -1296,12 +1286,10 @@ theDict = do
                   -- notice $ pretty sha1 <+> pretty tx
                   writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
-            files <- dirFiles idxPath
-                       <&> filter ((== ".idx") .  takeExtension)
-
-            out <- liftIO $ emptyTempFile idxPath "objects-.idx"
-
-            liftIO $ mergeSortedFilesN (LBS.take 20) files out
+            -- files <- dirFiles idxPath
+            --            <&> filter ((== ".idx") .  takeExtension)
+            -- out <- liftIO $ emptyTempFile idxPath "objects-.idx"
+            -- liftIO $ mergeSortedFilesN (LBS.take 20) files out
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
