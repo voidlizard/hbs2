@@ -1,7 +1,9 @@
 module HBS2.Data.Log.Structured where
 
 import HBS2.Prelude.Plated
+import HBS2.OrDie
 
+import Network.ByteOrder qualified as N
 import Data.ByteString.Builder qualified as B
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -84,7 +86,7 @@ newtype ConsumeBS m a = ConsumeBS { fromConsumeBS :: StateT BS.ByteString m a  }
 
 
 instance Monad m => BytesReader (ConsumeLBS m) where
-  readBytes n = readChunkSimple n
+  readBytes = readChunkSimple
   noBytesLeft = consumed
 
 instance Monad m => BytesReader (ConsumeBS m) where
@@ -99,10 +101,24 @@ runConsumeBS :: Monad m => BS.ByteString -> ConsumeBS m a -> m a
 runConsumeBS s m = evalStateT (fromConsumeBS m) s
 
 
+readSections :: forall m . (MonadIO m, BytesReader m)
+             => ( Int -> ByteString -> m () )
+             -> m ()
 
+readSections action = fix \next -> do
+  done <- noBytesLeft
+  if done then
+    pure ()
+  else do
+    ssize <- readBytesMaybe 4
+               >>= orThrow SomeReadLogError
+               <&> fromIntegral . N.word32 . LBS.toStrict
 
+    sdata <- readBytesMaybe ssize
+               >>= orThrow SomeReadLogError
 
-
+    action ssize sdata
+    next
 
 writeSection :: forall m . Monad m
              => ByteString

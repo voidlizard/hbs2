@@ -97,6 +97,7 @@ import Control.Monad.Reader
 import Control.Monad.Except
 import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
+import Codec.Serialise
 import System.Directory (setCurrentDirectory)
 import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
@@ -228,7 +229,7 @@ instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure peerAPI
 
-instance (MonadUnliftIO m, MonadReader Git3Env m) => HasClientAPI RefLogAPI UNIX m where
+instance (MonadUnliftIO m) => HasClientAPI RefLogAPI UNIX (Git3 m) where
   getClientAPI = do
     ask  >>= \case
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
@@ -240,7 +241,7 @@ nullGit3Env = Git3Disconnected
                 <*> newTVarIO defSegmentSize
                 <*> newTVarIO defCompressionLevel
 
-connectedDo :: (MonadIO m, MonadReader Git3Env m) => m a -> m a
+connectedDo :: (MonadIO m) => Git3 m a -> Git3 m a
 connectedDo what = do
   env <- ask
   debug $ red "connectedDo"
@@ -549,12 +550,11 @@ class HasExportOpts m where
 
 
 theDict :: forall m . ( HBS2GitPerks m
-                      , HasClientAPI PeerAPI UNIX m
-                      , HasStorage m
-                      , HasGitRemoteKey m
-                      , HasStateDB m
-                      , MonadReader Git3Env m
-                      ) => Dict C m
+                      -- , HasClientAPI PeerAPI UNIX m
+                      -- , HasStorage m
+                      -- , HasGitRemoteKey m
+                      -- , HasStateDB m
+                      ) => Dict C (Git3 m)
 theDict = do
   makeDict @C do
     -- TODO: write-man-entries
@@ -1033,6 +1033,70 @@ theDict = do
                 UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
                   let contents = Zlib.compressWith params  o
                   LBS.hPutStr fh contents
+
+
+        entry $ bindMatch "test:git:reflog:index:list" $ nil_ $ \syn -> lift do
+          let (_, argz) = splitOpts [] syn
+          for_ [ x | StringLike x <- argz ] $ \ifn -> do
+            lbs <- liftIO $ LBS.readFile ifn
+            void $ runConsumeLBS lbs $ readSections $ \s ss -> do
+
+              let (sha1, blake) = LBS.splitAt 20 ss
+                                      & over _1 (coerce @_ @GitHash . LBS.toStrict)
+                                      & over _2 (coerce @_ @HashRef . LBS.toStrict)
+
+              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
+
+        entry $ bindMatch "test:git:reflog:index" $ nil_ $ \syn -> lift $ connectedDo do
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+
+          api <- getClientAPI @RefLogAPI @UNIX
+
+          sto <- getStorage
+
+          flip runContT pure do
+
+            what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
+                      >>= orThrowUser "rpc timeout"
+
+            what <- ContT $ maybe1 what' none
+
+            idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+            mkdir idxPath
+
+            notice $ "STATE" <+> pretty idxPath
+
+            sink <- newTQueueIO
+            walkMerkle (coerce what) (getBlock sto) $ \case
+              Left{} -> throwIO MissedBlockError
+              Right (hs :: [HashRef]) -> do
+                for_ hs $ \h -> void $ runMaybeT do
+
+                  tx <- getBlock sto (coerce h)
+                           >>= toMPlus
+
+                  RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
+                                        & toMPlus
+
+                  AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
+                                               & toMPlus
+
+                  -- FIXME: error logging
+                  lbs <- liftIO (runExceptT (getTreeContents sto href))
+                           >>= orThrowUser "FUCK!"
+
+                  void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
+                    atomically $ writeTQueue sink (o,h)
+
+            liftIO do
+              idxName <- emptyTempFile idxPath "objects-.idx"
+              ss <- L.sortBy (comparing fst) <$> atomically (STM.flushTQueue sink)
+              UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
+                for_ ss $ \(sha1, tx) -> do
+                  let key   = coerce @_ @N.ByteString sha1
+                  let value = coerce @_ @N.ByteString tx
+                  notice $ pretty sha1 <+> pretty tx
+                  writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
