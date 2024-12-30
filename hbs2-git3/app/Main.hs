@@ -61,6 +61,8 @@ import Codec.Compression.Zlib qualified as Zlib
 
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
+import qualified Data.OrdPSQ as PSQ
+
 import Data.Maybe
 import Data.List qualified as L
 import Data.List (sortBy)
@@ -86,6 +88,8 @@ import Data.Generics.Product
 import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
+import Streaming hiding (run,chunksOf)
+
 import System.Exit qualified as Q
 import System.Environment qualified as E
 import System.Process.Typed
@@ -547,6 +551,90 @@ class HasExportOpts m where
   getPackedSegmetSize :: m Int
   getCompressionLevel :: m Int
   setCompressionLevel :: Int -> m ()
+
+
+
+mergeSortedFiles :: forall m . MonadUnliftIO m
+                  => (ByteString -> ByteString)
+                  -> FilePath
+                  -> FilePath
+                  -> FilePath
+                  -> m ()
+
+mergeSortedFiles getKey file1 file2 outFile = do
+  l1 <- parseFile file1
+  l2 <- parseFile file2
+
+  UIO.withBinaryFileAtomic outFile WriteMode $ \hOut ->
+    mergeEntries l1 l2 getKey (\s -> writeSection s (liftIO . LBS.hPutStr hOut))
+
+  mapM_ rm [file1, file2]
+
+  where
+    parseFile :: FilePath -> m [ByteString]
+    parseFile path = do
+      lbs <- liftIO $ LBS.readFile path
+      S.toList_ $ runConsumeLBS lbs $ readSections $ \_ sdata -> lift $ S.yield sdata
+
+    mergeEntries :: [ByteString]
+                 -> [ByteString]
+                 -> (ByteString -> ByteString)
+                 -> (ByteString -> m ()) -> m ()
+
+    mergeEntries [] ys _ write = mapM_ write ys
+    mergeEntries xs [] _ write = mapM_ write xs
+    mergeEntries (x:xs) (y:ys) extractKey write
+      | extractKey x <= extractKey y = write x >> mergeEntries xs (y:ys) extractKey write
+      | otherwise                    = write y >> mergeEntries (x:xs) ys extractKey write
+
+
+mergeSortedFilesN :: forall m . MonadUnliftIO m
+                  => (ByteString -> ByteString) -- ^ Функция извлечения ключа
+                  -> [FilePath]                -- ^ Входные файлы
+                  -> FilePath                  -- ^ Выходной файл
+                  -> m ()
+mergeSortedFilesN getKey inputFiles outFile = do
+  -- Парсим все файлы
+  lists <- traverse parseFile inputFiles
+
+  -- Используем ленивые списки для обработки
+  UIO.withBinaryFileAtomic outFile WriteMode $ \hOut ->
+    mergeEntriesN lists getKey (\s -> writeSection s (liftIO . LBS.hPutStr hOut))
+
+  -- Удаляем исходные файлы
+  mapM_ rm inputFiles
+
+  where
+    parseFile :: FilePath -> m [ByteString]
+    parseFile path = do
+      lbs <- liftIO $ LBS.readFile path
+      S.toList_ $ runConsumeLBS lbs $ readSections $ \_ sdata -> lift $ S.yield sdata
+
+    mergeEntriesN :: [[ByteString]]           -- ^ Списки данных
+                  -> (ByteString -> ByteString) -- ^ Функция извлечения ключа
+                  -> (ByteString -> m ())      -- ^ Функция записи
+                  -> m ()
+    mergeEntriesN lists extractKey write = do
+      let initialQueue = buildQueue lists extractKey
+      mergeQueue initialQueue extractKey write
+
+    buildQueue :: [[ByteString]]
+               -> (ByteString -> ByteString)
+               -> PSQ.OrdPSQ ByteString Int [ByteString]
+    buildQueue xs extractKey =
+      foldr (\(i, x:xs') queue -> PSQ.insert (extractKey x) i (x:xs') queue) PSQ.empty (zip [0..] xs)
+
+    mergeQueue :: PSQ.OrdPSQ ByteString Int [ByteString]
+               -> (ByteString -> ByteString)
+               -> (ByteString -> m ())
+               -> m ()
+    mergeQueue queue extractKey write = unless (PSQ.null queue) $ do
+      let Just (key, _, x:xs', queue') = PSQ.minView queue
+      write x
+      let updatedQueue = if null xs'
+                         then queue'
+                         else PSQ.insert (extractKey (head xs')) 0 xs' queue'
+      mergeQueue updatedQueue extractKey write
 
 
 theDict :: forall m . ( HBS2GitPerks m
@@ -1109,6 +1197,32 @@ theDict = do
                                       on conflict (sha1)
                                       do update set tx = excluded.tx|] (p,h)
 
+        entry $ bindMatch "test:git:reflog:index:merge" $ nil_ $ \case
+          [ StringLike f1, StringLike f2] -> lift do
+            mergeSortedFiles (LBS.take 20) f1 f2 "jopakita"
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "test:git:reflog:index:compact" $ nil_ $ \syn -> lift do
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+          idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+          mkdir idxPath
+
+          files <- dirFiles idxPath
+                     <&> filter ((== ".idx") .  takeExtension)
+
+          out <- liftIO $ emptyTempFile idxPath "objects-.idx"
+
+          mergeSortedFilesN (LBS.take 20) files out
+
+          -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
+        entry $ bindMatch "test:git:reflog:index:files" $ nil_ $ \syn -> lift do
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+          idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+          mkdir idxPath
+          idx <- dirFiles idxPath
+          for_ idx $ \f -> liftIO $ print $ pretty f
+
         entry $ bindMatch "test:git:reflog:index" $ nil_ $ \syn -> lift $ connectedDo do
           reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
 
@@ -1162,6 +1276,13 @@ theDict = do
                   let value = coerce @_ @N.ByteString tx
                   -- notice $ pretty sha1 <+> pretty tx
                   writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+
+            files <- dirFiles idxPath
+                       <&> filter ((== ".idx") .  takeExtension)
+
+            out <- liftIO $ emptyTempFile idxPath "objects-.idx"
+
+            liftIO $ mergeSortedFilesN (LBS.take 20) files out
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn

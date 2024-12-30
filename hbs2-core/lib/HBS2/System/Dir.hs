@@ -1,3 +1,4 @@
+{-# Language MultiWayIf #-}
 module HBS2.System.Dir
   ( module HBS2.System.Dir
   , module System.FilePath
@@ -5,13 +6,16 @@ module HBS2.System.Dir
   , module UnliftIO
   ) where
 
+import HBS2.Prelude.Plated
+
 import System.FilePath
 import System.FilePattern
 import System.Directory qualified as D
 import Data.ByteString.Lazy qualified as LBS
 import UnliftIO
 import Control.Exception qualified as E
-import Control.Monad
+
+import Streaming.Prelude qualified as S
 
 data MkDirOpt = MkDirOptNone
 
@@ -86,4 +90,30 @@ rm fn = liftIO $ D.removePathForcibly fn
 home :: MonadIO m => m FilePath
 home = liftIO D.getHomeDirectory
 
+data DirEntry = EntryFile FilePath | EntryDir  FilePath | EntryOther FilePath
+
+dirFiles :: MonadIO m => FilePath -> m [FilePath]
+dirFiles d = S.toList_ $ do
+  dirEntries d $ \case
+    EntryFile f -> S.yield f >> pure True
+    _ -> pure True
+
+dirEntries :: MonadIO m => FilePath -> ( DirEntry -> m Bool ) -> m ()
+dirEntries dir what  = do
+  es <- liftIO $ D.listDirectory dir
+
+  flip fix es $ \next -> \case
+    [] -> pure ()
+    (x:xs) -> do
+      let entry = dir </> x
+      isFile <- liftIO (D.doesFileExist entry)
+      isDir <- liftIO (D.doesDirectoryExist entry)
+      if | isFile    -> continueThen (what (EntryFile entry)) (next xs)
+         | isDir     -> continueThen (what (EntryDir entry)) (next xs)
+         | otherwise -> continueThen (what (EntryOther entry)) (next xs)
+
+  where
+    continueThen a b = do
+      r <- a
+      when r b
 
