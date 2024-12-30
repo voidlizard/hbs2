@@ -1047,6 +1047,68 @@ theDict = do
 
               liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
+        entry $ bindMatch "test:git:reflog:index:sqlite" $ nil_ $ \syn -> lift $ connectedDo do
+
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+
+          api <- getClientAPI @RefLogAPI @UNIX
+
+          sto <- getStorage
+
+          flip runContT pure do
+
+            what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
+                      >>= orThrowUser "rpc timeout"
+
+            what <- ContT $ maybe1 what' none
+
+            idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+            mkdir idxPath
+
+            notice $ "STATE" <+> pretty idxPath
+
+            sink <- S.toList_ do
+              walkMerkle (coerce what) (getBlock sto) $ \case
+                Left{} -> throwIO MissedBlockError
+                Right (hs :: [HashRef]) -> do
+                  for_ hs $ \h -> void $ runMaybeT do
+
+                    tx <- getBlock sto (coerce h)
+                             >>= toMPlus
+
+                    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
+                                          & toMPlus
+
+                    AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
+                                                 & toMPlus
+
+                    -- FIXME: error logging
+                    lbs <- liftIO (runExceptT (getTreeContents sto href))
+                             >>= orThrow MissedBlockError
+
+                    pieces <- S.toList_ do
+                      void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
+                        lift $ S.yield o
+
+                    lift $ S.yield (h, pieces)
+
+            file <- liftIO $ Temp.emptyTempFile "" "index.db"
+
+            db <- newDBPipeEnv dbPipeOptsDef file
+
+            liftIO $ withDB db do
+
+              ddl [qc|create table object (sha1 text not null primary key, tx text not null)|]
+
+              for_ sink $ \(h, pieces) -> do
+                transactional do
+                  for_ pieces $ \p -> do
+                    void $ insert [qc|insert into
+                                        object (sha1,tx)
+                                      values(?,?)
+                                      on conflict (sha1)
+                                      do update set tx = excluded.tx|] (p,h)
+
         entry $ bindMatch "test:git:reflog:index" $ nil_ $ \syn -> lift $ connectedDo do
           reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
 
@@ -1066,36 +1128,39 @@ theDict = do
 
             notice $ "STATE" <+> pretty idxPath
 
-            sink <- newTQueueIO
-            walkMerkle (coerce what) (getBlock sto) $ \case
-              Left{} -> throwIO MissedBlockError
-              Right (hs :: [HashRef]) -> do
-                for_ hs $ \h -> void $ runMaybeT do
+            sink <- S.toList_ do
+              walkMerkle (coerce what) (getBlock sto) $ \case
+                Left{} -> throwIO MissedBlockError
+                Right (hs :: [HashRef]) -> do
+                  for_ hs $ \h -> void $ runMaybeT do
 
-                  tx <- getBlock sto (coerce h)
-                           >>= toMPlus
+                    tx <- getBlock sto (coerce h)
+                             >>= toMPlus
 
-                  RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
-                                        & toMPlus
+                    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
+                                          & toMPlus
 
-                  AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
-                                               & toMPlus
+                    AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
+                                                 & toMPlus
 
-                  -- FIXME: error logging
-                  lbs <- liftIO (runExceptT (getTreeContents sto href))
-                           >>= orThrowUser "FUCK!"
+                    -- FIXME: error logging
+                    lbs <- liftIO (runExceptT (getTreeContents sto href))
+                             >>= orThrow MissedBlockError
 
-                  void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
-                    atomically $ writeTQueue sink (o,h)
+                    pieces <- S.toList_ do
+                      void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
+                        lift $ S.yield o
 
-            liftIO do
+                    lift $ S.yield (h, pieces)
+
+            liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
               idxName <- emptyTempFile idxPath "objects-.idx"
-              ss <- L.sortBy (comparing fst) <$> atomically (STM.flushTQueue sink)
+              let ss = L.sort pieces
               UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
-                for_ ss $ \(sha1, tx) -> do
+                for_ ss $ \sha1 -> do
                   let key   = coerce @_ @N.ByteString sha1
                   let value = coerce @_ @N.ByteString tx
-                  notice $ pretty sha1 <+> pretty tx
+                  -- notice $ pretty sha1 <+> pretty tx
                   writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
