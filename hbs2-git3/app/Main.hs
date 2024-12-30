@@ -606,8 +606,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
   mmaped <- for inputFiles $ \fn -> do
      liftIO (mmapFileByteString fn Nothing)
 
-  liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut ->
-
+  liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
     flip fix (mmaped, Heap.empty) $ \next (mmf, win) -> do
       let (entries, files) = fmap readEntry mmf & unzip
       let values = [ Entry (getKey e) e | e <- catMaybes entries ]
