@@ -1123,17 +1123,36 @@ theDict = do
                   LBS.hPutStr fh contents
 
 
+        entry $ bindMatch "test:git:reflog:index:list:fucked" $ nil_ $ \case
+          [ StringLike f ] -> lift do
+            bs <- liftIO $ mmapFileByteString f Nothing
+            let len = BS.length bs
+
+            let pnum = 20 + 32 + 4
+
+            num <- flip fix (0 :: Int,len,bs) $ \next (n,l,bss) -> do
+              if l < pnum then pure n
+              else do
+                let (_,rest) = BS.splitAt pnum bss
+                next (n+1,l-pnum,rest)
+
+            liftIO $ print $ "okay" <+> pretty num
+
+          _ -> throwIO (BadFormException @C nil)
+
         entry $ bindMatch "test:git:reflog:index:list" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
           for_ [ x | StringLike x <- argz ] $ \ifn -> do
             lbs <- liftIO $ LBS.readFile ifn
+
             void $ runConsumeLBS lbs $ readSections $ \s ss -> do
 
               let (sha1, blake) = LBS.splitAt 20 ss
                                       & over _1 (coerce @_ @GitHash . LBS.toStrict)
                                       & over _2 (coerce @_ @HashRef . LBS.toStrict)
 
-              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
+              -- liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
+              void $ pure ()
 
         entry $ bindMatch "test:git:reflog:index:sqlite" $ nil_ $ \syn -> lift $ connectedDo do
 
