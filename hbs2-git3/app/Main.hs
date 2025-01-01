@@ -10,6 +10,7 @@
 module Main where
 
 import HBS2.Git3.Prelude
+import HBS2.Git3.State.Index
 
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.API.LWWRef
@@ -305,29 +306,6 @@ readCommitChainHPSQ filt _ h0 action = flip runContT pure $ callCC \_ -> do
     addParents a n p = \case
       Nothing -> (a, Just (n, HS.fromList p))
       Just (l,s) -> (a, Just (min l n, s <> HS.fromList p))
-
-readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts, BytesReader m )
-               => opts
-               -> ( GitHash -> Int -> ByteString -> m () )
-               -> m Int
-
-readLogFileLBS _ action = flip fix 0 \go n -> do
-  done <- noBytesLeft
-  if done then pure n
-    else do
-      ssize <- readBytesMaybe 4
-                  >>= orThrow SomeReadLogError
-                  <&> fromIntegral . N.word32 . LBS.toStrict
-
-      hash  <- readBytesMaybe 20
-                  >>= orThrow SomeReadLogError
-                  <&> GitHash . BS.copy . LBS.toStrict
-
-      sdata <- readBytesMaybe ( ssize - 20 )
-                  >>= orThrow SomeReadLogError
-
-      void $ action hash (fromIntegral ssize) sdata
-      go (succ n)
 
 
 readIndexFromFile :: forall m . MonadIO m
@@ -747,22 +725,24 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:log:index:flat:search:binary" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ flip runContT pure do
+
           let (_, argz) = splitOpts [] syn
 
-          let argzz = [ x | StringLike x <- argz ]
+          hash <- headMay [ x | GitHashLike x <- argz ] & orThrowUser "need sha1"
 
-          hash <- headMay argzz
-                    >>= fromStringMay @GitHash
-                    & orThrowUser "no hash specified"
+          rq <- newTQueueIO
 
-          idxName <- headMay (tail argzz)
-                        & orThrowUser "no index specified"
+          ContT $ withAsync $ startReflogIndexQueryQueue rq
 
-          file <- liftIO $ mmapFileByteString idxName Nothing
-          r <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce hash) file
+          answ_ <- newEmptyTMVarIO
 
-          liftIO $ print $ pretty r
+          atomically $ writeTQueue rq  (hash,answ_)
+
+          answ <- atomically $ readTMVar answ_
+
+          for_ answ $ \a -> do
+            liftIO $ print $ pretty a
 
         entry $ bindMatch "test:git:log:index:flat:search:linear:test" $ nil_ $ \case
           [ StringLike fn ] -> do
@@ -1052,72 +1032,19 @@ theDict = do
 
           mergeSortedFilesN (BS.take 20) files out
 
+        entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift do
+          indexPath >>= liftIO . print . pretty
+
           -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
-        entry $ bindMatch "test:git:reflog:index:files" $ nil_ $ \syn -> lift do
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-          idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
-          mkdir idxPath
-          idx <- dirFiles idxPath
-          for_ idx $ \f -> liftIO $ print $ pretty f
+        entry $ bindMatch "reflog:index:files" $ nil_ $ \syn -> lift do
+          files <- listObjectIndexFiles
+          cur <- pwd
+          for_ files $ \(f',s) -> do
+            let f = makeRelative cur f'
+            liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
-        entry $ bindMatch "test:git:reflog:index" $ nil_ $ \syn -> lift $ connectedDo do
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-
-          api <- getClientAPI @RefLogAPI @UNIX
-
-          sto <- getStorage
-
-          flip runContT pure do
-
-            what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
-                      >>= orThrowUser "rpc timeout"
-
-            what <- ContT $ maybe1 what' none
-
-            idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
-            mkdir idxPath
-
-            notice $ "STATE" <+> pretty idxPath
-
-            sink <- S.toList_ do
-              walkMerkle (coerce what) (getBlock sto) $ \case
-                Left{} -> throwIO MissedBlockError
-                Right (hs :: [HashRef]) -> do
-                  for_ hs $ \h -> void $ runMaybeT do
-
-                    tx <- getBlock sto (coerce h)
-                             >>= toMPlus
-
-                    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
-                                          & toMPlus
-
-                    AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
-                                                 & toMPlus
-
-                    -- FIXME: error logging
-                    lbs <- liftIO (runExceptT (getTreeContents sto href))
-                             >>= orThrow MissedBlockError
-
-                    pieces <- S.toList_ do
-                      void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
-                        lift $ S.yield o
-
-                    lift $ S.yield (h, pieces)
-
-            liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
-              idxName <- emptyTempFile idxPath "objects-.idx"
-              let ss = L.sort pieces
-              UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
-                for_ ss $ \sha1 -> do
-                  let key   = coerce @_ @N.ByteString sha1
-                  let value = coerce @_ @N.ByteString tx
-                  -- notice $ pretty sha1 <+> pretty tx
-                  writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
-
-            -- files <- dirFiles idxPath
-            --            <&> filter ((== ".idx") .  takeExtension)
-            -- out <- liftIO $ emptyTempFile idxPath "objects-.idx"
-            -- liftIO $ mergeSortedFilesN (LBS.take 20) files out
+        entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
+          writeReflogIndex
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
@@ -1438,26 +1365,6 @@ linearSearchLBS hash lbs = do
   pure $ listToMaybe found
 
 
-binarySearchBS :: Monad m
-             => Int           -- ^ record size
-             -> ( BS.ByteString -> BS.ByteString ) -- ^ key extractor
-             -> BS.ByteString -- ^ key
-             -> BS.ByteString -- ^ source
-             -> m (Maybe Int)
-
-binarySearchBS rs getKey s source = do
-  let maxn = BS.length source `div` rs
-  loop 0 maxn
-  where
-    loop l u | u <= l = pure Nothing
-             | otherwise = do
-                 let e = getKey (BS.drop ( k * rs ) source)
-                 case compare e s of
-                  EQ -> pure $ Just (k * rs)
-                  LT -> loop (k+1) u
-                  GT -> loop l k
-
-      where k = (l + u) `div` 2
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "

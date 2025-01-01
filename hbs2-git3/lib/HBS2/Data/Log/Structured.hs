@@ -206,3 +206,25 @@ writeCompressedStreamZstd stream source sink = do
       Nothing  -> writeCompressedChunkZstd sink sn Nothing >> none
       Just lbs -> writeCompressedChunkZstd sink sn (Just lbs) >>= next
 
+
+binarySearchBS :: Monad m
+             => Int           -- ^ record size
+             -> ( BS.ByteString -> BS.ByteString ) -- ^ key extractor
+             -> BS.ByteString -- ^ key
+             -> BS.ByteString -- ^ source
+             -> m (Maybe Int)
+
+binarySearchBS rs getKey s source = do
+  let maxn = BS.length source `div` rs
+  loop 0 maxn
+  where
+    loop l u | u <= l = pure Nothing
+             | otherwise = do
+                 let e = getKey (BS.drop ( k * rs ) source)
+                 case compare e s of
+                  EQ -> pure $ Just (k * rs)
+                  LT -> loop (k+1) u
+                  GT -> loop l k
+
+      where k = (l + u) `div` 2
+

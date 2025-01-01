@@ -7,10 +7,14 @@ import HBS2.Git3.State.Types
 
 import HBS2.Data.Log.Structured
 
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy ( ByteString )
+import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
 import Data.ByteString.Lazy qualified as LBS
+import Data.Maybe
 
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
 import Streaming.Prelude qualified as S
@@ -20,58 +24,151 @@ import UnliftIO
 import UnliftIO.IO.File qualified as UIO
 
 
--- writeReflogIndex = do
 
---     reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts, BytesReader m )
+               => opts
+               -> ( GitHash -> Int -> ByteString -> m () )
+               -> m Int
 
---     api <- getClientAPI @RefLogAPI @UNIX
+readLogFileLBS _ action = flip fix 0 \go n -> do
+  done <- noBytesLeft
+  if done then pure n
+    else do
+      ssize <- readBytesMaybe 4
+                  >>= orThrow SomeReadLogError
+                  <&> fromIntegral . N.word32 . LBS.toStrict
 
---     sto <- getStorage
+      hash  <- readBytesMaybe 20
+                  >>= orThrow SomeReadLogError
+                  <&> GitHash . BS.copy . LBS.toStrict
 
---     flip runContT pure do
+      sdata <- readBytesMaybe ( ssize - 20 )
+                  >>= orThrow SomeReadLogError
 
---       what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
---                 >>= orThrowUser "rpc timeout"
+      void $ action hash (fromIntegral ssize) sdata
+      go (succ n)
 
---       what <- ContT $ maybe1 what' none
+indexPath :: forall m . ( Git3Perks m
+                        , MonadReader Git3Env m
+                        , HasClientAPI PeerAPI UNIX m
+                        , HasClientAPI RefLogAPI UNIX m
+                        , HasStorage m
+                        ) => m FilePath
+indexPath = do
+  reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
+  getStatePath (AsBase58 reflog) <&> (</> "index")
 
---       idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
---       mkdir idxPath
+listObjectIndexFiles :: forall m . ( Git3Perks m
+                                   , MonadReader Git3Env m
+                                   , HasClientAPI PeerAPI UNIX m
+                                   , HasClientAPI RefLogAPI UNIX m
+                                   , HasStorage m
+                                   ) => m [(FilePath, Natural)]
 
---       notice $ "STATE" <+> pretty idxPath
+listObjectIndexFiles = do
+  path <- indexPath
+  dirFiles path
+    <&> filter ( ("objects*.idx" ?==) .  takeFileName )
+    >>= \fs -> for fs $ \f -> do
+           z <- fileSize f  <&> fromIntegral
+           pure (f,z)
 
---       sink <- S.toList_ do
---         walkMerkle (coerce what) (getBlock sto) $ \case
---           Left{} -> throwIO MissedBlockError
---           Right (hs :: [HashRef]) -> do
---             for_ hs $ \h -> void $ runMaybeT do
+startReflogIndexQueryQueue :: forall m . ( Git3Perks m
+                                         , MonadReader Git3Env m
+                                         , HasClientAPI PeerAPI UNIX m
+                                         , HasClientAPI RefLogAPI UNIX m
+                                         , HasStorage m
+                                         )
+                       => TQueue (GitHash, TMVar [HashRef])
+                       -> m  ()
 
---               tx <- getBlock sto (coerce h)
---                        >>= toMPlus
+startReflogIndexQueryQueue rq = flip runContT pure do
+  files <- lift $ listObjectIndexFiles <&> fmap fst
 
---               RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
---                                     & toMPlus
+  -- один файл - не более, чем один поток
+  -- мапим файлы
+  -- возвращаем функцию запроса?
+  -- для каждого файла -- мы создаём отдельную очередь,
+  -- нам надо искать во всех файлах
 
---               AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
---                                            & toMPlus
+  mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
 
---               -- FIXME: error logging
---               lbs <- liftIO (runExceptT (getTreeContents sto href))
---                        >>= orThrow MissedBlockError
+  forever $ liftIO do
+    (githash, answ) <- atomically $ readTQueue rq
 
---               pieces <- S.toList_ do
---                 void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
---                   lift $ S.yield o
+    let s = coerce githash
 
---               lift $ S.yield (h, pieces)
+    found <- forConcurrently mmaped $ \bs -> runMaybeT do
+               -- FIXME: size-hardcodes
+               w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
+                      >>= toMPlus
 
---       liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
---         idxName <- emptyTempFile idxPath "objects-.idx"
---         let ss = L.sort pieces
---         UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
---           for_ ss $ \sha1 -> do
---             let key   = coerce @_ @N.ByteString sha1
---             let value = coerce @_ @N.ByteString tx
---             -- notice $ pretty sha1 <+> pretty tx
---             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+               let v = BS.drop ( w * 56 ) bs & BS.take 32
+
+               pure $ coerce @_ @HashRef v
+
+    atomically $ writeTMVar answ ( catMaybes found )
+
+
+writeReflogIndex :: forall m . ( Git3Perks m
+                               , MonadReader Git3Env m
+                               , HasClientAPI PeerAPI UNIX m
+                               , HasClientAPI RefLogAPI UNIX m
+                               , HasStorage m
+                               ) => m ()
+writeReflogIndex = do
+
+    reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
+
+    api <- getClientAPI @RefLogAPI @UNIX
+
+    sto <- getStorage
+
+    flip runContT pure do
+
+      what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
+                >>= orThrow Git3RpcTimeout
+
+      what <- ContT $ maybe1 what' none
+
+      idxPath <- lift indexPath
+      mkdir idxPath
+
+      notice $ "STATE" <+> pretty idxPath
+
+      sink <- S.toList_ do
+        walkMerkle (coerce what) (getBlock sto) $ \case
+          Left{} -> throwIO MissedBlockError
+          Right (hs :: [HashRef]) -> do
+            for_ hs $ \h -> void $ runMaybeT do
+
+              tx <- getBlock sto (coerce h)
+                       >>= toMPlus
+
+              RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
+                                    & toMPlus
+
+              AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
+                                           & toMPlus
+
+              -- FIXME: error logging
+              lbs <- liftIO (runExceptT (getTreeContents sto href))
+                       >>= orThrow MissedBlockError
+
+              pieces <- S.toList_ do
+                void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
+                  lift $ S.yield o
+
+              lift $ S.yield (h, pieces)
+
+      liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
+        idxName <- emptyTempFile idxPath "objects-.idx"
+        let ss = L.sort pieces
+        UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
+          for_ ss $ \sha1 -> do
+            let key   = coerce @_ @N.ByteString sha1
+            let value = coerce @_ @N.ByteString tx
+            -- notice $ pretty sha1 <+> pretty tx
+            writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+
 

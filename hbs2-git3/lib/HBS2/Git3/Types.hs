@@ -1,8 +1,11 @@
-module HBS2.Git3.Types where
+module HBS2.Git3.Types
+  ( module HBS2.Git3.Types
+  , module Exported
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Net.Auth.Credentials
-import HBS2.Git.Local
+import HBS2.Git.Local as Exported
 
 type GitRemoteKey = PubKey 'Sign 'HBS2Basic
 

@@ -26,7 +26,7 @@ import HBS2.Storage as Exported
 import HBS2.Storage.Operations.Class as Exported
 import HBS2.System.Logger.Simple.ANSI as Exported
 
-import HBS2.Git3.Types
+import HBS2.Git3.Types as Exported
 
 -- TODO: about-to-remove
 import DBPipe.SQLite
@@ -42,7 +42,9 @@ import Data.HashSet (HashSet(..))
 import Data.HashSet qualified as HS
 import Data.Kind
 import System.Exit qualified as Q
+import System.IO.MMap as Exported
 
+import GHC.Natural as Exported
 import UnliftIO as Exported
 
 
@@ -75,7 +77,9 @@ instance GitWritePacksOpts (HashSet GitWritePacksOptVal) where
   excludeParents o = not $ HS.member WriteFullPack o
 
 data Git3Exception =
-  Git3PeerNotConnected
+    Git3PeerNotConnected
+  | Git3ReflogNotSet
+  | Git3RpcTimeout
   deriving (Show,Typeable,Generic)
 
 instance Exception Git3Exception
