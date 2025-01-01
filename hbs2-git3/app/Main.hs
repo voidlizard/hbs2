@@ -709,7 +709,7 @@ theDict = do
           already_ <- newTVarIO (mempty :: HashSet GitHash)
 
           for_ hashes $ \h -> do
-            forConcurrently_ mmaped $ \bs -> do
+            for_ mmaped $ \bs -> do
               here <- readTVarIO already_ <&> HS.member h
               unless here do
                 found <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) bs
