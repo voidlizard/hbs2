@@ -50,9 +50,6 @@ readLogFileLBS _ action = flip fix 0 \go n -> do
 
 indexPath :: forall m . ( Git3Perks m
                         , MonadReader Git3Env m
-                        , HasClientAPI PeerAPI UNIX m
-                        , HasClientAPI RefLogAPI UNIX m
-                        , HasStorage m
                         ) => m FilePath
 indexPath = do
   reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
@@ -60,9 +57,6 @@ indexPath = do
 
 listObjectIndexFiles :: forall m . ( Git3Perks m
                                    , MonadReader Git3Env m
-                                   , HasClientAPI PeerAPI UNIX m
-                                   , HasClientAPI RefLogAPI UNIX m
-                                   , HasStorage m
                                    ) => m [(FilePath, Natural)]
 
 listObjectIndexFiles = do
@@ -73,13 +67,25 @@ listObjectIndexFiles = do
            z <- fileSize f  <&> fromIntegral
            pure (f,z)
 
-startReflogIndexQueryQueue :: forall m . ( Git3Perks m
-                                         , MonadReader Git3Env m
-                                         , HasClientAPI PeerAPI UNIX m
-                                         , HasClientAPI RefLogAPI UNIX m
-                                         , HasStorage m
-                                         )
-                       => TQueue (GitHash, TMVar [HashRef])
+
+
+enumEntries :: forall m . ( Git3Perks m
+                          , MonadReader Git3Env m
+                          ) => ( BS.ByteString -> m () ) -> m ()
+
+enumEntries action = do
+  files <- listObjectIndexFiles <&> fmap fst
+  forConcurrently_ files $ \f -> do
+    bs <- liftIO $ mmapFileByteString f Nothing
+    scanBS bs action
+
+startReflogIndexQueryQueue :: forall a m . ( Git3Perks m
+                                           , MonadReader Git3Env m
+                                           , HasClientAPI PeerAPI UNIX m
+                                           , HasClientAPI RefLogAPI UNIX m
+                                           , HasStorage m
+                                           )
+                       => TQueue (BS.ByteString, BS.ByteString -> a, TMVar (Maybe a))
                        -> m  ()
 
 startReflogIndexQueryQueue rq = flip runContT pure do
@@ -94,21 +100,19 @@ startReflogIndexQueryQueue rq = flip runContT pure do
   mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
 
   forever $ liftIO do
-    (githash, answ) <- atomically $ readTQueue rq
-
-    let s = coerce githash
+    (s, f, answ) <- atomically $ readTQueue rq
 
     found <- forConcurrently mmaped $ \bs -> runMaybeT do
                -- FIXME: size-hardcodes
                w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
                       >>= toMPlus
 
-               let v = BS.drop ( w * 56 ) bs & BS.take 32
+               let v = BS.drop ( w * 56 ) bs
 
-               pure $ coerce @_ @HashRef v
+               pure $ f v
 
-    atomically $ writeTMVar answ ( catMaybes found )
-
+    let what = headMay (catMaybes found)
+    atomically $ writeTMVar answ what
 
 writeReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m

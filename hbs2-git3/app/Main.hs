@@ -694,6 +694,29 @@ theDict = do
                 liftIO $ print $ pretty hash <+> pretty ssize
                 go (succ n)
 
+        entry $ bindMatch "test:reflog:index:search:binary:test:2" $ nil_ $ const $ lift do
+          r <- newTQueueIO
+          enumEntries $ \e -> do
+            let ha = GitHash $ coerce $ BS.take 20 e
+            atomically $ writeTQueue r ha
+
+          hashes <- atomically $ STM.flushTQueue r
+          liftIO $ print (length hashes)
+
+          mmaped <- listObjectIndexFiles <&> fmap fst
+                       >>= \xs -> for xs $ \x -> liftIO $  mmapFileByteString x Nothing
+
+          already_ <- newTVarIO (mempty :: HashSet GitHash)
+
+          for_ hashes $ \h -> do
+            forConcurrently_ mmaped $ \bs -> do
+              here <- readTVarIO already_ <&> HS.member h
+              unless here do
+                found <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) bs
+                when (isJust found) do
+                  atomically $ modifyTVar already_ (HS.insert h)
+                  notice $ pretty h <+> "True"
+
         entry $ bindMatch "test:reflog:index:search:binary:test" $ nil_ $ const $ lift do
 
             files <- listObjectIndexFiles
@@ -738,7 +761,7 @@ theDict = do
 
           answ_ <- newEmptyTMVarIO
 
-          atomically $ writeTQueue rq  (hash,answ_)
+          atomically $ writeTQueue rq  (coerce hash, const True, answ_)
 
           answ <- atomically $ readTMVar answ_
 
