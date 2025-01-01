@@ -9,23 +9,9 @@
 {-# Language OverloadedLabels #-}
 module Main where
 
-import HBS2.Prelude.Plated
-import HBS2.OrDie
-import HBS2.Base58
-import HBS2.Merkle
-import HBS2.Data.Detect hiding (Blob)
-import HBS2.Data.Detect qualified as Detect
+import HBS2.Git3.Prelude
 
-import HBS2.Storage
-import HBS2.Storage.Operations.Class
-import HBS2.Storage.Operations.ByteString
-import HBS2.Peer.Proto.RefLog
 import HBS2.Peer.CLI.Detect
-import HBS2.Peer.RPC.Client
-import HBS2.Peer.RPC.Client.Unix
-import HBS2.Peer.RPC.API.Peer
-import HBS2.Peer.RPC.API.RefLog
-import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
@@ -39,9 +25,7 @@ import HBS2.Data.Log.Structured
 import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
 import HBS2.CLI.Run.RefLog (getCredentialsForReflog,mkRefLogUpdateFrom)
 
-import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.System.Dir
-import HBS2.Misc.PrettyStuff as Exported
 
 import HBS2.Git3.Types
 import HBS2.Git3.State.Direct
@@ -51,17 +35,14 @@ import HBS2.Git3.Git
 import Data.Config.Suckless.Script
 import DBPipe.SQLite
 
-import Codec.Compression.Zstd qualified as Zstd
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
-import Codec.Compression.Zstd (maxCLevel)
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
 
 import Codec.Compression.Zlib qualified as Zlib
 
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
-import qualified Data.OrdPSQ as PSQ
 
 import Data.Maybe
 import Data.List qualified as L
@@ -70,7 +51,6 @@ import Data.List.Split (chunksOf)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Builder as Builder
 import Network.ByteOrder qualified as N
@@ -91,20 +71,13 @@ import Data.Heap (Entry(..))
 import Data.Heap qualified as Heap
 
 import Streaming.Prelude qualified as S
-import Streaming hiding (run,chunksOf)
 
 import System.Exit qualified as Q
 import System.Environment qualified as E
 import System.Process.Typed
-import Control.Applicative
-import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
 import Control.Monad.State qualified as State
-import Control.Monad.Reader
-import Control.Monad.Except
 import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
-import Codec.Serialise
 import System.Directory (setCurrentDirectory)
 import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
@@ -112,13 +85,9 @@ import System.IO qualified as IO
 import System.IO (hPrint)
 import System.IO.Temp as Temp
 
-import Data.Either
-import Data.Coerce
-import Data.Kind
 import Data.Vector qualified as Vector
 import Data.Vector.Algorithms.Search qualified as MV
 
-import UnliftIO
 import UnliftIO.Concurrent
 import UnliftIO.IO.File qualified as UIO
 
@@ -126,143 +95,11 @@ import UnliftIO.IO.File qualified as UIO
 {- HLINT ignore "Eta reduce" -}
 
 
-defSegmentSize :: Int
-defSegmentSize = 50 * 1024 * 1024
-
-defCompressionLevel :: Int
-defCompressionLevel = maxCLevel
-
-type HBS2GitPerks m = (MonadUnliftIO  m)
-
-quit :: MonadUnliftIO m => m ()
-quit = liftIO Q.exitSuccess
-
 class Cached cache k v | cache -> k, cache -> v where
   isCached :: forall m . MonadIO m => cache -> k -> m Bool
   cached   :: forall m . MonadIO m => cache -> k -> m v -> m v
   uncache  :: forall m . MonadIO m => cache -> k -> m ()
 
-
-class GitWritePacksOpts a where
-  excludeParents :: a -> Bool
-
-instance GitWritePacksOpts () where
-  excludeParents = const True
-
-data GitWritePacksOptVal =
-  WriteFullPack
-  deriving stock (Eq,Ord,Show,Generic)
-
-instance Hashable GitWritePacksOptVal
-
-instance GitWritePacksOpts (HashSet GitWritePacksOptVal) where
-  excludeParents o = not $ HS.member WriteFullPack o
-
-data Git3Exception =
-  Git3PeerNotConnected
-  deriving (Show,Typeable,Generic)
-
-instance Exception Git3Exception
-
-data Git3Env =
-    Git3Disconnected
-    { gitRefLog   :: TVar (Maybe GitRemoteKey)
-    , gitPackedSegmentSize :: TVar Int
-    , gitCompressionLevel  :: TVar Int
-    }
-  | Git3Connected
-    { stateDb     :: DBPipeEnv
-    , peerSocket  :: FilePath
-    , peerStorage :: AnyStorage
-    , peerAPI     :: ServiceCaller PeerAPI UNIX
-    , reflogAPI   :: ServiceCaller RefLogAPI UNIX
-    , gitRefLog   :: TVar (Maybe GitRemoteKey)
-    , gitPackedSegmentSize :: TVar Int
-    , gitCompressionLevel  :: TVar Int
-    }
-
-class HasGitRemoteKey m where
-  getGitRemoteKey :: m (Maybe GitRemoteKey)
-  setGitRemoteKey :: GitRemoteKey -> m ()
-
-instance (MonadIO m, MonadReader Git3Env m) => HasGitRemoteKey m where
-  getGitRemoteKey = do
-    e <- ask
-    liftIO $ readTVarIO (gitRefLog e)
-
-  setGitRemoteKey k = do
-    e <- ask
-    liftIO $ atomically $ writeTVar (gitRefLog e) (Just k)
-
-instance (MonadIO m, MonadReader Git3Env m) => HasExportOpts m where
-  getPackedSegmetSize = asks gitPackedSegmentSize >>= readTVarIO
-  setPackedSegmedSize x = do
-    e <- asks gitPackedSegmentSize
-    atomically $ writeTVar e x
-
-  getCompressionLevel = asks gitCompressionLevel >>= readTVarIO
-  setCompressionLevel x = do
-    e <- asks gitCompressionLevel
-    atomically $ writeTVar e (min maxCLevel x)
-
-instance (MonadIO m) => HasStateDB (Git3 m) where
-  getStateDB = asks stateDb
-
-instance (MonadIO m, MonadReader Git3Env m) => HasStorage m where
-  getStorage = do
-    e <- ask
-    case e of
-      Git3Disconnected{} -> throwIO Git3PeerNotConnected
-      Git3Connected{..} -> pure peerStorage
-
-newtype Git3 (m :: Type -> Type) a = Git3M { fromGit3 :: ReaderT Git3Env m a }
-                   deriving newtype ( Applicative
-                                    , Functor
-                                    , Monad
-                                    , MonadIO
-                                    , MonadUnliftIO
-                                    , MonadReader Git3Env
-                                    , MonadTrans
-                                    )
-
-type Git3Perks m = ( MonadIO m
-                   , MonadUnliftIO m
-                   )
-
-
-instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
-  getClientAPI = do
-    ask  >>= \case
-       Git3Disconnected{} -> throwIO Git3PeerNotConnected
-       Git3Connected{..} -> pure peerAPI
-
-instance (MonadUnliftIO m) => HasClientAPI RefLogAPI UNIX (Git3 m) where
-  getClientAPI = do
-    ask  >>= \case
-       Git3Disconnected{} -> throwIO Git3PeerNotConnected
-       Git3Connected{..} -> pure reflogAPI
-
-nullGit3Env :: MonadIO m => m Git3Env
-nullGit3Env = Git3Disconnected
-                <$> newTVarIO Nothing
-                <*> newTVarIO defSegmentSize
-                <*> newTVarIO defCompressionLevel
-
-connectedDo :: (MonadIO m) => Git3 m a -> Git3 m a
-connectedDo what = do
-  env <- ask
-  debug $ red "connectedDo"
-  case env of
-    Git3Disconnected{} -> do
-      throwIO Git3PeerNotConnected
-
-    _ -> what
-
-withGit3Env :: Git3Perks m => Git3Env -> Git3 m a -> m a
-withGit3Env env a = runReaderT (fromGit3 a) env
-
-runGit3 :: Git3Perks m => Git3Env -> Git3 m b -> m b
-runGit3 env action = withGit3Env env action
 
 recover :: Git3 IO a -> Git3 IO a
 recover m = fix \again -> do
@@ -296,19 +133,14 @@ recover m = fix \again -> do
 
         ref <- getGitRemoteKey >>= orThrowUser "remote ref not set"
 
-        dbPath <- getStatePathDB (AsBase58 ref)
-
-        touch dbPath
-        db <- newDBPipeEnv dbPipeOptsDef dbPath
-
         let sto = AnyStorage (StorageClient storageAPI)
 
-        connected <- Git3Connected db soname sto peerAPI refLogAPI
+        connected <- Git3Connected soname sto peerAPI refLogAPI
                         <$> newTVarIO (Just ref)
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
 
-        liftIO $ withGit3Env connected (evolveState >> again)
+        liftIO $ withGit3Env connected again
 
 ---
 
@@ -431,7 +263,6 @@ readCommitChainHPSQ :: ( HBS2GitPerks m
                        , MonadUnliftIO m
                        , MonadReader Git3Env m
                        , HasStorage m
-                       , HasStateDB m
                        )
        => (GitHash -> m Bool)
        -> Maybe GitRef
@@ -548,12 +379,6 @@ data ECC =
     ECCInit
   | ECCWrite Int FilePath Handle Result
   | ECCFinalize Bool FilePath Handle Result
-
-class HasExportOpts m where
-  setPackedSegmedSize :: Int -> m ()
-  getPackedSegmetSize :: m Int
-  getCompressionLevel :: m Int
-  setCompressionLevel :: Int -> m ()
 
 
 

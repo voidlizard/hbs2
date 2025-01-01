@@ -25,13 +25,6 @@ import Data.List qualified as List
 
 import Text.InterpolatedString.Perl6 (qc)
 
-unit :: FilePath
-unit = "hbs2-git"
-
-getStatePath :: (MonadIO m, DBRef db) => db -> m FilePath
-getStatePath p = do
-  d <- getConfigPath
-  pure $ d </> show (pretty p)
 
 getStatePathDB :: (MonadIO m, DBRef db) => db -> m FilePath
 getStatePathDB p = do
