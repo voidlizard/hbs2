@@ -694,36 +694,37 @@ theDict = do
                 liftIO $ print $ pretty hash <+> pretty ssize
                 go (succ n)
 
-        entry $ bindMatch "test:git:log:index:flat:search:binary:test" $ nil_ \case
-          [ StringLike fn ] -> do
+        entry $ bindMatch "test:reflog:index:search:binary:test" $ nil_ $ const $ lift do
 
-            lbs <- liftIO $ LBS.readFile fn
+            files <- listObjectIndexFiles
 
-            hashes <- S.toList_ $  runConsumeLBS lbs $ flip fix 0 \go n -> do
-              done <- consumed
-              if done then pure ()
-                else do
-                  ssize  <- readBytesMaybe 4
-                                 >>= orThrow SomeReadLogError
-                                 <&> fromIntegral . N.word32 . LBS.toStrict
+            forConcurrently_ files $ \(fn,_) -> do
 
-                  hash   <- readBytesMaybe 20
-                                >>= orThrow SomeReadLogError
-                                <&> GitHash . LBS.toStrict
+              lbs <- liftIO $ LBS.readFile fn
 
-                  void $ readBytesMaybe 32
+              hashes <- S.toList_ $  runConsumeLBS lbs $ flip fix 0 \go n -> do
+                done <- consumed
+                if done then pure ()
+                  else do
+                    ssize  <- readBytesMaybe 4
+                                   >>= orThrow SomeReadLogError
+                                   <&> fromIntegral . N.word32 . LBS.toStrict
 
-                  lift $ S.yield hash
-                  go (succ n)
+                    hash   <- readBytesMaybe 20
+                                  >>= orThrow SomeReadLogError
+                                  <&> GitHash . LBS.toStrict
 
-            file <- liftIO $ mmapFileByteString fn Nothing
+                    void $ readBytesMaybe 32
 
-            for_ hashes $ \h -> do
-             -- found <- binSearchBS 24 (BS.take 20 . BS.drop 4) ( show . pretty . GitHash ) (coerce h) file
-              found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
-              liftIO $ print $ pretty h <+> pretty (isJust found)
+                    lift $ S.yield hash
+                    go (succ n)
 
-          _ -> throwIO (BadFormException @C nil)
+              file <- liftIO $ mmapFileByteString fn Nothing
+
+              for_ hashes $ \h -> do
+               -- found <- binSearchBS 24 (BS.take 20 . BS.drop 4) ( show . pretty . GitHash ) (coerce h) file
+                found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
+                liftIO $ notice $ pretty h <+> pretty (isJust found)
 
         entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ flip runContT pure do
 
