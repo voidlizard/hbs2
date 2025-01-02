@@ -615,16 +615,6 @@ theDict = do
             for_ (HPSQ.toList r) $ \(k,_,_) -> do
               liftIO $ print $ pretty  k
 
-        entry $ bindMatch "test:git:read-commit-chain-dfs" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          let hd = headDef "HEAD" [ x | StringLike x <- argz]
-          h <- gitRevParseThrow hd
-          r <- readCommitChainHPSQ (const $ pure True) Nothing h (\c -> debug $ "commit" <+> pretty c)
-                  <&> HPSQ.toList
-                  <&> sortBy (comparing (view _2))
-          for_ r $ \(c,_,_) -> do
-            liftIO $ print $ pretty c
-
 
         entry $ bindMatch "test:git:log:cat" $ nil_ $ \syn -> lift do
 
