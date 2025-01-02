@@ -584,18 +584,36 @@ theDict = do
         entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
           LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
 
-        entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> do
+        entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> lift do
           (mpath, hss) <- case syn of
             [ HashLike s ] -> pure (Nothing, s)
             [ StringLike path , HashLike s ] -> pure (Just path, s)
             [ StringLike path ] -> pure (Just path, "HEAD")
             [] -> pure (Nothing, "HEAD")
             _ -> throwIO (BadFormException @C nil)
-          liftIO $ mapM_ setCurrentDirectory mpath
-          -- let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
-          h <- gitRevParseThrow hss
-          r <- lift $ readCommitChainHPSQ (const $ pure True) Nothing h dontHandle
-          liftIO $ print ( HPSQ.size r )
+
+          void $ flip runContT pure do
+
+            liftIO $ mapM_ setCurrentDirectory mpath
+
+            rq <- newTQueueIO
+            ContT $ withAsync (startReflogIndexQueryQueue rq)
+
+            let req h = do
+                  debug $ "AAAAA" <+> pretty h
+                  let bs = coerce @GitHash  @N.ByteString h
+                  let tr = const True
+                  w <- newEmptyTMVarIO
+                  atomically $ writeTQueue rq (bs, tr, w)
+                  r <- atomically $ readTMVar w
+                  pure $ isNothing r
+
+            -- let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
+            h <- gitRevParseThrow hss
+            r <- lift $ readCommitChainHPSQ req Nothing h dontHandle
+
+            for_ (HPSQ.toList r) $ \(k,_,_) -> do
+              liftIO $ print $ pretty  k
 
         entry $ bindMatch "test:git:read-commit-chain-dfs" $ nil_ $ \syn -> lift do
           let (_, argz) = splitOpts [] syn
@@ -1069,6 +1087,57 @@ theDict = do
 
         entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
           writeReflogIndex
+
+
+        entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift do
+          let (opts,argz) = splitOpts [] syn
+
+          let what = headDef "HEAD" [ x | StringLike x <- argz ]
+          h0  <- gitRevParseThrow what
+
+          void $ flip runContT pure do
+
+            rq <- newTQueueIO
+            ContT $ withAsync (startReflogIndexQueryQueue rq)
+
+            let req h = do
+                  let bs = coerce @GitHash  @N.ByteString h
+                  let tr = const True
+                  w <- newEmptyTMVarIO
+                  atomically $ writeTQueue rq (bs, tr, w)
+                  r <- atomically $ readTMVar w
+                  pure $ isNothing r
+
+            r <- lift $ readCommitChainHPSQ req Nothing h0 dontHandle
+
+            cap <- liftIO getNumCapabilities
+            gitCatBatchQ <- contWorkerPool cap do
+              che <- ContT withGitCat
+              pure $ gitReadObjectMaybe che
+
+            out <- newTQueueIO
+            r <- ContT $ withAsync $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
+
+              (_,self) <- gitCatBatchQ commit
+                             >>= orThrow (GitReadError (show $ pretty commit))
+
+              tree <- gitReadCommitTree self
+
+              hashes <- gitReadTreeObjectsOnly commit
+                            <&> ([commit,tree]<>)
+                            >>= filterM req
+
+              atomically $ mapM_ (writeTQueue out) hashes
+
+            fix \next -> do
+              h' <- atomically do
+                     pollSTM r >>= \case
+                       Just{}  -> pure Nothing
+                       Nothing -> readTQueue out <&> Just
+
+              maybe1 h' none $ \h ->do
+                liftIO $ print $ pretty h
+                next
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
