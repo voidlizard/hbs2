@@ -981,9 +981,9 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:git:reflog:index:list" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          for_ [ x | StringLike x <- argz ] $ \ifn -> do
+        entry $ bindMatch "reflog:index:list" $ nil_ $ const $ lift do
+          files <- listObjectIndexFiles
+          for_ files  $ \(ifn,_) -> do
             lbs <- liftIO $ LBS.readFile ifn
 
             void $ runConsumeLBS lbs $ readSections $ \s ss -> do
@@ -1085,9 +1085,15 @@ theDict = do
             let f = makeRelative cur f'
             liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
+        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ const $ lift do
+          r <- newTVarIO ( mempty :: HashSet HashRef )
+          enumEntries $ \bs -> do
+            atomically $ modifyTVar r (HS.insert (coerce $ BS.take 32 $ BS.drop 20 bs))
+          z <- readTVarIO r <&> HS.toList
+          liftIO $ mapM_ ( print . pretty ) z
+
         entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
           writeReflogIndex
-
 
         entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift do
           let (opts,argz) = splitOpts [] syn

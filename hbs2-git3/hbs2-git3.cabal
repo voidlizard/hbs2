@@ -92,6 +92,7 @@ common shared-properties
       , scientific
       , streaming
       , stm
+      , stm-hamt
       , split
       , text
       , temporary
