@@ -101,37 +101,37 @@ startReflogIndexQueryQueue rq = flip runContT pure do
 
   mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
 
-  r <- newTVarIO (mempty :: HashMap N.ByteString N.ByteString)
+  -- r <- newTVarIO (mempty :: HashMap N.ByteString N.ByteString)
 
-  -- FIXME: may-explode
-  for_ mmaped $ \bs -> do
-    scanBS bs $ \segment -> do
-      let ha = BS.take 20 segment & coerce
-      atomically $ modifyTVar r (HM.insert ha segment)
+  -- -- FIXME: may-explode
+  -- liftIO $ forConcurrently_ mmaped $ \bs -> do
+  --   scanBS bs $ \segment -> do
+  --     let ha = BS.take 20 segment & coerce
+  --     atomically $ modifyTVar r (HM.insert ha segment)
 
-  forever do
-    (s, f, answ) <- atomically $ readTQueue rq
-    found <- readTVarIO r <&> HM.lookup s
-
-    atomically do
-      case found of
-        Nothing -> writeTMVar answ Nothing
-        Just x  -> writeTMVar answ (Just (f x))
-
-  -- forever $ liftIO do
+  -- forever do
   --   (s, f, answ) <- atomically $ readTQueue rq
+  --   found <- readTVarIO r <&> HM.lookup s
 
-  --   found <- forConcurrently mmaped $ \bs -> runMaybeT do
-  --              -- FIXME: size-hardcodes
-  --              w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
-  --                     >>= toMPlus
+  --   atomically do
+  --     case found of
+  --       Nothing -> writeTMVar answ Nothing
+  --       Just x  -> writeTMVar answ (Just (f x))
 
-  --              let v = BS.drop ( w * 56 ) bs
+  forever $ liftIO do
+    (s, f, answ) <- atomically $ readTQueue rq
 
-  --              pure $ f v
+    found <- forConcurrently mmaped $ \bs -> runMaybeT do
+               -- FIXME: size-hardcodes
+               w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
+                      >>= toMPlus
 
-  --   let what = headMay (catMaybes found)
-  --   atomically $ writeTMVar answ what
+               let v = BS.drop ( w * 56 ) bs
+
+               pure $ f v
+
+    let what = headMay (catMaybes found)
+    atomically $ writeTMVar answ what
 
 writeReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m

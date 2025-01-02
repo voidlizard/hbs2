@@ -1121,8 +1121,9 @@ theDict = do
               che <- ContT withGitCat
               pure $ gitReadObjectMaybe che
 
-            out <- newTQueueIO
-            r <- ContT $ withAsync $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
+
+            new_ <- newTVarIO mempty
+            lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
 
               (_,self) <- gitCatBatchQ commit
                              >>= orThrow (GitReadError (show $ pretty commit))
@@ -1131,19 +1132,35 @@ theDict = do
 
               hashes <- gitReadTreeObjectsOnly commit
                             <&> ([commit,tree]<>)
-                            >>= filterM req
+                            -- >>= filterM req
 
-              atomically $ mapM_ (writeTQueue out) hashes
+              atomically $ modifyTVar new_ (HS.union (HS.fromList hashes))
 
-            fix \next -> do
-              h' <- atomically do
-                     pollSTM r >>= \case
-                       Just{}  -> pure Nothing
-                       Nothing -> readTQueue out <&> Just
 
-              maybe1 h' none $ \h ->do
-                liftIO $ print $ pretty h
-                next
+            fps <- lift $ listObjectIndexFiles
+                     <&> fmap fst
+                     >>= liftIO . mapM (`mmapFileByteString` Nothing)
+
+            allHashes <- readTVarIO new_
+            newHashes <- newTVarIO mempty
+            for_ fps $ \mmaped -> do
+              for_ allHashes $ \ha -> do
+                found <- binarySearchBS 56 ( BS.take 20 . BS.drop 4) (coerce ha) mmaped
+                when (isNothing found) do
+                  atomically $ modifyTVar newHashes (HS.insert ha)
+
+            readTVarIO newHashes >>= liftIO . print . pretty . HS.size
+           -- liftIO $ print $ pretty (HS
+
+            -- fix \next -> do
+            --   h' <- atomically do
+            --          pollSTM r >>= \case
+            --            Just{}  -> pure Nothing
+            --            Nothing -> readTQueue out <&> Just
+
+            --   maybe1 h' none $ \h ->do
+            --     liftIO $ print $ pretty h
+            --     next
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
