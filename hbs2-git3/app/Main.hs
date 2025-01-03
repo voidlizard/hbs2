@@ -92,6 +92,8 @@ import Data.Vector.Algorithms.Search qualified as MV
 import UnliftIO.Concurrent
 import UnliftIO.IO.File qualified as UIO
 
+import Data.BloomFilter.Easy qualified as Bloom
+
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
 
@@ -534,15 +536,6 @@ theDict = do
         entry $ bindMatch "debug" $ nil_ $ const do
          setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
 
-        entry $ bindMatch "test:state:init" $ nil_ $ \case
-          [ ] -> do
-            lift $ connectedDo do
-              r <- getGitRemoteKey >>= orThrowUser "git remote not set"
-              p <- getStatePathDB (AsBase58 r)
-              debug $ "test:state:init" <+> pretty p
-
-          _ -> throwIO (BadFormException @C nil)
-
         entry $ bindMatch "test:git:normalize-ref" $ nil_  \case
           [ StringLike s ] -> display $ mkStr @C (show $ pretty $ gitNormaliseRef (fromString s))
           _ -> throwIO (BadFormException @C nil)
@@ -583,6 +576,14 @@ theDict = do
 
         entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
           LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
+
+
+        entry $ bindMatch "test:reflog:bloom:create" $ nil_ $ \syn -> lift do
+          r <- newTQueueIO
+          enumEntries $ \e -> do
+            atomically $ writeTQueue r (BS.take 20 e)
+          atomically (STM.flushTQueue r) <&> (Bloom.easyList 0.01)
+          notice $ "bloom filter build done"
 
         entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> lift do
           (mpath, hss) <- case syn of
@@ -1066,6 +1067,7 @@ theDict = do
 
         entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift do
           indexPath >>= liftIO . print . pretty
+
 
           -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
         entry $ bindMatch "reflog:index:files" $ nil_ $ \syn -> lift do
