@@ -601,7 +601,6 @@ theDict = do
             ContT $ withAsync (startReflogIndexQueryQueue rq)
 
             let req h = do
-                  debug $ "AAAAA" <+> pretty h
                   let bs = coerce @GitHash  @N.ByteString h
                   let tr = const True
                   w <- newEmptyTMVarIO
@@ -1096,16 +1095,31 @@ theDict = do
           void $ flip runContT pure do
 
             rq <- newTQueueIO
-            ContT $ withAsync (startReflogIndexQueryQueue rq)
+            -- ContT $ withAsync (startReflogIndexQueryQueue rq)
+
+            -- let req h = do
+            --       let bs = coerce @GitHash  @N.ByteString h
+            --       let tr = const True
+            --       w <- newEmptyTMVarIO
+            --       atomically $ writeTQueue rq (bs, tr, w)
+            --       r <- atomically $ readTMVar w
+            --       pure $ isNothing r
+
+            cache <- newTVarIO ( mempty :: HashSet GitHash )
+
+            -- читаем вообще всё из индекса в память и строим HashSet
+            -- получается, что вообще никакого профита, что это индекс,
+            -- это фуллскан в любом случае.
+            -- Индекс это сортированная последовательность [(GitHash, HashRef)]
+            -- в виде байстроки формата "SD", D ~ GitHash <> HashRef
+            lift $ enumEntries $ \e -> do
+              atomically $ modifyTVar cache ( HS.insert (coerce $ BS.take 20 e) )
 
             let req h = do
-                  let bs = coerce @GitHash  @N.ByteString h
-                  let tr = const True
-                  w <- newEmptyTMVarIO
-                  atomically $ writeTQueue rq (bs, tr, w)
-                  r <- atomically $ readTMVar w
-                  pure $ isNothing r
+                 readTVarIO cache <&> not . HS.member h
 
+            -- читаем только те коммиты, которые не в индексе
+            -- очень быстро, пушо относительно мало объектов
             r <- lift $ readCommitChainHPSQ req Nothing h0 dontHandle
 
             cap <- liftIO getNumCapabilities
@@ -1113,8 +1127,7 @@ theDict = do
               che <- ContT withGitCat
               pure $ gitReadObjectMaybe che
 
-
-            new_ <- newTVarIO mempty
+            new_ <- newTQueueIO
             lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
 
               (_,self) <- gitCatBatchQ commit
@@ -1122,26 +1135,15 @@ theDict = do
 
               tree <- gitReadCommitTree self
 
+              -- читаем только те объекты, которые не в индексе
               hashes <- gitReadTreeObjectsOnly commit
                             <&> ([commit,tree]<>)
-                            -- >>= filterM req
+                            >>= filterM req
 
-              atomically $ modifyTVar new_ (HS.union (HS.fromList hashes))
+              atomically $ mapM_ (writeTQueue new_) hashes
 
-
-            fps <- lift $ listObjectIndexFiles
-                     <&> fmap fst
-                     >>= liftIO . mapM (`mmapFileByteString` Nothing)
-
-            allHashes <- readTVarIO new_
-            newHashes <- newTVarIO mempty
-            for_ fps $ \mmaped -> do
-              for_ allHashes $ \ha -> do
-                found <- binarySearchBS 56 ( BS.take 20 . BS.drop 4) (coerce ha) mmaped
-                when (isNothing found) do
-                  atomically $ modifyTVar newHashes (HS.insert ha)
-
-            readTVarIO newHashes >>= liftIO . print . pretty . HS.size
+            -- 1.8 секунд и заметно растёт от числа коммитов, сука
+            atomically (STM.flushTQueue new_) >>= liftIO . print . pretty . length
            -- liftIO $ print $ pretty (HS
 
             -- fix \next -> do

@@ -26,6 +26,7 @@ import Streaming hiding (run,chunksOf)
 import UnliftIO
 import UnliftIO.IO.File qualified as UIO
 
+import Data.HashPSQ qualified as HPSQ
 
 
 readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts, BytesReader m )
@@ -102,23 +103,36 @@ startReflogIndexQueryQueue rq = flip runContT pure do
 
   mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
 
+  answQ <- newTVarIO mempty
+
   forever $ liftIO do
     requests <- atomically do
                    _ <- peekTQueue rq
-                   STM.flushTQueue rq
+                   w <- STM.flushTQueue rq
+                   for_ w $ \(k,_,a) -> do
+                     modifyTVar answQ (HM.insert k a)
+                   pure w
 
-    for_ requests $ \(s,f,answ) -> do
-      found <- for mmaped $ \bs -> runMaybeT do
-                 -- FIXME: size-hardcodes
-                 w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
-                        >>= toMPlus
+    forConcurrently_ mmaped \bs -> do
+      for requests $ \(s,f,answ) -> runMaybeT do
 
-                 let v = BS.drop ( w * 56 ) bs
+        still <- readTVarIO answQ <&> HM.member s
 
-                 pure $ f v
+        guard still
 
-      let what = headMay (catMaybes found)
-      atomically $ writeTMVar answ what
+           -- FIXME: size-hardcodes
+        w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
+              >>= toMPlus
+
+        let r = f (BS.drop (w * 56) bs)
+
+        atomically do
+          writeTMVar answ (Just r)
+          modifyTVar answQ (HM.delete bs)
+
+    atomically do
+      rest <- readTVar answQ
+      for_ rest $ \x -> writeTMVar x Nothing
 
 writeReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m
