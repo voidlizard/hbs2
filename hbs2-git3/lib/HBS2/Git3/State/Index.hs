@@ -18,6 +18,7 @@ import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 
+import Control.Concurrent.STM qualified as STM
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
@@ -101,37 +102,23 @@ startReflogIndexQueryQueue rq = flip runContT pure do
 
   mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
 
-  -- r <- newTVarIO (mempty :: HashMap N.ByteString N.ByteString)
-
-  -- -- FIXME: may-explode
-  -- liftIO $ forConcurrently_ mmaped $ \bs -> do
-  --   scanBS bs $ \segment -> do
-  --     let ha = BS.take 20 segment & coerce
-  --     atomically $ modifyTVar r (HM.insert ha segment)
-
-  -- forever do
-  --   (s, f, answ) <- atomically $ readTQueue rq
-  --   found <- readTVarIO r <&> HM.lookup s
-
-  --   atomically do
-  --     case found of
-  --       Nothing -> writeTMVar answ Nothing
-  --       Just x  -> writeTMVar answ (Just (f x))
-
   forever $ liftIO do
-    (s, f, answ) <- atomically $ readTQueue rq
+    requests <- atomically do
+                   _ <- peekTQueue rq
+                   STM.flushTQueue rq
 
-    found <- forConcurrently mmaped $ \bs -> runMaybeT do
-               -- FIXME: size-hardcodes
-               w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
-                      >>= toMPlus
+    for_ requests $ \(s,f,answ) -> do
+      found <- for mmaped $ \bs -> runMaybeT do
+                 -- FIXME: size-hardcodes
+                 w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
+                        >>= toMPlus
 
-               let v = BS.drop ( w * 56 ) bs
+                 let v = BS.drop ( w * 56 ) bs
 
-               pure $ f v
+                 pure $ f v
 
-    let what = headMay (catMaybes found)
-    atomically $ writeTMVar answ what
+      let what = headMay (catMaybes found)
+      atomically $ writeTMVar answ what
 
 writeReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m
