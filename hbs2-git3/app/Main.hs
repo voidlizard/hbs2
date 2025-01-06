@@ -85,6 +85,7 @@ import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
 import System.IO (hPrint)
 import System.IO.Temp as Temp
+import System.TimeIt
 
 import Data.Vector qualified as Vector
 import Data.Vector.Algorithms.Search qualified as MV
@@ -1112,15 +1113,30 @@ theDict = do
             -- это фуллскан в любом случае.
             -- Индекс это сортированная последовательность [(GitHash, HashRef)]
             -- в виде байстроки формата "SD", D ~ GitHash <> HashRef
-            lift $ enumEntries $ \e -> do
-              atomically $ modifyTVar cache ( HS.insert (coerce $ BS.take 20 e) )
+            --
+            --
+
+            (t,_) <- timeItT do
+              lift $ enumEntries $ \e -> do
+                atomically do
+                  modifyTVar cache ( HS.insert (coerce $ BS.take 20 e) )
+
+            s <- readTVarIO cache <&> HS.size
+            notice $ pretty s <+> " records read at" <+> pretty t
+
+            l_ <- newTVarIO 0
+            h_ <- newTVarIO ( mempty :: HashSet GitHash )
+            s_ <- newTVarIO ( mempty :: HashMap GitHash Int )
 
             let req h = do
-                 readTVarIO cache <&> not . HS.member h
+                 atomically do
+                  modifyTVar l_ succ
+                  readTVar cache <&> not . HS.member h
 
             -- читаем только те коммиты, которые не в индексе
             -- очень быстро, пушо относительно мало объектов
-            r <- lift $ readCommitChainHPSQ req Nothing h0 dontHandle
+            (t1,r) <- timeItT (lift $ readCommitChainHPSQ req Nothing h0 dontHandle)
+            notice $ pretty s <+> " new commits read at" <+> pretty (realToFrac @_ @(Fixed E3) t1)
 
             cap <- liftIO getNumCapabilities
             gitCatBatchQ <- contWorkerPool cap do
@@ -1128,7 +1144,8 @@ theDict = do
               pure $ gitReadObjectMaybe che
 
             new_ <- newTQueueIO
-            lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
+            c1 <- newCacheFixedHPSQ 1000
+            (t3, _) <- timeItT $ lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
 
               (_,self) <- gitCatBatchQ commit
                              >>= orThrow (GitReadError (show $ pretty commit))
@@ -1139,11 +1156,25 @@ theDict = do
               hashes <- gitReadTreeObjectsOnly commit
                             <&> ([commit,tree]<>)
                             >>= filterM req
+                            --
+              atomically $ modifyTVar s_ (HM.insertWith (\old new -> max old new) commit (length hashes))
+
+              atomically $ modifyTVar h_ (HS.union (HS.fromList hashes))
 
               atomically $ mapM_ (writeTQueue new_) hashes
 
             -- 1.8 секунд и заметно растёт от числа коммитов, сука
             atomically (STM.flushTQueue new_) >>= liftIO . print . pretty . length
+
+            l <- readTVarIO l_
+            n <- readTVarIO h_
+            w <- readTVarIO s_ <&> HM.elems
+
+            let a = realToFrac (sum w) / realToFrac (length w)
+
+            notice $ pretty l <+> pretty (HS.size n) <+> "done in " <+> pretty (realToFrac @_ @(Fixed E3) t3)
+            notice $ "avg per commit" <+> pretty a
+
            -- liftIO $ print $ pretty (HS
 
             -- fix \next -> do
