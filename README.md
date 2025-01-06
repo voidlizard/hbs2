@@ -33,6 +33,59 @@ This solution facilitates decentralized P2P git repository
 synchronization with automatic peer discovery, requiring no server or
 service.
 
+
+## Status update 2025-01-06
+
+The project’s alive and kicking, actively used by the team
+and even supporting a few other initiatives.
+
+The development is hosted directly on hbs2, which explains
+the relatively low activity on GitHub.
+
+The hbs2 link remains the same:
+
+- hbs2://BTThPdHKF8XnEq4m6wzbKHKA6geLFK4ydYhBXAqBdHSP
+
+The current focus is on optimizing hbs2-git for really large
+repositories, such as OpenWrt.
+
+It’s quite a challenging task, but definitely doable. The
+key is replacing SQLite with sstable-like (LSMT) files to
+ensure decent read/write performance during fetch and push
+operations.
+
+For example, OpenWrt has around 700K objects and  60K+
+commits and growing.
+
+Typically, about 100K objects need to be checked per push
+operation to identify and write only the new ones.
+
+The goal of this iteration is to make hbs2-git work smoothly
+with "OpenWrt"-scale projects.
+
+The next steps will naturally focus on "Linux-scale" and
+"monorepo-scale" projects.
+
+Hopefully, the new architecture will scale well enough.
+
+Other changes:
+
+ - hbs2-git dashboard will be removed from scope
+
+ - hbs2-fixer probable will be remove as well
+
+ - issue tracker fixme-new is moved to hbs2 codebase
+   and works
+
+ - Moving hbs2-storage to sstable/lsm instead of
+   git-like storage is planned but may be will be moved
+   tothe next iteration.
+
+The planned release date for the iteration is Feb'2025.
+
+Stay tuned!
+
+
 ## Status update 2024-03-20
 
 hbs2-git 0.24.1 is in master. Status =\> beta. Old hbs2-git is
