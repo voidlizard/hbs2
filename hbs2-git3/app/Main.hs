@@ -593,16 +593,9 @@ theDict = do
 
             liftIO $ mapM_ setCurrentDirectory mpath
 
-            rq <- newTQueueIO
-            ContT $ withAsync (startReflogIndexQueryQueue rq)
+            idx <- lift openIndex
 
-            let req h = do
-                  let bs = coerce @GitHash  @N.ByteString h
-                  let tr = const True
-                  w <- newEmptyTMVarIO
-                  atomically $ writeTQueue rq (bs, tr, w)
-                  r <- atomically $ readTMVar w
-                  pure $ isNothing r
+            let req h = lift $ indexEntryLookup idx h <&> isNothing
 
             -- let hss = headDef "HEAD" [ x | StringLike x <- snd (splitOpts [] syn) ]
             h <- gitRevParseThrow hss
@@ -610,7 +603,6 @@ theDict = do
 
             for_ (HPSQ.toList r) $ \(k,_,_) -> do
               liftIO $ print $ pretty  k
-
 
         entry $ bindMatch "test:git:log:cat" $ nil_ $ \syn -> lift do
 
@@ -754,23 +746,18 @@ theDict = do
                 found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
                 liftIO $ notice $ pretty h <+> pretty (isJust found)
 
-        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ flip runContT pure do
+        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift do
 
           let (_, argz) = splitOpts [] syn
 
           hash <- headMay [ x | GitHashLike x <- argz ] & orThrowUser "need sha1"
 
-          rq <- newTQueueIO
+          idx <- openIndex
 
-          ContT $ withAsync $ startReflogIndexQueryQueue rq
+          answ <- indexEntryLookup idx hash
 
-          answ_ <- newEmptyTMVarIO
-
-          atomically $ writeTQueue rq  (coerce hash, const True, answ_)
-
-          answ <- atomically $ readTMVar answ_
-
-          for_ answ $ \a -> do
+          for_ answ $ \bs -> do
+            let a = coerce (BS.take 32 bs) :: HashRef
             liftIO $ print $ pretty a
 
         entry $ bindMatch "test:git:log:index:flat:search:linear:test" $ nil_ $ \case
@@ -1095,7 +1082,7 @@ theDict = do
 
             idx <- openIndex
 
-            let req h = lift $ indexEntryLookup idx h <&> isNothing
+            -- let req h = lift $ indexEntryLookup idx h <&> isNothing
 
             flip runContT pure do
               cap <- liftIO getNumCapabilities
@@ -1114,7 +1101,7 @@ theDict = do
               -- читаем только те объекты, которые не в индексе
               hashes <- gitReadTreeObjectsOnly commit
                             <&> ([commit,tree]<>)
-                            >>= filterM req
+                            >>= lift . indexFilterNewObjects idx . HS.fromList
                             --
               atomically $ mapM_ (writeTQueue new_) hashes
               atomically (STM.flushTQueue new_) >>= liftIO . print . pretty . length
@@ -1130,63 +1117,6 @@ theDict = do
           no_ <- newTVarIO 0
 
           void $ flip runContT pure do
-
-            -- cache <- newTVarIO ( mempty :: HashSet GitHash )
-
-            -- читаем вообще всё из индекса в память и строим HashSet
-            -- получается, что вообще никакого профита, что это индекс,
-            -- это фуллскан в любом случае.
-            -- Индекс это сортированная последовательность [(GitHash, HashRef)]
-            -- в виде байстроки формата "SD", D ~ GitHash <> HashRef
-
-            -- let blm = runST (MBloom.new undefined 1000000)
-            --
-            -- bloom <- liftIO $ stToIO $ MBloom.new 10000
-            --
-
-            index <- lift openIndex
-
-            -- let req h = do
-            --      atomically do
-            --       readTVar cache <&> not . HS.member h
-
-            -- let
-              -- req2 :: GitHash -> Git3 m Bool
-              -- req2 h = liftIO do
-              --    here <- liftIO $ stToIO $ MBloom.elem h bloom
-
-              --    if not here then pure True else do
-              --      atomically $ modifyTVar blmn_ succ
-              --      forConcurrently_ files $ \f -> do
-              --        found <- binarySearchBS 56 ( BS.take 20. BS.drop 4 ) (coerce h) f
-              --        when (isJust found) do
-              --         atomically $ modifyTVar excl_ (HS.insert h)
-              --      readTVarIO excl_ <&> not . HS.member h
-
-              -- req3 :: HashSet GitHash -> Git3 m (HashSet GitHash)
-              -- req3 hs = liftIO do
-
-              --   forConcurrently_ files $ \f -> do
-              --     flip fix (HS.toList hs) $ \next -> \case
-              --       [] -> none
-              --       (x:xs) -> do
-              --         already <- readTVarIO excl_ <&> HS.member x
-              --         inBloom <- liftIO $ stToIO $ MBloom.elem x bloom
-
-              --         when inBloom do
-              --            atomically $ modifyTVar blmn_ succ
-
-              --         when (not already || inBloom) do
-              --           found <- binarySearchBS 56 ( BS.take 20. BS.drop 4 ) (coerce x) f
-              --           when (isJust found) do
-              --             atomically $ modifyTVar excl_ (HS.insert x)
-              --         next xs
-
-              --   found <- readTVarIO excl_
-              --   pure ( hs `HS.difference` found)
-
-            -- читаем только те коммиты, которые не в индексе
-            -- очень быстро, пушо относительно мало объектов
 
             idx <- lift openIndex
             let req h = lift $ indexEntryLookup idx h <&> isNothing
@@ -1217,7 +1147,7 @@ theDict = do
 
             notice $ "all shit read" <+> pretty (realToFrac @_ @(Fixed E2) t3)
 
-            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= filterM req . HS.toList
+            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
 
             notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
 

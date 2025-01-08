@@ -17,6 +17,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
 import Data.Word
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -79,7 +81,7 @@ data IndexEntry =
 
 data Index a =
   Index { entries    :: [IndexEntry]
-        , bitmap     :: MBloom.MBloom RealWorld GitHash
+        , bitmap     :: Bloom GitHash
         }
 
 openIndex :: forall a m . (Git3Perks m, MonadReader Git3Env m)
@@ -89,8 +91,20 @@ openIndex = do
   files <- listObjectIndexFiles
   bss <- liftIO $ for files $ \(f,_)  -> (f,) <$> mmapFileByteString f Nothing
   let entries = [ IndexEntry f bs | (f,bs) <- bss ]
-  bloom <- liftIO $ stToIO $ MBloom.new bloomHash 10
-  pure $ Index entries bloom
+  let n = sum (fmap snd files)
+  let bss = bloomFilterSize n 5 0.01 & fromIntegral
+
+  bloom <- liftIO $ stToIO $ MBloom.new bloomHash bss
+
+  let idx = Index entries undefined
+
+  enumEntries idx $ \bs -> do
+    let h = coerce (BS.take 20 bs) :: GitHash
+    liftIO $ stToIO (MBloom.insert bloom h)
+
+  bm <- liftIO $ stToIO $ Bloom.freeze bloom
+
+  pure $ idx { bitmap = bm }
 
 indexEntryLookup :: forall a m . (Git3Perks m)
               => Index a
@@ -101,15 +115,44 @@ indexEntryLookup Index{..} h = do
   already_ <- newTVarIO ( mempty :: HashMap GitHash N.ByteString )
   forConcurrently_ entries $ \IndexEntry{..} -> do
     what <- readTVarIO already_ <&> HM.lookup h
-    case what of
-      Just{} -> none
-      Nothing -> do
+    let inBloom = Bloom.elem h bitmap
+    case (inBloom,what) of
+      (False,_)    -> none
+      (_,Just{})   -> none
+      (_,Nothing)  -> do
         offset' <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) entryBS
         maybe1 offset' none $ \offset -> do
           let ebs = BS.take 32 $ BS.drop (offset + 4 + 20) entryBS
           atomically $ modifyTVar already_ (HM.insert h ebs)
 
   readTVarIO already_ <&> headMay . HM.elems
+
+indexFilterNewObjects :: forall a m . (Git3Perks m)
+                      => Index a
+                      -> HashSet GitHash
+                      -> m [GitHash]
+
+indexFilterNewObjects Index{..} hashes = do
+  old_ <- newTVarIO ( mempty :: HashSet GitHash )
+  forConcurrently_ entries $ \IndexEntry{..} -> do
+    flip fix (HS.toList hashes) $ \next -> \case
+      [] -> none
+      (x:xs) -> do
+        let inBloom = Bloom.elem x bitmap
+        if not inBloom then
+          next xs
+        else do
+          old <- readTVarIO old_ <&> HS.member x
+          if old then
+            next xs
+          else do
+            off <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce x) entryBS
+            when (isJust off) do
+              atomically $ modifyTVar old_ (HS.insert x)
+            next xs
+
+  old <- readTVarIO old_
+  pure $ HS.toList (hashes `HS.difference` old)
 
 listObjectIndexFiles :: forall m . ( Git3Perks m
                                    , MonadReader Git3Env m
@@ -142,58 +185,10 @@ bloomHash  gh = [a,b,c,d,e]
       d = N.word32 (BS.take 4 $ BS.drop 12 bs)
       e = N.word32 (BS.take 4 $ BS.drop 16 bs)
 
-startReflogIndexQueryQueue :: forall a m . ( Git3Perks m
-                                           , MonadReader Git3Env m
-                                           , HasClientAPI PeerAPI UNIX m
-                                           , HasClientAPI RefLogAPI UNIX m
-                                           , HasStorage m
-                                           )
-                       => TQueue (BS.ByteString, BS.ByteString -> a, TMVar (Maybe a))
-                       -> m  ()
-
-startReflogIndexQueryQueue rq = flip runContT pure do
-  files <- lift $ listObjectIndexFiles <&> fmap fst
-
-  -- один файл - не более, чем один поток
-  -- мапим файлы
-  -- возвращаем функцию запроса?
-  -- для каждого файла -- мы создаём отдельную очередь,
-  -- нам надо искать во всех файлах
-
-  mmaped <- liftIO $ for files (liftIO . flip mmapFileByteString Nothing)
-
-  answQ <- newTVarIO mempty
-
-  forever $ liftIO do
-    requests <- atomically do
-                   _ <- peekTQueue rq
-                   w <- STM.flushTQueue rq
-                   for_ w $ \(k,_,a) -> do
-                     modifyTVar answQ (HM.insert k a)
-                   pure w
-
-    forConcurrently_ mmaped \bs -> do
-      for requests $ \(s,f,answ) -> runMaybeT do
-
-        still <- readTVarIO answQ <&> HM.member s
-
-        guard still
-
-           -- FIXME: size-hardcodes
-        w <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) s bs
-              >>= toMPlus
-
-        let r = f (BS.drop (w * 56) bs)
-
-        atomically do
-          writeTMVar answ (Just r)
-          modifyTVar answQ (HM.delete bs)
-
-    atomically do
-      rest <- readTVar answQ
-      for_ rest $ \x -> writeTMVar x Nothing
-
-bloomFilterSize :: Natural -> Natural -> Double -> Natural
+bloomFilterSize :: Natural -- ^ elems?
+                -> Natural -- ^ hash functions
+                -> Double  -- ^ error probability
+                -> Natural
 bloomFilterSize n k p
     | p <= 0 || p >= 1 = 0
     | otherwise = rnd $ negate (fromIntegral n * fromIntegral k) / log (1 - p ** (1 / fromIntegral k))
