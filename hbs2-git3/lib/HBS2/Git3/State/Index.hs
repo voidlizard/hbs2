@@ -98,9 +98,9 @@ openIndex = do
 
   let idx = Index entries undefined
 
-  enumEntries idx $ \bs -> do
-    let h = coerce (BS.take 20 bs) :: GitHash
-    liftIO $ stToIO (MBloom.insert bloom h)
+  -- enumEntries idx $ \bs -> do
+  --   let h = coerce (BS.take 20 bs) :: GitHash
+  --   liftIO $ stToIO (MBloom.insert bloom h)
 
   bm <- liftIO $ stToIO $ Bloom.freeze bloom
 
@@ -115,7 +115,7 @@ indexEntryLookup Index{..} h = do
   already_ <- newTVarIO ( mempty :: HashMap GitHash N.ByteString )
   forConcurrently_ entries $ \IndexEntry{..} -> do
     what <- readTVarIO already_ <&> HM.lookup h
-    let inBloom = Bloom.elem h bitmap
+    let inBloom = True -- Bloom.elem h bitmap
     case (inBloom,what) of
       (False,_)    -> none
       (_,Just{})   -> none
@@ -138,7 +138,7 @@ indexFilterNewObjects Index{..} hashes = do
     flip fix (HS.toList hashes) $ \next -> \case
       [] -> none
       (x:xs) -> do
-        let inBloom = Bloom.elem x bitmap
+        let inBloom = True -- Bloom.elem x bitmap
         if not inBloom then
           next xs
         else do
@@ -154,6 +154,21 @@ indexFilterNewObjects Index{..} hashes = do
   old <- readTVarIO old_
   pure $ HS.toList (hashes `HS.difference` old)
 
+
+indexFilterNewObjectsMem :: forall a m . (Git3Perks m)
+                      => Index a
+                      -> HashSet GitHash
+                      -> m [GitHash]
+
+indexFilterNewObjectsMem idx@Index{..} hashes = do
+  old_ <- newTVarIO ( mempty  :: HashSet GitHash )
+  enumEntries idx $ \bs -> do
+    atomically $ modifyTVar old_ (HS.insert (coerce $ BS.take 20 bs))
+
+  old <- readTVarIO old_
+  pure $ HS.toList (hashes `HS.difference` old)
+
+
 listObjectIndexFiles :: forall m . ( Git3Perks m
                                    , MonadReader Git3Env m
                                    ) => m [(FilePath, Natural)]
@@ -168,8 +183,7 @@ listObjectIndexFiles = do
 
 
 enumEntries :: forall a m . ( Git3Perks m
-                          , MonadReader Git3Env m
-                          ) => Index a -> ( BS.ByteString -> m () ) -> m ()
+                            ) => Index a -> ( BS.ByteString -> m () ) -> m ()
 
 enumEntries Index{..} action = do
   forConcurrently_ entries $ \IndexEntry{..} -> do

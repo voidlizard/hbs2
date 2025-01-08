@@ -1147,7 +1147,7 @@ theDict = do
 
             notice $ "all shit read" <+> pretty (realToFrac @_ @(Fixed E2) t3)
 
-            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
+            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjectsMem idx
 
             notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
 
