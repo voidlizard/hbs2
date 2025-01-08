@@ -17,9 +17,21 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Word
+import Data.Vector (Vector)
+import Data.Vector qualified as V
+import Data.Kind
+
+
+import Data.BloomFilter qualified as Bloom
+import Data.BloomFilter (Bloom(..))
+import Data.BloomFilter.Mutable qualified as MBloom
+
+import Control.Monad.ST
 
 import Control.Concurrent.STM qualified as STM
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
+import Codec.Serialise
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
 
@@ -59,6 +71,46 @@ indexPath = do
   reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
   getStatePath (AsBase58 reflog) <&> (</> "index")
 
+data IndexEntry =
+  IndexEntry
+  { entryFile  :: FilePath
+  , entryBS    :: N.ByteString
+  }
+
+data Index a =
+  Index { entries    :: [IndexEntry]
+        , bitmap     :: MBloom.MBloom RealWorld GitHash
+        }
+
+openIndex :: forall a m . (Git3Perks m, MonadReader Git3Env m)
+          => m (Index a)
+
+openIndex = do
+  files <- listObjectIndexFiles
+  bss <- liftIO $ for files $ \(f,_)  -> (f,) <$> mmapFileByteString f Nothing
+  let entries = [ IndexEntry f bs | (f,bs) <- bss ]
+  bloom <- liftIO $ stToIO $ MBloom.new bloomHash 10
+  pure $ Index entries bloom
+
+indexEntryLookup :: forall a m . (Git3Perks m)
+              => Index a
+              -> GitHash
+              -> m (Maybe N.ByteString)
+
+indexEntryLookup Index{..} h = do
+  already_ <- newTVarIO ( mempty :: HashMap GitHash N.ByteString )
+  forConcurrently_ entries $ \IndexEntry{..} -> do
+    what <- readTVarIO already_ <&> HM.lookup h
+    case what of
+      Just{} -> none
+      Nothing -> do
+        offset' <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) entryBS
+        maybe1 offset' none $ \offset -> do
+          let ebs = BS.take 32 $ BS.drop (offset + 4 + 20) entryBS
+          atomically $ modifyTVar already_ (HM.insert h ebs)
+
+  readTVarIO already_ <&> headMay . HM.elems
+
 listObjectIndexFiles :: forall m . ( Git3Perks m
                                    , MonadReader Git3Env m
                                    ) => m [(FilePath, Natural)]
@@ -72,16 +124,23 @@ listObjectIndexFiles = do
            pure (f,z)
 
 
-
-enumEntries :: forall m . ( Git3Perks m
+enumEntries :: forall a m . ( Git3Perks m
                           , MonadReader Git3Env m
-                          ) => ( BS.ByteString -> m () ) -> m ()
+                          ) => Index a -> ( BS.ByteString -> m () ) -> m ()
 
-enumEntries action = do
-  files <- listObjectIndexFiles <&> fmap fst
-  forConcurrently_ files $ \f -> do
-    bs <- liftIO $ mmapFileByteString f Nothing
-    scanBS bs action
+enumEntries Index{..} action = do
+  forConcurrently_ entries $ \IndexEntry{..} -> do
+    scanBS entryBS action
+
+bloomHash :: GitHash  -> [Word32]
+bloomHash  gh = [a,b,c,d,e]
+    where
+      bs = coerce gh
+      a = N.word32 (BS.take 4 bs)
+      b = N.word32 (BS.take 4 $ BS.drop 4  bs)
+      c = N.word32 (BS.take 4 $ BS.drop 8  bs)
+      d = N.word32 (BS.take 4 $ BS.drop 12 bs)
+      e = N.word32 (BS.take 4 $ BS.drop 16 bs)
 
 startReflogIndexQueryQueue :: forall a m . ( Git3Perks m
                                            , MonadReader Git3Env m
@@ -133,6 +192,13 @@ startReflogIndexQueryQueue rq = flip runContT pure do
     atomically do
       rest <- readTVar answQ
       for_ rest $ \x -> writeTMVar x Nothing
+
+bloomFilterSize :: Natural -> Natural -> Double -> Natural
+bloomFilterSize n k p
+    | p <= 0 || p >= 1 = 0
+    | otherwise = rnd $ negate (fromIntegral n * fromIntegral k) / log (1 - p ** (1 / fromIntegral k))
+  where
+    rnd x = 2 ** realToFrac (ceiling (logBase 2 x)) & round
 
 writeReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m
@@ -194,5 +260,28 @@ writeReflogIndex = do
             let value = coerce @_ @N.ByteString tx
             -- notice $ pretty sha1 <+> pretty tx
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+
+      -- files <- lift listObjectIndexFiles
+      -- let num = sum (fmap snd files) `div` 56
+      -- let size = bloomFilterSize num 5 0.01
+
+      -- bloom <- liftIO $ stToIO (MBloom.new bloomHash (fromIntegral size))
+
+      -- lift $ enumEntries $ \bs -> do
+      --   liftIO $ stToIO $ MBloom.insert bloom (coerce bs)
+
+      -- let bloomIdxName =  idxPath </> "filter"
+      -- bytes <- liftIO $ stToIO $ Bloom.freeze bloom
+
+      -- liftIO $ UIO.withBinaryFileAtomic bloomIdxName WriteMode $ \wh -> do
+      --   LBS.hPutStr wh "puk"
+        -- LBS.hPutStr wh (serialise bytes)
+        -- LBS.writeFile (serialise b
+        -- for_ ss $ \sha1 -> do
+        --   let key   = coerce @_ @N.ByteString sha1
+        --   let value = coerce @_ @N.ByteString tx
+        --   -- notice $ pretty sha1 <+> pretty tx
+        --   writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+
 
 
