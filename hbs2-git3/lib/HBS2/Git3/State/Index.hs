@@ -14,6 +14,7 @@ import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
 import Data.ByteString.Lazy qualified as LBS
+import Data.Fixed
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -36,6 +37,7 @@ import Codec.Compression.Zstd.Lazy qualified as ZstdL
 import Codec.Serialise
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
+import System.TimeIt
 
 import UnliftIO
 import UnliftIO.IO.File qualified as UIO
@@ -81,7 +83,6 @@ data IndexEntry =
 
 data Index a =
   Index { entries    :: [IndexEntry]
-        , bitmap     :: Bloom GitHash
         }
 
 openIndex :: forall a m . (Git3Perks m, MonadReader Git3Env m)
@@ -91,20 +92,7 @@ openIndex = do
   files <- listObjectIndexFiles
   bss <- liftIO $ for files $ \(f,_)  -> (f,) <$> mmapFileByteString f Nothing
   let entries = [ IndexEntry f bs | (f,bs) <- bss ]
-  let n = sum (fmap snd files)
-  let bss = bloomFilterSize n 5 0.01 & fromIntegral
-
-  bloom <- liftIO $ stToIO $ MBloom.new bloomHash bss
-
-  let idx = Index entries undefined
-
-  -- enumEntries idx $ \bs -> do
-  --   let h = coerce (BS.take 20 bs) :: GitHash
-  --   liftIO $ stToIO (MBloom.insert bloom h)
-
-  bm <- liftIO $ stToIO $ Bloom.freeze bloom
-
-  pure $ idx { bitmap = bm }
+  pure $ Index entries
 
 indexEntryLookup :: forall a m . (Git3Perks m)
               => Index a
@@ -115,11 +103,9 @@ indexEntryLookup Index{..} h = do
   already_ <- newTVarIO ( mempty :: HashMap GitHash N.ByteString )
   forConcurrently_ entries $ \IndexEntry{..} -> do
     what <- readTVarIO already_ <&> HM.lookup h
-    let inBloom = True -- Bloom.elem h bitmap
-    case (inBloom,what) of
-      (False,_)    -> none
-      (_,Just{})   -> none
-      (_,Nothing)  -> do
+    case what of
+      Just{}   -> none
+      Nothing  -> do
         offset' <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) entryBS
         maybe1 offset' none $ \offset -> do
           let ebs = BS.take 32 $ BS.drop (offset + 4 + 20) entryBS
@@ -138,18 +124,14 @@ indexFilterNewObjects Index{..} hashes = do
     flip fix (HS.toList hashes) $ \next -> \case
       [] -> none
       (x:xs) -> do
-        let inBloom = True -- Bloom.elem x bitmap
-        if not inBloom then
+        old <- readTVarIO old_ <&> HS.member x
+        if old then
           next xs
         else do
-          old <- readTVarIO old_ <&> HS.member x
-          if old then
-            next xs
-          else do
-            off <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce x) entryBS
-            when (isJust off) do
-              atomically $ modifyTVar old_ (HS.insert x)
-            next xs
+          off <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce x) entryBS
+          when (isJust off) do
+            atomically $ modifyTVar old_ (HS.insert x)
+          next xs
 
   old <- readTVarIO old_
   pure $ HS.toList (hashes `HS.difference` old)
@@ -186,8 +168,30 @@ enumEntries :: forall a m . ( Git3Perks m
                             ) => Index a -> ( BS.ByteString -> m () ) -> m ()
 
 enumEntries Index{..} action = do
-  forConcurrently_ entries $ \IndexEntry{..} -> do
+  for_ entries $ \IndexEntry{..} -> do
     scanBS entryBS action
+
+enumEntriesFixed :: forall a m . ( Git3Perks m
+                            )
+                 => Int
+                 -> Index a
+                 -> ( BS.ByteString -> m () )
+                 -> m ()
+
+enumEntriesFixed n Index{..} action = do
+
+  q <- newTQueueIO
+
+  atomically $ mapM_ (writeTQueue q) entries
+
+  replicateM_ n $ do
+    fix \next -> do
+      es' <- atomically $ tryReadTQueue q
+      case es' of
+        Nothing -> none
+        Just IndexEntry{..} -> do
+          scanBS entryBS action
+          next
 
 bloomHash :: GitHash  -> [Word32]
 bloomHash  gh = [a,b,c,d,e]
@@ -223,6 +227,18 @@ writeReflogIndex = do
 
     sto <- getStorage
 
+    idx <- openIndex
+
+    written_ <- newTVarIO mempty
+
+    (t1,_) <- timeItT do
+      enumEntries idx $ \bs -> do
+        let txh = coerce (BS.take 32 $ BS.drop 20  bs) :: HashRef
+        atomically $ modifyTVar written_ (HS.insert txh)
+
+    written <- readTVarIO written_
+    notice $ "read index at" <+> pretty (realToFrac @_ @(Fixed E2) t1)
+
     flip runContT pure do
 
       what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
@@ -239,7 +255,7 @@ writeReflogIndex = do
         walkMerkle (coerce what) (getBlock sto) $ \case
           Left{} -> throwIO MissedBlockError
           Right (hs :: [HashRef]) -> do
-            for_ hs $ \h -> void $ runMaybeT do
+            for_ [h | h <- hs, not (HS.member h written)]  $ \h -> void $ runMaybeT do
 
               tx <- getBlock sto (coerce h)
                        >>= toMPlus

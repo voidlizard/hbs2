@@ -424,7 +424,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
         liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
         next (catMaybes files, newWin)
 
-  mapM_ rm inputFiles
+    mapM_ rm inputFiles
 
   where
     readEntry :: BS.ByteString -> (Maybe BS.ByteString, Maybe BS.ByteString)
@@ -727,7 +727,7 @@ theDict = do
                 if done then pure ()
                   else do
                     ssize  <- readBytesMaybe 4
-                                   >>= orThrow SomeReadLogError
+                                     >>= orThrow SomeReadLogError
                                    <&> fromIntegral . N.word32 . LBS.toStrict
 
                     hash   <- readBytesMaybe 20
@@ -1057,12 +1057,16 @@ theDict = do
             liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
         entry $ bindMatch "reflog:index:list:tx" $ nil_ $ const $ lift do
-          r <- newTVarIO ( mempty :: HashSet HashRef )
+          r <- newIORef  ( mempty :: HashSet HashRef )
           index <- openIndex
           enumEntries index $ \bs -> do
-            atomically $ modifyTVar r (HS.insert (coerce $ BS.take 32 $ BS.drop 20 bs))
-          z <- readTVarIO r <&> HS.toList
-          liftIO $ mapM_ ( print . pretty ) z
+            let h =  coerce $ BS.take 32 $ BS.drop 20 bs
+            -- here <- readIORef r <&> HS.member h
+            -- unless here do
+            atomicModifyIORef' r ( \x -> (HS.insert h x, ()))
+          z <- readIORef r <&> HS.toList
+          for_ z $ \h ->do
+            liftIO $ print $  pretty h
 
         entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
           writeReflogIndex
