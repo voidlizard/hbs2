@@ -329,6 +329,7 @@ isPair = \case
 
 data BindAction c ( m :: Type -> Type)  =
     BindLambda { fromLambda :: [Syntax c] -> RunM c m (Syntax c) }
+  | BindMacro  { fromMacro  :: [Syntax c] -> RunM c m (Syntax c) }
   | BindValue  (Syntax c)
 
 data Bind c ( m :: Type -> Type)  = Bind
@@ -488,8 +489,10 @@ apply_ :: forall c m . ( IsContext c
 
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
-  SymbolVal "quot"       -> pure $ mkList args
-  SymbolVal "quasiquot"  -> mkList <$> mapM evalQQ args
+  SymbolVal "quot"        -> pure $ mkList args
+  SymbolVal "quote"       -> pure $ mkList args
+  SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
+  SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal   what  -> apply what args
   Lambda d body     -> applyLambda d body args
   e                  -> throwIO $ NotLambda e
@@ -506,7 +509,7 @@ apply "quot" args = do
   pure $ mkList args
 
 apply "quasiquot" args = do
-  mkList <$> mapM evalQQ args
+  mkList <$> mapM (evalQQ mempty) args
 
 apply name args' = do
   -- notice $ red "APPLY" <+> pretty name
@@ -517,6 +520,9 @@ apply name args' = do
 
     Just (BindValue (Lambda argz body) )  -> do
       applyLambda argz body args'
+
+    Just (BindMacro macro) -> do
+      macro args'
 
     Just (BindValue _) -> do
       throwIO (NotLambda (mkSym @c name))
@@ -559,23 +565,38 @@ bindBuiltins  dict = do
 evalQQ :: forall c m . ( IsContext c
                      , MonadUnliftIO m
                      , Exception (BadFormException c)
-                     ) => Syntax c -> RunM c m (Syntax c)
-evalQQ = \case
-  SymbolVal (Id w) | Text.isPrefixOf "," w -> do
-    let what = Id (Text.drop 1 w)
-    lookupValue what >>= eval
+                     ) => Dict c m
+                       -> Syntax c -> RunM c m (Syntax c)
+evalQQ d0 = \case
+  -- SymbolVal (Id w) | Text.isPrefixOf "," w -> do
+  --   let what = Id (Text.drop 1 w)
+  --   lookupValue what >>= eval
 
-  List c es   -> List c <$> mapM evalQQ es
+  ListVal [ SymbolVal ",", w ] -> eval' d0 w
+
+  List c es   -> List c <$> mapM (evalQQ d0) es
 
   other       -> pure other
 
 eval :: forall c m . ( IsContext c
                      , MonadUnliftIO m
                      , Exception (BadFormException c)
-                     ) => Syntax c -> RunM c m (Syntax c)
-eval syn = handle (handleForm syn) $ do
+                     )
+                       => Syntax c
+                       -> RunM c m (Syntax c)
+eval = eval' mempty
 
-    dict <- ask >>= readTVarIO
+eval' :: forall c m . ( IsContext c
+                     , MonadUnliftIO m
+                     , Exception (BadFormException c)
+                     ) => Dict c m
+                       -> Syntax c
+                       -> RunM c m (Syntax c)
+eval' dict0 syn = handle (handleForm syn) $ do
+
+    dict1 <- ask >>= readTVarIO
+
+    let dict = dict0 <> dict1
 
     -- liftIO $ print $ show $ "TRACE EXP" <+> pretty syn
 
@@ -599,18 +620,39 @@ eval syn = handle (handleForm syn) $ do
       ListVal [ SymbolVal "'", x] -> do
         pure  x
 
+      ListVal [ SymbolVal ",", x] -> do
+        pure  x
+
       ListVal [ SymbolVal "`", ListVal b] -> do
-        mkList <$> mapM evalQQ b
+        mkList <$> mapM (evalQQ dict) b
 
       ListVal [ SymbolVal "quasiquot", ListVal b] -> do
-        mkList <$> mapM evalQQ b
+        mkList <$> mapM (evalQQ dict) b
 
       ListVal [ SymbolVal "quot", ListVal b] -> do
         pure  $ mkList  b
 
+      ListVal [ SymbolVal "eval", e ] -> eval e >>= eval
+
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
         ev <- eval e
         bind what ev>> pure nil
+
+      ListVal [SymbolVal "define-macro",  LambdaArgs (name:argz), e] -> do
+        t <- ask
+
+        let runMacro argvalz = do
+             de <- forM (zip argz argvalz) $ \(n,e) -> do
+                     v <- eval e
+                     pure (n, Bind mzero (BindValue v))
+
+             let d0 = HM.fromList de
+
+             eval' d0 e >>= eval' d0
+
+        let b = Bind mzero (BindMacro runMacro)
+        atomically $ modifyTVar t (HM.insert name b)
+        pure nil
 
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
@@ -645,12 +687,17 @@ eval syn = handle (handleForm syn) $ do
         apply_ e' args'
 
       SymbolVal name | HM.member name dict -> do
-        let what = HM.lookup name dict
+
+
+        let what = HM.lookup name dict0 <|> HM.lookup name dict1
                      & maybe (BindValue (mkSym name)) bindAction
+
+        -- liftIO $ print $ "LOOKUP" <+> pretty name <+> pretty what
 
         case what of
           BindValue e  -> pure e
           BindLambda e -> pure $ mkForm "builtin:lambda" [mkSym name]
+          BindMacro _  -> pure nil
 
       e@(SymbolVal name) | not (HM.member name dict) -> do
         pure e
@@ -701,6 +748,11 @@ evalTop syn = lastDef nil <$> mapM eval syn
 
 bindMatch :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
 bindMatch n fn = HM.singleton n (Bind man (BindLambda fn))
+  where
+    man = Just $ mempty { manName = Just (manNameOf n) }
+
+bindMacro :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
+bindMacro n fn = HM.singleton n (Bind man (BindMacro fn))
   where
     man = Just $ mempty { manName = Just (manNameOf n) }
 
@@ -875,7 +927,7 @@ internalEntries = do
           throwIO (BadFormException @C nil)
 
     entry $ bindMatch "quasiquot" $ \case
-      [ syn ] -> mkList . List.singleton <$> evalQQ syn
+      [ syn ] -> mkList . List.singleton <$> (evalQQ mempty) syn
       _ -> do
           throwIO (BadFormException @C nil)
 
