@@ -1172,7 +1172,7 @@ theDict = do
                notice $ pretty tree
                none
 
-        entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
+        entry $ bindMatch "reflog:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--dry",0),("--ref",1)] syn
 
           let dry = or [ True  | ListVal [StringLike "--dry"] <- opts ]
