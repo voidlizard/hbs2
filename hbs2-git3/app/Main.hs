@@ -362,7 +362,7 @@ splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
 data ECC =
     ECCInit
   | ECCWrite Int FilePath Handle Result
-  | ECCFinalize Bool FilePath Handle Result
+  | ECCFinalize Int Bool FilePath Handle Result
 
 
 
@@ -1181,7 +1181,7 @@ theDict = do
               decoded <- readTxMay sto h
                  <&> \case
                     Nothing -> ("missed"  <+> pretty h)
-                    Just (AnnotatedHashRef _ x)  -> (pretty h <+> pretty x)
+                    Just (AnnotatedHashRef _ x)  -> (fill 44 (pretty h) <+> fill 44 (pretty x))
               print decoded
 
         entry $ bindMatch "reflog:tx:objects:list" $ nil_ $ \syn -> lift $ connectedDo do
@@ -1195,13 +1195,28 @@ theDict = do
           liftIO $ print $ pretty tree
 
         entry $ bindMatch "test:git:import" $ nil_ $ \syn -> lift $ connectedDo do
+
+          updateReflogIndex
+
           refLogAPI <- getClientAPI @RefLogAPI  @UNIX
           reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
 
-          rv <- (callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog)
-                   >>= orThrowUser "reflog is empty"
+          rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
+                  >>= orThrowUser "rpc timeout"
+                  >>= orThrowUser "reflog is empty"
+                  <&> coerce
 
           notice $ "test:git:import" <+> pretty (AsBase58 reflog) <+> pretty rv
+
+          sto <- getStorage
+
+          walkMerkle @[HashRef] rv (getBlock sto) \case
+            Left h ->  err $ "missed block"
+            Right hs -> do
+              for_ hs $ \h -> void $ runMaybeT do
+               AnnotatedHashRef _ tree <- readTxMay sto h >>= toMPlus
+               notice $ pretty tree
+               none
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [("--dry",0),("--ref",1)] syn
@@ -1220,6 +1235,7 @@ theDict = do
           idx <- openIndex
 
           _already <- newTVarIO ( mempty :: HashSet GitHash )
+          _exported <- newTVarIO 0
 
           enumEntries idx $ \bs -> do
             atomically $ modifyTVar _already (HS.insert (coerce $ BS.take 20 bs))
@@ -1250,7 +1266,7 @@ theDict = do
             tn <- getNumCapabilities
 
             sourceQ <- newTBQueueIO (fromIntegral tn * 1024)
-            hbs2Q   <- newTBQueueIO @_ @(Maybe FilePath) 100
+            hbs2Q   <- newTBQueueIO @_ @(Maybe (FilePath, Int)) 100
 
             hbs2 <- liftIO $ async $ void $ withGit3Env env do
               sto <- getStorage
@@ -1261,7 +1277,7 @@ theDict = do
 
               lift $ fix \next -> atomically (readTBQueue hbs2Q) >>= \case
                 Nothing -> none
-                Just fn -> void $ flip runContT pure do
+                Just (fn,_) -> void $ flip runContT pure do
                   ContT $ bracket none (const $ rm fn)
                   lift do
                     ts <- liftIO getPOSIXTime <&> round
@@ -1269,7 +1285,10 @@ theDict = do
                     let meta = mempty
                     let gk = Nothing
 
-                    unless dry do
+                    exported <- readTVarIO _exported
+                    debug $ red "EXPORTED" <+> pretty exported
+
+                    when (not dry && exported > 0) do
                       href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
                       writeLogEntry ("tree" <+> pretty ts <+> pretty href)
                       debug $ "SENDING" <+> pretty href <+> pretty fn
@@ -1277,10 +1296,8 @@ theDict = do
                       let payload = pure $ LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
                       tx <- mkRefLogUpdateFrom (coerce reflog) payload
 
-                      r <- callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
-                              >>= orThrowUser "rpc timeout"
-
-                      pure ()
+                      callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
+                        >>= orThrowUser "rpc timeout"
 
                     rm fn
                     next
@@ -1320,7 +1337,10 @@ theDict = do
                                 >>= filterM notWrittenYet
 
                   for_ hashes $ \gh -> do
-                    atomically $ modifyTVar _already (HS.insert gh)
+                    atomically do
+                      modifyTVar _already (HS.insert gh)
+                      modifyTVar _exported succ
+
                     -- debug $ "object" <+> pretty gh
                     (_t,lbs) <- lift (gitCatBatchQ gh)
                                    >>= orThrow (GitReadError (show $ pretty gh))
@@ -1418,11 +1438,11 @@ theDict = do
               loop $ ECCWrite 0 fn logFile zstd
 
             ECCWrite bnum fn fh sn | bnum >= maxW -> do
-              loop (ECCFinalize True fn fh sn)
+              loop (ECCFinalize bnum True fn fh sn)
 
             ECCWrite bnum fn fh sn -> do
               atomically (readTBQueue sourceQ) >>= \case
-                 Nothing  -> loop (ECCFinalize False fn fh sn)
+                 Nothing  -> loop (ECCFinalize bnum False fn fh sn)
                  Just s -> do
                     lbs <- S.toList_ (writeSection s $ S.yield) <&> mconcat
 
@@ -1435,11 +1455,11 @@ theDict = do
 
                     loop (ECCWrite (bnum + sz) fn fh sn1)
 
-            ECCFinalize again fn fh sn -> do
+            ECCFinalize bnum again fn fh sn -> do
               void $ writeCompressedChunkZstd (write bytes_ fh) sn Nothing
               hClose fh
-              atomically $ writeTBQueue hbs2Q (Just fn)
-              debug $ "POST SEGMENT" <+> pretty fn
+              atomically $ writeTBQueue hbs2Q (Just (fn, bnum))
+              notice $ "SEGMENT" <+> pretty bnum <+> pretty fn
               when again $ loop ECCInit
               atomically $ writeTBQueue hbs2Q Nothing
 
