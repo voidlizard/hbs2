@@ -13,6 +13,8 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
+import Data.Heap (Entry(..))
+import Data.Heap qualified as Heap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Fixed
 import Data.Maybe
@@ -38,6 +40,7 @@ import Codec.Serialise
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
 import System.TimeIt
+import Lens.Micro.Platform
 
 import UnliftIO
 import UnliftIO.IO.File qualified as UIO
@@ -84,6 +87,65 @@ data IndexEntry =
 data Index a =
   Index { entries    :: [IndexEntry]
         }
+
+
+mergeSortedFilesN :: forall m . MonadUnliftIO m
+                  => (N.ByteString -> N.ByteString) -- ^ Функция извлечения ключа
+                  -> [FilePath]                -- ^ Входные файлы
+                  -> FilePath                  -- ^ Выходной файл
+                  -> m ()
+
+mergeSortedFilesN _ [] out  = rm out
+
+mergeSortedFilesN _ [_] out = rm out
+
+mergeSortedFilesN getKey inputFiles outFile = do
+
+  mmaped <- for inputFiles $ \fn -> do
+     liftIO (mmapFileByteString fn Nothing)
+
+  liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
+    flip fix (mmaped, Heap.empty) $ \next (mmf, win) -> do
+      let (entries, files) = fmap readEntry mmf & unzip
+      let values = [ Entry (getKey e) e | e <- catMaybes entries ]
+      let e' = (win <> Heap.fromList values) & Heap.uncons
+      maybe1 e' none $ \(Entry _ e, newWin) -> do
+        liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
+        next (catMaybes files, newWin)
+
+    mapM_ rm inputFiles
+
+  where
+    readEntry :: BS.ByteString -> (Maybe BS.ByteString, Maybe BS.ByteString)
+
+    readEntry src | BS.length src < 4 = (mzero, mzero)
+
+    readEntry src = do
+      let (size, rest) = BS.splitAt 4 src & over _1 ( fromIntegral . N.word32 )
+      let (e, rest2) = BS.splitAt size rest
+
+      if BS.length e < size then
+        (mzero, mzero)
+      else
+        (Just e, Just rest2)
+
+compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
+compactIndex maxSize = do
+  reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+  idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+  mkdir idxPath
+  files <- listObjectIndexFiles <&> L.sortOn snd
+
+  let blocks = fix (\next (acc, group, remaining) ->
+        case remaining of
+          [] -> [reverse group | not (null group)]
+          ((file, size) : rest)
+            | acc + size > maxSize -> reverse group : next (size, [(file, size)], rest)
+            | otherwise -> next (acc + size, (file, size) : group, rest))
+
+  forM_ (blocks (0, [], files)) $ \block -> do
+    out <- liftIO $ emptyTempFile idxPath "objects-.idx"
+    mergeSortedFilesN (BS.take 20) (map fst block) out
 
 openIndex :: forall a m . (Git3Perks m, MonadReader Git3Env m)
           => m (Index a)
@@ -293,4 +355,6 @@ updateReflogIndex = do
             let value = coerce @_ @N.ByteString tx
             -- notice $ pretty sha1 <+> pretty tx
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
+
+      lift $ compactIndex ( 32 * 1024 * 1024 )
 

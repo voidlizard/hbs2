@@ -106,7 +106,6 @@ class HasExportOpts m where
   getCompressionLevel :: m Int
   setCompressionLevel :: Int -> m ()
 
-
 class HasGitRemoteKey m where
   getGitRemoteKey :: m (Maybe GitRemoteKey)
   setGitRemoteKey :: GitRemoteKey -> m ()

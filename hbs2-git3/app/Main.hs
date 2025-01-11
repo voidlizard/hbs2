@@ -68,9 +68,6 @@ import Data.Generics.Labels
 import Data.Generics.Product
 import Lens.Micro.Platform
 
-import Data.Heap (Entry(..))
-import Data.Heap qualified as Heap
-
 import Streaming.Prelude qualified as S
 
 import System.Exit qualified as Q
@@ -400,46 +397,6 @@ mergeSortedFiles getKey file1 file2 outFile = do
       | otherwise                    = write y >> mergeEntries (x:xs) ys extractKey write
 
 
-mergeSortedFilesN :: forall m . MonadUnliftIO m
-                  => (N.ByteString -> N.ByteString) -- ^ Функция извлечения ключа
-                  -> [FilePath]                -- ^ Входные файлы
-                  -> FilePath                  -- ^ Выходной файл
-                  -> m ()
-
-mergeSortedFilesN _ [] out  = rm out
-
-mergeSortedFilesN _ [_] out = rm out
-
-mergeSortedFilesN getKey inputFiles outFile = do
-
-  mmaped <- for inputFiles $ \fn -> do
-     liftIO (mmapFileByteString fn Nothing)
-
-  liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
-    flip fix (mmaped, Heap.empty) $ \next (mmf, win) -> do
-      let (entries, files) = fmap readEntry mmf & unzip
-      let values = [ Entry (getKey e) e | e <- catMaybes entries ]
-      let e' = (win <> Heap.fromList values) & Heap.uncons
-      maybe1 e' none $ \(Entry _ e, newWin) -> do
-        liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
-        next (catMaybes files, newWin)
-
-    mapM_ rm inputFiles
-
-  where
-    readEntry :: BS.ByteString -> (Maybe BS.ByteString, Maybe BS.ByteString)
-
-    readEntry src | BS.length src < 4 = (mzero, mzero)
-
-    readEntry src = do
-      let (size, rest) = BS.splitAt 4 src & over _1 ( fromIntegral . N.word32 )
-      let (e, rest2) = BS.splitAt size rest
-
-      if BS.length e < size then
-        (mzero, mzero)
-      else
-        (Just e, Just rest2)
-
 
 theDict :: forall m . ( HBS2GitPerks m
                       -- , HasClientAPI PeerAPI UNIX m
@@ -475,6 +432,8 @@ theDict = do
             setPackedSegmedSize (fromIntegral n)
 
           _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindValue "index-block-size"  (mkInt $ 32 * 1024 * 1024)
 
         entry $ bindMatch "git:tree:ls" $ nil_ $ const do
           r <- gitReadTree "HEAD"
@@ -1027,17 +986,12 @@ theDict = do
                                       on conflict (sha1)
                                       do update set tx = excluded.tx|] (p,h)
 
-        entry $ bindMatch "reflog:index:compact" $ nil_ $ \syn -> lift do
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-          idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
-          mkdir idxPath
+        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> do
+          size <- lookupValue "index-block-size" >>= \case
+                    LitIntVal n  -> pure (fromIntegral n)
+                    _            -> pure 33554432
 
-          files <- dirFiles idxPath
-                     <&> filter ((== ".idx") .  takeExtension)
-
-          out <- liftIO $ emptyTempFile idxPath "objects-.idx"
-
-          mergeSortedFilesN (BS.take 20) files out
+          lift $ compactIndex size
 
         entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift do
           indexPath >>= liftIO . print . pretty
