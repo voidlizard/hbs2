@@ -213,13 +213,28 @@ bloomFilterSize n k p
   where
     rnd x = 2 ** realToFrac (ceiling (logBase 2 x)) & round
 
-writeReflogIndex :: forall m . ( Git3Perks m
+readTxMay :: forall m . ( MonadIO m
+                        )
+          => AnyStorage -> HashRef -> m (Maybe AnnotatedHashRef)
+
+readTxMay sto href = runMaybeT do
+
+    tx <- getBlock sto (coerce href)
+             >>= toMPlus
+
+    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
+      & toMPlus
+
+    deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
+      & toMPlus
+
+updateReflogIndex :: forall m . ( Git3Perks m
                                , MonadReader Git3Env m
                                , HasClientAPI PeerAPI UNIX m
                                , HasClientAPI RefLogAPI UNIX m
                                , HasStorage m
                                ) => m ()
-writeReflogIndex = do
+updateReflogIndex = do
 
     reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
 
@@ -257,14 +272,7 @@ writeReflogIndex = do
           Right (hs :: [HashRef]) -> do
             for_ [h | h <- hs, not (HS.member h written)]  $ \h -> void $ runMaybeT do
 
-              tx <- getBlock sto (coerce h)
-                       >>= toMPlus
-
-              RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
-                                    & toMPlus
-
-              AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
-                                           & toMPlus
+              AnnotatedHashRef _ href <- readTxMay sto (coerce h) >>= toMPlus
 
               -- FIXME: error logging
               lbs <- liftIO (runExceptT (getTreeContents sto href))
@@ -285,28 +293,4 @@ writeReflogIndex = do
             let value = coerce @_ @N.ByteString tx
             -- notice $ pretty sha1 <+> pretty tx
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
-
-      -- files <- lift listObjectIndexFiles
-      -- let num = sum (fmap snd files) `div` 56
-      -- let size = bloomFilterSize num 5 0.01
-
-      -- bloom <- liftIO $ stToIO (MBloom.new bloomHash (fromIntegral size))
-
-      -- lift $ enumEntries $ \bs -> do
-      --   liftIO $ stToIO $ MBloom.insert bloom (coerce bs)
-
-      -- let bloomIdxName =  idxPath </> "filter"
-      -- bytes <- liftIO $ stToIO $ Bloom.freeze bloom
-
-      -- liftIO $ UIO.withBinaryFileAtomic bloomIdxName WriteMode $ \wh -> do
-      --   LBS.hPutStr wh "puk"
-        -- LBS.hPutStr wh (serialise bytes)
-        -- LBS.writeFile (serialise b
-        -- for_ ss $ \sha1 -> do
-        --   let key   = coerce @_ @N.ByteString sha1
-        --   let value = coerce @_ @N.ByteString tx
-        --   -- notice $ pretty sha1 <+> pretty tx
-        --   writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
-
-
 

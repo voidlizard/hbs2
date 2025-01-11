@@ -279,7 +279,7 @@ readCommitChainHPSQ :: ( HBS2GitPerks m
 
 readCommitChainHPSQ filt _ h0 action = flip runContT pure $ callCC \_ -> do
   theReader  <- ContT $ withGitCat
-  void $ ContT $ bracket (pure theReader) stopProcess
+  void $ ContT $ bracket (pure theReader) dontHandle -- stopProcess
   flip fix (HCC 0 [h0] HPSQ.empty) $ \next  -> \case
 
     HCC _ [] result -> pure result
@@ -1027,13 +1027,7 @@ theDict = do
                                       on conflict (sha1)
                                       do update set tx = excluded.tx|] (p,h)
 
-        entry $ bindMatch "test:git:reflog:index:merge" $ nil_ $ \case
-          [ StringLike f1, StringLike f2] -> lift do
-            mergeSortedFiles (LBS.take 20) f1 f2 "jopakita"
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:reflog:index:compact" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "reflog:index:compact" $ nil_ $ \syn -> lift do
           reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
           idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
           mkdir idxPath
@@ -1069,7 +1063,7 @@ theDict = do
             liftIO $ print $  pretty h
 
         entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
-          writeReflogIndex
+          updateReflogIndex
 
         entry $ bindMatch "test:reflog:index:lookup" $ nil_ \case
           [ GitHashLike h ] -> lift do
@@ -1083,6 +1077,8 @@ theDict = do
           [ StringLike what ] -> lift do
 
             commit  <- gitRevParseThrow what
+
+            updateReflogIndex
 
             idx <- openIndex
 
@@ -1122,6 +1118,8 @@ theDict = do
 
           void $ flip runContT pure do
 
+            lift updateReflogIndex
+
             idx <- lift openIndex
             let req h = lift $ indexEntryLookup idx h <&> isNothing
 
@@ -1151,37 +1149,64 @@ theDict = do
 
             notice $ "all shit read" <+> pretty (realToFrac @_ @(Fixed E2) t3)
 
-            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjectsMem idx
+            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
 
             notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
 
-            -- x <- readTVarIO uniq_ <&> HS.size
+        entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
-            -- blmn <- readTVarIO blmn_
-            -- notice $ "all shit filter" <+> parens (pretty x) <+> brackets (pretty blmn) <+> pretty (realToFrac @_ @(Fixed E2) t4)
+          let (opts, _) = splitOpts [("--tree",0)] syn
 
-            -- notice $ pretty (length new)
+          let optTree  = or [ True | ListVal [StringLike "--tree"] <- opts ]
 
+          sto <- getStorage
 
-            -- notice $ "total objects" <+> pretty
-            -- notice $ "present" <+> pretty nhere
+          refLogAPI <- getClientAPI @RefLogAPI  @UNIX
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
 
-           -- liftIO $ print $ pretty (HS
+          rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
+                   >>= orThrowUser "rpc timeout"
+                   >>= orThrowUser "reflog is empty"
+                   <&> coerce
 
-            -- fix \next -> do
-            --   h' <- atomically do
-            --          pollSTM r >>= \case
-            --            Just{}  -> pure Nothing
-            --            Nothing -> readTQueue out <&> Just
+          hxs <- S.toList_ $ walkMerkle @[HashRef] rv (getBlock sto) $ \case
+            Left{} -> throwIO MissedBlockError
+            Right hs -> S.each hs
 
-            --   maybe1 h' none $ \h ->do
-            --     liftIO $ print $ pretty h
-            --     next
+          liftIO $ forM_ hxs $ \h -> do
+
+            if not optTree then
+              print $ pretty h
+            else do
+              decoded <- readTxMay sto h
+                 <&> \case
+                    Nothing -> ("missed"  <+> pretty h)
+                    Just (AnnotatedHashRef _ x)  -> (pretty h <+> pretty x)
+              print decoded
+
+        entry $ bindMatch "reflog:tx:objects:list" $ nil_ $ \syn -> lift $ connectedDo do
+          let (_, argz) = splitOpts [] syn
+          txh <- headMay [ x | HashLike x <- argz ] & orThrowUser "tx hash not set"
+          sto <- getStorage
+
+          AnnotatedHashRef _ tree <- readTxMay sto txh
+                                       >>= orThrowUser ("missed" <+> pretty txh)
+
+          liftIO $ print $ pretty tree
+
+        entry $ bindMatch "test:git:import" $ nil_ $ \syn -> lift $ connectedDo do
+          refLogAPI <- getClientAPI @RefLogAPI  @UNIX
+          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+
+          rv <- (callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog)
+                   >>= orThrowUser "reflog is empty"
+
+          notice $ "test:git:import" <+> pretty (AsBase58 reflog) <+> pretty rv
 
         entry $ bindMatch "test:git:export" $ nil_ $ \syn -> lift $ connectedDo do
-          let (opts, argz) = splitOpts [("--index",1),("--ref",1)] syn
+          let (opts, argz) = splitOpts [("--dry",0),("--ref",1)] syn
 
-          let useIndex = headMay [ f | ListVal [StringLike "--index", StringLike f] <- opts ]
+          let dry = or [ True  | ListVal [StringLike "--dry"] <- opts ]
 
           let hd = headDef "HEAD" [ x | StringLike x <- argz]
           h <- gitRevParseThrow hd
@@ -1190,11 +1215,14 @@ theDict = do
                      | ListVal [StringLike "--ref", StringLike x] <- opts
                      ]
 
-          mmaped <- runMaybeT do
-                      fname <- toMPlus useIndex
-                      liftIO $ mmapFileByteString fname Nothing
+          updateReflogIndex
 
-          _already <- newTVarIO mempty
+          idx <- openIndex
+
+          _already <- newTVarIO ( mempty :: HashSet GitHash )
+
+          enumEntries idx $ \bs -> do
+            atomically $ modifyTVar _already (HS.insert (coerce $ BS.take 20 bs))
 
           level    <- getCompressionLevel
           segment  <- getPackedSegmetSize
@@ -1204,14 +1232,7 @@ theDict = do
             notWrittenYet :: forall m . MonadIO m => GitHash -> m Bool
             notWrittenYet x = do
                 already <- readTVarIO _already <&> HS.member x
-                alsoInIdx <- maybe1 mmaped (pure False) $ \m -> do
-                  found <- binarySearchBS 24 (BS.take 20 . BS.drop 4) (coerce x) m
-                  pure (isJust found)
-                pure (not already &&  not alsoInIdx)
-
-          hs <- maybe1 useIndex (pure mempty) $ \fn -> readIndexFromFile fn
-
-          debug $ "INDEX" <+> pretty (HS.size hs)
+                pure (not already) -- &&  not alsoInIdx)
 
           hpsq <- readCommitChainHPSQ notWrittenYet Nothing h (\c -> debug $ "commit" <+> pretty c)
 
@@ -1232,33 +1253,37 @@ theDict = do
             hbs2Q   <- newTBQueueIO @_ @(Maybe FilePath) 100
 
             hbs2 <- liftIO $ async $ void $ withGit3Env env do
-                      sto <- getStorage
-                      reflogAPI <- getClientAPI @RefLogAPI @UNIX
+              sto <- getStorage
+              reflogAPI <- getClientAPI @RefLogAPI @UNIX
 
-                      reflog <- getGitRemoteKey
-                                    >>= orThrowUser "reflog not set"
+              reflog <- getGitRemoteKey
+                            >>= orThrowUser "reflog not set"
 
-                      lift $ fix \next -> atomically (readTBQueue hbs2Q) >>= \case
-                        Nothing -> none
-                        Just fn -> void $ flip runContT pure do
-                          ContT $ bracket none (const $ rm fn)
-                          lift do
-                            ts <- liftIO getPOSIXTime <&> round
-                            lbs <- LBS.readFile fn
-                            let meta = mempty
-                            let gk = Nothing
-                            href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
-                            writeLogEntry ("tree" <+> pretty ts <+> pretty href)
-                            debug $ "SENDING" <+> pretty href <+> pretty fn
+              lift $ fix \next -> atomically (readTBQueue hbs2Q) >>= \case
+                Nothing -> none
+                Just fn -> void $ flip runContT pure do
+                  ContT $ bracket none (const $ rm fn)
+                  lift do
+                    ts <- liftIO getPOSIXTime <&> round
+                    lbs <- LBS.readFile fn
+                    let meta = mempty
+                    let gk = Nothing
 
-                            let payload = pure $ LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
-                            tx <- mkRefLogUpdateFrom (coerce reflog) payload
+                    unless dry do
+                      href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
+                      writeLogEntry ("tree" <+> pretty ts <+> pretty href)
+                      debug $ "SENDING" <+> pretty href <+> pretty fn
 
-                            r <- callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
-                                    >>= orThrowUser "rpc timeout"
+                      let payload = pure $ LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
+                      tx <- mkRefLogUpdateFrom (coerce reflog) payload
 
-                            rm fn
-                            next
+                      r <- callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
+                              >>= orThrowUser "rpc timeout"
+
+                      pure ()
+
+                    rm fn
+                    next
 
             link hbs2
 
