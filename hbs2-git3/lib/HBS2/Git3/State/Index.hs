@@ -97,8 +97,6 @@ mergeSortedFilesN :: forall m . MonadUnliftIO m
 
 mergeSortedFilesN _ [] out  = rm out
 
-mergeSortedFilesN _ [_] out = rm out
-
 mergeSortedFilesN getKey inputFiles outFile = do
 
   mmaped <- for inputFiles $ \fn -> do
@@ -113,12 +111,13 @@ mergeSortedFilesN getKey inputFiles outFile = do
       let h0 = HPSQ.minView heap
       maybe1 h0 none $ \case
         (_,_,[],rest) -> next rest
-        (_,_,e:xs,rest) -> do
+        (k,_,e:xs,rest) -> do
           liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
-          let new = maybe rest (\(a,b,c) -> HPSQ.insert a b c rest) (mkState xs)
+          let zu = maybe rest (\(a,b,c) -> HPSQ.insert a b c rest) (mkState xs)
+          let what = HPSQ.toList zu & mapMaybe (mkState . dropDupes k . view _3)
+                                    & HPSQ.fromList
+          let new = what
           next new
-          -- mapMaybe mkState (xs : fmap (view _3) (HPSQ.toList rest))
-          -- next (HPSQ.fromList new)
 
     mapM_ rm inputFiles
 
@@ -289,11 +288,12 @@ readTxMay sto href = runMaybeT do
       & toMPlus
 
 updateReflogIndex :: forall m . ( Git3Perks m
-                               , MonadReader Git3Env m
-                               , HasClientAPI PeerAPI UNIX m
-                               , HasClientAPI RefLogAPI UNIX m
-                               , HasStorage m
-                               ) => m ()
+                                , MonadReader Git3Env m
+                                , HasClientAPI PeerAPI UNIX m
+                                , HasClientAPI RefLogAPI UNIX m
+                                , HasStorage m
+                                , HasIndexOptions m
+                                ) => m ()
 updateReflogIndex = do
 
     reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
@@ -354,5 +354,5 @@ updateReflogIndex = do
             -- notice $ pretty sha1 <+> pretty tx
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
-      -- lift $ compactIndex ( 32 * 1024 * 1024 )
+      getIndexBlockSize >>= lift . compactIndex
 

@@ -142,6 +142,7 @@ recover m = fix \again -> do
                         <$> newTVarIO (Just ref)
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
+                        <*> newTVarIO defIndexBlockSize
 
         liftIO $ withGit3Env connected again
 
@@ -433,7 +434,11 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindValue "index-block-size"  (mkInt $ 32 * 1024 * 1024)
+        entry $ bindMatch "index-block-size" $ nil_ \case
+          [ LitIntVal size ]-> lift do
+            setIndexBlockSize (fromIntegral size)
+
+          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "git:tree:ls" $ nil_ $ const do
           r <- gitReadTree "HEAD"
@@ -995,12 +1000,9 @@ theDict = do
                                       on conflict (sha1)
                                       do update set tx = excluded.tx|] (p,h)
 
-        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> do
-          size <- lookupValue "index-block-size" >>= \case
-                    LitIntVal n  -> pure (fromIntegral n)
-                    _            -> pure 33554432
-
-          lift $ compactIndex size
+        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> lift do
+          size <- getIndexBlockSize
+          compactIndex size
 
         entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift do
           indexPath >>= liftIO . print . pretty

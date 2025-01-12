@@ -31,6 +31,8 @@ import HBS2.Git3.Types as Exported
 -- TODO: about-to-remove
 import DBPipe.SQLite
 
+import Data.Config.Suckless.Script
+
 import Codec.Compression.Zstd (maxCLevel)
 import Codec.Serialise
 import Control.Monad.Except (runExceptT)
@@ -53,6 +55,9 @@ defSegmentSize = 50 * 1024 * 1024
 
 defCompressionLevel :: Int
 defCompressionLevel = maxCLevel
+
+defIndexBlockSize :: Natural
+defIndexBlockSize = 32 * 1024 * 1024
 
 type HBS2GitPerks m = (MonadUnliftIO  m)
 
@@ -86,9 +91,10 @@ instance Exception Git3Exception
 
 data Git3Env =
     Git3Disconnected
-    { gitRefLog   :: TVar (Maybe GitRemoteKey)
+    { gitRefLog            :: TVar (Maybe GitRemoteKey)
     , gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
+    , gitIndexBlockSize    :: TVar Natural
     }
   | Git3Connected
     { peerSocket  :: FilePath
@@ -98,6 +104,7 @@ data Git3Env =
     , gitRefLog   :: TVar (Maybe GitRemoteKey)
     , gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
+    , gitIndexBlockSize :: TVar Natural
     }
 
 class HasExportOpts m where
@@ -137,6 +144,17 @@ instance (MonadIO m, MonadReader Git3Env m) => HasStorage m where
       Git3Disconnected{} -> throwIO Git3PeerNotConnected
       Git3Connected{..} -> pure peerStorage
 
+class MonadIO m => HasIndexOptions m where
+  getIndexBlockSize :: m Natural
+  setIndexBlockSize :: Natural -> m ()
+
+instance (MonadIO m, MonadReader Git3Env m) => HasIndexOptions m where
+  getIndexBlockSize = asks gitIndexBlockSize >>= readTVarIO
+
+  setIndexBlockSize n = do
+    e <- asks gitIndexBlockSize
+    atomically $ writeTVar e n
+
 newtype Git3 (m :: Type -> Type) a = Git3M { fromGit3 :: ReaderT Git3Env m a }
                    deriving newtype ( Applicative
                                     , Functor
@@ -169,6 +187,7 @@ nullGit3Env = Git3Disconnected
                 <$> newTVarIO Nothing
                 <*> newTVarIO defSegmentSize
                 <*> newTVarIO defCompressionLevel
+                <*> newTVarIO defIndexBlockSize
 
 connectedDo :: (MonadIO m) => Git3 m a -> Git3 m a
 connectedDo what = do
