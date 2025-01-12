@@ -97,6 +97,8 @@ mergeSortedFilesN :: forall m . MonadUnliftIO m
 
 mergeSortedFilesN _ [] out  = rm out
 
+mergeSortedFilesN _ [_] out  = rm out
+
 mergeSortedFilesN getKey inputFiles outFile = do
 
   mmaped <- for inputFiles $ \fn -> do
