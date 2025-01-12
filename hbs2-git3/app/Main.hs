@@ -956,7 +956,7 @@ theDict = do
             idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
             mkdir idxPath
 
-            notice $ "STATE" <+> pretty idxPath
+            debug $ "STATE" <+> pretty idxPath
 
             sink <- S.toList_ do
               walkMerkle (coerce what) (getBlock sto) $ \case
@@ -1091,7 +1091,7 @@ theDict = do
             (t1,r) <- timeItT (lift $ readCommitChainHPSQ req Nothing h0 dontHandle)
 
             let s = HPSQ.size r
-            notice $ pretty s <+> "new commits read at" <+> pretty (realToFrac @_ @(Fixed E3) t1)
+            debug $ pretty s <+> "new commits read at" <+> pretty (realToFrac @_ @(Fixed E3) t1)
 
             cap <- liftIO getNumCapabilities
             gitCatBatchQ <- contWorkerPool cap do
@@ -1112,11 +1112,13 @@ theDict = do
                   <&> ([commit,tree]<>)
                   >>= \hs -> atomically (for_ hs (modifyTVar uniq_ . HS.insert))
 
-            notice $ "all shit read" <+> pretty (realToFrac @_ @(Fixed E2) t3)
+            debug $ "read new objects" <+> pretty (realToFrac @_ @(Fixed E2) t3)
 
             (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
 
-            notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
+            liftIO $ for_ new $ \n -> do
+               print $ pretty n
+            -- notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 

@@ -314,7 +314,7 @@ updateReflogIndex = do
         atomically $ modifyTVar written_ (HS.insert txh)
 
     written <- readTVarIO written_
-    notice $ "read index at" <+> pretty (realToFrac @_ @(Fixed E2) t1)
+    debug $ "read index at" <+> pretty (realToFrac @_ @(Fixed E2) t1)
 
     flip runContT pure do
 
@@ -326,7 +326,7 @@ updateReflogIndex = do
       idxPath <- lift indexPath
       mkdir idxPath
 
-      notice $ "STATE" <+> pretty idxPath
+      debug $ "STATE" <+> pretty idxPath
 
       sink <- S.toList_ do
         walkMerkle (coerce what) (getBlock sto) $ \case
