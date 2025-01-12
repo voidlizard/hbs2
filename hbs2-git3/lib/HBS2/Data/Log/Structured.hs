@@ -17,6 +17,8 @@ import Codec.Compression.Zstd.Streaming qualified as Zstd
 import Codec.Compression.Zstd.Streaming (Result(..))
 
 import Control.Exception
+import Control.Monad.Trans.Maybe
+import Lens.Micro.Platform
 
 -- import UnliftIO
 
@@ -96,6 +98,29 @@ instance Monad m => BytesReader (ConsumeBS m) where
     let (a,b) = BS.splitAt n s
     put $! b
     pure (LBS.fromStrict a)
+
+{- HLINT ignore "Eta reduce"-}
+toSectionList :: BS.ByteString -> [BS.ByteString]
+toSectionList source = go source
+  where
+    go bs | BS.length bs < 4 = []
+          | otherwise = go1 (BS.splitAt 4 bs & over _1 (fromIntegral . N.word32))
+
+    go1 (len,rest) | BS.length rest < len = []
+
+    go1 (len,rest) = do
+      let (sect, rest1) = BS.splitAt len rest
+      sect : go rest1
+
+validateSorted :: BS.ByteString -> Bool
+validateSorted bs = do
+    let sections = toSectionList bs
+    let r = flip fix (Nothing, sections, 0) $ \next -> \case
+              (_, [], e) -> e
+              (Nothing, x:xs, e) -> next (Just x, xs, e)
+              (Just v, x:_, e) | v > x -> (e+1)
+              (Just _, x:xs, e)  -> next (Just x, xs, e)
+    r == 0
 
 scanBS :: Monad m => BS.ByteString -> ( BS.ByteString -> m () ) -> m ()
 scanBS bs action = do

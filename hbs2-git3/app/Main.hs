@@ -924,6 +924,15 @@ theDict = do
 
               liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
+        entry $ bindMatch "test:reflog:file:check" $ nil_ $ \case
+          [ StringLike fn ] -> lift do
+            bs <- liftIO $ mmapFileByteString fn Nothing
+
+            unless (validateSorted bs) do
+              error "malformed"
+
+          _ -> throwIO (BadFormException @C nil)
+
         entry $ bindMatch "test:git:reflog:index:sqlite" $ nil_ $ \syn -> lift $ connectedDo do
 
           reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"

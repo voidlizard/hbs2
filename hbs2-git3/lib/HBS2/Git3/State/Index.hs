@@ -102,32 +102,30 @@ mergeSortedFilesN _ [_] out = rm out
 mergeSortedFilesN getKey inputFiles outFile = do
 
   mmaped <- for inputFiles $ \fn -> do
-     liftIO (mmapFileByteString fn Nothing)
+     bs <- liftIO (mmapFileByteString fn Nothing)
+     pure $ toSectionList bs
 
   liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
-    flip fix (mmaped, Heap.empty) $ \next (mmf, win) -> do
-      let (entries, files) = fmap readEntry mmf & unzip
-      let values = [ Entry (getKey e) e | e <- catMaybes entries ]
-      let e' = (win <> Heap.fromList values) & Heap.uncons
-      maybe1 e' none $ \(Entry _ e, newWin) -> do
+
+    let seed = HPSQ.empty @BS.ByteString @BS.ByteString @BS.ByteString
+
+    flip fix (mmaped, seed) $ \next (files, win) -> do
+
+      let (vals,rests) = unzip (mapMaybe L.uncons files)
+
+      let newWin = flip fix (win, vals) $ \l -> \case
+                      (w, [])   -> w
+                      (w, e:es) -> let k = getKey e in l (HPSQ.insert k k e w, es)
+
+      maybe1 (HPSQ.minView newWin) none $ \(k,_,e, nextWin) -> do
         liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
-        next (catMaybes files, newWin)
+        next (L.filter (not . L.null) $ fmap (dropDupes k) rests, nextWin)
 
     mapM_ rm inputFiles
 
   where
-    readEntry :: BS.ByteString -> (Maybe BS.ByteString, Maybe BS.ByteString)
+    dropDupes k = L.dropWhile ( (== k) . getKey )
 
-    readEntry src | BS.length src < 4 = (mzero, mzero)
-
-    readEntry src = do
-      let (size, rest) = BS.splitAt 4 src & over _1 ( fromIntegral . N.word32 )
-      let (e, rest2) = BS.splitAt size rest
-
-      if BS.length e < size then
-        (mzero, mzero)
-      else
-        (Just e, Just rest2)
 
 compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do
@@ -356,5 +354,5 @@ updateReflogIndex = do
             -- notice $ pretty sha1 <+> pretty tx
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
-      lift $ compactIndex ( 32 * 1024 * 1024 )
+      -- lift $ compactIndex ( 32 * 1024 * 1024 )
 
