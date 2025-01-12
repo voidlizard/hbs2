@@ -900,11 +900,11 @@ theDict = do
                   LBS.hPutStr fh contents
 
 
-        entry $ bindMatch "test:git:reflog:index:list:fast" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift do
           files <- listObjectIndexFiles
           forConcurrently_ files  $ \(f,_) -> do
             bs <- liftIO $ mmapFileByteString f Nothing
-            scanBS bs $ \segment  -> do
+            for_ (toSectionList bs) $ \segment -> do
               let (sha1,blake) = BS.splitAt 20 segment
                                       & over _1 (coerce @_ @GitHash)
                                       & over _2 (coerce @_ @HashRef)

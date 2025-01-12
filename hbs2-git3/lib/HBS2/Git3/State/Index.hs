@@ -107,25 +107,25 @@ mergeSortedFilesN getKey inputFiles outFile = do
 
   liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
 
-    let seed = HPSQ.empty @BS.ByteString @BS.ByteString @BS.ByteString
+    let seed = HPSQ.fromList $ mapMaybe mkState mmaped
 
-    flip fix (mmaped, seed) $ \next (files, win) -> do
-
-      let (vals,rests) = unzip (mapMaybe L.uncons files)
-
-      let newWin = flip fix (win, vals) $ \l -> \case
-                      (w, [])   -> w
-                      (w, e:es) -> let k = getKey e in l (HPSQ.insert k k e w, es)
-
-      maybe1 (HPSQ.minView newWin) none $ \(k,_,e, nextWin) -> do
-        liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
-        next (L.filter (not . L.null) $ fmap (dropDupes k) rests, nextWin)
+    flip fix seed  $ \next heap -> do
+      let h0 = HPSQ.minView heap
+      maybe1 h0 none $ \case
+        (_,_,[],rest) -> next rest
+        (_,_,e:xs,rest) -> do
+          liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
+          let new = maybe rest (\(a,b,c) -> HPSQ.insert a b c rest) (mkState xs)
+          next new
+          -- mapMaybe mkState (xs : fmap (view _3) (HPSQ.toList rest))
+          -- next (HPSQ.fromList new)
 
     mapM_ rm inputFiles
 
   where
     dropDupes k = L.dropWhile ( (== k) . getKey )
-
+    mkState [] = Nothing
+    mkState (x:xs) = Just (getKey x, getKey x, x:xs)
 
 compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do

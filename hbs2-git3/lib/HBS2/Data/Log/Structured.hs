@@ -122,6 +122,7 @@ validateSorted bs = do
               (Just _, x:xs, e)  -> next (Just x, xs, e)
     r == 0
 
+
 scanBS :: Monad m => BS.ByteString -> ( BS.ByteString -> m () ) -> m ()
 scanBS bs action = do
   let hsz = 4
