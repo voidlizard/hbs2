@@ -107,17 +107,17 @@ mergeSortedFilesN getKey inputFiles outFile = do
 
   liftIO $ UIO.withBinaryFileAtomic outFile WriteMode $ \hOut -> do
 
-    let seed = HPSQ.fromList $ mapMaybe mkState mmaped
+    let seed = Heap.fromList $ mapMaybe mkState mmaped
 
     flip fix seed  $ \next heap -> do
-      let h0 = HPSQ.minView heap
+      let h0 = Heap.uncons heap
       maybe1 h0 none $ \case
-        (_,_,[],rest) -> next rest
-        (k,_,e:xs,rest) -> do
+        (Entry _ [], rest) -> next rest
+        (Entry k (e:xs), rest) -> do
           liftIO $ writeSection (LBS.fromStrict e) (LBS.hPutStr hOut)
-          let zu = maybe rest (\(a,b,c) -> HPSQ.insert a b c rest) (mkState xs)
-          let what = HPSQ.toList zu & mapMaybe (mkState . dropDupes k . view _3)
-                                    & HPSQ.fromList
+          let zu = maybe rest (`Heap.insert` rest) (mkState xs)
+          let what = Heap.toUnsortedList zu & mapMaybe (mkState . dropDupes k . payload)
+                                            & Heap.fromList
           let new = what
           next new
 
@@ -126,7 +126,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
   where
     dropDupes k = L.dropWhile ( (== k) . getKey )
     mkState [] = Nothing
-    mkState (x:xs) = Just (getKey x, getKey x, x:xs)
+    mkState (x:xs) = Just (Entry (getKey x) (x:xs))
 
 compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do
