@@ -33,6 +33,8 @@ import System.Process.Typed
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO
 
+{-HLINT Ignore "Functor law"-}
+
 pattern GitHashLike:: forall {c} . GitHash -> Syntax c
 pattern GitHashLike x <- (
   \case
@@ -158,6 +160,15 @@ withGitCatCheck ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
 withGitCatCheck action = do
   let cmd = "git"
   let args = ["cat-file", "--batch-check"]
+  let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
+  p <- startProcess config
+  action p
+
+
+withGitShowIndex ::  (MonadIO m) => (Process Handle Handle () -> m a) -> m a
+withGitShowIndex  action = do
+  let cmd = "git"
+  let args = ["show-index"]
   let config = setStdin createPipe $ setStdout createPipe $ setStderr closed $ proc cmd args
   p <- startProcess config
   action p

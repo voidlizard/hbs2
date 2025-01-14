@@ -128,6 +128,7 @@ library
       HBS2.Git3.State.Index
       HBS2.Git3.Config.Local
       HBS2.Git3.Git
+      HBS2.Git3.Git.Pack
 
       HBS2.Data.Log.Structured
 
@@ -167,6 +168,44 @@ executable hbs2-git-daemon
 
     hs-source-dirs:   app
     default-language: GHC2021
+
+
+
+test-suite spec
+  import:          shared-properties
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+
+  other-modules:
+    HBS2.Git3.Git.PackSpec
+      -- Data.Config.Suckless.KeyValueSpec
+      -- Data.Config.Suckless.AesonSpec
+
+  hs-source-dirs:
+      test
+  ghc-options:
+      -Wall
+      -threaded
+      -rtsopts
+      -with-rtsopts=-N
+  build-tool-depends:
+      hspec-discover:hspec-discover
+
+  build-depends:      base, hbs2-git3
+                    , hspec
+                    , tasty-hunit
+                    , tasty-quickcheck
+                    , QuickCheck
+
+  default-language: Haskell2010
+
+  -- default-extensions:
+  --                     DerivingStrategies
+  --                   , FlexibleInstances
+  --                   , MultiParamTypeClasses
+  --                   , OverloadedStrings
+  --                   , ScopedTypeVariables
+  --                   , TypeApplications
 
 
 

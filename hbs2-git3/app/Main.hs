@@ -19,7 +19,7 @@ import HBS2.Peer.RPC.Client.StorageClient
 
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 
--- move to a sepatate library
+-- move to Data.Config.Suckless.Script.Filea sepatate library
 import HBS2.Data.Log.Structured
 
 
@@ -34,6 +34,7 @@ import HBS2.Git3.Config.Local
 import HBS2.Git3.Git
 
 import Data.Config.Suckless.Script
+import Data.Config.Suckless.Script.File
 import DBPipe.SQLite
 
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
@@ -905,6 +906,56 @@ theDict = do
                   LBS.hPutStr fh contents
 
 
+        entry $ bindMatch "reflog:index:count:missed" $ nil_ $ const $ lift $ flip runContT pure do
+
+           hashes <- gitRunCommand [qc|git rev-list --all --objects|]
+                        >>= orThrowPassIO
+                        <&> LBS8.lines
+                        <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack)
+
+           for_ hashes $ \h -> do
+            liftIO $ print $ pretty h
+
+          -- git <- findGitDir >>= orThrowUser ".git directory not found"
+
+          -- ofiles <- S.toList_ $ glob ["**/*"] ["info/**", "pack/**"] (git </> "objects") $ \fn -> do
+          --   S.yield fn >> pure True
+
+          -- idxFiles <- S.toList_ $ glob ["**/*.idx"] [] (git </> "objects/pack") $ \fn -> do
+          --   S.yield fn >> pure True
+
+          -- liftIO $ for_ ofiles $ \f -> do
+          --   print f
+
+          -- liftIO $ for_ idxFiles $ \f -> flip runContT pure do
+          --   p <- ContT withGitShowIndex
+          --   -- void $ ContT $ bracket (pure p) (hClose . getStdin)
+          --   liftIO do
+          --     LBS.hPutStr (getStdin p) =<< LBS.readFile f
+          --     hFlush (getStdin p)
+          --     wtf <- IO.hGetContents (getStdout p) <&> lines
+          --     for_ wtf $ IO.putStrLn
+
+            -- _ <- gitRunCommand [qc|git show-index|]
+            -- print f
+
+          -- gitCatCheck <- contWorkerPool 4 do
+          --   che <- ContT withGitCatCheck
+          --   pure $ gitCheckObjectFromHandle che
+
+          -- idx <- lift openIndex
+
+          -- missed_ <- newTVarIO ( mempty :: HashSet GitHash )
+          -- lift $ enumEntries idx $ \bs -> do
+          --   let gh = GitHash (coerce (BS.take 20 bs))
+          --   here <- gitCatCheck gh
+          --   unless (isJust here) do
+          --     atomically $ modifyTVar missed_ (HS.insert gh)
+
+          -- missed <- readTVarIO missed_ <&> HS.size
+
+          -- liftIO $ print $ "missed" <+> pretty missed
+
         entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift do
           files <- listObjectIndexFiles
           forConcurrently_ files  $ \(f,_) -> do
@@ -915,6 +966,13 @@ theDict = do
                                       & over _2 (coerce @_ @HashRef)
 
               notice $ pretty sha1 <+> pretty blake
+
+
+        entry $ bindMatch "reflog:index:list:count" $ nil_ $ const $ lift do
+          idx <- openIndex
+          num_ <- newIORef 0
+          enumEntries idx $ \_ -> void $ atomicModifyIORef num_ (\x -> (succ x, x))
+          readIORef num_ >>= liftIO . print . pretty
 
         entry $ bindMatch "reflog:index:list" $ nil_ $ const $ lift do
           files <- listObjectIndexFiles
