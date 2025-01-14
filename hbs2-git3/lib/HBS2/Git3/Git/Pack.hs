@@ -42,6 +42,15 @@ instance Enum PackFileObjectType where
     toEnum 7 = OBJ_REF_DELTA
     toEnum n = error $ "Invalid PackFileObjectType: " ++ show n
 
+class HasGitPackType a where
+  gitPackTypeOf :: a -> PackFileObjectType
+
+
+instance HasGitPackType GitObjectType where
+  gitPackTypeOf = \case
+    Commit -> OBJ_COMMIT
+    Tree   -> OBJ_TREE
+    Blob   -> OBJ_BLOB
 
 encodeObjectSize :: PackFileObjectType -> Natural -> ByteString
 encodeObjectSize objType size =

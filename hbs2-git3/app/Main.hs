@@ -11,6 +11,7 @@ module Main where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State.Index
+import HBS2.Git3.Git.Pack
 
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.API.LWWRef
@@ -94,6 +95,8 @@ import UnliftIO.IO.File qualified as UIO
 import Control.Monad.ST
 import Data.BloomFilter qualified as Bloom
 import Data.BloomFilter.Mutable qualified as MBloom
+
+import Crypto.Hash qualified as C
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -861,49 +864,130 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
 
-        entry $ bindMatch "test:git:zstd:packed:import" $ nil_ $ \syn -> lift $ flip runContT pure do
+        entry $ bindMatch "test:segment:dump" $ nil_ $ \syn -> lift do
+          sto <- getStorage
+          let (_, argz) = splitOpts [] syn
+          tree <- headMay [ x | HashLike x <- argz ] & orThrowUser "tree hash required"
+
+          lbs <- runExceptT (getTreeContents sto tree) >>= orThrowPassIO
+
+          runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s obs -> do
+            let (t, body) = LBS.splitAt 1 obs
+
+            let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
+                         & maybe Blob coerce
+
+            liftIO $ print $ pretty h <+> fill 8 (viaShow tp) <+> pretty s
+
+
+        entry $ bindMatch "test:segment:dump:pack" $ nil_ $ \syn -> lift do
+          sto <- getStorage
+          let (_, argz) = splitOpts [] syn
+
+          let trees = [ x | HashLike x <- argz ]
+
+          for_ trees $ \tree -> do
+
+            notice $ "running" <+> pretty tree
+
+            lbs <- runExceptT (getTreeContents sto tree) >>= orThrowPassIO
+
+            file <- liftIO $ Temp.emptyTempFile "" (show (pretty tree) <> ".pack")
+
+            liftIO $ UIO.withBinaryFileAtomic file ReadWriteMode $ \fh -> do
+
+              let header = BS.concat [ "PACK", N.bytestring32 2,  N.bytestring32 0 ]
+
+              BS.hPutStr fh header
+
+              no_ <- newTVarIO 0
+              seen_ <- newTVarIO (mempty :: HashSet GitHash)
+
+              runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s obs -> do
+                seen <- readTVarIO seen_ <&> HS.member h
+                unless seen do
+
+                  let (t, body) = LBS.splitAt 1 obs
+
+                  let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
+                               & maybe Blob coerce
+
+                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+
+                  let packed = Zlib.compressWith params body
+
+                  let preamble = encodeObjectSize (gitPackTypeOf tp) (fromIntegral $ LBS.length body)
+
+                  liftIO do
+                    atomically $ modifyTVar seen_ (HS.insert h)
+                    BS.hPutStr fh preamble
+                    LBS.hPutStr fh packed
+
+                  atomically $ modifyTVar no_ succ
+
+              no <- readTVarIO no_
+              hSeek fh AbsoluteSeek 8
+              BS.hPutStr fh (N.bytestring32 no)
+              hFlush fh
+
+              sz <- hFileSize fh
+              hSeek fh AbsoluteSeek 0
+
+              sha <- LBS.hGetNonBlocking fh (fromIntegral sz) <&> sha1lazy
+
+              hSeek fh SeekFromEnd 0
+
+              BS.hPutStr fh sha
+
+        entry $ bindMatch "test:segment:import:loose" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [] syn
           let logs = [ x| StringLike x <- argz ]
 
           d <- findGitDir >>= orThrowUser "not a git directory"
 
-          gitCatCheck <- contWorkerPool 8 do
-            che <- ContT withGitCatCheck
-            pure $ gitCheckObjectFromHandle che
+          sto <- getStorage
 
-          lift $ forConcurrently_ logs $ \lfn -> do
+          flip runContT pure do
 
-            debug $ pretty lfn
+            gitCatCheck <- contWorkerPool 8 do
+              che <- ContT withGitCatCheck
+              pure $ gitCheckObjectFromHandle che
 
-            lbs <- liftIO $ LBS.readFile lfn
+            let trees = [ x | HashLike x <- argz ]
 
-            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
-              let (t, body) = LBS.splitAt 1 lbs
+            lift $ for_ trees $ \tree -> do
 
-              let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
-                           & maybe Blob coerce
+              notice $ pretty "running" <+> pretty tree
 
-              here <- isJust <$> lift (gitCatCheck h)
+              lbs <- runExceptT (getTreeContents sto tree) >>= orThrowPassIO
 
-              let gitHash = show $ pretty h
-              let (prefix,name) = L.splitAt 2 gitHash
-              let path = joinPath [d, "objects", prefix, name]
+              runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
+                let (t, body) = LBS.splitAt 1 lbs
 
-              let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
-              let o = signature <> body
+                let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
+                             & maybe Blob coerce
 
-              unless here $ liftIO do
+                here <- lift $ isJust <$> gitCatCheck h
 
-                debug $ "FUCKING IMPORT OBJECT" <+> pretty here <+> pretty h <+> pretty tp
+                let gitHash = show $ pretty h
+                let (prefix,name) = L.splitAt 2 gitHash
+                let path = joinPath [d, "objects", prefix, name]
 
-                touch path
+                let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
+                let o = signature <> body
 
-                debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
+                unless here $ liftIO do
 
-                let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                  let contents = Zlib.compressWith params  o
-                  LBS.hPutStr fh contents
+                  notice $ "FUCKING IMPORT OBJECT" <+> pretty here <+> pretty h <+> pretty tp
+
+                  touch path
+
+                  debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
+
+                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
+                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
+                    let contents = Zlib.compressWith params  o
+                    LBS.hPutStr fh contents
 
 
         entry $ bindMatch "reflog:index:count:missed" $ nil_ $ const $ lift $ flip runContT pure do

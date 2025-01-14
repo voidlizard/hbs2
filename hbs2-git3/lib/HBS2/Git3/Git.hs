@@ -256,6 +256,9 @@ instance GitObjectReader (Process Handle Handle ()) where
 sortGitTreeEntries :: [GitTreeEntry] -> [GitTreeEntry]
 sortGitTreeEntries = sortOn (\e -> (gitEntryType e, gitEntrySize e))
 
+sha1lazy :: ByteString -> BS.ByteString
+sha1lazy lbs = BS.pack $ BA.unpack $ hashlazy @Crypton.SHA1 lbs
+
 gitHashBlobPure :: ByteString -> GitHash
 gitHashBlobPure body = do
   let preamble = [qc|{pretty Blob} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
