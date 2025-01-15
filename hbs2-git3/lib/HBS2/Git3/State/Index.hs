@@ -17,6 +17,7 @@ import Data.Heap (Entry(..))
 import Data.Heap qualified as Heap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Fixed
+import Data.Either
 import Data.Maybe
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -340,8 +341,12 @@ updateReflogIndex = do
               lbs <- liftIO (runExceptT (getTreeContents sto href))
                        >>= orThrow MissedBlockError
 
-              pieces <- S.toList_ do
-                void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
+              -- ignoring broken txs
+              unzstd <- liftIO (try @_ @SomeException (pure $ ZstdL.decompress lbs)
+                                       <&> fromRight mempty )
+
+              pieces <- S.toList_ $ do
+                void $ runConsumeLBS unzstd $ readLogFileLBS () $ \o _ _ -> do
                   lift $ S.yield o
 
               lift $ S.yield (h, pieces)
