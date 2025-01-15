@@ -66,6 +66,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashMap.Strict (HashMap(..))
 import Data.Word
 import Data.Fixed
+import Data.Either
 import Data.Ord (comparing)
 import Data.Generics.Labels
 import Data.Generics.Product
@@ -1167,19 +1168,10 @@ theDict = do
             else do
               decoded <- readTxMay sto h
                  <&> \case
-                    Nothing -> ("missed"  <+> pretty h)
-                    Just (AnnotatedHashRef _ x)  -> (fill 44 (pretty h) <+> fill 44 (pretty x))
-              print decoded
+                    Just (TxSegment x)  -> Just (fill 44 (pretty h) <+> fill 44 (pretty x))
+                    _ -> Nothing
 
-        entry $ bindMatch "reflog:tx:objects:list" $ nil_ $ \syn -> lift $ connectedDo do
-          let (_, argz) = splitOpts [] syn
-          txh <- headMay [ x | HashLike x <- argz ] & orThrowUser "tx hash not set"
-          sto <- getStorage
-
-          AnnotatedHashRef _ tree <- readTxMay sto txh
-                                       >>= orThrowUser ("missed" <+> pretty txh)
-
-          liftIO $ print $ pretty tree
+              forM_ decoded print
 
         entry $ bindMatch "test:git:import" $ nil_ $ \syn -> lift $ connectedDo do
 
@@ -1191,19 +1183,12 @@ theDict = do
           rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
                   >>= orThrowUser "rpc timeout"
                   >>= orThrowUser "reflog is empty"
-                  <&> coerce
+                  <&> coerce @_ @HashRef
 
           notice $ "test:git:import" <+> pretty (AsBase58 reflog) <+> pretty rv
 
           sto <- getStorage
-
-          walkMerkle @[HashRef] rv (getBlock sto) \case
-            Left h ->  err $ "missed block"
-            Right hs -> do
-              for_ hs $ \h -> void $ runMaybeT do
-               AnnotatedHashRef _ tree <- readTxMay sto h >>= toMPlus
-               notice $ pretty tree
-               none
+          none
 
         exportEntries "reflog:"
 

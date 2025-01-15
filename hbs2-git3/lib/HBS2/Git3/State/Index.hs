@@ -276,9 +276,13 @@ bloomFilterSize n k p
   where
     rnd x = 2 ** realToFrac (ceiling (logBase 2 x)) & round
 
+data GitTx =
+    TxSegment HashRef
+  | TxCheckpoint Natural HashRef
+
 readTxMay :: forall m . ( MonadIO m
                         )
-          => AnyStorage -> HashRef -> m (Maybe AnnotatedHashRef)
+          => AnyStorage -> HashRef -> m (Maybe GitTx)
 
 readTxMay sto href = runMaybeT do
 
@@ -288,8 +292,17 @@ readTxMay sto href = runMaybeT do
     RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
       & toMPlus
 
-    deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
-      & toMPlus
+    toMPlus $
+     ( deserialiseOrFail (LBS.fromStrict _refLogUpdData) & either (const Nothing) fromAnn )
+      <|>
+     ( deserialiseOrFail (LBS.fromStrict _refLogUpdData) & either (const Nothing) fromSeq )
+
+  where
+    fromAnn = \case
+      AnnotatedHashRef _ h -> Just (TxSegment h)
+
+    fromSeq = \case
+      (SequentialRef n (AnnotatedHashRef _ h)) -> Just $ TxCheckpoint (fromIntegral n) h
 
 updateReflogIndex :: forall m . ( Git3Perks m
                                 , MonadReader Git3Env m
@@ -335,45 +348,46 @@ updateReflogIndex = do
           Left{} -> throwIO MissedBlockError
           Right (hs :: [HashRef]) -> do
             for_ [h | h <- hs, not (HS.member h written)]  $ \h -> void $ runMaybeT do
+              readTxMay sto (coerce h) >>= \case
+                Nothing -> mzero
+                Just (TxCheckpoint{}) -> mzero
+                Just (TxSegment href) -> do
+                  -- FIXME: error logging
+                  chunks <- liftIO (runExceptT (getTreeContents sto href))
+                               >>= orThrow MissedBlockError
+                               <&> LBS.toChunks
 
-              AnnotatedHashRef _ href <- readTxMay sto (coerce h) >>= toMPlus
+                  what <- toMPlus =<< liftIO do
+                    init <- decompress
+                    flip fix (init, chunks, mempty :: LBS.ByteString) $ \next -> \case
 
-              -- FIXME: error logging
-              chunks <- liftIO (runExceptT (getTreeContents sto href))
-                           >>= orThrow MissedBlockError
-                           <&> LBS.toChunks
+                      (Consume work, [], o) -> do
+                        r1 <- work ""
+                        next (r1, [], o)
 
-              what <- toMPlus =<< liftIO do
-                init <- decompress
-                flip fix (init, chunks, mempty :: LBS.ByteString) $ \next -> \case
+                      (Consume work, e:es, o) -> do
+                        r1 <- work e
+                        next (r1, es, o)
 
-                  (Consume work, [], o) -> do
-                    r1 <- work ""
-                    next (r1, [], o)
+                      (Produce piece r, e, o) -> do
+                        r1 <- r
+                        next (r1, e, LBS.append o (LBS.fromStrict piece))
 
-                  (Consume work, e:es, o) -> do
-                    r1 <- work e
-                    next (r1, es, o)
+                      (ZStdS.Done bs, _, o) -> pure (Just (LBS.append o (LBS.fromStrict bs)))
 
-                  (Produce piece r, e, o) -> do
-                    r1 <- r
-                    next (r1, e, LBS.append o (LBS.fromStrict piece))
+                      (Error _ _, _, _) -> do
+                        debug $ "not a valid segment" <+> pretty h
+                        pure Nothing
 
-                  (ZStdS.Done bs, _, o) -> pure (Just (LBS.append o (LBS.fromStrict bs)))
+                  guard (LBS.length what > 0)
 
-                  (Error _ _, _, _) -> do
-                    debug $ "not a valid segment" <+> pretty h
-                    pure Nothing
+                  notice $ "unpacked!" <+> pretty h <+> pretty (LBS.length what)
 
-              guard (LBS.length what > 0)
+                  pieces <- S.toList_ $ do
+                    void $ runConsumeLBS what $ readLogFileLBS () $ \o _ _ -> do
+                      lift $ S.yield o
 
-              notice $ "unpacked!" <+> pretty h <+> pretty (LBS.length what)
-
-              pieces <- S.toList_ $ do
-                void $ runConsumeLBS what $ readLogFileLBS () $ \o _ _ -> do
-                  lift $ S.yield o
-
-              lift $ S.yield (h, pieces)
+                  lift $ S.yield (h, pieces)
 
       liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
         idxName <- emptyTempFile idxPath "objects-.idx"
