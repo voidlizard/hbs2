@@ -324,8 +324,9 @@ exportEntries prefix = do
                                  )
                   => Timeout 'Seconds
                   -> HashSet HashRef
-                  -> m1 HashRef
+                  -> m1 (Maybe HashRef)
 
+   postCheckPoint _ txq | HS.null txq = pure Nothing
    postCheckPoint t txq = perform  >>= either (const $ throwIO ExportWriteTimeout) pure
      where
        perform = race (pause t) do
@@ -354,11 +355,13 @@ exportEntries prefix = do
              else
                pure x
 
-         let payload = pure $ LBS.toStrict $ serialise (AnnotatedHashRef Nothing cp)
+         t0 <- liftIO getPOSIXTime <&> round
+         let payload = pure $ LBS.toStrict $ serialise (SequentialRef t0 (AnnotatedHashRef Nothing cp))
          tx <- mkRefLogUpdateFrom (coerce reflog) payload
 
          callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) api tx
            >>= orThrow ExportWriteTimeout
 
-         pure $ HashRef (hashObject @HbSync (serialise tx))
+         pure $ Just $ HashRef (hashObject @HbSync (serialise tx))
+
 
