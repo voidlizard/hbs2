@@ -18,13 +18,10 @@ import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
-import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
-
 -- move to Data.Config.Suckless.Script.Filea sepatate library
 import HBS2.Data.Log.Structured
 
-
-import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
+import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 import HBS2.CLI.Run.RefLog (getCredentialsForReflog,mkRefLogUpdateFrom)
 
 import HBS2.System.Dir
@@ -33,6 +30,8 @@ import HBS2.Git3.Types
 import HBS2.Git3.Config.Local
 import HBS2.Git3.Git
 import HBS2.Git3.Export
+import HBS2.Git3.Import
+import HBS2.Git3.State.RefLog
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Script.File
@@ -929,50 +928,56 @@ theDict = do
           let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
           let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
 
-          sto <- getStorage
+          hxs <- txListAll Nothing
 
-          refLogAPI <- getClientAPI @RefLogAPI  @UNIX
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-
-          rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
-                   >>= orThrowUser "rpc timeout"
-                   >>= orThrowUser "reflog is empty"
-                   <&> coerce
-
-          hxs <- S.toList_ $ walkMerkle @[HashRef] rv (getBlock sto) $ \case
-            Left{} -> throwIO MissedBlockError
-            Right hs -> S.each hs
-
-          liftIO $ forM_ hxs $ \h -> do
-
-            decoded <- readTxMay sto h
-               <&> \case
-                  Just (TxSegment x)   | not cpOnly ->
+          liftIO $ forM_ hxs $ \(h,tx) -> do
+            let decoded = case tx of
+                  TxSegment x   | not cpOnly ->
                     Just ("S" <+> fill 44 (pretty h) <+> fill 44 (pretty x))
 
-                  Just (TxCheckpoint n x) | not sOnly ->
+                  TxCheckpoint n x | not sOnly ->
                     Just ("C" <+> fill 44 (pretty h) <+> pretty x <+> fill 8 (pretty n))
 
                   _ -> Nothing
 
             forM_ decoded print
 
-        entry $ bindMatch "test:git:import" $ nil_ $ \syn -> lift $ connectedDo do
-
+        entry $ bindMatch "reflog:import:pack" $ nil_ $ \syn -> lift $ connectedDo do
           updateReflogIndex
 
-          refLogAPI <- getClientAPI @RefLogAPI  @UNIX
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
+          packs <- findGitDir
+                     >>= orThrowUser "git directory not found"
+                     <&> (</> "objects/pack")
 
-          rv <- callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
-                  >>= orThrowUser "rpc timeout"
-                  >>= orThrowUser "reflog is empty"
-                  <&> coerce @_ @HashRef
+          state <- getStatePathM
 
-          notice $ "test:git:import" <+> pretty (AsBase58 reflog) <+> pretty rv
+          let imported = state </> "imported"
 
-          sto <- getStorage
-          none
+          prev <- runMaybeT do
+            f <- liftIO (try @_ @IOError (readFile imported)) >>= toMPlus
+            toMPlus (fromStringMay @HashRef f)
+
+          excl <- maybe1 prev (pure mempty) $ \p -> do
+            txListAll (Just p) <&> HS.fromList . fmap fst
+
+          rv <- refLogRef
+
+          hxs <- txListAll rv <&> filter (not . flip HS.member excl . fst)
+
+          forConcurrently_ hxs $ \case
+            (_, TxCheckpoint{}) -> none
+            (h, TxSegment tree) -> do
+              s <- writeAsGitPack  packs tree
+
+              for_ s $ \file -> do
+                gitRunCommand [qc|git index-pack {file}|]
+                  >>= orThrowPassIO
+
+              notice $ "imported" <+> pretty h
+
+          for_ rv $ \r -> do
+            liftIO $ UIO.withBinaryFileAtomic imported WriteMode $ \fh -> do
+              IO.hPutStr fh (show $ pretty r)
 
         exportEntries "reflog:"
 

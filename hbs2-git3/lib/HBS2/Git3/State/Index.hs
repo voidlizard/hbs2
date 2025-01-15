@@ -4,6 +4,8 @@ import HBS2.Git3.Prelude
 import HBS2.System.Dir
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 import HBS2.Git3.State.Types
+import HBS2.Git3.State.Segment
+import HBS2.Git3.State.RefLog
 import HBS2.Git3.Git
 
 import HBS2.Data.Log.Structured
@@ -268,33 +270,6 @@ bloomFilterSize n k p
   where
     rnd x = 2 ** realToFrac (ceiling (logBase 2 x)) & round
 
-data GitTx =
-    TxSegment HashRef
-  | TxCheckpoint Natural HashRef
-
-readTxMay :: forall m . ( MonadIO m
-                        )
-          => AnyStorage -> HashRef -> m (Maybe GitTx)
-
-readTxMay sto href = runMaybeT do
-
-    tx <- getBlock sto (coerce href)
-             >>= toMPlus
-
-    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
-      & toMPlus
-
-    toMPlus $
-     ( deserialiseOrFail (LBS.fromStrict _refLogUpdData) & either (const Nothing) fromAnn )
-      <|>
-     ( deserialiseOrFail (LBS.fromStrict _refLogUpdData) & either (const Nothing) fromSeq )
-
-  where
-    fromAnn = \case
-      AnnotatedHashRef _ h -> Just (TxSegment h)
-
-    fromSeq = \case
-      (SequentialRef n (AnnotatedHashRef _ h)) -> Just $ TxCheckpoint (fromIntegral n) h
 
 updateReflogIndex :: forall m . ( Git3Perks m
                                 , MonadReader Git3Env m
@@ -344,34 +319,13 @@ updateReflogIndex = do
                 Nothing -> mzero
                 Just (TxCheckpoint{}) -> mzero
                 Just (TxSegment href) -> do
+
                   -- FIXME: error logging
-                  chunks <- liftIO (runExceptT (getTreeContents sto href))
+                  source <- liftIO (runExceptT (getTreeContents sto href))
                                >>= orThrow MissedBlockError
-                               <&> LBS.toChunks
 
-                  what <- toMPlus =<< liftIO do
-                    init <- decompress
-                    flip fix (init, chunks, mempty :: LBS.ByteString) $ \next -> \case
-
-                      (Consume work, [], o) -> do
-                        r1 <- work ""
-                        next (r1, [], o)
-
-                      (Consume work, e:es, o) -> do
-                        r1 <- work e
-                        next (r1, es, o)
-
-                      (Produce piece r, e, o) -> do
-                        r1 <- r
-                        next (r1, e, LBS.append o (LBS.fromStrict piece))
-
-                      (ZStdS.Done bs, _, o) -> pure (Just (LBS.append o (LBS.fromStrict bs)))
-
-                      (Error _ _, _, _) -> do
-                        debug $ "not a valid segment" <+> pretty h
-                        pure Nothing
-
-                  guard (LBS.length what > 0)
+                  what <- decompressSegmentLBS source
+                             >>= toMPlus
 
                   pieces <- S.toList_ $ do
                     void $ runConsumeLBS what $ readLogFileLBS () $ \o _ lbs -> do

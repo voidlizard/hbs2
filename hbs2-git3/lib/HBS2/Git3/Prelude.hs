@@ -53,6 +53,11 @@ import System.IO.MMap as Exported
 import GHC.Natural as Exported
 import UnliftIO as Exported
 
+data RefLogNotSetException =
+  RefLogNotSetException
+  deriving stock (Show,Typeable)
+
+instance Exception  RefLogNotSetException
 
 defSegmentSize :: Int
 defSegmentSize = 50 * 1024 * 1024
@@ -209,4 +214,9 @@ withGit3Env env a = runReaderT (fromGit3 a) env
 runGit3 :: Git3Perks m => Git3Env -> Git3 m b -> m b
 runGit3 env action = withGit3Env env action
 
+
+getStatePathM :: forall m . (HBS2GitPerks m, HasGitRemoteKey m) => m FilePath
+getStatePathM = do
+  k <- getGitRemoteKey >>= orThrow RefLogNotSetException
+  getStatePath (AsBase58 k)
 

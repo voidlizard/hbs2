@@ -124,8 +124,11 @@ library
       HBS2.Git3.Types
       HBS2.Git3.Prelude
       HBS2.Git3.Export
+      HBS2.Git3.Import
       HBS2.Git3.State.Types
+      HBS2.Git3.State.RefLog
       HBS2.Git3.State.Index
+      HBS2.Git3.State.Segment
       HBS2.Git3.Config.Local
       HBS2.Git3.Git
       HBS2.Git3.Git.Pack
