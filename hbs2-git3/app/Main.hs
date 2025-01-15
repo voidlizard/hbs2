@@ -30,14 +30,12 @@ import HBS2.CLI.Run.RefLog (getCredentialsForReflog,mkRefLogUpdateFrom)
 import HBS2.System.Dir
 
 import HBS2.Git3.Types
-import HBS2.Git3.State.Direct
 import HBS2.Git3.Config.Local
 import HBS2.Git3.Git
 import HBS2.Git3.Export
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Script.File
-import DBPipe.SQLite
 
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
@@ -141,6 +139,10 @@ recover m = fix \again -> do
         void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
 
         ref <- getGitRemoteKey >>= orThrowUser "remote ref not set"
+
+        state <- getStatePath (AsBase58 ref)
+
+        mkdir state
 
         let sto = AnyStorage (StorageClient storageAPI)
 
@@ -582,46 +584,6 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-
-        entry $ bindMatch "test:git:log:index:entry" $ nil_ $ \case
-          [LitIntVal i, StringLike fn] -> lift do
-
-            bs <- liftIO $ mmapFileByteString fn Nothing
-            let index = fromIntegral i
-            let offset = index * 24
-
-            let record = BS.take 24 (BS.drop offset bs)
-            let n = BS.take 4 record & N.word32
-            let key = BS.take 20 $ BS.drop 4 record
-            liftIO $ print $ pretty n <+> pretty (GitHash key)
-
-          _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:log:index:flat" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          let fnames = [ x | StringLike x <- argz]
-
-          s <- randomIO @Word16
-          liftIO $ withBinaryFile (show ("index" <> pretty s <> ".idx")) AppendMode $ \fh -> do
-
-            all <- S.toList_ do
-
-              for_ fnames $ \f -> do
-                theLog <- liftIO $ LBS.readFile f
-
-                void $ runConsumeLBS (ZstdL.decompress theLog) $  readLogFileLBS () $ \h s lbs -> do
-                  lift $ S.yield (coerce @_ @BS.ByteString h)
-                  debug $ "object" <+> pretty h
-
-            let sorted = Set.toList $ Set.fromList all
-
-            for_ sorted $ \ghs -> do
-              let ks = BS.length ghs
-              let entrySize = N.bytestring32 (fromIntegral ks)
-              BS.hPutStr fh entrySize
-              BS.hPutStr fh ghs
-
-
         entry $ bindMatch "test:segment:dump" $ nil_ $ \syn -> lift do
           sto <- getStorage
           let (_, argz) = splitOpts [] syn
@@ -837,68 +799,6 @@ theDict = do
               error "malformed"
 
           _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "test:git:reflog:index:sqlite" $ nil_ $ \syn -> lift $ connectedDo do
-
-          reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-
-          api <- getClientAPI @RefLogAPI @UNIX
-
-          sto <- getStorage
-
-          flip runContT pure do
-
-            what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
-                      >>= orThrowUser "rpc timeout"
-
-            what <- ContT $ maybe1 what' none
-
-            idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
-            mkdir idxPath
-
-            debug $ "STATE" <+> pretty idxPath
-
-            sink <- S.toList_ do
-              walkMerkle (coerce what) (getBlock sto) $ \case
-                Left{} -> throwIO MissedBlockError
-                Right (hs :: [HashRef]) -> do
-                  for_ hs $ \h -> void $ runMaybeT do
-
-                    tx <- getBlock sto (coerce h)
-                             >>= toMPlus
-
-                    RefLogUpdate{..} <- deserialiseOrFail @(RefLogUpdate L4Proto) tx
-                                          & toMPlus
-
-                    AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict _refLogUpdData)
-                                                 & toMPlus
-
-                    -- FIXME: error logging
-                    lbs <- liftIO (runExceptT (getTreeContents sto href))
-                             >>= orThrow MissedBlockError
-
-                    pieces <- S.toList_ do
-                      void $ runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \o s _ -> do
-                        lift $ S.yield o
-
-                    lift $ S.yield (h, pieces)
-
-            file <- liftIO $ Temp.emptyTempFile "" "index.db"
-
-            db <- newDBPipeEnv dbPipeOptsDef file
-
-            liftIO $ withDB db do
-
-              ddl [qc|create table object (sha1 text not null primary key, tx text not null)|]
-
-              for_ sink $ \(h, pieces) -> do
-                transactional do
-                  for_ pieces $ \p -> do
-                    void $ insert [qc|insert into
-                                        object (sha1,tx)
-                                      values(?,?)
-                                      on conflict (sha1)
-                                      do update set tx = excluded.tx|] (p,h)
 
         entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> lift do
           size <- getIndexBlockSize

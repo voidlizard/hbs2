@@ -125,7 +125,6 @@ library
       HBS2.Git3.Prelude
       HBS2.Git3.Export
       HBS2.Git3.State.Types
-      HBS2.Git3.State.Direct
       HBS2.Git3.State.Index
       HBS2.Git3.Config.Local
       HBS2.Git3.Git

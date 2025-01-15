@@ -70,7 +70,7 @@ indexPath :: forall m . ( Git3Perks m
                         ) => m FilePath
 indexPath = do
   reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
-  getStatePath (AsBase58 reflog) <&> (</> "index")
+  getStatePath (AsBase58 reflog)
 
 data IndexEntry =
   IndexEntry
@@ -125,7 +125,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
 compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do
   reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-  idxPath <- getStatePath (AsBase58 reflog) <&> (</> "index")
+  idxPath <- getStatePath (AsBase58 reflog)
   mkdir idxPath
   files <- listObjectIndexFiles <&> L.sortOn snd
 
@@ -384,13 +384,16 @@ updateReflogIndex = do
                                    | ListVal [LitIntVal t, GitHashLike h, StringLike x]
                                    <- parseTop (LBS8.unpack llbs) & fromRight mempty
                                    ]
-                        liftIO $ mapM_ (print . pretty) refs
 
-                      lift $ S.yield o
+                        lift $ S.yield (Left refs)
 
-                  lift $ S.yield (h, pieces)
+                      lift $ S.yield (Right o)
 
-      liftIO $ forConcurrently_ sink $ \(tx, pieces) -> do
+                  lift do
+                    S.yield (Right (h, rights pieces))
+                    S.yield (Left  (h, lefts pieces))
+
+      liftIO $ forConcurrently_ (rights sink) $ \(tx, pieces) -> do
         idxName <- emptyTempFile idxPath "objects-.idx"
         let ss = L.sort pieces
         UIO.withBinaryFileAtomic idxName WriteMode $ \wh -> do
@@ -401,4 +404,15 @@ updateReflogIndex = do
             writeSection ( LBS.fromChunks [key,value] ) (LBS.hPutStr wh)
 
       getIndexBlockSize >>= lift . compactIndex
+
+      liftIO do
+        name <- emptyTempFile idxPath ".ref"
+        UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
+          for_ (lefts sink) $ \(tx, refs) -> do
+            for_ (mconcat refs) $ \(ts,gh,nm) -> do
+              LBS8.hPutStrLn wh $ LBS8.pack $ show $
+                  "R" <+> pretty tx
+                      <+> pretty ts
+                      <+> pretty gh
+                      <+> pretty nm
 

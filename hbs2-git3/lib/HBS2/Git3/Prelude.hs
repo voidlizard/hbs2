@@ -2,6 +2,7 @@
 {-# Language RecordWildCards #-}
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language PatternSynonyms #-}
 module HBS2.Git3.Prelude
   ( module HBS2.Git3.Prelude
   , module Exported
@@ -9,6 +10,7 @@ module HBS2.Git3.Prelude
   , module HBS2.Peer.RPC.Client.Unix
   , module Codec.Serialise
   , runExceptT
+  , pattern SignPubKeyLike
   ) where
 
 import HBS2.Prelude.Plated as Exported
@@ -17,6 +19,7 @@ import HBS2.Data.Types.Refs as Exported
 import HBS2.Base58 as Exported
 import HBS2.Merkle as Exported
 import HBS2.Misc.PrettyStuff as Exported
+import HBS2.Net.Auth.Credentials
 import HBS2.Peer.Proto.RefLog as Exported
 import HBS2.Peer.RPC.API.RefLog as Exported
 import HBS2.Peer.RPC.API.Peer as Exported
@@ -27,6 +30,7 @@ import HBS2.Storage.Operations.Class as Exported
 import HBS2.System.Logger.Simple.ANSI as Exported
 
 import HBS2.Git3.Types as Exported
+import HBS2.Git3.State.Types as Exported
 
 -- TODO: about-to-remove
 import DBPipe.SQLite
