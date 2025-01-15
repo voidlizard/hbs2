@@ -4,6 +4,7 @@ import HBS2.Git3.Prelude
 import HBS2.System.Dir
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 import HBS2.Git3.State.Types
+import HBS2.Git3.Git
 
 import HBS2.Data.Log.Structured
 
@@ -25,19 +26,9 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Word
-import Data.Vector (Vector)
-import Data.Vector qualified as V
-import Data.Kind
 
+import Data.Config.Suckless
 
-import Data.BloomFilter qualified as Bloom
-import Data.BloomFilter (Bloom(..))
-import Data.BloomFilter.Mutable qualified as MBloom
-
-import Control.Monad.ST
-
-import Control.Concurrent.STM qualified as STM
-import Codec.Compression.Zstd.Lazy qualified as ZstdL
 import Codec.Compression.Zstd.Streaming as ZStdS
 import Codec.Serialise
 import Streaming.Prelude qualified as S
@@ -384,8 +375,17 @@ updateReflogIndex = do
 
                   pieces <- S.toList_ $ do
                     void $ runConsumeLBS what $ readLogFileLBS () $ \o _ lbs -> do
-                      let (t, _) = LBS.splitAt 1 lbs
-                      notice $ pretty (LBS8.unpack t) <+> pretty o
+                      let (t, llbs) = LBS.splitAt 1 lbs
+                      -- notice $ pretty (LBS8.unpack t) <+> pretty o
+
+                      -- FIXME: do-something
+                      when (t == "R") do
+                        let refs = [ (t,h,x)
+                                   | ListVal [LitIntVal t, GitHashLike h, StringLike x]
+                                   <- parseTop (LBS8.unpack llbs) & fromRight mempty
+                                   ]
+                        liftIO $ mapM_ (print . pretty) refs
+
                       lift $ S.yield o
 
                   lift $ S.yield (h, pieces)

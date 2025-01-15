@@ -622,20 +622,6 @@ theDict = do
               BS.hPutStr fh ghs
 
 
-        entry $ bindMatch "test:sqlite" $ nil_ $ \case
-          [ StringLike fn ] -> lift do
-              db <- newDBPipeEnv dbPipeOptsDef fn
-              withDB db do
-                all <- select_ @_ @(Only Text) [qc|select hash from githash|]
-                for_ all $ \x -> do
-                  n <- select @(Only Int) [qc|select 1 from githash where hash = ?|] (Only (fromOnly x))
-                           <&> L.null
-                  unless n do
-                    liftIO $ print $ pretty (fromOnly x)
-
-          _ -> throwIO (BadFormException @C nil)
-
-
         entry $ bindMatch "test:segment:dump" $ nil_ $ \syn -> lift do
           sto <- getStorage
           let (_, argz) = splitOpts [] syn
@@ -1036,12 +1022,12 @@ theDict = do
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
-          let (opts, _) = splitOpts [ ("--tree",0)
-                                    , ("--checkpoints",0)
+          let (opts, _) = splitOpts [ ("--checkpoints",0)
+                                    , ("--segments",0)
                                     ] syn
 
-          let optTree  = or [ True | ListVal [StringLike "--tree"] <- opts ]
           let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
+          let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
 
           sto <- getStorage
 
@@ -1059,20 +1045,17 @@ theDict = do
 
           liftIO $ forM_ hxs $ \h -> do
 
-            if not optTree && not cpOnly then
-              print $ pretty h
-            else do
-              decoded <- readTxMay sto h
-                 <&> \case
-                    Just (TxSegment x)   | not cpOnly ->
-                      Just (fill 44 (pretty h) <+> fill 44 (pretty x))
+            decoded <- readTxMay sto h
+               <&> \case
+                  Just (TxSegment x)   | not cpOnly ->
+                    Just ("S" <+> fill 44 (pretty h) <+> fill 44 (pretty x))
 
-                    Just (TxCheckpoint n x) ->
-                      Just (fill 44 (pretty h) <+> fill 8 (pretty n) <+> pretty x)
+                  Just (TxCheckpoint n x) | not sOnly ->
+                    Just ("C" <+> fill 44 (pretty h) <+> pretty x <+> fill 8 (pretty n))
 
-                    _ -> Nothing
+                  _ -> Nothing
 
-              forM_ decoded print
+            forM_ decoded print
 
         entry $ bindMatch "test:git:import" $ nil_ $ \syn -> lift $ connectedDo do
 
