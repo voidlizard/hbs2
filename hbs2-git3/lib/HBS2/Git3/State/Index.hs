@@ -10,6 +10,7 @@ import HBS2.Data.Log.Structured
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
@@ -381,10 +382,10 @@ updateReflogIndex = do
 
                   guard (LBS.length what > 0)
 
-                  notice $ "unpacked!" <+> pretty h <+> pretty (LBS.length what)
-
                   pieces <- S.toList_ $ do
-                    void $ runConsumeLBS what $ readLogFileLBS () $ \o _ _ -> do
+                    void $ runConsumeLBS what $ readLogFileLBS () $ \o _ lbs -> do
+                      let (t, _) = LBS.splitAt 1 lbs
+                      notice $ pretty (LBS8.unpack t) <+> pretty o
                       lift $ S.yield o
 
                   lift $ S.yield (h, pieces)
