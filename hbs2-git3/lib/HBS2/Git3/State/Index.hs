@@ -30,18 +30,12 @@ import Data.HashSet qualified as HS
 import Data.Word
 
 import Data.Config.Suckless
+import Data.Config.Suckless.Script.File
 
-import Codec.Compression.Zstd.Streaming as ZStdS
-import Codec.Serialise
 import Streaming.Prelude qualified as S
-import Streaming hiding (run,chunksOf)
 import System.TimeIt
-import Lens.Micro.Platform
 
-import UnliftIO
 import UnliftIO.IO.File qualified as UIO
-
-import Data.HashPSQ qualified as HPSQ
 
 
 readLogFileLBS :: forall opts m . ( MonadIO m, ReadLogOpts opts, BytesReader m )
@@ -369,4 +363,18 @@ updateReflogIndex = do
                       <+> pretty ts
                       <+> pretty gh
                       <+> pretty nm
+
+
+        entries <- liftIO $ S.toList_ $ glob ["**/*.ref"] [] idxPath $ \fn -> do
+                     ls <- liftIO (LBS8.readFile fn) <&> LBS8.lines
+                     S.each ls
+                     rm fn
+                     pure True
+
+        let es = HS.fromList entries
+
+        liftIO do
+          name <- emptyTempFile idxPath ".ref"
+          UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
+            for_ es $ \s -> LBS8.hPutStrLn wh s
 

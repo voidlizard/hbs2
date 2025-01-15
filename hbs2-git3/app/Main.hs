@@ -982,26 +982,6 @@ theDict = do
         exportEntries "reflog:"
 
 
-limitedResourceWorkerRequestQ :: MonadUnliftIO m
-                              => Int
-                              -> m r                  -- ^ create resource
-                              -> ( r -> m () )        -- ^ destroy resource
-                              -> m ( Async (), (r -> m b) -> m b )
-
-limitedResourceWorkerRequestQ n create destroy = do
-  inQ <- newTQueueIO
-  ass <- async $ flip runContT pure do
-    replicateM_  n do
-        (link <=< ContT . withAsync) $ flip runContT pure do
-          r <- ContT $ bracket create destroy
-          (fix . (>>)) $ atomically (readTQueue inQ) >>= \(a,reply) -> do
-            lift (tryAny (a r)) >>= reply
-
-  pure $ (ass, \fn -> do
-    tmv <- newEmptyTMVarIO
-    atomically $ writeTQueue inQ (fn, atomically . STM.putTMVar tmv)
-    atomically (readTMVar tmv) >>= either throwIO pure)
-
 linearSearchLBS hash lbs = do
 
   found <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
