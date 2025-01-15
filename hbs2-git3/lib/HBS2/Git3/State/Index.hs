@@ -37,6 +37,7 @@ import Control.Monad.ST
 
 import Control.Concurrent.STM qualified as STM
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
+import Codec.Compression.Zstd.Streaming as ZStdS
 import Codec.Serialise
 import Streaming.Prelude qualified as S
 import Streaming hiding (run,chunksOf)
@@ -338,15 +339,38 @@ updateReflogIndex = do
               AnnotatedHashRef _ href <- readTxMay sto (coerce h) >>= toMPlus
 
               -- FIXME: error logging
-              lbs <- liftIO (runExceptT (getTreeContents sto href))
-                       >>= orThrow MissedBlockError
+              chunks <- liftIO (runExceptT (getTreeContents sto href))
+                           >>= orThrow MissedBlockError
+                           <&> LBS.toChunks
 
-              -- ignoring broken txs
-              unzstd <- liftIO (try @_ @SomeException (pure $ ZstdL.decompress lbs)
-                                       <&> fromRight mempty )
+              what <- toMPlus =<< liftIO do
+                init <- decompress
+                flip fix (init, chunks, mempty :: LBS.ByteString) $ \next -> \case
+
+                  (Consume work, [], o) -> do
+                    r1 <- work ""
+                    next (r1, [], o)
+
+                  (Consume work, e:es, o) -> do
+                    r1 <- work e
+                    next (r1, es, o)
+
+                  (Produce piece r, e, o) -> do
+                    r1 <- r
+                    next (r1, e, LBS.append o (LBS.fromStrict piece))
+
+                  (ZStdS.Done bs, _, o) -> pure (Just (LBS.append o (LBS.fromStrict bs)))
+
+                  (Error _ _, _, _) -> do
+                    debug $ "not a valid segment" <+> pretty h
+                    pure Nothing
+
+              guard (LBS.length what > 0)
+
+              notice $ "unpacked!" <+> pretty h <+> pretty (LBS.length what)
 
               pieces <- S.toList_ $ do
-                void $ runConsumeLBS unzstd $ readLogFileLBS () $ \o _ _ -> do
+                void $ runConsumeLBS what $ readLogFileLBS () $ \o _ _ -> do
                   lift $ S.yield o
 
               lift $ S.yield (h, pieces)
