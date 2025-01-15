@@ -153,67 +153,6 @@ recover m = fix \again -> do
         liftIO $ withGit3Env connected again
 
     e -> throwIO e
----
-
-data TreeReadState = TreeReadState
-  { treeReadKnownObjects :: HashSet GitHash
-  , treeReadKnownTrees :: HashSet GitHash
-  , treeReadKnownCommits :: HashSet GitHash
-  , treeReadQueue :: [(GitObjectType, GitHash)]
-  }
-  deriving (Generic)
-
-emptyTreeReadState :: TreeReadState
-emptyTreeReadState = TreeReadState
-  { treeReadKnownObjects = mempty
-  , treeReadKnownTrees = mempty
-  , treeReadKnownCommits = mempty
-  , treeReadQueue = mempty
-  }
-
-pushKnownObject :: (State.MonadState TreeReadState m) => GitHash -> m ()
-pushKnownObject co = State.modify' (over #treeReadKnownObjects (HS.insert co))
-
-queryIsKnownObject :: (State.MonadState TreeReadState m) => GitHash -> m Bool
-queryIsKnownObject co = State.gets (HS.member co . view #treeReadKnownObjects)
-
-pushKnownTree :: (State.MonadState TreeReadState m) => GitHash -> m ()
-pushKnownTree co = State.modify' (over #treeReadKnownTrees (HS.insert co))
-
-queryIsKnownTree :: (State.MonadState TreeReadState m) => GitHash -> m Bool
-queryIsKnownTree co = State.gets (HS.member co . view #treeReadKnownTrees)
-
-pushKnownCommit :: (State.MonadState TreeReadState m) => GitHash -> m ()
-pushKnownCommit co = State.modify' (over #treeReadKnownCommits (HS.insert co))
-
-queryIsKnownCommit :: (State.MonadState TreeReadState m) => GitHash -> m Bool
-queryIsKnownCommit co = State.gets (HS.member co . view #treeReadKnownCommits)
-
-pushObjHash :: (State.MonadState TreeReadState m) => (GitObjectType, GitHash) -> m ()
-pushObjHash p = State.modify' (over #treeReadQueue (p:))
-
-popObjHash :: (State.MonadState TreeReadState m) => m (Maybe (GitObjectType, GitHash))
-popObjHash = State.state \s -> case treeReadQueue s of
-  [] -> (Nothing, s)
-  a:as -> (Just a, s { treeReadQueue = as })
-
-queueCondBlob :: (State.MonadState TreeReadState m) => GitHash -> m ()
-queueCondBlob co = do
-  queryIsKnownObject co >>= flip unless do
-    pushObjHash (Blob, co)
-    pushKnownObject co
-
-queueCondTree :: (State.MonadState TreeReadState m) => GitHash -> m ()
-queueCondTree co = do
-  queryIsKnownTree co >>= flip unless do
-    pushObjHash (Tree, co)
-    pushKnownTree co
-
-queueCondCommit :: (State.MonadState TreeReadState m) => GitHash -> m ()
-queueCondCommit co = do
-  queryIsKnownCommit co >>= flip unless do
-    pushObjHash (Commit, co)
-    pushKnownCommit co
 
 
 newtype CacheTVH k v = CacheTVH (TVar (HashMap k v))
@@ -339,52 +278,6 @@ theDict = do
                           <+> pretty gitEntryType
                           <+> pretty gitEntrySize
                           <+> pretty gitEntryName
-
-        entry $ bindMatch "test:git:tree:read:bench" $ nil_ $ \syn -> do
-          (mpath, sref) <- case syn of
-            [ HashLike s ] -> pure (Nothing, s)
-            [ StringLike path , HashLike s ] -> pure (Just path, s)
-            [ StringLike path ] -> pure (Just path, "HEAD")
-            [] -> pure (Nothing, "HEAD")
-            _ -> throwIO (BadFormException @C nil)
-          liftIO $ mapM_ setCurrentDirectory mpath
-          ref0 <- gitRevParse sref
-                  `orDie` (show $ "Can not find revision" <+> pretty sref)
-          liftIO $ print sref
-          liftIO $ print $ pretty ref0
-          withGitCat \reader -> do
-            cs :: [GitHash] <- Writer.execWriterT $ flip State.evalStateT emptyTreeReadState do
-              pushObjHash (Commit, ref0)
-              fix \go ->
-                popObjHash >>= maybe (pure ()) \(ty', co) -> (>> go) do
-                  unless (ty' == Commit) do
-                      throwIO $ userError $ show $ "Only commits should be in queue. Got" <+> pretty ty'
-                  -- lift $ Writer.tell [co]
-                  (ty, bs) <- gitReadObjectOrThrow reader co
-                  liftIO . print $ pretty co <+> viaShow ty <+> pretty (LBS.length bs)
-                  unless (ty' == ty) do
-                      throwIO $ userError $ show $ "object types do not match" <+> pretty ty' <+> pretty ty
-                  case ty of
-                    Commit -> do
-                      commitParents <- gitReadCommitParents Nothing bs
-                      mapM_ queueCondCommit commitParents
-                      -- queueCondTree commitTree
-                    Tree -> do
-                      gitReadTree co >>= mapM_ \GitTreeEntry {..} ->
-                        case gitEntryType of
-                            Commit -> do
-                              throwIO $ userError "Impossible commit entry in a git tree"
-                            Tree -> do
-                              queryIsKnownTree gitEntryHash >>= flip unless do
-                                (ty'', bs'') <- gitReadObjectOrThrow reader gitEntryHash
-                                liftIO . print $ pretty gitEntryHash <+> viaShow ty'' <+> pretty (LBS.length bs'')
-                                pushKnownTree gitEntryHash
-                            Blob -> do
-                              queueCondBlob gitEntryHash
-                    Blob -> do
-                      pure ()
-            -- liftIO $ print $ "Commits:" <+> pretty (length cs)
-            pure ()
 
         entry $ bindMatch "reflog" $ nil_ $ \case
           [ SignPubKeyLike what ] -> do
@@ -1143,9 +1036,12 @@ theDict = do
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
-          let (opts, _) = splitOpts [("--tree",0)] syn
+          let (opts, _) = splitOpts [ ("--tree",0)
+                                    , ("--checkpoints",0)
+                                    ] syn
 
           let optTree  = or [ True | ListVal [StringLike "--tree"] <- opts ]
+          let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
 
           sto <- getStorage
 
@@ -1163,12 +1059,17 @@ theDict = do
 
           liftIO $ forM_ hxs $ \h -> do
 
-            if not optTree then
+            if not optTree && not cpOnly then
               print $ pretty h
             else do
               decoded <- readTxMay sto h
                  <&> \case
-                    Just (TxSegment x)  -> Just (fill 44 (pretty h) <+> fill 44 (pretty x))
+                    Just (TxSegment x)   | not cpOnly ->
+                      Just (fill 44 (pretty h) <+> fill 44 (pretty x))
+
+                    Just (TxCheckpoint n x) ->
+                      Just (fill 44 (pretty h) <+> fill 8 (pretty n) <+> pretty x)
+
                     _ -> Nothing
 
               forM_ decoded print
