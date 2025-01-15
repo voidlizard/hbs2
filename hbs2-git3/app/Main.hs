@@ -962,7 +962,7 @@ theDict = do
 
           rv <- refLogRef
 
-          hxs <- txListAll rv <&> filter (not . flip HS.member excl . fst)
+          hxs <- txList ( pure . not . flip HS.member excl ) rv
 
           forConcurrently_ hxs $ \case
             (_, TxCheckpoint{}) -> none

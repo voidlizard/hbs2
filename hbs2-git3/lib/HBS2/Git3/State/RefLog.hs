@@ -55,15 +55,17 @@ refLogRef = do
   callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
    >>= orThrow RefLogNotSetException
 
-txListAll :: forall m . ( HBS2GitPerks m
-                        , HasStorage m
-                        , HasClientAPI RefLogAPI UNIX m
-                        , HasGitRemoteKey m
-                        )
-       => Maybe HashRef
+txList :: forall m . ( HBS2GitPerks m
+                     , HasStorage m
+                     , HasClientAPI RefLogAPI UNIX m
+                     , HasGitRemoteKey m
+                     )
+       => ( HashRef -> m Bool )
+       -> Maybe HashRef
        -> m [(HashRef, GitTx)]
 
-txListAll mhref = do
+txList filt mhref = do
+
   sto <- getStorage
 
   fromMaybe mempty <$> runMaybeT do
@@ -74,9 +76,19 @@ txListAll mhref = do
 
     hxs <- S.toList_ $ walkMerkle @[HashRef] (coerce rv) (getBlock sto) $ \case
       Left{} -> throwIO MissedBlockError
-      Right hs -> S.each hs
+      Right hs -> filterM (lift . lift . filt) hs >>= S.each
 
     S.toList_ $ for_ hxs $ \h -> do
       tx <- liftIO (readTxMay sto h)
       maybe none (S.yield . (h,)) tx
+
+txListAll :: forall m . ( HBS2GitPerks m
+                        , HasStorage m
+                        , HasClientAPI RefLogAPI UNIX m
+                        , HasGitRemoteKey m
+                        )
+       => Maybe HashRef
+       -> m [(HashRef, GitTx)]
+
+txListAll = txList (const $ pure True)
 
