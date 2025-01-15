@@ -4,7 +4,7 @@ module HBS2.Git3.Git
   , module HBS2.Git.Local.CLI
   ) where
 
-import HBS2.Prelude.Plated
+import HBS2.Git3.Prelude
 import HBS2.OrDie
 
 import HBS2.Git3.Types
@@ -13,17 +13,21 @@ import HBS2.Git.Local.CLI
 
 import Data.Config.Suckless.Script
 
+import Control.Monad.Trans.Maybe
 import Crypto.Hash (hashlazy)
 import Crypto.Hash qualified as Crypton
-import Control.Monad.Trans.Maybe
 import Data.ByteArray qualified as BA
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
-import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Either
+import Data.HashSet qualified as HS
+import Data.HashSet (HashSet)
 import Data.HashMap.Strict qualified as HM
+import Data.HashPSQ (HashPSQ)
+import Data.HashPSQ qualified as HPSQ
 import Data.List (sortOn)
 import Data.Maybe
 import Data.Word
@@ -263,4 +267,60 @@ gitHashBlobPure :: ByteString -> GitHash
 gitHashBlobPure body = do
   let preamble = [qc|{pretty Blob} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
   GitHash $ BS.pack $ BA.unpack $ hashlazy @Crypton.SHA1 (preamble <> body)
+
+
+
+data HCC =
+  HCC { hccHeight :: Int
+      , hccRest   :: [GitHash]
+      , hccResult :: HashPSQ GitHash Int (HashSet GitHash)
+      }
+
+readCommitChainHPSQ :: ( HBS2GitPerks m
+                       , MonadUnliftIO m
+                       , MonadReader Git3Env m
+                       , HasStorage m
+                       )
+       => (GitHash -> m Bool)
+       -> Maybe GitRef
+       -> GitHash
+       -> (GitHash -> m ())
+       -> m (HashPSQ GitHash Int (HashSet GitHash))
+
+readCommitChainHPSQ filt _ h0 action = flip runContT pure $ callCC \_ -> do
+  theReader  <- ContT $ withGitCat
+  void $ ContT $ bracket (pure theReader) dontHandle -- stopProcess
+  flip fix (HCC 0 [h0] HPSQ.empty) $ \next  -> \case
+
+    HCC _ [] result -> pure result
+
+    HCC n ( h : hs ) result | HPSQ.member h result -> do
+      next  ( HCC n hs result )
+
+    HCC n ( h : hs ) result -> do
+
+        done <- not <$> lift (filt h)
+
+        if done then next  ( HCC n hs result ) else do
+
+          co <- gitReadObjectMaybe theReader h
+                     >>= orThrow(GitReadError $ show $ pretty "object not found" <+> pretty h)
+
+          parents <- gitReadCommitParents (Just h) (snd co)
+
+          lift $ action h
+          next $ HCC (n-1) ( parents <> hs ) (snd $ HPSQ.alter (addParents () n parents) h result )
+
+
+  where
+    addParents :: a
+               -> Int
+               -> [GitHash]
+               -> Maybe (Int, HashSet GitHash)
+               -> (a, Maybe (Int, HashSet GitHash))
+
+    addParents a n p = \case
+      Nothing -> (a, Just (n, HS.fromList p))
+      Just (l,s) -> (a, Just (min l n, s <> HS.fromList p))
+
 

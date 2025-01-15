@@ -139,7 +139,7 @@ class IsLiteral a where
 
 newtype Id =
   Id Text
-  deriving newtype (IsString,Pretty)
+  deriving newtype (IsString,Pretty,Semigroup,Monoid)
   deriving stock (Data,Generic,Show,Eq,Ord)
 
 type ForOpaque a = (Typeable a, Eq a)

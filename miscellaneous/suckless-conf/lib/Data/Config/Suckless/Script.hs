@@ -15,6 +15,7 @@ import Prettyprinter
 import Prettyprinter.Render.Terminal
 import Data.List qualified as List
 import Data.Text qualified as Text
+import Data.String
 import UnliftIO
 
 
@@ -47,4 +48,27 @@ helpEntry what = do
 
 pattern HelpEntryBound :: forall {c}. Id -> [Syntax c]
 pattern HelpEntryBound what <- [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )]
+
+
+-- FIXME: move-to-suckless-script
+splitOpts :: [(Id,Int)]
+          -> [Syntax C]
+          -> ([Syntax C], [Syntax C])
+
+splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
+  (acc, []) -> acc
+  ( (o,a), r@(StringLike x) : rs ) -> do
+    case HM.lookup (fromString x) omap of
+      Nothing -> go ((o, a <> [r]), rs)
+      Just n  -> do
+        let (w, rest) = List.splitAt n rs
+        let result = mkList @C ( r : w )
+        go ( (o <> [result], a), rest )
+  ( (o,a), r : rs ) -> do
+      go ((o, a <> [r]), rs)
+
+  where
+    omap = HM.fromList [ (p, x) | (p,x) <- def ]
+    opts = opts'
+
 
