@@ -598,65 +598,12 @@ theDict = do
 
             liftIO $ print $ pretty h <+> fill 8 (viaShow tp) <+> pretty s
 
-
         entry $ bindMatch "test:segment:dump:pack" $ nil_ $ \syn -> lift do
-          sto <- getStorage
-          let (_, argz) = splitOpts [] syn
-
+          let (opts, argz) = splitOpts [ ("--dir",1)] syn
+          let dir = headDef  "." [ p | ListVal [StringLike "--dir", StringLike p] <- opts ]
           let trees = [ x | HashLike x <- argz ]
-
           for_ trees $ \tree -> do
-
-            notice $ "running" <+> pretty tree
-
-            lbs <- runExceptT (getTreeContents sto tree) >>= orThrowPassIO
-
-            file <- liftIO $ Temp.emptyTempFile "" (show (pretty tree) <> ".pack")
-
-            liftIO $ UIO.withBinaryFileAtomic file ReadWriteMode $ \fh -> do
-
-              let header = BS.concat [ "PACK", N.bytestring32 2,  N.bytestring32 0 ]
-
-              BS.hPutStr fh header
-
-              no_ <- newTVarIO 0
-              seen_ <- newTVarIO (mempty :: HashSet GitHash)
-
-              runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s obs -> do
-                seen <- readTVarIO seen_ <&> HS.member h
-                unless seen do
-
-                  let (t, body) = LBS.splitAt 1 obs
-
-                  let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
-                               & maybe Blob coerce
-
-                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-
-                  let packed = Zlib.compressWith params body
-
-                  let preamble = encodeObjectSize (gitPackTypeOf tp) (fromIntegral $ LBS.length body)
-
-                  liftIO do
-                    atomically $ modifyTVar seen_ (HS.insert h)
-                    BS.hPutStr fh preamble
-                    LBS.hPutStr fh packed
-
-                  atomically $ modifyTVar no_ succ
-
-              no <- readTVarIO no_
-              hSeek fh AbsoluteSeek 8
-              BS.hPutStr fh (N.bytestring32 no)
-              hFlush fh
-
-              sz <- hFileSize fh
-              hSeek fh AbsoluteSeek 0
-
-              sha <- LBS.hGetNonBlocking fh (fromIntegral sz) <&> sha1lazy
-
-              hSeek fh SeekFromEnd 0
-
-              BS.hPutStr fh sha
+            writeAsGitPack dir tree
 
         entry $ bindMatch "test:segment:import:loose" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts, argz) = splitOpts [] syn
