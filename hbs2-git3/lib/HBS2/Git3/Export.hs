@@ -30,6 +30,7 @@ import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.List qualified as L
 import Data.List (sortBy)
 import Data.List.Split (chunksOf)
 import Data.Ord (comparing)
@@ -81,7 +82,6 @@ exportEntries prefix = do
       level    <- getCompressionLevel
       segment  <- getPackedSegmetSize
       env      <- ask
-      sto      <- getStorage
 
       let
         notWrittenYet :: forall m . MonadIO m => GitHash -> m Bool
@@ -119,7 +119,6 @@ exportEntries prefix = do
             Just (fn,_) -> void $ flip runContT pure do
               ContT $ bracket none (const $ rm fn)
               lift do
-                now <- getTimeCoarse
                 ts <- liftIO getPOSIXTime <&> round
                 lbs <- LBS.readFile fn
                 let meta = mempty
@@ -161,7 +160,7 @@ exportEntries prefix = do
 
         -- void $ ContT $ bracket (pure pool) cancel
 
-        let lastCommit = last r
+        let lastCommit = lastDef h r
 
         workers <- lift $ forM (zip [0..] commitz) $ \(i,chunk) -> async $ flip runContT pure do
 
@@ -198,31 +197,14 @@ exportEntries prefix = do
                   writeTBQueue sourceQ (Just e)
 
               when (commit == lastCommit) do
-
-                ts <- liftIO $ getPOSIXTime <&> round
-
-                let brefs = [ LBS8.pack (show $ pretty ts <+> pretty commit <+> pretty x)
-                            | x <- refs
-                            ] & LBS8.unlines
-
-                let sha1 = gitHashBlobPure brefs
-
-                debug $ green "THIS IS THE LAST COMMIT BLOCK" <+> pretty commit <+> "ADDING REF INFO" <+> pretty sha1
-
-                let e = [ Builder.byteString (coerce sha1)
-                        , Builder.char8 'R'
-                        , Builder.lazyByteString brefs
-                        ] & Builder.toLazyByteString . mconcat
-
-                atomically do
-                  writeTBQueue sourceQ (Just e)
+                writeRefSection sourceQ commit refs
 
         t0 <- getTimeCoarse
         ContT $ withAsync $ do
 
-          liftIO $ hPrint stderr $
-                               "segment" <+> pretty segment <> comma
-                            <> "compression level" <+> pretty level
+          notice $ "segment" <+> pretty segment <> comma
+                             <> "compression level"
+                             <+> pretty level
 
           flip fix (t0,0)  $ \next (tPrev,bytesPrev) -> do
 
@@ -245,17 +227,26 @@ exportEntries prefix = do
 
             let dbdt = mbytes / tspent
 
-            liftIO $ IO.hPutStr stderr  $ show $
-                "                 \r"
-                <+> pretty tspent <> "s"
-                <+> pretty mbytes <> "mb"
-                <+> pretty dbdt <> "mbs"
-                <+> pretty pp <> "%"
+            -- liftIO $ IO.hPutStr stderr  $ show $
+            --     "                 \r"
+            --     <+> pretty tspent <> "s"
+            --     <+> pretty mbytes <> "mb"
+            --     <+> pretty dbdt <> "mbs"
+            --     <+> pretty pp <> "%"
+
+            -- liftIO $ IO.hPutStr stderr  $ "\r"
 
             next (t1,b)
 
         mapM_ link workers
         mapM_ wait workers
+
+        exported <- readTVarIO _exported
+
+        when (exported == 0 && not (L.null refs)) do
+          notice $ "no new segments, but refs" <+> pretty lastCommit
+          writeRefSection sourceQ lastCommit refs
+          atomically $ modifyTVar _exported succ
 
         atomically do
           writeTBQueue sourceQ Nothing
@@ -272,6 +263,26 @@ exportEntries prefix = do
      path <- getConfigPath <&> (</> "log")
      touch path
      liftIO (IO.appendFile path (show $ e <> line))
+
+   writeRefSection sourceQ commit refs = do
+
+      ts <- liftIO $ getPOSIXTime <&> round
+
+      let brefs = [ LBS8.pack (show $ pretty ts <+> pretty commit <+> pretty x)
+                  | x <- refs
+                  ] & LBS8.unlines
+
+      let sha1 = gitHashBlobPure brefs
+
+      -- debug $ green "THIS IS THE LAST COMMIT BLOCK" <+> pretty commit <+> "ADDING REF INFO" <+> pretty sha1
+
+      let e = [ Builder.byteString (coerce sha1)
+              , Builder.char8 'R'
+              , Builder.lazyByteString brefs
+              ] & Builder.toLazyByteString . mconcat
+
+      atomically do
+        writeTBQueue sourceQ (Just e)
 
    segmentWriter env bytes_ sourceQ hbs2Q = flip runReaderT env do
      maxW <- getPackedSegmetSize
