@@ -685,51 +685,7 @@ theDict = do
           liftIO $ print $ pretty p
 
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
-          updateReflogIndex
-
-          packs <- findGitDir
-                     >>= orThrowUser "git directory not found"
-                     <&> (</> "objects/pack")
-
-          sto <- getStorage
-
-          prev <- importedCheckpoint
-
-          excl <- maybe1 prev (pure mempty) $ \p -> do
-            txListAll (Just p) <&> HS.fromList . fmap fst
-
-          rv <- refLogRef
-
-          hxs <- txList ( pure . not . flip HS.member excl ) rv
-
-          cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
-            ([], r) -> pure (gitTxTree <$> r)
-            (TxSegment{}:xs, l) -> next (xs, l)
-            (cp@(TxCheckpoint n tree) : xs, l) -> do
-              full <- findMissedBlocks sto tree <&> L.null
-              if full && Just n > (getGitTxRank <$> l) then do
-                next (xs, Just cp)
-              else do
-                next (xs, l)
-
-          void $ runMaybeT do
-            cp <- toMPlus cp'
-            notice $ "found checkpoint" <+> pretty cp
-            txs <- lift $ txList ( pure . not . flip HS.member excl ) (Just cp)
-
-            lift do
-              forConcurrently_ txs $ \case
-                (_, TxCheckpoint{}) -> none
-                (h, TxSegment tree) -> do
-                  s <- writeAsGitPack  packs tree
-
-                  for_ s $ \file -> do
-                    gitRunCommand [qc|git index-pack {file}|]
-                      >>= orThrowPassIO
-
-                  notice $ "imported" <+> pretty h
-
-              updateImportedCheckpoint cp
+          importGitRefLog
 
         exportEntries "reflog:"
 
