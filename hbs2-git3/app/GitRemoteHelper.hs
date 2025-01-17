@@ -93,7 +93,7 @@ localDict = makeDict @C do
     sendLine ""
 
   entry $ bindMatch "r:push" $ nil_ $ splitPushArgs $ \pushFrom pushTo -> lift do
-    notice $ pretty pushFrom <+> pretty pushTo
+    notice $ pretty $ [qc|ok {pretty pushTo}|]
     sendLine [qc|ok {pretty pushTo}|]
 
   entry $ bindMatch "r:" $ nil_ $ \syn -> lift do
@@ -159,7 +159,9 @@ main =  flip runContT pure do
           next Plain
 
         _ -> do
-          liftIO exitSuccess
+          sendLine ""
+          next Plain
+          -- liftIO exitSuccess
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
