@@ -1,3 +1,4 @@
+{-# Language RecordWildCards #-}
 module Main where
 
 import Prelude hiding (getLine)
@@ -7,6 +8,8 @@ import HBS2.Git3.Run
 import HBS2.Git3.Config.Local
 import HBS2.Git3.State.Index
 import HBS2.Git3.Import
+import HBS2.Git3.Export
+import HBS2.Git3.Git
 
 import System.Posix.Signals
 import System.IO qualified as IO
@@ -14,6 +17,7 @@ import System.Exit qualified as Exit
 import System.Environment (getArgs)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Text qualified as Text
+import Data.Maybe
 
 import Data.Config.Suckless.Script
 
@@ -68,14 +72,21 @@ data S =
   deriving stock (Eq,Ord,Show,Enum)
 
 
+data DeferredOps =
+  DeferredOps
+  { exportQ :: TQueue (GitRef, Maybe GitHash)
+  }
+
 
 localDict  :: forall m . ( HBS2GitPerks m
                       -- , HasClientAPI PeerAPI UNIX m
                       -- , HasStorage m
                       -- , HasGitRemoteKey m
                       -- , HasStateDB m
-                      ) => Dict C (Git3 m)
-localDict = makeDict @C do
+                      )
+            => DeferredOps -> Dict C (Git3 m)
+
+localDict DeferredOps{..} = makeDict @C do
   entry $ bindMatch "r:capabilities" $ nil_ $ \syn -> do
     sendLine "push"
     sendLine "fetch"
@@ -93,7 +104,17 @@ localDict = makeDict @C do
     sendLine ""
 
   entry $ bindMatch "r:push" $ nil_ $ splitPushArgs $ \pushFrom pushTo -> lift do
+    r0 <- for pushFrom gitRevParseThrow
+
     notice $ pretty $ [qc|ok {pretty pushTo}|]
+
+    case (r0, pushTo) of
+      (Nothing, ref) -> do
+        export Nothing [(ref, nullHash)]
+
+      (Just h, ref)-> do
+        export (Just h) [(ref, h)]
+
     sendLine [qc|ok {pretty pushTo}|]
 
   entry $ bindMatch "r:" $ nil_ $ \syn -> lift do
@@ -127,7 +148,9 @@ main =  flip runContT pure do
   lift $ void $ installHandler sigPIPE Ignore Nothing
   env <- nullGit3Env
 
-  let dict = theDict <> localDict
+  ops <- DeferredOps <$> newTQueueIO
+
+  let dict = theDict <> localDict ops
 
   void $ lift $ withGit3Env env do
 

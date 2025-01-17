@@ -1,7 +1,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 
-module HBS2.Git3.Export (exportEntries) where
+module HBS2.Git3.Export (exportEntries,export) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State.Index
@@ -55,35 +55,32 @@ data ECC =
   | ECCFinalize Int Bool FilePath Handle Result
 
 
-export :: forall m . HBS2GitPerks m => Git3 m ()
-export = do
-  none
-
 exportEntries :: forall m . (HBS2GitPerks m) => Id -> MakeDictM C (Git3 m) ()
 exportEntries prefix = do
-    entry $ bindMatch (prefix <> "export") $ nil_ $ \syn -> lift $ connectedDo do
-      let (opts, argz) = splitOpts [("--dry",0),("--ref",1),("--set",2),("--del",1)] syn
+  entry $ bindMatch (prefix <> "export") $ nil_ $ \syn -> lift $ connectedDo do
+    let (opts, argz) = splitOpts [("--ref",1),("--set",2),("--del",1)] syn
 
-      let dry = or [ True  | ListVal [StringLike "--dry"] <- opts ]
+    let hd = headDef "HEAD" [ x | StringLike x <- argz]
+    h <- gitRevParseThrow hd
 
-      let hd = headDef "HEAD" [ x | StringLike x <- argz]
-      h <- gitRevParseThrow hd
+    refs' <- S.toList_ $ for opts $ \case
+              ListVal [StringLike "--ref", StringLike x] -> do
+                S.yield (gitNormaliseRef (fromString x), h)
 
-      refs' <- S.toList_ $ for opts $ \case
-                ListVal [StringLike "--ref", StringLike x] -> do
-                  S.yield (gitNormaliseRef (fromString x), h)
+              ListVal [StringLike "--set", StringLike x, StringLike what] -> do
+                y <- gitRevParseThrow what
+                S.yield $ (gitNormaliseRef (fromString x), y)
 
-                ListVal [StringLike "--set", StringLike x, StringLike what] -> do
-                  y <- gitRevParseThrow what
-                  S.yield $ (gitNormaliseRef (fromString x), y)
+              ListVal [StringLike "--del", StringLike x] -> do
+                S.yield $ (gitNormaliseRef (fromString x), GitHash (BS.replicate 20 0))
 
-                ListVal [StringLike "--del", StringLike x] -> do
-                  S.yield $ (gitNormaliseRef (fromString x), GitHash (BS.replicate 20 0))
+              _ -> none
 
-                _ -> none
+    let refs = HM.toList $ HM.fromList refs'
+    export (Just h) refs
 
-      let refs = HM.toList $ HM.fromList refs'
-
+export :: forall m . HBS2GitPerks m => Maybe GitHash -> [(GitRef, GitHash)] -> Git3 m ()
+export mbh refs = do
       tn <- getNumCapabilities
 
       updateReflogIndex
@@ -106,7 +103,8 @@ exportEntries prefix = do
             already <- readTVarIO _already <&> HS.member x
             pure (not already) -- &&  not alsoInIdx)
 
-      hpsq <- readCommitChainHPSQ notWrittenYet Nothing h (\c -> debug $ "commit" <+> pretty c)
+      hpsq <- maybe1 mbh (pure HPSQ.empty) $ \h -> do
+                readCommitChainHPSQ notWrittenYet Nothing h (\c -> debug $ "commit" <+> pretty c)
 
       txCheckQ <- newTVarIO ( mempty :: HashSet HashRef )
 
@@ -144,7 +142,7 @@ exportEntries prefix = do
                 exported <- readTVarIO _exported
                 debug $ red "EXPORTED" <+> pretty exported
 
-                when (not dry && exported > 0) do
+                when (exported > 0) do
                   href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
                   writeLogEntry ("tree" <+> pretty ts <+> pretty href)
                   debug $ "SENDING" <+> pretty href <+> pretty fn
@@ -177,7 +175,7 @@ exportEntries prefix = do
 
         -- void $ ContT $ bracket (pure pool) cancel
 
-        let lastCommit = lastDef h r
+        let lastCommit = lastMay r
 
         workers <- lift $ forM (zip [0..] commitz) $ \(i,chunk) -> async $ flip runContT pure do
 
@@ -213,7 +211,7 @@ exportEntries prefix = do
                 atomically do
                   writeTBQueue sourceQ (Just e)
 
-              when (commit == lastCommit) do
+              when (Just commit == lastCommit) do
                 writeRefSectionSome sourceQ refs
 
         t0 <- getTimeCoarse
@@ -299,26 +297,6 @@ exportEntries prefix = do
      atomically do
           writeTBQueue sourceQ (Just e)
 
-   -- writeRefSection sourceQ commit refs = do
-
-   --    ts <- liftIO $ getPOSIXTime <&> round
-
-   --    let brefs = [ LBS8.pack (show $ pretty ts <+> pretty commit <+> pretty x)
-   --                | x <- refs
-   --                ] & LBS8.unlines
-
-   --    let sha1 = gitHashBlobPure brefs
-
-   --    -- debug $ green "THIS IS THE LAST COMMIT BLOCK" <+> pretty commit <+> "ADDING REF INFO" <+> pretty sha1
-
-   --    let e = [ Builder.byteString (coerce sha1)
-   --            , Builder.char8 'R'
-   --            , Builder.lazyByteString brefs
-   --            ] & Builder.toLazyByteString . mconcat
-
-   --    atomically do
-   --      writeTBQueue sourceQ (Just e)
-
    segmentWriter env bytes_ sourceQ hbs2Q = flip runReaderT env do
      maxW <- getPackedSegmetSize
      level <- getCompressionLevel
@@ -352,7 +330,7 @@ exportEntries prefix = do
          void $ writeCompressedChunkZstd (write bytes_ fh) sn Nothing
          hClose fh
          atomically $ writeTBQueue hbs2Q (Just (fn, bnum))
-         notice $ "SEGMENT" <+> pretty bnum <+> pretty fn
+         debug $ "SEGMENT" <+> pretty bnum <+> pretty fn
          when again $ loop ECCInit
          atomically $ writeTBQueue hbs2Q Nothing
 

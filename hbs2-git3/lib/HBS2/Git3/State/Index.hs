@@ -398,6 +398,9 @@ importedCheckpoint = do
 
     toMPlus (fromStringMay @HashRef f)
 
+nullHash :: GitHash
+nullHash = GitHash (BS.replicate 20 0)
+
 {- HLINT ignore "Functor law"-}
 importedRefs :: forall m . ( Git3Perks m
                            , MonadReader Git3Env m
@@ -427,8 +430,10 @@ importedRefs = do
                         , GitHashLike g
                         , StringLike n ] <- refs
               , HS.member th txh
-              ] & HM.fromListWith (\(a,t1) (b,t2) -> if t1 > t2 then (a,t1) else (b,t2))
+              ] & L.sortOn ( snd . snd )
+                & HM.fromList
                 & fmap fst . HM.elems
+                & filter ( (/= nullHash) . snd )
 
   pure rrefs
 
