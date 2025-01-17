@@ -28,7 +28,7 @@ BINS := \
   fixme-new          \
 	hbs2-storage-simple-benchmarks \
 	hbs2-git3 \
-	hbs2-git-daemon
+	git-remote-hbs23 \
 
 
 RT_DIR := tests/RT

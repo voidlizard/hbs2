@@ -3,6 +3,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language PatternSynonyms #-}
+{-# Language FunctionalDependencies #-}
 module HBS2.Git3.Prelude
   ( module HBS2.Git3.Prelude
   , module Exported
@@ -23,8 +24,12 @@ import HBS2.Net.Auth.Credentials
 import HBS2.Peer.Proto.RefLog as Exported
 import HBS2.Peer.RPC.API.RefLog as Exported
 import HBS2.Peer.RPC.API.Peer as Exported
+import HBS2.Peer.RPC.API.LWWRef as Exported
+import HBS2.Peer.RPC.API.Storage as Exported
 import HBS2.Peer.RPC.Client hiding (encode,decode)
 import HBS2.Peer.RPC.Client.Unix hiding (encode,decode)
+import HBS2.Peer.RPC.Client.StorageClient
+import HBS2.Peer.CLI.Detect
 import HBS2.Storage as Exported
 import HBS2.Storage.Operations.Class as Exported
 import HBS2.System.Logger.Simple.ANSI as Exported
@@ -32,10 +37,7 @@ import HBS2.System.Logger.Simple.ANSI as Exported
 import HBS2.Git3.Types as Exported
 import HBS2.Git3.State.Types as Exported
 
--- TODO: about-to-remove
-import DBPipe.SQLite
-
-import Data.Config.Suckless.Script
+import HBS2.System.Dir
 
 import Codec.Compression.Zstd (maxCLevel)
 import Codec.Serialise
@@ -44,8 +46,12 @@ import Control.Monad.Reader as Exported
 import Control.Monad.Trans.Cont as Exported
 import Control.Monad.Trans.Maybe as Exported
 import Data.Coerce as Exported
-import Data.HashSet (HashSet(..))
+import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.HashPSQ qualified as HPSQ
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.HashPSQ (HashPSQ)
 import Data.Kind
 import System.Exit qualified as Q
 import System.IO.MMap as Exported
@@ -220,4 +226,108 @@ getStatePathM :: forall m . (HBS2GitPerks m, HasGitRemoteKey m) => m FilePath
 getStatePathM = do
   k <- getGitRemoteKey >>= orThrow RefLogNotSetException
   getStatePath (AsBase58 k)
+
+
+recover :: Git3 IO a -> Git3 IO a
+recover m = fix \again -> do
+  catch m $ \case
+    Git3PeerNotConnected -> do
+
+      soname <- detectRPC
+                  `orDie` "can't locate hbs2-peer rpc"
+
+      flip runContT pure do
+
+        client <- lift $ race (pause @'Seconds 1) (newMessagingUnix False 1.0 soname)
+                    >>= orThrowUser ("can't connect to" <+> pretty soname)
+
+        void $ ContT $ withAsync $ runMessagingUnix client
+
+        peerAPI    <- makeServiceCaller @PeerAPI (fromString soname)
+        refLogAPI  <- makeServiceCaller @RefLogAPI (fromString soname)
+        storageAPI <- makeServiceCaller @StorageAPI (fromString soname)
+        lwwAPI     <- makeServiceCaller @LWWRefAPI (fromString soname)
+
+        -- let sto = AnyStorage (StorageClient storageAPI)
+
+        let endpoints = [ Endpoint @UNIX  peerAPI
+                        , Endpoint @UNIX  refLogAPI
+                        , Endpoint @UNIX  lwwAPI
+                        , Endpoint @UNIX  storageAPI
+                        ]
+
+        void $ ContT $ withAsync $ liftIO $ runReaderT (runServiceClientMulti endpoints) client
+
+        ref <- getGitRemoteKey >>= orThrowUser "remote ref not set"
+
+        state <- getStatePath (AsBase58 ref)
+
+        mkdir state
+
+        let sto = AnyStorage (StorageClient storageAPI)
+
+        connected <- Git3Connected soname sto peerAPI refLogAPI
+                        <$> newTVarIO (Just ref)
+                        <*> newTVarIO defSegmentSize
+                        <*> newTVarIO defCompressionLevel
+                        <*> newTVarIO defIndexBlockSize
+
+        liftIO $ withGit3Env connected again
+
+    e -> throwIO e
+
+
+class Cached cache k v | cache -> k, cache -> v where
+  isCached :: forall m . MonadIO m => cache -> k -> m Bool
+  cached   :: forall m . MonadIO m => cache -> k -> m v -> m v
+  uncache  :: forall m . MonadIO m => cache -> k -> m ()
+
+
+newtype CacheTVH k v = CacheTVH (TVar (HashMap k v))
+
+instance Hashable k => Cached (CacheTVH k v) k v where
+  isCached (CacheTVH t) k = readTVarIO  t <&> HM.member k
+  uncache (CacheTVH t) k = atomically (modifyTVar t (HM.delete k))
+  cached (CacheTVH t) k a = do
+    what <- readTVarIO t <&> HM.lookup k
+    case what of
+      Just x -> pure x
+      Nothing -> do
+        r <- a
+        atomically $ modifyTVar t (HM.insert k r)
+        pure r
+
+data CacheFixedHPSQ  k v =
+  CacheFixedHPSQ
+  { _cacheSize :: Int
+  , _theCache  :: TVar (HashPSQ k TimeSpec v)
+  }
+
+newCacheFixedHPSQ :: MonadIO m => Int -> m (CacheFixedHPSQ k v)
+newCacheFixedHPSQ l = CacheFixedHPSQ l <$> newTVarIO HPSQ.empty
+
+instance (Ord k, Hashable k) => Cached (CacheFixedHPSQ k v) k v where
+
+  isCached CacheFixedHPSQ{..} k = readTVarIO _theCache <&> HPSQ.member k
+
+  uncache CacheFixedHPSQ{..} k = atomically $ modifyTVar _theCache (HPSQ.delete k)
+
+  cached CacheFixedHPSQ{..} k a = do
+    w <- readTVarIO _theCache <&> HPSQ.lookup k
+    case w of
+      Just (_,e) -> pure e
+      Nothing -> do
+        v <- a
+
+        t <- getTimeCoarse
+
+        atomically do
+          s <- readTVar _theCache <&> HPSQ.size
+
+          when (s >= _cacheSize) do
+            modifyTVar _theCache HPSQ.deleteMin
+
+          modifyTVar _theCache (HPSQ.insert k t v)
+
+          pure v
 

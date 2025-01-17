@@ -125,6 +125,7 @@ library
       HBS2.Git3.Prelude
       HBS2.Git3.Export
       HBS2.Git3.Import
+      HBS2.Git3.Run
       HBS2.Git3.State.Types
       HBS2.Git3.State.RefLog
       HBS2.Git3.State.Index
@@ -159,9 +160,9 @@ executable hbs2-git3
     hs-source-dirs:   app
     default-language: GHC2021
 
-executable hbs2-git-daemon
+executable git-remote-hbs23
     import:           shared-properties
-    main-is:          Daemon.hs
+    main-is:          GitRemoteHelper.hs
     -- other-modules:
     -- other-extensions:
     build-depends:
@@ -171,8 +172,6 @@ executable hbs2-git-daemon
 
     hs-source-dirs:   app
     default-language: GHC2021
-
-
 
 test-suite spec
   import:          shared-properties
