@@ -895,6 +895,11 @@ theDict = do
           rrefs <- importedRefs
           liftIO $ print $ pretty rrefs
 
+
+        entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
+          p <- importedCheckpoint
+          liftIO $ print $ pretty p
+
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           updateReflogIndex
 
@@ -902,11 +907,7 @@ theDict = do
                      >>= orThrowUser "git directory not found"
                      <&> (</> "objects/pack")
 
-          state <- getStatePathM
-
           sto <- getStorage
-
-          let imported = state </> "imported"
 
           prev <- importedCheckpoint
 

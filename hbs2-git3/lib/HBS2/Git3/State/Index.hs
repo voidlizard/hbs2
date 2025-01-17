@@ -392,7 +392,10 @@ importedCheckpoint = do
   state <- getStatePathM
   let imported = state </> "imported"
   runMaybeT do
-    f <- liftIO (try @_ @IOError (readFile imported)) >>= toMPlus
+    f <- liftIO (try @_ @IOError (readFile imported <&> headMay . lines))
+      >>= toMPlus
+      >>= toMPlus
+
     toMPlus (fromStringMay @HashRef f)
 
 {- HLINT ignore "Functor law"-}
@@ -439,5 +442,5 @@ updateImportedCheckpoint cp = do
   state <- getStatePathM
   let imported = state </> "imported"
   liftIO $ UIO.withBinaryFileAtomic imported WriteMode $ \fh -> do
-    hPrint fh (show $ pretty cp)
+    hPrint fh (pretty cp)
 
