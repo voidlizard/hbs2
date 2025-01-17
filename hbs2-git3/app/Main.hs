@@ -17,6 +17,7 @@ import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.API.LWWRef
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
+import HBS2.Storage.Operations.Missed
 
 -- move to Data.Config.Suckless.Script.Filea sepatate library
 import HBS2.Data.Log.Structured
@@ -52,6 +53,7 @@ import Data.List.Split (chunksOf)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Builder as Builder
 import Network.ByteOrder qualified as N
@@ -81,7 +83,7 @@ import System.Directory (setCurrentDirectory)
 import System.Random hiding (next)
 import System.IO.MMap (mmapFileByteString)
 import System.IO qualified as IO
-import System.IO (hPrint)
+import System.IO (hPrint,hPutStrLn,hPutStr)
 import System.IO.Temp as Temp
 import System.TimeIt
 
@@ -889,7 +891,11 @@ theDict = do
 
             forM_ decoded print
 
-        entry $ bindMatch "reflog:import:pack" $ nil_ $ \syn -> lift $ connectedDo do
+        entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
+          rrefs <- importedRefs
+          liftIO $ print $ pretty rrefs
+
+        entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           updateReflogIndex
 
           packs <- findGitDir
@@ -898,11 +904,11 @@ theDict = do
 
           state <- getStatePathM
 
+          sto <- getStorage
+
           let imported = state </> "imported"
 
-          prev <- runMaybeT do
-            f <- liftIO (try @_ @IOError (readFile imported)) >>= toMPlus
-            toMPlus (fromStringMay @HashRef f)
+          prev <- importedCheckpoint
 
           excl <- maybe1 prev (pure mempty) $ \p -> do
             txListAll (Just p) <&> HS.fromList . fmap fst
@@ -911,20 +917,34 @@ theDict = do
 
           hxs <- txList ( pure . not . flip HS.member excl ) rv
 
-          forConcurrently_ hxs $ \case
-            (_, TxCheckpoint{}) -> none
-            (h, TxSegment tree) -> do
-              s <- writeAsGitPack  packs tree
+          cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
+            ([], r) -> pure (gitTxTree <$> r)
+            (TxSegment{}:xs, l) -> next (xs, l)
+            (cp@(TxCheckpoint n tree) : xs, l) -> do
+              full <- findMissedBlocks sto tree <&> L.null
+              if full && Just n > (getGitTxRank <$> l) then do
+                next (xs, Just cp)
+              else do
+                next (xs, l)
 
-              for_ s $ \file -> do
-                gitRunCommand [qc|git index-pack {file}|]
-                  >>= orThrowPassIO
+          void $ runMaybeT do
+            cp <- toMPlus cp'
+            notice $ "found checkpoint" <+> pretty cp
+            txs <- lift $ txList ( pure . not . flip HS.member excl ) (Just cp)
 
-              notice $ "imported" <+> pretty h
+            lift do
+              forConcurrently_ txs $ \case
+                (_, TxCheckpoint{}) -> none
+                (h, TxSegment tree) -> do
+                  s <- writeAsGitPack  packs tree
 
-          for_ rv $ \r -> do
-            liftIO $ UIO.withBinaryFileAtomic imported WriteMode $ \fh -> do
-              IO.hPutStr fh (show $ pretty r)
+                  for_ s $ \file -> do
+                    gitRunCommand [qc|git index-pack {file}|]
+                      >>= orThrowPassIO
+
+                  notice $ "imported" <+> pretty h
+
+              updateImportedCheckpoint cp
 
         exportEntries "reflog:"
 

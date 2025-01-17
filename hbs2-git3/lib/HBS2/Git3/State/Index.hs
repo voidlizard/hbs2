@@ -11,6 +11,7 @@ import HBS2.Git3.Git
 import HBS2.Data.Log.Structured
 
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -31,6 +32,8 @@ import Data.Word
 
 import Data.Config.Suckless
 import Data.Config.Suckless.Script.File
+
+import System.IO (hPrint)
 
 import Streaming.Prelude qualified as S
 import System.TimeIt
@@ -377,4 +380,64 @@ updateReflogIndex = do
           name <- emptyTempFile idxPath ".ref"
           UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
             for_ es $ \s -> LBS8.hPutStrLn wh s
+
+
+importedCheckpoint :: forall m . ( Git3Perks m
+                                 , MonadReader Git3Env m
+                                 , HasClientAPI RefLogAPI UNIX m
+                                 , HasStorage m
+                                 ) => m (Maybe HashRef)
+
+importedCheckpoint = do
+  state <- getStatePathM
+  let imported = state </> "imported"
+  runMaybeT do
+    f <- liftIO (try @_ @IOError (readFile imported)) >>= toMPlus
+    toMPlus (fromStringMay @HashRef f)
+
+{- HLINT ignore "Functor law"-}
+importedRefs :: forall m . ( Git3Perks m
+                           , MonadReader Git3Env m
+                           , HasClientAPI RefLogAPI UNIX m
+                           , HasStorage m
+                           ) => m [(GitRef, GitHash)]
+
+importedRefs = do
+
+  state <- getStatePathM
+
+  refs <- dirFiles state
+            <&> filter ( (== ".ref") . takeExtension )
+            >>= mapM (try @_ @IOError . liftIO . readFile)
+            <&> unlines . rights
+            <&> parseTop
+            <&> fromRight mempty
+
+  txh <- maybe mempty HS.fromList <$> runMaybeT do
+           cp <- lift importedCheckpoint >>= toMPlus
+           fmap fst <$> lift (txListAll (Just cp))
+
+  let rrefs = [ (n,((GitRef (BS8.pack n),g),r))
+              | ListVal [ SymbolVal "R"
+                        , HashLike th
+                        , LitIntVal r
+                        , GitHashLike g
+                        , StringLike n ] <- refs
+              , HS.member th txh
+              ] & HM.fromListWith (\(a,t1) (b,t2) -> if t1 > t2 then (a,t1) else (b,t2))
+                & fmap fst . HM.elems
+
+  pure rrefs
+
+updateImportedCheckpoint :: forall m . ( Git3Perks m
+                                 , MonadReader Git3Env m
+                                 , HasClientAPI RefLogAPI UNIX m
+                                 , HasStorage m
+                                 ) => HashRef -> m ()
+
+updateImportedCheckpoint cp = do
+  state <- getStatePathM
+  let imported = state </> "imported"
+  liftIO $ UIO.withBinaryFileAtomic imported WriteMode $ \fh -> do
+    hPrint fh (show $ pretty cp)
 

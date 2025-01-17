@@ -49,6 +49,7 @@ import Data.HashSet qualified as HS
 import Data.Kind
 import System.Exit qualified as Q
 import System.IO.MMap as Exported
+import System.FilePattern as Exported
 
 import GHC.Natural as Exported
 import UnliftIO as Exported

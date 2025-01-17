@@ -8,8 +8,13 @@ import Data.Maybe
 import Streaming.Prelude qualified as S
 
 data GitTx =
-    TxSegment HashRef
-  | TxCheckpoint Natural HashRef
+    TxSegment    { gitTxTree :: HashRef }
+  | TxCheckpoint { gitTxRank :: Natural, gitTxTree ::  HashRef }
+
+getGitTxRank  :: GitTx -> Natural
+getGitTxRank = \case
+  TxSegment _ -> 0
+  TxCheckpoint n _ -> n
 
 data RefLogException =
     RefLogRPCException
