@@ -345,30 +345,6 @@ theDict = do
             let a = coerce (BS.take 32 bs) :: HashRef
             liftIO $ print $ pretty a
 
-        entry $ bindMatch "test:git:log:index:flat:search:vector:test" $ nil_ $ \case
-          [ StringLike fn ] -> do
-
-            lbs <- liftIO $ LBS.readFile fn
-
-            hashes <- S.toList_ $ runConsumeLBS lbs $ flip fix 0 \go n -> do
-              done <- consumed
-              if done then pure ()
-                else do
-                  shit <- LBS.toStrict <$> (readBytesMaybe 24 >>= orThrow SomeReadLogError)
-                  lift $ S.yield shit
-                  go (succ n)
-
-            let wat = Vector.fromList hashes
-            vec <- liftIO $ Vector.thaw wat
-
-            let cmp bs1 bs2 = compare (BS.take 20 $ BS.drop 4 bs1) (BS.take 20 $ BS.drop 4 bs2)
-
-            for_ hashes $ \h -> do
-              found <- liftIO $ MV.binarySearchBy cmp vec h
-              liftIO $ print $ pretty (GitHash h) <+> pretty found
-
-          _ -> throwIO (BadFormException @C nil)
-
         entry $ bindMatch "test:segment:dump" $ nil_ $ \syn -> lift do
           sto <- getStorage
           let (_, argz) = splitOpts [] syn
@@ -391,56 +367,6 @@ theDict = do
           for_ trees $ \tree -> do
             writeAsGitPack dir tree
 
-        entry $ bindMatch "test:segment:import:loose" $ nil_ $ \syn -> lift $ connectedDo do
-          let (opts, argz) = splitOpts [] syn
-          let logs = [ x| StringLike x <- argz ]
-
-          d <- findGitDir >>= orThrowUser "not a git directory"
-
-          sto <- getStorage
-
-          flip runContT pure do
-
-            gitCatCheck <- contWorkerPool 8 do
-              che <- ContT withGitCatCheck
-              pure $ gitCheckObjectFromHandle che
-
-            let trees = [ x | HashLike x <- argz ]
-
-            lift $ for_ trees $ \tree -> do
-
-              notice $ pretty "running" <+> pretty tree
-
-              lbs <- runExceptT (getTreeContents sto tree) >>= orThrowPassIO
-
-              runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
-                let (t, body) = LBS.splitAt 1 lbs
-
-                let tp = fromStringMay @(Short GitObjectType) (LBS8.unpack t)
-                             & maybe Blob coerce
-
-                here <- lift $ isJust <$> gitCatCheck h
-
-                let gitHash = show $ pretty h
-                let (prefix,name) = L.splitAt 2 gitHash
-                let path = joinPath [d, "objects", prefix, name]
-
-                let signature = [qc|{pretty tp} {pretty $ LBS.length body}|] <> "\x00" :: LBS8.ByteString
-                let o = signature <> body
-
-                unless here $ liftIO do
-
-                  notice $ "FUCKING IMPORT OBJECT" <+> pretty here <+> pretty h <+> pretty tp
-
-                  touch path
-
-                  debug $ pretty tp <+> pretty s <+> pretty h <+> pretty path
-
-                  let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                  UIO.withBinaryFileAtomic path WriteMode $ \fh -> do
-                    let contents = Zlib.compressWith params  o
-                    LBS.hPutStr fh contents
-
 
         entry $ bindMatch "reflog:index:count:missed" $ nil_ $ const $ lift $ flip runContT pure do
 
@@ -451,46 +377,6 @@ theDict = do
 
            for_ hashes $ \h -> do
             liftIO $ print $ pretty h
-
-          -- git <- findGitDir >>= orThrowUser ".git directory not found"
-
-          -- ofiles <- S.toList_ $ glob ["**/*"] ["info/**", "pack/**"] (git </> "objects") $ \fn -> do
-          --   S.yield fn >> pure True
-
-          -- idxFiles <- S.toList_ $ glob ["**/*.idx"] [] (git </> "objects/pack") $ \fn -> do
-          --   S.yield fn >> pure True
-
-          -- liftIO $ for_ ofiles $ \f -> do
-          --   print f
-
-          -- liftIO $ for_ idxFiles $ \f -> flip runContT pure do
-          --   p <- ContT withGitShowIndex
-          --   -- void $ ContT $ bracket (pure p) (hClose . getStdin)
-          --   liftIO do
-          --     LBS.hPutStr (getStdin p) =<< LBS.readFile f
-          --     hFlush (getStdin p)
-          --     wtf <- IO.hGetContents (getStdout p) <&> lines
-          --     for_ wtf $ IO.putStrLn
-
-            -- _ <- gitRunCommand [qc|git show-index|]
-            -- print f
-
-          -- gitCatCheck <- contWorkerPool 4 do
-          --   che <- ContT withGitCatCheck
-          --   pure $ gitCheckObjectFromHandle che
-
-          -- idx <- lift openIndex
-
-          -- missed_ <- newTVarIO ( mempty :: HashSet GitHash )
-          -- lift $ enumEntries idx $ \bs -> do
-          --   let gh = GitHash (coerce (BS.take 20 bs))
-          --   here <- gitCatCheck gh
-          --   unless (isJust here) do
-          --     atomically $ modifyTVar missed_ (HS.insert gh)
-
-          -- missed <- readTVarIO missed_ <&> HS.size
-
-          -- liftIO $ print $ "missed" <+> pretty missed
 
         entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift do
           files <- listObjectIndexFiles
