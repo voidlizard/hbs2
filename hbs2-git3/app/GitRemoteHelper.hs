@@ -11,6 +11,7 @@ import HBS2.Git3.Import
 import System.Posix.Signals
 import System.IO qualified as IO
 import System.Exit qualified as Exit
+import System.Environment (getArgs)
 
 import Data.Config.Suckless.Script
 
@@ -30,6 +31,12 @@ sendLine = liftIO . IO.putStrLn
 
 die :: (MonadIO m, Pretty a) => a -> m b
 die s = liftIO $ Exit.die (show $ pretty s)
+
+parseCLI :: MonadIO m => m [Syntax C]
+parseCLI = do
+  argz <- liftIO getArgs
+  parseTop (unlines $ unwords <$> splitForms argz)
+           & either  (error.show) pure
 
 -- parseURL :: String -> Maybe (LWWRefKey 'HBS2Basic)
 -- parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
@@ -108,6 +115,10 @@ main =  flip runContT pure do
   void $ lift $ withGit3Env env do
 
     conf <- readLocalConf
+
+    cli <- parseCLI
+
+    notice $ pretty cli
 
     void $ run dict conf
 
