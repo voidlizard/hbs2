@@ -8,27 +8,13 @@ import HBS2.Git3.Config.Local
 import HBS2.Git3.State.Index
 import HBS2.Git3.Import
 
-import HBS2.System.Dir
-
-import Control.Concurrent.STM qualified as STM
 import System.Posix.Signals
-import System.Environment
-import System.IO (hPutStrLn)
 import System.IO qualified as IO
 import System.Exit qualified as Exit
 
 import Data.Config.Suckless.Script
 
-import Data.ByteString.Char8 qualified as BS8
-import Data.ByteString.Lazy.Char8 qualified as LBS8
-import Data.Attoparsec.ByteString.Char8 hiding (try)
-import Data.Attoparsec.ByteString.Char8 qualified as Atto
-import Data.Maybe
-import Data.HashMap.Strict qualified as HM
-import Data.List qualified as L
-import Text.InterpolatedString.Perl6 (qc)
 import System.Exit hiding (die)
-import System.IO qualified as IO
 
 {- HLINT ignore "Use isEOF" -}
 {- HLINT ignore "Use putStrLn" -}
@@ -82,14 +68,11 @@ localDict  :: forall m . ( HBS2GitPerks m
                       ) => Dict C (Git3 m)
 localDict = makeDict @C do
   entry $ bindMatch "r:capabilities" $ nil_ $ \syn -> do
-    notice "FUCKIN CAPABILITIES"
     sendLine "push"
     sendLine "fetch"
     sendLine ""
 
   entry $ bindMatch "r:list" $ nil_ $ \syn -> lift do
-    notice $ "FUCKIN LIST" <+> pretty syn
-
     importGitRefLog
 
     rrefs <- importedRefs
@@ -130,12 +113,8 @@ main =  flip runContT pure do
 
     recover $ connectedDo do
 
-      notice "run all shit"
-
       flip fix Plain $ \next -> \case
         Plain -> do
-
-          debug "PLAIN!"
 
           eof <- done
 
@@ -145,34 +124,14 @@ main =  flip runContT pure do
 
           when (null (words inp)) $ next End
 
-          notice $ pretty "INPUT" <+> pretty inp
+          debug $ pretty "INPUT" <+> pretty inp
 
           runTop dict ("r:"<>inp)
 
           next Plain
 
         _ -> do
-          debug "JOPA"
           liftIO exitSuccess
-
-        -- Plain -> do
-        --   inp <- getLine
-        --   notice $ pretty "INPUT" <+> pretty inp
-        --   runTop dict ("r:"<>inp)
-        --   next Plain
-
-        -- Push -> do
-        --   debug "WHAT2"
-        --   next Push
-
-  -- args <- getArgs
-
-  -- (remote, puk) <- case args of
-  --                    [s, u] ->
-  --                       (s,) <$> pure (parseURL u)
-  --                                 `orDie` show ("invalid reflog" <+> pretty u)
-
-  --                    _ -> die "bad args"
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 debugPrefix = toStderr . logPrefix "[debug] "
