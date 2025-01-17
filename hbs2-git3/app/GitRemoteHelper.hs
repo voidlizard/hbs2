@@ -12,6 +12,8 @@ import System.Posix.Signals
 import System.IO qualified as IO
 import System.Exit qualified as Exit
 import System.Environment (getArgs)
+import Text.InterpolatedString.Perl6 (qc)
+import Data.Text qualified as Text
 
 import Data.Config.Suckless.Script
 
@@ -90,8 +92,23 @@ localDict = makeDict @C do
 
     sendLine ""
 
+  entry $ bindMatch "r:push" $ nil_ $ splitPushArgs $ \pushFrom pushTo -> lift do
+    notice $ pretty pushFrom <+> pretty pushTo
+    sendLine [qc|ok {pretty pushTo}|]
+
   entry $ bindMatch "r:" $ nil_ $ \syn -> lift do
     none
+
+  where
+    splitPushArgs :: forall m . MonadIO m => (Maybe GitRef -> GitRef -> m ()) -> [Syntax C] -> m ()
+    splitPushArgs action = \case
+      [ StringLike params ] -> do
+        case Text.splitOn ":" (fromString params) of
+          [ b ] -> action Nothing (fromString (Text.unpack b))
+          [ a, b ] -> action (Just (fromString (Text.unpack a))) (fromString (Text.unpack b))
+          _  -> throwIO (BadFormException @C nil)
+
+      _ ->  throwIO (BadFormException @C nil)
 
 runTop :: (ParseSExp what, MonadUnliftIO m) => Dict C m -> what -> m ()
 runTop dict s = parseTop s & either (const none) (void . run dict)
