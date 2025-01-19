@@ -190,10 +190,9 @@ main =  flip runContT pure do
 
     cli <- parseCLI
 
-
     case cli of
       [ ListVal [_, RepoURL url ] ] -> do
-        debug $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
+        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
         setGitRepoKey url
 
       _ -> none
@@ -201,8 +200,6 @@ main =  flip runContT pure do
     void $ run dict conf
 
     recover $ connectedDo do
-
-      waitRepo
 
       flip fix Plain $ \next -> \case
         Plain -> do
