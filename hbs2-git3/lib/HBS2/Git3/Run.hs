@@ -327,7 +327,7 @@ theDict = do
                 found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
                 liftIO $ notice $ pretty h <+> pretty (isJust found)
 
-        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ connectedDo do
 
           let (_, argz) = splitOpts [] syn
 
@@ -453,7 +453,7 @@ theDict = do
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "git:commit:list:objects:new" $ nil_ $ \case
-          [ StringLike what ] -> lift do
+          [ StringLike what ] -> lift $ connectedDo do
 
             commit  <- gitRevParseThrow what
 
@@ -487,7 +487,7 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift $ connectedDo do
           let (opts,argz) = splitOpts [] syn
 
           let what = headDef "HEAD" [ x | StringLike x <- argz ]
