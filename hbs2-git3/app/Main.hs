@@ -3,6 +3,7 @@ module Main where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.Run
+import HBS2.Git3.State
 
 import HBS2.Data.Log.Structured
 
@@ -55,7 +56,7 @@ setupLogger = do
   -- setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
   setLogging @ERROR  $ toStderr . logPrefix "[error] "
   setLogging @WARN   $ toStderr . logPrefix "[warn] "
-  setLogging @NOTICE $ toStdout . logPrefix ""
+  setLogging @NOTICE $ toStderr . logPrefix ""
   pure ()
 
 flushLoggers :: MonadIO m => m ()
@@ -80,6 +81,7 @@ main = flip runContT pure do
   argz <- liftIO $ E.getArgs
   cli <- parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
+
 
   env <- nullGit3Env
 

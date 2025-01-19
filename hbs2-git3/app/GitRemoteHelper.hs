@@ -6,7 +6,7 @@ import Prelude hiding (getLine)
 import HBS2.Git3.Prelude
 import HBS2.Git3.Run
 import HBS2.Git3.Config.Local
-import HBS2.Git3.State.Index
+import HBS2.Git3.State
 import HBS2.Git3.Import
 import HBS2.Git3.Export
 import HBS2.Git3.Git

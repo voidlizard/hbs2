@@ -3,11 +3,9 @@
 module HBS2.Git3.Import where
 
 import HBS2.Git3.Prelude
-import HBS2.Git3.State.Index
+import HBS2.Git3.State
 import HBS2.Git3.Git
 import HBS2.Git3.Git.Pack
-import HBS2.Git3.State.RefLog
-import HBS2.Git3.State.Segment
 
 import HBS2.Storage.Operations.Missed
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
@@ -111,6 +109,7 @@ importGitRefLog :: forall m . ( HBS2GitPerks m
                               , HasStorage m
                               , HasClientAPI PeerAPI UNIX m
                               , HasClientAPI RefLogAPI UNIX m
+                              , HasGitRemoteKey m
                               , MonadReader Git3Env m
                               )
              => m ()

@@ -1,4 +1,4 @@
-module HBS2.Git3.State.Segment where
+module HBS2.Git3.State.Internal.Segment where
 
 import HBS2.Git3.Prelude
 import Data.ByteString.Lazy ( ByteString )

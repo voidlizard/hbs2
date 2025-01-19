@@ -1,6 +1,8 @@
-module HBS2.Git3.State.RefLog where
+module HBS2.Git3.State.Internal.RefLog where
 
 import HBS2.Git3.Prelude
+
+import HBS2.Git3.State.Internal.Types
 
 import Control.Applicative
 import Data.ByteString.Lazy qualified as LBS
@@ -55,10 +57,10 @@ refLogRef :: forall m . ( HBS2GitPerks m
 
 refLogRef = do
   refLogAPI <- getClientAPI @RefLogAPI  @UNIX
-  reflog <- getGitRemoteKey >>= orThrow RefLogNotSetException
+  reflog <- getGitRemoteKey >>= orThrow RefLogNotSet
 
   callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) refLogAPI reflog
-   >>= orThrow RefLogNotSetException
+   >>= orThrow RefLogNotSet
 
 txList :: forall m . ( HBS2GitPerks m
                      , HasStorage m

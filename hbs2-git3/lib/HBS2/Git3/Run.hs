@@ -1,7 +1,6 @@
 module HBS2.Git3.Run where
 
 import HBS2.Git3.Prelude
-import HBS2.Git3.State.Index
 import HBS2.Git3.Git.Pack
 
 import HBS2.Peer.CLI.Detect
@@ -23,7 +22,7 @@ import HBS2.Git3.Config.Local
 import HBS2.Git3.Git
 import HBS2.Git3.Export
 import HBS2.Git3.Import
-import HBS2.Git3.State.RefLog
+import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
 
 import Data.Config.Suckless.Script
@@ -143,13 +142,6 @@ theDict = do
                           <+> pretty gitEntryType
                           <+> pretty gitEntrySize
                           <+> pretty gitEntryName
-
-        entry $ bindMatch "reflog" $ nil_ $ \case
-          [ SignPubKeyLike what ] -> do
-            debug $ "set reflog" <+> pretty (AsBase58 what)
-            lift $ setGitRemoteKey what
-
-          _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "debug" $ nil_ $ const do
          setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
@@ -569,7 +561,6 @@ theDict = do
           rrefs <- importedRefs
           liftIO $ print $ pretty rrefs
 
-
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
           liftIO $ print $ pretty p
@@ -577,12 +568,31 @@ theDict = do
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           importGitRefLog
 
+        entry $ bindMatch "repo:manifest:show" $ nil_ $ const $ lift $ connectedDo do
+          manifest <- Repo.getRepoManifest
+          liftIO $ print $ pretty $ mkForm "manifest" manifest
+
+        entry $ bindMatch "repo:reflog:show" $ nil_ $ const $ lift $ connectedDo do
+          repo <- Repo.getRepoManifest
+
+          reflog <- [ x | x@(ListVal [SymbolVal "reflog", SignPubKeyLike _])  <- repo ]
+                      & headMay & orThrow GitRepoManifestMalformed
+
+          liftIO $ print $ pretty reflog
+
+        entry $ bindMatch "repo:key:show" $ nil_ $ const $ lift do
+          r <- getGitRepoKey >>= orThrow GitRepoRefNotSet
+          liftIO $  print $ pretty (AsBase58 r)
 
         entry $ bindMatch "repo:key" $ nil_ $ \case
-          [ SignPubKeyLike k ] -> lift $ connectedDo do
+          [ SignPubKeyLike k ] -> lift do
             setGitRepoKey k
 
           _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "repo:ref:value"$ nil_ $ const $ lift $ connectedDo do
+          val <- Repo.getRepoRefMaybe >>= orThrowUser "can't read ref value"
+          liftIO $ print $ pretty val
 
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn

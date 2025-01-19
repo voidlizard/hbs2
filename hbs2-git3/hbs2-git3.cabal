@@ -127,12 +127,13 @@ library
       HBS2.Git3.Import
       HBS2.Git3.Repo
       HBS2.Git3.Run
-      HBS2.Git3.State.Types
-      HBS2.Git3.State.RefLog
-      HBS2.Git3.State.Index
-      HBS2.Git3.State.Segment
+      HBS2.Git3.State
+      HBS2.Git3.State.Internal.Types
+      HBS2.Git3.State.Internal.RefLog
+      HBS2.Git3.State.Internal.Index
+      HBS2.Git3.State.Internal.Segment
+      HBS2.Git3.State.Internal.LWWBlock
       HBS2.Git3.Config.Local
-      HBS2.Git3.State.LWWBlock
       HBS2.Git3.Git
       HBS2.Git3.Git.Pack
 

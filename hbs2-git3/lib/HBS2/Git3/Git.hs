@@ -8,6 +8,7 @@ import HBS2.Git3.Prelude
 import HBS2.OrDie
 
 import HBS2.Git3.Types
+import HBS2.Git3.State.Internal.Types
 import HBS2.Git.Local
 import HBS2.Git.Local.CLI
 
@@ -39,13 +40,6 @@ import UnliftIO
 
 {-HLINT Ignore "Functor law"-}
 
-pattern GitHashLike:: forall {c} . GitHash -> Syntax c
-pattern GitHashLike x <- (
-  \case
-    StringLike s  -> fromStringMay @GitHash s
-    LitIntVal 0   -> Just $ GitHash (BS.replicate 20 0)
-    _             -> Nothing
-      -> Just x )
 
 data GitException =
     CompressionError String

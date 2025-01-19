@@ -4,7 +4,7 @@
 module HBS2.Git3.Export (exportEntries,export) where
 
 import HBS2.Git3.Prelude
-import HBS2.Git3.State.Index
+import HBS2.Git3.State
 import HBS2.Git3.Git
 import HBS2.Data.Detect
 

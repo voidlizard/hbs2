@@ -1,11 +1,12 @@
-module HBS2.Git3.State.Index where
+module HBS2.Git3.State.Internal.Index where
 
 import HBS2.Git3.Prelude
 import HBS2.System.Dir
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
-import HBS2.Git3.State.Types
-import HBS2.Git3.State.Segment
-import HBS2.Git3.State.RefLog
+
+import HBS2.Git3.State.Internal.Types
+import HBS2.Git3.State.Internal.Segment
+import HBS2.Git3.State.Internal.RefLog
 import HBS2.Git3.Git
 
 import HBS2.Data.Log.Structured
@@ -66,6 +67,7 @@ readLogFileLBS _ action = flip fix 0 \go n -> do
 
 indexPath :: forall m . ( Git3Perks m
                         , MonadReader Git3Env m
+                        , HasGitRemoteKey m
                         ) => m FilePath
 indexPath = do
   reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
@@ -121,7 +123,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
     mkState [] = Nothing
     mkState (x:xs) = Just (Entry (getKey x) (x:xs))
 
-compactIndex :: forall m . (Git3Perks m, MonadReader Git3Env m) => Natural -> m ()
+compactIndex :: forall m . (Git3Perks m, HasGitRemoteKey m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do
   reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
   idxPath <- getStatePath (AsBase58 reflog)
@@ -139,7 +141,7 @@ compactIndex maxSize = do
     out <- liftIO $ emptyTempFile idxPath "objects-.idx"
     mergeSortedFilesN (BS.take 20) (map fst block) out
 
-openIndex :: forall a m . (Git3Perks m, MonadReader Git3Env m)
+openIndex :: forall a m . (Git3Perks m, HasGitRemoteKey m, MonadReader Git3Env m)
           => m (Index a)
 
 openIndex = do
@@ -207,6 +209,7 @@ indexFilterNewObjectsMem idx@Index{..} hashes = do
 
 listObjectIndexFiles :: forall m . ( Git3Perks m
                                    , MonadReader Git3Env m
+                                   , HasGitRemoteKey m
                                    ) => m [(FilePath, Natural)]
 
 listObjectIndexFiles = do
@@ -273,6 +276,7 @@ updateReflogIndex :: forall m . ( Git3Perks m
                                 , HasClientAPI PeerAPI UNIX m
                                 , HasClientAPI RefLogAPI UNIX m
                                 , HasStorage m
+                                , HasGitRemoteKey m
                                 , HasIndexOptions m
                                 ) => m ()
 updateReflogIndex = do
@@ -386,6 +390,7 @@ importedCheckpoint :: forall m . ( Git3Perks m
                                  , MonadReader Git3Env m
                                  , HasClientAPI RefLogAPI UNIX m
                                  , HasStorage m
+                                 , HasGitRemoteKey m
                                  ) => m (Maybe HashRef)
 
 importedCheckpoint = do
@@ -406,6 +411,7 @@ importedRefs :: forall m . ( Git3Perks m
                            , MonadReader Git3Env m
                            , HasClientAPI RefLogAPI UNIX m
                            , HasStorage m
+                           , HasGitRemoteKey m
                            ) => m [(GitRef, GitHash)]
 
 importedRefs = do
@@ -441,6 +447,7 @@ updateImportedCheckpoint :: forall m . ( Git3Perks m
                                  , MonadReader Git3Env m
                                  , HasClientAPI RefLogAPI UNIX m
                                  , HasStorage m
+                                 , HasGitRemoteKey m
                                  ) => HashRef -> m ()
 
 updateImportedCheckpoint cp = do
