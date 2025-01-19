@@ -218,7 +218,7 @@ main =  flip runContT pure do
           next Plain
 
         End -> do
-          -- sendLine ""
+          sendLine ""
           liftIO exitSuccess
 
         _ -> do
