@@ -222,7 +222,7 @@ main =  flip runContT pure do
           liftIO exitSuccess
 
         _ -> do
-          -- sendLine ""
+          sendLine ""
           next Plain
 
           -- liftIO exitSuccess
