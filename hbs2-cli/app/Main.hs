@@ -24,6 +24,7 @@ import HBS2.Peer.RPC.Client.Unix
 import HBS2.Net.Auth.Schema()
 
 import System.Environment
+import System.IO qualified as IO
 
 type RefLogId = PubKey 'Sign 'HBS2Basic
 
@@ -35,7 +36,7 @@ setupLogger = do
   -- setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
   setLogging @ERROR  $ toStderr . logPrefix "[error] "
   setLogging @WARN   $ toStderr . logPrefix "[warn] "
-  setLogging @NOTICE $ toStdout . logPrefix ""
+  setLogging @NOTICE $ toStderr . logPrefix ""
   pure ()
 
 flushLoggers :: MonadIO m => m ()
@@ -86,6 +87,7 @@ main = do
 
   runHBS2Cli do
 
+
     case cli of
       [ListVal [SymbolVal "stdin"]] -> do
         what <- liftIO getContents
@@ -94,7 +96,14 @@ main = do
         recover $ run dict what >>= eatNil display
 
       [] -> do
-        void $ run dict [mkForm  "help" []]
+        eof <- liftIO IO.isEOF
+        if eof then
+          void $ run dict [mkForm  "help" []]
+        else do
+          what <- liftIO getContents
+                    >>= either (error.show) pure . parseTop
+
+          recover $ run dict what >>= eatNil display
 
       _ -> do
         recover $ run dict cli >>= eatNil display

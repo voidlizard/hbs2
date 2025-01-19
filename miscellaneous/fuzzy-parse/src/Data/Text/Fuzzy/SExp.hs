@@ -19,6 +19,7 @@ import Data.Text.Fuzzy.Tokenize
 import Control.Monad.Reader
 import Data.Typeable
 import Control.Monad.Except
+import Control.Exception
 import Control.Monad.RWS
 import Data.Maybe
 import Data.Char (isSpace,digitToInt)
@@ -69,6 +70,7 @@ data SExpParseError =
   | SyntaxError C0
   deriving stock (Show,Typeable)
 
+instance Exception SExpParseError
 
 data NumType =
     NumInteger Integer

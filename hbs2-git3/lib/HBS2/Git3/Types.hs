@@ -13,6 +13,8 @@ import Control.Concurrent.STM qualified as STM
 
 type GitRemoteKey = PubKey 'Sign 'HBS2Basic
 
+type GitRepoKey = PubKey 'Sign HBS2Basic
+
 newtype Short x = Short x
 
 instance Pretty (Short GitObjectType) where

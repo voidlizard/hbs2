@@ -82,12 +82,11 @@ pattern LitBoolVal v <- Literal _ (LitBool v)
 pattern ListVal :: [Syntax c] -> Syntax c
 pattern ListVal v <- List _ v
 
-
 stringLike :: Syntax c -> Maybe String
 stringLike = \case
   LitStrVal s -> Just $ Text.unpack s
   SymbolVal (Id s) -> Just $ Text.unpack s
-  _ -> Nothing
+  x -> Just $ show $ pretty x
 
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes

@@ -12,6 +12,8 @@ import Data.Config.Suckless.Script
 
 import Data.Text.IO qualified as IO
 
+{- HLINT ignore "Functor law"-}
+
 getConfigPath :: MonadIO m => m FilePath
 getConfigPath = do
 
@@ -20,6 +22,17 @@ getConfigPath = do
   findGitDir
     >>= orThrowUser ".git not found"
     <&> (</> name) . takeDirectory
+
+
+getConfigRootFile :: MonadIO m => m FilePath
+getConfigRootFile = do
+
+  let name = ".hbs2-git3"
+
+  findGitDir
+    >>= orThrowUser ".git not found"
+    <&> (</> name) . takeDirectory
+    <&> (</> "config")
 
 readLocalConf :: MonadIO m => m [Syntax C]
 readLocalConf = do

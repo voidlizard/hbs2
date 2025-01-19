@@ -37,10 +37,10 @@ lwwRefEntries = do
     $ returns "string" "lwwref public key"
     $ entry $ bindMatch "hbs2:lwwref:create" $ \case
         [] -> do
-          reflog <- keymanNewCredentials (Just "lwwref") 0
+          key <- keymanNewCredentials (Just "lwwref") 0
           api <- getClientAPI @PeerAPI  @UNIX
-          void $ callService @RpcPollAdd api (reflog, "lwwref", 31)
-          pure $ mkStr (show $ pretty (AsBase58 reflog))
+          void $ callService @RpcPollAdd api (key, "lwwref", 31)
+          pure $ mkForm "pk" [mkStr (show $ pretty (AsBase58 key))]
 
         _ -> throwIO (BadFormException @C nil)
 

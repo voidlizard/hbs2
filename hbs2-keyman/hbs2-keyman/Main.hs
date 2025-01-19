@@ -23,8 +23,8 @@ import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
 
-import Data.Config.Suckless.KeyValue
 import Data.Config.Suckless
+import Data.Config.Suckless.Script
 
 import Data.List qualified as List
 import Options.Applicative qualified as O
@@ -261,3 +261,4 @@ main :: IO ()
 main = do
   (_, action) <- execParser opts
   runApp action
+

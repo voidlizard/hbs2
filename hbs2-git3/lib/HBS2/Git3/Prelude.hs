@@ -15,12 +15,14 @@ module HBS2.Git3.Prelude
   ) where
 
 import HBS2.Prelude.Plated as Exported
+import HBS2.Defaults as Exported
 import HBS2.OrDie as Exported
 import HBS2.Data.Types.Refs as Exported
 import HBS2.Base58 as Exported
 import HBS2.Merkle as Exported
 import HBS2.Misc.PrettyStuff as Exported
 import HBS2.Net.Auth.Credentials
+import HBS2.Peer.Proto.LWWRef as Exported
 import HBS2.Peer.Proto.RefLog as Exported
 import HBS2.Peer.RPC.API.RefLog as Exported
 import HBS2.Peer.RPC.API.Peer as Exported
@@ -30,6 +32,7 @@ import HBS2.Peer.RPC.Client hiding (encode,decode)
 import HBS2.Peer.RPC.Client.Unix hiding (encode,decode)
 import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Peer.CLI.Detect
+import HBS2.Data.Types.SignedBox as Exported
 import HBS2.Storage as Exported
 import HBS2.Storage.Operations.Class as Exported
 import HBS2.System.Logger.Simple.ANSI as Exported
@@ -117,7 +120,9 @@ data Git3Env =
     , peerStorage :: AnyStorage
     , peerAPI     :: ServiceCaller PeerAPI UNIX
     , reflogAPI   :: ServiceCaller RefLogAPI UNIX
+    , lwwAPI      :: ServiceCaller LWWRefAPI UNIX
     , gitRefLog   :: TVar (Maybe GitRemoteKey)
+    , gitRepoKey  :: TVar (Maybe GitRepoKey)
     , gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
     , gitIndexBlockSize :: TVar Natural
@@ -132,6 +137,8 @@ class HasExportOpts m where
 class HasGitRemoteKey m where
   getGitRemoteKey :: m (Maybe GitRemoteKey)
   setGitRemoteKey :: GitRemoteKey -> m ()
+  getGitRepoKey   :: m (Maybe GitRepoKey)
+  setGitRepoKey   :: GitRepoKey -> m ()
 
 instance (MonadIO m, MonadReader Git3Env m) => HasGitRemoteKey m where
   getGitRemoteKey = do
@@ -141,6 +148,14 @@ instance (MonadIO m, MonadReader Git3Env m) => HasGitRemoteKey m where
   setGitRemoteKey k = do
     e <- ask
     liftIO $ atomically $ writeTVar (gitRefLog e) (Just k)
+
+  getGitRepoKey = do
+    e <- ask
+    liftIO $ readTVarIO (gitRepoKey e)
+
+  setGitRepoKey k = do
+    e <- ask
+    liftIO $ atomically $ writeTVar (gitRepoKey e) (Just k)
 
 instance (MonadIO m, MonadReader Git3Env m) => HasExportOpts m where
   getPackedSegmetSize = asks gitPackedSegmentSize >>= readTVarIO
@@ -197,6 +212,13 @@ instance (MonadUnliftIO m) => HasClientAPI RefLogAPI UNIX (Git3 m) where
     ask  >>= \case
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure reflogAPI
+
+
+instance (MonadUnliftIO m) => HasClientAPI LWWRefAPI UNIX (Git3 m) where
+  getClientAPI = do
+    ask  >>= \case
+       Git3Disconnected{} -> throwIO Git3PeerNotConnected
+       Git3Connected{..} -> pure lwwAPI
 
 nullGit3Env :: MonadIO m => m Git3Env
 nullGit3Env = Git3Disconnected
@@ -266,8 +288,9 @@ recover m = fix \again -> do
 
         let sto = AnyStorage (StorageClient storageAPI)
 
-        connected <- Git3Connected soname sto peerAPI refLogAPI
+        connected <- Git3Connected soname sto peerAPI refLogAPI lwwAPI
                         <$> newTVarIO (Just ref)
+                        <*> newTVarIO Nothing
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
                         <*> newTVarIO defIndexBlockSize

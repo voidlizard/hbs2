@@ -33,7 +33,7 @@ keymanGetConfig = do
 
 keymanUpdate :: MonadUnliftIO m => m ()
 keymanUpdate = do
-  void $ runProcess (shell [qc|hbs2-keyman update|])
+  void $ runProcess (shell [qc|hbs2-keyman update|] & setStderr closed & setStdout closed)
 
 keymanNewCredentials :: MonadUnliftIO m => Maybe String -> Int -> m (PubKey 'Sign 'HBS2Basic)
 keymanNewCredentials suff n = do
@@ -52,3 +52,4 @@ keymanNewCredentials suff n = do
   keymanUpdate
 
   pure psk
+

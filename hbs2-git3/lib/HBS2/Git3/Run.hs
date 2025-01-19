@@ -24,9 +24,10 @@ import HBS2.Git3.Git
 import HBS2.Git3.Export
 import HBS2.Git3.Import
 import HBS2.Git3.State.RefLog
+import HBS2.Git3.Repo qualified as Repo
 
 import Data.Config.Suckless.Script
-import Data.Config.Suckless.Script.File
+import Data.Config.Suckless.Almost.RPC
 
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
@@ -48,6 +49,9 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString.Builder as Builder
 import Network.ByteOrder qualified as N
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.Encoding.Error qualified as TE
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Set qualified as Set
 import Data.HashSet qualified as HS
@@ -572,6 +576,36 @@ theDict = do
 
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           importGitRefLog
+
+
+        entry $ bindMatch "repo:key" $ nil_ $ \case
+          [ SignPubKeyLike k ] -> lift $ connectedDo do
+            setGitRepoKey k
+
+          _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
+            Repo.initRepo syn
+            -- conf <- getConfigRootFile
+            -- mbKey <- getGitRepoKey
+
+            -- case mbKey of
+            --   Nothing -> do
+
+            --   notice "TODO: 1. create new key"
+            -- notice "TODO: 4. subscribe lwwref"
+
+            -- answ <- callProc "hbs2-cli" [] [mkSym "hbs2:lwwref:create"]
+
+            -- pk <- [ puk | ListVal [SymbolVal "pk", SignPubKeyLike puk] <- answ ]
+            --         & lastMay
+            --         & orThrowUser "failed to create new lww ref"
+
+            -- liftIO $ print $ pretty (AsBase58 pk)
+
+            -- notice "TODO: 2. derive reflog key"
+            -- notice "TODO: 3. init lwwblock"
+            -- notice "TODO: 5. subscribe reflog"
 
         exportEntries "reflog:"
 

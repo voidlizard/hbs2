@@ -67,6 +67,7 @@ library
       , Data.Config.Suckless.KeyValue
       , Data.Config.Suckless.Script
       , Data.Config.Suckless.Script.File
+      , Data.Config.Suckless.Almost.RPC
 
     other-modules:
         Data.Config.Suckless.Types
@@ -95,6 +96,7 @@ library
                     , text
                     , time
                     , transformers
+                    , typed-process
                     , unliftio
                     , unordered-containers
                     , vector
