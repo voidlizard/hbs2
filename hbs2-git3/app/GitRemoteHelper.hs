@@ -10,6 +10,7 @@ import HBS2.Git3.State
 import HBS2.Git3.Import
 import HBS2.Git3.Export
 import HBS2.Git3.Git
+import HBS2.Git3.Repo
 
 import Data.Config.Suckless
 
@@ -19,6 +20,7 @@ import System.Exit qualified as Exit
 import System.Environment (getArgs,lookupEnv)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Text qualified as Text
+import Data.Either
 import Data.Maybe
 
 import Data.Config.Suckless.Script
@@ -108,7 +110,7 @@ localDict DeferredOps{..} = makeDict @C do
   entry $ bindMatch "r:list" $ nil_ $ const $ lift $ connectedDo do
       reflog <- getGitRemoteKey >>= orThrow GitRepoManifestMalformed
 
-      notice $ red "REFLOG" <+> pretty (AsBase58 reflog)
+      debug $ red "REFLOG" <+> pretty (AsBase58 reflog)
 
       importGitRefLog
 
@@ -118,12 +120,22 @@ localDict DeferredOps{..} = makeDict @C do
         debug $ pretty h <+> pretty r
         sendLine $ show $ pretty h <+> pretty r
 
+      let l = lastMay rrefs
+
+      for_ l $ \(r,h) -> do
+        debug $ pretty h <+> pretty "HEAD"
+        sendLine $ show $ pretty h <+> pretty "HEAD"
+
       sendLine ""
+
+  entry $ bindMatch "r:fetch" $ nil_ $ \syn -> do
+    debug $ "FETCH" <+> pretty syn
+    sendLine ""
 
   entry $ bindMatch "r:push" $ nil_ $ splitPushArgs $ \pushFrom pushTo -> lift do
     r0 <- for pushFrom gitRevParseThrow
 
-    notice $ pretty $ [qc|ok {pretty pushTo}|]
+    debug $ pretty $ [qc|ok {pretty pushTo}|]
 
     case (r0, pushTo) of
       (Nothing, ref) -> do
@@ -170,7 +182,7 @@ main =  flip runContT pure do
   let dict = theDict <> localDict ops
 
   git <- liftIO $ lookupEnv "GIT_DIR"
-  notice $ red "GIT" <+> pretty git
+  debug $ red "GIT" <+> pretty git
 
   void $ lift $ withGit3Env env do
 
@@ -181,7 +193,7 @@ main =  flip runContT pure do
 
     case cli of
       [ ListVal [_, RepoURL url ] ] -> do
-        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
+        debug $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
         setGitRepoKey url
 
       _ -> none
@@ -190,26 +202,32 @@ main =  flip runContT pure do
 
     recover $ connectedDo do
 
+      waitRepo
+
       flip fix Plain $ \next -> \case
         Plain -> do
 
-          eof <- done
-
-          when eof $ next End
-
-          inp <- getLine
+          inp <- try @_ @IOError getLine <&> fromRight mempty
 
           when (null (words inp)) $ next End
 
-          notice $ pretty "INPUT" <+> pretty inp
+          debug $ pretty "INPUT" <+> pretty inp
 
-          runTop dict ("r:"<>inp)
+          r <- try @_ @SomeException (runTop dict ("r:"<>inp))
+                 >>= \case
+                   Left e -> die (show e)
+                   _ -> none
 
           next Plain
+
+        End -> do
+          -- sendLine ""
+          liftIO exitSuccess
 
         _ -> do
-          sendLine ""
+          -- sendLine ""
           next Plain
+
           -- liftIO exitSuccess
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry

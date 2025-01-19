@@ -122,6 +122,8 @@ importGitRefLog = do
              >>= orThrowUser "git directory not found"
              <&> (</> "objects/pack")
 
+  mkdir packs
+
   sto <- getStorage
 
   prev <- importedCheckpoint
