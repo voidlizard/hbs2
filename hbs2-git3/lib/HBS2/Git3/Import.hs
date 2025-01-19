@@ -118,7 +118,7 @@ importGitRefLog = do
 
   updateReflogIndex
 
-  packs <- findGitDir
+  packs <- gitDir
              >>= orThrowUser "git directory not found"
              <&> (</> "objects/pack")
 

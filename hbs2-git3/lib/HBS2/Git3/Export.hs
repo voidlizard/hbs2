@@ -11,7 +11,7 @@ import HBS2.Data.Detect
 import HBS2.Data.Log.Structured
 
 import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
-import HBS2.CLI.Run.RefLog (mkRefLogUpdateFrom)
+-- import HBS2.CLI.Run.RefLog (mkRefLogUpdateFrom)
 
 import HBS2.System.Dir
 
@@ -25,6 +25,7 @@ import Data.ByteString.Builder as Builder
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
+import Data.ByteString (ByteString)
 import Data.Fixed
 import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
@@ -54,6 +55,11 @@ data ECC =
   | ECCWrite Int FilePath Handle Result
   | ECCFinalize Int Bool FilePath Handle Result
 
+
+genRefLogUpdate :: forall m . MonadUnliftIO m => ByteString -> Git3 m (RefLogUpdate L4Proto)
+genRefLogUpdate txraw = do
+  (puk,privk) <- getRepoRefLogCredentials
+  makeRefLogUpdate @L4Proto @'HBS2Basic puk privk txraw
 
 exportEntries :: forall m . (HBS2GitPerks m) => Id -> MakeDictM C (Git3 m) ()
 exportEntries prefix = do
@@ -147,8 +153,8 @@ export mbh refs = do
                   writeLogEntry ("tree" <+> pretty ts <+> pretty href)
                   debug $ "SENDING" <+> pretty href <+> pretty fn
 
-                  let payload = pure $ LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
-                  tx <- mkRefLogUpdateFrom (coerce reflog) payload
+                  let payload = LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
+                  tx <- withGit3Env env $ genRefLogUpdate payload
 
                   let txh = hashObject @HbSync (serialise tx) & HashRef
 
@@ -342,13 +348,13 @@ export mbh refs = do
    -- checks if all transactions written to reflog
    -- post tx with current reflog value
    postCheckPoint :: forall m1 . ( MonadUnliftIO  m1
-                                 , HasStorage m1
-                                 , HasClientAPI RefLogAPI UNIX m1
-                                 , HasGitRemoteKey m1
+                                 -- , HasStorage m1
+                                 -- , HasClientAPI RefLogAPI UNIX m1
+                                 -- , HasGitRemoteKey m1
                                  )
                   => Timeout 'Seconds
                   -> HashSet HashRef
-                  -> m1 (Maybe HashRef)
+                  -> Git3 m1 (Maybe HashRef)
 
    postCheckPoint _ txq | HS.null txq = pure Nothing
    postCheckPoint t txq = perform  >>= either (const $ throwIO ExportWriteTimeout) pure
@@ -380,8 +386,8 @@ export mbh refs = do
                pure x
 
          t0 <- liftIO getPOSIXTime <&> round
-         let payload = pure $ LBS.toStrict $ serialise (SequentialRef t0 (AnnotatedHashRef Nothing cp))
-         tx <- mkRefLogUpdateFrom (coerce reflog) payload
+         let payload = LBS.toStrict $ serialise (SequentialRef t0 (AnnotatedHashRef Nothing cp))
+         tx <- genRefLogUpdate payload
 
          callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) api tx
            >>= orThrow ExportWriteTimeout

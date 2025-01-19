@@ -9,6 +9,7 @@ module HBS2.Git3.State.Internal.Types
 import HBS2.Git3.Prelude
 import HBS2.Git3.Config.Local
 import HBS2.Net.Auth.Credentials
+import HBS2.KeyMan.Keys.Direct
 import HBS2.System.Dir
 import HBS2.Data.Detect (readLogThrow)
 import HBS2.CLI.Run.MetaData (getTreeContents)
@@ -40,10 +41,12 @@ import HBS2.System.Logger.Simple.ANSI as Exported
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.ByteString.Lazy qualified as LBS
+import Data.Word
 
 import Data.Kind
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Lens.Micro.Platform
 
 import System.FilePath
 
@@ -60,6 +63,7 @@ data HBS2GitExcepion =
   | GitRepoRefNotSet
   | GitRepoRefEmpty
   | GitRepoManifestMalformed
+  | RefLogCredentialsNotMatched
   | RpcTimeout
   deriving stock (Show,Typeable)
 
@@ -180,6 +184,21 @@ getStatePathM = do
   k <- getGitRemoteKey >>= orThrow RefLogNotSet
   getStatePath (AsBase58 k)
 
+updateRepoKey :: forall m . HBS2GitPerks m => GitRepoKey -> Git3 m ()
+updateRepoKey key = do
+
+  setGitRepoKey key
+
+  mf <- getRepoManifest
+
+  let reflog = lastMay [ x
+                       | ListVal [SymbolVal "reflog", SignPubKeyLike x]  <- mf
+                       ]
+
+  ask >>= \case
+        Git3Connected{..} -> atomically $ writeTVar gitRefLog reflog
+        _ -> none
+
 getRepoRefMaybe :: forall m . HBS2GitPerks m => Git3 m (Maybe (LWWRef 'HBS2Basic))
 getRepoRefMaybe = do
   lwwAPI  <- getClientAPI @LWWRefAPI @UNIX
@@ -188,6 +207,32 @@ getRepoRefMaybe = do
 
   callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (LWWRefKey pk)
     >>= orThrow RpcTimeout
+
+getRepoRefLogCredentials :: forall m . HBS2GitPerks m
+                         => Git3 m (PubKey 'Sign 'HBS2Basic, PrivKey 'Sign HBS2Basic)
+
+getRepoRefLogCredentials = do
+  -- FIXME: memoize-this
+  mf <- getRepoManifest
+  rk <- getGitRepoKey >>= orThrow GitRepoRefNotSet
+
+  reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
+
+  creds <- runKeymanClientRO (loadCredentials rk)
+             >>= orThrowUser ("not found credentials for"  <+> pretty (AsBase58 rk))
+
+  seed <- [ x | ListVal [SymbolVal "seed", LitIntVal x ] <- mf ]
+             & lastMay & orThrow GitRepoManifestMalformed
+             <&> fromIntegral @_ @Word64
+
+  let sk = view peerSignSk creds
+
+  (p,s) <- derivedKey @'HBS2Basic @'Sign seed sk
+
+  unless ( p == reflog ) do
+    throwIO RefLogCredentialsNotMatched
+
+  pure (p,s)
 
 getRepoManifest :: forall m . HBS2GitPerks m => Git3 m [Syntax C]
 getRepoManifest = do
@@ -296,10 +341,12 @@ recover m = fix \again -> do
 
         let sto = AnyStorage (StorageClient storageAPI)
 
-        rk <- lift getGitRepoKey
+        rk <- lift $ getGitRepoKey >>= orThrow GitRepoRefNotSet
+
+        notice $ yellow $ "REPOKEY" <+> pretty (AsBase58 rk)
 
         connected <- Git3Connected soname sto peer refLogAPI lwwAPI
-                        <$> newTVarIO rk
+                        <$> newTVarIO Nothing
                         <*> newTVarIO Nothing
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
@@ -307,15 +354,7 @@ recover m = fix \again -> do
 
         liftIO $ withGit3Env connected do
 
-          mf <- getRepoManifest
-
-          let reflog = lastMay [ x
-                               | ListVal [SymbolVal "reflog", SignPubKeyLike x]  <- mf
-                               ]
-
-          ask >>= \case
-                Git3Connected{..} -> atomically $ writeTVar gitRefLog reflog
-                _ -> none
+          updateRepoKey rk
 
           ref <- getGitRemoteKey >>= orThrow GitRepoManifestMalformed
 

@@ -29,6 +29,7 @@ module Data.Config.Suckless.Syntax
   , pattern LitBoolVal
   , pattern LitScientificVal
   , pattern StringLike
+  , pattern TextLike
   , pattern StringLikeList
   , pattern Nil
   , pattern OpaqueVal
@@ -88,14 +89,22 @@ stringLike = \case
   SymbolVal (Id s) -> Just $ Text.unpack s
   x -> Just $ show $ pretty x
 
+textLike :: Syntax c -> Maybe Text
+textLike = \case
+  LitStrVal s -> Just s
+  SymbolVal (Id s) -> Just s
+  x -> Just $ Text.pack $ show $ pretty x
+
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 data ByteStringSorts = ByteStringLazy LBS.ByteString | ByteStringStrict ByteString
 
-
 pattern StringLike :: forall {c} . String -> Syntax c
 pattern StringLike e <- (stringLike -> Just e)
+
+pattern TextLike :: forall {c} . Text -> Syntax c
+pattern TextLike e <- (textLike -> Just e)
 
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)

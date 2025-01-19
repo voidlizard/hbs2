@@ -11,10 +11,12 @@ import HBS2.Git3.Import
 import HBS2.Git3.Export
 import HBS2.Git3.Git
 
+import Data.Config.Suckless
+
 import System.Posix.Signals
 import System.IO qualified as IO
 import System.Exit qualified as Exit
-import System.Environment (getArgs)
+import System.Environment (getArgs,lookupEnv)
 import Text.InterpolatedString.Perl6 (qc)
 import Data.Text qualified as Text
 import Data.Maybe
@@ -35,7 +37,7 @@ getLine = liftIO IO.getLine
 sendLine :: MonadIO m => String -> m ()
 sendLine = liftIO . IO.putStrLn
 
-die :: (MonadIO m, Pretty a) => a -> m b
+die :: forall a m . (MonadIO m, Pretty a) => a -> m ()
 die s = liftIO $ Exit.die (show $ pretty s)
 
 parseCLI :: MonadIO m => m [Syntax C]
@@ -77,6 +79,17 @@ data DeferredOps =
   { exportQ :: TQueue (GitRef, Maybe GitHash)
   }
 
+pattern RepoURL :: GitRemoteKey -> Syntax C
+pattern RepoURL x <- (isRepoURL -> Just x)
+
+isRepoURL :: Syntax C -> Maybe GitRemoteKey
+isRepoURL = \case
+  TextLike xs -> case mkStr @C <$> headMay (drop 1  (Text.splitOn "://" xs)) of
+    Just (SignPubKeyLike puk) -> Just puk
+    _ -> Nothing
+
+  _ -> Nothing
+
 
 localDict  :: forall m . ( HBS2GitPerks m
                       -- , HasClientAPI PeerAPI UNIX m
@@ -92,16 +105,20 @@ localDict DeferredOps{..} = makeDict @C do
     sendLine "fetch"
     sendLine ""
 
-  entry $ bindMatch "r:list" $ nil_ $ \syn -> lift do
-    importGitRefLog
+  entry $ bindMatch "r:list" $ nil_ $ const $ lift $ connectedDo do
+      reflog <- getGitRemoteKey >>= orThrow GitRepoManifestMalformed
 
-    rrefs <- importedRefs
+      notice $ red "REFLOG" <+> pretty (AsBase58 reflog)
 
-    for_ rrefs $ \(r,h) -> do
-      debug $ pretty h <+> pretty r
-      sendLine $ show $ pretty h <+> pretty r
+      importGitRefLog
 
-    sendLine ""
+      rrefs <- importedRefs
+
+      for_ rrefs $ \(r,h) -> do
+        debug $ pretty h <+> pretty r
+        sendLine $ show $ pretty h <+> pretty r
+
+      sendLine ""
 
   entry $ bindMatch "r:push" $ nil_ $ splitPushArgs $ \pushFrom pushTo -> lift do
     r0 <- for pushFrom gitRevParseThrow
@@ -152,13 +169,22 @@ main =  flip runContT pure do
 
   let dict = theDict <> localDict ops
 
+  git <- liftIO $ lookupEnv "GIT_DIR"
+  notice $ red "GIT" <+> pretty git
+
   void $ lift $ withGit3Env env do
 
     conf <- readLocalConf
 
     cli <- parseCLI
 
-    notice $ pretty cli
+
+    case cli of
+      [ ListVal [_, RepoURL url ] ] -> do
+        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
+        setGitRepoKey url
+
+      _ -> none
 
     void $ run dict conf
 
@@ -175,7 +201,7 @@ main =  flip runContT pure do
 
           when (null (words inp)) $ next End
 
-          debug $ pretty "INPUT" <+> pretty inp
+          notice $ pretty "INPUT" <+> pretty inp
 
           runTop dict ("r:"<>inp)
 

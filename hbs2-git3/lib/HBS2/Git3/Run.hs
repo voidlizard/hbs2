@@ -374,7 +374,7 @@ theDict = do
            for_ hashes $ \h -> do
             liftIO $ print $ pretty h
 
-        entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift $ connectedDo do
           files <- listObjectIndexFiles
           forConcurrently_ files  $ \(f,_) -> do
             bs <- liftIO $ mmapFileByteString f Nothing
@@ -386,13 +386,13 @@ theDict = do
               notice $ pretty sha1 <+> pretty blake
 
 
-        entry $ bindMatch "reflog:index:list:count" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:list:count" $ nil_ $ const $ lift $ connectedDo do
           idx <- openIndex
           num_ <- newIORef 0
           enumEntries idx $ \_ -> void $ atomicModifyIORef num_ (\x -> (succ x, x))
           readIORef num_ >>= liftIO . print . pretty
 
-        entry $ bindMatch "reflog:index:list" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:list" $ nil_ $ const $ lift $ connectedDo do
           files <- listObjectIndexFiles
           for_ files  $ \(ifn,_) -> do
             lbs <- liftIO $ LBS.readFile ifn
@@ -414,22 +414,22 @@ theDict = do
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> lift do
+        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> lift $ connectedDo do
           size <- getIndexBlockSize
           compactIndex size
 
-        entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift $ connectedDo do
           indexPath >>= liftIO . print . pretty
 
           -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
-        entry $ bindMatch "reflog:index:files" $ nil_ $ \syn -> lift do
+        entry $ bindMatch "reflog:index:files" $ nil_ $ \syn -> lift $ connectedDo do
           files <- listObjectIndexFiles
           cur <- pwd
           for_ files $ \(f',s) -> do
             let f = makeRelative cur f'
             liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
-        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ const $ lift do
+        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ const $ lift $ connectedDo do
           r <- newIORef  ( mempty :: HashSet HashRef )
           index <- openIndex
           enumEntries index $ \bs -> do
@@ -579,6 +579,10 @@ theDict = do
                       & headMay & orThrow GitRepoManifestMalformed
 
           liftIO $ print $ pretty reflog
+
+        entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo do
+          (p,_) <- getRepoRefLogCredentials
+          liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
 
         entry $ bindMatch "repo:key:show" $ nil_ $ const $ lift do
           r <- getGitRepoKey >>= orThrow GitRepoRefNotSet

@@ -19,7 +19,7 @@ getConfigPath = do
 
   let name = ".hbs2-git3"
 
-  findGitDir
+  gitDir
     >>= orThrowUser ".git not found"
     <&> (</> name) . takeDirectory
 
@@ -29,7 +29,7 @@ getConfigRootFile = do
 
   let name = ".hbs2-git3"
 
-  findGitDir
+  gitDir
     >>= orThrowUser ".git not found"
     <&> (</> name) . takeDirectory
     <&> (</> "config")
@@ -43,6 +43,6 @@ readLocalConf = do
 
   liftIO (IO.readFile conf)
     <&> parseTop
-    >>= either (error.show) pure
+    >>= either (const $ pure mempty) pure
 
 
