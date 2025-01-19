@@ -128,8 +128,8 @@ quit = liftIO Q.exitSuccess
 pattern GitHashLike:: forall {c} . GitHash -> Syntax c
 pattern GitHashLike x <- (
   \case
-    StringLike s  -> fromStringMay @GitHash s
     LitIntVal 0   -> Just $ GitHash (BS.replicate 20 0)
+    StringLike s  -> fromStringMay @GitHash s
     _             -> Nothing
       -> Just x )
 
