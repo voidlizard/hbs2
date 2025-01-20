@@ -129,12 +129,14 @@ initRepo syn = do
            , mkForm "seed" [mkInt seed]
            , mkForm "public" []
            , mkForm "reflog" [mkSym (show $ pretty (AsBase58 rpk))]
-           ] & vcat . fmap pretty
+           ]
 
-      tree <- createTreeWithMetadata sto Nothing mempty (LBS8.pack (show $ manifest))
+      let mfs =  vcat $ fmap pretty manifest
+
+      tree <- createTreeWithMetadata sto Nothing mempty (LBS8.pack (show $ mfs))
                 >>= orThrowPassIO
 
-      liftIO $ print tree
+      liftIO $ print  $ pretty $ mkForm "manifest" manifest
 
       let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) [tree]
 

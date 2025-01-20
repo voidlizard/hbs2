@@ -68,11 +68,21 @@ theDict = do
             [ StringLike x ] -> helpList False (Just x) >> quit
             _ -> helpList False Nothing >> quit
 
-        entry $ bindMatch "compression" $ nil_ $ \case
-          [ LitIntVal n ] -> lift do
-            setCompressionLevel (fromIntegral n)
+        brief "set zstd compression level" do
+          examples [qc|
+compression best ;  sets compression level to best (22)
+compression 4    ;  sets low compression level (faster)
+compression      ;  prints compression level
+          |] do
+            entry $ bindMatch "compression" $ nil_ $ \case
+              [ LitIntVal n ] -> lift do
+                setCompressionLevel (fromIntegral n)
 
-          _ -> throwIO (BadFormException @C nil)
+              [] -> lift do
+                co <- getCompressionLevel
+                liftIO $ print $ pretty co
+
+              _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "segment" $ nil_ $ \case
           [ LitIntVal n ] -> lift do
@@ -462,7 +472,8 @@ theDict = do
 
         entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
           rrefs <- importedRefs
-          liftIO $ print $ pretty rrefs
+          for_  rrefs $ \(r,h) -> do
+            liftIO $ print $ fill 20  (pretty h) <+> pretty r
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
