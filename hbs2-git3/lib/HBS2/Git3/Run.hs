@@ -1,24 +1,12 @@
 module HBS2.Git3.Run where
 
 import HBS2.Git3.Prelude
-import HBS2.Git3.Git.Pack
-
-import HBS2.Peer.CLI.Detect
-import HBS2.Peer.RPC.API.LWWRef
-import HBS2.Peer.RPC.API.Storage
-import HBS2.Peer.RPC.Client.StorageClient
-import HBS2.Storage.Operations.Missed
-
--- move to Data.Config.Suckless.Script.Filea sepatate library
 import HBS2.Data.Log.Structured
 
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
-import HBS2.CLI.Run.RefLog (getCredentialsForReflog,mkRefLogUpdateFrom)
 
 import HBS2.System.Dir
 
-import HBS2.Git3.Types
-import HBS2.Git3.Config.Local
 import HBS2.Git3.Git
 import HBS2.Git3.Export
 import HBS2.Git3.Import
@@ -26,79 +14,35 @@ import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
 
 import Data.Config.Suckless.Script
-import Data.Config.Suckless.Almost.RPC
 
-import Codec.Compression.Zstd.Streaming qualified as ZstdS
-import Codec.Compression.Zstd.Streaming (Result(..))
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
 
 import Codec.Compression.Zlib qualified as Zlib
 
 import Data.HashPSQ qualified as HPSQ
-import Data.HashPSQ (HashPSQ)
 
 import Data.Maybe
-import Data.List qualified as L
-import Data.List (sortBy)
-import Data.List.Split (chunksOf)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
-import Data.ByteString.Lazy ( ByteString )
-import Data.ByteString.Builder as Builder
 import Network.ByteOrder qualified as N
-import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
-import Data.Text.Encoding.Error qualified as TE
 import Text.InterpolatedString.Perl6 (qc)
-import Data.Set qualified as Set
 import Data.HashSet qualified as HS
-import Data.HashSet (HashSet(..))
-import Data.HashMap.Strict qualified as HM
-import Data.HashMap.Strict (HashMap(..))
-import Data.Word
+import Data.HashSet (HashSet)
 import Data.Fixed
-import Data.Either
-import Data.Ord (comparing)
-import Data.Generics.Labels
-import Data.Generics.Product
 import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
 
 import System.Exit qualified as Q
-import System.Environment qualified as E
-import System.Process.Typed
-import Control.Monad.State qualified as State
-import Control.Monad.Trans.Writer.CPS qualified as Writer
 import Control.Concurrent.STM qualified as STM
 import System.Directory (setCurrentDirectory)
-import System.Random hiding (next)
-import System.IO.MMap (mmapFileByteString)
-import System.IO qualified as IO
-import System.IO (hPrint,hPutStrLn,hPutStr)
-import System.IO.Temp as Temp
 import System.TimeIt
-
-import Data.Vector qualified as Vector
-import Data.Vector.Algorithms.Search qualified as MV
+import System.IO (hPrint)
 
 import UnliftIO.Concurrent
-import UnliftIO.IO.File qualified as UIO
-
-import Control.Monad.ST
-import Data.BloomFilter qualified as Bloom
-import Data.BloomFilter.Mutable qualified as MBloom
-
-import Crypto.Hash qualified as C
-
 
 theDict :: forall m . ( HBS2GitPerks m
-                      -- , HasClientAPI PeerAPI UNIX m
-                      -- , HasStorage m
-                      -- , HasGitRemoteKey m
-                      -- , HasStateDB m
                       ) => Dict C (Git3 m)
 theDict = do
   makeDict @C do
@@ -232,45 +176,6 @@ theDict = do
               liftIO $ print $ "object" <+> pretty h <+> pretty s
 
 
-        entry $ bindMatch "test:git:log:list:refs" $ nil_ $ \syn -> do
-          let (_, argz) = splitOpts [] syn
-
-          let fs = [fn | StringLike fn <- argz]
-
-          for_ fs $ \f -> do
-            lbs <- liftIO$ LBS.readFile f
-            runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s lbs -> do
-              let (sign,rest) = LBS.splitAt 1 lbs
-
-              let tp = fromStringMay @(Short SegmentObjectType) (LBS8.unpack sign)
-
-              case tp of
-                Just (Short RefObject) -> do
-                  liftIO $ LBS.hPutStr stdout rest
-
-                _ -> pure ()
-
-        entry $ bindMatch "test:git:log:index:flat:dump" $ nil_ $ \syn -> lift do
-          let (_, argz) = splitOpts [] syn
-          fname <- headMay [ x | StringLike x <- argz] & orThrowUser  "no file"
-
-          bs <- liftIO $ mmapFileByteString fname Nothing
-
-          runConsumeBS bs $ flip fix 0 \go n -> do
-            done <- noBytesLeft
-            if done then pure ()
-              else do
-                ssize  <- readBytesMaybe 4
-                               >>= orThrow SomeReadLogError
-                               <&> fromIntegral . N.word32 . LBS.toStrict
-
-                hash   <- readBytesMaybe 20
-                             >>= orThrow SomeReadLogError
-                             <&> GitHash . LBS.toStrict
-
-                liftIO $ print $ pretty hash <+> pretty ssize
-                go (succ n)
-
         entry $ bindMatch "test:reflog:index:search:binary:test:2" $ nil_ $ const $ lift do
           r <- newTQueueIO
           idx <- openIndex
@@ -362,17 +267,6 @@ theDict = do
           let trees = [ x | HashLike x <- argz ]
           for_ trees $ \tree -> do
             writeAsGitPack dir tree
-
-
-        entry $ bindMatch "reflog:index:count:missed" $ nil_ $ const $ lift $ flip runContT pure do
-
-           hashes <- gitRunCommand [qc|git rev-list --all --objects|]
-                        >>= orThrowPassIO
-                        <&> LBS8.lines
-                        <&> mapMaybe (fromStringMay @GitHash . LBS8.unpack)
-
-           for_ hashes $ \h -> do
-            liftIO $ print $ pretty h
 
         entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift $ connectedDo do
           files <- listObjectIndexFiles
@@ -600,26 +494,6 @@ theDict = do
 
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn
-            -- conf <- getConfigRootFile
-            -- mbKey <- getGitRepoKey
-
-            -- case mbKey of
-            --   Nothing -> do
-
-            --   notice "TODO: 1. create new key"
-            -- notice "TODO: 4. subscribe lwwref"
-
-            -- answ <- callProc "hbs2-cli" [] [mkSym "hbs2:lwwref:create"]
-
-            -- pk <- [ puk | ListVal [SymbolVal "pk", SignPubKeyLike puk] <- answ ]
-            --         & lastMay
-            --         & orThrowUser "failed to create new lww ref"
-
-            -- liftIO $ print $ pretty (AsBase58 pk)
-
-            -- notice "TODO: 2. derive reflog key"
-            -- notice "TODO: 3. init lwwblock"
-            -- notice "TODO: 5. subscribe reflog"
 
         exportEntries "reflog:"
 

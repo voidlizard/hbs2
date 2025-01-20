@@ -12,10 +12,6 @@ import HBS2.Git3.State
 import HBS2.CLI.Run.MetaData
 import HBS2.Net.Auth.Credentials
 
-import HBS2.Data.Detect ( readLogThrow )
-import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
-import HBS2.CLI.Run.RefLog (getCredentialsForReflog,mkRefLogUpdateFrom)
-
 import HBS2.Git3.Config.Local
 
 import HBS2.KeyMan.Keys.Direct
@@ -24,9 +20,6 @@ import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
 
 import Data.ByteString.Lazy.Char8 qualified as LBS8
-import Data.ByteString.Lazy qualified as LBS
-import Data.Text.Encoding qualified as TE
-import Data.Text.Encoding.Error qualified as TE
 import Data.Word
 import Lens.Micro.Platform
 
