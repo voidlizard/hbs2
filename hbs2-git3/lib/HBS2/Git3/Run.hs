@@ -47,19 +47,26 @@ theDict :: forall m . ( HBS2GitPerks m
 theDict = do
   makeDict @C do
     -- TODO: write-man-entries
-    myHelpEntry
+    myEntries
     entry $ bindValue "best" (mkInt 22)
-    internalEntries
+    hidden $ internalEntries
 
   where
 
-    myHelpEntry = do
+    myEntries = hidePrefix "test:" do
         entry $ bindMatch "--help" $ nil_ $ \case
           HelpEntryBound what -> do
             helpEntry what
             quit
 
-          _ -> helpList False Nothing >> quit
+          [ StringLike x ] -> helpList True (Just x) >> quit
+
+          _ -> helpList True Nothing >> quit
+
+        hidden do
+          entry $ bindMatch "--help-all" $ nil_ $ \case
+            [ StringLike x ] -> helpList False (Just x) >> quit
+            _ -> helpList False Nothing >> quit
 
         entry $ bindMatch "compression" $ nil_ $ \case
           [ LitIntVal n ] -> lift do
@@ -89,6 +96,8 @@ theDict = do
 
         entry $ bindMatch "debug" $ nil_ $ const do
          setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+
+        -- hidden do
 
         entry $ bindMatch "test:git:normalize-ref" $ nil_  \case
           [ StringLike s ] -> display $ mkStr @C (show $ pretty $ gitNormaliseRef (fromString s))

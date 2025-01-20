@@ -107,7 +107,8 @@ initRepo syn = do
       callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (reflog, "reflog", 17)
          >>= orThrowUser "rpc timeout"
 
-      liftIO $ print $ pretty repo
+      -- FIXME: remove-this
+      liftIO $ print $ pretty $ mkForm "manifest" repo
 
     CreateRepoDefBlock pk  -> do
 

@@ -23,6 +23,8 @@ import Data.Data
 import Data.Function as Export
 import Data.Functor as Export
 import Data.Hashable
+import Data.HashSet (HashSet)
+import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Kind
@@ -393,8 +395,20 @@ makeDict w = execWriter ( fromMakeDict w )
 entry :: Dict c m  -> MakeDictM c m ()
 entry = tell
 
-hide :: MakeDictM c m ()
-hide = pure ()
+hide ::  Bind c m -> Bind c m
+hide (Bind w x) = Bind (Just updatedMan) x
+  where
+    updatedMan = case w of
+      Nothing -> mempty { manHidden = True }
+      Just man -> man { manHidden = True }
+
+hidden :: MakeDictM c m () -> MakeDictM c m ()
+hidden = censor (HM.map hide)
+
+hidePrefix :: Id -> MakeDictM c m () -> MakeDictM c m ()
+hidePrefix (Id p) = censor (HM.filterWithKey exclude)
+  where
+    exclude (Id k) _ = not (Text.isPrefixOf p k)
 
 desc :: Doc ann -> MakeDictM c m () -> MakeDictM c m ()
 desc txt = censor (HM.map setDesc)
@@ -413,7 +427,6 @@ returns tp txt = censor (HM.map setReturns)
   where
     w0 = mempty { manReturns = Just (ManReturns tp txt) }
     setReturns (Bind w x) = Bind (Just (maybe w0 (<>w0) w)) x
-
 
 addSynopsis :: ManSynopsis -> Bind c m -> Bind c m
 addSynopsis synopsis (Bind w x) = Bind (Just updatedMan) x

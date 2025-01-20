@@ -1,5 +1,6 @@
 {-# Language UndecidableInstances #-}
 {-# Language PatternSynonyms #-}
+{-# Language RecordWildCards #-}
 module Data.Config.Suckless.Script
   ( module Exported
   , module Data.Config.Suckless.Script
@@ -29,13 +30,13 @@ helpList hasDoc p = do
   d <- ask >>= readTVarIO
   let ks = [k | Id k <- List.sort (HM.keys d)
            , match k
-           , not hasDoc || docDefined (HM.lookup (Id k) d)
+           , docDefined (HM.lookup (Id k) d) || not hasDoc
            ]
 
   display_ $ vcat (fmap pretty ks)
 
   where
-    docDefined (Just (Bind (Just w) _)) = True
+    docDefined (Just (Bind (Just Man{..}) _)) | not manHidden  = True
     docDefined _ = False
 
 helpEntry :: MonadUnliftIO m => Id -> RunM c m ()
@@ -50,7 +51,6 @@ pattern HelpEntryBound :: forall {c}. Id -> [Syntax c]
 pattern HelpEntryBound what <- [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )]
 
 
--- FIXME: move-to-suckless-script
 splitOpts :: [(Id,Int)]
           -> [Syntax C]
           -> ([Syntax C], [Syntax C])
