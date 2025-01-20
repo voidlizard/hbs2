@@ -118,9 +118,10 @@ compression      ;  prints compression level
           r    <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 peer () >>= orThrowUser "hbs2-peer not found"
           notice $ pretty r
 
-        entry $ bindMatch "test:git:hash:blob" $ nil_ $ const $ liftIO do
-          co <- LBS.hGetContents stdin
-          print $ pretty $ gitHashBlobPure co
+        hidden do
+          entry $ bindMatch "git:hash:blob" $ nil_ $ const $ liftIO do
+            co <- LBS.hGetContents stdin
+            print $ pretty $ gitHashBlobPure co
 
         entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
           LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
@@ -148,42 +149,6 @@ compression      ;  prints compression level
             for_ (HPSQ.toList r) $ \(k,_,_) -> do
               liftIO $ print $ pretty  k
 
-        entry $ bindMatch "test:git:log:cat" $ nil_ $ \syn -> lift do
-
-          let (opts, argz) = splitOpts [("--git",0),("--packed",0),("--import",1)] syn
-
-          let git    = or [ True | ListVal [StringLike "--git"] <- opts ]
-          let packed = or [ True | ListVal [StringLike "--packed"] <- opts ]
-
-          (gh, fn) <- case argz of
-                       [ GitHashLike a, StringLike b ] -> do
-                        pure (a, b)
-
-                       _ -> throwIO (BadFormException @C nil)
-
-
-          src <- liftIO$ LBS.readFile fn
-
-          what <- S.toList_ $ runConsumeLBS (ZstdL.decompress src) $ readLogFileLBS () $ \h s src -> do
-            let (t,rest) = LBS.splitAt 1 src
-
-            Short tp <- fromStringMay @(Short GitObjectType) (LBS8.unpack t)
-                          & orThrowUser "Invalid object type"
-
-            when ( h == gh ) $ lift $ S.yield (tp,rest)
-
-          liftIO $ maybe1 (listToMaybe what) (Q.exitFailure) $ \(t,s) -> do
-
-            let raw = if not git then s else do
-                      let signature = [qc|{pretty t} {pretty $ LBS.length s}|] <> "\x00" :: LBS8.ByteString
-                      signature <> s
-
-            let result = if not packed then raw else do
-                            let params = Zlib.defaultCompressParams { Zlib.compressMethod = Zlib.deflateMethod }
-                            Zlib.compressWith params  raw
-
-            LBS.hPutStr stdout result
-
         entry $ bindMatch "test:git:log:list" $ nil_ $ \syn -> do
           let (_, argz) = splitOpts [] syn
 
@@ -193,7 +158,6 @@ compression      ;  prints compression level
             lbs <- liftIO$ LBS.readFile f
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
               liftIO $ print $ "object" <+> pretty h <+> pretty s
-
 
         entry $ bindMatch "test:reflog:index:search:binary:test:2" $ nil_ $ const $ lift do
           r <- newTQueueIO
@@ -306,7 +270,7 @@ compression      ;  prints compression level
 
               liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
-        entry $ bindMatch "test:reflog:file:check" $ nil_ $ \case
+        entry $ bindMatch "reflog:index:check" $ nil_ $ \case
           [ StringLike fn ] -> lift do
             bs <- liftIO $ mmapFileByteString fn Nothing
 
@@ -470,17 +434,19 @@ compression      ;  prints compression level
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           importGitRefLog
 
-        entry $ bindMatch "repo:manifest:show" $ nil_ $ const $ lift $ connectedDo do
-          manifest <- Repo.getRepoManifest
-          liftIO $ print $ pretty $ mkForm "manifest" manifest
+        brief "shows repo manifest" $
+          entry $ bindMatch "repo:manifest" $ nil_ $ const $ lift $ connectedDo do
+            manifest <- Repo.getRepoManifest
+            liftIO $ print $ pretty $ mkForm "manifest" manifest
 
-        entry $ bindMatch "repo:reflog:show" $ nil_ $ const $ lift $ connectedDo do
-          repo <- Repo.getRepoManifest
+        brief "shows repo reflog" $
+          entry $ bindMatch "repo:reflog" $ nil_ $ const $ lift $ connectedDo do
+            repo <- Repo.getRepoManifest
 
-          reflog <- [ x | x@(ListVal [SymbolVal "reflog", SignPubKeyLike _])  <- repo ]
-                      & headMay & orThrow GitRepoManifestMalformed
+            reflog <- [ x | x@(ListVal [SymbolVal "reflog", SignPubKeyLike _])  <- repo ]
+                        & headMay & orThrow GitRepoManifestMalformed
 
-          liftIO $ print $ pretty reflog
+            liftIO $ print $ pretty reflog
 
         entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo do
           (p,_) <- getRepoRefLogCredentials
