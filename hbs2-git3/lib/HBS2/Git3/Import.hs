@@ -116,14 +116,7 @@ importGitRefLog :: forall m . ( HBS2GitPerks m
 
 importGitRefLog = do
 
-  fix \next -> do
-    updateReflogIndex `catch` \case
-      MissedBlockError -> do
-        pause @'Seconds 2.0
-        warn "missed block on import"
-        next
-
-      e -> throwIO e
+  updateReflogIndex
 
   packs <- gitDir
              >>= orThrowUser "git directory not found"
