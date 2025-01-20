@@ -39,6 +39,8 @@ import System.IO (hPrint)
 import Streaming.Prelude qualified as S
 import System.TimeIt
 
+import Lens.Micro.Platform
+import Control.Concurrent.STM qualified as STM
 import UnliftIO.IO.File qualified as UIO
 
 
@@ -371,20 +373,61 @@ updateReflogIndex = do
                       <+> pretty gh
                       <+> pretty nm
 
+      lift trimRefs
+        -- entries <- liftIO $ S.toList_ $ glob ["**/*.ref"] [] idxPath $ \fn -> do
+        --              ls <- liftIO (LBS8.readFile fn) <&> LBS8.lines
+        --              S.each ls
+        --              rm fn
+        --              pure True
 
-        entries <- liftIO $ S.toList_ $ glob ["**/*.ref"] [] idxPath $ \fn -> do
-                     ls <- liftIO (LBS8.readFile fn) <&> LBS8.lines
-                     S.each ls
-                     rm fn
-                     pure True
+        -- let es = HS.fromList entries
 
-        let es = HS.fromList entries
+        -- liftIO do
+        --   name <- emptyTempFile idxPath ".ref"
+        --   UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
+        --     for_ es $ \s -> LBS8.hPutStrLn wh s
 
-        liftIO do
-          name <- emptyTempFile idxPath ".ref"
-          UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
-            for_ es $ \s -> LBS8.hPutStrLn wh s
 
+trimRefs :: forall m . ( Git3Perks m
+                       , MonadReader Git3Env m
+                       , HasGitRemoteKey m
+                       , HasStorage m
+                       , HasClientAPI RefLogAPI UNIX m
+                       ) => m ()
+trimRefs = do
+    idxPath <- indexPath
+    files <- refsFiles
+    name <- liftIO $ emptyTempFile idxPath ".ref"
+    UIO.withBinaryFileAtomic name WriteMode $ \wh -> do
+
+      txi <- txImported
+      raw <- readRefsRaw files
+
+      ni_  <- newTQueueIO
+      imp_ <- newTVarIO ( mempty :: HashMap Text (Integer, GitHash, HashRef) )
+
+      for_ raw $ \case
+        ListVal [ SymbolVal "R", HashLike seg, LitIntVal r, GitHashLike v, TextLike n ] -> do
+
+          atomically do
+            if not (HS.member seg txi) then
+              writeTQueue ni_ (n, (r, v, seg))
+            else do
+              let x = (r, v, seg)
+              let fn = HM.insertWith (\a b -> if view _1 a > view _1 b then a else b) n x
+              modifyTVar imp_ fn
+
+        _ -> none
+
+      result <- atomically do
+            a <- STM.flushTQueue ni_
+            b <- readTVar imp_ <&> HM.toList
+            pure (a <> b)
+
+      for_ result $ \(n, (r, h, seg)) -> do
+        liftIO $ hPrint wh $ "R" <+> pretty seg <+> pretty r <+> pretty h <+> pretty n
+
+    mapM_ rm files
 
 importedCheckpoint :: forall m . ( Git3Perks m
                                  , MonadReader Git3Env m
@@ -406,6 +449,38 @@ importedCheckpoint = do
 nullHash :: GitHash
 nullHash = GitHash (BS.replicate 20 0)
 
+txImported :: forall m . ( Git3Perks m
+                         , MonadReader Git3Env m
+                         , HasClientAPI RefLogAPI UNIX m
+                         , HasStorage m
+                         , HasGitRemoteKey m
+                         ) => m (HashSet HashRef)
+
+txImported = maybe mempty HS.fromList <$> runMaybeT do
+     cp <- lift importedCheckpoint >>= toMPlus
+     fmap fst <$> lift (txListAll (Just cp))
+
+
+refsFiles :: forall m . (Git3Perks m, HasGitRemoteKey m) => m [FilePath]
+refsFiles = do
+  state <- getStatePathM
+  dirFiles state
+    <&> filter ( (== ".ref") . takeExtension )
+
+readRefsRaw :: forall m . ( Git3Perks m
+                          , MonadReader Git3Env m
+                          , HasClientAPI RefLogAPI UNIX m
+                          , HasStorage m
+                          , HasGitRemoteKey m
+                          )
+            => [FilePath] -> m [Syntax C]
+
+readRefsRaw files = do
+  mapM (try @_ @IOError . liftIO . readFile) files
+    <&> unlines . rights
+    <&> parseTop
+    <&> fromRight mempty
+
 {- HLINT ignore "Functor law"-}
 importedRefs :: forall m . ( Git3Perks m
                            , MonadReader Git3Env m
@@ -416,18 +491,11 @@ importedRefs :: forall m . ( Git3Perks m
 
 importedRefs = do
 
-  state <- getStatePathM
+  files <- refsFiles
 
-  refs <- dirFiles state
-            <&> filter ( (== ".ref") . takeExtension )
-            >>= mapM (try @_ @IOError . liftIO . readFile)
-            <&> unlines . rights
-            <&> parseTop
-            <&> fromRight mempty
+  refs <- readRefsRaw files
 
-  txh <- maybe mempty HS.fromList <$> runMaybeT do
-           cp <- lift importedCheckpoint >>= toMPlus
-           fmap fst <$> lift (txListAll (Just cp))
+  txh <- txImported
 
   let rrefs = [ (n,((GitRef (BS8.pack n),g),r))
               | ListVal [ SymbolVal "R"
