@@ -35,6 +35,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       "hbs2-storage-simple"
       "hbs2-git"
       "hbs2-git-dashboard"
+      "hbs2-git3"
       "hbs2-qblf"
       "hbs2-fixer"
       "hbs2-cli"
