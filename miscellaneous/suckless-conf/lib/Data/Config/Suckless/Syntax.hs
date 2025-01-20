@@ -87,13 +87,13 @@ stringLike :: Syntax c -> Maybe String
 stringLike = \case
   LitStrVal s -> Just $ Text.unpack s
   SymbolVal (Id s) -> Just $ Text.unpack s
-  x -> Just $ show $ pretty x
+  _ -> Nothing
 
 textLike :: Syntax c -> Maybe Text
 textLike = \case
   LitStrVal s -> Just s
   SymbolVal (Id s) -> Just s
-  x -> Just $ Text.pack $ show $ pretty x
+  x -> Nothing
 
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
