@@ -287,18 +287,6 @@ compression      ;  prints compression level
           for_ trees $ \tree -> do
             writeAsGitPack dir tree
 
-        entry $ bindMatch "reflog:index:list:fast" $ nil_ $ const $ lift $ connectedDo do
-          files <- listObjectIndexFiles
-          forConcurrently_ files  $ \(f,_) -> do
-            bs <- liftIO $ mmapFileByteString f Nothing
-            for_ (toSectionList bs) $ \segment -> do
-              let (sha1,blake) = BS.splitAt 20 segment
-                                      & over _1 (coerce @_ @GitHash)
-                                      & over _2 (coerce @_ @HashRef)
-
-              notice $ pretty sha1 <+> pretty blake
-
-
         entry $ bindMatch "reflog:index:list:count" $ nil_ $ const $ lift $ connectedDo do
           idx <- openIndex
           num_ <- newIORef 0
@@ -498,15 +486,23 @@ compression      ;  prints compression level
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
 
-        entry $ bindMatch "repo:key:show" $ nil_ $ const $ lift do
-          r <- getGitRepoKey >>= orThrow GitRepoRefNotSet
-          liftIO $  print $ pretty (AsBase58 r)
+        brief "set default repository key"
+          $ desc "needed when you call hbs2-git command directly"
+          $ examples [qc|
+; in config:
+repo:key EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
 
-        entry $ bindMatch "repo:key" $ nil_ $ \case
-          [ SignPubKeyLike k ] -> lift do
-            setGitRepoKey k
+repo:key ; shows current repo key
+          |] $
+            entry $ bindMatch "repo:key" $ nil_ $ \case
+              [ SignPubKeyLike k ] -> lift do
+                setGitRepoKey k
 
-          _ -> throwIO (BadFormException @C nil)
+              [] -> lift do
+                r <- getGitRepoKey >>= orThrow GitRepoRefNotSet
+                liftIO $  print $ pretty (AsBase58 r)
+
+              _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "repo:ref:value"$ nil_ $ const $ lift $ connectedDo do
           val <- Repo.getRepoRefMaybe >>= orThrowUser "can't read ref value"
