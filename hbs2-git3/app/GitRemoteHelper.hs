@@ -112,7 +112,15 @@ localDict DeferredOps{..} = makeDict @C do
 
       debug $ red "REFLOG" <+> pretty (AsBase58 reflog)
 
-      importGitRefLog
+      t0 <- getTimeCoarse
+
+      flip fix 0 $ \next i -> do
+        importGitRefLog >>= \case
+          Just{} -> none
+          Nothing -> do
+            notice "wait for data..."
+            pause @'Seconds 2.0
+            next (succ i)
 
       rrefs <- importedRefs
 

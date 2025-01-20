@@ -112,7 +112,7 @@ importGitRefLog :: forall m . ( HBS2GitPerks m
                               , HasGitRemoteKey m
                               , MonadReader Git3Env m
                               )
-             => m ()
+             => m (Maybe HashRef)
 
 importGitRefLog = do
 
@@ -145,7 +145,7 @@ importGitRefLog = do
       else do
         next (xs, l)
 
-  void $ runMaybeT do
+  runMaybeT do
     cp <- toMPlus cp'
     notice $ "found checkpoint" <+> pretty cp
     txs <- lift $ txList ( pure . not . flip HS.member excl ) (Just cp)
@@ -163,4 +163,6 @@ importGitRefLog = do
           notice $ "imported" <+> pretty h
 
       updateImportedCheckpoint cp
+
+      pure cp
 
