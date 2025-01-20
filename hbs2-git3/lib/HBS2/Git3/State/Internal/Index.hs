@@ -9,6 +9,8 @@ import HBS2.Git3.State.Internal.Segment
 import HBS2.Git3.State.Internal.RefLog
 import HBS2.Git3.Git
 
+import HBS2.Storage.Operations.Missed
+
 import HBS2.Data.Log.Structured
 
 import Data.ByteString qualified as BS
@@ -286,6 +288,7 @@ updateReflogIndex = do
     reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
 
     api <- getClientAPI @RefLogAPI @UNIX
+    peer <- getClientAPI @PeerAPI @UNIX
 
     sto <- getStorage
 
@@ -313,9 +316,16 @@ updateReflogIndex = do
 
       debug $ "STATE" <+> pretty idxPath
 
+      missed <- findMissedBlocks sto what
+
+      unless (L.null missed) do
+        for_ missed $ \h -> do
+          lift (callRpcWaitMay @RpcFetch (TimeoutSec 1) peer h) >>= orThrow RpcTimeout
+        throwIO RefLogNotReady
+
       sink <- S.toList_ do
         walkMerkle (coerce what) (getBlock sto) $ \case
-          Left{} -> throwIO MissedBlockError
+          Left e -> throwIO $ MissedBlockError2 (show $ pretty e)
           Right (hs :: [HashRef]) -> do
             for_ [h | h <- hs, not (HS.member h written)]  $ \h -> void $ runMaybeT do
               readTxMay sto (coerce h) >>= \case

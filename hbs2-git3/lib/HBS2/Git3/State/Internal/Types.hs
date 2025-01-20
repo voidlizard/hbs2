@@ -64,6 +64,7 @@ data HBS2GitExcepion =
   | GitRepoRefEmpty
   | GitRepoManifestMalformed
   | RefLogCredentialsNotMatched
+  | RefLogNotReady
   | RpcTimeout
   deriving stock (Show,Typeable)
 

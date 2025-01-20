@@ -15,6 +15,7 @@ data OperationError =
   | DecryptError
   | DecryptionError
   | MissedBlockError
+  | MissedBlockError2 String
   | UnsupportedFormat
   | IncompleteData
   | GroupKeyNotFound Int
