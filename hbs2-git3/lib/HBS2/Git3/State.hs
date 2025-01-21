@@ -241,6 +241,10 @@ waitRepo timeout = do
                        Just (Just x)  -> pure x
                        _              -> wait 2 next ()
 
+    notice $ "lwwref value" <+> pretty (lwwValue lww)
+
+    error "stop"
+
     mf <- flip fix () $ \next _ -> do
               notice $ "wait for manifest"
               lift (try @_ @WalkMerkleError getRepoManifest) >>= \case
