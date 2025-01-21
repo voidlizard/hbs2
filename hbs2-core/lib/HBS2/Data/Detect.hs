@@ -1,4 +1,9 @@
-module HBS2.Data.Detect where
+module HBS2.Data.Detect
+  ( module HBS2.Data.Detect
+  , module HBS2.Merkle.Walk
+  , module HBS2.Merkle
+  )
+  where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash

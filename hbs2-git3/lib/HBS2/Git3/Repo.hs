@@ -101,14 +101,13 @@ initRepo syn = do
 
       repo <- getRepoManifest
 
-      reflog <- [ x | ListVal [SymbolVal "reflog", SignPubKeyLike x] <- repo ]
-                  & headMay & orThrowUser "malformed repo manifest"
+      reflog <- getRefLog repo & orThrow GitRepoManifestMalformed
 
       callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (reflog, "reflog", 17)
          >>= orThrowUser "rpc timeout"
 
       -- FIXME: remove-this
-      liftIO $ print $ pretty $ mkForm "manifest" repo
+      liftIO $ print $ pretty $ mkForm "manifest" (coerce repo)
 
     CreateRepoDefBlock pk  -> do
 

@@ -460,6 +460,11 @@ compression      ;  prints compression level
         --   for_ result $ \(n, (r, h, v)) -> do
         --     liftIO $ print $ "R" <+> pretty h <+> pretty r <+> pretty v <+> pretty n
 
+        entry $ bindMatch "reflog:wait" $ nil_ $ \syn -> lift $ connectedDo do
+          let (_,argz) = splitOpts [] syn
+          let t = headMay [ realToFrac x | LitIntVal x <- argz ]
+          waitRepo t
+
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
           liftIO $ print $ pretty p
@@ -470,16 +475,15 @@ compression      ;  prints compression level
         brief "shows repo manifest" $
           entry $ bindMatch "repo:manifest" $ nil_ $ const $ lift $ connectedDo do
             manifest <- Repo.getRepoManifest
-            liftIO $ print $ pretty $ mkForm "manifest" manifest
+            liftIO $ print $ pretty $ mkForm "manifest" (coerce manifest)
 
         brief "shows repo reflog" $
           entry $ bindMatch "repo:reflog" $ nil_ $ const $ lift $ connectedDo do
             repo <- Repo.getRepoManifest
 
-            reflog <- [ x | x@(ListVal [SymbolVal "reflog", SignPubKeyLike _])  <- repo ]
-                        & headMay & orThrow GitRepoManifestMalformed
+            reflog <- getRefLog repo  & orThrow GitRepoManifestMalformed
 
-            liftIO $ print $ pretty reflog
+            liftIO $ print $ pretty (AsBase58 reflog)
 
         entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo do
           (p,_) <- getRepoRefLogCredentials
