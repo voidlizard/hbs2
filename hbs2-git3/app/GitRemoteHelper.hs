@@ -114,8 +114,6 @@ localDict DeferredOps{..} = makeDict @C do
 
       t0 <- getTimeCoarse
 
-      -- waitRepo Nothing
-
       importGitRefLog
 
       rrefs <- importedRefs

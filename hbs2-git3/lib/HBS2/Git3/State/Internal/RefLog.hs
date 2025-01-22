@@ -82,7 +82,7 @@ txList filt mhref = do
            Nothing -> lift refLogRef >>= toMPlus
 
     hxs <- S.toList_ $ walkMerkle @[HashRef] (coerce rv) (getBlock sto) $ \case
-      Left{} -> throwIO MissedBlockError
+      Left{} -> throwIO (MissedBlockError2 "txList")
       Right hs -> filterM (lift . lift . filt) hs >>= S.each
 
     S.toList_ $ for_ hxs $ \h -> do

@@ -333,7 +333,7 @@ updateReflogIndex = do
 
                   -- FIXME: error logging
                   source <- liftIO (runExceptT (getTreeContents sto href))
-                               >>= orThrow MissedBlockError
+                               >>= orThrow (MissedBlockError2 (show $ pretty href))
 
                   what <- decompressSegmentLBS source
                              >>= toMPlus

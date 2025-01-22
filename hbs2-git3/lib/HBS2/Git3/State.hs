@@ -212,6 +212,7 @@ data CWRepo =
   | CCheckManifest (LWWRef HBS2Basic)
   | CAborted
 
+
 waitRepo :: forall m . HBS2GitPerks m => Maybe (Timeout 'Seconds) -> Git3 m ()
 waitRepo timeout = do
   repoKey <- getGitRepoKey >>= orThrow GitRepoRefNotSet
@@ -288,8 +289,15 @@ waitRepo timeout = do
 
         flip fix () $ \next _ -> do
            notice $ "wait for data (2)" <+> pretty (AsBase58 reflog)
-           missed <- findMissedBlocks sto rv
-           unless (L.null missed) $ wait 2 next ()
+           -- missed <- findMissedBlocks sto rv
+           missed_ <- newTVarIO 0
+           lift $ deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ) (coerce rv) (getBlock sto) (const none)
+           missed <- readTVarIO missed_
+
+           when (missed > 0) do
+            notice $ "still missed blocks:" <+> pretty missed
+            wait 5 next ()
+
            atomically $ writeTMVar okay True
 
         pWait <- ContT $ withAsync $ race ( pause (fromMaybe 300 timeout) ) do

@@ -7,6 +7,7 @@ import HBS2.Git3.State
 import HBS2.Git3.Git
 import HBS2.Git3.Git.Pack
 
+import HBS2.Data.Detect (ScanLevel(..), deepScan)
 import HBS2.Storage.Operations.Missed
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 import HBS2.Data.Log.Structured
@@ -53,7 +54,7 @@ writeAsGitPack dir href = do
     seen_ <- newTVarIO (mempty :: HashSet GitHash)
 
     source <- liftIO (runExceptT (getTreeContents sto href))
-                >>= orThrow MissedBlockError
+                >>= orThrow (MissedBlockError2 (show $ pretty href))
 
     lbs' <- decompressSegmentLBS source
 
@@ -139,7 +140,16 @@ importGitRefLog = withStateDo do
     ([], r) -> pure (gitTxTree <$> r)
     (TxSegment{}:xs, l) -> next (xs, l)
     (cp@(TxCheckpoint n tree) : xs, l) -> do
-      full <- findMissedBlocks sto tree <&> L.null
+
+      -- full <- findMissedBlocks sto tree <&> L.null
+      missed_ <- newTVarIO 0
+      deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ)
+                        (coerce tree)
+                        (getBlock sto)
+                        (const none)
+
+      full <- readTVarIO missed_ <&> (==0)
+
       if full && Just n > (getGitTxRank <$> l) then do
         next (xs, Just cp)
       else do
