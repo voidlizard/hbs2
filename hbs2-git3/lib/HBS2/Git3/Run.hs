@@ -55,7 +55,7 @@ theDict = do
 
   where
 
-    myEntries = hidePrefix "test:" do
+    myEntries =  do
         entry $ bindMatch "--help" $ nil_ $ \case
           HelpEntryBound what -> do
             helpEntry what
@@ -431,34 +431,6 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
-
-        -- entry $ bindMatch "reflog:refs:trimmed" $ nil_ $ \syn -> lift $ connectedDo do
-        --   txi <- txImported
-        --   raw <- readRefsRaw =<< refsFiles
-
-        --   ni_  <- newTQueueIO
-        --   imp_ <- newTVarIO ( mempty :: HashMap Text (Integer, GitHash, HashRef) )
-
-        --   for_ raw $ \case
-        --     ListVal [ SymbolVal "R", HashLike seg, LitIntVal r, GitHashLike v, TextLike n ] -> do
-
-        --       atomically do
-        --         if not (HS.member seg txi) then
-        --           writeTQueue ni_ (n, (r, v, seg))
-        --         else do
-        --           let x = (r, v, seg)
-        --           let fn = HM.insertWith (\a b -> if view _1 a > view _1 b then a else b) n x
-        --           modifyTVar imp_ fn
-
-        --     _ -> none
-
-        --   result <- atomically do
-        --         a <- STM.flushTQueue ni_
-        --         b <- readTVar imp_ <&> HM.toList
-        --         pure (a <> b)
-
-        --   for_ result $ \(n, (r, h, v)) -> do
-        --     liftIO $ print $ "R" <+> pretty h <+> pretty r <+> pretty v <+> pretty n
 
         entry $ bindMatch "reflog:wait" $ nil_ $ \syn -> lift $ connectedDo do
           let (_,argz) = splitOpts [] syn

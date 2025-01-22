@@ -64,7 +64,8 @@ symlinks: $(BIN_DIR)
 >		path=`find dist-newstyle -type f -name $$bin -path "*$(GHC_VERSION)*" | head -n 1`; \
 >		if [ -n "$$path" ]; then \
 >			echo "Creating symlink for $$bin"; \
->			ln -sf $$PWD/$$path $(BIN_DIR)/$$bin; \
+>			ln -sfn $$PWD/$$path $(BIN_DIR)/$$bin; \
+#>			cp $$PWD/$$path $(BIN_DIR)/$$bin; \
 >		else \
 >			echo "Binary $$bin for GHC $(GHC_VERSION) not found"; \
 >		fi; \

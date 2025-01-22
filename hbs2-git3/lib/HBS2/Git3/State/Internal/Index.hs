@@ -73,9 +73,8 @@ indexPath :: forall m . ( Git3Perks m
                         , MonadReader Git3Env m
                         , HasGitRemoteKey m
                         ) => m FilePath
-indexPath = do
-  reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
-  getStatePath (AsBase58 reflog)
+
+indexPath = getStatePathM
 
 data IndexEntry =
   IndexEntry
@@ -129,8 +128,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
 
 compactIndex :: forall m . (Git3Perks m, HasGitRemoteKey m, MonadReader Git3Env m) => Natural -> m ()
 compactIndex maxSize = do
-  reflog <- getGitRemoteKey >>= orThrowUser "reflog not set"
-  idxPath <- getStatePath (AsBase58 reflog)
+  idxPath <- getStatePathM
   mkdir idxPath
   files <- listObjectIndexFiles <&> L.sortOn snd
 

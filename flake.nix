@@ -14,6 +14,9 @@ inputs = {
     hspup.inputs.nixpkgs.follows = "nixpkgs";
     hspup.inputs.haskell-flake-utils.follows = "haskell-flake-utils";
 
+    nixbwrap.url = "git+https://git.sr.ht/~fgaz/nix-bubblewrap";
+    nixbwrap.inputs.nixpkgs.follows = "nixpkgs";
+
 };
 
 outputs = { self, nixpkgs, flake-utils, ... }@inputs:
@@ -159,6 +162,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           pkgs.icu72
           pkgs.openssl
           weeder
+          pkgs.iptables
+          pkgs.bridge-utils
         ]
         ++
         [ pkgs.pkg-config
@@ -166,6 +171,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           pkgs.file
           pkgs.zlib
           inputs.hspup.packages.${pkgs.system}.default
+          inputs.nixbwrap.packages.${pkgs.system}.default
         ]
       );
 

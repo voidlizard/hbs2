@@ -53,6 +53,8 @@ getRefLog mf = lastMay [ x
 updateRepoKey :: forall m . HBS2GitPerks m => GitRepoKey -> Git3 m ()
 updateRepoKey key = do
 
+  notice $ "updateRepoKey" <+> pretty (AsBase58 key)
+
   setGitRepoKey key
 
   reflog <- getRepoManifest <&> getRefLog
@@ -137,6 +139,11 @@ withGit3Env env a = runReaderT (fromGit3 a) env
 runGit3 :: Git3Perks m => Git3Env -> Git3 m b -> m b
 runGit3 env action = withGit3Env env action
 
+withStateDo :: MonadUnliftIO m => Git3 m a -> Git3 m a
+withStateDo action = do
+  waitRepo Nothing
+  getStatePathM >>= mkdir
+  action
 
 recover :: Git3 IO a -> Git3 IO a
 recover m = fix \again -> do
@@ -170,12 +177,13 @@ recover m = fix \again -> do
 
         let sto = AnyStorage (StorageClient storageAPI)
 
-        rk <- lift $ getGitRepoKey >>= orThrow GitRepoRefNotSet
+        rk <- lift $ getGitRepoKey
 
-        notice $ yellow $ "REPOKEY" <+> pretty (AsBase58 rk)
+        -- debug $ yellow $ "REPOKEY" <+> pretty (AsBase58 rk)
 
         connected <- Git3Connected soname sto peer refLogAPI lwwAPI
-                        <$> newTVarIO (Just rk)
+                        <$> newTVarIO rk
+                        <*> newTVarIO Nothing
                         <*> newTVarIO Nothing
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
@@ -183,14 +191,10 @@ recover m = fix \again -> do
 
 
         liftIO $ withGit3Env connected do
-
-          updateRepoKey rk
-
-          ref <- getGitRemoteKey >>= orThrow GitRepoManifestMalformed
-
-          state <- getStatePath (AsBase58 ref)
-          mkdir state
-
+          -- updateRepoKey rk
+          -- ref <- getGitRemoteKey >>= orThrow GitRepoManifestMalformed
+          -- state <- getStatePathM
+          -- mkdir state
           again
 
     e -> throwIO e
@@ -212,69 +216,89 @@ waitRepo :: forall m . HBS2GitPerks m => Maybe (Timeout 'Seconds) -> Git3 m ()
 waitRepo timeout = do
   repoKey <- getGitRepoKey >>= orThrow GitRepoRefNotSet
 
-  lwwAPI   <- getClientAPI @LWWRefAPI @UNIX
-  peerAPI  <- getClientAPI @PeerAPI @UNIX
-  reflogAPI <- getClientAPI @RefLogAPI @UNIX
-  sto <- getStorage
+  notice $ yellow "waitRepo"
 
-  env <- ask
+  ask >>= \case
+    Git3Disconnected{} -> throwIO Git3PeerNotConnected
+    Git3Connected{..} -> do
 
-  flip runContT pure do
+      sto <- getStorage
 
-    let wait w what x = pause @'Seconds w >> what x
+      flip runContT pure $ callCC \done -> do
 
-    callCC \forPeer -> do
+        rlv <- readTVarIO gitRefLogVal <&> isJust
+        rlog <- readTVarIO gitRefLog <&> isJust
 
-      notice "wait for peer"
+        when (rlv && rlog) $ done ()
 
-      lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (repoKey, "lwwref", 31))
-               >>= maybe (wait 1 forPeer ()) (const none)
+        reflog_ <- newEmptyTMVarIO
 
-    pFetch <- ContT $ withAsync $ forever do
-                void  (callRpcWaitMay @RpcLWWRefFetch (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
-                pause @'Seconds 10
+        let wait w what x = pause @'Seconds w >> what x
 
-    lww <- flip fix () \next _ -> do
-              notice $ "wait for" <+> pretty (AsBase58 repoKey)
-              lift (callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
-                >>= \case
-                       Just (Just x)  -> pure x
-                       _              -> wait 2 next ()
+        callCC \forPeer -> do
 
-    notice $ "lwwref value" <+> pretty (lwwValue lww)
+          notice "wait for peer"
 
-    error "stop"
+          lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (repoKey, "lwwref", 31))
+                   >>= maybe (wait 1 forPeer ()) (const none)
 
-    mf <- flip fix () $ \next _ -> do
-              notice $ "wait for manifest"
-              lift (try @_ @WalkMerkleError getRepoManifest) >>= \case
-                Left{}  -> wait 1 next ()
-                Right x -> pure x
+        pFetch <- ContT $ withAsync $ forever do
+                    void  (callRpcWaitMay @RpcLWWRefFetch (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
+                    pause @'Seconds 10
 
-    reflog <- getRefLog mf & orThrow GitRepoManifestMalformed
+        pFetchRefLog <- ContT $ withAsync do
+                         r <- atomically $ takeTMVar reflog_
+                         forever do
+                           void  (callRpcWaitMay @RpcRefLogFetch (TimeoutSec 1) reflogAPI r)
+                           pause @'Seconds 10
 
-    lift $ setGitRepoKey reflog
+        lww <- flip fix () \next _ -> do
+                  notice $ "wait for" <+> pretty (AsBase58 repoKey)
+                  lift (callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
+                    >>= \case
+                           Just (Just x)  -> pure x
+                           _              -> wait 2 next ()
 
-    rv <- flip fix () \next _ -> do
-              notice $ "wait for data" <+> pretty (AsBase58 reflog)
-              lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflogAPI reflog)
-                >>= \case
-                       Just (Just x)  -> pure x
-                       _              -> wait 2 next ()
+        notice $ "lwwref value" <+> pretty (lwwValue lww)
 
-    okay <- newEmptyTMVarIO
+        mf <- flip fix () $ \next _ -> do
+                  notice $ "wait for manifest"
+                  lift (try @_ @WalkMerkleError getRepoManifest) >>= \case
+                    Left{}  -> wait 1 next ()
+                    Right x -> pure x
 
-    flip fix () $ \next _ -> do
-       notice $ "wait for data (2)" <+> pretty (AsBase58 reflog)
-       missed <- findMissedBlocks sto rv
-       unless (L.null missed) $ wait 2 next ()
-       atomically $ writeTMVar okay True
+        reflog <- getRefLog mf & orThrow GitRepoManifestMalformed
 
-    pWait <- ContT $ withAsync $ race ( pause (fromMaybe 300 timeout) ) do
-               void $ atomically $ takeTMVar okay
 
-    waitAnyCatchCancel [pWait, pFetch]
+        atomically $ writeTMVar reflog_ reflog
 
-    liftIO $ print $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
+        lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (reflog, "reflog", 11))
+                 >>= orThrow RpcTimeout
+
+        rv <- flip fix () \next _ -> do
+                  notice $ "wait for data" <+> pretty (AsBase58 reflog)
+                  lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflogAPI reflog)
+                    >>= \case
+                           Just (Just x)  -> pure x
+                           _              -> wait 2 next ()
+
+        atomically $ writeTVar gitRefLogVal (Just rv)
+
+        okay <- newEmptyTMVarIO
+
+        flip fix () $ \next _ -> do
+           notice $ "wait for data (2)" <+> pretty (AsBase58 reflog)
+           missed <- findMissedBlocks sto rv
+           unless (L.null missed) $ wait 2 next ()
+           atomically $ writeTMVar okay True
+
+        pWait <- ContT $ withAsync $ race ( pause (fromMaybe 300 timeout) ) do
+                   void $ atomically $ takeTMVar okay
+
+        waitAnyCatchCancel [pWait, pFetch, pFetchRefLog]
+
+        lift $ updateRepoKey repoKey
+
+        liftIO $ print $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
 
 

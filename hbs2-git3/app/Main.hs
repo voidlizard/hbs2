@@ -82,7 +82,6 @@ main = flip runContT pure do
   cli <- parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
 
-
   env <- nullGit3Env
 
   void $ lift $ withGit3Env env do

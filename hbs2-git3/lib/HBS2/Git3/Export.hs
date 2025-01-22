@@ -86,7 +86,7 @@ exportEntries prefix = do
     export (Just h) refs
 
 export :: forall m . HBS2GitPerks m => Maybe GitHash -> [(GitRef, GitHash)] -> Git3 m ()
-export mbh refs = do
+export mbh refs = withStateDo do
       tn <- getNumCapabilities
 
       updateReflogIndex
@@ -281,9 +281,11 @@ export mbh refs = do
  where
 
    writeLogEntry e = do
-     path <- getConfigPath <&> (</> "log")
-     touch path
-     liftIO (IO.appendFile path (show $ e <> line))
+     path' <- getConfigPath
+     for_ path' $ \path -> do
+       let logPath = path </> "log"
+       touch path
+       liftIO (IO.appendFile logPath (show $ e <> line))
 
    writeRefSectionSome :: forall m1 . MonadIO m1 => TBQueue (Maybe LBS.ByteString) -> [(GitRef, GitHash)] -> m1 ()
    writeRefSectionSome sourceQ refsAndCommits = do

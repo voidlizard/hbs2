@@ -106,15 +106,15 @@ writeAsGitPack dir href = do
 
 
 importGitRefLog :: forall m . ( HBS2GitPerks m
-                              , HasStorage m
-                              , HasClientAPI PeerAPI UNIX m
-                              , HasClientAPI RefLogAPI UNIX m
-                              , HasGitRemoteKey m
-                              , MonadReader Git3Env m
+                              -- , HasStorage m
+                              -- , HasClientAPI PeerAPI UNIX m
+                              -- , HasClientAPI RefLogAPI UNIX m
+                              -- , HasGitRemoteKey m
+                              -- , MonadReader Git3Env m
                               )
-             => m (Maybe HashRef)
+             => Git3 m (Maybe HashRef)
 
-importGitRefLog = do
+importGitRefLog = withStateDo do
 
   updateReflogIndex
 

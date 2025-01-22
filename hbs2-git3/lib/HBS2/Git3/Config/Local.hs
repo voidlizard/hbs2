@@ -6,43 +6,15 @@ import HBS2.System.Dir
 
 import HBS2.Git.Local.CLI
 
-import System.Directory
-
-import Data.Config.Suckless.Script
-
-import Data.Text.IO qualified as IO
+import Control.Monad.Trans.Maybe
 
 {- HLINT ignore "Functor law"-}
 
-getConfigPath :: MonadIO m => m FilePath
+getConfigPath :: MonadIO m => m (Maybe FilePath)
 getConfigPath = do
-
   let name = ".hbs2-git3"
-
-  gitDir
-    >>= orThrowUser ".git not found"
-    <&> (</> name) . takeDirectory
-
-
-getConfigRootFile :: MonadIO m => m FilePath
-getConfigRootFile = do
-
-  let name = ".hbs2-git3"
-
-  gitDir
-    >>= orThrowUser ".git not found"
-    <&> (</> name) . takeDirectory
-    <&> (</> "config")
-
-readLocalConf :: MonadIO m => m [Syntax C]
-readLocalConf = do
-
-  conf <- getConfigPath <&> (</> "config")
-
-  touch conf
-
-  liftIO (IO.readFile conf)
-    <&> parseTop
-    >>= either (const $ pure mempty) pure
+  runMaybeT do
+    gitDir
+      >>= toMPlus <&> (</> name) . takeDirectory
 
 

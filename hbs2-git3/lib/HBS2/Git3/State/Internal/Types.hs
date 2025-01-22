@@ -9,23 +9,49 @@ import HBS2.Git3.Prelude
 import HBS2.Git3.Config.Local
 import HBS2.System.Dir
 
+import Data.Config.Suckless.Script
+
 import Data.Kind
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.Maybe
+import Data.Text.IO qualified as IO
+import Control.Exception qualified as E
 
 unit :: FilePath
 unit = "hbs2-git"
 
-getStatePath :: (MonadIO m, Pretty ref) => ref -> m FilePath
-getStatePath p = do
-  d <- getConfigPath
+getStatePath :: (MonadIO m, Pretty ref) => ref -> m (Maybe FilePath)
+getStatePath p = runMaybeT do
+  d <- getConfigPath >>= toMPlus
   pure $ d </> show (pretty p)
+
+getConfigRootFile :: MonadIO m => m FilePath
+getConfigRootFile = do
+  getConfigPath
+    >>= orThrow StateDirNotDefined
+    <&> (</> "config")
+
+readLocalConf :: MonadIO m => m [Syntax C]
+readLocalConf = do
+
+  fromMaybe mempty <$> runMaybeT do
+
+    conf <- liftIO (E.try @SomeException getConfigRootFile)
+              >>= toMPlus
+
+    lift $ touch conf
+
+    liftIO (IO.readFile conf)
+      <&> parseTop
+      >>= either (const $ pure mempty) pure
 
 data HBS2GitExcepion =
     RefLogNotSet
   | GitRepoRefNotSet
   | GitRepoRefEmpty
   | GitRepoManifestMalformed
+  | StateDirNotDefined
   | RefLogCredentialsNotMatched
   | RefLogNotReady
   | RpcTimeout
@@ -76,13 +102,14 @@ data Git3Env =
     , gitRepoKey           :: TVar (Maybe GitRepoKey)
     }
   | Git3Connected
-    { peerSocket  :: FilePath
-    , peerStorage :: AnyStorage
-    , peerAPI     :: ServiceCaller PeerAPI UNIX
-    , reflogAPI   :: ServiceCaller RefLogAPI UNIX
-    , lwwAPI      :: ServiceCaller LWWRefAPI UNIX
-    , gitRepoKey  :: TVar (Maybe GitRepoKey)
-    , gitRefLog   :: TVar (Maybe GitRemoteKey)
+    { peerSocket   :: FilePath
+    , peerStorage  :: AnyStorage
+    , peerAPI      :: ServiceCaller PeerAPI UNIX
+    , reflogAPI    :: ServiceCaller RefLogAPI UNIX
+    , lwwAPI       :: ServiceCaller LWWRefAPI UNIX
+    , gitRepoKey   :: TVar (Maybe GitRepoKey)
+    , gitRefLog    :: TVar (Maybe GitRemoteKey)
+    , gitRefLogVal :: TVar (Maybe HashRef)
     , gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
     , gitIndexBlockSize :: TVar Natural
@@ -178,9 +205,8 @@ instance (MonadUnliftIO m) => HasClientAPI LWWRefAPI UNIX (Git3 m) where
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure lwwAPI
 
-
 getStatePathM :: forall m . (HBS2GitPerks m, HasGitRemoteKey m) => m FilePath
 getStatePathM = do
   k <- getGitRemoteKey >>= orThrow RefLogNotSet
-  getStatePath (AsBase58 k)
+  getStatePath (AsBase58 k) >>= orThrow StateDirNotDefined
 

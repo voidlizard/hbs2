@@ -114,13 +114,9 @@ localDict DeferredOps{..} = makeDict @C do
 
       t0 <- getTimeCoarse
 
-      flip fix 0 $ \next i -> do
-        importGitRefLog >>= \case
-          Just{} -> none
-          Nothing -> do
-            notice "wait for data..."
-            pause @'Seconds 2.0
-            next (succ i)
+      -- waitRepo Nothing
+
+      importGitRefLog
 
       rrefs <- importedRefs
 
@@ -198,16 +194,17 @@ main =  flip runContT pure do
 
     cli <- parseCLI
 
-    case cli of
-      [ ListVal [_, RepoURL url ] ] -> do
-        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 url)
-        setGitRepoKey url
+    url <- case cli of
+      [ ListVal [_, RepoURL x ] ] -> do
+        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 x)
+        setGitRepoKey x
+        pure $ Just x
 
-      _ -> none
+      _ -> pure Nothing
 
-    void $ run dict conf
-
-    recover $ connectedDo do
+    recover $ connectedDo $ withStateDo do
+      void $ run dict conf
+      for_ url updateRepoKey
 
       flip fix Plain $ \next -> \case
         Plain -> do
