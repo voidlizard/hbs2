@@ -151,9 +151,11 @@ importGitRefLog = withStateDo $ ask >>= \case
         notice $ "wait some time..." <+> parens (pretty down)
 
         case d of
-          Nothing -> again (ImportWait (Just down) next)
           Just n | down < n ->  pause @'Seconds 3 >> again next
-                 | otherwise -> pause @'Seconds 3 >> again next
+          _ -> pure Nothing
+
+        pause @'Seconds 3
+        again $ ImportWait (Just down) next
 
       ImportStart -> do
 
