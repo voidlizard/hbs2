@@ -1,5 +1,6 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language MultiWayIf #-}
 module HBS2.Git3.Import where
 
 import HBS2.Git3.Prelude
@@ -20,6 +21,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.Maybe
 import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
@@ -105,6 +107,11 @@ writeAsGitPack dir href = do
     pure Nothing
 
 
+data ImportStage =
+    ImportStart
+  | ImportWIP  Int (Maybe HashRef)
+  | ImportWait ImportStage
+  | ImportDone (Maybe HashRef)
 
 importGitRefLog :: forall m . ( HBS2GitPerks m
                               -- , HasStorage m
@@ -115,64 +122,94 @@ importGitRefLog :: forall m . ( HBS2GitPerks m
                               )
              => Git3 m (Maybe HashRef)
 
-importGitRefLog = withStateDo do
+importGitRefLog = withStateDo $ ask >>= \case
+  Git3Disconnected{} -> throwIO Git3PeerNotConnected
+  env@Git3Connected{..} ->  do
 
-  updateReflogIndex
+    packs <- gitDir
+               >>= orThrow NoGitDir
+               <&> (</> "objects/pack")
 
-  packs <- gitDir
-             >>= orThrowUser "git directory not found"
-             <&> (</> "objects/pack")
+    mkdir packs
 
-  mkdir packs
+    sto <- getStorage
 
-  sto <- getStorage
+    flip fix ImportStart $ \again -> \case
+      ImportDone x -> pure x
 
-  prev <- importedCheckpoint
+      ImportWait next -> do
+        notice "wait some time..."
+        pause @'Seconds 3
+        again next
 
-  excl <- maybe1 prev (pure mempty) $ \p -> do
-    txListAll (Just p) <&> HS.fromList . fmap fst
+      ImportStart -> do
 
-  rv <- refLogRef
+        rvl  <- readTVarIO gitRefLogVal
+        prev <- importedCheckpoint
 
-  hxs <- txList ( pure . not . flip HS.member excl ) rv
+        if | isNothing prev -> again $ ImportWIP 0 prev
 
-  cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
-    ([], r) -> pure (gitTxTree <$> r)
-    (TxSegment{}:xs, l) -> next (xs, l)
-    (cp@(TxCheckpoint n tree) : xs, l) -> do
+           | prev /= rvl -> do
+              again $ ImportWIP 0 prev
 
-      -- full <- findMissedBlocks sto tree <&> L.null
-      missed_ <- newTVarIO 0
-      deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ)
-                        (coerce tree)
-                        (getBlock sto)
-                        (const none)
+           | otherwise -> again $ ImportDone prev
 
-      full <- readTVarIO missed_ <&> (==0)
+      ImportWIP attempt prev -> do
 
-      if full && Just n > (getGitTxRank <$> l) then do
-        next (xs, Just cp)
-      else do
-        next (xs, l)
+        updateReflogIndex
 
-  runMaybeT do
-    cp <- toMPlus cp'
-    notice $ "found checkpoint" <+> pretty cp
-    txs <- lift $ txList ( pure . not . flip HS.member excl ) (Just cp)
+        excl <- maybe1 prev (pure mempty) $ \p -> do
+          txListAll (Just p) <&> HS.fromList . fmap fst
 
-    lift do
-      forConcurrently_ txs $ \case
-        (_, TxCheckpoint{}) -> none
-        (h, TxSegment tree) -> do
-          s <- writeAsGitPack  packs tree
+        rv <- refLogRef
 
-          for_ s $ \file -> do
-            gitRunCommand [qc|git index-pack {file}|]
-              >>= orThrowPassIO
+        hxs <- txList ( pure . not . flip HS.member excl ) rv
 
-          notice $ "imported" <+> pretty h
+        cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
+          ([], r) -> pure (gitTxTree <$> r)
+          (TxSegment{}:xs, l) -> next (xs, l)
+          (cp@(TxCheckpoint n tree) : xs, l) -> do
 
-      updateImportedCheckpoint cp
+            -- full <- findMissedBlocks sto tree <&> L.null
+            missed_ <- newTVarIO 0
+            deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ)
+                              (coerce tree)
+                              (getBlock sto)
+                              (const none)
 
-      pure cp
+            full <- readTVarIO missed_ <&> (==0)
+
+            if full && Just n > (getGitTxRank <$> l) then do
+              next (xs, Just cp)
+            else do
+              next (xs, l)
+
+        case cp' of
+          Nothing -> again $ ImportDone Nothing
+          Just cp -> do
+
+            notice $ "found checkpoint" <+> pretty cp
+            txs <- txList ( pure . not . flip HS.member excl ) (Just cp)
+
+            r <- liftIO $ try @_ @SomeException $ withGit3Env env do
+              forConcurrently_ txs $ \case
+                (_, TxCheckpoint{}) -> none
+                (h, TxSegment tree) -> do
+                  s <- writeAsGitPack  packs tree
+
+                  for_ s $ \file -> do
+                    gitRunCommand [qc|git index-pack {file}|]
+                      >>= orThrowPassIO
+
+                  notice $ "imported" <+> pretty h
+
+              updateImportedCheckpoint cp
+
+            case r of
+              Right _ -> again $ ImportDone (Just cp)
+              Left  e -> do
+                case (fromException e :: Maybe OperationError) of
+                  Just (MissedBlockError2 _) -> again $ ImportWait (ImportWIP (succ attempt) prev)
+                  Just MissedBlockError      -> again $ ImportWait (ImportWIP (succ attempt) prev)
+                  _                          -> throwIO e
 

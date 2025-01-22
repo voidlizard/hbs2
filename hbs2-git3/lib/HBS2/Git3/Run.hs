@@ -486,5 +486,12 @@ repo:key ; shows current repo key
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn
 
+        entry $ bindMatch "repo:relay-only" $ nil_ $ \case
+          [ SignPubKeyLike repo ] -> lift $ connectedDo do
+            setGitRepoKey repo
+            waitRepo (Just 2)
+
+          _ -> throwIO (BadFormException @C nil)
+
         exportEntries "reflog:"
 

@@ -43,6 +43,7 @@ import System.TimeIt
 
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
+import Control.Exception qualified as E
 import UnliftIO.IO.File qualified as UIO
 
 
@@ -305,7 +306,7 @@ updateReflogIndex = do
     flip runContT pure do
 
       what' <- lift $ callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) api reflog
-                >>= orThrow Git3RpcTimeout
+                >>= orThrow RpcTimeout
 
       what <- ContT $ maybe1 what' none
 
@@ -437,7 +438,7 @@ trimRefs = do
 
     mapM_ rm files
 
-importedCheckpoint :: forall m . ( Git3Perks m
+importedCheckpoint :: forall m . ( MonadIO m
                                  , MonadReader Git3Env m
                                  , HasClientAPI RefLogAPI UNIX m
                                  , HasStorage m
@@ -448,7 +449,7 @@ importedCheckpoint = do
   state <- getStatePathM
   let imported = state </> "imported"
   runMaybeT do
-    f <- liftIO (try @_ @IOError (readFile imported <&> headMay . lines))
+    f <- liftIO (E.try @IOError (readFile imported <&> headMay . lines))
       >>= toMPlus
       >>= toMPlus
 
@@ -484,7 +485,7 @@ readRefsRaw :: forall m . ( Git3Perks m
             => [FilePath] -> m [Syntax C]
 
 readRefsRaw files = do
-  mapM (try @_ @IOError . liftIO . readFile) files
+  mapM (liftIO . E.try @IOError . readFile) files
     <&> unlines . rights
     <&> parseTop
     <&> fromRight mempty

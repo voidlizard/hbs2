@@ -55,6 +55,9 @@ data HBS2GitExcepion =
   | RefLogCredentialsNotMatched
   | RefLogNotReady
   | RpcTimeout
+  | Git3PeerNotConnected
+  | Git3ReflogNotSet
+  | NoGitDir
   deriving stock (Show,Typeable)
 
 instance Exception HBS2GitExcepion
@@ -85,14 +88,6 @@ instance Hashable GitWritePacksOptVal
 
 instance GitWritePacksOpts (HashSet GitWritePacksOptVal) where
   excludeParents o = not $ HS.member WriteFullPack o
-
-data Git3Exception =
-    Git3PeerNotConnected
-  | Git3ReflogNotSet
-  | Git3RpcTimeout
-  deriving (Show,Typeable,Generic)
-
-instance Exception Git3Exception
 
 data Git3Env =
     Git3Disconnected
@@ -170,6 +165,10 @@ instance (MonadIO m) => HasGitRemoteKey (Git3 m) where
     e <- ask
     liftIO $ atomically $ writeTVar (gitRepoKey e) (Just k)
 
+instance (MonadIO m, HasGitRemoteKey (Git3 m)) => HasGitRemoteKey (ContT whatever (Git3 m)) where
+  getGitRemoteKey = lift getGitRemoteKey
+  getGitRepoKey = lift getGitRepoKey
+  setGitRepoKey = lift . setGitRepoKey
 
 newtype Git3 (m :: Type -> Type) a = Git3M { fromGit3 :: ReaderT Git3Env m a }
                    deriving newtype ( Applicative
@@ -184,7 +183,6 @@ newtype Git3 (m :: Type -> Type) a = Git3M { fromGit3 :: ReaderT Git3Env m a }
 type Git3Perks m = ( MonadIO m
                    , MonadUnliftIO m
                    )
-
 
 instance MonadUnliftIO m => HasClientAPI PeerAPI UNIX (Git3 m) where
   getClientAPI = do
@@ -205,7 +203,13 @@ instance (MonadUnliftIO m) => HasClientAPI LWWRefAPI UNIX (Git3 m) where
        Git3Disconnected{} -> throwIO Git3PeerNotConnected
        Git3Connected{..} -> pure lwwAPI
 
-getStatePathM :: forall m . (HBS2GitPerks m, HasGitRemoteKey m) => m FilePath
+instance HasClientAPI api UNIX (Git3 m) => HasClientAPI api UNIX (ContT whatever (Git3 m)) where
+  getClientAPI  =  lift (getClientAPI @api @UNIX)
+
+instance HasClientAPI api UNIX (Git3 m) => HasClientAPI api UNIX (MaybeT (Git3 m)) where
+  getClientAPI = lift getClientAPI
+
+getStatePathM :: forall m . (MonadIO m, HasGitRemoteKey m) => m FilePath
 getStatePathM = do
   k <- getGitRemoteKey >>= orThrow RefLogNotSet
   getStatePath (AsBase58 k) >>= orThrow StateDirNotDefined
