@@ -138,6 +138,7 @@ importGitRefLog = withStateDo $ ask >>= \case
 
     flip fix ImportStart $ \again -> \case
       ImportDone x -> do
+        notice "import done"
         for_ x updateImportedCheckpoint
         updateReflogIndex
         pure x
@@ -151,11 +152,9 @@ importGitRefLog = withStateDo $ ask >>= \case
         notice $ "wait some time..." <+> parens (pretty down)
 
         case d of
-          Just n | down < n ->  pause @'Seconds 3 >> again next
-          _ -> pure Nothing
+          Just n | down < n || down == 0 -> again next
 
-        pause @'Seconds 3
-        again $ ImportWait (Just down) next
+          _ -> pause @'Seconds 3 >> again (ImportWait (Just down) next)
 
       ImportStart -> do
 
@@ -225,8 +224,8 @@ importGitRefLog = withStateDo $ ask >>= \case
 
         case r of
           Right cp -> again $ ImportDone cp
-          Left  (MissedBlockError2 _) -> again $ ImportWait Nothing (ImportWIP (succ attempt) prev)
-          Left  MissedBlockError      -> again $ ImportWait Nothing (ImportWIP (succ attempt) prev)
+          Left  (MissedBlockError2 _) -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
+          Left  MissedBlockError      -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
           Left  e                     -> throwIO e
 
 
