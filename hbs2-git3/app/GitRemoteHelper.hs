@@ -194,7 +194,7 @@ main =  flip runContT pure do
 
     url <- case cli of
       [ ListVal [_, RepoURL x ] ] -> do
-        notice $ "FUCKING REMOTE" <+> pretty (AsBase58 x)
+        notice $ "git remote ref set:" <+> green (pretty (AsBase58 x))
         setGitRepoKey x
         pure $ Just x
 

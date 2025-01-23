@@ -113,6 +113,8 @@ data ImportStage =
   | ImportWait (Maybe Int) ImportStage
   | ImportDone (Maybe HashRef)
 
+{- HLINT ignore "Functor law" -}
+
 importGitRefLog :: forall m . ( HBS2GitPerks m
                               -- , HasStorage m
                               -- , HasClientAPI PeerAPI UNIX m
@@ -145,16 +147,20 @@ importGitRefLog = withStateDo $ ask >>= \case
 
       ImportWait d next -> do
 
-        down <- callRpcWaitMay @RpcDownloadList (TimeoutSec 1) peerAPI ()
-                  >>= orThrow RpcTimeout
-                  <&> fromIntegral . L.length
+        pause @'Seconds 1.15
+
+        down <- callRpcWaitRetry @RpcGetProbes (TimeoutSec 1) 3 peerAPI ()
+                   >>= orThrow RpcTimeout
+                   <&> maybe 0 fromIntegral . headMay . mapMaybe \case
+                         ProbeSnapshotElement "Download.wip" n -> Just n
+                         _ -> Nothing
 
         notice $ "wait some time..." <+> parens (pretty down)
 
         case d of
-          Just n | down < n || down == 0 -> again next
+          Just n | down /= n || down == 0 -> again next
 
-          _ -> pause @'Seconds 3 >> again (ImportWait (Just down) next)
+          _ -> pause @'Seconds 2.85 >> again (ImportWait (Just down) next)
 
       ImportStart -> do
 

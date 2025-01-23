@@ -650,7 +650,7 @@ downloadDispatcher probe brains env = do
 
       dupes <- newTVarIO ( mempty :: HashMap HashRef Int )
 
-      ContT $ withAsync $ forever $ pause @'Seconds 10 >> do
+      ContT $ withAsync $ forever $ pause @'Seconds 2 >> do
         acceptReport probe =<< S.toList_ do
           wip <- readTVarIO wip <&> HM.size
           pn  <- readTVarIO pts <&> HM.size
