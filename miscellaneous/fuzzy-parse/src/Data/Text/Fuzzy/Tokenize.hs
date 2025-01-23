@@ -96,6 +96,7 @@ import Data.Maybe (fromMaybe)
 import Data.Monoid()
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.Char qualified as Char
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -464,20 +465,10 @@ tokenize' spec txt = execTokenizeM (root' txt) spec
         Just (c, rest) | c ==  q   -> root rest
                        | otherwise -> tell [tsChar c] >> scanQ q rest
 
-    unesc f ts =
-      case Text.uncons ts of
-        Nothing -> f ts
-        Just ('"', rs)  -> tell [tsChar '"' ]  >> f rs
-        Just ('\'', rs) -> tell [tsChar '\''] >> f rs
-        Just ('\\', rs) -> tell [tsChar '\\'] >> f rs
-        Just ('t', rs)  -> tell [tsChar '\t'] >> f rs
-        Just ('n', rs)  -> tell [tsChar '\n'] >> f rs
-        Just ('r', rs)  -> tell [tsChar '\r'] >> f rs
-        Just ('a', rs)  -> tell [tsChar '\a'] >> f rs
-        Just ('b', rs)  -> tell [tsChar '\b'] >> f rs
-        Just ('f', rs)  -> tell [tsChar '\f'] >> f rs
-        Just ('v', rs)  -> tell [tsChar '\v'] >> f rs
-        Just (_, rs)    -> f rs
+    unesc f ts = do
+      case Char.readLitChar ('\\' : Text.unpack ts) of
+        [ (c, rest) ] -> tell [tsChar c] >> f (Text.pack rest)
+        _             -> f ts
 
     tsChar c | justTrue (tsNoSlits spec) = TChar c
              | otherwise = TSChar c
