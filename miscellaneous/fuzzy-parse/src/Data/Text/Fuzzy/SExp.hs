@@ -184,6 +184,7 @@ tokenizeSexp txt =  do
                             <> punct ",`'{}()[]\n"
                             <> sqq
                             <> uw
+                            <> esc
   tokenize spec txt
 
 runSexpM :: Monad m => SExpM m a -> m a
