@@ -11,6 +11,7 @@ module Data.Config.Suckless.Script.Internal
 import Data.Config.Suckless
 import Data.Config.Suckless.Almost.RPC
 
+import Data.Traversable
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Identity
@@ -503,13 +504,11 @@ apply_ :: forall c m . ( IsContext c
 
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
-  SymbolVal "quot"        -> pure $ mkList args
-  SymbolVal "quote"       -> pure $ mkList args
   SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal   what  -> apply what args
   Lambda d body     -> applyLambda d body args
-  e                  -> throwIO $ NotLambda e
+  e                 -> throwIO $ NotLambda e
 
 apply :: forall c m . ( IsContext c
                       , MonadUnliftIO m
@@ -519,8 +518,9 @@ apply :: forall c m . ( IsContext c
       -> [Syntax c]
       -> RunM c m (Syntax c)
 
-apply "quot" args = do
-  pure $ mkList args
+apply "quot" e = case e of
+  [ x ] -> pure x
+  _ -> throwIO $ BadFormException @c nil
 
 apply "quasiquot" args = do
   mkList <$> mapM (evalQQ mempty) args
@@ -718,7 +718,8 @@ eval' dict0 syn = handle (handleForm syn) $ do
 
       e@Literal{} -> pure e
 
-      e -> throwIO $ NotLambda @c e
+      e -> do
+        throwIO $ NotLambda @c e
 
   where
     handleForm syn = \case
@@ -797,10 +798,10 @@ fixContext = go
       Literal _ l  -> Literal noContext l
       OpaqueValue box  -> OpaqueValue box
 
--- quotList :: forall c . IsContext c => Syntax c -> Syntax c
--- quotList = \case
---   ListVal (x:xs) | x /= mkSym "quot" -> mkList (mkSym "quot" : x : xs)
---   e -> e
+fixList :: forall c . IsContext c => Syntax c -> Syntax c
+fixList = \case
+  (ListVal es) -> mkList ( mkSym "list" : es )
+  e -> e
 
 fmt :: Syntax c -> Doc ann
 fmt = \case
@@ -843,6 +844,13 @@ internalEntries = do
 
           xs -> do
             pure $ mkStr ( show $ hcat (fmap fmt xs) )
+
+    entry $ bindMatch "join" $ \case
+      [ x, ListVal es ] -> do
+        let xs = List.intersperse x es
+        pure $ mkStr ( show $ hcat (fmap fmt xs) )
+
+      _ -> throwIO (BadFormException @C nil)
 
     brief "creates a list of elements"
       $ args [arg "..." "..."]
@@ -889,16 +897,12 @@ internalEntries = do
          let wat = mkList [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
          pure $ wat
 
-    entry $ bindMatch "iterate" $ nil_ $ \syn -> do
-      case syn of
-        [ListVal (SymbolVal "builtin:lambda" : SymbolVal fn : _), ListVal rs] -> do
-          mapM_ (apply @c fn . List.singleton) rs
+    entry $ bindMatch "iterate" $ nil_ $ \case
+      [ what, ListVal es ] -> do
+        mapM_ (apply_ what . List.singleton) es
 
-        [Lambda decl body,  ListVal args]  -> do
-          mapM_ (applyLambda decl body . List.singleton) args
-
-        _ -> do
-          throwIO (BadFormException @C nil)
+      _ -> do
+        throwIO (BadFormException @C nil)
 
     entry $ bindMatch "repeat" $ nil_ $ \case
       [LitIntVal n, Lambda [] b] -> do
@@ -927,17 +931,11 @@ internalEntries = do
       [ LitIntVal n ] -> pure (mkInt (succ n))
       _ -> throwIO (TypeCheckError @C  nil)
 
-    entry $ bindMatch "map" $ \syn -> do
-      case syn of
-        [ListVal (SymbolVal "builtin:lambda" : SymbolVal fn : _), ListVal rs] -> do
-          mapM (apply @c fn . List.singleton) rs
-            <&> mkList
+    entry $ bindMatch "map" $ \case
+      [ what, ListVal es ] -> do
+        mkList <$> mapM (apply_ what . List.singleton) es
 
-        [Lambda decl body,  ListVal args]  -> do
-          mapM (applyLambda decl body . List.singleton) args
-            <&> mkList
-
-        _ -> do
+      _ -> do
           throwIO (BadFormException @C nil)
 
     entry $ bindMatch "quot" $ \case
@@ -949,6 +947,10 @@ internalEntries = do
       [ syn ] -> mkList . List.singleton <$> evalQQ mempty syn
       _ -> do
           throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "last" $ \case
+      [ ListVal es ] -> pure (lastDef nil es)
+      _ -> throwIO (TypeCheckError @C nil)
 
     entry $ bindMatch "head" $ \case
       [ ListVal es ] -> pure (head es)
@@ -968,6 +970,14 @@ internalEntries = do
         [ListVal es] -> pure $ mkList  (tail es)
         _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "take" $ \case
+      [ LitIntVal n, ListVal es ] -> pure $ mkList $ take (fromIntegral n) es
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "drop" $ \case
+      [ LitIntVal n, ListVal es ] -> pure $ mkList $ drop (fromIntegral n) es
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "nth" $ \case
       [ LitIntVal i, ListVal es ] -> pure $ atDef nil es (fromIntegral i)
       _ -> throwIO (BadFormException @c nil)
@@ -975,6 +985,19 @@ internalEntries = do
     entry $ bindMatch "assoc" $ \case
       [k, ListVal es ] -> pure $ headDef nil [ r | r@(ListVal (w:_)) <- es, k == w ]
       _ -> throwIO (BadFormException @c nil)
+
+    --TODO: integral sum
+
+    entry $ bindMatch "sum" $ \case
+      [ ListVal es ]  -> do
+        let v = flip mapMaybe es \case
+                  LitIntVal n         -> Just $ realToFrac  n
+                  LitScientificVal n  -> Just $ realToFrac @_ @Double n
+                  _ -> Nothing
+
+        pure $ mkDouble $ sum v
+
+      _ -> pure $ mkDouble 0
 
     entry $ bindMatch "assoc:nth" $ \case
       [LitIntVal i, k, ListVal es ] -> do
@@ -1288,10 +1311,10 @@ internalEntries = do
     brief "calls external process"
       $ entry $ bindMatch "call:proc" \case
           [StringLike what] -> lift do
-            callProc what mempty mempty <&> mkList @c . fmap (mkForm "quot" . List.singleton . fixContext)
+            callProc what mempty mempty <&> mkList @c . fmap (fixList . fixContext)
 
           StringLikeList (x:xs) -> lift do
-            callProc x xs mempty <&> mkList @c . fmap (mkForm "quot" . List.singleton . fixContext)
+            callProc x xs mempty <&> mkList @c . fmap (fixList . fixContext)
 
           _ -> throwIO (BadFormException @c nil)
 
