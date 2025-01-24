@@ -1006,6 +1006,14 @@ internalEntries = do
 
     --TODO: integral sum
 
+    entry $ bindMatch "words" $ \case
+      [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.words x ]
+      _ -> pure nil
+
+    entry $ bindMatch "lines" $ \case
+      [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.lines x ]
+      _ -> pure nil
+
     entry $ bindMatch "sum" $ \case
       [ ListVal es ]  -> do
         let v = flip mapMaybe es \case
