@@ -538,7 +538,6 @@ apply "quasiquot" args = do
   mkList <$> mapM (evalQQ mempty) args
 
 apply name args' = do
-  -- notice $ red "APPLY" <+> pretty name
   what <- ask >>=  readTVarIO <&> HM.lookup name
 
   case bindAction <$> what of
