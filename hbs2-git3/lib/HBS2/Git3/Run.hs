@@ -436,10 +436,11 @@ compression      ;  prints compression level
         entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
 
-        entry $ bindMatch "reflog:wait" $ nil_ $ \syn -> lift $ connectedDo do
+        entry $ bindMatch "repo:wait" $ nil_ $ \syn -> lift $ connectedDo do
           let (_,argz) = splitOpts [] syn
           let t = headMay [ realToFrac x | LitIntVal x <- argz ]
           waitRepo t
+          getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
