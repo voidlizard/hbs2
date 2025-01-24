@@ -372,6 +372,7 @@ instance Exception BadValueException
 
 type Dict c m = HashMap Id (Bind c m)
 
+
 newtype RunM c m a = RunM { fromRunM :: ReaderT (TVar (Dict c m)) m a }
                      deriving newtype ( Applicative
                                       , Functor
@@ -469,6 +470,18 @@ splitForms s0 = runIdentity $ S.toList_ (go mempty s0)
 
     emit = S.yield . reverse
 
+
+
+evargs :: forall c m . ( IsContext c
+                       , MonadUnliftIO m
+                       , Exception (BadFormException c)
+                       )
+       => Dict c m
+       -> [Syntax c]
+       -> RunM c m [Syntax c]
+
+evargs dict = mapM (eval' dict)
+
 applyLambda :: forall c m . ( IsContext c
                             , MonadUnliftIO m
                             , Exception (BadFormException c)
@@ -477,12 +490,11 @@ applyLambda :: forall c m . ( IsContext c
             -> Syntax c
             -> [Syntax c]
             -> RunM c m (Syntax c)
-applyLambda decl body args = do
+applyLambda decl body ev = do
 
-  when (length decl /= length args) do
+  when (length decl /= length ev) do
     throwIO (ArityMismatch @c nil)
 
-  ev <- mapM eval args
   tv <- ask
   d0 <- readTVarIO tv
 
@@ -531,8 +543,7 @@ apply name args' = do
 
   case bindAction <$> what of
     Just (BindLambda e) -> do
-      liftIO $ print $ show $ pretty "APPLY!" <+> pretty name <+> pretty args'
-      mapM eval args' >>= e
+      e args'
 
     Just (BindValue (Lambda argz body) )  -> do
       applyLambda argz body args'
@@ -602,13 +613,14 @@ eval :: forall c m . ( IsContext c
                        -> RunM c m (Syntax c)
 eval = eval' mempty
 
+
 eval' :: forall c m . ( IsContext c
                      , MonadUnliftIO m
                      , Exception (BadFormException c)
                      ) => Dict c m
                        -> Syntax c
                        -> RunM c m (Syntax c)
-eval' dict0 syn = handle (handleForm syn) $ do
+eval' dict0 syn' = handle (handleForm syn') $ do
 
     dict1 <- ask >>= readTVarIO
 
@@ -616,7 +628,7 @@ eval' dict0 syn = handle (handleForm syn) $ do
 
     -- liftIO $ print $ show $ "TRACE EXP" <+> pretty syn
 
-    case syn of
+    case syn' of
 
       SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
         pure (mkSym @c (Text.drop 1 s))
@@ -693,14 +705,14 @@ eval' dict0 syn = handle (handleForm syn) $ do
         -- evalTop what
 
       lc@(ListVal (Lambda decl body : args))  -> do
-        applyLambda decl body args
+        applyLambda decl body =<< evargs dict args
 
       ListVal (SymbolVal name : args') -> do
-        apply name args'
+        apply name =<< evargs dict args'
 
       ListVal (e' : args') -> do
         -- e <- eval e'
-        apply_ e' args'
+        apply_ e' =<< evargs dict args'
 
       SymbolVal name | HM.member name dict -> do
 
