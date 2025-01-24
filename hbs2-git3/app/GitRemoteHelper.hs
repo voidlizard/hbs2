@@ -48,27 +48,6 @@ parseCLI = do
   parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
 
--- parseURL :: String -> Maybe (LWWRefKey 'HBS2Basic)
--- parseURL s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
---   where
---     p = do
---       void $ string "hbs21://" <|> string "hbs2://"
-
---       Atto.takeWhile1 (`elem` getAlphabet)
---        <&> BS8.unpack
---        <&> fromStringMay @(LWWRefKey 'HBS2Basic)
---        >>= maybe (fail "invalid reflog key") pure
-
--- parsePush :: String -> Maybe (Maybe GitRef, GitRef)
--- parsePush s = eitherToMaybe $ Atto.parseOnly p (BS8.pack s)
---   where
---     gitref = fromString @GitRef . BS8.unpack
---     p = do
---       a <- optional (Atto.takeWhile1 (/= ':')) <&> fmap gitref
---       char ':'
---       b <- Atto.takeWhile1 (const True) <&> gitref
---       pure (a,b)
-
 data S =
     Plain
   | Push
@@ -81,23 +60,8 @@ data DeferredOps =
   { exportQ :: TQueue (GitRef, Maybe GitHash)
   }
 
-pattern RepoURL :: GitRemoteKey -> Syntax C
-pattern RepoURL x <- (isRepoURL -> Just x)
-
-isRepoURL :: Syntax C -> Maybe GitRemoteKey
-isRepoURL = \case
-  TextLike xs -> case mkStr @C <$> headMay (drop 1  (Text.splitOn "://" xs)) of
-    Just (SignPubKeyLike puk) -> Just puk
-    _ -> Nothing
-
-  _ -> Nothing
-
 
 localDict  :: forall m . ( HBS2GitPerks m
-                      -- , HasClientAPI PeerAPI UNIX m
-                      -- , HasStorage m
-                      -- , HasGitRemoteKey m
-                      -- , HasStateDB m
                       )
             => DeferredOps -> Dict C (Git3 m)
 

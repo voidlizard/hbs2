@@ -1,9 +1,12 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 module HBS2.Git3.Repo ( initRepo, waitRepo
                       , getRepoRefMaybe
                       , getRepoManifest
                       , HasGitRemoteKey(..)
+                      , pattern RepoURL
                       ) where
 
 import HBS2.Git3.Prelude
@@ -12,13 +15,13 @@ import HBS2.Git3.State
 import HBS2.CLI.Run.MetaData
 import HBS2.Net.Auth.Credentials
 
-import HBS2.Git3.Config.Local
-
 import HBS2.KeyMan.Keys.Direct
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
 
+import Data.HashSet qualified as HS
+import Data.Text qualified as Text
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Word
 import Lens.Micro.Platform
@@ -36,6 +39,19 @@ data CInit =
   | CreateRepoDefBlock GitRepoKey
 
 
+pattern RepoURL :: GitRemoteKey -> Syntax C
+pattern RepoURL x <- (isRepoURL -> Just x)
+
+isRepoURL :: Syntax C -> Maybe GitRemoteKey
+isRepoURL = \case
+  TextLike xs -> case mkList @C (fmap mkStr (Text.splitOn "://" xs)) of
+    ListVal [TextLike pref, SignPubKeyLike puk] | pref `HS.member` prefixes -> Just puk
+    _ -> Nothing
+
+  _ -> Nothing
+
+  where
+    prefixes = HS.fromList [ "hbs2", "hbs23" ]
 
 initRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
 initRepo syn = do
