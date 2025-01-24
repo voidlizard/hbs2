@@ -942,7 +942,7 @@ internalEntries = do
       _ -> throwIO (TypeCheckError @C  nil)
 
     entry $ bindMatch "dec" $ \case
-      [ LitIntVal n ] -> pure (mkInt (succ n))
+      [ LitIntVal n ] -> pure (mkInt (pred n))
       _ -> throwIO (TypeCheckError @C  nil)
 
     entry $ bindMatch "map" $ \case
@@ -973,6 +973,16 @@ internalEntries = do
     entry $ bindMatch "cons" $ \case
       [ e, ListVal es ] -> pure (mkList (e:es))
       _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "@" $ \syn -> do
+      case List.uncons (reverse syn) of
+        Nothing -> pure nil
+        Just (a, []) -> pure a
+        Just (a, fs) -> flip fix (a, fs) $ \next -> \case
+          (acc, []) -> pure acc
+          (acc, x:xs) -> do
+            acc' <- apply_ x [acc]
+            next (acc', xs)
 
     brief "get tail of list"
       $ args [arg "list" "list"]
