@@ -530,7 +530,9 @@ apply name args' = do
   what <- ask >>=  readTVarIO <&> HM.lookup name
 
   case bindAction <$> what of
-    Just (BindLambda e) -> mapM eval args' >>= e
+    Just (BindLambda e) -> do
+      liftIO $ print $ show $ pretty "APPLY!" <+> pretty name <+> pretty args'
+      mapM eval args' >>= e
 
     Just (BindValue (Lambda argz body) )  -> do
       applyLambda argz body args'
@@ -643,8 +645,8 @@ eval' dict0 syn = handle (handleForm syn) $ do
       ListVal [ SymbolVal "quasiquot", ListVal b] -> do
         mkList <$> mapM (evalQQ dict) b
 
-      ListVal [ SymbolVal "quot", ListVal b] -> do
-        pure  $ mkList  b
+      ListVal [ SymbolVal "quot", b] -> do
+        pure b
 
       ListVal [ SymbolVal "eval", e ] -> eval e >>= eval
 
@@ -1311,10 +1313,10 @@ internalEntries = do
     brief "calls external process"
       $ entry $ bindMatch "call:proc" \case
           [StringLike what] -> lift do
-            callProc what mempty mempty <&> mkList @c . fmap (fixList . fixContext)
+            callProc what mempty mempty <&> mkList @c . fmap (fixContext)
 
           StringLikeList (x:xs) -> lift do
-            callProc x xs mempty <&> mkList @c . fmap (fixList . fixContext)
+            callProc x xs mempty <&> mkList @c . fmap (fixContext)
 
           _ -> throwIO (BadFormException @c nil)
 
