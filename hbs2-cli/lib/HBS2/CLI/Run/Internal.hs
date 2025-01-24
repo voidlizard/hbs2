@@ -8,6 +8,8 @@ module HBS2.CLI.Run.Internal
 
 import HBS2.CLI.Prelude
 
+import HBS2.System.Dir
+
 import HBS2.OrDie
 import HBS2.Base58
 import HBS2.Data.Types.Refs
@@ -167,6 +169,19 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
     -- TODO: re-implement-all-on-top-of-opaque
+
+    -- TODO: move-somewhere
+    entry $ bindMatch "rm" $ nil_ \case
+      [ StringLike p ] -> rm p
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "touch" $ nil_ \case
+      [ StringLike p ] -> touch p
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "mkdir" $ nil_ \case
+      [ StringLike p ] -> mkdir p
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "blob:base58" $ \case
       [LitStrVal t] -> do

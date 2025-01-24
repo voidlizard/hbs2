@@ -1006,6 +1006,16 @@ internalEntries = do
 
     --TODO: integral sum
 
+    entry $ bindMatch "upper" $ \case
+      [ LitStrVal x ] -> pure $ mkStr $ Text.toUpper x
+      [ SymbolVal (Id x) ] -> pure $ mkSym $ Text.toUpper x
+      _ -> pure nil
+
+    entry $ bindMatch "lower" $ \case
+      [ LitStrVal x ] -> pure $ mkStr $ Text.toLower x
+      [ SymbolVal (Id x) ] -> pure $ mkSym $ Text.toLower x
+      _ -> pure nil
+
     entry $ bindMatch "words" $ \case
       [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.words x ]
       _ -> pure nil
