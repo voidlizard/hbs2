@@ -33,6 +33,7 @@ import Data.Kind
 import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.Maybe
+import Data.Either
 import Data.String
 import Data.Text.IO qualified as TIO
 import Data.Text qualified as Text
@@ -966,8 +967,12 @@ internalEntries = do
       _ -> throwIO (TypeCheckError @C nil)
 
     entry $ bindMatch "head" $ \case
-      [ ListVal es ] -> pure (head es)
+      [ ListVal es ] -> pure (headDef nil es)
       _ -> throwIO (TypeCheckError @C nil)
+
+    entry $ bindMatch "cons" $ \case
+      [ e, ListVal es ] -> pure (mkList (e:es))
+      _ -> throwIO (BadFormException @C nil)
 
     brief "get tail of list"
       $ args [arg "list" "list"]
@@ -1139,6 +1144,11 @@ internalEntries = do
     let lwrap = \case
           e@(SymbolVal x) -> wrapWith e
           _ -> id
+
+
+    entry $ bindMatch "top:stdin" $ const do
+      liftIO TIO.getContents
+          <&> either (const nil) (mkList . fmap fixContext) . parseTop
 
     brief "parses string as toplevel and produces a form"
      $ desc "parse:top:string SYMBOL STRING-LIKE"
