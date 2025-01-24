@@ -307,6 +307,5 @@ waitRepo timeout = do
 
         lift $ updateRepoKey repoKey
 
-        liftIO $ print $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
-
+        debug $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
 

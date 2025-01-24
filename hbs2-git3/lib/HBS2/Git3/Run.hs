@@ -12,6 +12,7 @@ import HBS2.Git3.Export
 import HBS2.Git3.Import
 import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
+import HBS2.Git3.Logger
 
 import Data.Config.Suckless.Script
 
@@ -91,6 +92,9 @@ compression      ;  prints compression level
             setPackedSegmedSize (fromIntegral n)
 
           _ -> throwIO (BadFormException @C nil)
+
+        entry $ bindMatch "quiet" $ nil_ $ const $ lift do
+          silence
 
         entry $ bindMatch "index-block-size" $ nil_ \case
           [ LitIntVal size ]-> lift do
@@ -457,7 +461,8 @@ compression      ;  prints compression level
 
             liftIO $ print $ pretty (AsBase58 reflog)
 
-        entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo do
+        entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo $ do
+          waitRepo (Just 10)
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
 
