@@ -469,7 +469,7 @@ repo:key EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
 
 repo:key ; shows current repo key
           |] $
-            entry $ bindMatch "repo:key" $ nil_ $ \case
+            entry $ bindMatch "repo:ref" $ nil_ $ \case
               [ SignPubKeyLike k ] -> lift do
                 setGitRepoKey k
 
