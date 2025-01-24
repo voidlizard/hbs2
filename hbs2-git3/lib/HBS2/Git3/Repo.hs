@@ -82,7 +82,7 @@ initRepo syn = do
               & lastMay
               & orThrowUser "can't create new lwwref"
 
-      liftIO $ appendFile root (show $ pretty $ mkForm "repo:key" [mkSym @C (show $ pretty (AsBase58 pk))])
+      liftIO $ appendFile root (show $ pretty $ mkForm "repo:ref" [mkSym @C (show $ pretty (AsBase58 pk))])
 
     CheckRepoKeyStart pk -> do
       debug $ "initRepo:CheckRepoKeyStart" <+> pretty (AsBase58 pk)

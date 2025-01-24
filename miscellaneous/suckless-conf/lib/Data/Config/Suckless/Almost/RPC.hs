@@ -23,7 +23,7 @@ data CallProcException =
 instance Exception CallProcException
 
 -- FIXME: to-suckless-script
-callProc :: forall m . (MonadIO m)
+callProc :: forall m . MonadIO m
          => FilePath
          -> [String]
          -> [Syntax C]
@@ -33,6 +33,7 @@ callProc name params syn = do
   let input = fmap (LBS.fromStrict . TE.encodeUtf8 . T.pack  . show . pretty) syn
                 & LBS8.unlines
                 & byteStringInput
+
 
   let what = proc name params & setStderr closed & setStdin input
   (code, i, _) <- readProcess what

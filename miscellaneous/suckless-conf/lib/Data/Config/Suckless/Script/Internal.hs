@@ -9,6 +9,7 @@ module Data.Config.Suckless.Script.Internal
   ) where
 
 import Data.Config.Suckless
+import Data.Config.Suckless.Almost.RPC
 
 import Control.Applicative
 import Control.Monad
@@ -796,6 +797,11 @@ fixContext = go
       Literal _ l  -> Literal noContext l
       OpaqueValue box  -> OpaqueValue box
 
+-- quotList :: forall c . IsContext c => Syntax c -> Syntax c
+-- quotList = \case
+--   ListVal (x:xs) | x /= mkSym "quot" -> mkList (mkSym "quot" : x : xs)
+--   e -> e
+
 fmt :: Syntax c -> Doc ann
 fmt = \case
   LitStrVal x -> pretty $ Text.unpack x
@@ -851,9 +857,9 @@ internalEntries = do
 
     entry $ bindMatch "dict" $ \case
       (pairList -> es@(_:_)) -> do
-        pure $ mkForm "dict" es
+        pure $ mkList es
       [a, b] -> do
-        pure $ mkForm "dict" [ mkList [a, b] ]
+        pure $ mkList [ mkList [a, b] ]
       _ -> throwIO (BadFormException @C nil)
 
     brief "creates a dict from a linear list of string-like items"
@@ -880,8 +886,8 @@ internalEntries = do
 (dict (a b) (c ()))
       |]
       $ entry $ bindMatch "kw" $ \syn -> do
-         let wat = [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
-         pure $ mkForm "dict" wat
+         let wat = mkList [ mkList @c [mkSym i, e] | (i,e) <- optlist syn ]
+         pure $ wat
 
     entry $ bindMatch "iterate" $ nil_ $ \syn -> do
       case syn of
@@ -940,7 +946,7 @@ internalEntries = do
           throwIO (BadFormException @C nil)
 
     entry $ bindMatch "quasiquot" $ \case
-      [ syn ] -> mkList . List.singleton <$> (evalQQ mempty) syn
+      [ syn ] -> mkList . List.singleton <$> evalQQ mempty syn
       _ -> do
           throwIO (BadFormException @C nil)
 
@@ -962,9 +968,22 @@ internalEntries = do
         [ListVal es] -> pure $ mkList  (tail es)
         _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "nth" $ \case
+      [ LitIntVal i, ListVal es ] -> pure $ atDef nil es (fromIntegral i)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "assoc" $ \case
+      [k, ListVal es ] -> pure $ headDef nil [ r | r@(ListVal (w:_)) <- es, k == w ]
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "assoc:nth" $ \case
+      [LitIntVal i, k, ListVal es ] -> do
+        pure $ headDef nil [ r | r@(ListVal ys) <- es, atMay  ys (fromIntegral i) == Just k ]
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "lookup" $ \case
-      [s, ListVal (SymbolVal "dict" : es) ] -> do
-        let val = headDef nil [ v | ListVal [k, v] <- es, k == s ]
+      [k, ListVal es ] -> do
+        let val = headDef nil [ mkList rest | ListVal (w:rest) <- es, k == w ]
         pure val
 
       [StringLike s, ListVal [] ] -> do
@@ -1172,7 +1191,7 @@ internalEntries = do
      $ entry $ bindMatch "env" $ \case
          [] -> do
            s <- liftIO getEnvironment
-           pure $ mkForm "dict" [ mkList [mkSym @c a, mkStr b] | (a,b) <- s ]
+           pure $  mkList [ mkList [mkSym @c a, mkStr b] | (a,b) <- s ]
 
          [StringLike s] -> do
            liftIO (lookupEnv s)
@@ -1265,4 +1284,15 @@ internalEntries = do
           liftIO $ BS.writeFile fn s
 
         _ -> throwIO (BadFormException @c nil)
+
+    brief "calls external process"
+      $ entry $ bindMatch "call:proc" \case
+          [StringLike what] -> lift do
+            callProc what mempty mempty <&> mkList @c . fmap (mkForm "quot" . List.singleton . fixContext)
+
+          StringLikeList (x:xs) -> lift do
+            callProc x xs mempty <&> mkList @c . fmap (mkForm "quot" . List.singleton . fixContext)
+
+          _ -> throwIO (BadFormException @c nil)
+
 

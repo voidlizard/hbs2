@@ -12,9 +12,11 @@ import HBS2.Git3.Export
 import HBS2.Git3.Import
 import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
+import HBS2.Git3.Repo.Fork (forkEntries)
 import HBS2.Git3.Logger
 
 import Data.Config.Suckless.Script
+import Data.Config.Suckless.Almost.RPC
 
 import Codec.Compression.Zstd.Lazy qualified as ZstdL
 
@@ -407,6 +409,8 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
+          waitRepo Nothing
+
           let (opts, _) = splitOpts [ ("--checkpoints",0)
                                     , ("--segments",0)
                                     ] syn
@@ -471,9 +475,9 @@ compression      ;  prints compression level
           $ desc "needed when you call hbs2-git command directly"
           $ examples [qc|
 ; in config:
-repo:key EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
+repo:ref EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
 
-repo:key ; shows current repo key
+repo:ref ; shows current repo key
           |] $
             entry $ bindMatch "repo:ref" $ nil_ $ \case
               [ SignPubKeyLike k ] -> lift do
@@ -500,4 +504,8 @@ repo:key ; shows current repo key
           _ -> throwIO (BadFormException @C nil)
 
         exportEntries "reflog:"
+
+        forkEntries "repo:"
+
+
 
