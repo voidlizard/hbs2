@@ -83,7 +83,7 @@ localDict DeferredOps{..} = makeDict @C do
       rrefs <- importedRefs
 
       for_ rrefs $ \(r,h) -> do
-        debug $ pretty h <+> pretty r
+        notice $ yellow "REF" <+> pretty h <+> pretty r
         sendLine $ show $ pretty h <+> pretty r
 
       let l = lastMay rrefs

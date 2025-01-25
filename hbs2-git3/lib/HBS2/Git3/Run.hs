@@ -433,11 +433,13 @@ compression      ;  prints compression level
             forM_ decoded print
 
         entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
+          waitRepo Nothing
           rrefs <- importedRefs
           for_  rrefs $ \(r,h) -> do
             liftIO $ print $ fill 20  (pretty h) <+> pretty r
 
         entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
+          waitRepo Nothing
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
 
         entry $ bindMatch "repo:wait" $ nil_ $ \syn -> lift $ connectedDo do

@@ -60,7 +60,10 @@ updateRepoKey key = do
   reflog <- getRepoManifest <&> getRefLog
 
   ask >>= \case
-        Git3Connected{..} -> atomically $ writeTVar gitRefLog reflog
+        Git3Connected{..} -> do
+          notice $ yellow "UPDATED REFLOG" <+> pretty (fmap AsBase58 reflog)
+          atomically $ writeTVar gitRefLog reflog
+
         _ -> none
 
 getRepoRefMaybe :: forall m . HBS2GitPerks m => Git3 m (Maybe (LWWRef 'HBS2Basic))
