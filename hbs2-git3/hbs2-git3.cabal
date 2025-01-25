@@ -125,8 +125,10 @@ library
       HBS2.Git3.Prelude
       HBS2.Git3.Export
       HBS2.Git3.Import
-      HBS2.Git3.Repo
       HBS2.Git3.Repo.Fork
+      HBS2.Git3.Repo.Init
+      HBS2.Git3.Repo.Types
+      HBS2.Git3.Repo
       HBS2.Git3.Run
       HBS2.Git3.Logger
       HBS2.Git3.State

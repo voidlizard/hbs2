@@ -2,6 +2,7 @@ module HBS2.Git3.Repo.Fork (forkEntries) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
+import HBS2.Git3.Repo.Init
 import HBS2.Git3.Git
 import HBS2.Data.Detect
 
@@ -41,15 +42,30 @@ import System.IO qualified as IO
 import System.IO.Temp as Temp
 import UnliftIO.Concurrent
 
+import Text.InterpolatedString.Perl6 (qc)
 
 forkEntries :: forall m . (HBS2GitPerks m) => Id -> MakeDictM C (Git3 m) ()
 forkEntries prefix = do
-  entry $ bindMatch (prefix <> "fork") $ nil_ $ \case
-    [ SignPubKeyLike what ] -> lift $ connectedDo do
-      error $ show $ "not yet" <+> pretty (AsBase58 what)
 
-      r <- callProc "git" ["--init"] []
-      none
+  brief "forks hbs2-git repository"
+    $ desc ("All new repo creation boilerplate:" <> line
+             <> "creates a new sign key,"
+             <+> "creates a new lww reference,"
+             <+> "adds this key to hbs2-keyman," <> line
+             <> "creates default repo manifest")
+    $ args [ arg "key" "repo-ref" ]
+    $ examples [qc|
+hbs2-git repo:fork EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
+|]  $
+      entry $ bindMatch (prefix <> "fork") $ nil_ $ \case
+        [ SignPubKeyLike what ] -> lift do
 
-    _ -> throwIO $ BadFormException @C nil
+          r <- callProc "git" ["--init", "."] []
+
+          none
+
+          -- initRepo [newRepoOpt]
+
+        _ -> throwIO $ BadFormException @C nil
+
 
