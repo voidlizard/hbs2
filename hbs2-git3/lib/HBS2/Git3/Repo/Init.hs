@@ -5,6 +5,8 @@ module HBS2.Git3.Repo.Init (initRepo,newRepoOpt) where
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
 
+import HBS2.System.Dir
+
 import HBS2.CLI.Run.MetaData
 import HBS2.Net.Auth.Credentials
 
@@ -31,7 +33,7 @@ data CInit =
   | CreateRepoDefBlock GitRepoKey
 
 newRepoOpt :: Syntax C
-newRepoOpt = mkList [mkSym "--new"]
+newRepoOpt = mkSym "--new"
 
 initRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
 initRepo syn = do
@@ -40,12 +42,18 @@ initRepo syn = do
 
   let new = or [ True | ListVal [SymbolVal "--new"] <- opts ]
 
+  callProc "git" ["init"] []
+
   root <- getConfigRootFile
+
+  touch root
 
   sto  <- getStorage
   lwwAPI    <- getClientAPI @LWWRefAPI @UNIX
   refLogAPI <- getClientAPI @RefLogAPI @UNIX
   peerAPI   <- getClientAPI @PeerAPI @UNIX
+
+  debug $ "initRepo" <+> pretty opts <+> pretty syn
 
   flip fix CheckRepoKeyExist $ \next -> \case
     CheckRepoKeyExist -> do
@@ -54,7 +62,8 @@ initRepo syn = do
       next $ maybe CreateRepoKey CheckRepoKeyStart mbk
 
     CreateRepoKey -> do
-      debug "initRepo:CreateRepoKey"
+
+      debug $ "initRepo:CreateRepoKey" <+> pretty root
 
       answ <- callProc "hbs2-cli" [] [mkSym "hbs2:lwwref:create"]
 
@@ -64,8 +73,13 @@ initRepo syn = do
 
       liftIO $ appendFile root (show $ pretty $ mkForm "repo:ref" [mkSym @C (show $ pretty (AsBase58 pk))])
 
+      setGitRepoKey pk
+
+      next $ CheckRepoKeyStart pk
+
     CheckRepoKeyStart pk -> do
-      debug $ "initRepo:CheckRepoKeyStart" <+> pretty (AsBase58 pk)
+
+      debug $ "initRepo:CheckRepoKeyStart" <+> pretty new <+> pretty opts <+> pretty (AsBase58 pk)
 
       callRpcWaitMay @RpcLWWRefFetch (TimeoutSec 1) lwwAPI (LWWRefKey pk)
         >>= orThrowUser "rpc timeout"
@@ -119,6 +133,9 @@ initRepo syn = do
       let sk = view peerSignSk creds
       (rpk,rsk) <- derivedKey @'HBS2Basic @'Sign seed sk
 
+      callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (rpk, "reflog", 17)
+         >>= orThrowUser "rpc timeout"
+
       let manifest = [
              mkForm @C "hbs2-git" [mkInt 3]
            , mkForm "seed" [mkInt seed]
@@ -145,8 +162,5 @@ initRepo syn = do
       let box =  makeSignedBox wpk wsk (LWWRef now (coerce blk) Nothing)
 
       callRpcWaitMay @RpcLWWRefUpdate (TimeoutSec 1) lwwAPI box
-         >>= orThrowUser "rpc timeout"
-
-      callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (rpk, "reflog", 17)
          >>= orThrowUser "rpc timeout"
 

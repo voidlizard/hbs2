@@ -16,6 +16,8 @@ import Data.Typeable
 import Prettyprinter
 import System.Process.Typed
 
+import System.IO
+
 data CallProcException =
   CallProcException ExitCode
   deriving (Show,Typeable)
@@ -34,11 +36,12 @@ callProc name params syn = do
                 & LBS8.unlines
                 & byteStringInput
 
-
+  -- let what = proc name params & setStderr closed & setStdin input
   let what = proc name params & setStderr closed & setStdin input
-  (code, i, _) <- readProcess what
+  (code, i, o) <- readProcess what
 
   unless (code == ExitSuccess) do
+    liftIO $ hPrint stderr ( pretty $ LBS8.unpack o )
     liftIO $ throwIO (CallProcException code)
 
   let s = TE.decodeUtf8With TE.lenientDecode (LBS.toStrict i)

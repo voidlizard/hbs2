@@ -60,11 +60,9 @@ hbs2-git repo:fork EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
       entry $ bindMatch (prefix <> "fork") $ nil_ $ \case
         [ SignPubKeyLike what ] -> lift do
 
-          r <- callProc "git" ["--init", "."] []
+          debug $ "call fucking initRepo" <+> pretty [newRepoOpt]
 
-          none
-
-          -- initRepo [newRepoOpt]
+          initRepo [newRepoOpt]
 
         _ -> throwIO $ BadFormException @C nil
 
