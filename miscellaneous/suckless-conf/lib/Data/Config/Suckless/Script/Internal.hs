@@ -732,6 +732,8 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
       e@Literal{} -> pure e
 
+      e@OpaqueValue{} -> pure e
+
       e -> do
         throwIO $ NotLambda @c e
 
