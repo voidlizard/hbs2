@@ -14,9 +14,12 @@ import HBS2.CLI.Run.Internal.Merkle (createTreeWithMetadata)
 import HBS2.System.Dir
 
 import HBS2.Git3.Config.Local
+import HBS2.Git3.Logger
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
+
+import Data.Maybe
 
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
@@ -53,16 +56,37 @@ forkEntries prefix = do
              <+> "creates a new lww reference,"
              <+> "adds this key to hbs2-keyman," <> line
              <> "creates default repo manifest")
-    $ args [ arg "key" "repo-ref" ]
+    $ args [ arg "key" "repo-ref"
+           ]
     $ examples [qc|
 hbs2-git repo:fork EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
 |]  $
       entry $ bindMatch (prefix <> "fork") $ nil_ $ \case
-        [ SignPubKeyLike what ] -> lift do
+        [ SignPubKeyLike forked ] -> lift do
 
-          debug $ "call fucking initRepo" <+> pretty [newRepoOpt]
+          connectedDo do
+            setGitRepoKey forked
+            waitRepo Nothing
 
-          initRepo [newRepoOpt]
+          -- hereGit <- gitDir
+
+          -- when (isJust hereGit) do
+          --   die "This is an existing git repo. Start from scratch, please. Fork operation aborted"
+
+          -- debug $ "call fucking initRepo" <+> pretty [newRepoOpt]
+
+          -- env <- ask
+          -- withGit3Env env do
+          -- initRepo [newRepoOpt]
+
+          -- envNew <- nullGit3Env
+          -- none
+          -- connectedDo do
+          --   notice "SHIT!"
+          --   none
+
+            -- newRepo <- getGitRepoKey >>= orThrowUser "can't create new repo"
+            -- notice $ yellow "new repo key" <+> pretty (AsBase58 newRepo)
 
         _ -> throwIO $ BadFormException @C nil
 

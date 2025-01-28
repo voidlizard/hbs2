@@ -124,6 +124,8 @@ instance (Ord k, Hashable k) => Cached (CacheFixedHPSQ k v) k v where
 quit :: MonadUnliftIO m => m ()
 quit = liftIO Q.exitSuccess
 
+die :: (MonadUnliftIO m, Pretty a) => a -> m ()
+die x = liftIO $ Q.die (show $ pretty x)
 
 pattern GitHashLike:: forall {c} . GitHash -> Syntax c
 pattern GitHashLike x <- (

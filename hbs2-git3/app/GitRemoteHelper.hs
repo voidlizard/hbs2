@@ -39,9 +39,6 @@ getLine = liftIO IO.getLine
 sendLine :: MonadIO m => String -> m ()
 sendLine = liftIO . IO.putStrLn
 
-die :: forall a m . (MonadIO m, Pretty a) => a -> m ()
-die s = liftIO $ Exit.die (show $ pretty s)
-
 parseCLI :: MonadIO m => m [Syntax C]
 parseCLI = do
   argz <- liftIO getArgs
