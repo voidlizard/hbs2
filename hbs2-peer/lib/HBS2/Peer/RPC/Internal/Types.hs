@@ -20,6 +20,7 @@ import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse
 
 import Data.Kind
+import Data.Text (Text)
 import Control.Monad
 import Control.Monad.Reader
 import Data.ByteString ( ByteString )
@@ -27,18 +28,18 @@ import UnliftIO
 
 data RPC2Context =
   RPC2Context
-  { rpcConfig             :: [Syntax C]
-  , rpcMessaging          :: MessagingUnix
-  , rpcPokeAnswer         :: String
-  , rpcPeerEnv            :: PeerEnv L4Proto
-  , rpcLocalMultiCast     :: Peer L4Proto
-  , rpcStorage            :: AnyStorage
-  , rpcBrains             :: SomeBrains L4Proto
-  , rpcByPassInfo         :: IO ByPassStat
-  , rpcDoFetch            :: HashRef -> IO ()
-  , rpcDoRefChanHeadPost  :: HashRef -> IO ()
-  , rpcDoRefChanPropose   :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
-  , rpcDoRefChanNotify    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  { rpcConfig              :: [Syntax C]
+  , rpcMessaging           :: MessagingUnix
+  , rpcPokeAnswer          :: String
+  , rpcPeerEnv             :: PeerEnv L4Proto
+  , rpcLocalMultiCast      :: Peer L4Proto
+  , rpcStorage             :: AnyStorage
+  , rpcBrains              :: SomeBrains L4Proto
+  , rpcByPassInfo          :: IO ByPassStat
+  , rpcDoFetch             :: HashRef -> IO ()
+  , rpcDoRefChanHeadPost   :: HashRef -> IO ()
+  , rpcDoRefChanPropose    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO (Either Text ())
+  , rpcDoRefChanNotify     :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
   }
 
 instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT RPC2Context m) where

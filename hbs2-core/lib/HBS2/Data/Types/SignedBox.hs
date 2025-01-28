@@ -2,6 +2,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module HBS2.Data.Types.SignedBox where
 
+import HBS2.Base58
 import HBS2.Prelude.Plated
 import HBS2.Net.Proto.Types
 import HBS2.Net.Auth.Credentials
@@ -16,6 +17,11 @@ import Control.Monad.Identity
 data SignedBox p s =
   SignedBox (PubKey 'Sign s) ByteString (Signature s)
   deriving stock (Generic)
+
+instance (Pretty (AsBase58 (PubKey 'Sign s)), Pretty (AsBase58 (Signature s)))
+    => Pretty (SignedBox p s) where
+  pretty (SignedBox k b s) =
+    "SignedBox" <+> pretty (AsBase58 k) <+> pretty (AsBase58 b) <+> pretty (AsBase58 s)
 
 deriving stock instance
   ( Eq (PubKey 'Sign s)

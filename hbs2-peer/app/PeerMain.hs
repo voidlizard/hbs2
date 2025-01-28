@@ -81,6 +81,7 @@ import HBS2.Peer.Proto.LWWRef.Internal
 import RPC2(RPC2Context(..))
 
 import Codec.Serialise as Serialise
+import Control.Arrow (left)
 import Control.Concurrent (myThreadId)
 import Control.Concurrent.STM
 import Control.Exception as Exception
@@ -99,6 +100,7 @@ import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.Text qualified as T
 import Data.Time.Clock.POSIX
 import Data.Time.Format
 import Lens.Micro.Platform as Lens
@@ -1145,11 +1147,13 @@ runPeer opts = Exception.handle (\e -> myException e
 
   let refChanProposeAction (puk, box) = do
         debug $ "rpc.reChanPropose" <+> pretty (AsBase58 puk)
-        void $ liftIO $ withPeerM penv $ do
-          me <- ownPeer @e
-          runMaybeT do
-            proposed <- MaybeT $ makeProposeTran @e pc puk box
-            lift $ runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
+        r <- liftIO $ fmap (left (T.pack . show @SomeException)) $ try $ withPeerM penv do
+            me <- ownPeer @e
+            proposed <- maybe (liftIO $ throwIO MakeProposeTranError) pure
+                =<< makeProposeTran @e pc puk box
+            runResponseM me $ refChanUpdateProto @e True pc refChanAdapter (Propose @e puk proposed)
+        debug $ "rpc.reChanPropose ok" <+> pretty (AsBase58 puk) <+> pretty box
+        pure r
 
   -- NOTE: moved-to-rpc
   let refChanNotifyAction (puk, box) = do
@@ -1247,6 +1251,9 @@ runPeer opts = Exception.handle (\e -> myException e
 
   -- we want to clean up all resources
   throwM GoAgainException
+
+data MakeProposeTranError = MakeProposeTranError deriving (Show)
+instance Exception MakeProposeTranError
 
 emitToPeer :: ( MonadIO m
               , EventEmitter e a (PeerM e IO)

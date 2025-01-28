@@ -78,7 +78,7 @@ postRefChanTx puk box = do
   api <- getClientAPI @RefChanAPI @proto
   callRpcWaitMay  @RpcRefChanPropose (TimeoutSec 1) api (puk, box) >>= \case
     Nothing -> throwIO RpcTimeoutError
-    Just e  -> pure e
+    Just e  -> either throwIO pure e
 
 fetchRefChanHead :: forall proto m . ( MonadUnliftIO m
                                     , HasClientAPI RefChanAPI proto m

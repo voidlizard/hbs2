@@ -20,6 +20,7 @@ import HBS2.Peer.RPC.Internal.Types
 
 import PeerTypes
 
+import Control.Arrow (left)
 import Control.Monad.Reader
 
 type RefChanContext m = (MonadIO m, HasRpcContext RefChanAPI RPC2Context m)
@@ -70,7 +71,8 @@ instance RefChanContext m => HandleMethod m RpcRefChanPropose where
   handleMethod (puk, box) = do
     co <- getRpcContext @RefChanAPI
     debug $ "rpc.refChanNotifyAction" <+>  pretty (AsBase58 puk)
-    liftIO $ rpcDoRefChanPropose co (puk, box)
+    liftIO $ left RefChanAPIError <$> do
+        rpcDoRefChanPropose co (puk, box)
 
 
 instance RefChanContext m => HandleMethod m RpcRefChanNotify where

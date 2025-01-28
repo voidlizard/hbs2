@@ -10,6 +10,7 @@ import HBS2.Data.Types.SignedBox
 import Data.ByteString.Lazy ( ByteString )
 import Data.ByteString qualified as BS
 import Codec.Serialise
+import Control.Exception
 
 -- NOTE: refchan-head-endpoints
 data RpcRefChanHeadGet
@@ -31,6 +32,11 @@ type RefChanAPI = '[ RpcRefChanHeadGet
                    , RpcRefChanPropose
                    , RpcRefChanNotify
                    ]
+
+data RefChanAPIError = RefChanAPIError Text
+  deriving (Generic, Show)
+instance Exception RefChanAPIError
+instance Serialise RefChanAPIError
 
 
 type RefChanAPIProto =  0xDA2374630001
@@ -56,7 +62,7 @@ type instance Input RpcRefChanGet = PubKey 'Sign 'HBS2Basic
 type instance Output RpcRefChanGet = Maybe HashRef
 
 type instance Input RpcRefChanPropose = (PubKey 'Sign 'HBS2Basic, SignedBox BS.ByteString 'HBS2Basic)
-type instance Output RpcRefChanPropose = ()
+type instance Output RpcRefChanPropose = (Either RefChanAPIError ())
 
 type instance Input RpcRefChanNotify = (PubKey 'Sign 'HBS2Basic, SignedBox BS.ByteString 'HBS2Basic)
 type instance Output RpcRefChanNotify = ()

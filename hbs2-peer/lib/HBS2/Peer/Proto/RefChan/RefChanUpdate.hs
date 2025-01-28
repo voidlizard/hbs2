@@ -39,6 +39,7 @@ import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Word
+import Data.Text qualified as Text
 import Lens.Micro.Platform
 import Data.Hashable hiding (Hashed)
 import Type.Reflection (someTypeRep)
@@ -240,7 +241,7 @@ refChanUpdateProto :: forall e s m proto . ( MonadUnliftIO m
                    -> RefChanUpdate e
                    -> m ()
 
-refChanUpdateProto self pc adapter msg = do
+refChanUpdateProto self pc adapter msg = flip withException (\e -> liftIO (print (e :: SomeException))) do
   -- авторизовать пира
   peer <- thatPeer @proto
 
@@ -251,9 +252,9 @@ refChanUpdateProto self pc adapter msg = do
   let pk = view peerSignPk pc
   let sk = view peerSignSk pc
 
-  void $ runMaybeT do
+  do
 
-    guard (auth || self)
+    guard' "auth || self" (auth || self)
 
     -- TODO: process-each-message-only-once
     -- где-то тут мы разбираемся, что такое сообщеине
@@ -266,13 +267,13 @@ refChanUpdateProto self pc adapter msg = do
     -- "блок".
     -- так-то и количество proposers можно ограничить
 
-    guard =<< lift (refChanSubscribed adapter (getRefChanId msg))
+    guard' "refChanSubscribed" =<< refChanSubscribed adapter (getRefChanId msg)
 
     let h0 = hashObject @HbSync (serialise msg)
 
     debug $ "RefchanUpdate: ALREADY" <+> pretty h0
 
-    guard =<< liftIO (hasBlock sto h0 <&> isNothing)
+    guard' ("has block " <> (Text.pack . show . pretty) h0) =<< liftIO (hasBlock sto h0 <&> isNothing)
 
     case msg of
      Propose chan box -> do
@@ -280,30 +281,35 @@ refChanUpdateProto self pc adapter msg = do
        debug $ "RefChanUpdate/Propose" <+> pretty h0
 
        deferred @proto do
+       -- do
 
         -- проверили подпись пира
-        (peerKey, ProposeTran headRef abox) <- MaybeT $ pure $ unboxSignedBox0 box
+        (peerKey, ProposeTran headRef abox) <- unboxSignedBox0 box
+            & justOrThrowIO "unbox signed box"
 
         -- проверили подпись автора
-        (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 abox
+        (authorKey, _) <- unboxSignedBox0 abox
+            & justOrThrowIO "unbox signed abox"
 
         -- итак, сначала достаём голову. как мы достаём голову?
 
         let refchanKey = RefChanHeadKey @s chan
-        h <- MaybeT $ liftIO $ getRef sto refchanKey
+        h <- liftIO (getRef sto refchanKey)
+            & justMOrThrowIO "getref"
         -- смотрим, что у нас такая же голова.
         -- если нет -- значит, кто-то рассинхронизировался.
         -- может быть, потом попробуем головы запросить
-        guard (HashRef h == headRef)
+        guard' "HashRef h == headRef" (HashRef h == headRef)
 
         debug $ "OMG! Got trans" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
         -- теперь достаём голову
-        headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+        headBlock <- getActualRefChanHead @e refchanKey
+            & justMOrThrowIO "getActualRefChanHead"
 
         let pips = view refChanHeadPeers headBlock
 
-        guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
+        guard' "checkACL" $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
         debug $ "OMG!!! TRANS AUTHORIZED" <+> pretty (AsBase58 peerKey)  <+> pretty (AsBase58 authorKey)
 
@@ -331,7 +337,8 @@ refChanUpdateProto self pc adapter msg = do
         -- это правильно, так как транза содержит ссылку на RefChanId
         -- следовательно, для другого рефчана будет другая транза
 
-        hash <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+        hash <- liftIO (putBlock sto (serialise msg))
+            & justMOrThrowIO "putBlock"
 
         ts <- liftIO getTimeCoarse
 
@@ -340,7 +347,7 @@ refChanUpdateProto self pc adapter msg = do
 
         let rcrk = RefChanRoundKey (HashRef hash)
 
-        rndHere <- lift $ find rcrk id
+        rndHere <- find rcrk id
 
         defRound <- RefChanRound @e (HashRef hash) refchanKey ttl
                        <$> newTVarIO False
@@ -349,14 +356,14 @@ refChanUpdateProto self pc adapter msg = do
                        <*> newTVarIO (HashMap.singleton peerKey ())
 
         unless (isJust rndHere) do
-          lift $ update defRound rcrk id
-          lift $ emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
+          update defRound rcrk id
+          emit @e RefChanRoundEventKey (RefChanRoundEvent rcrk)
 
         -- не обрабатывать propose, если он уже в процессе
-        guard (isNothing rndHere)
+        guard' "isNothing rndHere" (isNothing rndHere)
 
         -- FIXME: fixed-timeout-is-no-good
-        validated <- either id id <$> lift ( race (pause @'Seconds 5 >> pure False)
+        validated <- either id id <$> ( race (pause @'Seconds 5 >> pure False)
                                                $ refChanValidatePropose adapter chan (HashRef hash)
                                            )
         -- почему так:
@@ -371,16 +378,16 @@ refChanUpdateProto self pc adapter msg = do
             atomically $ writeTVar (view refChanRoundClosed rnd) True
             liftIO $ delBlock sto hash
 
-        guard validated
+        guard' "validated" validated
 
         debug $ "TRANS VALIDATED" <+> pretty  (AsBase58 chan) <+> pretty hash
 
-        lift $ gossip msg
+        gossip msg
 
         --   проверить, что мы вообще авторизованы
         --   рассылать ACCEPT
 
-        guard ( pk `HashMap.member` pips )
+        guard' "pk in pips" ( pk `HashMap.member` pips )
 
         -- если нет - то и всё, просто перешлём
         -- по госсипу исходную транзу
@@ -393,12 +400,13 @@ refChanUpdateProto self pc adapter msg = do
 
         -- -- и рассылаем всем
         debug "GOSSIP ACCEPT TRANSACTION"
-        lift $ gossip accept
+        gossip accept
 
         -- --  рассылаем ли себе? что бы был хоть один accept
-        lift $ refChanUpdateProto True pc adapter accept
+        refChanUpdateProto True pc adapter accept
 
      Accept chan box -> deferred @proto do
+     -- Accept chan box -> do
 
        -- что если получили ACCEPT раньше PROPOSE ?
        -- что если PROPOSE еще обрабатывается?
@@ -409,17 +417,21 @@ refChanUpdateProto self pc adapter msg = do
 
        debug $ "RefChanUpdate/ACCEPT" <+> pretty h0
 
-       (peerKey, AcceptTran _ headRef hashRef) <- MaybeT $ pure $ unboxSignedBox0 box
+       (peerKey, headRef, hashRef) <- justOrThrowIO "accept unboxSignedBox0 box" do
+          (peerKey, AcceptTran _ headRef hashRef) <- unboxSignedBox0 box
+          Just (peerKey, headRef, hashRef)
 
        let refchanKey = RefChanHeadKey @s chan
 
-       headBlock <- MaybeT $ getActualRefChanHead @e refchanKey
+       headBlock <- getActualRefChanHead @e refchanKey
+          & justMOrThrowIO "getActualRefChanHead"
 
-       h <- MaybeT $ liftIO $ getRef sto refchanKey
+       h <- liftIO (getRef sto refchanKey)
+          & justMOrThrowIO "getRef"
 
-       guard (HashRef h == headRef)
+       guard' "HashRef h == headRef" (HashRef h == headRef)
 
-       lift $ gossip msg
+       gossip msg
 
        -- тут может так случиться, что propose еще нет
        -- UDP вообще не гарантирует порядок доставки, а отправляем мы транзы
@@ -428,7 +440,7 @@ refChanUpdateProto self pc adapter msg = do
        -- вот прямо тут надо ждать, пока придёт / завершится Propose
        -- -- или до таймаута
 
-       let afterPropose = runMaybeT do
+       let afterPropose = do
 
              here <- fix \next -> do
                       blk <- liftIO (hasBlock sto (fromHashRef hashRef)) <&> isJust
@@ -441,36 +453,44 @@ refChanUpdateProto self pc adapter msg = do
              unless here do
               warn $ "No propose transaction saved yet!" <+> pretty hashRef
 
-             tranBs <- MaybeT $ liftIO $ getBlock sto (fromHashRef hashRef)
+             tranBs <- liftIO (getBlock sto (fromHashRef hashRef))
+                  & justMOrThrowIO "after propose getBlock"
 
-             tran <- MaybeT $ pure $ deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
+             tran <- deserialiseOrFail @(RefChanUpdate e) tranBs & either (const Nothing) Just
+                & justOrThrowIO "after propose deserialiseOrFail RefChanUpdate"
 
 
-             proposed <- MaybeT $ pure $ case tran of
+             proposed <- justOrThrowIO "after propose case tran" $
+                case tran of
                             Propose _ pbox -> Just pbox
                             _              -> Nothing
 
 
-             (_, ptran) <- MaybeT $ pure $ unboxSignedBox0 @(ProposeTran e) @s proposed
+             (_, ptran) <- unboxSignedBox0 @(ProposeTran e) @s proposed
+                & justOrThrowIO "after propose unboxSignedBox0 proposed"
 
              debug $ "ACCEPT FROM:" <+> pretty (AsBase58 peerKey) <+> pretty h0
 
              -- compiler bug?
              let (ProposeTran _ pbox) = ptran
 
-             (authorKey, _) <- MaybeT $ pure $ unboxSignedBox0 pbox
+             (authorKey, _) <- unboxSignedBox0 pbox
+                & justOrThrowIO "after propose unboxSignedBox0 pbox"
 
              -- может, и не надо второй раз проверять
-             guard $ checkACL ACLUpdate headBlock (Just peerKey) authorKey
+             guard' "after propose checkACL" $
+                checkACL ACLUpdate headBlock (Just peerKey) authorKey
 
              debug $ "JUST GOT TRANSACTION FROM STORAGE! ABOUT TO CHECK IT" <+> pretty hashRef
 
-             rcRound <- MaybeT $ find (RefChanRoundKey @e hashRef) id
+             rcRound <- find (RefChanRoundKey @e hashRef) id
+                & justMOrThrowIO "after propose find RefChanRoundKey"
 
              atomically $ modifyTVar (view refChanRoundAccepts rcRound) (HashMap.insert peerKey ())
 
              -- TODO: garbage-collection-strongly-required
-             ha <- MaybeT $ liftIO $ putBlock sto (serialise msg)
+             ha <- liftIO (putBlock sto (serialise msg))
+                & justMOrThrowIO "after propose putBlock"
 
              atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert (HashRef ha))
              -- atomically $ modifyTVar (view refChanRoundTrans rcRound) (HashSet.insert hashRef) -- propose just in case we missed it?
@@ -490,7 +510,7 @@ refChanUpdateProto self pc adapter msg = do
                trans <- atomically $ readTVar (view refChanRoundTrans rcRound) <&> HashSet.toList
 
                forM_ trans $ \t -> do
-                lift $ refChanWriteTran adapter t
+                refChanWriteTran adapter t
                 debug $ "WRITING TRANS" <+> pretty t
 
                let pips  = view refChanHeadPeers headBlock & HashMap.keys & HashSet.fromList
@@ -509,8 +529,22 @@ refChanUpdateProto self pc adapter msg = do
        -- все остановят.
 
        let w = TimeoutSec (realToFrac $ view refChanHeadWaitAccept headBlock)
-       void $ lift $ race ( pause (2 * w) ) afterPropose
+       void $ race ( pause (2 * w) ) afterPropose
+  where
+    guard' :: Text -> Bool -> m ()
+    guard' msg p = unless p $ throwIO (RefchanUpdateProtoFailure msg)
 
+    justOrThrowIO :: Text -> Maybe a -> m a
+    justOrThrowIO msg = maybe (throwIO (RefchanUpdateProtoFailure msg)) pure
+
+    justMOrThrowIO :: Text -> m (Maybe a) -> m a
+    justMOrThrowIO msg = (justOrThrowIO msg =<<)
+
+orThrowIO :: Monad m => m a -> m (Maybe a) -> m a
+orThrowIO md = (maybe md pure =<<)
+
+data RefchanUpdateProtoFailure = RefchanUpdateProtoFailure Text deriving (Show)
+instance Exception RefchanUpdateProtoFailure
 
 -- TODO: refchan-poll-proto
 --   Запрашиваем refchan у всех.
