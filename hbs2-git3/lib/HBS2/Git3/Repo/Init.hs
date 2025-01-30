@@ -5,11 +5,13 @@ module HBS2.Git3.Repo.Init (initRepo,newRepoOpt,encryptedNewOpt) where
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
 import HBS2.Git3.Repo.Types
+import HBS2.Git3.Repo.Tools
 
 import HBS2.System.Dir
 
 import HBS2.CLI.Run.MetaData
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.GroupKeySymm
 
 import HBS2.KeyMan.Keys.Direct
 
@@ -18,7 +20,9 @@ import Data.Config.Suckless.Almost.RPC
 
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Word
+import Data.Maybe
 import Data.Text qualified as Text
+import Data.HashMap.Strict qualified as HM
 import Lens.Micro.Platform
 
 import System.Random hiding (next)
@@ -40,13 +44,15 @@ newRepoOpt = mkSym "--new"
 encryptedNewOpt :: Syntax C
 encryptedNewOpt = mkSym "--encrypted"
 
+
+
 initRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
 initRepo syn = do
 
-  let (opts, _) = splitOpts [("--new",0)] syn
+  let (opts, _) = splitOpts [("--new",0),("--encrypted",1)] syn
 
   let new = or [ True | ListVal [SymbolVal "--new"] <- opts ]
-  let encrypted = or [ True | ListVal [SymbolVal "--encrypted"] <- opts ]
+  let gkh = lastMay [ gk | ListVal [SymbolVal "--encrypted", HashLike gk] <- opts ]
 
   callProc "git" ["init"] []
 
@@ -142,12 +148,23 @@ initRepo syn = do
       callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (rpk, "reflog", 17)
          >>= orThrowUser "rpc timeout"
 
+      (gkf, gkblk) <- case gkh of
+               Nothing -> pure mempty
+               Just h  -> do
+                _ <- loadGroupKeyMaybe @'HBS2Basic sto h >>= orThrow (GroupKeyNotFound 1)
+
+                let gkPart = maybeToList gkh
+                let gkTree = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) gkPart
+                gkblk <- makeMerkle 0 gkTree $ \(_,_,bs) -> do
+                          void $ putBlock sto bs
+                pure ([ mkForm "gk" [mkSym (show $ pretty (AsBase58 h)) ] ], [HashRef gkblk] )
+
       let manifest = [
              mkForm @C "hbs2-git" [mkInt 3]
            , mkForm "seed" [mkInt seed]
            , mkForm "public" []
            , mkForm "reflog" [mkSym (show $ pretty (AsBase58 rpk))]
-           ]
+           ] <> gkf
 
       let mfs =  vcat $ fmap pretty manifest
 
@@ -156,7 +173,7 @@ initRepo syn = do
 
       liftIO $ print  $ pretty $ mkForm "manifest" manifest
 
-      let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) [tree]
+      let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) ( tree : gkblk )
 
       blk <- makeMerkle 0 pt $ \(_,_,bs) -> do
                 void $ putBlock sto bs
@@ -170,7 +187,7 @@ initRepo syn = do
       callRpcWaitMay @RpcLWWRefUpdate (TimeoutSec 1) lwwAPI box
          >>= orThrowUser "rpc timeout"
 
-      let remoteName = "repo-" <> take 4 (show $ pretty (AsBase58 pk))
+      remoteName <- newRemoteName pk <&> show .pretty
       let remoteVal  = Text.unpack $ remoteRepoURL pk
 
       r <- callProc "git" ["remote", "add", remoteName, remoteVal] mempty

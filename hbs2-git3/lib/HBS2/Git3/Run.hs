@@ -411,14 +411,17 @@ compression      ;  prints compression level
             print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           p <- importedCheckpoint
           liftIO $ print $ pretty p
 
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           importGitRefLog
 
         brief "shows repo manifest" $
-          entry $ bindMatch "repo:manifest" $ nil_ $ const $ lift $ connectedDo do
+          entry $ bindMatch "repo:manifest" $ nil_ $ \syn -> lift $ connectedDo do
+            resolveRepoKeyThrow syn >>= setGitRepoKey
             manifest <- Repo.getRepoManifest
             liftIO $ print $ pretty $ mkForm "manifest" (coerce manifest)
 
@@ -430,34 +433,12 @@ compression      ;  prints compression level
 
             liftIO $ print $ pretty (AsBase58 reflog)
 
-        entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo $ do
-
+        entry $ bindMatch "repo:credentials" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo (Just 10) =<< getGitRepoKeyThrow
 
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
-
-        brief "set default repository key"
-          $ desc "needed when you call hbs2-git command directly"
-          $ examples [qc|
-; in config:
-repo:ref EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
-
-repo:ref ; shows current repo key
-          |] $
-            entry $ bindMatch "repo:ref" $ nil_ $ \case
-              [ SignPubKeyLike k ] -> lift do
-                setGitRepoKey k
-
-              [] -> lift do
-                r <- getGitRepoKey >>= orThrow GitRepoRefNotSet
-                liftIO $  print $ pretty (AsBase58 r)
-
-              _ -> throwIO (BadFormException @C nil)
-
-        entry $ bindMatch "repo:ref:value"$ nil_ $ const $ lift $ connectedDo do
-          val <- Repo.getRepoRefMaybe >>= orThrowUser "can't read ref value"
-          liftIO $ print $ pretty val
 
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn

@@ -126,6 +126,7 @@ library
       HBS2.Git3.Export
       HBS2.Git3.Import
       HBS2.Git3.Repo.Init
+      HBS2.Git3.Repo.Tools
       HBS2.Git3.Repo.Types
       HBS2.Git3.Repo
       HBS2.Git3.Run
@@ -141,6 +142,8 @@ library
       HBS2.Git3.Git.Pack
 
       HBS2.Data.Log.Structured
+
+      Crypto.Bip39
 
     build-depends:    base
                     , base16-bytestring

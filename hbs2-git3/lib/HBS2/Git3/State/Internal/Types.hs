@@ -58,6 +58,8 @@ data HBS2GitExcepion =
   | Git3PeerNotConnected
   | Git3ReflogNotSet
   | NoGitDir
+  | GitRemoteKeyNotResolved String
+  | GitCantGenerateRemoteName
   deriving stock (Show,Typeable)
 
 instance Exception HBS2GitExcepion

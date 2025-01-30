@@ -105,23 +105,26 @@ groupKeyEntries = do
 
     _ -> throwIO $ BadFormException @C nil
 
-  entry $ bindMatch "hbs2:groupkey:create" $ \syn -> do
-    case syn of
-      [ListVal (StringLikeList keys)] -> do
-        s <- groupKeyFromKeyList  keys
-                <&> AsGroupKeyFile
-                <&> show . pretty
+  brief "create group key" $
+    args [ arg "keys" "list" ] $
+    desc "list of encryption public keys of members" $
+    entry $ bindMatch "hbs2:groupkey:create" $ \syn -> do
+      case syn of
+        [ListVal (StringLikeList keys)] -> do
+          s <- groupKeyFromKeyList  keys
+                  <&> AsGroupKeyFile
+                  <&> show . pretty
 
-        pure $ mkStr s
+          pure $ mkStr s
 
-      StringLikeList keys -> do
-        s <- groupKeyFromKeyList  keys
-                <&> AsGroupKeyFile
-                <&> show . pretty
+        StringLikeList keys -> do
+          s <- groupKeyFromKeyList  keys
+                  <&> AsGroupKeyFile
+                  <&> show . pretty
 
-        pure $ mkStr s
+          pure $ mkStr s
 
-      _ -> throwIO $ BadFormException @C nil
+        _ -> throwIO $ BadFormException @C nil
 
 
   entry $ bindMatch "hbs2:groupkey:dump" $ nil_ $ \syn -> do
