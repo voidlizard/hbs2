@@ -144,7 +144,9 @@ runGit3 env action = withGit3Env env action
 
 withStateDo :: MonadUnliftIO m => Git3 m a -> Git3 m a
 withStateDo action = do
-  waitRepo Nothing
+
+  waitRepo Nothing =<< getGitRepoKeyThrow
+
   getStatePathM >>= mkdir
   action
 
@@ -216,11 +218,13 @@ data CWRepo =
   | CAborted
 
 
-waitRepo :: forall m . HBS2GitPerks m => Maybe (Timeout 'Seconds) -> Git3 m ()
-waitRepo timeout = do
-  repoKey <- getGitRepoKey >>= orThrow GitRepoRefNotSet
+waitRepo :: forall m . HBS2GitPerks m
+         => Maybe (Timeout 'Seconds)
+         -> GitRepoKey
+         -> Git3 m ()
+waitRepo timeout repoKey = do
 
-  notice $ yellow "waitRepo"
+  notice $ yellow "waitRepo" <+> pretty (AsBase58 repoKey)
 
   ask >>= \case
     Git3Disconnected{} -> throwIO Git3PeerNotConnected
@@ -262,6 +266,8 @@ waitRepo timeout = do
                     >>= \case
                            Just (Just x)  -> pure x
                            _              -> wait 2 next ()
+
+        setGitRepoKey repoKey
 
         notice $ "lwwref value" <+> pretty (lwwValue lww)
 

@@ -2,6 +2,7 @@ module HBS2.Git3.Repo.Fork (forkEntries) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
+import HBS2.Git3.Import
 import HBS2.Git3.Repo.Init
 import HBS2.Git3.Git
 import HBS2.Data.Detect
@@ -65,8 +66,8 @@ hbs2-git repo:fork EvP3kskPVuKuKVMUc3LnfdW7GcFYjz6f5fFU1EGzrdgk
         [ SignPubKeyLike forked ] -> lift do
 
           connectedDo do
-            setGitRepoKey forked
-            waitRepo Nothing
+            waitRepo Nothing forked
+            importGitRefLog
 
           -- hereGit <- gitDir
 

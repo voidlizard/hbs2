@@ -165,6 +165,9 @@ instance (MonadIO m) => HasGitRemoteKey (Git3 m) where
     e <- ask
     liftIO $ atomically $ writeTVar (gitRepoKey e) (Just k)
 
+getGitRepoKeyThrow :: (MonadIO m, HasGitRemoteKey m) => m GitRepoKey
+getGitRepoKeyThrow = getGitRepoKey >>= orThrow GitRepoRefNotSet
+
 instance (MonadIO m, HasGitRemoteKey (Git3 m)) => HasGitRemoteKey (ContT whatever (Git3 m)) where
   getGitRemoteKey = lift getGitRemoteKey
   getGitRepoKey = lift getGitRepoKey

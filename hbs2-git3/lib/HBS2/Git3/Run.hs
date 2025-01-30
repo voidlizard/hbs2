@@ -409,7 +409,7 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
-          waitRepo Nothing
+          waitRepo Nothing =<< getGitRepoKeyThrow
 
           let (opts, _) = splitOpts [ ("--checkpoints",0)
                                     , ("--segments",0)
@@ -433,20 +433,28 @@ compression      ;  prints compression level
             forM_ decoded print
 
         entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
-          waitRepo Nothing
+
+          waitRepo Nothing =<< getGitRepoKeyThrow
+
           rrefs <- importedRefs
           for_  rrefs $ \(r,h) -> do
             liftIO $ print $ fill 20  (pretty h) <+> pretty r
 
         entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
-          waitRepo Nothing
+
+          waitRepo Nothing =<< getGitRepoKeyThrow
+
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
 
         entry $ bindMatch "repo:wait" $ nil_ $ \syn -> lift $ connectedDo do
           let (_,argz) = splitOpts [] syn
+
           let t = headMay [ realToFrac x | LitIntVal x <- argz ]
-          waitRepo t
+
+          waitRepo t =<< getGitRepoKeyThrow
+
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
+
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
@@ -469,7 +477,9 @@ compression      ;  prints compression level
             liftIO $ print $ pretty (AsBase58 reflog)
 
         entry $ bindMatch "repo:credentials" $ nil_ $ const $ lift $ connectedDo $ do
-          waitRepo (Just 10)
+
+          waitRepo (Just 10) =<< getGitRepoKeyThrow
+
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
 
@@ -501,7 +511,8 @@ repo:ref ; shows current repo key
         entry $ bindMatch "repo:relay-only" $ nil_ $ \case
           [ SignPubKeyLike repo ] -> lift $ connectedDo do
             setGitRepoKey repo
-            waitRepo (Just 2)
+
+            waitRepo (Just 2) =<< getGitRepoKeyThrow
 
           _ -> throwIO (BadFormException @C nil)
 
