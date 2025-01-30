@@ -1,7 +1,7 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
 
-module HBS2.Git3.Export (exportEntries,export) where
+module HBS2.Git3.Export (exportEntries,export,genRefLogUpdate,postNullTx) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
@@ -19,6 +19,7 @@ import HBS2.Git3.Config.Local
 
 import Data.Config.Suckless.Script
 
+import Codec.Compression.Zstd qualified as Zstd
 import Codec.Compression.Zstd.Streaming qualified as ZstdS
 import Codec.Compression.Zstd.Streaming (Result(..))
 import Data.ByteString.Builder as Builder
@@ -60,6 +61,20 @@ genRefLogUpdate :: forall m . MonadUnliftIO m => ByteString -> Git3 m (RefLogUpd
 genRefLogUpdate txraw = do
   (puk,privk) <- getRepoRefLogCredentials
   makeRefLogUpdate @L4Proto @'HBS2Basic puk privk txraw
+
+postNullTx :: forall m . MonadUnliftIO m => Git3 m ()
+postNullTx = do
+  let nullBs = Zstd.compress 10 mempty & LBS.fromStrict
+  sto <- getStorage
+  reflogAPI <- getClientAPI @RefLogAPI @UNIX
+
+  href <- createTreeWithMetadata sto Nothing mempty nullBs >>= orThrowPassIO
+
+  let payload = LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
+  tx <- genRefLogUpdate payload
+
+  callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
+    >>= orThrowUser "rpc timeout"
 
 exportEntries :: forall m . (HBS2GitPerks m) => Id -> MakeDictM C (Git3 m) ()
 exportEntries prefix = do
