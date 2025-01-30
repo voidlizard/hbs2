@@ -263,7 +263,9 @@ compression      ;  prints compression level
           for_ z $ \h ->do
             liftIO $ print $  pretty h
 
-        entry $ bindMatch "reflog:index:build" $ nil_ $ const $ lift $ connectedDo do
+        entry $ bindMatch "reflog:index:build" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
           updateReflogIndex
 
         entry $ bindMatch "test:reflog:index:lookup" $ nil_ \case
@@ -358,6 +360,7 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo Nothing =<< getGitRepoKeyThrow
 
           let (opts, _) = splitOpts [ ("--checkpoints",0)
