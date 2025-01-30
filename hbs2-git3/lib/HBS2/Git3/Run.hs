@@ -390,7 +390,7 @@ compression      ;  prints compression level
             liftIO $ print $ fill 20  (pretty h) <+> pretty r
 
         entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
-
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo Nothing =<< getGitRepoKeyThrow
 
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
