@@ -12,7 +12,7 @@ import HBS2.Git3.Export
 import HBS2.Git3.Import
 import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
-import HBS2.Git3.Repo.Fork (forkEntries)
+import HBS2.Git3.Repo
 import HBS2.Git3.Logger
 
 import Data.Config.Suckless.Script
@@ -35,6 +35,7 @@ import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Fixed
+import Data.Either
 import Lens.Micro.Platform
 
 import Streaming.Prelude qualified as S
@@ -46,6 +47,8 @@ import System.TimeIt
 import System.IO (hPrint)
 
 import UnliftIO.Concurrent
+
+{- HLINT ignore "Functor law" -}
 
 theDict :: forall m . ( HBS2GitPerks m
                       ) => Dict C (Git3 m)
@@ -167,61 +170,6 @@ compression      ;  prints compression level
             runConsumeLBS (ZstdL.decompress lbs) $ readLogFileLBS () $ \h s _ -> do
               liftIO $ print $ "object" <+> pretty h <+> pretty s
 
-        entry $ bindMatch "test:reflog:index:search:binary:test:2" $ nil_ $ const $ lift do
-          r <- newTQueueIO
-          idx <- openIndex
-          enumEntries idx $ \e -> do
-            let ha = GitHash $ coerce $ BS.take 20 e
-            atomically $ writeTQueue r ha
-
-          hashes <- atomically $ STM.flushTQueue r
-          liftIO $ print (length hashes)
-
-          mmaped <- listObjectIndexFiles <&> fmap fst
-                       >>= \xs -> for xs $ \x -> liftIO $  mmapFileByteString x Nothing
-
-          already_ <- newTVarIO (mempty :: HashSet GitHash)
-
-          for_ hashes $ \h -> do
-            for_ mmaped $ \bs -> do
-              here <- readTVarIO already_ <&> HS.member h
-              unless here do
-                found <- binarySearchBS 56 ( BS.take 20 . BS.drop 4 ) (coerce h) bs
-                when (isJust found) do
-                  atomically $ modifyTVar already_ (HS.insert h)
-                  notice $ pretty h <+> "True"
-
-        entry $ bindMatch "test:reflog:index:search:binary:test" $ nil_ $ const $ lift do
-
-            files <- listObjectIndexFiles
-
-            forConcurrently_ files $ \(fn,_) -> do
-
-              lbs <- liftIO $ LBS.readFile fn
-
-              hashes <- S.toList_ $  runConsumeLBS lbs $ flip fix 0 \go n -> do
-                done <- consumed
-                if done then pure ()
-                  else do
-                    ssize  <- readBytesMaybe 4
-                                     >>= orThrow SomeReadLogError
-                                   <&> fromIntegral . N.word32 . LBS.toStrict
-
-                    hash   <- readBytesMaybe 20
-                                  >>= orThrow SomeReadLogError
-                                  <&> GitHash . LBS.toStrict
-
-                    void $ readBytesMaybe 32
-
-                    lift $ S.yield hash
-                    go (succ n)
-
-              file <- liftIO $ mmapFileByteString fn Nothing
-
-              for_ hashes $ \h -> do
-               -- found <- binSearchBS 24 (BS.take 20 . BS.drop 4) ( show . pretty . GitHash ) (coerce h) file
-                found <- liftIO $ binarySearchBS 56 (BS.take 20 . BS.drop 4) (coerce h) file
-                liftIO $ notice $ pretty h <+> pretty (isJust found)
 
         entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ connectedDo do
 
@@ -455,6 +403,12 @@ compression      ;  prints compression level
 
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
+        entry $ bindMatch "repo:remotes" $ nil_ $ \syn -> lift do
+
+          remotes <- listRemotes
+
+          liftIO $ for_ remotes $ \(r,k) -> do
+            print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           p <- importedCheckpoint
@@ -517,8 +471,6 @@ repo:ref ; shows current repo key
           _ -> throwIO (BadFormException @C nil)
 
         exportEntries "reflog:"
-
-        forkEntries "repo:"
 
 
 

@@ -1,9 +1,10 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Git3.Repo.Init (initRepo,newRepoOpt) where
+module HBS2.Git3.Repo.Init (initRepo,newRepoOpt,encryptedNewOpt) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
+import HBS2.Git3.Repo.Types
 
 import HBS2.System.Dir
 
@@ -17,6 +18,7 @@ import Data.Config.Suckless.Almost.RPC
 
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Word
+import Data.Text qualified as Text
 import Lens.Micro.Platform
 
 import System.Random hiding (next)
@@ -35,12 +37,16 @@ data CInit =
 newRepoOpt :: Syntax C
 newRepoOpt = mkSym "--new"
 
+encryptedNewOpt :: Syntax C
+encryptedNewOpt = mkSym "--encrypted"
+
 initRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
 initRepo syn = do
 
   let (opts, _) = splitOpts [("--new",0)] syn
 
   let new = or [ True | ListVal [SymbolVal "--new"] <- opts ]
+  let encrypted = or [ True | ListVal [SymbolVal "--encrypted"] <- opts ]
 
   callProc "git" ["init"] []
 
@@ -71,7 +77,7 @@ initRepo syn = do
               & lastMay
               & orThrowUser "can't create new lwwref"
 
-      liftIO $ appendFile root (show $ pretty $ mkForm "repo:ref" [mkSym @C (show $ pretty (AsBase58 pk))])
+      -- liftIO $ appendFile root (show $ pretty $ mkForm "repo:ref" [mkSym @C (show $ pretty (AsBase58 pk))])
 
       setGitRepoKey pk
 
@@ -163,4 +169,12 @@ initRepo syn = do
 
       callRpcWaitMay @RpcLWWRefUpdate (TimeoutSec 1) lwwAPI box
          >>= orThrowUser "rpc timeout"
+
+      let remoteName = "repo-" <> take 4 (show $ pretty (AsBase58 pk))
+      let remoteVal  = Text.unpack $ remoteRepoURL pk
+
+      r <- callProc "git" ["remote", "add", remoteName, remoteVal] mempty
+
+      liftIO $ print $ pretty "added git remote" <+> pretty remoteName <+> pretty remoteVal
+
 
