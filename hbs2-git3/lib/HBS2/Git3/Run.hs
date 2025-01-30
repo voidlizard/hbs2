@@ -14,6 +14,7 @@ import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
 import HBS2.Git3.Repo
 import HBS2.Git3.Logger
+import HBS2.Net.Auth.GroupKeySymm
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
@@ -439,6 +440,12 @@ compression      ;  prints compression level
 
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
+
+        entry $ bindMatch "repo:gk" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          gk' <- getGK
+          for_ gk' $ \(gkh, _) -> do
+            liftIO $ print $ pretty $ mkForm @C "gk" [ mkSym (show $ pretty gkh) ]
 
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn

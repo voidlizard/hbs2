@@ -135,6 +135,8 @@ export mbh refs = withStateDo do
           reflog <- getGitRemoteKey
                         >>= orThrowUser "reflog not set"
 
+          gk' <- getGK
+
           lift $ fix \next -> atomically (readTBQueue hbs2Q) >>= \case
             Nothing -> none
             Just (fn,_) -> void $ flip runContT pure do
@@ -143,14 +145,16 @@ export mbh refs = withStateDo do
                 ts <- liftIO getPOSIXTime <&> round
                 lbs <- LBS.readFile fn
                 let meta = mempty
-                let gk = Nothing
 
                 exported <- readTVarIO _exported
                 debug $ red "EXPORTED" <+> pretty exported
 
+                let gkh = fst <$> gk'
+                let gk = snd <$> gk'
+
                 when (exported > 0) do
                   href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
-                  writeLogEntry ("tree" <+> pretty ts <+> pretty href)
+                  writeLogEntry ("tree" <+> pretty ts <+> pretty href )
                   debug $ "SENDING" <+> pretty href <+> pretty fn
 
                   let payload = LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
