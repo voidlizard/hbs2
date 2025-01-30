@@ -396,11 +396,8 @@ compression      ;  prints compression level
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
 
         entry $ bindMatch "repo:wait" $ nil_ $ \syn -> lift $ connectedDo do
-          let (_,argz) = splitOpts [] syn
-
-          let t = headMay [ realToFrac x | LitIntVal x <- argz ]
-
-          waitRepo t =<< getGitRepoKeyThrow
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
 
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
