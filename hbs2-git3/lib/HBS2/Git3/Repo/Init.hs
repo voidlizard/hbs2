@@ -195,6 +195,8 @@ initRepo syn = do
 
       liftIO $ print $ pretty "added git remote" <+> pretty remoteName <+> pretty remoteVal
 
+      updateRepoKey pk
+
       when new do
         postNullTx
 
