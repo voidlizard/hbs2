@@ -34,7 +34,7 @@ listRemotes = do
        (acc,_, ListVal [SymbolVal "remote", StringLike x] : rest) ->
          next (acc,Just x, rest)
 
-       (acc, Just x, ListVal [SymbolVal "url", _,    RepoURL3 u] : rest) ->
+       (acc, Just x, ListVal [SymbolVal "url", _, RepoURL3 u] : rest) ->
          next ( (fromString x, u) : acc, Nothing, rest)
 
        (acc, x, _ : rest) -> next ( acc, x, rest)
