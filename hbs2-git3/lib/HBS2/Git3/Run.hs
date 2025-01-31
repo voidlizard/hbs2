@@ -389,6 +389,7 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
 
+          resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo Nothing =<< getGitRepoKeyThrow
 
           rrefs <- importedRefs
@@ -461,12 +462,41 @@ compression      ;  prints compression level
 
             _ -> throwIO $ BadFormException @C nil
 
+        entry $ bindMatch "repo:gk:add:extra:keys" $ nil_ $ \case
+          ( x@(StringLike{}) : keyHashes ) -> lift $ connectedDo do
+            repo <- resolveRepoKeyThrow [x]
+            setGitRepoKey repo
+            waitRepo (Just 10) =<< getGitRepoKeyThrow
+
+            sto <- getStorage
+            RepoManifest mf <- getRepoManifest
+
+            hh <- for [ x | HashLike x <- keyHashes ] $ \k -> do
+                     _ <- loadGroupKeyMaybe @HBS2Basic sto k >>= orThrow (GitRepoNoGroupKey k)
+                     pure k
+
+            updateRepoHead repo mf hh
+
+          _ -> throwIO $ BadFormException @C nil
+
+
         -- FIXME: maybe-add-default-remote
         entry $ bindMatch "repo:head" $ nil_ $ \syn -> lift $ connectedDo $ do
           resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo Nothing =<< getGitRepoKeyThrow
           lww <- getRepoRefMaybe
           liftIO $ print $ pretty lww
+
+        entry $ bindMatch "repo:gk:journal:import" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+          importGroupKeys
+
+        entry $ bindMatch "repo:gk:journal:imported" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+          readGroupKeyFile <&> maybe nil (mkSym @C . show . pretty)
+            >>= liftIO . print . pretty
 
         entry $ bindMatch "repo:gk:journal" $ nil_ $ \syn -> lift $ connectedDo $ do
           resolveRepoKeyThrow syn >>= setGitRepoKey

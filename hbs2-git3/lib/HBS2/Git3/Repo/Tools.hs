@@ -163,8 +163,10 @@ updateGroupKey repo new = do
 
       let missed = HM.keysSet $ recipients gkNew `HM.difference` recipients gk
 
+      let updGk (g1,m1) (_,m2) = (g1,m1<>m2)
+
       unless (HS.null missed) do
-        atomically $ modifyTVar r (HM.insert gkId (gk,missed))
+        atomically $ modifyTVar r (HM.insertWith updGk gkId (gk,missed))
         none
 
     keys <- readTVarIO r <&> HM.elems

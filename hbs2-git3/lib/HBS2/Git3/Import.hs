@@ -7,13 +7,16 @@ import HBS2.Git3.Prelude
 import HBS2.Git3.State
 import HBS2.Git3.Git
 import HBS2.Git3.Git.Pack
+import HBS2.Git3.Config.Local
 
-import HBS2.Data.Detect (ScanLevel(..), deepScan)
+import HBS2.Data.Detect (readLogThrow,deepScan,ScanLevel(..))
 import HBS2.Storage.Operations.Missed
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
 import HBS2.Data.Log.Structured
 
 import HBS2.System.Dir
+import Data.Config.Suckless.Almost.RPC
+import Data.Config.Suckless.Script
 
 import Codec.Compression.Zlib qualified as Zlib
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -22,11 +25,15 @@ import Data.ByteString qualified as BS
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Maybe
+import Data.Either
 import Data.List qualified as L
 import Network.ByteOrder qualified as N
 import System.IO.Temp as Temp
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO.IO.File qualified as UIO
+import System.IO (hPrint)
+
+import Streaming.Prelude qualified as S
 
 data ImportException =
   ImportInvalidSegment HashRef
@@ -165,6 +172,9 @@ importGitRefLog = withStateDo $ ask >>= \case
       ImportStart -> do
 
         rvl  <- readTVarIO gitRefLogVal
+
+        importGroupKeys
+
         prev <- importedCheckpoint
 
         if | isNothing prev -> again $ ImportWIP 0 prev
@@ -234,4 +244,54 @@ importGitRefLog = withStateDo $ ask >>= \case
           Left  MissedBlockError      -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
           Left  e                     -> throwIO e
 
+
+
+groupKeysFile :: MonadIO m => Git3 m FilePath
+groupKeysFile = getStatePathM <&> (</> "groupkeys")
+
+readGroupKeyFile :: MonadIO m => Git3 m (Maybe HashRef)
+readGroupKeyFile = do
+  file <- groupKeysFile
+  debug $ "readGroupKeyFile" <+> pretty file
+  liftIO (try @_ @IOError (readFile file))
+    <&> fromRight mempty
+    <&> parseTop
+    <&> fromRight mempty
+    <&> \x -> headMay [ w | ListVal [HashLike w] <- x ]
+
+importGroupKeys :: forall m . ( HBS2GitPerks m
+                              )
+             => Git3 m ()
+
+importGroupKeys = do
+
+  debug $ "importGroupKeys"
+  sto <- getStorage
+
+  already <- readGroupKeyFile
+
+  LWWRef{..} <- getRepoRefMaybe >>= orThrow GitRepoRefNotSet
+  rhead <- readLogThrow (getBlock sto) lwwValue
+  let keyTree' = headMay (tailSafe rhead)
+
+  when (keyTree' /= already) do
+
+    ops <- S.toList_ $ for_ keyTree' $ \tree -> do
+      keyhashes <- readLogThrow (getBlock sto) tree
+      for_ keyhashes $ \h -> do
+        S.yield $ mkForm @C "gk:track" [mkSym (show $ pretty h)]
+
+    -- FIXME: check-added-keys
+    unless (null ops) do
+      _ <- callProc "hbs2-keyman" ["run","stdin"] ops
+      updateGroupKeys keyTree'
+
+  where
+
+    updateGroupKeys keyTree' = do
+      file <- groupKeysFile
+      void $ runMaybeT do
+        val <- keyTree' & toMPlus
+        liftIO $ UIO.withBinaryFileAtomic file WriteMode $ \fh -> do
+          hPrint fh $ pretty (mkSym @C (show $ pretty val))
 

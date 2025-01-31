@@ -1152,7 +1152,7 @@ runPeer opts = respawnOnError opts $ do
 
 
               void $ liftIO $ async $ withPeerM env do
-                pause @'Seconds 1
+                pause @'Seconds 3
                 debug "sending first peer announce"
                 request localMulticast (PeerAnnounce @e pnonce)
 
@@ -1171,9 +1171,11 @@ runPeer opts = respawnOnError opts $ do
               flip runContT pure do
 
                 peerThread "local multicast" $ forever $ do
-                  pause defPeerAnnounceTime -- FIXME: setting!
+                  pips <- getKnownPeers @L4Proto
+                  let w = if null pips then 10 else defPeerAnnounceTime
                   debug "sending local peer announce"
                   request localMulticast (PeerAnnounce @e pnonce)
+                  pause w
 
                 peerThread "byPassWorker" (byPassWorker byPass)
 
