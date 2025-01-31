@@ -132,6 +132,7 @@ initRepo syn = do
       -- FIXME: remove-this
       liftIO $ print $ pretty $ mkForm "manifest" (coerce repo)
 
+
     CreateRepoDefBlock pk  -> do
 
       debug $ "init:CreateRepoDefBlock" <+> pretty (AsBase58 pk)
@@ -141,64 +142,34 @@ initRepo syn = do
       creds <- runKeymanClientRO (loadCredentials pk)
                  >>= orThrowUser ("not found credentials for"  <+> pretty (AsBase58 pk))
 
-      let (wsk,wpk) = (view peerSignSk creds, view peerSignPk creds)
-
       let sk = view peerSignSk creds
       (rpk,rsk) <- derivedKey @'HBS2Basic @'Sign seed sk
 
       callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (rpk, "reflog", 17)
          >>= orThrowUser "rpc timeout"
 
-      (gkf, gkblk) <- case gkh of
-               Nothing -> pure mempty
+      gkRefs <- case gkh of
+               Nothing -> pure []
                Just h  -> do
-                _ <- loadGroupKeyMaybe @'HBS2Basic sto h >>= orThrow (GroupKeyNotFound 1)
-
-                let gkPart = maybeToList gkh
-                let gkTree = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) gkPart
-                gkblk <- makeMerkle 0 gkTree $ \(_,_,bs) -> do
-                          void $ putBlock sto bs
-                pure ([ mkForm "gk" [mkSym (show $ pretty (AsBase58 h)) ] ], [HashRef gkblk] )
+                 _ <- loadGroupKeyMaybe @'HBS2Basic sto h >>= orThrow (GroupKeyNotFound 1)
+                 pure [h]
 
       let manifest = [
              mkForm @C "hbs2-git" [mkInt 3]
            , mkForm "seed" [mkInt seed]
            , mkForm "public" []
            , mkForm "reflog" [mkSym (show $ pretty (AsBase58 rpk))]
-           ] <> gkf
+           ] <> map (\h -> mkForm "gk" [mkSym (show $ pretty (AsBase58 h))]) gkRefs
 
-      let mfs =  vcat $ fmap pretty manifest
+      updateRepoHead pk manifest gkRefs
 
-      tree <- createTreeWithMetadata sto Nothing mempty (LBS8.pack (show $ mfs))
-                >>= orThrowPassIO
-
-      liftIO $ print  $ pretty $ mkForm "manifest" manifest
-
-      let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) ( tree : gkblk )
-
-      blk <- makeMerkle 0 pt $ \(_,_,bs) -> do
-                void $ putBlock sto bs
-
-      notice $ "current root" <+> pretty blk <+> pretty tree
-
-      now <- liftIO getPOSIXTime  <&> round
-
-      let box =  makeSignedBox wpk wsk (LWWRef now (coerce blk) Nothing)
-
-      callRpcWaitMay @RpcLWWRefUpdate (TimeoutSec 1) lwwAPI box
-         >>= orThrowUser "rpc timeout"
-
-      remoteName <- newRemoteName pk <&> show .pretty
+      remoteName <- newRemoteName pk <&> show . pretty
       let remoteVal  = Text.unpack $ remoteRepoURL pk
 
       r <- callProc "git" ["remote", "add", remoteName, remoteVal] mempty
-
       liftIO $ print $ pretty "added git remote" <+> pretty remoteName <+> pretty remoteVal
 
       updateRepoKey pk
 
-      when new do
-        postNullTx
-
-
+      when new postNullTx
 

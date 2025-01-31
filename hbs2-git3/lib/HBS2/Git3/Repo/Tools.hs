@@ -95,6 +95,8 @@ updateRepoHead :: (HBS2GitPerks m)
                -> Git3 m ()
 updateRepoHead repo manifest gkRefs' = do
 
+  debug "updateRepoHead"
+
   sto <- getStorage
   lwwAPI <- getClientAPI @LWWRefAPI @UNIX
 
@@ -107,14 +109,15 @@ updateRepoHead repo manifest gkRefs' = do
   manifestTree <- createTreeWithMetadata sto Nothing mempty (LBS8.pack (show mfs))
                      >>= orThrowPassIO
 
-  LWWRef{..} <- getRepoRefMaybe >>= orThrow GitRepoRefEmpty
+  lwwRef <- getRepoRefMaybe
 
-  repoHead <- readLogThrow (getBlock sto) lwwValue
+  let rHeadOld = lwwValue <$> lwwRef
+
+  repoHead <- maybe (pure mempty) (readLogThrow (getBlock sto)) rHeadOld
 
   oldKeys <- fromMaybe mempty <$> runMaybeT do
                h <- headMay (tailSafe repoHead) & toMPlus
                readLogThrow (getBlock sto) h
-
 
   let gkRefs = HS.toList $ HS.fromList (gkRefs' <> oldKeys)
 

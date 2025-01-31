@@ -461,6 +461,13 @@ compression      ;  prints compression level
 
             _ -> throwIO $ BadFormException @C nil
 
+        -- FIXME: maybe-add-default-remote
+        entry $ bindMatch "repo:head" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+          lww <- getRepoRefMaybe
+          liftIO $ print $ pretty lww
+
         entry $ bindMatch "repo:gk:journal" $ nil_ $ \syn -> lift $ connectedDo $ do
           resolveRepoKeyThrow syn >>= setGitRepoKey
           waitRepo Nothing =<< getGitRepoKeyThrow
