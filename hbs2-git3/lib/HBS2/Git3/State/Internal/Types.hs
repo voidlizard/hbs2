@@ -46,7 +46,7 @@ readLocalConf = do
       <&> parseTop
       >>= either (const $ pure mempty) pure
 
-data HBS2GitExcepion =
+data HBS2GitException =
     RefLogNotSet
   | GitRepoRefNotSet
   | GitRepoRefEmpty
@@ -60,9 +60,11 @@ data HBS2GitExcepion =
   | NoGitDir
   | GitRemoteKeyNotResolved String
   | GitCantGenerateRemoteName
+  | GitRepoNoGroupKey HashRef
+  | GitRepoNoAccess
   deriving stock (Show,Typeable)
 
-instance Exception HBS2GitExcepion
+instance Exception HBS2GitException
 
 defSegmentSize :: Int
 defSegmentSize = 50 * 1024 * 1024

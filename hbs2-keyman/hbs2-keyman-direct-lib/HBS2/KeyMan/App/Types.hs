@@ -12,6 +12,7 @@ import HBS2.KeyMan.State
 
 import HBS2.Prelude
 import HBS2.Base58
+import HBS2.Storage
 
 -- FIXME: remove-this
 import HBS2.Net.Auth.Credentials()
@@ -27,10 +28,18 @@ import Prettyprinter
 import Lens.Micro.Platform
 import UnliftIO
 
+data StorageNotBound =
+  StorageNotBound
+  deriving stock (Show, Typeable)
+
+instance Exception StorageNotBound
+
+
 data AppEnv =
   AppEnv
   { appConf :: [Syntax C]
   , appDb   :: DBPipeEnv
+  , appSto  :: TVar (Maybe AnyStorage)
   }
 
 newtype KeyManCLI m a = KeyManCLI { fromKeyManCLI :: ReaderT AppEnv m a }
@@ -48,6 +57,7 @@ newAppEnv = do
   let dbOpts = dbPipeOptsDef
   AppEnv <$> readConfig
          <*> (getStatePath >>= newDBPipeEnv dbOpts)
+         <*> newTVarIO Nothing
 
 runApp :: MonadUnliftIO m => KeyManCLI m () -> m ()
 runApp action = do
@@ -92,4 +102,11 @@ instance MonadIO m => HasConf (ReaderT AppEnv m) where
 instance MonadIO m => HasConf (KeyManCLI m) where
   getConf = asks appConf
 
+-- instance MonadIO m => HasStorage (KeyManCLI m) where
+--   getStorage = do
+--     msto <- asks appSto >>= readTVarIO
+--     case msto of
+--       Just x -> pure x
+--       Nothing -> do
+--         throwIO StorageNotBound
 

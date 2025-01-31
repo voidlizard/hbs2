@@ -94,6 +94,7 @@ data GroupKeyIdScheme = GroupKeyIdBasic1 -- encrypt zeroes then hash
 
 newtype GroupKeyId = GroupKeyId N.ByteString
                      deriving stock (Eq,Ord,Generic,Show)
+                     deriving newtype Hashable
 
 instance Pretty GroupKeyId where
   pretty what = pretty (AsBase58 (coerce @_ @N.ByteString what))

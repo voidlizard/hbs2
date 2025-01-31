@@ -4,7 +4,7 @@ import HBS2.Git3.Prelude
 import HBS2.Data.Log.Structured
 
 import HBS2.CLI.Run.Internal.Merkle (getTreeContents)
-
+import HBS2.Data.Detect hiding (Blob)
 import HBS2.System.Dir
 
 import HBS2.Git3.Git
@@ -251,7 +251,9 @@ compression      ;  prints compression level
             let f = makeRelative cur f'
             liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
-        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ const $ lift $ connectedDo do
+        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
           r <- newIORef  ( mempty :: HashSet HashRef )
           index <- openIndex
           enumEntries index $ \bs -> do
@@ -315,6 +317,7 @@ compression      ;  prints compression level
           let (opts,argz) = splitOpts [] syn
 
           let what = headDef "HEAD" [ x | StringLike x <- argz ]
+
           h0  <- gitRevParseThrow what
 
           no_ <- newTVarIO 0
@@ -360,15 +363,15 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-
-          let (opts, _) = splitOpts [ ("--checkpoints",0)
+          let (opts, argz) = splitOpts [ ("--checkpoints",0)
                                     , ("--segments",0)
                                     ] syn
 
           let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
           let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
+
+          resolveRepoKeyThrow argz >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
 
           hxs <- txListAll Nothing
 
@@ -413,11 +416,13 @@ compression      ;  prints compression level
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
           p <- importedCheckpoint
           liftIO $ print $ pretty p
 
         entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
           resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
           importGitRefLog
 
         brief "shows repo manifest" $
@@ -447,18 +452,50 @@ compression      ;  prints compression level
           for_ gk' $ \(gkh, _) -> do
             liftIO $ print $ pretty $ mkForm @C "gk" [ mkSym (show $ pretty gkh) ]
 
+        brief "updates group key for repo" $
+          args [arg "string" "repo", arg "hash" "group-key-hash" ]  $
+          entry $ bindMatch "repo:gk:update" $ nil_ $ \case
+            [ x@(StringLike{}), HashLike h ] -> lift $ connectedDo do
+              repo <- resolveRepoKeyThrow [x]
+              updateGroupKey repo h
+
+            _ -> throwIO $ BadFormException @C nil
+
+        entry $ bindMatch "repo:gk:journal" $ nil_ $ \syn -> lift $ connectedDo $ do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+
+          ref <- getGitRepoKeyThrow
+
+          lwwAPI <- getClientAPI @LWWRefAPI @UNIX
+
+          sto <- getStorage
+
+          runMaybeT do
+
+            LWWRef{..} <- liftIO (callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (coerce ref))
+                             >>= orThrow RpcTimeout
+                            >>= toMPlus
+
+            hrefs <- lift $ readLogThrow (getBlock sto) lwwValue
+
+            journal <- headMay (tail hrefs) & toMPlus
+
+            keys <- lift $ readLogThrow (getBlock sto) journal
+
+            liftIO $ for_ keys $ \k -> do
+              liftIO $ print $ pretty k
+
         entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
             Repo.initRepo syn
 
         entry $ bindMatch "repo:relay-only" $ nil_ $ \case
           [ SignPubKeyLike repo ] -> lift $ connectedDo do
             setGitRepoKey repo
-
             waitRepo (Just 2) =<< getGitRepoKeyThrow
 
           _ -> throwIO (BadFormException @C nil)
 
         exportEntries "reflog:"
-
 
 

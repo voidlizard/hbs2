@@ -1,3 +1,5 @@
+{-# Language AllowAmbiguousTypes #-}
+{-# Language UndecidableInstances #-}
 module Main where
 
 import HBS2.KeyMan.Prelude
@@ -5,7 +7,9 @@ import HBS2.KeyMan.App.Types
 import HBS2.KeyMan.Config
 import HBS2.KeyMan.State
 
+import HBS2.OrDie
 import HBS2.Net.Auth.Credentials
+import HBS2.Net.Auth.GroupKeySymm
 
 import HBS2.Data.KeyRing qualified as KeyRing
 
@@ -42,6 +46,7 @@ import Control.Monad.Reader
 import Control.Monad.Except
 import Codec.Serialise
 import Data.Coerce
+import System.Exit (exitSuccess)
 
 import Streaming.Prelude qualified as S
 
@@ -55,7 +60,12 @@ type Command m = m ()
 globalOptions :: Parser GlobalOptions
 globalOptions = pure GlobalOptions
 
-type AppPerks m = (MonadIO m, MonadUnliftIO m, MonadReader AppEnv m, HasConf m, SerialisedCredentials 'HBS2Basic)
+type AppPerks m = ( MonadIO m
+                  , MonadUnliftIO m
+                  , MonadReader AppEnv m
+                  , HasConf m
+                  , SerialisedCredentials 'HBS2Basic
+                  )
 
 -- TODO: key-mamagement-command-about-to-move-here
 
@@ -67,6 +77,7 @@ commands = hsubparser
   <> command "set-weight" (O.info (setWeightCmd <**> helper) (progDesc "set weight for a key"))
   <> command "add-mask"   (O.info (addPath <**> helper) (progDesc "add path/mask to search keys, ex. '/home/user/keys/*.key'"))
   <> command "config"     (O.info (showConfig <**> helper) (progDesc "show hbs2-keyman config"))
+  <> command "run"        (O.info (runScript <**> helper) (progDesc "run command"))
   )
 
 opts :: (AppPerks m) => ParserInfo (GlobalOptions, Command m)
@@ -74,6 +85,79 @@ opts = O.info (liftA2 (,) globalOptions commands <**> helper)
   ( fullDesc
  <> header "hbs2-keyman" )
 
+
+quit :: MonadIO m => m ()
+quit = liftIO exitSuccess
+
+theDict :: forall m . ( AppPerks m
+                      ) => AnyStorage -> Dict C m
+
+theDict sto = do
+  makeDict @C do
+    -- TODO: write-man-entries
+    myHelpEntry
+    myEntries
+
+    -- entry $ bindValue "internal:storage" $ mkOpaque (22 ::Int )
+
+  where
+
+    myHelpEntry = do
+        entry $ bindMatch "help" $ nil_ $ \case
+          HelpEntryBound what -> do
+            helpEntry what
+            quit
+
+          [StringLike s] -> helpList False (Just s) >> quit
+
+          _ -> helpList False Nothing >> quit
+
+    myEntries = do
+
+        entry $ bindMatch "stdin" $ nil_  $ const do
+
+          co <- liftIO getContents
+                   <&> parseTop
+                   >>= either (error.show) pure
+
+          lift $ run (theDict sto) co
+
+        entry $ bindMatch "gk:track" $ nil_  $ \case
+          [HashLike gkhash] -> lift do
+
+            runMaybeT do
+              gk <- loadGroupKeyMaybe @'HBS2Basic sto gkhash
+                      >>= toMPlus
+
+              gkId <- groupKeyId gk & toMPlus
+
+              -- notice $ "fuck?"
+              lift $ withState  $ transactional do
+                insertGKTrack gkId gkhash
+                insertGKAccess gkhash gk
+
+              liftIO $ print $ pretty $ mkForm @C "gk:added" [mkSym (show $ pretty gkhash)]
+
+          _ -> throwIO (BadFormException @C nil)
+
+
+runScript :: (AppPerks m, MonadReader AppEnv m) => Parser (Command m)
+runScript = do
+  argz <- some (argument str (metavar "TERM"))
+  pure do
+
+    AppEnv{..} <- ask
+
+    flip runContT pure do
+      so' <- detectRPC
+      so <- ContT $ maybe1 so' (err $ red "peer is down")
+      sto <- ContT (withRPC2 @StorageAPI so) <&> AnyStorage . StorageClient
+      atomically $ writeTVar appSto(Just sto)
+
+      cli <- parseTop (unlines $ unwords <$> splitForms argz)
+             & either  (error.show) pure
+
+      lift $ run (theDict sto) cli >>= display
 
 showConfig :: (AppPerks m) => Parser (Command m)
 showConfig = do
@@ -240,7 +324,6 @@ updateKeys = do
             updateKeyType (SomePubKey @'Encrypt pk)
 
           commitAll
-
 
 
 setWeightCmd :: (AppPerks m) => Parser (Command m)
