@@ -35,6 +35,7 @@ import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Map qualified as Map
 import Data.Kind
 import Data.List (isPrefixOf)
 import Data.List qualified as List
@@ -203,6 +204,18 @@ blobLike = \case
 
 pattern BlobLike :: forall {c} . ByteString -> Syntax c
 pattern BlobLike s <- (blobLike -> Just s)
+
+toSortable :: Syntax c -> Either Double Text
+toSortable = \case
+  LitIntVal n         -> Left (fromIntegral n)
+  LitScientificVal n  -> Left (realToFrac n)
+  LitBoolVal False    -> Left 0
+  LitBoolVal True     -> Left 1
+  LitStrVal s         -> Right s
+  SymbolVal (Id s)    -> Right s
+  ListVal es          -> Left (fromIntegral (length es))
+  OpaqueValue box     -> Left 0
+  _                   -> Left 0
 
 class Display a where
   display :: MonadIO m => a -> m ()
@@ -798,7 +811,9 @@ instance IsContext c => MkSyntax c IniConfig where
 
     mkList (globals <> sections)
 
-internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
+internalEntries :: forall c m . ( IsContext c
+                                , Exception (BadFormException c)
+                                , MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
 
     entry $ bindValue "false"      (mkBool False)
@@ -940,10 +955,12 @@ internalEntries = do
 
     entry $ bindMatch "last" $ \case
       [ ListVal es ] -> pure (lastDef nil es)
+      [ StringLike es ] -> pure $ maybe nil (mkSym . List.singleton) (lastMay es)
       _ -> throwIO (TypeCheckError @C nil)
 
     entry $ bindMatch "head" $ \case
       [ ListVal es ] -> pure (headDef nil es)
+      [ StringLike es ] -> pure $ maybe nil (mkSym . List.singleton) (headMay es)
       _ -> throwIO (TypeCheckError @C nil)
 
     entry $ bindMatch "cons" $ \case
@@ -974,16 +991,99 @@ internalEntries = do
         [ListVal es] -> pure $ mkList  (tail es)
         _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "filter" $ \case
+      [pred, ListVal xs] -> do
+        filtered <- flip filterM xs $ \x -> do
+          res <- apply_ pred [x]
+          case res of
+            LitBoolVal True -> pure True
+            _ -> pure False
+
+        pure $ mkList filtered
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "group-by" $ \case
+      [cmp, ListVal es] -> do
+        let groupByM _ [] = pure []
+            groupByM eq (x:xs) = do
+              (same, rest) <- partitionM (eq x) xs
+              groups <- groupByM eq rest
+              pure ((x:same) : groups)
+
+        let eqFunc a b = do
+              result <- apply_ cmp [a, b]
+              pure $ case result of
+                LitBoolVal v -> v
+                _ -> False  -- Если не bool, считаем, что не равны
+
+        grouped <- groupByM eqFunc es
+        pure $ mkList [mkList group | group <- grouped]
+
+      _ -> throwIO (BadFormException @c nil)
+
+
+    entry $ bindMatch "sort-with" $ \case
+      [cmp, ListVal es] -> do
+        let cmpFunc a b = do
+              result <- apply_ cmp [a, b]
+              pure $ case result of
+                LitBoolVal v -> v
+                _ -> False  -- Если не bool, считаем `x < y` ложным
+
+        sorted <- sortByM cmpFunc es
+        pure $ mkList sorted
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "sort-by" $ \case
+      [what, ListVal es] -> do
+        sorted <- forM es \e -> do
+          key <- apply_ what [e]
+          pure (key, e)
+
+        pure $ mkList [e | (_, e) <- List.sortOn (toSortable . fst) sorted]
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "flatten" $ \case
+      [ListVal es] -> pure $ mkList (concatMap flattenList es)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "reverse" $ \case
+      [ListVal es] -> pure $ mkList (List.reverse es)
+      [LitStrVal s] -> pure $ mkStr (Text.reverse s)
+      [SymbolVal (Id s)] -> pure $ mkSym (Text.reverse s)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "nub" $ \case
+      [ ListVal es ] -> pure $ mkList $ List.nub es
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "zip" $ \case
+      [ ListVal a, ListVal b ] -> pure $ mkList (zipWith (\x y -> mkList [x,y]) a b)
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "take" $ \case
       [ LitIntVal n, ListVal es ] -> pure $ mkList $ take (fromIntegral n) es
+      [ LitIntVal n, StringLike es ] -> pure $ mkStr $ take (fromIntegral n) es
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "drop" $ \case
       [ LitIntVal n, ListVal es ] -> pure $ mkList $ drop (fromIntegral n) es
+      [ LitIntVal n, StringLike es ] -> pure $ mkStr $ drop (fromIntegral n) es
       _ -> throwIO (BadFormException @c nil)
 
+
     entry $ bindMatch "nth" $ \case
-      [ LitIntVal i, ListVal es ] -> pure $ atDef nil es (fromIntegral i)
+      [LitIntVal i, ListVal es] -> do
+        let idx = if i < 0 then length es + fromIntegral i else fromIntegral i
+        pure $ atDef nil es idx
+
+      [LitIntVal i, StringLike es] -> do
+        let idx = if i < 0 then length es + fromIntegral i else fromIntegral i
+        pure $ maybe nil (mkSym . List.singleton) $ atMay es idx
+
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "assoc" $ \case
@@ -1009,6 +1109,14 @@ internalEntries = do
     entry $ bindMatch "lines" $ \case
       [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.lines x ]
       _ -> pure nil
+
+    entry $ bindMatch "mod" $ \case
+      [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (a `mod` b)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "%" $ \case
+      [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (a `mod` b)
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "sum" $ \case
       [ ListVal es ]  -> do
@@ -1245,6 +1353,27 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "str" $ \case
+      []  -> pure $ mkStr ""
+      [x] -> pure $ mkStr (show $ pretty x)
+      xs  -> pure $ mkStr $ mconcat [ show (pretty e) | e <- xs ]
+
+    entry $ bindMatch "le?" $ \case
+      [a, b] -> pure $ mkBool (compareSyn a b == LT)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "gt?" $ \case
+      [a, b] -> pure $ mkBool (compareSyn a b == GT)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "leq?" $ \case
+      [a, b] -> pure $ mkBool (compareSyn a b /= GT)  -- LT или EQ
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "gte?" $ \case
+      [a, b] -> pure $ mkBool (compareSyn a b /= LT)  -- GT или EQ
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "length" $ \case
       [ListVal es] -> pure $ mkInt (length es)
       [StringLike es] -> pure $ mkInt (length es)
@@ -1409,4 +1538,58 @@ matchOne what = \case
   s@(TextLike x) | Text.isInfixOf what x -> True
   e@(ListVal xs) -> or [ Text.isInfixOf what s | TextLike s <- xs ]
   _ -> False
+
+flattenList :: IsContext c => Syntax c -> [Syntax c]
+flattenList (ListVal xs) = concatMap flattenList xs
+flattenList x = [x]
+
+partitionM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
+partitionM _ [] = pure ([], [])
+partitionM p (x:xs) = do
+  (yes, no) <- partitionM p xs
+  b <- p x
+  pure $ if b then (x:yes, no) else (yes, x:no)
+
+groupByM :: Monad m => (a -> a -> m Bool) -> [a] -> m [[a]]
+groupByM _ [] = pure []
+groupByM eq (x:xs) = do
+  (same, rest) <- partitionM (eq x) xs
+  groups <- groupByM eq rest
+  pure ((x:same) : groups)
+
+toOrdering :: Bool -> Ordering
+toOrdering True  = LT  -- Если `cmp x y` → True, то `x < y`
+toOrdering False = GT  -- Иначе `x > y`
+
+sortByM :: Monad m => (a -> a -> m Bool) -> [a] -> m [a]
+sortByM cmp xs = do
+  let indexed = zip xs [0..]
+
+  keyVals <- mapM (\(a, i) -> do
+                      k <- mapM (\b -> cmp a b) xs
+                      pure (sum (map fromEnum k), i, a))
+                  indexed
+
+  let sorted = List.sortOn (\(key, idx, _) -> (key, idx)) keyVals
+
+  pure $ map (\(_, _, val) -> val) sorted
+
+compareSyn :: Syntax c -> Syntax c -> Ordering
+compareSyn (LitIntVal a) (LitIntVal b) = compare a b
+compareSyn (LitScientificVal a) (LitScientificVal b) = compare a b
+compareSyn (LitIntVal a) (LitScientificVal b) = compare (fromIntegral a) b
+compareSyn (LitScientificVal a) (LitIntVal b) = compare a (fromIntegral b)
+compareSyn (TextLike a) (TextLike b) = compare a b
+compareSyn (ListVal a) (ListVal b) = compareLists a b
+compareSyn _ _ = error "type check error"
+
+-- Лексикографическое сравнение списков
+compareLists :: [Syntax c] -> [Syntax c] -> Ordering
+compareLists [] [] = EQ  -- Оба пустые → равно
+compareLists [] _  = LT  -- Пустой список всегда "меньше" непустого
+compareLists _  [] = GT  -- Непустой список всегда "больше" пустого
+compareLists (x:xs) (y:ys) =
+  case compareSyn x y of
+    EQ -> compareLists xs ys  -- Если элементы равны, сравниваем дальше
+    ord -> ord
 
