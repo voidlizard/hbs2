@@ -9,6 +9,8 @@ module Data.Config.Suckless.Script.Internal
   ) where
 
 import Data.Config.Suckless
+import Data.Config.Suckless.Syntax
+import Data.Config.Suckless.Parse.Fuzzy as P
 import Data.Config.Suckless.Almost.RPC
 
 import Data.Traversable
@@ -17,6 +19,10 @@ import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Data.Aeson as Aeson
+import Data.Yaml qualified as Yaml
+import Data.Ini qualified as Ini
+import Data.Ini (Ini(..))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString qualified as BS
@@ -226,39 +232,6 @@ display_ = liftIO . print
 
 {- HLINT ignore "Functor law" -}
 
-class IsContext c => MkSym c a where
-  mkSym :: a -> Syntax c
-
-instance IsContext c => MkSym c String where
-  mkSym s = Symbol noContext (Id $ Text.pack s)
-
-instance IsContext c => MkSym c Text where
-  mkSym s = Symbol noContext (Id s)
-
-instance IsContext c => MkSym c Id where
-  mkSym = Symbol noContext
-
-class IsContext c => MkStr c s where
-  mkStr :: s -> Syntax c
-
-instance IsContext c => MkStr c String where
-  mkStr s = Literal noContext $ LitStr (Text.pack s)
-
-instance IsContext c => MkStr c Text where
-  mkStr s = Literal noContext $ LitStr s
-
-mkBool :: forall c . IsContext c => Bool -> Syntax c
-mkBool v = Literal noContext (LitBool v)
-
-
-class IsContext c => MkForm c a where
- mkForm :: a-> [Syntax c] -> Syntax c
-
-instance (IsContext c, MkSym c s) => MkForm c s where
- mkForm s sy = List noContext ( mkSym @c s :  sy )
-
-mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
-mkList = List noContext
 
 isFalse :: forall c . IsContext c => Syntax c -> Bool
 isFalse = \case
@@ -270,18 +243,6 @@ eatNil :: Monad m => (Syntax c -> m a) -> Syntax c -> m ()
 eatNil f = \case
   Nil -> pure ()
   x   -> void $ f x
-
-class IsContext c => MkInt c s where
-  mkInt :: s -> Syntax c
-
-class IsContext c => MkDouble c s where
-  mkDouble :: s -> Syntax c
-
-instance (IsContext c, RealFrac s) => MkDouble c s where
-  mkDouble v = Literal noContext $ LitScientific (realToFrac v)
-
-instance (Integral i, IsContext c) => MkInt c i where
-  mkInt n = Literal noContext $ LitInt (fromIntegral n)
 
 class OptionalVal c b where
   optional :: b -> Syntax c -> b
@@ -799,8 +760,6 @@ lookupValue i = do
           Just (BindValue s) -> pure s
           _  -> throwIO (NameNotBound i)
 
-nil :: forall c . IsContext c => Syntax c
-nil = List noContext []
 
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
@@ -823,6 +782,21 @@ fmt :: Syntax c -> Doc ann
 fmt = \case
   LitStrVal x -> pretty $ Text.unpack x
   x -> pretty x
+
+newtype IniConfig = IniConfig Ini.Ini
+
+instance IsContext c => MkSyntax c IniConfig where
+  mkSyntax (IniConfig  (Ini{..})) = do
+
+    let section kvs = [ mkList [mkSym k, either (const (mkStr v)) fixContext (P.parseSyntax v)]
+                      | (k,v) <- kvs
+                      ]
+
+    let globals = section iniGlobals
+
+    let sections = [ mkForm @c s (section pps) | (s, pps)  <- HM.toList iniSections ]
+
+    mkList (globals <> sections)
 
 internalEntries :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m) => MakeDictM c m ()
 internalEntries = do
@@ -1175,11 +1149,36 @@ internalEntries = do
           e@(SymbolVal x) -> wrapWith e
           _ -> id
 
+    entry $ bindMatch "json:stdin" $ const do
+      parseJson <$> liftIO (LBS.hGetContents stdin)
+
+    entry $ bindMatch "json:file" $ \case
+      [StringLike fn] -> do
+        parseYaml <$>  liftIO (LBS.readFile fn)
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "yaml:stdin" $ const do
+      parseYaml <$> liftIO (LBS.hGetContents stdin)
+
+    entry $ bindMatch "yaml:file" $ \case
+      [StringLike fn] -> do
+        parseYaml <$>  liftIO (LBS.readFile fn)
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "ini:stdin" $ const do
+      parseIni <$> liftIO (LBS.hGetContents stdin)
+
+    entry $ bindMatch "ini:file" $ \case
+      [StringLike fn] -> do
+        parseIni <$>  liftIO (LBS.readFile fn)
+
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "top:stdin" $ const do
       liftIO TIO.getContents
           <&> either (const nil) (mkList . fmap fixContext) . parseTop
-
 
     entry $ bindMatch "top:file" $ \case
       [StringLike fn] -> do
@@ -1388,9 +1387,26 @@ internalEntries = do
 
       _ ->  pure nil
 
+parseJson :: forall c . IsContext c => LBS.ByteString -> Syntax c
+parseJson input = case Aeson.decode @Value input of
+    Just val -> mkSyntax @c val
+    Nothing  -> nil
+
+parseYaml :: forall c . IsContext c => LBS.ByteString -> Syntax c
+parseYaml input =
+  case Yaml.decodeEither' @Value (LBS.toStrict input) of
+    Left _  -> nil @c
+    Right val -> mkSyntax @c val
+
+parseIni :: forall c . IsContext c => LBS.ByteString -> Syntax c
+parseIni input =
+  case Ini.parseIni (decodeUtf8With ignore $ LBS.toStrict  input) of
+    Left _    -> nil
+    Right ini -> mkSyntax @c (IniConfig ini)
 
 matchOne :: IsContext c => Text -> Syntax c -> Bool
 matchOne what = \case
   s@(TextLike x) | Text.isInfixOf what x -> True
   e@(ListVal xs) -> or [ Text.isInfixOf what s | TextLike s <- xs ]
   _ -> False
+

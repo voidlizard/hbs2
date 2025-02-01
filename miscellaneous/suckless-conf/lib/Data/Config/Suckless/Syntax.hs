@@ -22,6 +22,15 @@ module Data.Config.Suckless.Syntax
   , fromOpaqueThrow
   , isByteString
   , SyntaxTypeError(..)
+  , nil
+  , mkList
+  , mkBool
+  , MkForm(..)
+  , MkSym(..)
+  , MkInt(..)
+  , MkStr(..)
+  , MkDouble(..)
+  , MkSyntax(..)
   , pattern SymbolVal
   , pattern ListVal
   , pattern LitIntVal
@@ -45,7 +54,7 @@ import Data.Scientific
 import GHC.Generics (Generic(..))
 import Data.Maybe
 import Data.Aeson
-import Data.Aeson.Key
+import Data.Aeson.Key as Aeson
 import Data.Aeson.KeyMap qualified as Aeson
 import Data.Vector qualified as V
 import Data.Traversable (forM)
@@ -144,6 +153,9 @@ class HasContext c a where
 
 class IsLiteral a where
   mkLit :: a -> Literal
+
+class IsContext c => ToSyntax c a where
+  toSyntax :: a -> Syntax c
 
 newtype Id =
   Id Text
@@ -311,5 +323,67 @@ instance IsContext c => FromJSON (Syntax c) where
                                   ]
         pure $ List noContext (Symbol noContext (Id "object") : pairs)
     parseJSON _ = fail "Cannot parse JSON to Syntax"
+
+class IsContext c => MkSym c a where
+  mkSym :: a -> Syntax c
+
+instance IsContext c => MkSym c String where
+  mkSym s = Symbol noContext (Id $ Text.pack s)
+
+instance IsContext c => MkSym c Text where
+  mkSym s = Symbol noContext (Id s)
+
+instance IsContext c => MkSym c Id where
+  mkSym = Symbol noContext
+
+class IsContext c => MkStr c s where
+  mkStr :: s -> Syntax c
+
+instance IsContext c => MkStr c String where
+  mkStr s = Literal noContext $ LitStr (Text.pack s)
+
+instance IsContext c => MkStr c Text where
+  mkStr s = Literal noContext $ LitStr s
+
+mkBool :: forall c . IsContext c => Bool -> Syntax c
+mkBool v = Literal noContext (LitBool v)
+
+nil :: forall c . IsContext c => Syntax c
+nil = List noContext []
+
+class IsContext c => MkForm c a where
+ mkForm :: a-> [Syntax c] -> Syntax c
+
+instance (IsContext c, MkSym c s) => MkForm c s where
+ mkForm s sy = List noContext ( mkSym @c s :  sy )
+
+mkList :: forall c. IsContext c => [Syntax c] -> Syntax c
+mkList = List noContext
+
+class IsContext c => MkInt c s where
+  mkInt :: s -> Syntax c
+
+class IsContext c => MkDouble c s where
+  mkDouble :: s -> Syntax c
+
+instance (IsContext c, RealFrac s) => MkDouble c s where
+  mkDouble v = Literal noContext $ LitScientific (realToFrac v)
+
+instance (Integral i, IsContext c) => MkInt c i where
+  mkInt n = Literal noContext $ LitInt (fromIntegral n)
+
+class MkSyntax c a where
+  mkSyntax :: a -> Syntax c
+
+instance IsContext c => MkSyntax c (Syntax c) where
+  mkSyntax = id
+
+instance IsContext c => MkSyntax c Value where
+  mkSyntax Null = nil
+  mkSyntax (Number n) = mkDouble n
+  mkSyntax (String n) = mkStr n
+  mkSyntax (Bool b) = mkBool b
+  mkSyntax (Array ns) = mkList [ mkSyntax n | n <- V.toList ns]
+  mkSyntax (Object kv) = mkList [ mkList [mkSym (Aeson.toText k), mkSyntax v] | (k,v) <- Aeson.toList kv]
 
 
