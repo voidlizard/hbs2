@@ -1180,6 +1180,14 @@ internalEntries = do
       liftIO TIO.getContents
           <&> either (const nil) (mkList . fmap fixContext) . parseTop
 
+
+    entry $ bindMatch "top:file" $ \case
+      [StringLike fn] -> do
+        liftIO $ TIO.readFile fn
+            <&> either (const nil) (mkList . fmap fixContext) . parseTop
+
+      _ -> throwIO (BadFormException @c nil)
+
     brief "parses string as toplevel and produces a form"
      $ desc "parse:top:string SYMBOL STRING-LIKE"
      $ entry $ bindMatch "parse:top:string" $ \case
@@ -1366,9 +1374,23 @@ internalEntries = do
           [StringLike what] -> lift do
             callProc what mempty mempty <&> mkList @c . fmap (fixContext)
 
-          StringLikeList (x:xs) -> lift do
-            callProc x xs mempty <&> mkList @c . fmap (fixContext)
+          (StringLike x:xs) -> lift do
+            callProc x (fmap (show.pretty) xs) mempty <&> mkList @c . fmap (fixContext)
 
           _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "grep" \case
+      [TextLike needle, what ] | matchOne needle what
+        -> pure what
 
+      [TextLike needle, e@(ListVal xs) ] | any (matchOne needle) xs ->
+        pure $ mkList (filter (matchOne needle) xs)
+
+      _ ->  pure nil
+
+
+matchOne :: IsContext c => Text -> Syntax c -> Bool
+matchOne what = \case
+  s@(TextLike x) | Text.isInfixOf what x -> True
+  e@(ListVal xs) -> or [ Text.isInfixOf what s | TextLike s <- xs ]
+  _ -> False
