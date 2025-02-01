@@ -11,11 +11,13 @@ import HBS2.Git3.Import
 import HBS2.Git3.Export
 import HBS2.Git3.Git
 import HBS2.Git3.Repo
+import HBS2.Git3.Logger
 
 import Data.Config.Suckless
 
 import System.Posix.Signals
 import System.IO qualified as IO
+import System.Posix.IO
 import System.Exit qualified as Exit
 import System.Environment (getArgs,lookupEnv)
 import Text.InterpolatedString.Perl6 (qc)
@@ -134,7 +136,30 @@ main =  flip runContT pure do
 
   setupLogger
 
+  origStderr <- liftIO $ dup stdError
+  (readEnd, writeEnd) <- liftIO createPipe
+  liftIO $ dupTo writeEnd stdError
+  liftIO $ closeFd writeEnd
+
+  rStderr <- liftIO $ fdToHandle readEnd
+  origHandle <- liftIO $ fdToHandle origStderr
+
+  liftIO $ hSetBuffering origHandle NoBuffering
+
+  -- liftIO $ IO.hPutStr origHandle "\n"
+  ContT $ withAsync $ liftIO $ forever do
+    -- pause @'Seconds 0.25
+    wut <- IO.hGetContents rStderr <&> lines
+    for_ wut $ \s -> do
+      IO.hPutStr origHandle (replicate 100 ' ')
+      IO.hPutStr origHandle "\r"
+      IO.hPutStr origHandle s
+      IO.hPutStr origHandle "\r"
+      pause @'Seconds 0.05
+
   ContT $ bracket none $ const do
+    IO.hPutStr origHandle (replicate 100 ' ')
+    IO.hPutStr origHandle "\rdone\n"
     silence
 
   lift $ void $ installHandler sigPIPE Ignore Nothing
@@ -190,26 +215,3 @@ main =  flip runContT pure do
           next Plain
 
           -- liftIO exitSuccess
-
--- debugPrefix :: LoggerEntry -> LoggerEntry
-debugPrefix = toStderr . logPrefix "[debug] "
-
-setupLogger :: MonadIO m => m ()
-setupLogger = do
-  -- setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
-  setLogging @ERROR  $ toStderr . logPrefix "[error] "
-  setLogging @WARN   $ toStderr . logPrefix "[warn] "
-  setLogging @NOTICE $ toStderr . logPrefix ""
-  pure ()
-
-flushLoggers :: MonadIO m => m ()
-flushLoggers = do
-  silence
-
-silence :: MonadIO m => m ()
-silence = do
-  setLoggingOff @DEBUG
-  setLoggingOff @ERROR
-  setLoggingOff @WARN
-  setLoggingOff @NOTICE
-
