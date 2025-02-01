@@ -159,8 +159,8 @@ main =  flip runContT pure do
       pause @'Seconds 0.05
 
   ContT $ bracket none $ const do
-    -- IO.hPutStr origHandle (replicate 100 ' ')
-    -- IO.hPutStr origHandle "\rdone\n"
+    IO.hPutStr origHandle (replicate 100 ' ')
+    IO.hPutStr origHandle "\r"
     silence
 
   lift $ void $ installHandler sigPIPE Ignore Nothing
