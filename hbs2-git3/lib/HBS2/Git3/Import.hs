@@ -148,9 +148,16 @@ importGitRefLog = withStateDo $ ask >>= \case
     flip fix ImportStart $ \again -> \case
       ImportDone x -> do
         notice "import done"
-        for_ x updateImportedCheckpoint
         updateReflogIndex
-        pure x
+        for_ x updateImportedCheckpoint
+
+        refs <- importedRefs
+
+        if not (null refs && isJust x) then do
+          pure x
+        else do
+          notice $ "no refs arrived - go again"
+          again ImportStart
 
       ImportWait d next -> do
 
@@ -186,6 +193,8 @@ importGitRefLog = withStateDo $ ask >>= \case
 
       ImportWIP attempt prev -> do
 
+        notice $ "download wip" <+> pretty attempt
+
         r <- try @_ @OperationError $ do
 
           excl <- maybe1 prev (pure mempty) $ \p -> do
@@ -215,7 +224,10 @@ importGitRefLog = withStateDo $ ask >>= \case
                 next (xs, l)
 
           case cp' of
-            Nothing -> pure Nothing
+            Nothing -> do
+              notice "no checkpoints found"
+              pure Nothing
+
             Just cp -> do
 
               notice $ "found checkpoint" <+> pretty cp
@@ -242,8 +254,7 @@ importGitRefLog = withStateDo $ ask >>= \case
           Right cp -> again $ ImportDone cp
           Left  (MissedBlockError2 _) -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
           Left  MissedBlockError      -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
-          Left  e                     -> throwIO e
-
+          Left  e                     -> err (viaShow e) >> throwIO e
 
 
 groupKeysFile :: MonadIO m => Git3 m FilePath

@@ -176,7 +176,13 @@ compression      ;  prints compression level
 
           let (_, argz) = splitOpts [] syn
 
-          hash <- headMay [ x | GitHashLike x <- argz ] & orThrowUser "need sha1"
+          hash <- case argz of
+                    [ x@StringLike{}, GitHashLike h ] -> do
+                      resolveRepoKeyThrow [x] >>= setGitRepoKey
+                      waitRepo Nothing =<< getGitRepoKeyThrow
+                      pure h
+
+                    _ -> throwIO $ BadFormException @C nil
 
           idx <- openIndex
 
@@ -360,6 +366,37 @@ compression      ;  prints compression level
             liftIO $ for_ new $ \n -> do
                print $ pretty n
             -- notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
+
+
+        entry $ bindMatch "reflog:tx:list:imported" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepoKeyThrow syn >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+          txImported >>= liftIO . print . vcat . (fmap pretty) . HS.toList
+
+          let (opts, argz) = splitOpts [ ("--checkpoints",0)
+                                    , ("--segments",0)
+                                    ] syn
+
+          let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
+          let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
+
+          resolveRepoKeyThrow argz >>= setGitRepoKey
+          waitRepo Nothing =<< getGitRepoKeyThrow
+
+          hxs <- txListAll Nothing
+
+          liftIO $ forM_ hxs $ \(h,tx) -> do
+            let decoded = case tx of
+                  TxSegment x   | not cpOnly ->
+                    Just ("S" <+> fill 44 (pretty h) <+> fill 44 (pretty x))
+
+                  TxCheckpoint n x | not sOnly ->
+                    Just ("C" <+> fill 44 (pretty h) <+> pretty x <+> fill 8 (pretty n))
+
+                  _ -> Nothing
+
+            forM_ decoded print
+
 
         entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
 
