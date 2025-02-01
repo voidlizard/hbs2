@@ -85,6 +85,7 @@ import HBS2.Peer.Proto.LWWRef.Internal
 import RPC2(RPC2Context(..))
 
 import Data.Config.Suckless.Script hiding (optional)
+import Data.Config.Suckless.Almost.RPC
 
 import Codec.Serialise as Serialise
 import Control.Concurrent (myThreadId)
@@ -122,7 +123,9 @@ import System.IO
 import System.Mem
 import System.Metrics
 import System.Posix.Process
+import System.Posix.Signals
 import Control.Monad.Trans.Cont
+
 
 import UnliftIO (MonadUnliftIO(..))
 import UnliftIO.Exception qualified as U
@@ -133,6 +136,9 @@ import UnliftIO.Concurrent (getNumCapabilities)
 import Streaming.Prelude qualified as S
 
 import Graphics.Vty qualified as Vty
+import Graphics.Vty.Input qualified as Vty
+import Graphics.Vty.Input hiding (Event)
+import Graphics.Vty (Mode(..),setMode,outputIface,inputIface)
 import Graphics.Vty.Platform.Unix qualified as Vty
 
 import Control.Concurrent.Async (ExceptionInLinkedThread(..))
@@ -201,7 +207,6 @@ data PeerOpts =
   deriving stock (Data)
 
 makeLenses 'PeerOpts
-
 
 main :: IO ()
 main = do
@@ -336,6 +341,7 @@ runCLI = do
 
       pure $ flip runContT pure do
 
+
         client <- ContT $ withRPCMessaging rpc
 
         self <- runReaderT (ownPeer @UNIX) client
@@ -355,11 +361,14 @@ runCLI = do
         void $ callService @RpcFetch peerAPI h
 
         liftIO do
+
           when pro $ flip runContT pure do
             cfg <- pure $ Vty.defaultConfig
             vty <- ContT $ bracket (Vty.mkVty cfg) Vty.shutdown
 
-            fix \next -> do
+            let input  = inputIface vty & Vty.eventChannel
+
+            poller <- ContT $ withAsync $ fix \next -> do
               miss <- findMissedBlocks sto h
 
               let l = length miss
@@ -378,10 +387,20 @@ runCLI = do
               let pic = Vty.picForImage $ Vty.string Vty.defAttr msg
               liftIO $ Vty.update vty pic
 
-              unless (l == 0) do
+              when (l > 0) do
                 pause @'Seconds 2
                 next
 
+            let exitNicely = cancel poller
+
+            inp <- ContT $ withAsync $ forever do
+              atomically (readTChan input) >>= \case
+                InputEvent (EvKey (KChar 'c') [MCtrl]) -> exitNicely
+                InputEvent (EvKey (KChar 'q') [])      -> exitNicely
+                _ -> none
+
+            void $ waitAnyCatchCancel [poller, inp]
+            liftIO $ Vty.shutdown vty
 
     pPing = do
       rpc <- pRpcCommon
