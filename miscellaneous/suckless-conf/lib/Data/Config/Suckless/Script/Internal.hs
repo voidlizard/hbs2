@@ -57,6 +57,7 @@ import Safe
 import Streaming.Prelude qualified as S
 import System.Environment
 import System.Directory qualified as Dir
+import System.FilePath.Posix as P
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO
 
@@ -1612,6 +1613,18 @@ internalEntries = do
       [ StringLike p ] -> lift do
         liftIO (Dir.doesFileExist p) <&> mkBool
       _ -> pure $ mkBool False
+
+    entry $ bindMatch "path:ext" $ \case
+      [ StringLike p ] -> pure $ mkSym (P.takeExtension p)
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "path:base" $ \case
+      [ StringLike p ] -> pure $ mkSym (P.takeBaseName p)
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "path:dir" $ \case
+      [ StringLike p ] -> pure $ mkSym (P.takeDirectory p)
+      _ -> throwIO $ BadFormException @c nil
 
     entry $ bindMatch "path:expand" $ \case
       [ StringLike p ] -> lift do
