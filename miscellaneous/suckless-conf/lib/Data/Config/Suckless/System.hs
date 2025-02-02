@@ -85,9 +85,9 @@ home :: MonadIO m => m FilePath
 home = liftIO D.getHomeDirectory
 
 data DirEntry =
-    EntryFile  { entryPath :: FilePath }
-  | EntryDir   { entryPath :: FilePath }
-  | EntryOther { entryPath :: FilePath }
+    EntryFile  { dirEntryPath :: FilePath }
+  | EntryDir   { dirEntryPath :: FilePath }
+  | EntryOther { dirEntryPath :: FilePath }
 
 dirFiles :: MonadIO m => FilePath -> m [FilePath]
 dirFiles d = S.toList_ $ do
