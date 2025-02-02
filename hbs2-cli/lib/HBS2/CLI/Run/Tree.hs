@@ -21,7 +21,9 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
 
+import Data.Text qualified as Text
 import Control.Monad.Except
+import Codec.Serialise
 
 treeEntries :: forall c m . ( IsContext c
                                 , MonadUnliftIO m
@@ -61,4 +63,29 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
                   void $ putBlock sto bss)
 
         _ -> throwIO (BadFormException @c nil)
+
+  entry $ bindMatch "hbs2:grove:annotated" $ \case
+    (ListVal ann : HashLikeList hashes@(x:_)) -> lift do
+      sto <- getStorage
+
+      let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) hashes
+
+      tree <- liftIO (makeMerkle 0 pt $ \(_,_,bss) -> do
+                void $ putBlock sto bss)
+
+      block <- getBlock sto tree
+                  >>= orThrow MissedBlockError
+                  <&> deserialiseOrFail @(MTree [HashRef])
+                  >>= orThrow UnsupportedFormat
+
+      let kwa = Text.unlines $ fmap (Text.pack . show . pretty) ann
+      let mann = MTreeAnn (ShortMetadata kwa) NullEncryption block
+
+      r <- putBlock sto (serialise mann)
+              >>= orThrowUser "can't write tree"
+              <&> HashRef
+
+      pure $ mkSym (show $ pretty r)
+
+    _ -> throwIO (BadFormException @c nil)
 
