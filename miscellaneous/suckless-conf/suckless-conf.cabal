@@ -65,6 +65,7 @@ library
       , Data.Config.Suckless.Syntax
       , Data.Config.Suckless.Parse
       , Data.Config.Suckless.KeyValue
+      , Data.Config.Suckless.System
       , Data.Config.Suckless.Script
       , Data.Config.Suckless.Script.File
       , Data.Config.Suckless.Almost.RPC

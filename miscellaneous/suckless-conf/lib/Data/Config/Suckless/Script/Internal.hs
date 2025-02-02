@@ -12,6 +12,7 @@ import Data.Config.Suckless
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Parse.Fuzzy as P
 import Data.Config.Suckless.Almost.RPC
+import Data.Config.Suckless.System
 
 import Data.Traversable
 import Control.Applicative
@@ -55,6 +56,7 @@ import Prettyprinter.Render.Terminal
 import Safe
 import Streaming.Prelude qualified as S
 import System.Environment
+import System.Directory qualified as Dir
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO
 
@@ -1085,6 +1087,10 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "sort" $ \case
+      [ListVal es] -> pure $ mkList $ (List.sortOn toSortable) es
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "sort-by" $ \case
       [what, ListVal es] -> do
         sorted <- forM es \e -> do
@@ -1576,6 +1582,59 @@ internalEntries = do
 
       _ ->  pure nil
 
+    entry $ bindMatch "mkdir" $ nil_ $ \case
+      [ StringLike p ] -> mkdir p
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "rm" $ nil_ $ \case
+      [ StringLike p ] -> rm p
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "mv" $ nil_ $ \case
+      [ StringLike a, StringLike b ] -> mv a b
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "touch" $ nil_ $ \case
+      [ StringLike p ] -> touch p
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "path:exists?" $ \case
+      [ StringLike p ] -> lift do
+        liftIO (Dir.doesPathExist p) <&> mkBool
+      _ -> pure $ mkBool False
+
+    entry $ bindMatch "path:dir?" $ \case
+      [ StringLike p ] -> lift do
+        liftIO (Dir.doesDirectoryExist p) <&> mkBool
+      _ -> pure $ mkBool False
+
+    entry $ bindMatch "path:file?" $ \case
+      [ StringLike p ] -> lift do
+        liftIO (Dir.doesFileExist p) <&> mkBool
+      _ -> pure $ mkBool False
+
+    entry $ bindMatch "path:expand" $ \case
+      [ StringLike p ] -> lift do
+        mkSym <$> canonicalizePath p
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "dir:list:files" $ \case
+      [ StringLike p ] -> lift do
+        dirFiles p <&> mkList . fmap mkSym
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "dir:list:all" $ \case
+      [ StringLike p ] -> lift do
+        what <- S.toList_ $ dirEntries p $ \e -> do
+          let r = case e of
+                   EntryFile   what -> mkList @c [mkSym what,  mkSym "file" ]
+                   EntryDir    what -> mkList @c [ mkSym what, mkSym "dir"  ]
+                   EntryOther  what -> mkList @c [ mkSym what,mkSym "other" ]
+          S.yield r
+          pure True
+        pure $ mkList what
+
+      _ -> throwIO $ BadFormException @c nil
 
     entry $ bindMatch "html" $ \syn -> do
 
