@@ -3,6 +3,7 @@
 {-# Language PatternSynonyms #-}
 {-# Language ViewPatterns #-}
 {-# Language RecordWildCards #-}
+{-# Language MultiWayIf #-}
 module Data.Config.Suckless.Script.Internal
   ( module Data.Config.Suckless.Script.Internal
   , module Export
@@ -1671,7 +1672,8 @@ internalEntries = do
                        TextLike s -> s
                        _          -> mempty
 
-          let wtf = angles (pretty tag <> pretty attrs) <> pretty body <> angles ( "/" <> pretty tag )
+          let closing = if null content then mempty else angles ( "/" <> pretty tag )
+          let wtf = angles (pretty tag <> pretty attrs) <> pretty body <> closing
 
           pure $ mkStr (show wtf)
 
