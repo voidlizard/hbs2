@@ -432,9 +432,6 @@ display what = do
     LitStrVal s -> notice (pretty s)
     ast         -> notice (pretty ast)
 
-nil :: Syntax C
-nil = List (noContext @C) []
-
 list_ :: [Syntax C] -> Syntax C
 list_ = List (noContext @C)
 
