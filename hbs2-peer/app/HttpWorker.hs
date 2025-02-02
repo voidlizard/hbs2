@@ -14,6 +14,7 @@ import HBS2.Net.Auth.Schema
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
+import HBS2.Misc.PrettyStuff
 
 import PeerTypes
 import PeerConfig
@@ -206,42 +207,56 @@ httpWorker (PeerConfig syn) pmeta = do
 
 
 getTreeHash :: AnyStorage -> HashRef -> ActionM ()
-getTreeHash sto what' = void $ flip runContT pure do
+getTreeHash sto what'' = void $ flip runContT pure do
 
-  meta <- extractMetadataHash sto what'
-            >>= orElse (status status404)
+  flip fix (what'', 0) $ \again (what',i) -> do
 
-  let tp = headDef "application/octet-stream"
-           [ show (pretty w)
-           | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
-           ]
+    let what = fromHashRef what'
 
-  let fn = headMay
-           [ show (pretty w)
-           | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
-           ]
+    meta <- extractMetadataHash sto what'
+              >>= orElse (status status404)
 
-  -- liftIO $ print $ pretty meta
+    let tp = headDef "application/octet-stream"
+             [ show (pretty w)
+             | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
+             ]
 
-  case fn of
-    Just x | takeExtension x == ".html" -> pure  ()
-           | otherwise -> lift $ do
-               addHeader "content-disposition" [qc|attachment; filename="{x}"|]
+    let fn = headMay
+             [ show (pretty w)
+             | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
+             ]
 
-    _ -> pure ()
+    let webroot = headMay [ w
+                          | i < 2, ListVal [SymbolVal "webroot", HashLike w] <- meta
+                          ]
 
-  lift $ addHeader "content-type" (fromString tp)
+    case webroot of
+      Just x | i < 2 -> again (x, succ i)
 
-  elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
+      _ -> do
 
-  case elbs of
-    Left{} -> lift $ status status404
-    Right lbs -> lift do
-      stream $ \write flush -> do
-        for_ (LBS.toChunks lbs) $ \chunk -> do
-          write $ byteString chunk
-        flush
-  where
-    what = fromHashRef what'
+        for_ webroot $ \w -> do
+          warn $ green "HTTP:WEBROOT" <+> pretty w
+
+        -- liftIO $ print $ pretty meta
+
+        case fn of
+          Just x | takeExtension x == ".html" -> pure  ()
+                 | otherwise -> lift $ do
+                     addHeader "content-disposition" [qc|attachment; filename="{x}"|]
+
+          _ -> pure ()
+
+        lift $ addHeader "content-type" (fromString tp)
+
+        elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
+
+        case elbs of
+          Left{} -> lift $ status status404
+          Right lbs -> lift do
+            stream $ \write flush -> do
+              for_ (LBS.toChunks lbs) $ \chunk -> do
+                write $ byteString chunk
+              flush
 
 
