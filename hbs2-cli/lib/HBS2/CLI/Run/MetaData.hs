@@ -142,8 +142,8 @@ metaDataEntries = do
            )
     $ examples [qc|
 
-(hbs2:tree:metadata:get :parsed 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd)
-(dict (mime-type: "text/plain; charset=us-ascii") (file-name: "qqq.txt"))
+(hbs2:tree:metadata:get 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd)
+((mime-type: "text/plain; charset=us-ascii") (file-name: "qqq.txt"))
 
 (hbs2:tree:metadata:get :raw 7J2BZYskBjmDsWZHvVoGGorZDrFYkbbQweRauaYGSTNd
 mime-type: "text/plain; charset=us-ascii"
@@ -151,7 +151,7 @@ file-name: "qqq.txt"
     |]
     $ entry $ bindMatch "hbs2:tree:metadata:get"
     $ \case
-      [ SymbolVal how, StringLike hash ] -> do
+     [ StringLike hash ] -> do
 
         r <- flip runContT pure do
 
@@ -187,18 +187,17 @@ file-name: "qqq.txt"
 
               _ -> mzero
 
-        case (how, r) of
-          ("parsed", Just (LitStrVal r0)) -> do
-
+        maybe1 r (pure nil) $ \case
+          TextLike r0 -> do
 
             let xs = parseTop r0
                        & either mempty (fmap fixContext)
 
-            pure $ mkForm  "dict" xs
+            pure $ mkList xs
 
           _ -> pure $ fromMaybe nil r
 
-      _ -> throwIO (BadFormException @c nil)
+     _ -> throwIO (BadFormException @c nil)
 
   brief "creates a merkle tree with metadata"
     $ returns "string" "hash"
@@ -220,22 +219,21 @@ $ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin
 
 ;; empty metadata
 
-hbs2-cli hbs2:tree:metadata:get :raw 7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
+hbs2-cli hbs2:tree:metadata:get 7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
 
 Create merkle tree with custom metadata
 
 $ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin [kw hello world]
 2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
 
-$ hbs2-cli hbs2:tree:metadata:get :raw 2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
+$ hbs2-cli hbs2:tree:metadata:get  2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
 hello: "world"
+
+$ hbs2-cli  hbs2:tree:metadata:get 7YyWZ44sWpHvrqnFxL8G8HJo4o4p659diusZoHyhXCTx
+((mime-type: "text/plain; charset=us-ascii") (file-name: "MetaData.hs"))
 
 $ hbs2-cli hbs2:tree:metadata:create :auto ./lambda.svg
 3fv5ym8NhY8zat37NaTvY9PDcwJqMLUD73ewHxtHysWg
-
-$ hbs2-cli hbs2:tree:metadata:get :raw 3fv5ym8NhY8zat37NaTvY9PDcwJqMLUD73ewHxtHysWg
-mime-type: "image/svg+xml; charset=us-ascii"
-file-name: "lambda.svg"
 
 Create encrypted tree metadata with a new groupkey
 
@@ -253,7 +251,7 @@ GixS4wssCD4x7LzvHve2JhFCghW1Hwia2tiGTfTTef1u
 
 Check metadata
 
-$ hbs2-cli hbs2:tree:metadata:get :raw BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
+$ hbs2-cli hbs2:tree:metadata:get BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
 
 mime-type: "image/svg+xml; charset=us-ascii"
 file-name: "lambda.svg"
@@ -272,12 +270,12 @@ $ hbs2-cli hbs2:groupkey:list-public-keys [hbs2:groupkey:load GixS4wssCD4x7LzvHv
 
               SymbolVal "auto"      -> pure [Auto]
 
-              ListVal (SymbolVal "dict" : [ListVal [SymbolVal "encrypted", StringLike key]])
+              ListVal [ListVal [SymbolVal "encrypted", StringLike key]]
                 -> do
                   pure [Encrypted key]
 
-              ListVal (SymbolVal "dict" : w)  -> do
-                pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- w ]
+              ListVal ws  -> do
+                pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- ws ]
 
               StringLike rest  -> do
                 pure [MetaDataFile rest]

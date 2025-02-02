@@ -1439,8 +1439,7 @@ internalEntries = do
       _ -> pure $ mkBool False
 
     entry $ bindMatch "not" $ \case
-      [w] -> do
-        pure $ if isFalse w then mkBool True else mkBool False
+      [w] -> pure (mkBool (isTrue w))
       _ -> throwIO (BadFormException @c nil)
 
     brief "get system environment"

@@ -18,6 +18,7 @@ import Codec.Serialise(serialise)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Data
+import Data.Maybe
 import Data.Text qualified as Text
 
 class RefMetaData a where
@@ -144,5 +145,15 @@ pattern HashLike x <- (
     _                -> Nothing
       -> Just x )
 
+pattern HashLikeList :: forall {c} . [HashRef] -> [Syntax c]
+pattern HashLikeList e <- (hashLikeList -> e)
+
+hashLikeList :: [Syntax c] -> [HashRef]
+hashLikeList syn = [ hashLike s | s <- syn ] & takeWhile isJust & catMaybes
+
+hashLike :: Syntax c -> Maybe HashRef
+hashLike = \case
+  HashLike x -> Just x
+  _          -> Nothing
 
 

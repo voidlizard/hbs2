@@ -7,6 +7,8 @@ import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.GroupKey as G
 import HBS2.CLI.Run.Internal.Merkle
 
+import HBS2.Defaults
+
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.System.Dir
@@ -44,4 +46,19 @@ treeEntries = do
 
        _ -> throwIO (BadFormException @c nil)
 
+
+  brief "reads merkle tree data from storage"
+    $ args [arg "list of hashes" "trees"]
+    $ desc [qc|hbs2:grove creates a 'grove' - merkle tree of list of hashes of merkle trees
+It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
+|]
+    $ returns "hash" "string"
+    $ entry $ bindMatch "hbs2:grove" $ \case
+        HashLikeList hashes@(x:_) -> lift do
+          sto <- getStorage
+          let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) hashes
+          mkSym . show . pretty <$> liftIO (makeMerkle 0 pt $ \(_,_,bss) -> do
+                  void $ putBlock sto bss)
+
+        _ -> throwIO (BadFormException @c nil)
 
