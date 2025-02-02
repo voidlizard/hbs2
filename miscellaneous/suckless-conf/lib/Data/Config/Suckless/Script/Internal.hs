@@ -935,6 +935,11 @@ internalEntries = do
       _ -> do
         throwIO (BadFormException @C nil)
 
+
+    entry $ bindMatch "replicate" $ \case
+      [LitIntVal n, e] -> pure $ mkList (replicate (fromIntegral n) e)
+      _ -> pure nil
+
     entry $ bindMatch "repeat" $ nil_ $ \case
       [LitIntVal n, Lambda [] b] -> do
         replicateM_ (fromIntegral n) (applyLambda [] b [])
@@ -1590,7 +1595,7 @@ internalEntries = do
                       | ListVal [TextLike k, TextLike v] <- a
                       ] & mconcat
 
-          let body = case concatTerms  hsep content of
+          let body = case concatTerms hsep (flattenList (mkList content)) of
                        TextLike s -> s
                        _          -> mempty
 
@@ -1678,7 +1683,7 @@ compareLists (x:xs) (y:ys) =
 concatTerms :: forall ann c . IsContext c => ( [Doc ann] -> Doc ann) ->  [Syntax c] -> Syntax c
 concatTerms s =  \case
   [ListVal xs] -> do
-     mkStr @c  ( show $ s (fmap fmt xs) )
+     mkStr @c  ( show $ pretty $ concatTerms s xs )
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
 
