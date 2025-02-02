@@ -48,6 +48,7 @@ import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
 import Data.Time.Clock.POSIX
+import HTMLEntities.Text as Html
 import GHC.Generics hiding (C)
 import Prettyprinter
 import Prettyprinter.Render.Terminal
@@ -278,7 +279,7 @@ pattern Lambda a e <- ListVal [SymbolVal "lambda", LambdaArgs a, e]
 pattern LambdaArgs :: [Id] -> Syntax c
 pattern LambdaArgs a <- (lambdaArgList -> Just a)
 
-
+-- FIXME: detect-invalid-varags
 lambdaArgList :: Syntax c -> Maybe [Id]
 
 lambdaArgList (ListVal a) = sequence argz
@@ -472,14 +473,21 @@ applyLambda :: forall c m . ( IsContext c
             -> RunM c m (Syntax c)
 applyLambda decl body ev = do
 
-  when (length decl /= length ev) do
+  let (manda,opt) = List.break (== ".") decl
+
+  when (length manda > length ev) do
     throwIO (ArityMismatch @c nil)
 
   tv <- ask
   d0 <- readTVarIO tv
 
-  forM_ (zip decl ev) $ \(n,v) -> do
+  let (mandatory,optional) = splitAt (length manda) ev
+
+  forM_ (zip decl mandatory) $ \(n,v) -> do
     bind n v
+
+  forM_ (headMay (tailSafe opt)) $ \n -> do
+    bind n (mkList optional)
 
   e <- eval body
 
@@ -866,14 +874,7 @@ internalEntries = do
         (concat 1 2 3 4 5)
         12345|]
 
-      $ entry $ bindMatch "concat" $ \syn -> do
-
-        case syn of
-          [ListVal xs] -> do
-            pure $ mkStr ( show $ hcat (fmap fmt xs) )
-
-          xs -> do
-            pure $ mkStr ( show $ hcat (fmap fmt xs) )
+      $ entry $ bindMatch "concat" (pure . concatTerms hcat)
 
     entry $ bindMatch "join" $ \case
       [ x, ListVal es ] -> do
@@ -1570,6 +1571,34 @@ internalEntries = do
 
       _ ->  pure nil
 
+
+    entry $ bindMatch "html" $ \syn -> do
+
+      let what = case syn of
+            (TextLike tag : ListVal a : [ListVal content] )  -> Just (tag,a,content)
+            (TextLike tag : ListVal a : content )  -> Just (tag,a,content)
+            [TextLike tag] -> Just (tag,mempty,mempty)
+            _ -> Nothing
+
+      case what of
+
+        Nothing -> pure nil
+
+        Just (tag, a, content) -> do
+
+          let attrs = [ Text.pack (show $ " " <> pretty k <> "=" <> dquotes (pretty (Html.text v)))
+                      | ListVal [TextLike k, TextLike v] <- a
+                      ] & mconcat
+
+          let body = case concatTerms  hsep content of
+                       TextLike s -> s
+                       _          -> mempty
+
+          let wtf = angles (pretty tag <> pretty attrs) <> pretty body <> angles ( "/" <> pretty tag )
+
+          pure $ mkStr (show wtf)
+
+
 parseJson :: forall c . IsContext c => LBS.ByteString -> Syntax c
 parseJson input = case Aeson.decode @Value input of
     Just val -> mkSyntax @c val
@@ -1645,4 +1674,11 @@ compareLists (x:xs) (y:ys) =
   case compareSyn x y of
     EQ -> compareLists xs ys
     ord -> ord
+
+concatTerms :: forall ann c . IsContext c => ( [Doc ann] -> Doc ann) ->  [Syntax c] -> Syntax c
+concatTerms s =  \case
+  [ListVal xs] -> do
+     mkStr @c  ( show $ s (fmap fmt xs) )
+
+  xs -> mkStr ( show $ s (fmap fmt xs) )
 
