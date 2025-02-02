@@ -252,6 +252,9 @@ isFalse = \case
     ListVal [] -> True
     _ -> False
 
+isTrue :: forall c . IsContext c => Syntax c -> Bool
+isTrue = not . isFalse
+
 eatNil :: Monad m => (Syntax c -> m a) -> Syntax c -> m ()
 eatNil f = \case
   Nil -> pure ()
@@ -327,6 +330,7 @@ newtype NameNotBoundException =
 data BadFormException c = BadFormException (Syntax c)
                         | ArityMismatch (Syntax c)
                         | NotLambda (Syntax c)
+                        | NotBuiltinLambda Id
                         | TypeCheckError (Syntax c)
 
 newtype BadValueException = BadValueException String
@@ -384,7 +388,8 @@ hidden :: MakeDictM c m () -> MakeDictM c m ()
 hidden = censor (HM.map hide)
 
 hidePrefix :: Id -> MakeDictM c m () -> MakeDictM c m ()
-hidePrefix (Id p) = censor (HM.filterWithKey exclude)
+hidePrefix (Id p) = error "hidePrefix does not work yet"
+  -- censor (HM.filterWithKey exclude)
   where
     exclude (Id k) _ = not (Text.isPrefixOf p k)
 
@@ -656,6 +661,9 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         atomically $ modifyTVar t (HM.insert name b)
         pure nil
 
+      ListVal [SymbolVal "fn", LitIntVal n, body] -> do
+        pure $ mkForm @c "lambda" [ mkList [ mkSym ("_" <> show i) | i <- [1..n]  ], body ]
+
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
 
@@ -685,8 +693,8 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         apply name =<< evargs dict args'
 
       ListVal (e' : args') -> do
-        -- e <- eval e'
-        apply_ e' =<< evargs dict args'
+        e <- eval e'
+        apply_ e =<< evargs dict args'
 
       SymbolVal name | HM.member name dict -> do
 
@@ -756,6 +764,22 @@ bindMatch n fn = HM.singleton n (Bind man (BindLambda fn))
   where
     man = Just $ mempty { manName = Just (manNameOf n) }
 
+{- HLINT ignore "Redundant <&>" -}
+
+bindAlias :: forall c m . ( MonadUnliftIO m
+                          , IsContext c
+                          , Exception (BadFormException c))
+          => Id -> Id  -> Dict c m
+bindAlias n fn = HM.singleton n (Bind man (BindLambda callAlias))
+  where
+    man = Just $ mempty { manName = Just (manNameOf n) }
+    callAlias syn = do
+      ask  >>= readTVarIO
+           <&> (fmap bindAction . HM.lookup fn)
+           >>= \case
+              Just (BindLambda la) -> la syn
+              _  -> throwIO (NotBuiltinLambda @c fn)
+
 bindMacro :: Id -> ([Syntax c] -> RunM c m (Syntax c)) -> Dict c m
 bindMacro n fn = HM.singleton n (Bind man (BindMacro fn))
   where
@@ -772,7 +796,6 @@ lookupValue i = do
        >>= \case
           Just (BindValue s) -> pure s
           _  -> throwIO (NameNotBound i)
-
 
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
@@ -829,6 +852,8 @@ internalEntries = do
     entry $ bindValue "chr:cr"     (mkStr "\r")
     entry $ bindValue "chr:tab"    (mkStr "\t")
     entry $ bindValue "chr:space"  (mkStr " ")
+
+
 
     brief "concatenates list of string-like elements into a string"
       $ args [arg "list" "(list ...)"]
@@ -963,19 +988,7 @@ internalEntries = do
       [ StringLike es ] -> pure $ maybe nil (mkSym . List.singleton) (headMay es)
       _ -> throwIO (TypeCheckError @C nil)
 
-    entry $ bindMatch "cons" $ \case
-      [ e, ListVal es ] -> pure (mkList (e:es))
-      _ -> throwIO (BadFormException @C nil)
-
-    entry $ bindMatch "@" $ \syn -> do
-      case List.uncons (reverse syn) of
-        Nothing -> pure nil
-        Just (a, []) -> pure a
-        Just (a, fs) -> flip fix (a, fs) $ \next -> \case
-          (acc, []) -> pure acc
-          (acc, x:xs) -> do
-            acc' <- apply_ x [acc]
-            next (acc', xs)
+    entry $ bindAlias "car" "head"
 
     brief "get tail of list"
       $ args [arg "list" "list"]
@@ -990,6 +1003,36 @@ internalEntries = do
         [ListVal []] -> pure nil
         [ListVal es] -> pure $ mkList  (tail es)
         _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindAlias "cdr" "tail"
+
+    entry $ bindMatch "cons" $ \case
+      [ e, ListVal es ] -> pure (mkList (e:es))
+      _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "@" $ \syn -> do
+      case List.uncons (reverse syn) of
+        Nothing -> pure nil
+        Just (a, []) -> pure a
+        Just (a, fs) -> flip fix (a, fs) $ \next -> \case
+          (acc, []) -> pure acc
+          (acc, x:xs) -> do
+            acc' <- apply_ x [acc]
+            next (acc', xs)
+
+
+    entry $ bindMatch "split" $ \case
+      [TextLike sep, TextLike s] ->
+        pure $ mkList [mkStr x | x <- Text.splitOn sep s]
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "join" $ \case
+      TextLikeList (x:xs) ->
+        pure $ mkStr $ Text.intercalate x xs
+
+      _ -> throwIO (BadFormException @c nil)
+
 
     entry $ bindMatch "filter" $ \case
       [pred, ListVal xs] -> do
@@ -1045,6 +1088,13 @@ internalEntries = do
         pure $ mkList [e | (_, e) <- List.sortOn (toSortable . fst) sorted]
 
       _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "append" $ \syn -> do
+      pure $ mkList $  flip fix (mempty, syn) $ \next (acc, terms) -> do
+        case terms of
+          [] -> acc
+          (ListVal xs : rest) -> next (acc <> xs, rest)
+          (other : rest) -> next (acc <> [other], rest)
 
     entry $ bindMatch "flatten" $ \case
       [ListVal es] -> pure $ mkList (concatMap flattenList es)
@@ -1114,9 +1164,7 @@ internalEntries = do
       [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (a `mod` b)
       _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "%" $ \case
-      [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (a `mod` b)
-      _ -> throwIO (BadFormException @c nil)
+    entry $ bindAlias "%" "mod"
 
     entry $ bindMatch "sum" $ \case
       [ ListVal es ]  -> do
@@ -1345,6 +1393,17 @@ internalEntries = do
         entry $ bindMatch "sym"  atomFrom
         entry $ bindMatch "atom" atomFrom
 
+    entry $ bindMatch "str" $ \case
+      []  -> pure $ mkStr ""
+      [x] -> pure $ mkStr (show $ pretty x)
+      xs  -> pure $ mkStr $ mconcat [ show (pretty e) | e <- xs ]
+
+    entry $ bindMatch "and" $ \case
+      xs -> pure $ mkBool $ and [ not (isFalse x) | x <- xs ]
+
+    entry $ bindMatch "or" $ \case
+      xs -> pure $ mkBool $ or [ not (isFalse x) | x <- xs ]
+
     brief "compares two terms" $
       args [arg "term" "a", arg "term" "b"] $
       returns "boolean" "#t if terms are equal, otherwise #f" $
@@ -1353,10 +1412,6 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "str" $ \case
-      []  -> pure $ mkStr ""
-      [x] -> pure $ mkStr (show $ pretty x)
-      xs  -> pure $ mkStr $ mconcat [ show (pretty e) | e <- xs ]
 
     entry $ bindMatch "le?" $ \case
       [a, b] -> pure $ mkBool (compareSyn a b == LT)
@@ -1558,8 +1613,8 @@ groupByM eq (x:xs) = do
   pure ((x:same) : groups)
 
 toOrdering :: Bool -> Ordering
-toOrdering True  = LT  -- Если `cmp x y` → True, то `x < y`
-toOrdering False = GT  -- Иначе `x > y`
+toOrdering True  = LT
+toOrdering False = GT
 
 sortByM :: Monad m => (a -> a -> m Bool) -> [a] -> m [a]
 sortByM cmp xs = do
@@ -1583,13 +1638,12 @@ compareSyn (TextLike a) (TextLike b) = compare a b
 compareSyn (ListVal a) (ListVal b) = compareLists a b
 compareSyn _ _ = error "type check error"
 
--- Лексикографическое сравнение списков
 compareLists :: [Syntax c] -> [Syntax c] -> Ordering
-compareLists [] [] = EQ  -- Оба пустые → равно
-compareLists [] _  = LT  -- Пустой список всегда "меньше" непустого
-compareLists _  [] = GT  -- Непустой список всегда "больше" пустого
+compareLists [] [] = EQ
+compareLists [] _  = LT
+compareLists _  [] = GT
 compareLists (x:xs) (y:ys) =
   case compareSyn x y of
-    EQ -> compareLists xs ys  -- Если элементы равны, сравниваем дальше
+    EQ -> compareLists xs ys
     ord -> ord
 

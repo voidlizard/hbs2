@@ -40,6 +40,7 @@ module Data.Config.Suckless.Syntax
   , pattern StringLike
   , pattern TextLike
   , pattern StringLikeList
+  , pattern TextLikeList
   , pattern Nil
   , pattern OpaqueVal
   )
@@ -107,6 +108,9 @@ textLike = \case
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
 
+textLikeList :: [Syntax c] -> [Text]
+textLikeList syn = [ textLike s | s <- syn ] & takeWhile isJust & catMaybes
+
 data ByteStringSorts = ByteStringLazy LBS.ByteString | ByteStringStrict ByteString
 
 pattern StringLike :: forall {c} . String -> Syntax c
@@ -118,6 +122,9 @@ pattern TextLike e <- (textLike -> Just e)
 pattern StringLikeList :: forall {c} . [String] -> [Syntax c]
 pattern StringLikeList e <- (stringLikeList -> e)
 
+
+pattern TextLikeList :: forall {c} . [Text] -> [Syntax c]
+pattern TextLikeList e <- (textLikeList -> e)
 
 pattern Nil :: forall {c} . Syntax c
 pattern Nil <- ListVal []
