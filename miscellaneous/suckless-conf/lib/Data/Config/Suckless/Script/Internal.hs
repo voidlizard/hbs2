@@ -670,6 +670,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         pure nil
 
         -- error $ show $ "fucked!"  <+> pretty fn
+        --
 
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
         ev <- eval e
@@ -883,7 +884,7 @@ internalEntries = do
     entry $ bindValue "chr:tab"    (mkStr "\t")
     entry $ bindValue "chr:space"  (mkStr " ")
 
-
+    entry $ bindAlias "local" "define"
 
     brief "concatenates list of string-like elements into a string"
       $ args [arg "list" "(list ...)"]
@@ -1404,7 +1405,7 @@ internalEntries = do
     let atomFrom = \case
           [StringLike s] -> pure (mkSym s)
           [e]            -> pure (mkSym $ show $ pretty e)
-          _ -> throwIO (BadFormException @c nil)
+          es             -> atomFrom [concatTerms hcat es]
 
     brief "type of argument"
       $ args [arg "term" "term"]
@@ -1677,12 +1678,12 @@ internalEntries = do
                      TextLike s -> pretty $ mkSym @c s
                      other      -> pretty $ mkSym @c (show $ pretty other)
 
-          let body = braces $ hcat $ punctuate " "
+          let body = hsep
                        [ pretty k <> ":" <+> pretty v <> semi
                        | ListVal [TextLike k, v] <- kwa
                        ]
 
-          let css = se <+> body
+          let css = se <+> braces body
 
           pure $ mkStr (show css)
 
