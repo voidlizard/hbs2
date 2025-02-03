@@ -227,11 +227,11 @@ getTreeHash sto what'' = void $ flip runContT pure do
              ]
 
     let webroot = headMay [ w
-                          | i < 2, ListVal [SymbolVal "webroot", HashLike w] <- meta
+                          | i < 3, ListVal [SymbolVal "webroot", HashLike w] <- meta
                           ]
 
     case webroot of
-      Just x | i < 2 -> again (x, succ i)
+      Just x | i < 3 -> again (x, succ i)
 
       _ -> do
 

@@ -25,6 +25,15 @@ import Data.Text qualified as Text
 import Control.Monad.Except
 import Codec.Serialise
 
+pattern GroveHashes :: forall {c}. [HashRef] -> [Syntax c]
+pattern GroveHashes hashes <- ( groveHashes -> hashes )
+
+groveHashes :: [Syntax c] -> [HashRef]
+groveHashes = \case
+  [ ListVal (HashLikeList hashes) ] -> hashes
+  HashLikeList hashes -> hashes
+  _ -> mempty
+
 treeEntries :: forall c m . ( IsContext c
                                 , MonadUnliftIO m
                                 , Exception (BadFormException c)
@@ -65,7 +74,7 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
         _ -> throwIO (BadFormException @c nil)
 
   entry $ bindMatch "hbs2:grove:annotated" $ \case
-    (ListVal ann : HashLikeList hashes@(x:_)) -> lift do
+    (ListVal ann : GroveHashes hashes) -> lift do
       sto <- getStorage
 
       let pt = toPTree (MaxSize defHashListChunk) (MaxNum defTreeChildNum) hashes

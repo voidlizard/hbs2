@@ -617,7 +617,8 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
     let dict = dict0 <> dict1
 
-    -- liftIO $ print $ show $ "TRACE EXP" <+> pretty syn
+    -- liiftIO $ print $ show $ "TRACE EXP" <+> pretty syn
+    let importDecls = HS.fromList [  "define", "define-macro" :: Id ]
 
     case syn' of
 
@@ -652,6 +653,23 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         pure b
 
       ListVal [ SymbolVal "eval", e ] -> eval e >>= eval
+
+      ListVal [ SymbolVal "import", StringLike fn ] -> do
+        -- FIXME: fancy-error-handling
+        syn <- liftIO (TIO.readFile fn) <&> parseTop >>= either(error.show) pure
+
+        let decls = [ fixContext d
+                    | d@(ListVal (SymbolVal what : rest)) <- syn
+                    , what `HS.member` importDecls
+                    ]
+
+        -- liftIO $ mapM_ (print . pretty) decls
+
+        mapM_ eval decls
+
+        pure nil
+
+        -- error $ show $ "fucked!"  <+> pretty fn
 
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
         ev <- eval e

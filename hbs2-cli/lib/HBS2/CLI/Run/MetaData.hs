@@ -28,12 +28,14 @@ import Codec.Serialise
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy (ByteString)
 import Data.Either
 import Data.Set qualified as Set
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.Text.Encoding qualified as TE
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
 
 import Magic.Data
 import Magic.Init       (magicLoadDefault,magicOpen)
@@ -59,11 +61,14 @@ metaFromSyntax syn =
     t x = Text.pack (show $ pretty x)
 
 
-metaDataEntries :: forall c m . ( IsContext c
-                                , MonadUnliftIO m
-                                , Exception (BadFormException c)
-                                , HasStorage m
-                                , HasClientAPI StorageAPI UNIX m
+type ForMetadata c m = ( IsContext c
+                       , MonadUnliftIO m
+                       , Exception (BadFormException c)
+                       , HasStorage m
+                       , HasClientAPI StorageAPI UNIX m
+                       )
+
+metaDataEntries :: forall c m . ( ForMetadata c m
                                 ) => MakeDictM c m ()
 metaDataEntries = do
 
@@ -199,131 +204,87 @@ file-name: "qqq.txt"
 
      _ -> throwIO (BadFormException @c nil)
 
-  brief "creates a merkle tree with metadata"
-    $ returns "string" "hash"
-    $ args [ arg "list-of-options" "..." ]
-    $ desc ( "options:" <> line
-             <> indent 4 (
-                  vcat [ opt ":stdin" "read data from stdin"
-                       , opt ":auto"  "create metadata from file using libmagic"
-                       , opt  "[kw [encrypted group-key-hash]]" "encrypt metadata with given group key"
-                       , opt  "dict" "custom metadata dictionary"
-                       , opt  "filename : string-like" "file name, ignored if stdin option set"
-                       ])
-             )
-    $ examples [qc|
-Create not encrypted merkle tree for string from stdin without metadata
 
-$ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin
-7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
+  let metadataCreateMan = brief "creates a tree with metadata"
+  let kw = arg "kw" "opts"
 
-;; empty metadata
+  metadataCreateMan $ args [kw, arg "string" "filename"] $
+    entry $ bindMatch "hbs2:tree:metadata:file" $ \case
+      [ syn@(ListVal{}), StringLike fn ] -> do
+          meta0 <- liftIO do
+            magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
+            magicLoadDefault magic
+            mime <- magicFile magic fn
+            pure $ HM.fromList [ ("file-name", Text.pack (takeFileName fn))
+                               , ("mime-type", Text.pack mime)
+                               ]
+          doCreateMetadataTree meta0 syn (liftIO $ LBS.readFile fn)
 
-hbs2-cli hbs2:tree:metadata:get 7dGqTtoehsgn7bADcVTyp93tq2FfuQgtBuVvYL46jdyz
+      _ -> throwIO (BadFormException @c nil)
 
-Create merkle tree with custom metadata
+  metadataCreateMan $ args [kw] $
+    entry $ bindMatch "hbs2:tree:metadata:stdin" $ \case
+        [syn@(ListVal{})] -> do
+          doCreateMetadataTree mempty syn (liftIO LBS.getContents)
 
-$ echo TEST | hbs2-cli hbs2:tree:metadata:create :stdin [kw hello world]
-2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
+        _ -> throwIO (BadFormException @c nil)
 
-$ hbs2-cli hbs2:tree:metadata:get  2ASBLBPRUMrHoSkNYsRWwJQiiXuSGDZTaCXAdDTdeJY6
-hello: "world"
+  metadataCreateMan $ args [kw, arg "string" "input"] $
+    entry $ bindMatch "hbs2:tree:metadata:string" $ \case
+        [ syn@(ListVal{}), TextLike content ] -> do
+          -- liftIO $ TIO.putStr content
+          doCreateMetadataTree mempty syn (pure $ LBS.fromStrict $ TE.encodeUtf8 content)
 
-$ hbs2-cli  hbs2:tree:metadata:get 7YyWZ44sWpHvrqnFxL8G8HJo4o4p659diusZoHyhXCTx
-((mime-type: "text/plain; charset=us-ascii") (file-name: "MetaData.hs"))
-
-$ hbs2-cli hbs2:tree:metadata:create :auto ./lambda.svg
-3fv5ym8NhY8zat37NaTvY9PDcwJqMLUD73ewHxtHysWg
-
-Create encrypted tree metadata with a new groupkey
-
-$ hbs2-cli [define pks [list EiwWxY3xwTfnLKJdzzxNMZgA2ZvYAZd9e8B8pFeCtnrn]] \
-  and [define gk [hbs2:groupkey:store [hbs2:groupkey:create pks]]] \
-  and [hbs2:tree:metadata:create :auto [kw :encrypted gk] ./lambda.svg]
-
-BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4
-
-Check group key
-
-$ hbs2-cli hbs2:tree:metadata:get-gk BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
-
-GixS4wssCD4x7LzvHve2JhFCghW1Hwia2tiGTfTTef1u
-
-Check metadata
-
-$ hbs2-cli hbs2:tree:metadata:get BFLcbpNEqngsJ8gzx3ps4ETXfpUMGgjEETNEVgR18KG4y
-
-mime-type: "image/svg+xml; charset=us-ascii"
-file-name: "lambda.svg"
-
-List group key
-
-$ hbs2-cli hbs2:groupkey:list-public-keys [hbs2:groupkey:load GixS4wssCD4x7LzvHve2JhFCghW1Hwia2tiGTfTTef1u]
-("EiwWxY3xwTfnLKJdzzxNMZgA2ZvYAZd9e8B8pFeCtnrn")
-    |]
-    $ entry $ bindMatch "hbs2:tree:metadata:create" $ \syn -> do
-        case syn of
-
-          args -> do
-            opts' <- for args $ \case
-              SymbolVal "stdin"     -> pure [Stdin]
-
-              SymbolVal "auto"      -> pure [Auto]
-
-              ListVal [ListVal [SymbolVal "encrypted", StringLike key]]
-                -> do
-                  pure [Encrypted key]
-
-              ListVal ws  -> do
-                pure [MetaDataEntry x y | ListVal [SymbolVal x, StringLike y] <- ws ]
-
-              StringLike rest  -> do
-                pure [MetaDataFile rest]
-
-              _ -> pure mempty
-
-            let opts = mconcat opts' & Set.fromList
-            let inFile = headMay [ x | MetaDataFile x <- universeBi opts ]
-
-            lbs <- case (Set.member Stdin opts, inFile) of
-                     (True, _) -> liftIO LBS.getContents
-                     (False, Just fn) -> liftIO (LBS.readFile fn)
-                     (_, Nothing) -> liftIO LBS.getContents
-
-            meta0 <- if not (Set.member Auto opts) || isNothing inFile then
-                       pure (mempty :: HashMap Text Text)
-                     else liftIO do
-                        let fn = fromJust inFile
-                        magic <- magicOpen [MagicMimeType,MagicMime,MagicMimeEncoding]
-                        magicLoadDefault magic
-                        mime <- magicFile magic fn
-                        pure $ HM.fromList [ ("file-name", Text.pack (takeFileName fn))
-                                           , ("mime-type", Text.pack mime)
-                                           ]
-
-            let meta1  = HM.fromList [  (txt n, txt e) | MetaDataEntry n e <- universeBi opts ]
-
-            let enc = headMay [ e | x@(Encrypted e) <- universeBi opts ]
-
-            gk <- runMaybeT do
-                    s <- toMPlus enc
-                    g <- lift $ loadGroupKey (fromString s)
-                    toMPlus g
-
-            when (isJust enc && isNothing gk) do
-              error $ show $  "Can't load group key" <+> pretty enc
-
-            sto <- getStorage
-
-            href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta1) lbs)
-                      `orDie` "encryption error"
-
-            pure $ mkStr (show $ pretty href)
+        _ -> throwIO (BadFormException @c nil)
 
   entry $ bindMatch "cbor:base58" $ \case
     [ LitStrVal x ] -> do
       pure $ mkForm "cbor:base58" [mkStr x]
 
     _ -> throwIO (BadFormException @c nil)
+
+
+groupKeyFromSyntax :: Syntax c -> Maybe HashRef
+groupKeyFromSyntax = \case
+  ListVal es -> headMay [ v | ListVal [ TextLike "gk", HashLike v ] <- es ]
+  _ -> Nothing
+
+loadGroupKeyFromSyntax :: ( ForMetadata c m )
+                       => Syntax c
+                       -> RunM c m (Maybe (GroupKey 'Symm 'HBS2Basic))
+
+loadGroupKeyFromSyntax syn = runMaybeT do
+  hash <- groupKeyFromSyntax syn & toMPlus
+  toMPlus =<< lift (loadGroupKey hash)
+
+metadataFromSyntax :: Syntax c -> HashMap Text Text
+metadataFromSyntax = \case
+  ListVal es -> HM.fromList [ (k,v) | ListVal [ TextLike k, TextLike v] <- es, k /= "gk" ]
+  _ -> mempty
+
+
+doCreateMetadataTree :: forall c m . ForMetadata c m
+                     => HashMap Text Text
+                     -> Syntax c
+                     -> m ByteString
+                     -> RunM c m (Syntax c)
+doCreateMetadataTree meta0 syn getLbs = do
+  let meta = metadataFromSyntax syn
+  let gkh  = groupKeyFromSyntax syn
+
+  gk <- loadGroupKeyFromSyntax syn
+
+  when (isJust gkh && isNothing gk) do
+    throwIO (GroupKeyNotFound 1)
+
+  sto <- getStorage
+
+  lbs <- lift getLbs
+
+  href <- lift (createTreeWithMetadata sto  gk (meta0 <> meta) lbs)
+             >>= orThrow StorageError
+
+  pure $ mkStr (show $ pretty href)
+
 
 
