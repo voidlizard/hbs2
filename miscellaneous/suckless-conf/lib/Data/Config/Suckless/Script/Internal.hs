@@ -304,8 +304,8 @@ pairList syn = [ isPair s | s <- syn ] & takeWhile isJust & catMaybes
 optlist :: IsContext c => [Syntax c] -> [(Id, Syntax c)]
 optlist = reverse . go []
   where
-    go acc ( SymbolVal i : b : rest ) = go ((i, b) : acc) rest
-    go acc [ SymbolVal i ] = (i, nil) : acc
+    go acc ( TextLike i : b : rest ) = go ((Id i, b) : acc) rest
+    go acc [ TextLike i ] = (Id i, nil) : acc
     go acc _ = acc
 
 
@@ -880,11 +880,13 @@ internalEntries = do
 
       $ entry $ bindMatch "concat" (pure . concatTerms hcat)
 
-    entry $ bindMatch "join" $ \case
-      [ x, ListVal es ] -> do
-        let xs = List.intersperse x es
-        pure $ mkStr ( show $ hcat (fmap fmt xs) )
+    let mkJoin x es = do
+         let xs = List.intersperse x es
+         pure $ mkStr ( show $ hcat (fmap fmt xs) )
 
+    entry $ bindMatch "join" $ \case
+      [ x, ListVal es ] -> mkJoin x es
+      (x : es ) -> mkJoin x es
       _ -> throwIO (BadFormException @C nil)
 
     brief "creates a list of elements"
@@ -1037,13 +1039,6 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "join" $ \case
-      TextLikeList (x:xs) ->
-        pure $ mkStr $ Text.intercalate x xs
-
-      _ -> throwIO (BadFormException @c nil)
-
-
     entry $ bindMatch "filter" $ \case
       [pred, ListVal xs] -> do
         filtered <- flip filterM xs $ \x -> do
@@ -1169,6 +1164,11 @@ internalEntries = do
     entry $ bindMatch "words" $ \case
       [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.words x ]
       _ -> pure nil
+
+    entry $ bindMatch "unwords" $ \case
+      [ ListVal (TextLikeList xs) ] -> pure $ mkStr (Text.unwords xs)
+      ( TextLikeList xs) -> pure $ mkStr (Text.unwords xs)
+      _ -> pure $ mkStr ""
 
     entry $ bindMatch "lines" $ \case
       [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.lines x ]
@@ -1641,14 +1641,34 @@ internalEntries = do
       [ StringLike p ] -> lift do
         what <- S.toList_ $ dirEntries p $ \e -> do
           let r = case e of
-                   EntryFile   what -> mkList @c [mkSym what,  mkSym "file" ]
-                   EntryDir    what -> mkList @c [ mkSym what, mkSym "dir"  ]
-                   EntryOther  what -> mkList @c [ mkSym what,mkSym "other" ]
+                   EntryFile   what -> mkList @c [mkSym what, mkSym "file" ]
+                   EntryDir    what -> mkList @c [mkSym what, mkSym "dir"  ]
+                   EntryOther  what -> mkList @c [mkSym what, mkSym "other" ]
           S.yield r
           pure True
         pure $ mkList what
 
       _ -> throwIO $ BadFormException @c nil
+
+
+    entry $ bindMatch "css" $ \case
+        [ sel, ListVal kwa ] -> do
+
+          let se = case sel of
+                     ListVal es -> asSym $ concatTerms hcat $ List.intersperse (mkSym ",") es
+                     TextLike s -> pretty $ mkSym @c s
+                     other      -> pretty $ mkSym @c (show $ pretty other)
+
+          let body = braces $ hcat $ punctuate " "
+                       [ pretty k <> ":" <+> pretty v <> semi
+                       | ListVal [TextLike k, v] <- kwa
+                       ]
+
+          let css = se <+> body
+
+          pure $ mkStr (show css)
+
+        _ -> pure nil
 
     entry $ bindMatch "html" $ \syn -> do
 
@@ -1760,4 +1780,11 @@ concatTerms s =  \case
      mkStr @c  ( show $ pretty $ concatTerms s xs )
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
+
+
+asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
+asSym = \case
+  TextLike s -> pretty (mkSym @c s)
+  other      -> pretty other
+
 
