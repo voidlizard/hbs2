@@ -1,62 +1,66 @@
-
 [define source [json:file miscellaneous/fuzzy-parse/nix/pkgs.json]]
-
-; iterate println source
 
 print
 [html :html [kw]
   [html :head [kw]
-    [html :title [kw] "Suckless HTML Page"]
-    [html :meta [kw :charset "UTF-8"]]
+    [html :title [kw] Suckless HTML Page]
+    [html :meta [kw :charset UTF-8]]
     [html :style [kw]
-      [css body [kw font-family sans-serif margin 40px]]
-      [css table [kw border-collapse "collapse width 100%"]]
+      [css body [kw font-family sans-serif margin-left 20px max-width 1024px]]
+      [css table [kw border-collapse collapse width auto]]
 
-      [css (list td th) [kw border "1px solid #ccc"
+      [css (list td th) [kw border [sym (unwords 1px solid #ccc)]
                             padding 8px
                             text-align left]]
 
-      [css th [kw background-color #f2f2f2]]
+      [css th [kw background-color #f2f2f2 white-space nowrap]]
       [css .che [kw margin-right 8px]]
     ]
   ]
 
   [html :body [kw]
-    [html :h1 [kw] "Пример страницы"]
-    [html :h2 [kw] "Сделано на Suckless Script"]
+    [html :h1 [kw] Example Page]
+    [html :h2 [kw] Built with Suckless Script]
 
-    [html :p [kw] "Это пример страницы, созданной в `hbs2`."]
+    [html :p [kw] This is an example page generated using hbs2.]
 
-    [html :form [kw action "#" method "POST"]
-      [html :label [kw for "cb1"]
-        [html :input [kw :type checkbox name :checkbox1 :id cb1 :class che]]
-        "Согласен с условиями"
+    [html :form [kw action # method POST]
+      [html :label [kw for cb1]
+        [html :input [kw :type checkbox name checkbox1 :id cb1 :class che]]
+        I agree with the terms
       ]
       [html :br]
-      [html :input [kw :type text :name username :placeholder "Введите имя"]]
+      [html :input [kw :type text :name username :placeholder Enter your name]]
       [html :br]
-      [html :input [kw :type submit :value "Отправить"]]
+      [html :input [kw :type submit :value Submit]]
     ]
 
     [html :br]
 
     [html :p [kw]
-      "Этот текст с "
-      [html :b [kw] "жирным"]
-      ", "
-      [html :i [kw] "курсивом"]
-      " и "
-      [html :u [kw] "подчёркнутым"]
-      " стилями."
+      This text contains
+      [html :b [kw] bold]
+      ,
+      [html :i [kw] italic]
+      and
+      [html :u [kw] underlined]
+      styles.
     ]
+
+    [html :br]
+
+    ; Unicode test section
+    [html :p [kw] Russian: Привет, мир!]
+    [html :p [kw] Chinese: 你好，世界！]
+    [html :p [kw] Korean: 안녕하세요, 세계!]
 
     [html :br]
 
     [html :table [kw]
       [html :thead [kw]
         [html :tr [kw]
-          [html [kw] :td]
-          [html [kw] :td]
+          [html :th [kw] Package]
+          [html :th [kw] Version]
         ]
       ]
 
@@ -69,8 +73,8 @@ print
     [html :br]
 
     [html :p [kw]
-      Подробнее читайте на
-      [html :a [kw href "http://example.com"] нашем сайте]
+      For more information, visit
+      [html :a [kw href http://example.com] our website]
       "."
     ]
   ]
