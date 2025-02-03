@@ -30,7 +30,7 @@ print
         I agree with the terms
       ]
       [html :br]
-      [html :input [kw :type text :name username :placeholder Enter your name]]
+      [html :input [kw :type text :name username :placeholder "Enter your name"]]
       [html :br]
       [html :input [kw :type submit :value Submit]]
     ]
@@ -39,11 +39,17 @@ print
 
     [html :p [kw]
       This text contains
+
       [html :b [kw] bold]
-      ,
+
+      chr:comma
+
       [html :i [kw] italic]
-      and
-      [html :u [kw] underlined]
+
+      :and
+
+      [html :u [kw] :underlined]
+
       styles.
     ]
 
