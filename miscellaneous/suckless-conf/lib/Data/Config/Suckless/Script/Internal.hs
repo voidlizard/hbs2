@@ -624,6 +624,8 @@ eval' dict0 syn' = handle (handleForm syn') $ do
     -- liiftIO $ print $ show $ "TRACE EXP" <+> pretty syn
     let importDecls = HS.fromList [ "import", "define", "define-macro" :: Id ]
 
+    let isDefine x = x == "define" || x == "local"
+
     case syn' of
 
       SymbolVal (Id s) | Text.isPrefixOf ":" s -> do
@@ -696,7 +698,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
             pure nil
 
-      ListVal [SymbolVal "define", SymbolVal what, e] -> do
+      ListVal [SymbolVal def, SymbolVal what, e] | isDefine def -> do
         ev <- eval e
         bind what ev>> pure nil
 
@@ -722,7 +724,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
 
-      ListVal [SymbolVal "define", LambdaArgs (name : args), e] -> do
+      ListVal [SymbolVal def, LambdaArgs (name : args), e] | isDefine def -> do
         bind name ( mkForm @c  "lambda" [ mkList [ mkSym s | s <- args], e ] )
         pure nil
 

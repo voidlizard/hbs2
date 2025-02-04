@@ -70,20 +70,9 @@ pattern FixmeHashLike  e <- (fixmeHashFromSyn -> Just e)
 pattern TimeStampLike :: forall {c} . FixmeTimestamp -> Syntax c
 pattern TimeStampLike  e <- (tsFromFromSyn -> Just e)
 
-class MkId a where
-  mkId :: a -> Id
-
-instance MkId String where
-  mkId s = fromString s
-
 instance MkId FixmeAttrName where
   mkId (k :: FixmeAttrName) = Id ("$" <> coerce k)
 
-instance MkId (Text,Int) where
-  mkId (p, i) = Id (p <> fromString (show i))
-
-instance MkId (String,Integer) where
-  mkId (p, i) = Id (fromString p <> fromString (show i))
 
 
 fixmeHashFromSyn :: Syntax c -> Maybe Text

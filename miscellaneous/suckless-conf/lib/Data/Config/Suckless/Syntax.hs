@@ -350,6 +350,12 @@ instance IsContext c => MkSym c String where
 instance IsContext c => MkSym c Text where
   mkSym s = Symbol noContext (Id s)
 
+instance MkId (Text,Int) where
+  mkId (p, i) = Id (p <> Text.pack (show i))
+
+instance MkId (String,Integer) where
+  mkId (p, i) = Id (Text.pack (p  <> show i))
+
 instance IsContext c => MkSym c Id where
   mkSym = Symbol noContext
 
