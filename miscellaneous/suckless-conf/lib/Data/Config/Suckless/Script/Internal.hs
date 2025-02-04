@@ -675,29 +675,26 @@ eval' dict0 syn' = handle (handleForm syn') $ do
                    _           -> throwIO (RuntimeError (mkStr @c $ show $ pretty importsName <> "misteriously disappeared"))
 
 
-
         seen <- atomically $ stateTVar imp_ (\e -> (HM.lookup (mkId fn) e, HM.insert (mkId fn) mempty e))
 
         -- liftIO $ print $ pretty "import" <+> pretty fn
 
-        unless (isNothing seen) $ throwIO alreadyError
+        -- TODO: maybe-should-be-error
+        case seen of
+          Just{} -> pure nil
+          Nothing{} -> do
 
-        -- FIXME: fancy-error-handling
-        syn <- liftIO (TIO.readFile fn) <&> parseTop >>= either(error.show) pure
+            -- FIXME: fancy-error-handling
+            syn <- liftIO (TIO.readFile fn) <&> parseTop >>= either(error.show) pure
 
-        let decls = [ fixContext d
-                    | d@(ListVal (SymbolVal what : rest)) <- syn
-                    , what `HS.member` importDecls
-                    ]
+            let decls = [ fixContext d
+                        | d@(ListVal (SymbolVal what : rest)) <- syn
+                        , what `HS.member` importDecls
+                        ]
 
-        -- liftIO $ mapM_ (print . pretty) decls
+            void $ evalTop decls
 
-        evalTop decls
-
-        pure nil
-
-        -- error $ show $ "fucked!"  <+> pretty fn
-        --
+            pure nil
 
       ListVal [SymbolVal "define", SymbolVal what, e] -> do
         ev <- eval e
