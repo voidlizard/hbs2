@@ -25,6 +25,7 @@ module Data.Config.Suckless.Syntax
   , nil
   , mkList
   , mkBool
+  , MkId(..)
   , MkForm(..)
   , MkSym(..)
   , MkInt(..)
@@ -331,6 +332,15 @@ instance IsContext c => FromJSON (Syntax c) where
         pure $ List noContext (Symbol noContext (Id "object") : pairs)
     parseJSON _ = fail "Cannot parse JSON to Syntax"
 
+class MkId a where
+  mkId :: a -> Id
+
+instance MkId Text where
+  mkId = Id
+
+instance MkId String where
+  mkId  = Id . Text.pack
+
 class IsContext c => MkSym c a where
   mkSym :: a -> Syntax c
 
@@ -351,6 +361,15 @@ instance IsContext c => MkStr c String where
 
 instance IsContext c => MkStr c Text where
   mkStr s = Literal noContext $ LitStr s
+
+instance IsContext c => MkStr c [Text] where
+  mkStr s = mkStr $ mconcat s
+
+instance IsContext c => MkStr c [String] where
+  mkStr s = mkStr $ mconcat s
+
+instance IsContext c => MkStr c [Doc ann] where
+  mkStr s = mkStr $ show (hsep s)
 
 mkBool :: forall c . IsContext c => Bool -> Syntax c
 mkBool v = Literal noContext (LitBool v)

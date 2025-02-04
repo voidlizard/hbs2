@@ -30,6 +30,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Data
+import Data.Coerce
 import Data.Function as Export
 import Data.Functor as Export
 import Data.Hashable
@@ -336,6 +337,7 @@ data BadFormException c = BadFormException (Syntax c)
                         | ArityMismatch (Syntax c)
                         | NotLambda (Syntax c)
                         | NotBuiltinLambda Id
+                        | RuntimeError (Syntax c)
                         | TypeCheckError (Syntax c)
 
 newtype BadValueException = BadValueException String
@@ -349,6 +351,8 @@ instance IsContext c => Show (BadFormException c) where
   show (ArityMismatch sy) = show $ "ArityMismatch" <+> pretty sy
   show (NotLambda sy) = show $ "NotLambda" <+> pretty sy
   show (TypeCheckError sy) = show $ "TypeCheckError" <+> pretty sy
+  show (RuntimeError sy) = show $ "RuntimeError" <+> pretty sy
+  show (NotBuiltinLambda sy) = show $ "NotBuiltinLambda" <+> pretty sy
 
 instance Exception (BadFormException C)
 
@@ -618,7 +622,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
     let dict = dict0 <> dict1
 
     -- liiftIO $ print $ show $ "TRACE EXP" <+> pretty syn
-    let importDecls = HS.fromList [  "define", "define-macro" :: Id ]
+    let importDecls = HS.fromList [ "import", "define", "define-macro" :: Id ]
 
     case syn' of
 
@@ -655,6 +659,29 @@ eval' dict0 syn' = handle (handleForm syn') $ do
       ListVal [ SymbolVal "eval", e ] -> eval e >>= eval
 
       ListVal [ SymbolVal "import", StringLike fn ] -> do
+
+        let importsName = "*runtime-imports*"
+        let alreadyError = RuntimeError $ mkForm "runtime-error" [ mkStr @c ["already imported", pretty fn] ]
+        let disappearedMessage = [mkStr @c [coerce importsName, "misteriously disappeared" :: Text]]
+        let disappeared = RuntimeError $ mkForm "runtime-error" disappearedMessage
+
+        initial <- newTVarIO (mempty :: HashMap Id (HashSet Id)) >>= mkOpaque
+
+        imp_ <- lookupValueDef initial importsName >>= \case
+                   OpaqueVal e -> fromOpaque @(TVar (HashMap Id (HashSet Id))) e & \case
+                                    Just x  -> pure x
+                                    Nothing -> throwIO disappeared
+
+                   _           -> throwIO (RuntimeError (mkStr @c $ show $ pretty importsName <> "misteriously disappeared"))
+
+
+
+        seen <- atomically $ stateTVar imp_ (\e -> (HM.lookup (mkId fn) e, HM.insert (mkId fn) mempty e))
+
+        -- liftIO $ print $ pretty "import" <+> pretty fn
+
+        unless (isNothing seen) $ throwIO alreadyError
+
         -- FIXME: fancy-error-handling
         syn <- liftIO (TIO.readFile fn) <&> parseTop >>= either(error.show) pure
 
@@ -665,7 +692,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
         -- liftIO $ mapM_ (print . pretty) decls
 
-        mapM_ eval decls
+        evalTop decls
 
         pure nil
 
@@ -827,6 +854,19 @@ lookupValue i = do
        >>= \case
           Just (BindValue s) -> pure s
           _  -> throwIO (NameNotBound i)
+
+lookupValueDef :: forall c m . (IsContext c, Exception (BadFormException c), MonadUnliftIO m)
+               => Syntax c
+               -> Id
+               -> RunM c m (Syntax c)
+lookupValueDef defVal i = do
+  ask  >>= readTVarIO
+       <&> (fmap bindAction . HM.lookup i)
+       >>= \case
+          Just (BindValue s) -> pure s
+          _  -> do
+            bind i defVal
+            pure defVal
 
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
