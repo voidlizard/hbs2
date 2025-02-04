@@ -1633,6 +1633,16 @@ internalEntries = do
 
           _ -> throwIO (BadFormException @c nil)
 
+
+    brief "call external process as pipe"
+      $ entry $ bindMatch "proc:pipe" \case
+
+          [StringLike name, ListVal (StringLikeList params), TextLike input ] -> lift do
+            mkStr @c <$> pipeProcText name params input
+
+          _ -> throwIO (BadFormException @c nil)
+
+
     entry $ bindMatch "grep" \case
       [TextLike needle, what ] | matchOne needle what
         -> pure what
