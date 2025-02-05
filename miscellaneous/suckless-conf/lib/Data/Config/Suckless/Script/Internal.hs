@@ -51,6 +51,8 @@ import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (ignore)
 import Data.Time.Clock.POSIX
+import Data.Time.Format (defaultTimeLocale, formatTime)
+
 import HTMLEntities.Text as Html
 import GHC.Generics hiding (C)
 import Prettyprinter
@@ -1465,6 +1467,10 @@ internalEntries = do
         entry $ bindMatch "sym"  atomFrom
         entry $ bindMatch "atom" atomFrom
 
+    entry $ bindMatch "int" $ \case
+      [ StringLike x ] -> pure $ maybe nil mkInt (readMay x)
+      _ -> pure nil
+
     entry $ bindMatch "str" $ \case
       []  -> pure $ mkStr ""
       [x] -> pure $ mkStr (show $ pretty x)
@@ -1738,6 +1744,15 @@ internalEntries = do
           S.yield r
           pure True
         pure $ mkList what
+
+      _ -> throwIO $ BadFormException @c nil
+
+
+    entry $ bindMatch "strftime" $ \case
+      [ StringLike fmt, LitIntVal t ] -> do
+        let utcTime = posixSecondsToUTCTime (fromIntegral t)
+            formattedTime = formatTime defaultTimeLocale fmt utcTime
+        pure $ mkStr formattedTime
 
       _ -> throwIO $ BadFormException @c nil
 
