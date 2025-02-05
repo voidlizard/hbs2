@@ -50,6 +50,30 @@ callProc name params syn = do
   parseTop s & either (liftIO . throwIO) pure
 
 
+-- FIXME: to-suckless-script
+callProcRaw :: forall m . MonadIO m
+         => FilePath
+         -> [String]
+         -> m Text
+
+callProcRaw name params  = do
+  -- let input = fmap (LBS.fromStrict . TE.encodeUtf8 . T.pack  . show . pretty) syn
+  --               & LBS8.unlines
+  --               & byteStringInput
+
+  -- let what = proc name params & setStderr closed & setStdin input
+  let what = proc name params & setStderr closed & setStdin closed
+  (code, i, o) <- readProcess what
+
+  unless (code == ExitSuccess) do
+    liftIO $ hPrint stderr ( pretty $ LBS8.unpack o )
+    liftIO $ throwIO (CallProcException code)
+
+  let s = TE.decodeUtf8With TE.lenientDecode (LBS.toStrict i)
+
+  pure s
+
+
 pipeProcText :: forall m . MonadIO m
          => FilePath
          -> [String]

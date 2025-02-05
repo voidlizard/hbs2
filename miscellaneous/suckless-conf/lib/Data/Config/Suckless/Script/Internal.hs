@@ -1634,6 +1634,17 @@ internalEntries = do
           _ -> throwIO (BadFormException @c nil)
 
 
+    brief "calls external process"
+      $ entry $ bindMatch "call:proc:raw" \case
+          [StringLike what] -> lift do
+            callProcRaw what mempty <&> mkStr @c
+
+          (StringLike x:xs) -> lift do
+            callProcRaw x (fmap (show.pretty) xs) <&> mkStr @c
+
+          _ -> throwIO (BadFormException @c nil)
+
+
     brief "call external process as pipe"
       $ entry $ bindMatch "proc:pipe" \case
 
