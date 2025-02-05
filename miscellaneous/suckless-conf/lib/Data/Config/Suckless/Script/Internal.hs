@@ -1652,12 +1652,24 @@ internalEntries = do
 
       _ ->  pure nil
 
+    entry $ bindMatch "pwd" $ const $ do
+      pwd <&> mkSym @c
+
+    entry $ bindMatch "cd" $ nil_ $ \case
+      [ StringLike dir ] -> cd dir
+      _ -> throwIO $ BadFormException @c nil
+
     entry $ bindMatch "mkdir" $ nil_ $ \case
-      [ StringLike p ] -> mkdir p
+      [ ListVal (StringLikeList p) ] -> do
+        forM_ p mkdir
+
+      (StringLikeList p) -> forM_ p mkdir
+
       _ -> throwIO $ BadFormException @c nil
 
     entry $ bindMatch "rm" $ nil_ $ \case
-      [ StringLike p ] -> rm p
+      (StringLikeList p) -> forM_ p rm
+      [ ListVal (StringLikeList p) ] -> forM_ p rm
       _ -> throwIO $ BadFormException @c nil
 
     entry $ bindMatch "mv" $ nil_ $ \case

@@ -84,6 +84,9 @@ rm fn = liftIO $ D.removePathForcibly fn
 home :: MonadIO m => m FilePath
 home = liftIO D.getHomeDirectory
 
+cd :: MonadIO m => FilePath -> m()
+cd = liftIO . D.setCurrentDirectory
+
 data DirEntry =
     EntryFile  { dirEntryPath :: FilePath }
   | EntryDir   { dirEntryPath :: FilePath }
