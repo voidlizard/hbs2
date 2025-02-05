@@ -175,6 +175,9 @@ main =  flip runContT pure do
 
   void $ lift $ withGit3Env env do
 
+    -- d_ <- asks gitRuntimeDict
+    -- atomically $ writeTVar d_ (Just (RuntimeDict fuck))
+
     conf <- readLocalConf
 
     cli <- parseCLI

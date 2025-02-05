@@ -123,11 +123,6 @@ data ImportStage =
 {- HLINT ignore "Functor law" -}
 
 importGitRefLog :: forall m . ( HBS2GitPerks m
-                              -- , HasStorage m
-                              -- , HasClientAPI PeerAPI UNIX m
-                              -- , HasClientAPI RefLogAPI UNIX m
-                              -- , HasGitRemoteKey m
-                              -- , MonadReader Git3Env m
                               )
              => Git3 m (Maybe HashRef)
 
@@ -257,10 +252,10 @@ importGitRefLog = withStateDo $ ask >>= \case
           Left  e                     -> err (viaShow e) >> throwIO e
 
 
-groupKeysFile :: MonadIO m => Git3 m FilePath
+groupKeysFile :: (MonadIO m) => Git3 m FilePath
 groupKeysFile = getStatePathM <&> (</> "groupkeys")
 
-readGroupKeyFile :: MonadIO m => Git3 m (Maybe HashRef)
+readGroupKeyFile :: (MonadIO m) => Git3 m (Maybe HashRef)
 readGroupKeyFile = do
   file <- groupKeysFile
   debug $ "readGroupKeyFile" <+> pretty file

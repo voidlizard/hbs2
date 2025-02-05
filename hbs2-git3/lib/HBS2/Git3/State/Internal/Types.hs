@@ -7,6 +7,7 @@ module HBS2.Git3.State.Internal.Types
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.Config.Local
+import HBS2.Git.Local.CLI
 import HBS2.System.Dir
 
 import Data.Config.Suckless.Script
@@ -21,23 +22,30 @@ import Control.Exception qualified as E
 unit :: FilePath
 unit = "hbs2-git"
 
-getStatePath :: (MonadIO m, Pretty ref) => ref -> m (Maybe FilePath)
+getConfigPath :: MonadIO m => Git3 m (Maybe FilePath)
+getConfigPath = do
+  let name = ".hbs2-git3"
+  runMaybeT do
+    gitDir
+      >>= toMPlus <&> (</> name) . takeDirectory
+
+getStatePath :: (MonadIO m, Pretty ref) => ref -> Git3 m (Maybe FilePath)
 getStatePath p = runMaybeT do
-  d <- getConfigPath >>= toMPlus
+  d <- lift getConfigPath >>= toMPlus
   pure $ d </> show (pretty p)
 
-getConfigRootFile :: MonadIO m => m FilePath
+getConfigRootFile :: MonadIO m => Git3 m FilePath
 getConfigRootFile = do
   getConfigPath
     >>= orThrow StateDirNotDefined
     <&> (</> "config")
 
-readLocalConf :: MonadIO m => m [Syntax C]
+readLocalConf :: forall m . HBS2GitPerks m => Git3 m [Syntax C]
 readLocalConf = do
 
   fromMaybe mempty <$> runMaybeT do
 
-    conf <- liftIO (E.try @SomeException getConfigRootFile)
+    conf <- lift (try @_ @SomeException getConfigRootFile)
               >>= toMPlus
 
     lift $ touch conf
@@ -93,12 +101,16 @@ instance Hashable GitWritePacksOptVal
 instance GitWritePacksOpts (HashSet GitWritePacksOptVal) where
   excludeParents o = not $ HS.member WriteFullPack o
 
+data RuntimeDict = forall c m . (IsContext c, HBS2GitPerks m)
+                 => RuntimeDict { fromRuntimeDict :: TVar (Dict c m) }
+
 data Git3Env =
     Git3Disconnected
     { gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
     , gitIndexBlockSize    :: TVar Natural
     , gitRepoKey           :: TVar (Maybe GitRepoKey)
+    , gitRuntimeDict       :: Maybe RuntimeDict
     }
   | Git3Connected
     { peerSocket   :: FilePath
@@ -112,6 +124,7 @@ data Git3Env =
     , gitPackedSegmentSize :: TVar Int
     , gitCompressionLevel  :: TVar Int
     , gitIndexBlockSize :: TVar Natural
+    , gitRuntimeDict       :: Maybe RuntimeDict
     }
 
 class HasExportOpts m where
@@ -169,6 +182,10 @@ instance (MonadIO m) => HasGitRemoteKey (Git3 m) where
     e <- ask
     liftIO $ atomically $ writeTVar (gitRepoKey e) (Just k)
 
+class IsContext c => HasRuntimeDict c m where
+  getRuntimeDict :: m (TVar (Dict c m))
+
+
 getGitRepoKeyThrow :: (MonadIO m, HasGitRemoteKey m) => m GitRepoKey
 getGitRepoKeyThrow = getGitRepoKey >>= orThrow GitRepoRefNotSet
 
@@ -216,7 +233,7 @@ instance HasClientAPI api UNIX (Git3 m) => HasClientAPI api UNIX (ContT whatever
 instance HasClientAPI api UNIX (Git3 m) => HasClientAPI api UNIX (MaybeT (Git3 m)) where
   getClientAPI = lift getClientAPI
 
-getStatePathM :: forall m . (MonadIO m, HasGitRemoteKey m) => m FilePath
+getStatePathM :: forall m . (MonadIO m) => Git3 m FilePath
 getStatePathM = do
   k <- getGitRemoteKey >>= orThrow RefLogNotSet
   getStatePath (AsBase58 k) >>= orThrow StateDirNotDefined

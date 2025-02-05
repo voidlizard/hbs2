@@ -21,11 +21,12 @@ main = flip runContT pure do
   cli <- parseTop (unlines $ unwords <$> splitForms argz)
            & either  (error.show) pure
 
-  env <- nullGit3Env
+  tvd <- newTVarIO theDict
+  env' <- nullGit3Env
+  let env = env' { gitRuntimeDict = Just (RuntimeDict tvd) }
 
   void $ lift $ withGit3Env env do
     conf <- readLocalConf
-    let dict = theDict
-    recover $ setupLogger >> run dict (conf <> cli)
+    recover $ setupLogger >> runEval tvd (conf <> cli)
       `finally` silence
 

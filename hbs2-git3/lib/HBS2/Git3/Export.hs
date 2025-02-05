@@ -100,7 +100,9 @@ exportEntries prefix = do
     let refs = HM.toList $ HM.fromList refs'
     export (Just h) refs
 
-export :: forall m . HBS2GitPerks m => Maybe GitHash -> [(GitRef, GitHash)] -> Git3 m ()
+export :: forall m . ( Git3Perks m
+                     )
+       => Maybe GitHash -> [(GitRef, GitHash)] -> Git3 m ()
 export mbh refs = withStateDo do
       tn <- getNumCapabilities
 
@@ -169,18 +171,19 @@ export mbh refs = withStateDo do
 
                 when (exported > 0) do
                   href <- createTreeWithMetadata sto gk meta lbs >>= orThrowPassIO
-                  writeLogEntry ("tree" <+> pretty ts <+> pretty href )
-                  debug $ "SENDING" <+> pretty href <+> pretty fn
-
                   let payload = LBS.toStrict $ serialise (AnnotatedHashRef Nothing href)
-                  tx <- withGit3Env env $ genRefLogUpdate payload
 
-                  let txh = hashObject @HbSync (serialise tx) & HashRef
+                  withGit3Env env do
+                    debug $ "SENDING" <+> pretty href <+> pretty fn
+                    writeLogEntry ("tree" <+> pretty ts <+> pretty href )
+                    tx <- genRefLogUpdate payload
 
-                  atomically (modifyTVar txCheckQ (HS.insert txh))
+                    let txh = hashObject @HbSync (serialise tx) & HashRef
 
-                  callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
-                    >>= orThrowUser "rpc timeout"
+                    atomically (modifyTVar txCheckQ (HS.insert txh))
+
+                    callRpcWaitMay @RpcRefLogPost (TimeoutSec 2) reflogAPI tx
+                      >>= orThrowUser "rpc timeout"
 
                 rm fn
                 next

@@ -23,7 +23,7 @@ import HBS2.KeyMan.Keys.Direct
 import HBS2.Data.Detect
 import HBS2.CLI.Run.MetaData (getTreeContents)
 
-import Data.Config.Suckless
+import Data.Config.Suckless.Script
 
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
@@ -130,12 +130,14 @@ getRepoManifest = do
      >>= orThrow GitRepoManifestMalformed
      <&> RepoManifest
 
-nullGit3Env :: MonadIO m => m Git3Env
+nullGit3Env :: forall m . MonadIO m => m Git3Env
 nullGit3Env = Git3Disconnected
                 <$> newTVarIO defSegmentSize
                 <*> newTVarIO defCompressionLevel
                 <*> newTVarIO defIndexBlockSize
                 <*> newTVarIO Nothing
+                <*> pure Nothing
+
 
 connectedDo :: (MonadIO m) => Git3 m a -> Git3 m a
 connectedDo what = do
@@ -153,7 +155,7 @@ withGit3Env env a = runReaderT (fromGit3 a) env
 runGit3 :: Git3Perks m => Git3Env -> Git3 m b -> m b
 runGit3 env action = withGit3Env env action
 
-withStateDo :: MonadUnliftIO m => Git3 m a -> Git3 m a
+withStateDo :: (MonadUnliftIO m) => Git3 m a -> Git3 m a
 withStateDo action = do
 
   waitRepo Nothing =<< getGitRepoKeyThrow
@@ -168,6 +170,7 @@ recover m = fix \again -> do
 
       soname <- detectRPC
                   `orDie` "can't locate hbs2-peer rpc"
+
 
       flip runContT pure do
 
@@ -197,6 +200,8 @@ recover m = fix \again -> do
 
         -- debug $ yellow $ "REPOKEY" <+> pretty (AsBase58 rk)
 
+        dict <- asks gitRuntimeDict
+
         connected <- Git3Connected soname sto peer refLogAPI lwwAPI
                         <$> newTVarIO rk
                         <*> newTVarIO Nothing
@@ -204,6 +209,7 @@ recover m = fix \again -> do
                         <*> newTVarIO defSegmentSize
                         <*> newTVarIO defCompressionLevel
                         <*> newTVarIO defIndexBlockSize
+                        <*> pure dict
 
 
         liftIO $ withGit3Env connected do

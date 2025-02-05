@@ -71,9 +71,7 @@ readLogFileLBS _ action = flip fix 0 \go n -> do
       go (succ n)
 
 indexPath :: forall m . ( Git3Perks m
-                        , MonadReader Git3Env m
-                        , HasGitRemoteKey m
-                        ) => m FilePath
+                        ) => Git3 m FilePath
 
 indexPath = getStatePathM
 
@@ -127,7 +125,7 @@ mergeSortedFilesN getKey inputFiles outFile = do
     mkState [] = Nothing
     mkState (x:xs) = Just (Entry (getKey x) (x:xs))
 
-compactIndex :: forall m . (Git3Perks m, HasGitRemoteKey m, MonadReader Git3Env m) => Natural -> m ()
+compactIndex :: forall m . (Git3Perks m) => Natural -> Git3 m ()
 compactIndex maxSize = do
   idxPath <- getStatePathM
   mkdir idxPath
@@ -144,8 +142,8 @@ compactIndex maxSize = do
     out <- liftIO $ emptyTempFile idxPath "objects-.idx"
     mergeSortedFilesN (BS.take 20) (map fst block) out
 
-openIndex :: forall a m . (Git3Perks m, HasGitRemoteKey m, MonadReader Git3Env m)
-          => m (Index a)
+openIndex :: forall a m . (Git3Perks m)
+          => Git3 m (Index a)
 
 openIndex = do
   files <- listObjectIndexFiles
@@ -211,9 +209,7 @@ indexFilterNewObjectsMem idx@Index{..} hashes = do
 
 
 listObjectIndexFiles :: forall m . ( Git3Perks m
-                                   , MonadReader Git3Env m
-                                   , HasGitRemoteKey m
-                                   ) => m [(FilePath, Natural)]
+                                   ) => Git3 m [(FilePath, Natural)]
 
 listObjectIndexFiles = do
   path <- indexPath
@@ -275,13 +271,12 @@ bloomFilterSize n k p
 
 
 updateReflogIndex :: forall m . ( Git3Perks m
-                                , MonadReader Git3Env m
-                                , HasClientAPI PeerAPI UNIX m
-                                , HasClientAPI RefLogAPI UNIX m
-                                , HasStorage m
-                                , HasGitRemoteKey m
-                                , HasIndexOptions m
-                                ) => m ()
+                                -- , HasClientAPI PeerAPI UNIX m
+                                -- , HasClientAPI RefLogAPI UNIX m
+                                -- , HasStorage m
+                                -- , HasGitRemoteKey m
+                                -- , HasIndexOptions m
+                                ) => Git3 m ()
 updateReflogIndex = do
 
     reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
@@ -398,11 +393,7 @@ updateReflogIndex = do
 
 
 trimRefs :: forall m . ( Git3Perks m
-                       , MonadReader Git3Env m
-                       , HasGitRemoteKey m
-                       , HasStorage m
-                       , HasClientAPI RefLogAPI UNIX m
-                       ) => m ()
+                       ) => Git3 m ()
 trimRefs = do
     idxPath <- indexPath
     files <- refsFiles
@@ -439,11 +430,7 @@ trimRefs = do
     mapM_ rm files
 
 importedCheckpoint :: forall m . ( MonadIO m
-                                 , MonadReader Git3Env m
-                                 , HasClientAPI RefLogAPI UNIX m
-                                 , HasStorage m
-                                 , HasGitRemoteKey m
-                                 ) => m (Maybe HashRef)
+                                 ) => Git3 m (Maybe HashRef)
 
 importedCheckpoint = do
   state <- getStatePathM
@@ -459,30 +446,22 @@ nullHash :: GitHash
 nullHash = GitHash (BS.replicate 20 0)
 
 txImported :: forall m . ( Git3Perks m
-                         , MonadReader Git3Env m
-                         , HasClientAPI RefLogAPI UNIX m
-                         , HasStorage m
-                         , HasGitRemoteKey m
-                         ) => m (HashSet HashRef)
+                         ) => Git3 m (HashSet HashRef)
 
 txImported = maybe mempty HS.fromList <$> runMaybeT do
      cp <- lift importedCheckpoint >>= toMPlus
      fmap fst <$> lift (txListAll (Just cp))
 
 
-refsFiles :: forall m . (Git3Perks m, HasGitRemoteKey m) => m [FilePath]
+refsFiles :: forall m . (Git3Perks m) => Git3 m [FilePath]
 refsFiles = do
   state <- getStatePathM
   dirFiles state
     <&> filter ( (== ".ref") . takeExtension )
 
 readRefsRaw :: forall m . ( Git3Perks m
-                          , MonadReader Git3Env m
-                          , HasClientAPI RefLogAPI UNIX m
-                          , HasStorage m
-                          , HasGitRemoteKey m
                           )
-            => [FilePath] -> m [Syntax C]
+            => [FilePath] -> Git3 m [Syntax C]
 
 readRefsRaw files = do
   mapM (liftIO . E.try @IOError . readFile) files
@@ -492,11 +471,7 @@ readRefsRaw files = do
 
 {- HLINT ignore "Functor law"-}
 importedRefs :: forall m . ( Git3Perks m
-                           , MonadReader Git3Env m
-                           , HasClientAPI RefLogAPI UNIX m
-                           , HasStorage m
-                           , HasGitRemoteKey m
-                           ) => m [(GitRef, GitHash)]
+                           ) => Git3 m [(GitRef, GitHash)]
 
 importedRefs = do
 
@@ -521,11 +496,7 @@ importedRefs = do
   pure rrefs
 
 updateImportedCheckpoint :: forall m . ( Git3Perks m
-                                 , MonadReader Git3Env m
-                                 , HasClientAPI RefLogAPI UNIX m
-                                 , HasStorage m
-                                 , HasGitRemoteKey m
-                                 ) => HashRef -> m ()
+                                 ) => HashRef -> Git3 m ()
 
 updateImportedCheckpoint cp = do
   state <- getStatePathM
