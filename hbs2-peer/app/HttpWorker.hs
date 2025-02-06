@@ -42,6 +42,7 @@ import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
+import Data.Text.Lazy qualified as LT
 import Data.HashMap.Strict qualified as HM
 import Control.Monad.Reader
 import Lens.Micro.Platform (view)
@@ -255,10 +256,17 @@ httpWorker (PeerConfig syn) pmeta = do
 
 -- pattern WebRef :: forall {s} . sEither (L
 
-webRef :: forall c s . (IsContext c, s ~ HBS2Basic) => Syntax c -> Maybe (Text, Either (LWWRefKey s) HashRef)
+data WebRefAction s =
+         RefTree HashRef
+       | RefRef (LWWRefKey s)
+       | RefRedirect Text
+
+
+webRef :: forall c s . (IsContext c, s ~ HBS2Basic) => Syntax c -> Maybe (Text, WebRefAction s)
 webRef = \case
-  ListVal [TextLike "web:bind", TextLike name, TextLike "tree", HashLike h] -> Just (name, Right h)
-  ListVal [TextLike "web:bind", TextLike name, TextLike "ref",  SignPubKeyLike k] -> Just (name, Left (LWWRefKey k))
+  ListVal [TextLike "web:bind", TextLike name, TextLike "tree", HashLike h] -> Just (name,  RefTree h)
+  ListVal [TextLike "web:bind", TextLike name, TextLike "ref",  SignPubKeyLike k] -> Just (name, RefRef (LWWRefKey k))
+  ListVal [TextLike "web:bind", TextLike name, TextLike "redirect",  TextLike re] -> Just (name, RefRedirect re)
   _ -> Nothing
 
 noWebRoot :: [Syntax c] -> [Syntax c]
@@ -272,80 +280,95 @@ getTreeHash :: forall e s . (s ~ Encryption e, ForSignedBox s, IsRefPubKey s, s 
 
 getTreeHash sto part what'' = void $ flip runContT pure do
 
-  flip fix (mempty, what'', 0) $ \again (p, what',i) -> do
+  callCC \exit -> do
 
-    let what = fromHashRef what'
+    flip fix (mempty, what'', 0) $ \again (p, what',i) -> do
 
-    meta' <- extractMetadataHash sto what'
-              >>= orElse (status status404)
+      let what = fromHashRef what'
 
-    let meta = p <> meta'
+      meta' <- extractMetadataHash sto what'
+                >>= orElse (status status404)
 
-    debug $ red "META/0" <+> pretty meta <+> line
+      let meta = p <> meta'
 
-    let tp = headDef "application/octet-stream"
-             [ show (pretty w)
-             | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
-             ]
+      debug $ red "META/0" <+> pretty meta <+> line
 
-    let fn = headMay
-             [ show (pretty w)
-             | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
-             ]
+      let tp = headDef "application/octet-stream"
+               [ show (pretty w)
+               | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
+               ]
+
+      let fn = headMay
+               [ show (pretty w)
+               | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
+               ]
+
+      let ce = headMay
+               [ show (pretty w)
+               | ListVal [SymbolVal "content-encoding:", StringLike w] <- meta
+               ]
 
 
-    let ce = headMay
-             [ show (pretty w)
-             | ListVal [SymbolVal "content-encoding:", StringLike w] <- meta
-             ]
+      let re = headMay
+               [ show (pretty w)
+               | ListVal [SymbolVal "web:redirect", StringLike w] <- meta
+               ]
 
-    let parts = (Nothing, Right what') : [ (Just name, w)
-                | ( webRef @C -> Just (name, w) ) <- meta
-                ] & HM.fromList
+      for_ re $ \l -> do
+        lift $ redirect (fromString l)
+        exit ()
 
-    for_ ce $ \c ->
-      lift $ addHeader "Content-Encoding" (fromString c)
+      let parts = (Nothing, RefTree what') : [ (Just name, w)
+                  | ( webRef @C -> Just (name, w) ) <- meta
+                  ] & HM.fromList
 
-    let webroot = headMay [ w
-                          | i < 2
-                          , ListVal [SymbolVal r, HashLike w] <- meta
-                          , r == "webroot" || r == "web:root"
-                          ]
+      for_ ce $ \c ->
+        lift $ addHeader "Content-Encoding" (fromString c)
 
-    case webroot of
-      Just x | i < 2 -> again (noWebRoot meta, x, succ i)
+      let webroot = headMay [ w
+                            | i < 2
+                            , ListVal [SymbolVal r, HashLike w] <- meta
+                            , r == "webroot" || r == "web:root"
+                            ]
 
-      _ -> do
+      case webroot of
+        Just x | i < 2 -> again (noWebRoot meta, x, succ i)
 
-        for_ webroot $ \w -> do
-          warn $ green "HTTP:WEBROOT" <+> pretty w
+        _ -> do
 
-        -- liftIO $ print $ pretty meta
+          for_ webroot $ \w -> do
+            warn $ green "HTTP:WEBROOT" <+> pretty w
 
-        case fn of
-          Just x | takeExtension x == ".html" -> pure  ()
-                 | otherwise -> lift $ do
-                     addHeader "content-disposition" [qc|attachment; filename="{x}"|]
+          -- liftIO $ print $ pretty meta
 
-          _ -> pure ()
+          case fn of
+            Just x | takeExtension x == ".html" -> pure  ()
+                   | otherwise -> lift $ do
+                       addHeader "content-disposition" [qc|attachment; filename="{x}"|]
 
-        lift $ addHeader "content-type" (fromString tp)
+            _ -> pure ()
 
-        debug $ red "META" <+> pretty meta <+> line <+> pretty (HM.keys parts)
+          lift $ addHeader "content-type" (fromString tp)
 
-        key <- case HM.lookup part parts of
-                 Just (Right key) -> pure key
-                 Just (Left lww)  -> lookupLWWRef @e sto lww
-                 _ -> pure (HashRef what)
+          debug $ red "META" <+> pretty meta <+> line <+> pretty (HM.keys parts)
 
-        elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey (coerce key))
+          key <- case HM.lookup part parts of
+                   Just (RefTree key) -> pure key
+                   Just (RefRef lww)  -> lookupLWWRef @e sto lww
+                   Just (RefRedirect s)  -> do
+                      lift $ redirect (LT.fromStrict s)
+                      exit ()
 
-        case elbs of
-          Left{} -> lift $ status status404
-          Right lbs -> lift do
-            stream $ \write flush -> do
-              for_ (LBS.toChunks lbs) $ \chunk -> do
-                write $ byteString chunk
-              flush
+                   _ -> pure (HashRef what)
+
+          elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey (coerce key))
+
+          case elbs of
+            Left{} -> lift $ status status404
+            Right lbs -> lift do
+              stream $ \write flush -> do
+                for_ (LBS.toChunks lbs) $ \chunk -> do
+                  write $ byteString chunk
+                flush
 
 

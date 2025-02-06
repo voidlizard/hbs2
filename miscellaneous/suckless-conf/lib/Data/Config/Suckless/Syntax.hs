@@ -44,6 +44,7 @@ module Data.Config.Suckless.Syntax
   , pattern TextLikeList
   , pattern Nil
   , pattern OpaqueVal
+  , pattern MatchOpaqueVal
   )
   where
 
@@ -132,6 +133,10 @@ pattern Nil <- ListVal []
 
 pattern OpaqueVal :: forall {c} . Opaque -> Syntax c
 pattern OpaqueVal box <- OpaqueValue box
+
+-- by @qnikst, thanks, dude
+pattern MatchOpaqueVal :: forall c a . (IsContext c, Typeable a) => a -> Syntax c
+pattern MatchOpaqueVal o <- (OpaqueVal (fromOpaque -> Just o))
 
 data family Context c :: Type
 
