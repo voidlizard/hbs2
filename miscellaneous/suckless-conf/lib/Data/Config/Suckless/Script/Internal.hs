@@ -48,7 +48,7 @@ import Data.String
 import Data.Text.IO qualified as TIO
 import Data.Text qualified as Text
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding (decodeUtf8With,encodeUtf8)
 import Data.Text.Encoding.Error (ignore)
 import Data.Time.Clock.POSIX
 import Data.Time.Format (defaultTimeLocale, formatTime)
@@ -1384,7 +1384,13 @@ internalEntries = do
 
     entry $ bindMatch "json:file" $ \case
       [StringLike fn] -> do
-        parseYaml <$>  liftIO (LBS.readFile fn)
+        parseJson <$>  liftIO (LBS.readFile fn)
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "json:string" $ \case
+      [TextLike s] -> do
+        pure $ parseJson $ encodeUtf8 s & LBS.fromStrict
 
       _ -> throwIO (BadFormException @c nil)
 
