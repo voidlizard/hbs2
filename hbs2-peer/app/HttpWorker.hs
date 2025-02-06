@@ -1,4 +1,6 @@
+{-# Language AllowAmbiguousTypes #-}
 {-# Language TypeOperators #-}
+{-# Language ViewPatterns #-}
 module HttpWorker where
 
 import HBS2.Prelude
@@ -11,6 +13,7 @@ import HBS2.Merkle
 import HBS2.Peer.Proto
 import HBS2.Peer.Proto.LWWRef
 import HBS2.Net.Auth.Schema
+import HBS2.Net.Auth.Credentials
 import HBS2.Data.Types.SignedBox
 import HBS2.Events
 import HBS2.Storage.Operations.ByteString
@@ -22,11 +25,14 @@ import RefLog ( doRefLogBroadCast )
 
 import Data.Config.Suckless
 
+import Data.Maybe
 import Data.ByteString.Lazy qualified as LBS
 import Network.HTTP.Types.Status
 import Network.Wai.Middleware.RequestLogger
 import Text.InterpolatedString.Perl6 (qc)
+
 import Web.Scotty
+import Web.Scotty.Trans (ActionT)
 
 import Data.ByteString.Builder (byteString, Builder)
 
@@ -36,6 +42,7 @@ import Codec.Serialise (deserialiseOrFail)
 import Data.Aeson (object, (.=))
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
+import Data.HashMap.Strict qualified as HM
 import Control.Monad.Reader
 import Lens.Micro.Platform (view)
 import System.FilePath
@@ -77,11 +84,29 @@ extractMetadataHash sto what = runMaybeT do
 orElse :: m r -> Maybe a -> ContT r m a
 orElse a mb = ContT $ maybe1 mb a
 
+lookupLWWRef :: forall e s m . (s ~ Encryption e, IsRefPubKey s, ForSignedBox s, s ~ HBS2Basic)
+           => AnyStorage
+           -> LWWRefKey s
+           -> ContT () ActionM HashRef
+
+lookupLWWRef sto what =
+  getRef sto what
+      >>= orElse (status status404)
+      >>= getBlock sto
+      >>= orElse (status status404)
+      <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef s) s)
+      >>= orElse (status status404)
+      <&> unboxSignedBox0 @(LWWRef s)
+      >>= orElse (status status404)
+      <&> lwwValue . snd
+
+
 httpWorker :: forall e s m . ( MyPeer e
                              , MonadIO m
                              , HasStorage m
                              , IsRefPubKey s
                              , s ~ Encryption e
+                             , s ~ HBS2Basic
                              , m ~ PeerM e IO
                              , e ~ L4Proto
                              -- , ForLWWRefProto e
@@ -100,11 +125,38 @@ httpWorker (PeerConfig syn) pmeta = do
 
       -- defaultHandler do
       --   status status500
+      --
+      --
+      let handleRef ( p :: Maybe Text ) = \case
+
+             Right ref  -> do
+
+              what <- fromStringMay ref
+                        & orElse (status status404)
+
+              lift $ getTreeHash @e sto p what
+
+             Left ( ref  :: String ) -> do
+
+                what  <- fromStringMay @(LWWRefKey s) ref
+                           & orElse (status status404)
+
+                rv <- getRef sto what
+                        >>= orElse (status status404)
+                        >>= getBlock sto
+                        >>= orElse (status status404)
+                        <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef s) s)
+                        >>= orElse (status status404)
+                        <&> unboxSignedBox0 @(LWWRef s)
+                        >>= orElse (status status404)
+                        <&> lwwValue . snd
+
+                lift $ getTreeHash @e sto p rv
 
       get "/size/:hash" do
 
         void $ flip runContT pure do
-          what <- lift (param @String "hash")
+          what <- lift (pathParam @String "hash")
                     <&> fromStringMay
                     >>= orElse (status status404)
 
@@ -117,35 +169,31 @@ httpWorker (PeerConfig syn) pmeta = do
       -- TODO: key-to-disable-tree-streaming
 
       get "/ref/:key" do
-
         void $ flip runContT pure do
-          what <- lift (param @String "key" <&> fromStringMay @(LWWRefKey s))
-                    >>= orElse (status status404)
+          ref <- lift (pathParam @String "key")
+          handleRef Nothing (Left ref)
 
-          rv <- getRef sto what
-                  >>= orElse (status status404)
-                  >>= getBlock sto
-                  >>= orElse (status status404)
-                  <&> either (const Nothing) Just . deserialiseOrFail @(SignedBox (LWWRef s) s)
-                  >>= orElse (status status404)
-                  <&> unboxSignedBox0 @(LWWRef s)
-                  >>= orElse (status status404)
-                  <&> lwwValue . snd
-
-          lift $ getTreeHash sto rv
+      get "/ref/:key/:part" do
+        void $ flip runContT pure do
+          ref  <- lift (pathParam @String "key")
+          part <- lift (pathParam @Text "part")
+          handleRef (Just part) (Left ref)
 
       -- TODO: define-parsable-instance-for-our-types
       get "/tree/:hash" do
         void $ flip runContT pure do
-          what <- lift (param @String "hash")
-                    <&> fromStringMay
-                    >>= orElse (status status404)
+          ref <- lift (pathParam @String "hash")
+          handleRef Nothing (Right ref)
 
-          lift $ getTreeHash sto what
+      get "/tree/:hash/:part" do
+        void $ flip runContT pure do
+          ref <- lift (pathParam @String "hash")
+          part <- lift (pathParam @Text "part")
+          handleRef (Just part) (Right ref)
 
       get "/cat/:hash" do
         void $ flip runContT pure do
-          what <- lift (param @String "hash")
+          what <- lift (pathParam @String "hash")
                     <&> fromStringMay
                     >>= orElse (status status404)
           lift do
@@ -158,7 +206,7 @@ httpWorker (PeerConfig syn) pmeta = do
                 raw lbs
 
       get "/reflog/:ref" do
-        re <- param @String "ref" <&> fromStringMay
+        re <- pathParam @String "ref" <&> fromStringMay
         case re of
           Nothing -> status status404
           Just ref -> do
@@ -205,16 +253,35 @@ httpWorker (PeerConfig syn) pmeta = do
   warn "http port not set"
   forever $ pause @'Seconds 600
 
+-- pattern WebRef :: forall {s} . sEither (L
 
-getTreeHash :: AnyStorage -> HashRef -> ActionM ()
-getTreeHash sto what'' = void $ flip runContT pure do
+webRef :: forall c s . (IsContext c, s ~ HBS2Basic) => Syntax c -> Maybe (Text, Either (LWWRefKey s) HashRef)
+webRef = \case
+  ListVal [TextLike "web:bind", TextLike name, TextLike "tree", HashLike h] -> Just (name, Right h)
+  ListVal [TextLike "web:bind", TextLike name, TextLike "ref",  SignPubKeyLike k] -> Just (name, Left (LWWRefKey k))
+  _ -> Nothing
 
-  flip fix (what'', 0) $ \again (what',i) -> do
+noWebRoot :: [Syntax c] -> [Syntax c]
+noWebRoot syn = flip filter syn \case
+  ListVal (TextLike "web:root" : _) -> False
+  ListVal (TextLike "webroot" : _) -> False
+  _ -> True
+
+getTreeHash :: forall e s . (s ~ Encryption e, ForSignedBox s, IsRefPubKey s, s ~ HBS2Basic)
+            => AnyStorage -> Maybe Text -> HashRef -> ActionM ()
+
+getTreeHash sto part what'' = void $ flip runContT pure do
+
+  flip fix (mempty, what'', 0) $ \again (p, what',i) -> do
 
     let what = fromHashRef what'
 
-    meta <- extractMetadataHash sto what'
+    meta' <- extractMetadataHash sto what'
               >>= orElse (status status404)
+
+    let meta = p <> meta'
+
+    debug $ red "META/0" <+> pretty meta <+> line
 
     let tp = headDef "application/octet-stream"
              [ show (pretty w)
@@ -226,12 +293,27 @@ getTreeHash sto what'' = void $ flip runContT pure do
              | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
              ]
 
+
+    let ce = headMay
+             [ show (pretty w)
+             | ListVal [SymbolVal "content-encoding:", StringLike w] <- meta
+             ]
+
+    let parts = (Nothing, Right what') : [ (Just name, w)
+                | ( webRef @C -> Just (name, w) ) <- meta
+                ] & HM.fromList
+
+    for_ ce $ \c ->
+      lift $ addHeader "Content-Encoding" (fromString c)
+
     let webroot = headMay [ w
-                          | i < 3, ListVal [SymbolVal "webroot", HashLike w] <- meta
+                          | i < 2
+                          , ListVal [SymbolVal r, HashLike w] <- meta
+                          , r == "webroot" || r == "web:root"
                           ]
 
     case webroot of
-      Just x | i < 3 -> again (x, succ i)
+      Just x | i < 2 -> again (noWebRoot meta, x, succ i)
 
       _ -> do
 
@@ -249,7 +331,14 @@ getTreeHash sto what'' = void $ flip runContT pure do
 
         lift $ addHeader "content-type" (fromString tp)
 
-        elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey what)
+        debug $ red "META" <+> pretty meta <+> line <+> pretty (HM.keys parts)
+
+        key <- case HM.lookup part parts of
+                 Just (Right key) -> pure key
+                 Just (Left lww)  -> lookupLWWRef @e sto lww
+                 _ -> pure (HashRef what)
+
+        elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey (coerce key))
 
         case elbs of
           Left{} -> lift $ status status404
