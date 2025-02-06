@@ -42,6 +42,7 @@ import Data.Map qualified as Map
 import Data.Kind
 import Data.List (isPrefixOf)
 import Data.List qualified as List
+import Data.List ((\\))
 import Data.Maybe
 import Data.Either
 import Data.String
@@ -64,6 +65,7 @@ import System.Directory qualified as Dir
 import System.FilePath.Posix as P
 import Text.InterpolatedString.Perl6 (qc)
 import UnliftIO
+import Control.Monad.Trans.Cont
 
 -- TODO: move-to-suckless-conf
 
@@ -1760,6 +1762,26 @@ internalEntries = do
             formattedTime = formatTime defaultTimeLocale fmt utcTime
         pure $ mkStr formattedTime
 
+      _ -> pure $ mkSym  ""
+
+
+    entry $ bindMatch "forked" $ \case
+      [ e ] -> do
+        env <- ask
+        po <- pwd
+        oe <- liftIO $ getEnvironment
+        lift do
+          flip runContT pure do
+
+            a <- ContT $ withAsyncBound $ do
+                    runEval env [e]
+
+            r <- wait a
+
+            cd po
+            restoreEnvironment oe
+            pure r
+
       _ -> throwIO $ BadFormException @c nil
 
 
@@ -1898,5 +1920,13 @@ asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
   TextLike s -> pretty (mkSym @c s)
   other      -> pretty other
+
+
+restoreEnvironment :: MonadIO  m => [(String, String)] -> m ()
+restoreEnvironment newEnv = liftIO do
+    currentEnv <- getEnvironment
+    let toRemove = map fst currentEnv \\ map fst newEnv
+    mapM_ unsetEnv toRemove
+    mapM_ (uncurry setEnv) newEnv
 
 
