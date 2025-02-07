@@ -116,7 +116,10 @@ httpWorker :: forall e s m . ( MyPeer e
 httpWorker (PeerConfig syn) pmeta = do
 
   sto <- getStorage
-  let port' = runReader (cfgValue @PeerHttpPortKey) syn  <&>  fromIntegral
+
+  let port' = runReader (cfgValue @PeerHttpPortKey @PeerHttpPort) syn
+              & (fmap fromIntegral . coerce)
+
   penv <- ask
 
   maybe1 port' none $ \port -> liftIO do

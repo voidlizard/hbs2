@@ -1333,9 +1333,9 @@ runPeer opts = respawnOnError opts $ do
 
   let k = view peerSignPk pc
 
-  let http = case runReader (cfgValue @PeerHttpPortKey @(Maybe Integer)) syn of
-               Nothing -> mempty
-               Just p  -> "http-port:" <+> pretty p
+  let http = case runReader (cfgValue @PeerHttpPortKey @PeerHttpPort) syn of
+               PeerHttpPort Nothing -> mempty
+               PeerHttpPort (Just p)  -> "http-port:" <+> pretty p
 
   let rpc = getRpcSocketName conf
 

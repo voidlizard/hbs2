@@ -43,6 +43,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Reader
 import Control.Monad.Writer qualified as W
 import Data.ByteString.Lazy (ByteString)
+import Data.Coerce
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as L
@@ -288,8 +289,10 @@ getKnownPeers  = do
 
 mkPeerMeta :: PeerConfig -> PeerEnv e -> AnnMetaData
 mkPeerMeta (PeerConfig syn) penv = do
+
     let mHttpPort :: Maybe Integer
-        mHttpPort = runReader (cfgValue @PeerHttpPortKey) syn
+        mHttpPort = coerce $ runReader (cfgValue @PeerHttpPortKey @PeerHttpPort) syn
+
     let mTcpPort :: Maybe Word16
         mTcpPort =
           (

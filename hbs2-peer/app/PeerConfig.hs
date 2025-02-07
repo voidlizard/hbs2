@@ -39,13 +39,16 @@ data PeerTcpProbeWaitKey
 data PeerUseHttpDownload
 data PeerBrainsDBPath
 
+newtype PeerHttpPort = PeerHttpPort (Maybe Integer)
+                       deriving newtype (Pretty)
+
 instance Monad m => HasConf (ReaderT PeerConfig m) where
   getConf = asks (\(PeerConfig syn) -> syn)
 
 instance HasCfgKey PeerListenTCPKey (Maybe String) where
   key = "listen-tcp"
 
-instance HasCfgKey PeerHttpPortKey (Maybe Integer) where
+instance HasCfgKey PeerHttpPortKey b where
   key = "http-port"
 
 instance HasCfgKey PeerTcpProbeWaitKey (Maybe Integer) where
@@ -72,6 +75,19 @@ instance {-# OVERLAPPABLE #-} (HasConf m, HasCfgKey a b) => HasCfgValue a Featur
       val syn = [ if e == "on" then FeatureOn else FeatureOff
                 | ListVal (Key s [SymbolVal e]) <- syn, s == key @a @b
                 ]
+
+
+instance {-# OVERLAPPING #-} (HasConf m, HasCfgKey PeerHttpPortKey b, b ~ PeerHttpPort) => HasCfgValue PeerHttpPortKey b m where
+  cfgValue = val <$> getConf
+    where
+      val syn = do
+        let found = lastMay [ v
+                            | ListVal (Key s [v]) <- syn, s == key @PeerHttpPortKey @b
+                            ]
+        case found of
+          Just (TextLike "off")  -> PeerHttpPort Nothing
+          Just (LitIntVal n)     -> (PeerHttpPort (Just n))
+          _                      -> (PeerHttpPort (Just 5005))
 
 cfgName :: FilePath
 cfgName = "config"
