@@ -736,9 +736,18 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         e <- eval e'
         pure $ if isFalse e then mkBool True else mkBool False
 
+
+      ListVal [SymbolVal "if", w, e] -> do
+        what <- eval w
+        if not (isFalse what) then eval e else pure nil
+
       ListVal [SymbolVal "if", w, e1, e2] -> do
         what <- eval w
         if isFalse what then eval e2 else eval e1
+
+      ListVal [SymbolVal "unless", w, e1] -> do
+        what <- eval w
+        if isFalse what then eval e1 else pure nil
 
       ListVal (SymbolVal "begin" : what) -> do
         evalTop what
@@ -940,7 +949,7 @@ internalEntries = do
         (concat 1 2 3 4 5)
         12345|]
 
-      $ entry $ bindMatch "concat" (pure . concatTerms hcat)
+      $ entry $ bindMatch "concat" (pure . mkStr . foldMap synToText)
 
     let mkJoin x es = do
          let xs = List.intersperse x es
@@ -1018,6 +1027,11 @@ internalEntries = do
       z ->
         throwIO (BadFormException @C nil)
 
+    entry $ bindMatch "bound?" $ \case
+      [ SymbolVal x ] -> do
+        error "DONT KNOW"
+      _ -> pure $ mkBool False
+
 
     entry $ bindMatch "eval" $ \syn -> do
       r <- mapM eval syn
@@ -1026,6 +1040,10 @@ internalEntries = do
     entry $ bindMatch "id" $ \case
       [ e ] -> pure e
       _ -> throwIO (BadFormException @C nil)
+
+    entry $ bindMatch "true?" $ \case
+      [ e ] | e == mkBool True -> pure $ mkBool True
+      _ -> pure $ mkBool False
 
     entry $ bindMatch "inc" $ \case
       [ LitIntVal n ] -> pure (mkInt (succ n))
@@ -1215,16 +1233,16 @@ internalEntries = do
 
     entry $ bindMatch "upper" $ \case
       [ LitStrVal x ] -> pure $ mkStr $ Text.toUpper x
-      [ SymbolVal (Id x) ] -> pure $ mkSym $ Text.toUpper x
+      [ SymbolVal (Id x) ] -> pure $ mkStr $ Text.toUpper x
       _ -> pure nil
 
     entry $ bindMatch "lower" $ \case
       [ LitStrVal x ] -> pure $ mkStr $ Text.toLower x
-      [ SymbolVal (Id x) ] -> pure $ mkSym $ Text.toLower x
+      [ SymbolVal (Id x) ] -> pure $ mkStr  $ Text.toLower x
       _ -> pure nil
 
     entry $ bindMatch "words" $ \case
-      [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.words x ]
+      [ TextLike x ] -> pure $ mkList [ mkStr  y | y <- Text.words x ]
       _ -> pure nil
 
     entry $ bindMatch "unwords" $ \case
@@ -1233,7 +1251,7 @@ internalEntries = do
       _ -> pure $ mkStr ""
 
     entry $ bindMatch "lines" $ \case
-      [ TextLike x ] -> pure $ mkList [ mkSym y | y <- Text.lines x ]
+      [ TextLike x ] -> pure $ mkList [ mkStr  y | y <- Text.lines x ]
       _ -> pure nil
 
     entry $ bindMatch "mod" $ \case
@@ -1327,10 +1345,6 @@ internalEntries = do
       [ SymbolVal fg, s] | HM.member fg colorz -> do
         let f = fgc fg
         pure $ niceTerm f s
-        -- let wtf = show $ pretty s
-        -- let x = Text.unpack $ renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty wtf)
-        -- -- error $ show x
-        -- pure $ mkStr x
 
       _  -> throwIO (BadFormException @c nil)
 
@@ -1475,8 +1489,10 @@ internalEntries = do
         entry $ bindMatch "sym"  atomFrom
         entry $ bindMatch "atom" atomFrom
 
+
     entry $ bindMatch "int" $ \case
       [ StringLike x ] -> pure $ maybe nil mkInt (readMay x)
+      [ LitScientificVal v ] -> pure $ mkInt (round v)
       _ -> pure nil
 
     entry $ bindMatch "str" $ \case
@@ -1762,8 +1778,7 @@ internalEntries = do
             formattedTime = formatTime defaultTimeLocale fmt utcTime
         pure $ mkStr formattedTime
 
-      _ -> pure $ mkSym  ""
-
+      _ -> pure $ mkStr  ""
 
     entry $ bindMatch "forked" $ \case
       [ e ] -> do
@@ -1915,12 +1930,10 @@ concatTerms s =  \case
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
 
-
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
   TextLike s -> pretty (mkSym @c s)
   other      -> pretty other
-
 
 restoreEnvironment :: MonadIO  m => [(String, String)] -> m ()
 restoreEnvironment newEnv = liftIO do

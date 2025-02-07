@@ -25,6 +25,7 @@ module Data.Config.Suckless.Syntax
   , nil
   , mkList
   , mkBool
+  , synToText
   , MkId(..)
   , MkForm(..)
   , MkSym(..)
@@ -425,5 +426,14 @@ instance IsContext c => MkSyntax c Value where
 
 
 
+synToText :: forall c . IsContext c => Syntax c -> Text
+synToText = \case
+  ListVal  xs        -> foldMap synToText xs
+  TextLike  x        -> x
+  LitIntVal x        -> Text.pack (show x)
+  LitScientificVal x -> Text.pack (show x)
+  LitBoolVal f       -> Text.pack (show (pretty f))
+  OpaqueValue{}      -> Text.pack "#opaque"
+{-# COMPLETE ListVal, TextLike, LitIntVal, LitScientificVal, LitBoolVal, OpaqueValue #-}
 
 
