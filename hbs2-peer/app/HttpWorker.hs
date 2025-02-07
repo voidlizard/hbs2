@@ -135,7 +135,8 @@ httpWorker (PeerConfig syn) pmeta = do
               what <- fromStringMay ref
                         & orElse (status status404)
 
-              lift $ getTreeHash @e sto p what
+              lift do
+                getTreeHash @e sto p what
 
              Left ( ref  :: String ) -> do
 
@@ -152,7 +153,8 @@ httpWorker (PeerConfig syn) pmeta = do
                         >>= orElse (status status404)
                         <&> lwwValue . snd
 
-                lift $ getTreeHash @e sto p rv
+                lift do
+                  getTreeHash @e sto p rv
 
       get "/size/:hash" do
 
@@ -172,24 +174,28 @@ httpWorker (PeerConfig syn) pmeta = do
       get "/ref/:key" do
         void $ flip runContT pure do
           ref <- lift (pathParam @String "key")
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
           handleRef Nothing (Left ref)
 
       get "/ref/:key/:part" do
         void $ flip runContT pure do
           ref  <- lift (pathParam @String "key")
           part <- lift (pathParam @Text "part")
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
           handleRef (Just part) (Left ref)
 
       -- TODO: define-parsable-instance-for-our-types
       get "/tree/:hash" do
         void $ flip runContT pure do
           ref <- lift (pathParam @String "hash")
+          lift $ addHeader "Cache-Control" "public, max-age=31536000, immutable"
           handleRef Nothing (Right ref)
 
       get "/tree/:hash/:part" do
         void $ flip runContT pure do
           ref <- lift (pathParam @String "hash")
           part <- lift (pathParam @Text "part")
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
           handleRef (Just part) (Right ref)
 
       get "/cat/:hash" do
@@ -202,8 +208,8 @@ httpWorker (PeerConfig syn) pmeta = do
             case blob of
               Nothing -> status status404
               Just lbs -> do
-                addHeader "content-type" "application/octet-stream"
-                addHeader "content-length" [qc|{LBS.length lbs}|]
+                setHeader "Cache-Control" "public, max-age=31536000, immutable"
+                setHeader "ETag" (LT.pack $ show $ pretty what)
                 raw lbs
 
       get "/reflog/:ref" do
@@ -353,14 +359,18 @@ getTreeHash sto part what'' = void $ flip runContT pure do
           debug $ red "META" <+> pretty meta <+> line <+> pretty (HM.keys parts)
 
           key <- case HM.lookup part parts of
-                   Just (RefTree key) -> pure key
+                   Just (RefTree key) -> do
+                    pure key
+
                    Just (RefRef lww)  -> lookupLWWRef @e sto lww
+
                    Just (RefRedirect s)  -> do
                       lift $ redirect (LT.fromStrict s)
                       exit ()
 
                    _ -> pure (HashRef what)
 
+          lift $ addHeader "ETag" (LT.pack $ show $ pretty key)
           elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey (coerce key))
 
           case elbs of
