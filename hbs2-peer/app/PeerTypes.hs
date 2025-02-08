@@ -65,6 +65,11 @@ import UnliftIO
 
 import Streaming.Prelude qualified as S
 
+data GoAgainException = GoAgainException
+                        deriving (Eq,Ord,Show,Typeable)
+
+instance Exception GoAgainException
+
 data PeerInfo e =
   PeerInfo
   { _peerBurst          :: TVar Int

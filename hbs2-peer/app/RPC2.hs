@@ -79,7 +79,7 @@ import Streaming.Prelude qualified as S
 instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => HandleMethod m RpcRunScript where
   handleMethod top = do
 
-    co <- getRpcContext @PeerAPI
+    co@RPC2Context{..} <- getRpcContext @PeerAPI
 
     let cli = parseTop top & fromRight mempty
 
@@ -217,6 +217,11 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
 
           _ -> do
             pure nil
+
+
+        entry $ bindMatch "reset" $ const do
+          throwTo rpcSelf GoAgainException
+          pure $ mkSym "reset"
 
         entry $ bindMatch "peer-info" $ const do
 

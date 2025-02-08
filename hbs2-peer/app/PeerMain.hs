@@ -143,10 +143,6 @@ import Graphics.Vty.Platform.Unix qualified as Vty
 
 import Control.Concurrent.Async (ExceptionInLinkedThread(..))
 
-data GoAgainException = GoAgainException
-                        deriving (Eq,Ord,Show,Typeable)
-
-instance Exception GoAgainException
 
 -- TODO: write-workers-to-config
 defStorageThreads :: Integral a => a
@@ -1354,7 +1350,8 @@ runPeer opts = respawnOnError opts $ do
   setProbe rpcmsg rpcProbe
   addProbe rpcProbe
 
-  let rpcctx = RPC2Context { rpcConfig = fromPeerConfig conf
+  let rpcctx = RPC2Context { rpcSelf = myself
+                           , rpcConfig = fromPeerConfig conf
                            , rpcMessaging = rpcmsg
                            , rpcTCP = tcp
                            , rpcPokeAnswer = pokeAnsw

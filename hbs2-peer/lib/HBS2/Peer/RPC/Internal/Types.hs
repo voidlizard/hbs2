@@ -25,13 +25,15 @@ import Data.Config.Suckless.Parse
 import Data.Kind
 import Control.Monad
 import Control.Monad.Reader
+import Control.Concurrent (ThreadId)
 import Data.ByteString ( ByteString )
 import UnliftIO
 import HBS2.Prelude (asyncLinked)
 
 data RPC2Context =
   RPC2Context
-  { rpcConfig              :: [Syntax C]
+  { rpcSelf                :: ThreadId
+  , rpcConfig              :: [Syntax C]
   , rpcMessaging           :: MessagingUnix
   , rpcTCP                 :: Maybe MessagingTCP
   , rpcPokeAnswer          :: String
