@@ -29,6 +29,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Data
 import Data.Coerce
 import Data.Function as Export
@@ -1394,6 +1395,10 @@ internalEntries = do
     let lwrap = \case
           e@(SymbolVal x) -> wrapWith e
           _ -> id
+
+    entry $ bindMatch "json" \case
+      [ e ] -> pure $ mkStr $ LBS8.unpack $ Aeson.encode $ toJSON e
+      x      -> pure $ mkStr $ LBS8.unpack $ Aeson.encode $ toJSON (mkList x)
 
     entry $ bindMatch "json:stdin" $ const do
       parseJson <$> liftIO (LBS.hGetContents stdin)
