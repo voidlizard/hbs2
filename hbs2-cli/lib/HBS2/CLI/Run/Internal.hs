@@ -31,6 +31,7 @@ import Data.Config.Suckless.Script hiding (internalEntries)
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 
@@ -169,6 +170,19 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
     -- TODO: re-implement-all-on-top-of-opaque
+
+    entry $ bindMatch "hbs2:hash" $ \syn -> do
+      i <- case syn of
+             [ListVal (StringLikeList xs)] -> pure xs
+             StringLikeList xs -> pure xs
+             e -> throwIO (BadFormException @c (mkList e))
+
+      r <- forM i $ \f -> do
+        liftIO (LBS.readFile f)
+          <&> hashObject @HbSync
+          <&> mkSym @c . show . pretty
+
+      pure $ mkList r
 
     -- TODO: move-somewhere
     entry $ bindMatch "rm" $ nil_ \case
