@@ -33,6 +33,27 @@ This solution facilitates decentralized P2P git repository
 synchronization with automatic peer discovery, requiring no server or
 service.
 
+## Status update 2025-02-08
+
+Website [hbs2.net](https://hbs2.net) is up. All updates, documentations
+and so on will appear there.
+
+It is also available on http://localhost:port/ref/4X65y4YvUjRL2gtA9Ec3YDDP4bnxjTGhfjpoah96t3z1
+
+Just
+
+```
+hbs2-peer run
+```
+
+and
+
+```
+
+hbs2-peer poll add 4X65y4YvUjRL2gtA9Ec3YDDP4bnxjTGhfjpoah96t3z1 lwwref 31
+
+```
+
 
 ## Status update 2025-01-06
 
