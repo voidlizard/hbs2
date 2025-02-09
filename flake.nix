@@ -58,6 +58,15 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       scotty = new.callHackage "scotty" "0.21" {};
       skylighting-lucid = new.callHackage "skylighting-lucid" "1.0.4" { };
       wai-app-file-cgi = dontCoverage (dontCheck (jailbreakUnbreak pkgs old.wai-app-file-cgi));
+      libyaml =
+        if pkgs.hostPlatform.isStatic
+          then old.libyaml.overrideDerivation (drv: {
+            postPatch = let sed = "${pkgs.gnused}/bin/sed"; in ''
+              ${sed} -i -e 's/buffer_init/snoyberg_buffer_init/' c/helper.c include/helper.h
+              ${sed} -i -e 's/"buffer_init"/"snoyberg_buffer_init"/' src/Text/Libyaml.hs
+            '';
+          })
+          else old.libyaml;
     };
 
     overrideComposable = pkgs: hpkgs: overrides:

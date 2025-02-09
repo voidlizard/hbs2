@@ -166,7 +166,7 @@ runMessagingUnix env = do
       let openSock = liftIO $ socket AF_UNIX Stream defaultProtocol
       let closeSock = liftIO . close
 
-      touch (msgUnixSockPath env)
+      -- touch (msgUnixSockPath env)
 
       sock <- ContT $ bracket openSock closeSock
 
