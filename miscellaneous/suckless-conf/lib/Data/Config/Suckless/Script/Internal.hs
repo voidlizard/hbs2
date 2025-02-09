@@ -54,6 +54,7 @@ import Data.Text.Encoding (decodeUtf8With,encodeUtf8)
 import Data.Text.Encoding.Error (ignore)
 import Data.Time.Clock.POSIX
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import Data.UUID.V4 qualified as UUID
 
 import HTMLEntities.Text as Html
 import GHC.Generics hiding (C)
@@ -64,7 +65,10 @@ import Streaming.Prelude qualified as S
 import System.Environment
 import System.Directory qualified as Dir
 import System.FilePath.Posix as P
+import System.IO.Temp qualified as Temp
+import System.Exit qualified as Exit
 import Text.InterpolatedString.Perl6 (qc)
+import Lens.Micro.Platform
 import UnliftIO
 import Control.Monad.Trans.Cont
 
@@ -1061,6 +1065,12 @@ internalEntries = do
       _ -> do
           throwIO (BadFormException @C nil)
 
+    entry $ bindMatch "for" $ \case
+      [ ListVal es, what ] -> do
+        mkList <$> mapM (apply_ what . List.singleton) es
+
+      e -> throwIO (BadFormException @c (mkList e))
+
     entry $ bindMatch "quot" $ \case
       [ syn ] -> pure $ mkList [syn]
       _ -> do
@@ -1713,6 +1723,18 @@ internalEntries = do
 
       _ -> throwIO $ BadFormException @c nil
 
+    entry $ bindMatch "die" $ nil_ $ \case
+      e -> liftIO $ Exit.die (show $ foldMap asSym e)
+
+    entry $ bindMatch "cp" $ nil_ $ \case
+      (StringLikeList p) -> liftIO do
+        case List.uncons (reverse p) of
+          Nothing -> pure ()
+          Just (dest, rest) -> do
+            forM_ (reverse rest) $ \f -> Dir.copyFileWithMetadata f dest
+
+      e ->  throwIO $ BadFormException @c (mkList e)
+
     entry $ bindMatch "rm" $ nil_ $ \case
       (StringLikeList p) -> forM_ p rm
       [ ListVal (StringLikeList p) ] -> forM_ p rm
@@ -1725,6 +1747,31 @@ internalEntries = do
     entry $ bindMatch "touch" $ nil_ $ \case
       [ StringLike p ] -> touch p
       _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "sys:temp:dir:get" $ const do
+      mkStr @c <$> sysTempDir
+
+    entry $ bindMatch "sys:temp:file" $ \case
+      [] -> mkSym @c <$> liftIO (Temp.emptySystemTempFile "bf6")
+      [ StringLike d ] -> mkSym @c <$> liftIO (Temp.emptyTempFile d "bf6")
+      [ StringLike d, StringLike p ] -> mkSym @c <$> liftIO (Temp.emptyTempFile d p)
+      e -> throwIO $ BadFormException @c (mkList e)
+
+    entry $ bindMatch "sys:temp:dir" $ \case
+      [ ] -> do
+        s <- sysTempDir
+        mkSym @c <$> liftIO (Temp.createTempDirectory s "bf6")
+
+      [ StringLike d ] -> do
+        mkSym @c <$> liftIO (Temp.createTempDirectory d "bf6")
+
+      [ StringLike d, StringLike p ] -> do
+        mkSym @c <$> liftIO (Temp.createTempDirectory d p)
+
+      e -> throwIO $ BadFormException @c (mkList e)
+
+    entry $ bindMatch "uuid" $ const do
+      mkSym @c . show <$> liftIO UUID.nextRandom
 
     entry $ bindMatch "path:exists?" $ \case
       [ StringLike p ] -> lift do

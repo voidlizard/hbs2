@@ -110,8 +110,7 @@ peerEntries = do
     $ returns "dict" "dictionary of peer attributes"
     $ examples [qc|
 (hbs2:peer:poke)
-
-(dict
+(
  (peer-key: "35gKUG1mwBTr3tQpjWwR2kBYEnDmHxesoJL5Lj7tMjq3")
  (udp: "0.0.0.0:7354")
  (tcp: "tcp://0.0.0.0:3001")
@@ -125,7 +124,6 @@ peerEntries = do
         callRpcWaitMay @RpcPoke (TimeoutSec 1) api ()
           <&> fromMaybe ""
           <&> parseTop
-          <&> either (const nil) (mkForm "dict" . fmap fixContext)
-
+          <&> either (const nil) (mkList . fmap fixContext)
 
 

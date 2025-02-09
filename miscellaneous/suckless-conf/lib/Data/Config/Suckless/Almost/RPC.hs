@@ -38,7 +38,7 @@ callProc name params syn = do
                 & byteStringInput
 
   -- let what = proc name params & setStderr closed & setStdin input
-  let what = proc name params & setStderr closed & setStdin input
+  let what = proc name params & setStdin input
   (code, i, o) <- readProcess what
 
   unless (code == ExitSuccess) do
@@ -62,7 +62,7 @@ callProcRaw name params  = do
   --               & byteStringInput
 
   -- let what = proc name params & setStderr closed & setStdin input
-  let what = proc name params & setStderr closed & setStdin closed
+  let what = proc name params & setStdin closed
   (code, i, o) <- readProcess what
 
   unless (code == ExitSuccess) do

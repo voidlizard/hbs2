@@ -231,13 +231,13 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
 
     _rates <- newTVarIO (mempty :: Map Double Double)
 
-    pause @'Seconds (min 1 $ realToFrac _buTimeout)
+    pause @'Seconds (max 1 $ realToFrac _buTimeout)
 
     flip runContT pure do
 
       void $ ContT $ withAsync do
         forever do
-          pause @'Seconds (min 2 $ realToFrac _buTimeout * 10)
+          pause @'Seconds (max 1 $ realToFrac _buTimeout * 10)
 
           atomically do
             e <- headDef bu0 . Map.elems <$> readTVar _rates
@@ -253,7 +253,7 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
 
       void $ ContT $ withAsync do
         forever do
-          pause @'Seconds (realToFrac _buTimeout * 2.0)
+          pause @'Seconds (max 1 $ realToFrac _buTimeout * 2.0)
           ddt <- readTVarIO _dEdT
 
           when (ddt <= 0) do
@@ -293,7 +293,7 @@ instance MonadUnliftIO m => IsBurstMachine BurstMachine m where
 
           pure e2
 
-        pause @'Seconds (min 1 dt)
+        pause @'Seconds (max 1 dt)
         next eNew
 
 instance MonadIO m => IsBurstMachine ConstBurstMachine m where

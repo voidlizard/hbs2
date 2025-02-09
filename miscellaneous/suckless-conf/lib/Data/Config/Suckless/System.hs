@@ -4,6 +4,7 @@ module Data.Config.Suckless.System where
 import Data.Function
 import System.FilePath
 import System.Directory qualified as D
+import System.IO.Temp qualified as Temp
 import Data.ByteString.Lazy qualified as LBS
 import UnliftIO
 import Control.Exception qualified as E
@@ -116,5 +117,11 @@ dirEntries dir what  = do
     continueThen a b = do
       r <- a
       when r b
+
+sysTempDir :: MonadIO m => m FilePath
+sysTempDir = do
+  tmp1 <- liftIO D.getTemporaryDirectory
+  tmp2 <- liftIO $ Temp.getCanonicalTemporaryDirectory
+  pure $ if null tmp1 then tmp2 else tmp1
 
 
