@@ -27,10 +27,8 @@ import Data.Config.Suckless.KeyValue (HasConf(..))
 import Control.Monad
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
--- import Control.Concurrent.Async
 import Control.Monad.Reader
--- import Control.Monad.Writer.CPS qualified as CPS
-import Control.Monad.Writer qualified as CPS
+import Control.Monad.Trans.Writer.CPS qualified as CPS
 import Data.ByteString.Lazy (ByteString)
 import Data.Cache (Cache)
 import Data.Cache qualified as Cache

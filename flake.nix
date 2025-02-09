@@ -168,8 +168,6 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           pkgs.icu72
           pkgs.openssl
           weeder
-          pkgs.iptables
-          pkgs.bridge-utils
         ]
         ++
         [ pkgs.pkg-config
