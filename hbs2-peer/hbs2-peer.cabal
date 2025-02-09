@@ -286,6 +286,7 @@ executable hbs2-peer
                     , MailboxProtoWorker
                     , CheckMetrics
                     , HttpWorker
+                    , Watchdogs
                     , Brains
                     , DispatchProxy
                     , CLI.Common

@@ -58,6 +58,7 @@ import MailboxProtoWorker
 import HttpWorker
 import DispatchProxy
 import PeerMeta
+import Watchdogs
 import CLI.Common
 import CLI.RefChan
 import CLI.LWWRef
@@ -776,6 +777,8 @@ runPeer opts = respawnOnError opts $ do
   let tcpProbeWait    = runReader (cfgValue @PeerTcpProbeWaitKey) syn
                           & fromInteger @(Timeout 'Seconds) . fromMaybe 300
 
+  let rpc = getRpcSocketName conf
+
   let
     addProbe :: forall m . MonadIO m => AnyProbe -> m ()
     addProbe p = liftIO $ atomically $ modifyTVar probes (p:)
@@ -1240,6 +1243,8 @@ runPeer opts = respawnOnError opts $ do
 
                 peerThread "mailboxProtoWorker" (mailboxProtoWorker (pure mboxConf) mailboxWorker)
 
+                peerThread "rpcWatchDog" (runRpcWatchDog myself rpc)
+
                 liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk onNoBlock)
@@ -1304,6 +1309,7 @@ runPeer opts = respawnOnError opts $ do
     probe <- newSimpleProbe "PeerEnv_Announce"
     addProbe probe
     peerEnvSetProbe menv probe
+
   probesMenv <- liftIO $ async $ forever do
       pause @'Seconds 10
       peerEnvCollectProbes menv
@@ -1333,7 +1339,6 @@ runPeer opts = respawnOnError opts $ do
                PeerHttpPort Nothing -> mempty
                PeerHttpPort (Just p)  -> "http-port:" <+> pretty p
 
-  let rpc = getRpcSocketName conf
 
   let pokeAnsw = show $ vcat [ "peer-key:" <+> dquotes (pretty (AsBase58 k))
                              , "udp:" <+> dquotes (pretty (fst . snd <$> udpPoint))
