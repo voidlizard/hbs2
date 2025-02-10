@@ -74,6 +74,18 @@ callProcRaw name params  = do
   pure s
 
 
+runProcAttached :: forall m . MonadIO m
+                => FilePath
+                -> [String]
+                -> m ExitCode
+runProcAttached cmd args = do
+
+  let processConfig = setStdout inherit
+                    $ setStderr inherit
+                    $ proc cmd args
+
+  runProcess processConfig
+
 pipeProcText :: forall m . MonadIO m
          => FilePath
          -> [String]

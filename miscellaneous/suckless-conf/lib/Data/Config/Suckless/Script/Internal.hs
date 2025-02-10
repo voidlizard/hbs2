@@ -888,6 +888,13 @@ lookupValueDef defVal i = do
 nil_ :: (IsContext c, MonadIO m) =>  (a -> RunM c m b) -> a -> RunM c m (Syntax c)
 nil_ m w = m w >> pure (List noContext [])
 
+
+unwrapped :: IsContext c => [Syntax c] -> Syntax c
+unwrapped = \case
+  []       -> nil
+  [ e ]    -> e
+  ( x:xs ) -> mkList (x:xs)
+
 fixContext :: forall c1 c2 . (IsContext c1, IsContext c2) => Syntax c1 -> Syntax c2
 fixContext = go
   where
@@ -1123,6 +1130,7 @@ internalEntries = do
             acc' <- apply_ x [acc]
             next (acc', xs)
 
+    entry $ bindMatch "void" $ nil_ $ const $ pure ()
 
     entry $ bindMatch "split" $ \case
       [TextLike sep, TextLike s] ->
@@ -1236,6 +1244,12 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "set!" $ nil_ $ \case
+      [SymbolVal v, e] -> do
+        -- tvd <- ask
+        bind v e
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "assoc" $ \case
       [k, ListVal es ] -> pure $ headDef nil [ r | r@(ListVal (w:_)) <- es, k == w ]
       _ -> throwIO (BadFormException @c nil)
@@ -1287,6 +1301,23 @@ internalEntries = do
         pure $ headDef nil [ r | r@(ListVal ys) <- es, atMay  ys (fromIntegral i) == Just k ]
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "unwrap" $ \case
+      [ ListVal [one] ] -> pure one
+      [ e ] -> pure e
+      other  -> throwIO (BadFormException @c (mkList other))
+
+    entry $ bindAlias "unw" "unwrap"
+
+    entry $ bindMatch "lookup:uw" $ \case
+      [k, ListVal es ] -> do
+        let val = headDef nil [ unwrapped rest | ListVal (w:rest) <- es, k == w ]
+        pure val
+
+      [StringLike s, ListVal [] ] -> do
+        pure nil
+
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "lookup" $ \case
       [k, ListVal es ] -> do
         let val = headDef nil [ mkList rest | ListVal (w:rest) <- es, k == w ]
@@ -1296,6 +1327,7 @@ internalEntries = do
         pure nil
 
       _ -> throwIO (BadFormException @c nil)
+
 
     brief "returns current unix time"
       $ returns "int" "current unix time in seconds"
@@ -1698,6 +1730,30 @@ internalEntries = do
 
           _ -> throwIO (BadFormException @c nil)
 
+    brief "call external process as pipe"
+      $ entry $ bindMatch "run:proc:attached" $ \syn -> do
+           (cmd, args) <- case syn of
+             [ StringLike name, ListVal (StringLikeList params) ] -> pure (name, params)
+             StringLikeList (name:params) -> pure (name, params)
+             e -> throwIO (BadFormException @c (mkList e))
+           runProcAttached cmd args >>= \case
+              Exit.ExitSuccess -> pure $ mkInt 0
+              Exit.ExitFailure n -> pure $ mkInt n
+
+    entry $ bindMatch "fallback" $ \case
+      [ e, expr ] -> do
+        try @_ @SomeException (eval expr) >>= \case
+          Right x -> pure x
+          Left x  -> pure e
+      other -> throwIO (BadFormException @c (mkList other))
+
+    entry $ bindMatch "fallback1" $ \case
+      [ e, expr ] -> do
+        try @_ @SomeException (eval expr) >>= \case
+          Right x -> pure x
+          Left x  -> error (show x)
+      other -> throwIO (BadFormException @c (mkList other))
+
 
     entry $ bindMatch "grep" \case
       [TextLike needle, what ] | matchOne needle what
@@ -1796,7 +1852,11 @@ internalEntries = do
       [ StringLike p ] -> pure $ mkSym (P.takeBaseName p)
       _ -> throwIO $ BadFormException @c nil
 
-    entry $ bindMatch "path:dir" $ \case
+    entry $ bindMatch "path:filename" $ \case
+      [ StringLike p ] -> pure $ mkSym (P.takeFileName p)
+      _ -> throwIO $ BadFormException @c nil
+
+    entry $ bindMatch "path:dirname" $ \case
       [ StringLike p ] -> pure $ mkSym (P.takeDirectory p)
       _ -> throwIO $ BadFormException @c nil
 
