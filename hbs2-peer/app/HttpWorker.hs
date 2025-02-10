@@ -177,14 +177,14 @@ httpWorker (PeerConfig syn) pmeta = do
       get "/ref/:key" do
         void $ flip runContT pure do
           ref <- lift (pathParam @String "key")
-          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=300"
           handleRef Nothing (Left ref)
 
       get "/ref/:key/:part" do
         void $ flip runContT pure do
           ref  <- lift (pathParam @String "key")
           part <- lift (pathParam @Text "part")
-          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=300"
           handleRef (Just part) (Left ref)
 
       -- TODO: define-parsable-instance-for-our-types
@@ -198,7 +198,7 @@ httpWorker (PeerConfig syn) pmeta = do
         void $ flip runContT pure do
           ref <- lift (pathParam @String "hash")
           part <- lift (pathParam @Text "part")
-          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=0"
+          lift $ addHeader "Cache-Control" "public, must-revalidate, max-age=300"
           handleRef (Just part) (Right ref)
 
       get "/cat/:hash" do
