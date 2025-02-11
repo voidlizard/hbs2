@@ -832,7 +832,7 @@ runPeer opts = respawnOnError opts $ do
 
   stn <- getNumCapabilities <&> max 2 . div 4
 
-  w <- replicateM 2 $ async $ liftIO $ simpleStorageWorker s
+  w <- replicateM stn $ async $ liftIO $ simpleStorageWorker s
 
   localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )

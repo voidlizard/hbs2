@@ -137,31 +137,32 @@ main =  flip runContT pure do
 
   setupLogger
 
-  origStderr <- liftIO $ dup stdError
-  (readEnd, writeEnd) <- liftIO createPipe
-  liftIO $ dupTo writeEnd stdError
-  liftIO $ closeFd writeEnd
+  -- origStderr <- liftIO $ dup stdError
+  -- (readEnd, writeEnd) <- liftIO createPipe
+  -- liftIO $ dupTo writeEnd stdError
+  -- liftIO $ closeFd writeEnd
 
-  rStderr <- liftIO $ fdToHandle readEnd
-  origHandle <- liftIO $ fdToHandle origStderr
+  -- rStderr <- liftIO $ fdToHandle readEnd
+  -- origHandle <- liftIO $ fdToHandle origStderr
 
-  liftIO $ hSetBuffering origHandle NoBuffering
+  -- liftIO $ hSetBuffering origHandle NoBuffering
 
   -- liftIO $ IO.hPutStr origHandle "\n"
-  ContT $ withAsync $ liftIO $ forever do
+  -- ContT $ withAsync $ liftIO $ forever do
     -- pause @'Seconds 0.25
-    wut <- IO.hGetContents rStderr <&> lines
-    for_ wut $ \s -> do
-      IO.hPutStr origHandle (replicate 100 ' ')
-      IO.hPutStr origHandle "\r"
-      IO.hPutStr origHandle s
-      IO.hPutStr origHandle "\r"
-      pause @'Seconds 0.05
+    -- wut <- IO.hGetContents rStderr <&> lines
+    -- for_ wut $ \s -> do
+    --   IO.hPutStrLn rStderr s
+      -- IO.hPutStr origHandle (replicate 100 ' ')
+      -- IO.hPutStr origHandle "\r"
+      -- IO.hPutStr origHandle s
+      -- IO.hPutStr origHandle "\r"
+      -- pause @'Seconds 0.05
 
-  ContT $ bracket none $ const do
-    IO.hPutStr origHandle (replicate 100 ' ')
-    IO.hPutStr origHandle "\r"
-    silence
+  -- ContT $ bracket none $ const do
+  --   IO.hPutStr origHandle (replicate 100 ' ')
+  --   IO.hPutStr origHandle "\r"
+  --   silence
 
   lift $ void $ installHandler sigPIPE Ignore Nothing
   env <- nullGit3Env
@@ -177,6 +178,7 @@ main =  flip runContT pure do
 
     -- d_ <- asks gitRuntimeDict
     -- atomically $ writeTVar d_ (Just (RuntimeDict fuck))
+    --
 
     conf <- readLocalConf
 
@@ -191,7 +193,13 @@ main =  flip runContT pure do
       _ -> pure Nothing
 
     recover $ connectedDo $ withStateDo do
+
+      waitRepo Nothing =<< getGitRepoKeyThrow
+
+      notice "WAIT-FOR-REPO-DONE"
+
       void $ run dict conf
+
       for_ url updateRepoKey
 
       flip fix Plain $ \next -> \case

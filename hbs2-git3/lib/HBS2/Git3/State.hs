@@ -256,8 +256,6 @@ waitRepo timeout repoKey = do
 
         when (rlv && rlog) $ done ()
 
-        reflog_ <- newEmptyTMVarIO
-
         let wait w what x = pause @'Seconds w >> what x
 
         callCC \forPeer -> do
@@ -271,67 +269,63 @@ waitRepo timeout repoKey = do
                     void  (callRpcWaitMay @RpcLWWRefFetch (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
                     pause @'Seconds 10
 
-        pFetchRefLog <- ContT $ withAsync do
-                         r <- atomically $ takeTMVar reflog_
-                         forever do
-                           void  (callRpcWaitMay @RpcRefLogFetch (TimeoutSec 1) reflogAPI r)
-                           pause @'Seconds 10
-
-        lww <- flip fix () \next _ -> do
+        lww <- flip fix 2 \next i -> do
                   notice $ "wait for" <+> pretty (AsBase58 repoKey)
                   lift (callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
                     >>= \case
                            Just (Just x)  -> pure x
-                           _              -> wait 2 next ()
+                           _              -> wait i next (i*1.05)
 
         setGitRepoKey repoKey
 
         notice $ "lwwref value" <+> pretty (lwwValue lww)
 
-        mf <- flip fix () $ \next _ -> do
-                  notice $ "wait for manifest"
-                  lift (try @_ @WalkMerkleError getRepoManifest) >>= \case
-                    Left{}  -> wait 1 next ()
+        mf <- flip fix 3 $ \next i -> do
+                  notice $ "wait for manifest" <+> pretty i
+                  lift (try @_ @SomeException getRepoManifest) >>= \case
+                    Left{}  -> wait i next (i*1.10)
                     Right x -> pure x
 
         reflog <- getRefLog mf & orThrow GitRepoManifestMalformed
 
-
-        atomically $ writeTMVar reflog_ reflog
-
         lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (reflog, "reflog", 11))
                  >>= orThrow RpcTimeout
 
-        rv <- flip fix () \next _ -> do
-                  notice $ "wait for data" <+> pretty (AsBase58 reflog)
-                  lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 1) reflogAPI reflog)
-                    >>= \case
-                           Just (Just x)  -> pure x
-                           _              -> wait 2 next ()
+        let waiter = maybe (forever (pause @'Seconds 3600)) pause timeout
 
-        atomically $ writeTVar gitRefLogVal (Just rv)
+        ContT $ withAsync $ do
+                pause @'Seconds 1
+                flip fix 2 $ \next i -> do
+                  debug $ "fetch reflog" <+> pretty (AsBase58 reflog)
+                  void $ lift (callRpcWaitMay @RpcRefLogFetch (TimeoutSec 2) reflogAPI reflog)
+                  pause @'Seconds i
+                  next (i*1.05)
 
-        okay <- newEmptyTMVarIO
 
-        flip fix () $ \next _ -> do
-           notice $ "wait for data (2)" <+> pretty (AsBase58 reflog)
-           -- missed <- findMissedBlocks sto rv
-           missed_ <- newTVarIO 0
-           lift $ deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ) (coerce rv) (getBlock sto) (const none)
-           missed <- readTVarIO missed_
+        void $ lift $ race waiter do
 
-           when (missed > 0) do
-            notice $ "still missed blocks:" <+> pretty missed
-            wait 5 next ()
+          rv <- flip fix 1 \next i -> do
+                    notice $ "wait for reflog" <+> pretty i <+> pretty (AsBase58 reflog)
+                    lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) reflogAPI reflog)
+                      >>= \case
+                             Just (Just x)  -> pure x
+                             Nothing        -> debug "fucking RPC timeout!" >>  wait i next (i*1.05)
+                             _              -> wait i next (i*1.05)
 
-           atomically $ writeTMVar okay True
+          atomically $ writeTVar gitRefLogVal (Just rv)
 
-        pWait <- ContT $ withAsync $ race ( pause (fromMaybe 300 timeout) ) do
-                   void $ atomically $ takeTMVar okay
+          cancel pFetch
 
-        waitAnyCatchCancel [pWait, pFetch, pFetchRefLog]
+          notice $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
 
-        lift $ updateRepoKey repoKey
+          flip fix 5 $ \next w -> do
 
-        debug $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
+            handle (\(e :: OperationError) -> pause @'Seconds w >> next (w*1.10)) do
+              missed <- findMissedBlocks sto rv
+              if L.null missed then do
+                updateRepoKey repoKey
+              else do
+                notice $ "wait reflog to sync in consistent state" <+> pretty w
+                pause @'Seconds w
+                next (w*1.01)
 

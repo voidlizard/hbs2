@@ -18,6 +18,7 @@ import HBS2.System.Dir
 import Data.Config.Suckless.Almost.RPC
 import Data.Config.Suckless.Script
 
+import Control.Applicative
 import Codec.Compression.Zlib qualified as Zlib
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString.Lazy qualified as LBS
@@ -116,8 +117,8 @@ writeAsGitPack dir href = do
 
 data ImportStage =
     ImportStart
-  | ImportWIP  Int (Maybe HashRef)
-  | ImportWait (Maybe Int) ImportStage
+  | ImportWIP  (Timeout 'Seconds) Int (Maybe HashRef)
+  | ImportWait (Timeout 'Seconds)  (Maybe Int) ImportStage
   | ImportDone (Maybe HashRef)
 
 {- HLINT ignore "Functor law" -}
@@ -126,130 +127,158 @@ importGitRefLog :: forall m . ( HBS2GitPerks m
                               )
              => Git3 m (Maybe HashRef)
 
-importGitRefLog = withStateDo $ ask >>= \case
-  Git3Disconnected{} -> throwIO Git3PeerNotConnected
-  env@Git3Connected{..} ->  do
-
+importGitRefLog = do
     packs <- gitDir
                >>= orThrow NoGitDir
                <&> (</> "objects/pack")
 
     mkdir packs
 
-    sto <- getStorage
+    doImport packs `catch` (\( e :: OperationError) -> err (viaShow e) >> pause @'Seconds 1 >> doImport packs)
 
-    already_ <- newTVarIO (mempty :: HashSet HashRef)
+  where
+    doImport packs = withStateDo $ ask >>= \case
+      Git3Disconnected{} -> throwIO Git3PeerNotConnected
+      Git3Connected{..} ->  flip runContT pure do
 
-    flip fix ImportStart $ \again -> \case
-      ImportDone x -> do
-        notice "import done"
-        updateReflogIndex
-        for_ x updateImportedCheckpoint
+        sto <- getStorage
 
-        refs <- importedRefs
+        already_ <- newTVarIO (mempty :: HashSet HashRef)
 
-        if not (null refs && isJust x) then do
-          pure x
-        else do
-          notice $ "no refs arrived - go again"
-          again ImportStart
+        oldRvl <- gitRefLogVal & readTVarIO
+        reflog <- getGitRemoteKey >>= orThrow Git3ReflogNotSet
+        newRvl_ <- newTVarIO Nothing
 
-      ImportWait d next -> do
+        void $ ContT $ withAsync $ forever do
+          void $ lift (callRpcWaitMay @RpcRefLogFetch (TimeoutSec 2) reflogAPI reflog)
 
-        pause @'Seconds 1.15
+          lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) reflogAPI reflog)
+            >>= \case
+                   Just (Just x) | Just x /= oldRvl -> atomically (writeTVar newRvl_ (Just x))
+                   _  -> none
 
-        down <- callRpcWaitRetry @RpcGetProbes (TimeoutSec 1) 3 peerAPI ()
-                   >>= orThrow RpcTimeout
-                   <&> maybe 0 fromIntegral . headMay . mapMaybe \case
-                         ProbeSnapshotElement "Download.wip" n -> Just n
-                         _ -> Nothing
+          pause @'Seconds 10
 
-        notice $ "wait some time..." <+> parens (pretty down)
+        lift $ flip fix ImportStart $ \again -> \case
+          ImportDone x -> do
+            notice "import done"
 
-        case d of
-          Just n | down /= n || down == 0 -> again next
+            newRlv <- readTVarIO newRvl_
+            let doAgain = newRlv /= oldRvl
 
-          _ -> pause @'Seconds 2.85 >> again (ImportWait (Just down) next)
+            updateReflogIndex
+            for_ x updateImportedCheckpoint
 
-      ImportStart -> do
+            refs <- importedRefs
 
-        rvl  <- readTVarIO gitRefLogVal
+            if not (null refs && isJust x) || doAgain then do
+              pure x
+            else do
+              atomically do
+                writeTVar newRvl_ Nothing
+                writeTVar gitRefLogVal (newRlv <|> oldRvl)
 
-        importGroupKeys
+              notice $ "import: go again"
+              again ImportStart
 
-        prev <- importedCheckpoint
+          ImportWait sec d next -> do
 
-        if | isNothing prev -> again $ ImportWIP 0 prev
+            pause sec
 
-           | prev /= rvl -> do
-              again $ ImportWIP 0 prev
+            down <- callRpcWaitRetry @RpcGetProbes (TimeoutSec 1) 3 peerAPI ()
+                       >>= orThrow RpcTimeout
+                       <&> maybe 0 fromIntegral . headMay . mapMaybe \case
+                             ProbeSnapshotElement "Download.wip" n -> Just n
+                             _ -> Nothing
 
-           | otherwise -> again $ ImportDone prev
+            notice $ "wait some time..." <+> parens (pretty down)
 
-      ImportWIP attempt prev -> do
+            case d of
+              Just n | down /= n || down == 0 -> again next
 
-        notice $ "download wip" <+> pretty attempt
+              _ -> pause @'Seconds 2.85 >> again (ImportWait (sec*1.10) (Just down) next)
 
-        r <- try @_ @OperationError $ do
+          ImportStart -> do
 
-          excl <- maybe1 prev (pure mempty) $ \p -> do
-            txListAll (Just p) <&> HS.fromList . fmap fst
+            rvl  <- readTVarIO gitRefLogVal
 
-          rv <- refLogRef
+            importGroupKeys
 
-          hxs <- txList ( pure . not . flip HS.member excl ) rv
+            prev <- importedCheckpoint
 
-          cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
-            ([], r) -> pure (gitTxTree <$> r)
-            (TxSegment{}:xs, l) -> next (xs, l)
-            (cp@(TxCheckpoint n tree) : xs, l) -> do
+            if | isNothing prev -> again $ ImportWIP 1.0 0 prev
 
-              -- full <- findMissedBlocks sto tree <&> L.null
-              missed_ <- newTVarIO 0
-              deepScan ScanDeep (\_ -> atomically $ modifyTVar missed_ succ)
-                                (coerce tree)
-                                (getBlock sto)
-                                (const none)
+               | prev /= rvl -> do
+                  again $ ImportWIP 1.0 0 prev
 
-              full <- readTVarIO missed_ <&> (==0)
+               | otherwise -> again $ ImportDone prev
 
-              if full && Just n > (getGitTxRank <$> l) then do
-                next (xs, Just cp)
-              else do
-                next (xs, l)
+          ImportWIP w attempt prev -> do
 
-          case cp' of
-            Nothing -> do
-              notice "no checkpoints found"
-              pure Nothing
+            notice $ "download wip" <+> pretty attempt
 
-            Just cp -> do
+            r <- try @_ @OperationError $ do
 
-              notice $ "found checkpoint" <+> pretty cp
-              txs <- txList ( pure . not . flip HS.member excl ) (Just cp)
+              excl <- maybe1 prev (pure mempty) $ \p -> do
+                txListAll (Just p) <&> HS.fromList . fmap fst
 
-              forConcurrently_ txs $ \case
-                (_, TxCheckpoint{}) -> none
-                (h, TxSegment tree) -> do
-                  new <- readTVarIO already_ <&> not . HS.member tree
+              rv <- refLogRef
 
-                  when new do
-                    s <- writeAsGitPack  packs tree
+              hxs <- txList ( pure . not . flip HS.member excl ) rv
 
-                    for_ s $ \file -> do
-                      gitRunCommand [qc|git index-pack {file}|]
-                        >>= orThrowPassIO
+              cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
+                ([], r) -> pure (gitTxTree <$> r)
+                (TxSegment{}:xs, l) -> next (xs, l)
+                (cp@(TxCheckpoint n tree) : xs, l) -> do
 
-                    atomically $ modifyTVar already_ (HS.insert tree)
-                    notice $ "imported" <+> pretty h
+                  missed <- findMissedBlocks sto tree
 
-              pure (Just cp)
+                  let full = L.null missed
 
-        case r of
-          Right cp -> again $ ImportDone cp
-          Left  (MissedBlockError2 _) -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
-          Left  MissedBlockError      -> notice "missed blocks" >> again (ImportWait Nothing (ImportWIP (succ attempt) prev))
-          Left  e                     -> err (viaShow e) >> throwIO e
+                  if full && Just n > (getGitTxRank <$> l) then do
+                    next (xs, Just cp)
+                  else do
+                    next (xs, l)
+
+              case cp' of
+                Nothing -> do
+                  notice "no checkpoints found"
+                  pure Nothing
+
+                Just cp -> do
+
+                  notice $ "found checkpoint" <+> pretty cp
+                  txs <- txList ( pure . not . flip HS.member excl ) (Just cp)
+
+                  forConcurrently_ txs $ \case
+                    (_, TxCheckpoint{}) -> none
+                    (h, TxSegment tree) -> do
+                      new <- readTVarIO already_ <&> not . HS.member tree
+
+                      when new do
+                        s <- writeAsGitPack  packs tree
+
+                        for_ s $ \file -> do
+                          gitRunCommand [qc|git index-pack {file}|]
+                            >>= orThrowPassIO
+
+                        atomically $ modifyTVar already_ (HS.insert tree)
+                        notice $ "imported" <+> pretty h
+
+                  pure (Just cp)
+
+            case r of
+              Right cp -> again $ ImportDone cp
+
+              Left  (MissedBlockError2 _) -> do
+                notice "missed blocks"
+                again (ImportWait w Nothing (ImportWIP (w*1.15) (succ attempt) prev))
+
+              Left  MissedBlockError      -> do
+                notice "missed blocks"
+                again (ImportWait w Nothing (ImportWIP (w*1.15) (succ attempt) prev))
+
+              Left  e                     -> err (viaShow e) >> throwIO e
 
 
 groupKeysFile :: (MonadIO m) => Git3 m FilePath
@@ -271,7 +300,7 @@ importGroupKeys :: forall m . ( HBS2GitPerks m
 
 importGroupKeys = do
 
-  debug $ "importGroupKeys"
+  notice $ "importGroupKeys"
   sto <- getStorage
 
   already <- readGroupKeyFile

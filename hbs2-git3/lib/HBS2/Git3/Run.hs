@@ -566,7 +566,7 @@ compression      ;  prints compression level
         entry $ bindMatch "repo:relay-only" $ nil_ $ \case
           [ SignPubKeyLike repo ] -> lift $ connectedDo do
             setGitRepoKey repo
-            waitRepo (Just 2) =<< getGitRepoKeyThrow
+            waitRepo (Just 3) =<< getGitRepoKeyThrow
 
           _ -> throwIO (BadFormException @C nil)
 
