@@ -42,7 +42,8 @@ newMessagingUDPMulticast s = runMaybeT $ do
 
   (host, port)  <- MaybeT $ pure $ getHostPort (Text.pack s)
 
-  so <- liftIO $ multicastReceiver host port
+  so <- liftIO (try @_ @SomeException $ multicastReceiver host port)
+          >>= toMPlus
 
   liftIO $ setSocketOption so ReuseAddr 1
 

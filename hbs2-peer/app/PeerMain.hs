@@ -844,7 +844,7 @@ runPeer opts = respawnOnError opts $ do
 
 
   mcast <- newMessagingUDPMulticast defLocalMulticast
-            `orDie` "Can't start RPC listener"
+            `orDie` "Can't start multicast listener"
 
   messMcast <- async $ runMessagingUDP mcast
 
