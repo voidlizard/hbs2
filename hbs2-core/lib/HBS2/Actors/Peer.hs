@@ -398,6 +398,10 @@ newPeerEnv pl s bus p = do
 peerEnvSetProbe :: (MonadIO m) => PeerEnv e -> AnyProbe -> m ()
 peerEnvSetProbe PeerEnv {..} p = liftIO $ atomically $ writeTVar _envProbe p
 
+-- peerEnvAddProbe :: (MonadIO m) => PeerEnv e -> AnyProbe -> m ()
+-- peerEnvAddProbe PeerEnv {..} p = liftIO $ atomically $ modifyTVar _envProbe p
+
+
 peerEnvCollectProbes :: (MonadIO m) => PeerEnv e -> m ()
 peerEnvCollectProbes PeerEnv {..} = do
   probe <- liftIO $ readTVarIO _envProbe

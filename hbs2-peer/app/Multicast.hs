@@ -70,9 +70,9 @@ multicastWorker :: forall e s m . ( s ~ Encryption e
                                   -- , HasPeerLocator e m
                                   -- , HasPeerNonce L4Proto m
                                   )
-                => PeerConfig -> PeerEnv e -> PeerM e m ()
+                => PeerConfig -> PeerEnv e -> AnyProbe -> PeerM e m ()
 
-multicastWorker conf penv = recover do
+multicastWorker conf penv probe = recover do
 
   debug $ red "multicastWorker started"
 
@@ -93,6 +93,8 @@ multicastWorker conf penv = recover do
 
     menv <- newPeerEnv pl sto (Fabriq mcast) (getOwnPeer mcast)
 
+    peerEnvSetProbe menv probe
+
     ann <- ContT $ withAsync $ do
             localMulticast <- atomically $ takeTMVar localMCast_
             forever do
@@ -101,6 +103,10 @@ multicastWorker conf penv = recover do
               debug $ yellow "Sending local peer announce"
               request localMulticast (PeerAnnounce @e pnonce)
               pause w
+
+    void $ ContT $ withAsync $ forever do
+      pause @'Seconds 10
+      peerEnvCollectProbes menv
 
     liftIO $ runPeerM menv $ do
 

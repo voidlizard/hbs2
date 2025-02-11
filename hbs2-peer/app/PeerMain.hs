@@ -839,13 +839,6 @@ runPeer opts = respawnOnError opts $ do
 
                            `orDie` "assertion: localMulticastPeer not set"
 
-  -- notice $ "multicast:" <+> pretty localMulticast
-
-  -- mcast <- newMessagingUDPMulticast defLocalMulticast
-  --           `orDie` "Can't start multicast listener"
-
-  -- messMcast <- async $ runMessagingUDP mcast
-
   brains <- newBasicBrains @e conf
 
   bProbe <- newSimpleProbe "Brains"
@@ -1186,7 +1179,10 @@ runPeer opts = respawnOnError opts $ do
 
               flip runContT pure do
 
-                peerThread "multicastWorker" $ multicastWorker conf env
+                mcastProbe <- newSimpleProbe "PeerEnv_Announce"
+                addProbe mcastProbe
+
+                peerThread "multicastWorker" $ multicastWorker conf env mcastProbe
 
                 peerThread "byPassWorker" (byPassWorker byPass)
 
