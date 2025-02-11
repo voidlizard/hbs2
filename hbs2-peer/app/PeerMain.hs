@@ -54,6 +54,7 @@ import CheckMetrics
 import RefLog qualified
 import RefLog (reflogWorker)
 import LWWRef (lwwRefWorker)
+import Multicast
 import MailboxProtoWorker
 import HttpWorker
 import DispatchProxy
@@ -149,8 +150,6 @@ import Control.Concurrent.Async (ExceptionInLinkedThread(..))
 defStorageThreads :: Integral a => a
 defStorageThreads = 8
 
-defLocalMulticast :: String
-defLocalMulticast = "239.192.152.145:10153"
 
 data PeerListenKey
 data PeerKeyFileKey
@@ -840,13 +839,12 @@ runPeer opts = respawnOnError opts $ do
 
                            `orDie` "assertion: localMulticastPeer not set"
 
-  notice $ "multicast:" <+> pretty localMulticast
+  -- notice $ "multicast:" <+> pretty localMulticast
 
+  -- mcast <- newMessagingUDPMulticast defLocalMulticast
+  --           `orDie` "Can't start multicast listener"
 
-  mcast <- newMessagingUDPMulticast defLocalMulticast
-            `orDie` "Can't start multicast listener"
-
-  messMcast <- async $ runMessagingUDP mcast
+  -- messMcast <- async $ runMessagingUDP mcast
 
   brains <- newBasicBrains @e conf
 
@@ -1188,12 +1186,7 @@ runPeer opts = respawnOnError opts $ do
 
               flip runContT pure do
 
-                peerThread "local multicast" $ forever $ do
-                  pips <- getKnownPeers @L4Proto
-                  let w = if null pips then 10 else defPeerAnnounceTime
-                  debug "sending local peer announce"
-                  request localMulticast (PeerAnnounce @e pnonce)
-                  pause w
+                peerThread "multicastWorker" $ multicastWorker conf env
 
                 peerThread "byPassWorker" (byPassWorker byPass)
 
@@ -1304,33 +1297,6 @@ runPeer opts = respawnOnError opts $ do
           runMaybeT do
             lift $ runResponseM me $ refChanNotifyProto @e True refChanAdapter (R.Notify @e puk box)
 
-  menv <- newPeerEnv pl (AnyStorage s) (Fabriq mcast) (getOwnPeer mcast)
-  do
-    probe <- newSimpleProbe "PeerEnv_Announce"
-    addProbe probe
-    peerEnvSetProbe menv probe
-
-  probesMenv <- liftIO $ async $ forever do
-      pause @'Seconds 10
-      peerEnvCollectProbes menv
-
-  ann <- liftIO $ async $ runPeerM menv $ do
-
-                   self <- ownPeer @e
-
-                   subscribe @e BlockAnnounceInfoKey $ \(BlockAnnounceEvent p bi no) -> do
-                    unless (p == self) do
-                      pa <- toPeerAddr p
-                      checkBlockAnnounce conf penv no pa (view biHash bi)
-
-                   subscribe @e PeerAnnounceEventKey $ \pe@(PeerAnnounceEvent{}) -> do
-                      -- debug $ "Got peer announce!" <+> pretty pip
-                      emitToPeer penv PeerAnnounceEventKey pe
-
-                   runProto @e
-                     [ makeResponse blockAnnounceProto
-                     , makeResponse peerAnnounceProto
-                     ]
 
 
   let k = view peerSignPk pc
@@ -1396,9 +1362,8 @@ runPeer opts = respawnOnError opts $ do
   void $ waitAnyCancel $ w <> [ loop
                               , m1
                               , rpcProto
-                              , probesMenv
-                              , ann
-                              , messMcast
+                              -- , probesMenv
+                              -- , ann
                               , probesPenv
                               , proxyThread
                               , brainsThread
@@ -1410,15 +1375,5 @@ runPeer opts = respawnOnError opts $ do
 
   -- we want to clean up all resources
   throwIO GoAgainException
-
-emitToPeer :: ( MonadIO m
-              , EventEmitter e a (PeerM e IO)
-              )
-           => PeerEnv e
-           -> EventKey e a
-           -> Event e a
-           -> m ()
-
-emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
 

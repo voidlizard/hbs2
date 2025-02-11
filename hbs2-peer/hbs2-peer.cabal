@@ -284,6 +284,7 @@ executable hbs2-peer
                     , RefChanNotifyLog
                     , LWWRef
                     , MailboxProtoWorker
+                    , Multicast
                     , CheckMetrics
                     , HttpWorker
                     , Watchdogs

@@ -65,6 +65,9 @@ import UnliftIO
 
 import Streaming.Prelude qualified as S
 
+defLocalMulticast :: String
+defLocalMulticast = "239.192.152.145:10153"
+
 data GoAgainException = GoAgainException
                         deriving (Eq,Ord,Show,Typeable)
 
@@ -445,5 +448,16 @@ mkAdapter = do
         liftIO $ atomically do
           modifyTVar' dwnld2 (IntMap.insert (fromIntegral n) bs)
     }
+
+
+emitToPeer :: ( MonadIO m
+              , EventEmitter e a (PeerM e IO)
+              )
+           => PeerEnv e
+           -> EventKey e a
+           -> Event e a
+           -> m ()
+
+emitToPeer env k e = liftIO $ withPeerM env (emit k e)
 
 
