@@ -31,6 +31,13 @@ main = do
 
 
   case cli of
+
+    [ListVal [SymbolVal "--run", StringLike fn]] -> do
+      what <- liftIO $ readFile fn
+                >>= either (error.show) pure . parseTop
+
+      run dict what >>= eatNil display
+
     [ListVal [SymbolVal "stdin"]] -> do
       what <- liftIO getContents
                 >>= either (error.show) pure . parseTop
