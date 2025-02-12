@@ -759,7 +759,6 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         e <- eval e'
         pure $ if isFalse e then mkBool True else mkBool False
 
-
       ListVal [SymbolVal "if", w, e] -> do
         what <- eval w
         if not (isFalse what) then eval e else pure nil
@@ -1062,6 +1061,10 @@ internalEntries = do
         error "DONT KNOW"
       _ -> pure $ mkBool False
 
+    entry $ bindMatch "apply" $ \case
+      [e, ListVal es] -> apply_ e es
+
+      e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "eval" $ \syn -> do
       r <- mapM eval syn
