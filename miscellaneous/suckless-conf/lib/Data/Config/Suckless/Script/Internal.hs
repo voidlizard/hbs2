@@ -610,6 +610,20 @@ evalQQ d0 = \case
 
   other       -> pure other
 
+unsplice :: forall c m . ( IsContext c
+                         , MonadUnliftIO m
+                         , Exception (BadFormException c)
+                         ) => [Syntax c] -> RunM c m [Syntax c]
+unsplice s = u s
+  where
+    u ( ListVal [SymbolVal ",@", e] : es) = unnest <$> eval @c e  <*> u es
+    u ( e : es ) = (e:) <$> u es
+    u [] = pure []
+
+    unnest = \case
+      ListVal es -> mappend es
+      e -> (e :)
+
 eval :: forall c m . ( IsContext c
                      , MonadUnliftIO m
                      , Exception (BadFormException c)
@@ -659,11 +673,14 @@ eval' dict0 syn' = handle (handleForm syn') $ do
       ListVal [ SymbolVal ",", x] -> do
         pure  x
 
+      ListVal [ SymbolVal ",@", x] -> do
+        eval x
+
       ListVal [ SymbolVal "`", ListVal b] -> do
-        mkList <$> mapM (evalQQ dict) b
+        mkList <$> (unsplice b >>= mapM (evalQQ dict))
 
       ListVal [ SymbolVal "quasiquot", ListVal b] -> do
-        mkList <$> mapM (evalQQ dict) b
+        mkList <$> (mapM (evalQQ dict) =<< unsplice b)
 
       ListVal [ SymbolVal "quot", b] -> do
         pure b

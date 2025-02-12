@@ -181,7 +181,7 @@ instance MonadError SExpParseError m => MonadError SExpParseError (SExpM m) wher
 tokenizeSexp :: Text -> [TTok]
 tokenizeSexp txt =  do
   let spec = delims " \r\t" <> comment ";"
-                            <> punct ",`'{}()[]\n"
+                            <> punct "@,`'{}()[]\n"
                             <> sqq
                             <> uw
                             <> esc
@@ -230,7 +230,8 @@ parseTop txt = do
       [List one] -> lift $ S.yield (List one)
       xs    -> lift $ S.yield (List xs)
 
-sexp :: (ForMicroSexp c, MonadError SExpParseError m) => [TTok] -> SExpM m (MicroSexp c, [TTok])
+
+sexp :: forall c m . (ForMicroSexp c, MonadError SExpParseError m) => [TTok] -> SExpM m (MicroSexp c, [TTok])
 sexp s = case s of
   [] -> do
     checkBraces
@@ -248,9 +249,16 @@ sexp s = case s of
     (w, t) <- sexp rest
     pure (List [Symbol "`", w], t)
 
+  (TPunct ',' : TPunct '@' : rest) -> do
+    (w, t) <- sexp rest
+    pure $ (List [Symbol ",@", w], t)
+
   (TPunct ',' : rest) -> do
     (w, t) <- sexp rest
     pure (List [Symbol ",", w], t)
+
+  (TPunct '@' : TText x : rest) -> do
+    sexp (TText ("@" <> x) : rest)
 
   (TPunct '\n' : rest) -> succLno >> sexp rest
 

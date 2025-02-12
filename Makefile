@@ -15,6 +15,7 @@ OUT_FILES := $(RT_FILES:.rt=.out)
 GHC_VERSION := 9.6.6
 BIN_DIR := ./bin
 BINS := \
+	bf6                \
   hbs2               \
   hbs2-peer          \
   hbs2-keyman        \
