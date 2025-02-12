@@ -70,6 +70,7 @@ import System.Exit qualified as Exit
 import Text.InterpolatedString.Perl6 (qc)
 import Lens.Micro.Platform
 import UnliftIO
+import UnliftIO.Concurrent
 import Control.Monad.Trans.Cont
 
 -- TODO: move-to-suckless-conf
@@ -1426,6 +1427,12 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "str:append:file" $ nil_ \case
+      (StringLike fn : StringLikeList what) -> do
+        liftIO (forM_ what (appendFile fn))
+
+      e -> throwIO (BadFormException @c (mkList e))
+
     entry $ bindValue "space" $ mkStr " "
 
     let doParseTop w l s =
@@ -1591,6 +1598,10 @@ internalEntries = do
       [w] -> pure (mkBool (isTrue w))
       _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "setenv" $ nil_ \case
+      [ StringLike k, StringLike v] -> liftIO $ setEnv k v
+      _ -> throwIO (BadFormException @c nil)
+
     brief "get system environment"
      $ args []
      $ args [ arg "string" "string" ]
@@ -1730,6 +1741,11 @@ internalEntries = do
 
           _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "sleep" $ nil_ $ \case
+      [ LitIntVal n ] -> lift $ threadDelay ( fromIntegral n  * 1000000 )
+      [ LitScientificVal n ] -> lift $ threadDelay ( round $ realToFrac n  * 1000000 )
+      e -> throwIO (BadFormException @c (mkList e))
+
     brief "call external process as pipe"
       $ entry $ bindMatch "run:proc:attached" $ \syn -> do
            (cmd, args) <- case syn of
@@ -1737,6 +1753,16 @@ internalEntries = do
              StringLikeList (name:params) -> pure (name, params)
              e -> throwIO (BadFormException @c (mkList e))
            runProcAttached cmd args >>= \case
+              Exit.ExitSuccess -> pure $ mkInt 0
+              Exit.ExitFailure n -> pure $ mkInt n
+
+    brief "call external process as pipe"
+      $ entry $ bindMatch "run:proc:quiet" $ \syn -> do
+           (cmd, args) <- case syn of
+             [ StringLike name, ListVal (StringLikeList params) ] -> pure (name, params)
+             StringLikeList (name:params) -> pure (name, params)
+             e -> throwIO (BadFormException @c (mkList e))
+           runProcQuiet cmd args >>= \case
               Exit.ExitSuccess -> pure $ mkInt 0
               Exit.ExitFailure n -> pure $ mkInt n
 
