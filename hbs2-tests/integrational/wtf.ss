@@ -59,6 +59,10 @@
        `[ [call:proc ip link set ,remote-net up]
           [call:proc ip addr add ,remote-ip dev ,remote-net]
           [call:proc ip route add default via   ,remote-gw]
+
+          ;; fucked up network
+          [call:proc tc qdisc add dev ,remote-net root netem delay 250ms 40ms loss 1%]
+
           ; [str:append:file /etc/resolv.conf (concat nameserver space ,remote-gw chr:lf)]
           [run:proc:attached echo ,HOME]
           [println "PATH: "  (env PATH)]
