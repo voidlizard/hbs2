@@ -26,8 +26,10 @@ import Text.InterpolatedString.Perl6 (qc)
 import Data.Text qualified as Text
 import Data.Either
 import Data.Maybe
+import Data.List qualified as List
 
 import Data.Config.Suckless.Script
+import Data.Config.Suckless.System
 
 import System.Exit hiding (die)
 import System.Console.ANSI
@@ -160,6 +162,9 @@ main =  flip runContT pure do
   lift $ void $ installHandler sigPIPE Ignore Nothing
 
   cp_ <- newTVarIO Nothing
+  refz <- newTVarIO mempty
+
+  -- doesPathExist
 
   ContT $ withAsync $ liftIO $ flip runContT pure do
     callCC \finished -> do
@@ -200,7 +205,10 @@ main =  flip runContT pure do
     when (isJust cp) do
       hPutDoc origHandle $ "fetched from checkpoint" <+> pretty ts <+> pretty cpHash <> line
 
-    hPutDoc origHandle $ "use" <+> yellow "git fetch" <+> "to get latest versions" <> line
+    new <- readTVarIO refz <&> List.null
+
+    when new do
+      hPutDoc origHandle $ "use" <+> yellow "git fetch" <+> "to get latest versions" <> line
 
     hFlush origHandle
 
@@ -240,6 +248,8 @@ main =  flip runContT pure do
       void $ run dict conf
 
       for_ url updateRepoKey
+
+      importedRefs >>= atomically . writeTVar refz
 
       flip fix Plain $ \next -> \case
         Plain -> do
