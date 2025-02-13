@@ -86,17 +86,12 @@ runProcAttached cmd args = do
 
   runProcess processConfig
 
-
 runProcQuiet :: forall m . MonadIO m
                 => FilePath
                 -> [String]
                 -> m ExitCode
 runProcQuiet cmd args = do
   let config = setStdout createPipe $ setStderr createPipe  $ setStdout createPipe $ proc cmd args
-  -- let processConfig = setStdout closed
-  --                   $ setStderr closed
-  --                   $ proc cmd args
-
   runProcess config
 
 pipeProcText :: forall m . MonadIO m
