@@ -182,7 +182,10 @@ main =  flip runContT pure do
 
           case what of
             [ListVal [SymbolVal "checkpoint", TextLike w, LitIntVal r]] -> do
-              atomically $ writeTVar cp_ (Just (w,r))
+              atomically do
+                ts0 <- readTVar cp_ <&> fmap snd
+                when (Just r > ts0) do
+                  writeTVar cp_ (Just (w,r))
 
             [ListVal [SymbolVal "status", TextLike "FLUSH"]] -> do
               finished ()
