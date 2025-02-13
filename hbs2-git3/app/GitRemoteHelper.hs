@@ -147,7 +147,6 @@ main =  flip runContT pure do
   hSetBuffering stdin  LineBuffering
   hSetBuffering stdout LineBuffering
 
-  setupLogger
 
   origStderr <- liftIO $ dup stdError
   (readEnd, writeEnd) <- liftIO createPipe
@@ -158,16 +157,20 @@ main =  flip runContT pure do
   origHandle <- liftIO $ fdToHandle origStderr
 
   liftIO $ hSetBuffering origHandle NoBuffering
+  liftIO $ hSetBuffering rStderr    NoBuffering
 
   lift $ void $ installHandler sigPIPE Ignore Nothing
 
+  ready_ <- newEmptyTMVarIO
   cp_ <- newTVarIO Nothing
   refz <- newTVarIO mempty
 
   -- doesPathExist
 
-  ContT $ withAsync $ liftIO $ flip runContT pure do
+  pp <- ContT $ withAsync $ liftIO $ flip runContT pure do
     callCC \finished -> do
+      atomically $ putTMVar ready_ True
+
       forever  do
 
         pause @'Seconds 0.1
@@ -187,12 +190,20 @@ main =  flip runContT pure do
             _ -> none
 
           liftIO do
-            hClearLine origHandle
             hSetCursorColumn origHandle 0
-            IO.hPutStr  origHandle s
+            hClearLine origHandle
+
+            unless (null (words s)) do
+              IO.hPutStr origHandle s
+
             hSetCursorColumn origHandle 0
 
   ContT $ bracket none $ const do
+
+    cancel pp
+
+    hClearLine origHandle
+    hSetCursorColumn origHandle 0
 
     cp <- readTVarIO cp_
 
@@ -212,6 +223,10 @@ main =  flip runContT pure do
 
     hFlush origHandle
 
+  atomically $ takeTMVar ready_
+
+  setupLogger
+
   env <- nullGit3Env
 
   ops <- DeferredOps <$> newTQueueIO
@@ -223,17 +238,13 @@ main =  flip runContT pure do
 
   void $ lift $ withGit3Env env do
 
-    -- d_ <- asks gitRuntimeDict
-    -- atomically $ writeTVar d_ (Just (RuntimeDict fuck))
-    --
-
     conf <- readLocalConf
 
     cli <- parseCLI
 
     url <- case cli of
       [ ListVal [_, RepoURL x ] ] -> do
-        notice $ "git remote ref set:" <+> green (pretty (AsBase58 x))
+        notice $ "git remote ref set:" <+> green (pretty (AsBase58 x)) <> line
         setGitRepoKey x
         pure $ Just x
 
