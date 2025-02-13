@@ -28,6 +28,8 @@ import Data.Maybe
 import Data.Config.Suckless.Script
 
 import System.Exit hiding (die)
+import System.Console.ANSI
+
 
 {- HLINT ignore "Use isEOF" -}
 {- HLINT ignore "Use putStrLn" -}
@@ -79,6 +81,7 @@ localDict DeferredOps{..} = makeDict @C do
 
       waitRepo Nothing =<< getGitRepoKeyThrow
       importGitRefLog
+      notice "done importGitRefLog"
 
       rrefs <- importedRefs
 
@@ -137,32 +140,31 @@ main =  flip runContT pure do
 
   setupLogger
 
-  -- origStderr <- liftIO $ dup stdError
-  -- (readEnd, writeEnd) <- liftIO createPipe
-  -- liftIO $ dupTo writeEnd stdError
-  -- liftIO $ closeFd writeEnd
+  origStderr <- liftIO $ dup stdError
+  (readEnd, writeEnd) <- liftIO createPipe
+  liftIO $ dupTo writeEnd stdError
+  liftIO $ closeFd writeEnd
 
-  -- rStderr <- liftIO $ fdToHandle readEnd
-  -- origHandle <- liftIO $ fdToHandle origStderr
+  rStderr <- liftIO $ fdToHandle readEnd
+  origHandle <- liftIO $ fdToHandle origStderr
 
-  -- liftIO $ hSetBuffering origHandle NoBuffering
+  liftIO $ hSetBuffering origHandle NoBuffering
 
-  -- liftIO $ IO.hPutStr origHandle "\n"
-  -- ContT $ withAsync $ liftIO $ forever do
-    -- pause @'Seconds 0.25
-    -- wut <- IO.hGetContents rStderr <&> lines
-    -- for_ wut $ \s -> do
-    --   IO.hPutStrLn rStderr s
-      -- IO.hPutStr origHandle (replicate 100 ' ')
-      -- IO.hPutStr origHandle "\r"
-      -- IO.hPutStr origHandle s
-      -- IO.hPutStr origHandle "\r"
+  liftIO $ IO.hPutStr origHandle "\n"
+  ContT $ withAsync $ liftIO $ forever do
+    pause @'Seconds 0.25
+    wut <- IO.hGetContents rStderr <&> lines
+    for_ wut $ \s -> do
+
+      hClearLine origHandle
+      hSetCursorColumn origHandle 0
+      IO.hPutStr  origHandle s
+      hSetCursorColumn origHandle 0
       -- pause @'Seconds 0.05
 
-  -- ContT $ bracket none $ const do
-  --   IO.hPutStr origHandle (replicate 100 ' ')
-  --   IO.hPutStr origHandle "\r"
-  --   silence
+  ContT $ bracket none $ const do
+    hClearLine origHandle
+    hSetCursorColumn origHandle 0
 
   lift $ void $ installHandler sigPIPE Ignore Nothing
   env <- nullGit3Env

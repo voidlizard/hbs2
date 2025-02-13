@@ -149,6 +149,7 @@ library
                     , base16-bytestring
                     , binary
                     , psqueues
+                    , ansi-terminal
                     , unix
 
     hs-source-dirs:  lib
@@ -164,6 +165,7 @@ executable hbs2-git3
         , binary
         , psqueues
         , vector
+        , ansi-terminal
         , zstd
 
     hs-source-dirs:   app
@@ -178,6 +180,7 @@ executable git-remote-hbs23
         base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
         , binary
         , vector
+        , ansi-terminal
 
     hs-source-dirs:   app
     default-language: GHC2021
