@@ -37,7 +37,7 @@ import System.Console.ANSI
 
 formatTs :: Int -> String
 formatTs ts =
-    formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (posixSecondsToUTCTime (fromIntegral ts))
+    formatTime defaultTimeLocale "%Y-%m-%d %H:%M" (posixSecondsToUTCTime (fromIntegral ts))
 
 {- HLINT ignore "Use isEOF" -}
 {- HLINT ignore "Use putStrLn" -}
