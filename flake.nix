@@ -117,7 +117,8 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         (overrideCabal (drv: {
             preBuild = ''
               export GIT_HASH="${self.rev or self.dirtyRev or "dirty"}"
-            '';
+              '';
+             disallowGhcReference = false;
           }))
       ];
 
