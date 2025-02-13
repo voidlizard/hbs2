@@ -687,7 +687,11 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
       ListVal [ SymbolVal "eval", e ] -> eval e >>= eval
 
-      ListVal [ SymbolVal "import", StringLike fn ] -> do
+      ListVal [ SymbolVal "import", e ] -> do
+
+        fn <- eval e >>= \case
+                StringLike x -> pure x
+                _            -> throwIO (BadFormException @c syn')
 
         let importsName = "*runtime-imports*"
         let alreadyError = RuntimeError $ mkForm "runtime-error" [ mkStr @c ["already imported", pretty fn] ]
