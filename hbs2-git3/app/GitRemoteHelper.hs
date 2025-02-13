@@ -15,6 +15,8 @@ import HBS2.Git3.Logger
 
 import Data.Config.Suckless
 
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Time.Format (formatTime, defaultTimeLocale)
 import System.Posix.Signals
 import System.IO qualified as IO
 import System.Posix.IO
@@ -30,6 +32,10 @@ import Data.Config.Suckless.Script
 import System.Exit hiding (die)
 import System.Console.ANSI
 
+
+formatTs :: Int -> String
+formatTs ts =
+    formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (posixSecondsToUTCTime (fromIntegral ts))
 
 {- HLINT ignore "Use isEOF" -}
 {- HLINT ignore "Use putStrLn" -}
@@ -132,6 +138,7 @@ localDict DeferredOps{..} = makeDict @C do
 runTop :: (ParseSExp what, MonadUnliftIO m) => Dict C m -> what -> m ()
 runTop dict s = parseTop s & either (const none) (void . run dict)
 
+
 {- HLINT ignore "Functor law" -}
 main :: IO ()
 main =  flip runContT pure do
@@ -150,23 +157,53 @@ main =  flip runContT pure do
 
   liftIO $ hSetBuffering origHandle NoBuffering
 
-  liftIO $ IO.hPutStr origHandle "\n"
-  ContT $ withAsync $ liftIO $ forever do
-    pause @'Seconds 0.25
-    wut <- IO.hGetContents rStderr <&> lines
-    for_ wut $ \s -> do
+  lift $ void $ installHandler sigPIPE Ignore Nothing
 
-      hClearLine origHandle
-      hSetCursorColumn origHandle 0
-      IO.hPutStr  origHandle s
-      hSetCursorColumn origHandle 0
-      -- pause @'Seconds 0.05
+  cp_ <- newTVarIO Nothing
+
+  ContT $ withAsync $ liftIO $ flip runContT pure do
+    callCC \finished -> do
+      forever  do
+
+        pause @'Seconds 0.1
+
+        wut <- liftIO $ IO.hGetContents rStderr <&> lines
+        for_ wut $ \s -> do
+
+          let what = parseTop s & fromRight mempty
+
+          case what of
+            [ListVal [SymbolVal "checkpoint", TextLike w, LitIntVal r]] -> do
+              atomically $ writeTVar cp_ (Just (w,r))
+
+            [ListVal [SymbolVal "status", TextLike "FLUSH"]] -> do
+              finished ()
+
+            _ -> none
+
+          liftIO do
+            hClearLine origHandle
+            hSetCursorColumn origHandle 0
+            IO.hPutStr  origHandle s
+            hSetCursorColumn origHandle 0
 
   ContT $ bracket none $ const do
+
+    cp <- readTVarIO cp_
+
+    let cpHash = fst <$> cp
+    let ts   = maybe 0 (fromIntegral . snd) cp & formatTs
+
     hClearLine origHandle
     hSetCursorColumn origHandle 0
 
-  lift $ void $ installHandler sigPIPE Ignore Nothing
+    when (isJust cp) do
+      hPutDoc origHandle $ "fetched from checkpoint" <+> pretty ts <+> pretty cpHash <> line
+
+    hPutDoc origHandle $ "use" <+> yellow "git fetch" <+> "to get latest versions" <> line
+
+    hFlush origHandle
+
   env <- nullGit3Env
 
   ops <- DeferredOps <$> newTQueueIO
@@ -198,7 +235,7 @@ main =  flip runContT pure do
 
       waitRepo Nothing =<< getGitRepoKeyThrow
 
-      notice "WAIT-FOR-REPO-DONE"
+      notice "wait-for-repo-done"
 
       void $ run dict conf
 
@@ -206,6 +243,10 @@ main =  flip runContT pure do
 
       flip fix Plain $ \next -> \case
         Plain -> do
+
+          closed <- hIsEOF stdin
+
+          when closed $ next End
 
           inp <- try @_ @IOError getLine <&> fromRight mempty
 
@@ -222,10 +263,9 @@ main =  flip runContT pure do
 
         End -> do
           sendLine ""
-          liftIO exitSuccess
+          notice "status FLUSH"
 
         _ -> do
           sendLine ""
           next Plain
 
-          -- liftIO exitSuccess

@@ -16,6 +16,7 @@ setupLogger = do
   setLogging @ERROR  $ toStderr . logPrefix "[error] "
   setLogging @WARN   $ toStderr . logPrefix "[warn] "
   setLogging @NOTICE $ toStderr . logPrefix ""
+  setLogging @INFO   $ toStderr . logPrefix ""
   pure ()
 
 flushLoggers :: MonadIO m => m ()
@@ -28,5 +29,6 @@ silence = do
   setLoggingOff @ERROR
   setLoggingOff @WARN
   setLoggingOff @NOTICE
+  setLoggingOff @INFO
 
 

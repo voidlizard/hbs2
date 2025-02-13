@@ -191,7 +191,7 @@ importGitRefLog = do
                              ProbeSnapshotElement "Download.wip" n -> Just n
                              _ -> Nothing
 
-            notice $ "wait some time..." <+> parens (pretty down)
+            notice $ "wait-for-download" <+> parens (pretty down)
 
             case d of
               Just n | down /= n || down == 0 -> again next
@@ -227,7 +227,7 @@ importGitRefLog = do
               hxs <- txList ( pure . not . flip HS.member excl ) rv
 
               cp' <- flip fix (fmap snd hxs, Nothing) $ \next -> \case
-                ([], r) -> pure (gitTxTree <$> r)
+                ([], r) -> pure r
                 (TxSegment{}:xs, l) -> next (xs, l)
                 (cp@(TxCheckpoint n tree) : xs, l) -> do
 
@@ -241,14 +241,10 @@ importGitRefLog = do
                     next (xs, l)
 
               case cp' of
-                Nothing -> do
-                  notice "no checkpoints found"
-                  pure Nothing
+                Just TxCheckpoint{..} -> do
 
-                Just cp -> do
-
-                  notice $ "found checkpoint" <+> pretty cp
-                  txs <- txList ( pure . not . flip HS.member excl ) (Just cp)
+                  notice $ "checkpoint" <+> pretty gitTxTree <+> pretty gitTxRank
+                  txs <- txList ( pure . not . flip HS.member excl ) (Just gitTxTree)
 
                   forConcurrently_ txs $ \case
                     (_, TxCheckpoint{}) -> none
@@ -265,7 +261,11 @@ importGitRefLog = do
                         atomically $ modifyTVar already_ (HS.insert tree)
                         notice $ "imported" <+> pretty h
 
-                  pure (Just cp)
+                  pure (Just gitTxTree)
+
+                _ -> do
+                  notice "no checkpoints found"
+                  pure Nothing
 
             case r of
               Right cp -> again $ ImportDone cp
