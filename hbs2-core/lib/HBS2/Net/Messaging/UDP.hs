@@ -66,6 +66,8 @@ newMessagingUDP reuse saddr =
         let a = addrAddress l
         so <- liftIO $ socket (addrFamily l) (addrSocketType l) (addrProtocol l)
 
+        liftIO $ withFdSocket so setCloseOnExecIfNeeded
+
         when reuse $ do
           liftIO $ setSocketOption so ReuseAddr 1
 
@@ -102,7 +104,9 @@ runMessagingUDP MessagingUDP{..} =  void $ flip runContT pure do
   so <- liftIO (readTVarIO sock) >>= orThrowUser "UDP socket is not ready"
 
   void $ ContT $ bracket (pure (Just so)) $ \case
-            Just so -> liftIO (close so >> atomically (writeTVar sock Nothing))
+            Just so -> liftIO do
+              close so >> atomically (writeTVar sock Nothing)
+
             Nothing -> pure ()
 
   unless mcast $ do
