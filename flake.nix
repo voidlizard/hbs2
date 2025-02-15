@@ -172,6 +172,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
           pkgs.libsodium
           pkgs.file
           pkgs.zlib
+          pkgs.fuse
           inputs.hspup.packages.${pkgs.system}.default
         ]
       );
