@@ -604,9 +604,8 @@ runCLI = do
     pByPassShow = do
       rpc <- pRpcCommon
       pure $ withMyRPC @PeerAPI rpc $ \caller -> do
-        void $ runMaybeT do
-         d <- toMPlus =<< callService @RpcByPassInfo caller ()
-         liftIO $ print $ pretty d
+       d <- callRpcWaitRetry @RpcByPassInfo (TimeoutSec 1) 10 caller ()
+       liftIO $ print $ pretty d
 
     pRunGC = do
       rpc <- pRpcCommon

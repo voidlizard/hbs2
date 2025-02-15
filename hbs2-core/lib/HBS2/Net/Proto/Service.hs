@@ -26,6 +26,7 @@ import UnliftIO.Async
 import UnliftIO qualified as UIO
 import UnliftIO (TVar,TQueue,atomically)
 import System.Random (randomIO)
+import Data.Hashable
 import Data.Word
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -130,10 +131,13 @@ makeRequestR :: forall api method e m . ( KnownNat (FromJust (FindMethodIndex 0 
                                        )
             => Input method -> m (ServiceProto api e)
 makeRequestR input = do
+
+  t <- getTimeCoarse <&> round @_ @Word64  . realToFrac
+
   rnum  <- atomically do
               n <- readTVar rnumnum
-              modifyTVar rnumnum succ
-              pure n
+              modifyTVar' rnumnum succ
+              pure (fromIntegral $ hash (n+t))
 
   pure $ ServiceRequest rnum (serialise (fromIntegral idx :: Int, serialise input))
   where

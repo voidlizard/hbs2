@@ -158,19 +158,20 @@ getStat :: forall e w m . ( ForByPass e
                           )
         => ByPass e w
         -> m ByPassStat
-getStat bus = liftIO $
-  ByPassStat <$> readTVarIO (bypassed bus)
-             <*> readTVarIO (encrypted bus)
-             <*> readTVarIO (decrypted bus)
-             <*> readTVarIO (decryptFails bus)
-             <*> readTVarIO (sentNum bus)
-             <*> readTVarIO (recvNum bus)
-             <*> readTVarIO (sentBytes bus)
-             <*> readTVarIO (recvBytes bus)
-             <*> (readTVarIO (flowKeys bus) <&> HashMap.size)
-             <*> (readTVarIO (noncesByPeer bus) <&> HashMap.size)
-             <*> readTVarIO (authFail bus)
-             <*> readTVarIO (maxPkt bus)
+getStat ByPass{..} = liftIO do
+  atomically do
+    ByPassStat <$> readTVar bypassed
+               <*> readTVar encrypted
+               <*> readTVar decrypted
+               <*> readTVar decryptFails
+               <*> readTVar sentNum
+               <*> readTVar recvNum
+               <*> readTVar sentBytes
+               <*> readTVar recvBytes
+               <*> (readTVar flowKeys <&> HashMap.size)
+               <*> (readTVar noncesByPeer <&> HashMap.size)
+               <*> readTVar authFail
+               <*> readTVar maxPkt
 
 cleanupByPassMessaging :: forall e w m . ( ForByPass e
                                     , MonadIO m
