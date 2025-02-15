@@ -121,22 +121,13 @@ makeRequest rnum input = ServiceRequest rnum (serialise (fromIntegral idx :: Int
   where
     idx = findMethodIndex @method @api
 
-rnumnum :: TVar Word64
-rnumnum = unsafePerformIO (newTVarIO 1)
-{-# NOINLINE rnumnum #-}
-
 makeRequestR :: forall api method e m . ( KnownNat (FromJust (FindMethodIndex 0 method api))
                                        , Serialise (Input method)
                                        , MonadIO m
                                        )
             => Input method -> m (ServiceProto api e)
 makeRequestR input = do
-  n <- liftIO $ randomIO @Word64
-  rnum  <- atomically do
-              n <- readTVar rnumnum
-              modifyTVar' rnumnum succ
-              pure (fromIntegral n)
-
+  rnum <- liftIO $ randomIO @Word64
   pure $ ServiceRequest rnum (serialise (fromIntegral idx :: Int, serialise input))
   where
     idx = findMethodIndex @method @api
