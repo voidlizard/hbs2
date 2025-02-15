@@ -131,13 +131,11 @@ makeRequestR :: forall api method e m . ( KnownNat (FromJust (FindMethodIndex 0 
                                        )
             => Input method -> m (ServiceProto api e)
 makeRequestR input = do
-
-  t <- getTimeCoarse <&> round @_ @Word64  . realToFrac
-
+  n <- liftIO $ randomIO @Word64
   rnum  <- atomically do
               n <- readTVar rnumnum
               modifyTVar' rnumnum succ
-              pure (fromIntegral $ hash (n+t))
+              pure (fromIntegral n)
 
   pure $ ServiceRequest rnum (serialise (fromIntegral idx :: Int, serialise input))
   where
