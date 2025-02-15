@@ -90,6 +90,8 @@ data ByPassStat =
   , statDecryptFails :: Int
   , statSent         :: Int
   , statReceived     :: Int
+  , statSentBytes    :: Int
+  , statRecvBytes    :: Int
   , statFlowNum      :: Int
   , statPeers        :: Int
   , statAuthFail     :: Int
@@ -119,6 +121,8 @@ data ByPass e them =
   , decryptFails :: TVar Int
   , sentNum      :: TVar Int
   , recvNum      :: TVar Int
+  , sentBytes    :: TVar Int
+  , recvBytes    :: TVar Int
   , authFail     :: TVar Int
   , maxPkt       :: TVar Int
   , probe        :: TVar AnyProbe
@@ -161,6 +165,8 @@ getStat bus = liftIO $
              <*> readTVarIO (decryptFails bus)
              <*> readTVarIO (sentNum bus)
              <*> readTVarIO (recvNum bus)
+             <*> readTVarIO (sentBytes bus)
+             <*> readTVarIO (recvBytes bus)
              <*> (readTVarIO (flowKeys bus) <&> HashMap.size)
              <*> (readTVarIO (noncesByPeer bus) <&> HashMap.size)
              <*> readTVarIO (authFail bus)
@@ -242,6 +248,8 @@ newByPassMessaging o w self ps sk  = do
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
                                  <*> newTVarIO 0
+                                 <*> newTVarIO 0
+                                 <*> newTVarIO 0
                                  <*> newTVarIO (AnyProbe ())
 
 instance (ForByPass e, Messaging w e ByteString)
@@ -251,7 +259,9 @@ instance (ForByPass e, Messaging w e ByteString)
 
     mkey <- lookupEncKey bus whom
 
-    atomically $ modifyTVar (sentNum bus) succ
+    atomically do
+      modifyTVar (sentNum bus) succ
+      modifyTVar (sentBytes bus) (+ (fromIntegral $ LBS.length m))
 
     case mkey of
       Just fck -> do
@@ -286,6 +296,7 @@ instance (ForByPass e, Messaging w e ByteString)
 
       atomically do
         modifyTVar (recvNum bus) succ
+        modifyTVar (recvBytes bus) (+ (fromIntegral $ LBS.length mess))
         modifyTVar (maxPkt bus) (max (fromIntegral $ LBS.length mess))
 
       hshake <- processHey who mess
@@ -524,6 +535,8 @@ instance Pretty ByPassStat where
          , prettyField "decryptFails" statDecryptFails
          , prettyField "sent"         statSent
          , prettyField "received"     statReceived
+         , prettyField "sentBytes"    statSentBytes
+         , prettyField "recvBytes"    statRecvBytes
          , prettyField "flowNum"      statFlowNum
          , prettyField "peers"        statPeers
          , prettyField "authFail"     statAuthFail

@@ -60,6 +60,7 @@ import HttpWorker
 import DispatchProxy
 import PeerMeta
 import Watchdogs
+import Monkeys
 import CLI.Common
 import CLI.RefChan
 import CLI.LWWRef
@@ -741,7 +742,7 @@ respawnOnError opts act =
           | Just UserInterrupt <- Exception.fromException e =
             notice "Interrupted by user"
           | otherwise =
-            myException e >> performGC >> respawn opts
+            myException e >> performMajorGC >> respawn opts
 
 runPeer :: forall e s . ( e ~ L4Proto
                         , FromStringMaybe (PeerAddr e)
@@ -1234,6 +1235,8 @@ runPeer opts = respawnOnError opts $ do
 
                 peerThread "rpcWatchDog" (runRpcWatchDog myself rpc)
 
+                -- peerThread "monkeys" (runMonkeys rpc)
+
                 liftIO $ withPeerM penv do
                   runProto @e
                     [ makeResponse (blockSizeProto blk onNoBlock)
@@ -1355,6 +1358,8 @@ runPeer opts = respawnOnError opts $ do
       ]
     void $ waitAnyCancel (w1 : w2 : wws )
 
+  monkeys <- async $ runMonkeys rpcctx
+
   void $ waitAnyCancel $ w <> [ loop
                               , m1
                               , rpcProto
@@ -1364,6 +1369,7 @@ runPeer opts = respawnOnError opts $ do
                               , proxyThread
                               , brainsThread
                               , messWatchDog
+                              , monkeys
                               ]
 
   liftIO $ simpleStorageStop s

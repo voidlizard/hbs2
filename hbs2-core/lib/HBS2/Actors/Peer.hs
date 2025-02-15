@@ -130,6 +130,8 @@ data PeerEnv e =
   , _envSweepers      :: TVar (HashMap SKey [PeerM e IO ()])
   , _envReqMsgLimit   :: Cache (Peer e, Integer, Encoded e) ()
   , _envReqProtoLimit :: Cache (Peer e, Integer) ()
+  , _envSentCounter   :: TVar Int
+  , _envRecvCounter   :: TVar Int
   , _envProbe         :: TVar AnyProbe
   }
 
@@ -265,6 +267,7 @@ instance ( MonadIO m
          , Show (Peer e)
          ) => Request e msg m where
   request peer_e msg = do
+
     let proto = protoId @e @msg (Proxy @msg)
     pip <- getFabriq @e
     me <- ownPeer @e
@@ -392,6 +395,8 @@ newPeerEnv pl s bus p = do
   _envSweepers      <- liftIO (newTVarIO mempty)
   _envReqMsgLimit   <- liftIO (Cache.newCache (Just defRequestLimit))
   _envReqProtoLimit <- liftIO (Cache.newCache (Just defRequestLimit))
+  _envSentCounter   <- liftIO (newTVarIO 0)
+  _envRecvCounter   <- liftIO (newTVarIO 0)
   _envProbe         <- liftIO (newTVarIO (AnyProbe ()))
   pure PeerEnv {..}
 
@@ -422,6 +427,9 @@ peerEnvCollectProbes PeerEnv {..} = do
 
     item "req-msg-limit" =<< (liftIO . Cache.size) _envReqMsgLimit
     item "req-proto-limit" =<< (liftIO . Cache.size) _envReqProtoLimit
+
+    item "data-sent" =<< (liftIO . readTVarIO) _envSentCounter
+    item "data-recv" =<< (liftIO . readTVarIO) _envRecvCounter
 
   where
     calcValuesLengthTotal = Monoid.getSum . foldMap (Monoid.Sum . L.length)
@@ -526,7 +534,9 @@ instance ( HasProtocol e p
     who <-  thatPeer @p
     self <- lift $ ownPeer @e
     fab  <- lift $ getFabriq @e
-    sendTo fab (To who) (From self) (AnyMessage @(Encoded e) @e proto (encode msg))
+    let raw = encode msg
+    -- atomically $ modifyTVar
+    sendTo fab (To who) (From self) (AnyMessage @(Encoded e) @e proto raw)
 
 instance ( MonadIO m
          -- , HasProtocol e p

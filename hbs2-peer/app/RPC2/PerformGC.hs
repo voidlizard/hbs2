@@ -18,8 +18,6 @@ instance ( MonadIO m
   => HandleMethod m RpcPerformGC where
 
   handleMethod _ = do
-    debug $ "rpc.performGC"
-    liftIO performGC
-    pure ()
-
+    debug $ "rpc.performMajorGC"
+    liftIO performMajorGC
 

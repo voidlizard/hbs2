@@ -19,7 +19,16 @@ instance {-# OVERLAPPABLE #-}
 
 -- instance HasConf m => HasConf (ResponseM e m)
 
+data PeerCounters =
+  PeerStats
+  { peerDataSent :: Int
+  , peerDataRecv :: Int
+  }
 
+class HasPeerCounters m where
+  getPeerCounters   :: m PeerCounters
+  setPeerCounters   :: PeerCounters -> m ()
+  updatePeerCountes :: (PeerCounters -> PeerCounters) -> m ()
 
 class (Monad m, HasProtocol e p) => HasGossip e p m where
   gossip :: p -> m ()

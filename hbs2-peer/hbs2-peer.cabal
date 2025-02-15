@@ -290,6 +290,7 @@ executable hbs2-peer
                     , Watchdogs
                     , Brains
                     , DispatchProxy
+                    , Monkeys
                     , CLI.Common
                     , CLI.RefChan
                     , CLI.LWWRef
