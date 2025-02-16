@@ -1177,22 +1177,3 @@ executable test-scripts
         , time
         , zstd
 
-
-executable test-fuse
-    import:           shared-properties
-    import:           common-deps
-    default-language: Haskell2010
-    ghc-options:
-    hs-source-dirs:   test
-    main-is:          TestFUSE.hs
-    build-depends:
-          base, hbs2-core, hbs2-peer
-        , network
-        , string-conversions
-        , suckless-conf
-        , text
-        , time
-        , zstd
-        , HFuse
-        , unix
-
