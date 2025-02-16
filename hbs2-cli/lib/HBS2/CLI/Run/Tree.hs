@@ -11,9 +11,12 @@ import HBS2.Defaults
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
+import HBS2.Data.Detect
 import HBS2.System.Dir
 import HBS2.Storage
+import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
+import HBS2.Storage.Operations.Missed
 
 import HBS2.Net.Auth.Schema()
 
@@ -21,6 +24,7 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
 
+import Data.Coerce
 import Data.Text qualified as Text
 import Control.Monad.Except
 import Codec.Serialise
@@ -97,4 +101,28 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
       pure $ mkSym (show $ pretty r)
 
     _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:tree:missed" $ \case
+    [HashLike href] -> do
+      sto <- getStorage
+      findMissedBlocks sto href
+                <&> mkList . fmap (mkStr @c . show . pretty)
+
+    _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:tree:refs" $ \case
+    [HashLike href] -> do
+      sto <- getStorage
+
+      blk <- getBlock sto (coerce href)
+               >>= orThrow MissedBlockError
+
+      let refs = extractBlockRefs (coerce href) blk
+
+      pure $ mkList @c (fmap (mkStr . show . pretty) refs)
+
+    _ -> throwIO (BadFormException @c nil)
+
 

@@ -7,7 +7,7 @@ import HBS2.Hash
 import HBS2.Merkle
 import HBS2.Storage
 
--- import HBS2.System.Logger.Simple
+import HBS2.System.Logger.Simple
 
 import Streaming.Prelude qualified as S
 import Streaming.Prelude (Stream, Of(..))
@@ -25,8 +25,23 @@ findMissedBlocks sto href = do
   S.toList_ $ findMissedBlocks2 sto href
 
 findMissedBlocks2 :: (MonadIO m) => AnyStorage -> HashRef -> Stream (Of HashRef) m ()
-findMissedBlocks2 sto href = do
-    walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
+findMissedBlocks2 sto href = void $ runMaybeT do
+
+    self' <- getBlock sto (coerce href)
+
+    unless (isJust self') do
+      lift $ S.yield (coerce href)
+
+    self <- toMPlus self'
+
+    let refs = extractBlockRefs (coerce href) self
+
+    for_ refs $ \r -> do
+      -- findMissedBlocks sto r >>= lift . mapM_ S.yield
+      here <- hasBlock sto (coerce r) <&> isJust
+      unless here $ lift $ S.yield r
+
+    lift $ walkMerkle (fromHashRef href) (lift . getBlock sto) $ \(hr :: Either (Hash HbSync) [HashRef]) -> do
       case hr of
         -- FIXME: investigate-this-wtf
         Left hx -> S.yield (HashRef hx)
@@ -42,7 +57,10 @@ findMissedBlocks2 sto href = do
                 let w = tryDetect (fromHashRef hx) bs
                 let refs = extractBlockRefs (coerce hx) bs
 
+                -- err $ "PIZDA!" <+> pretty hx <+> pretty refs
+
                 for_ refs $ \r -> do
+                  -- findMissedBlocks sto r >>= lift . mapM_ S.yield
                   here <- hasBlock sto (coerce r) <&> isJust
                   unless here $ lift $ S.yield r
 
@@ -56,7 +74,14 @@ findMissedBlocks2 sto href = do
                                 _ -> pure mempty
 
                         b1 <- findMissedBlocks sto hx
-                        pure (b0 <> b1)
+
+                        b2 <-  case _mtaCrypt t of
+                                (EncryptGroupNaClSymm hash _) ->
+                                  findMissedBlocks sto (HashRef hash)
+
+                                _ -> pure mempty
+
+                        pure (b0 <> b1 <> b2)
 
                       _ -> pure mempty
 
