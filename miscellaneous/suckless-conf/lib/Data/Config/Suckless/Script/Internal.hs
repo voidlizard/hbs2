@@ -406,11 +406,16 @@ hide (Bind w x) = Bind (Just updatedMan) x
 hidden :: MakeDictM c m () -> MakeDictM c m ()
 hidden = censor (HM.map hide)
 
-hidePrefix :: Id -> MakeDictM c m () -> MakeDictM c m ()
-hidePrefix (Id p) = error "hidePrefix does not work yet"
-  -- censor (HM.filterWithKey exclude)
-  where
-    exclude (Id k) _ = not (Text.isPrefixOf p k)
+hideKeyPredicate :: (Id -> Bool) -> MakeDictM c m () -> MakeDictM c m ()
+hideKeyPredicate p = censor $
+  HM.mapWithKey \k b -> if p k then hide b else b
+
+hidePrefix :: Text -> MakeDictM c m () -> MakeDictM c m ()
+hidePrefix p = hideKeyPredicate \(Id k) -> Text.isPrefixOf p k
+
+hidePrefixes :: [Text] -> MakeDictM c m () -> MakeDictM c m ()
+hidePrefixes ps = hideKeyPredicate \(Id k) ->
+  any (\p -> Text.isPrefixOf p k) ps
 
 desc :: Doc ann -> MakeDictM c m () -> MakeDictM c m ()
 desc txt = censor (HM.map setDesc)

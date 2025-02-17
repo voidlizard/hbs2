@@ -62,7 +62,7 @@ theDict = do
 
   where
 
-    myEntries =  do
+    myEntries = hidePrefixes ["test", "debug", "segment", "reflog:index"] do
         entry $ bindMatch "--help" $ nil_ $ \case
           HelpEntryBound what -> do
             helpEntry what
