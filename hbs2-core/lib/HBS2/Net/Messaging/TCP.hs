@@ -39,6 +39,7 @@ import Network.Socket hiding (listen,connect)
 import System.Random hiding (next)
 import Control.Monad.Trans.Cont
 import Control.Exception
+import Control.Concurrent.STM qualified as STM
 
 import UnliftIO (MonadUnliftIO(..))
 import UnliftIO.Async
@@ -391,16 +392,14 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
           -- client sockets
 
           -- смотрим к кому надо
-          who <- atomically $ readTQueue _tcpConnDemand
-          whoAddr <- toPeerAddr who
+          who <- atomically do
+                   who <- readTQueue _tcpConnDemand
+                   already <- readTVar _tcpPeerConn <&> HM.member who
+                   if not already then pure who else STM.retry
 
           debug $ "DEMAND:" <+> pretty who
 
-          already <- atomically $ readTVar _tcpPeerConn <&> HM.member who
-
-          when already do
-            debug "SHIT? BUSYLOOP?"
-            mzero
+          whoAddr <- toPeerAddr who
 
           liftIO $ newClientThread env $ do
             let (L4Address _ (IPAddrPort (ip,port))) = whoAddr
