@@ -451,7 +451,7 @@ runPeerM env@PeerEnv{..} f  = flip runContT pure do
 
   n <- liftIO getNumCapabilities <&> max 2 . div 2
 
-  as <- liftIO $ replicateM n $ async $ runPipeline _envDeferred
+  as <- liftIO $ replicateM n $ asyncLinked $ runPipeline _envDeferred
 
   sw <- liftIO $ async $ forever $ withPeerM env $ do
       pause defSweepTimeout
