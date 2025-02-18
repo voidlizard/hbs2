@@ -12,9 +12,16 @@ import Control.Concurrent.STM
 import Control.Concurrent.STM.TBMQueue qualified as TBMQ
 import Control.Concurrent.STM.TBMQueue (TBMQueue)
 import Control.Concurrent.STM.TVar qualified as TVar
-import Data.Function
 import Data.Kind
 import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Exception
+
+data PipelineExcepion =
+  PipelineAddJobTimeout
+  deriving stock (Show,Typeable)
+
+instance Exception PipelineExcepion
 
 data Pipeline m a =
   Pipeline
@@ -47,9 +54,15 @@ stopPipeline pip = liftIO $ do
       pause ( 0.01 :: Timeout 'Seconds) >> next
 
 addJob :: forall a m m1 . (MonadIO m, MonadIO m1) => Pipeline m a -> m a -> m1 ()
-addJob pip act = liftIO $ do
-  doWrite <- atomically $ TVar.readTVar ( stopAdding pip )
-  unless doWrite $ do
-    atomically $ TBMQ.writeTBMQueue (toQueue pip) act
+addJob pip' act' = liftIO $ do
+  doWrite <- atomically $ TVar.readTVar ( stopAdding pip' )
+  -- FIXME: exception-timeout-hardcode
+  race (pause @'Seconds 3) (doAddJob doWrite pip' act') >>= \case
+    Left{} -> throwIO PipelineAddJobTimeout
+    _ -> pure ()
 
+  where
+    doAddJob w pip act =
+      unless w $ do
+        atomically $ TBMQ.writeTBMQueue (toQueue pip) act
 

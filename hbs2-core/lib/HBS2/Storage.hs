@@ -10,9 +10,16 @@ import Data.Kind
 import Lens.Micro.Platform
 import Data.ByteString.Lazy (ByteString)
 import Control.Monad.Trans.Maybe
+import Control.Exception
 import Data.Word
 
 import Codec.Serialise()
+
+data StorageException =
+  StorageAddTaskTimeout
+  deriving (Show,Typeable)
+
+instance Exception StorageException
 
 class Pretty (Hash h) => IsKey h where
   type family Key h :: Type

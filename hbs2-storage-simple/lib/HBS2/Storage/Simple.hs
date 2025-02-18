@@ -161,9 +161,15 @@ simpleStorageInit opts = liftIO $ do
 catchAny :: IO a -> (SomeException -> IO a) -> IO a
 catchAny = Control.Exception.catch
 
+-- FIXME: io-operation-pipeline-block
 simpleAddTask :: SimpleStorage h -> IO () -> IO ()
 simpleAddTask s task = do
-  atomically $ TBMQ.writeTBMQueue (s ^. storageOpQ) task
+  -- FIXME: add-task-timeout-hardcode
+  reallyAdded <- race (pause @'Seconds 3) do
+    atomically $ TBMQ.writeTBMQueue (s ^. storageOpQ) task
+  case reallyAdded of
+    Left{} -> throwIO StorageAddTaskTimeout
+    _ -> pure ()
 
 simpleStorageStop :: SimpleStorage h -> IO ()
 simpleStorageStop ss = do
