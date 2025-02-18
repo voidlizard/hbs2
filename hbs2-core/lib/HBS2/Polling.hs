@@ -23,6 +23,8 @@ polling :: forall a m . (MonadIO m, Hashable a)
 
 polling o listEntries action = do
 
+  let tsMin = toTimeSpec (TimeoutSec 0.01)
+
   -- FIXME: might-be-concurrent
 
   pause (TimeoutNDT (waitBefore o))
@@ -48,7 +50,7 @@ polling o listEntries action = do
         next (HashMap.delete r mon')
 
       Just (Entry t _, _) | otherwise -> do
-        pause (TimeoutTS (t - now))
+        pause (max (TimeoutTS tsMin) (TimeoutTS (t - now)))
         next mon'
 
       Nothing -> do
