@@ -335,6 +335,11 @@ sweep = do
 
   liftIO $ atomically $ modifyTVar' sw (<> HashMap.fromList (mconcat alive))
 
+addJobIO :: IO () -> PeerM e IO ()
+addJobIO m = do
+  PeerEnv{..} <- ask
+  addJob _envDeferred m
+
 instance ( Typeable (EventKey e p)
          , Typeable (Event e p)
          , Hashable (EventKey e p)
@@ -505,6 +510,7 @@ runProto hh = do
         Just (AnyProtocol { protoDecode = decoder
                           , handle = h
                           }) -> maybe (pure ()) (runResponseM pip . h) (decoder msg)
+
 
 
 instance (Monad m, HasProtocol e p) => HasThatPeer p e (ResponseM e m) where

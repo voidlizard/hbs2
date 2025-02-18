@@ -20,6 +20,9 @@ runRpcWatchDog :: MonadIO m => ThreadId -> FilePath -> m ()
 runRpcWatchDog peer soname = do
     liftIO $ flip runContT pure do
 
+      ContT $ bracket none $ const $ do
+        err "bracket in runRpcWatchDog"
+
       api <- ContT $ withRPC2 @PeerAPI soname
 
       flip fix WIdle $ \next -> \case
@@ -30,7 +33,6 @@ runRpcWatchDog peer soname = do
 
         WCall n | n > 2 -> do
           err $ red "RpcWatchDog fired"
-          throwTo peer GoAgainException
 
         WCall n -> do
           debug $ "RpcWatchDog" <+> pretty n
@@ -38,6 +40,5 @@ runRpcWatchDog peer soname = do
             Just _ -> next WIdle
             Nothing -> next (WCall (succ n))
 
-    throwTo peer GoAgainException
 
 

@@ -1338,7 +1338,7 @@ runPeer opts = respawnOnError opts $ do
                            , rpcMailboxAdapter  = AnyMailboxAdapter @s mailboxWorker
                            }
 
-  m1 <- async $ runMessagingUnix rpcmsg
+  m1 <- asyncLinked $ runMessagingUnix rpcmsg
 
   rpcProto <- async $ flip runReaderT rpcctx do
     env <- newNotifyEnvServer @(RefChanEvents L4Proto) refChanNotifySource

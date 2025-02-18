@@ -85,6 +85,7 @@ common shared-properties
         -Wall
         -O2
         -fno-warn-type-defaults
+        -fno-omit-yields
         -- -fno-warn-unused-matches
         -- -fno-warn-unused-do-bind
         -- -Werror=missing-methods

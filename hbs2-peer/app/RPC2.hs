@@ -219,6 +219,14 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
             pure nil
 
 
+        entry $ bindMatch "test:explode" $ const do
+
+          liftIO $ withPeerM rpcPeerEnv do
+            forever do
+              addJobIO $ forever none
+
+          pure $ mkSym "text:explode"
+
         entry $ bindMatch "reset" $ const do
           throwTo rpcSelf GoAgainException
           pure $ mkSym "reset"
