@@ -10,7 +10,6 @@ import HBS2.Git3.Export
 
 import HBS2.System.Dir
 
-import HBS2.CLI.Run.MetaData
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.GroupKeySymm
 
@@ -19,11 +18,8 @@ import HBS2.KeyMan.Keys.Direct
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
 
-import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Word
-import Data.Maybe
 import Data.Text qualified as Text
-import Data.HashMap.Strict qualified as HM
 import Lens.Micro.Platform
 
 import System.Random hiding (next)

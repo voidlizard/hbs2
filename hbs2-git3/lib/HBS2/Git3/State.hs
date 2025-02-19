@@ -262,7 +262,7 @@ waitRepo timeout repoKey = do
 
           notice "wait for peer"
 
-          lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerAPI (repoKey, "lwwref", 31))
+          lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 2) peerAPI (repoKey, "lwwref", 31))
                    >>= maybe (wait 1 forPeer ()) (const none)
 
         pFetch <- ContT $ withAsync $ forever do
