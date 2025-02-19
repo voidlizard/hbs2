@@ -1526,7 +1526,12 @@ internalEntries = do
 
     -- skips shebang
     entry $ bindMatch "top:file:run" $ nil_ $ \case
-      (StringLike fn : args) -> do
+      a@(StringLike fn : args) -> do
+        bind "$*" (mkList a)
+        bind "*args" (mkList a)
+        forM_ (zip [0..] a) $ \(i,e) -> do
+          bind (fromString ("$"<>show i)) e
+
         liftIO (TIO.readFile fn)
             <&> either (error.show) (fmap (fixContext @C @c) . dropShebang ) . parseTop
             <&> \case
