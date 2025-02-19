@@ -82,13 +82,26 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
         overrides = pkgs.lib.composeExtensions (oldAttrs.overrides or (_: _: { })) overrides;
       });
 
-    makePkgsFromDir = pkgs: pkgNames: mkPath:
+    makePkgsFromDirOverride = pkgs: ov: pkgNames: mkPath:
       pkgs.lib.genAttrs pkgNames (name:
-        pkgs.haskellPackages.callCabal2nix name "${self}/${mkPath name}" {});
+        ov (pkgs.haskellPackages.callCabal2nix name "${self}/${mkPath name}" {})
+      );
+
+    makePkgsFromDir = pkgs: makePkgsFromDirOverride pkgs (q: q);
+    makePkgsFromDirWithMan = pkgs: makePkgsFromDirOverride pkgs (q:
+      q.overrideDerivation (drv: {
+          postInstall = ''
+            if [ -d man ]; then
+              mkdir -p $out
+              cp -r man $out/
+            fi
+          '';
+        })
+    );
 
     ourHaskellPackages = pkgs: ({}
-      // makePkgsFromDir pkgs topLevelPackages (n: n)
-      // makePkgsFromDir pkgs keymanPackages (name: "hbs2-keyman/${name}")
+      // makePkgsFromDirWithMan pkgs topLevelPackages (n: n)
+      // makePkgsFromDirWithMan pkgs keymanPackages (name: "hbs2-keyman/${name}")
       // makePkgsFromDir pkgs miscellaneous (name: "miscellaneous/${name}")
     );
 
