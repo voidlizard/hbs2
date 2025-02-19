@@ -67,6 +67,7 @@ symlinks: $(BIN_DIR)
 >			echo "Binary $$bin for GHC $(GHC_VERSION) not found"; \
 >		fi; \
 >	done
+> ln -sfn ../hbs2-git3/bf6/git-hbs2 bin/git-hbs2
 
 
 .PHONY: build

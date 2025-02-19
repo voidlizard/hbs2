@@ -14,6 +14,7 @@ import HBS2.Git3.State
 import HBS2.Git3.Repo qualified as Repo
 import HBS2.Git3.Repo
 import HBS2.Git3.Logger
+import HBS2.Git3.Man
 import HBS2.Net.Auth.GroupKeySymm
 
 import Data.Config.Suckless.Script
@@ -71,6 +72,8 @@ theDict = do
           [ StringLike x ] -> helpList True (Just x) >> quit
 
           _ -> helpList True Nothing >> quit
+
+        entry $ bindAlias "help" "--help"
 
         hidden do
           entry $ bindMatch "--help-all" $ nil_ $ \case
@@ -135,8 +138,9 @@ compression      ;  prints compression level
             co <- LBS.hGetContents stdin
             print $ pretty $ gitHashBlobPure co
 
-        entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
-          LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
+        hidden do
+          entry $ bindMatch "zlib:deflate" $ nil_ $ const $ liftIO do
+            LBS.hGetContents stdin <&> Zlib.decompress >>= LBS.hPutStr stdout
 
         entry $ bindMatch "test:git:read-commit-chain" $ nil_ $ \syn -> lift do
           (mpath, hss) <- case syn of
@@ -560,51 +564,11 @@ compression      ;  prints compression level
             liftIO $ for_ keys $ \k -> do
               liftIO $ print $ pretty k
 
-
-        let initExamples = [qc|
-; just init a new repository
-
-hbs2-git init --new
-
-; init encrypted repository
-
-; create new group key:
-; your real keys will be different
-; all hashes/keys appear in exampels/logs a PUBLIC information,
-; so no secrets disclosures.
-
-hbs2-cli hbs2:groupkey:store [hbs2:groupkey:create 67CRxnoQWasQsY9iidjJDYXSTKEZkpSVgDQYweWuhfd3]
-39baH7SqqsAGgCSr3k9RJgY4nTwiMRXrgZUmKPFndzn8
-
-
-hbs2-git init  --new --encrypted 39baH7SqqsAGgCSr3k9RJgY4nTwiMRXrgZUmKPFndzn8
-
-added git remote laundry-worry hbs23://7F1D7QGVVwJFJ649dsSHgrDUuqHYti3nkFx<censored>
-updateRepoKey 7F1D7QGVVwJFJ649dsSHgrDUuqHYti3nkFx<censored>
-
-git remote
-
-laundry-worry
-^^^^^^^^^^^^^
-
-This is the git remote for the new repo. Rename it if you want.
-
-hbs2-git3  repo:remotes
-7F1D7QGVVwJFJ649dsSHgrDUuqHYti3nkFx<censored> laundry-worry
-
-
-|]
-        let initMan = brief "initializes a new repository"
-                        . args [ arg "new repository flag"                     "--new"
-                               , arg "group key hash for encrypted repository" "<--encrypted group-key>"
-                               ]
-                        . examples initExamples
-
-        initMan $
+        manInit $
           entry $ bindMatch "repo:init" $ nil_ $ \syn -> lift $ connectedDo do
               Repo.initRepo syn
 
-        initMan $ entry $
+        manInit $ entry $
           bindAlias "init" "repo:init"
 
         entry $ bindMatch "repo:relay-only" $ nil_ $ \case

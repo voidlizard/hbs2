@@ -119,7 +119,7 @@ executable bf6
     -- other-modules:
     -- other-extensions:
     build-depends:
-          base, unliftio, suckless-conf
+          base, unliftio, suckless-conf, safe
 
     hs-source-dirs:   bf6
     default-language: GHC2021

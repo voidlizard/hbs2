@@ -1,0 +1,7 @@
+#! /usr/bin/env -S bf6 file
+
+(run:proc:attached hbs2-git3 (cdr *args))
+
+
+
+

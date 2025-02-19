@@ -130,6 +130,7 @@ library
       HBS2.Git3.Repo.Types
       HBS2.Git3.Repo
       HBS2.Git3.Run
+      HBS2.Git3.Man
       HBS2.Git3.Logger
       HBS2.Git3.State
       HBS2.Git3.State.Internal.Types

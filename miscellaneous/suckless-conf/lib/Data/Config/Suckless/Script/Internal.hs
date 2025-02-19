@@ -955,6 +955,14 @@ instance IsContext c => MkSyntax c IniConfig where
 
     mkList (globals <> sections)
 
+bindCliArgs :: forall c m . (IsContext c, MonadUnliftIO m, Exception (BadFormException c))
+            => [Syntax c] -> RunM c m ()
+bindCliArgs a = do
+  bind "$*" (mkList a)
+  bind "*args" (mkList a)
+  forM_ (zip [0..] a) $ \(i,e) -> do
+    bind (fromString ("$"<>show i)) e
+
 internalEntries :: forall c m . ( IsContext c
                                 , Exception (BadFormException c)
                                 , MonadUnliftIO m) => MakeDictM c m ()
@@ -1527,10 +1535,7 @@ internalEntries = do
     -- skips shebang
     entry $ bindMatch "top:file:run" $ nil_ $ \case
       a@(StringLike fn : args) -> do
-        bind "$*" (mkList a)
-        bind "*args" (mkList a)
-        forM_ (zip [0..] a) $ \(i,e) -> do
-          bind (fromString ("$"<>show i)) e
+        bindCliArgs a
 
         liftIO (TIO.readFile fn)
             <&> either (error.show) (fmap (fixContext @C @c) . dropShebang ) . parseTop

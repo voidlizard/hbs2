@@ -38,6 +38,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       "hbs2-cli"
       "hbs2-sync"
       "fixme-new"
+      "suckless-conf"
       ];
 
     miscellaneous =
@@ -50,6 +51,16 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
     jailbreakUnbreak = pkgs: pkg:
         pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
+
+    # gitHbs2Script = pkgs.stdenv.mkDerivation {
+    #   pname = "git-hbs2";
+    #   version = "1.0";
+    #   src = ./hbs2-git3/bf6;
+    #   installPhase = ''
+    #     mkdir -p $out/bin
+    #     install -m755 git-hbs2 $out/bin/git-hbs2
+    #   '';
+    # };
 
     hpOverridesPre = pkgs: new: old: with pkgs.haskell.lib; {
       scotty = new.callHackage "scotty" "0.21" {};

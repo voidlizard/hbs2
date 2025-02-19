@@ -5,6 +5,7 @@ module Main where
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Script.File as SF
 
+import Safe
 import System.Environment
 import System.IO qualified as IO
 import UnliftIO
@@ -29,8 +30,14 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
+        hidden do
+          entry $ bindMatch "#!" $ nil_ $ const do
+            pure ()
 
   case cli of
+
+    [ListVal (SymbolVal "#!" :_)] -> do
+      pure ()
 
     [ListVal [SymbolVal "--run", StringLike fn]] -> do
       what <- liftIO $ readFile fn
@@ -43,6 +50,14 @@ main = do
                 >>= either (error.show) pure . parseTop
 
       run dict what >>= eatNil display
+
+    [ListVal (SymbolVal "file" : s@(StringLike fn : args))] -> do
+      what <- liftIO (IO.readFile fn)
+                >>= either (error.show) pure . parseTop
+
+      runM dict do
+        bindCliArgs s
+        void $ evalTop what
 
     [] -> do
       eof <- liftIO IO.isEOF
