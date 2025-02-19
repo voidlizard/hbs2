@@ -165,7 +165,9 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
 
 
     devShells.default = pkgs.haskellPackages.shellFor {
-      packages = _: builtins.attrValues (ourHaskellPackages pkgs);
+      packages = p: builtins.attrValues (ourHaskellPackages pkgs) ++ [
+        p.skylighting-core  # needed for hbs2-tests which we did not expose
+      ];
       # withHoogle = true;
       buildInputs = (
         with pkgs.haskellPackages; [
