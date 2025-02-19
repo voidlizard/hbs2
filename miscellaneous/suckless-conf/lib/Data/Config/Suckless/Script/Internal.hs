@@ -1522,6 +1522,21 @@ internalEntries = do
 
       _ -> throwIO (BadFormException @c nil)
 
+    let dropShebang = id
+
+    -- skips shebang
+    entry $ bindMatch "top:file:run" $ nil_ $ \case
+      (StringLike fn : args) -> do
+        liftIO (TIO.readFile fn)
+            <&> either (error.show) (fmap (fixContext @C @c) . dropShebang ) . parseTop
+            <&> \case
+              (ListVal (SymbolVal "#!" : _) : rest) -> rest
+              rest -> rest
+            >>= evalTop
+
+      _ -> throwIO (BadFormException @c nil)
+
+
     brief "parses string as toplevel and produces a form"
      $ desc "parse:top:string SYMBOL STRING-LIKE"
      $ entry $ bindMatch "parse:top:string" $ \case
