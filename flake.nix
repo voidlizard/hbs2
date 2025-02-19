@@ -134,10 +134,13 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       ];
 
     makePackages = pkgs:
-      pkgs.lib.mapAttrs
+      let ps = pkgs.lib.mapAttrs
         (_name: packagePostOverrides) # we can't apply overrides inside our overlay because it will remove linking info
         (pkgs.lib.getAttrs packageNames (ourHaskellPackages pkgs))
         ;
+      in ps // {
+        bf6-git-hbs2 = pkgs.callPackage ./nix/bf6-hbs2-git.nix { inherit (ps) suckless-conf; };
+      };
 
     packagesDynamic = makePackages pkgs;
     packagesStatic = makePackages pkgs.pkgsStatic;

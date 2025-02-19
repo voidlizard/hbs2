@@ -127,47 +127,47 @@ library
     hs-source-dirs:   hbs2-git-client-lib
 
 
-executable hbs2-git-subscribe
-    import:           shared-properties
-    main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
-    build-depends:
-        base, hbs2-git
-        , binary
-        , vector
-        , optparse-applicative
+-- executable hbs2-git-subscribe
+--     import:           shared-properties
+--     main-is:          Main.hs
+--     -- other-modules:
+--     -- other-extensions:
+--     build-depends:
+--         base, hbs2-git
+--         , binary
+--         , vector
+--         , optparse-applicative
 
-    hs-source-dirs:   git-hbs2-subscribe
-    default-language: GHC2021
+--     hs-source-dirs:   git-hbs2-subscribe
+--     default-language: GHC2021
 
-executable git-hbs2
-    import:           shared-properties
-    main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
-    build-depends:
-        base, hbs2-git
-        , binary
-        , vector
-        , optparse-applicative
+-- executable git-hbs2
+--     import:           shared-properties
+--     main-is:          Main.hs
+--     -- other-modules:
+--     -- other-extensions:
+--     build-depends:
+--         base, hbs2-git
+--         , binary
+--         , vector
+--         , optparse-applicative
 
-    hs-source-dirs:   git-hbs2
-    default-language: GHC2021
+--     hs-source-dirs:   git-hbs2
+--     default-language: GHC2021
 
 
-executable git-remote-hbs2
-    import:           shared-properties
-    main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
-    build-depends:
-        base, hbs2-git
-        , binary
-        , vector
-        , optparse-applicative
+-- executable git-remote-hbs2
+--     import:           shared-properties
+--     main-is:          Main.hs
+--     -- other-modules:
+--     -- other-extensions:
+--     build-depends:
+--         base, hbs2-git
+--         , binary
+--         , vector
+--         , optparse-applicative
 
-    hs-source-dirs:   git-remote-hbs2
-    default-language: GHC2021
+--     hs-source-dirs:   git-remote-hbs2
+--     default-language: GHC2021
 
 
