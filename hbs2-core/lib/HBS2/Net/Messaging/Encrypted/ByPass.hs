@@ -37,7 +37,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
 import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HashSet
 import Data.Maybe
 import Data.Word
@@ -114,6 +114,7 @@ data ByPass e them =
   , delayed      :: TQueue (To e, ByteString)
   , heySent      :: TVar (HashMap (Peer e) TimeSpec)
   , noncesByPeer :: TVar (HashMap (Peer e) NonceA)
+  , banned       :: TVar (HashMap (Peer e) TimeSpec)
   , flowKeys     :: TVar (HashMap FlowKey CombinedKey)
   , bypassed     :: TVar Int
   , encrypted    :: TVar Int
@@ -168,8 +169,8 @@ getStat ByPass{..} = liftIO do
                <*> readTVar recvNum
                <*> readTVar sentBytes
                <*> readTVar recvBytes
-               <*> (readTVar flowKeys <&> HashMap.size)
-               <*> (readTVar noncesByPeer <&> HashMap.size)
+               <*> (readTVar flowKeys <&> HM.size)
+               <*> (readTVar noncesByPeer <&> HM.size)
                <*> readTVar authFail
                <*> readTVar maxPkt
 
@@ -183,6 +184,8 @@ cleanupByPassMessaging :: forall e w m . ( ForByPass e
 cleanupByPassMessaging  bus pips = do
   debug "cleanupByPassMessaging"
 
+  now <- getTimeCoarse
+
   let alive = HashSet.fromList pips
 
   atomically do
@@ -191,21 +194,23 @@ cleanupByPassMessaging  bus pips = do
     flows  <- readTVar (flowKeys bus)
 
     let livePeers = [ (k,v)
-                    | (k,v) <- HashMap.toList nonces
+                    | (k,v) <- HM.toList nonces
                     , k `HashSet.member` alive
-                    ] & HashMap.fromList
+                    ] & HM.fromList
 
-    let liveSent = HashMap.filterWithKey (\k _ -> k `HashMap.member` livePeers) sent
+    let liveSent = HM.filterWithKey (\k _ -> k `HM.member` livePeers) sent
 
     let liveFk = [ makeKey (nonceA bus) nonce
-                 | nonce <- HashMap.elems livePeers
+                 | nonce <- HM.elems livePeers
                  ] & HashSet.fromList
 
-    let liveFlows =  HashMap.filterWithKey (\k _ -> k `HashSet.member` liveFk) flows
+    let liveFlows =  HM.filterWithKey (\k _ -> k `HashSet.member` liveFk) flows
 
     writeTVar (heySent bus) liveSent
     writeTVar (noncesByPeer bus) livePeers
     writeTVar (flowKeys bus) liveFlows
+
+    modifyTVar (banned bus) (HM.filter (now>))
 
 
 byPassDef :: ByPassOpts e
@@ -238,6 +243,7 @@ newByPassMessaging o w self ps sk  = do
   (Keypair s p) <- liftIO PKE.newKeypair
   let n = mySipHash (LBS.toStrict (serialise s))
   ByPass @e o self ps sk p s w n <$> newTQueueIO
+                                 <*> newTVarIO mempty
                                  <*> newTVarIO mempty
                                  <*> newTVarIO mempty
                                  <*> newTVarIO mempty
@@ -287,8 +293,8 @@ instance (ForByPass e, Messaging w e ByteString)
         withHeySent bus 30 whom do
           sendHey bus whom
 
-  receive bus f = do
-    msgs <- receive  (proxied bus) f
+  receive bus@ByPass{..} f = do
+    msgs <- receive  proxied f
 
     q <- newTQueueIO
 
@@ -296,9 +302,13 @@ instance (ForByPass e, Messaging w e ByteString)
     for_ msgs $ \(From who, mess) -> runMaybeT do
 
       atomically do
-        modifyTVar (recvNum bus) succ
-        modifyTVar (recvBytes bus) (+ (fromIntegral $ LBS.length mess))
-        modifyTVar (maxPkt bus) (max (fromIntegral $ LBS.length mess))
+        modifyTVar recvNum succ
+        modifyTVar recvBytes  (+ (fromIntegral $ LBS.length mess))
+        modifyTVar maxPkt (max (fromIntegral $ LBS.length mess))
+
+      ban <- readTVarIO banned <&> HM.member who
+
+      guard (not ban)
 
       hshake <- processHey who mess
 
@@ -321,7 +331,9 @@ instance (ForByPass e, Messaging w e ByteString)
     where
       processHey orig bs = isJust <$> runMaybeT do
 
-        let o = opts bus
+        nowTs <- getTimeCoarse
+
+        let o = opts
 
         let (code, hbs) = runCodeLazy bs
 
@@ -337,6 +349,11 @@ instance (ForByPass e, Messaging w e ByteString)
         case hshake of
           HEY{..} -> do-- void $ runMaybeT do
             debug $ "GOT HEY MESSAGE" <+> parens (pretty code) <+> pretty heyNonceA
+
+            when (heyNonceA  == nonceA) do
+              let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 600)
+              atomically $ modifyTVar banned (HM.insert orig till)
+              warn $ "ByPass: loop detected"
 
             let mbx = unboxSignedBox0 heyBox
 
@@ -356,7 +373,7 @@ instance (ForByPass e, Messaging w e ByteString)
             let authorized = allowed && actual
 
             unless authorized do
-              atomically $ modifyTVar (authFail bus) succ
+              atomically $ modifyTVar authFail succ
               warn $ "ByPass:" <+> "NOT AUTHORIZED" <+> pretty orig
 
             when authorized do
@@ -364,22 +381,22 @@ instance (ForByPass e, Messaging w e ByteString)
 
             guard authorized
 
-            let fk = makeKey (nonceA bus) heyNonceA
+            let fk = makeKey nonceA  heyNonceA
 
-            here <- readTVarIO (flowKeys bus) <&> HashMap.member fk
+            here <- readTVarIO flowKeys <&> HM.member fk
 
             updatePeerNonce bus orig heyNonceA
 
             unless here do
 
-              let ck = PKE.beforeNM (ske bus) puk
+              let ck = PKE.beforeNM ske puk
 
-              debug $ "HEY: CK" <+> pretty (nonceA bus)
+              debug $ "HEY: CK" <+> pretty nonceA
                                 <+> pretty fk
                                 <+> pretty (hashObject @HbSync (SA.encode ck))
 
               atomically $ do
-                modifyTVar (flowKeys bus) (HashMap.insert fk ck)
+                modifyTVar flowKeys (HM.insert fk ck)
 
               withHeySent bus 30 orig do
                 sendHey bus orig
@@ -435,13 +452,13 @@ withHeySent :: forall e w m . (MonadIO m, ForByPass e)
 withHeySent w ts pip m = do
   now <- getTimeCoarse
 
-  t0  <- readTVarIO (heySent w) <&> HashMap.lookup pip
+  t0  <- readTVarIO (heySent w) <&> HM.lookup pip
            <&> fromMaybe 0
 
   let elapsed = toNanoSeconds $ TimeoutTS (now - t0)
 
   when ( elapsed >= toNanoSeconds ts ) do
-    atomically $ modifyTVar (heySent w) (HashMap.insert pip now)
+    atomically $ modifyTVar (heySent w) (HM.insert pip now)
     m
 
 
@@ -454,13 +471,13 @@ updatePeerNonce :: forall e w m . ( ForByPass e
                 -> m ()
 
 updatePeerNonce bus pip nonce = do
-  atomically $ modifyTVar (noncesByPeer bus) (HashMap.insert pip nonce)
+  atomically $ modifyTVar (noncesByPeer bus) (HM.insert pip nonce)
 
 lookupEncKey :: (ForByPass e, MonadIO m) => ByPass e w -> Peer e -> m (Maybe (FlowKey, CombinedKey))
 lookupEncKey bus whom = runMaybeT do
-  nonce <- MaybeT $ readTVarIO (noncesByPeer bus) <&> HashMap.lookup whom
+  nonce <- MaybeT $ readTVarIO (noncesByPeer bus) <&> HM.lookup whom
   let fk = makeKey nonce (nonceA bus)
-  ck <- MaybeT $ readTVarIO (flowKeys bus) <&> HashMap.lookup fk
+  ck <- MaybeT $ readTVarIO (flowKeys bus) <&> HM.lookup fk
   pure (fk, ck)
 
 
@@ -494,7 +511,7 @@ tryDecryptMessage bus bs = runMaybeT do
 
   let bnonce = nonceFrom @ByPassNonce wnonce
 
-  ck <- MaybeT $ readTVarIO (flowKeys bus) <&> HashMap.lookup fk
+  ck <- MaybeT $ readTVarIO (flowKeys bus) <&> HM.lookup fk
 
   let dmess = PKE.boxOpenAfterNM ck (unByPassNonce bnonce) (LBS.toStrict body) <&> LBS.fromStrict
 
