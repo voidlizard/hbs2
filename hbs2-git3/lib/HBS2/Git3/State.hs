@@ -46,6 +46,7 @@ import Codec.Compression.Zstd (maxCLevel)
 
 newtype RepoManifest = RepoManifest [Syntax C]
 
+
 -- FIXME: cache
 getGK :: forall m . HBS2GitPerks m => Git3 m (Maybe (HashRef, GroupKey 'Symm 'HBS2Basic))
 getGK = do
@@ -64,7 +65,7 @@ getRefLog mf = lastMay [ x
 updateRepoKey :: forall m . HBS2GitPerks m => GitRepoKey -> Git3 m ()
 updateRepoKey key = do
 
-  notice $ "updateRepoKey" <+> pretty (AsBase58 key)
+  status $ "updateRepoKey" <+> pretty (AsBase58 key)
 
   setGitRepoKey key
 
@@ -72,7 +73,7 @@ updateRepoKey key = do
 
   ask >>= \case
         Git3Connected{..} -> do
-          notice $ yellow "UPDATED REFLOG" <+> pretty (fmap AsBase58 reflog)
+          debug $ yellow "UPDATED REFLOG" <+> pretty (fmap AsBase58 reflog)
           atomically $ writeTVar gitRefLog reflog
 
         _ -> none
@@ -241,7 +242,7 @@ waitRepo :: forall m . HBS2GitPerks m
          -> Git3 m ()
 waitRepo timeout repoKey = do
 
-  notice $ yellow "waitRepo" <+> pretty (AsBase58 repoKey)
+  status $ yellow "waitRepo" <+> pretty (AsBase58 repoKey)
 
   ask >>= \case
     Git3Disconnected{} -> throwIO Git3PeerNotConnected
@@ -260,7 +261,7 @@ waitRepo timeout repoKey = do
 
         callCC \forPeer -> do
 
-          notice "wait for peer"
+          status "wait for peer"
 
           lift (callRpcWaitMay @RpcPollAdd (TimeoutSec 2) peerAPI (repoKey, "lwwref", 31))
                    >>= maybe (wait 1 forPeer ()) (const none)
@@ -270,7 +271,7 @@ waitRepo timeout repoKey = do
                     pause @'Seconds 10
 
         lww <- flip fix 2 \next i -> do
-                  notice $ "wait for" <+> pretty (AsBase58 repoKey)
+                  status $ "wait for" <+> pretty (AsBase58 repoKey)
                   lift (callRpcWaitMay @RpcLWWRefGet (TimeoutSec 1) lwwAPI (LWWRefKey repoKey))
                     >>= \case
                            Just (Just x)  -> pure x
@@ -278,10 +279,10 @@ waitRepo timeout repoKey = do
 
         setGitRepoKey repoKey
 
-        notice $ "lwwref value" <+> pretty (lwwValue lww)
+        status $ "lwwref value" <+> pretty (lwwValue lww)
 
         mf <- flip fix 3 $ \next i -> do
-                  notice $ "wait for manifest" <+> pretty i
+                  status $ "wait for manifest" <+> pretty i
                   lift (try @_ @SomeException getRepoManifest) >>= \case
                     Left{}  -> wait i next (i*1.10)
                     Right x -> pure x
@@ -305,7 +306,7 @@ waitRepo timeout repoKey = do
         void $ lift $ race waiter do
 
           rv <- flip fix 1 \next i -> do
-                    notice $ "wait for reflog" <+> pretty i <+> pretty (AsBase58 reflog)
+                    status $ "wait for reflog" <+> pretty i <+> pretty (AsBase58 reflog)
                     lift (callRpcWaitMay @RpcRefLogGet (TimeoutSec 2) reflogAPI reflog)
                       >>= \case
                              Just (Just x)  -> pure x
@@ -316,7 +317,7 @@ waitRepo timeout repoKey = do
 
           cancel pFetch
 
-          notice $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
+          status $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty rv
 
           flip fix 5 $ \next w -> do
 
@@ -325,7 +326,7 @@ waitRepo timeout repoKey = do
               if L.null missed then do
                 updateRepoKey repoKey
               else do
-                notice $ "wait reflog to sync in consistent state" <+> pretty w
+                status $ "wait reflog to sync in consistent state" <+> pretty w
                 pause @'Seconds w
                 next (w*1.01)
 

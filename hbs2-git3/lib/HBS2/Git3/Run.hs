@@ -96,31 +96,36 @@ compression      ;  prints compression level
 
               _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "segment" $ nil_ $ \case
-          [ LitIntVal n ] -> lift do
-            setPackedSegmedSize (fromIntegral n)
+        brief "sets packed segment size in bytes"
+         $ entry $ bindMatch "segment" $ nil_ $ \case
+            [ LitIntVal n ] -> lift do
+              setPackedSegmedSize (fromIntegral n)
 
-          _ -> throwIO (BadFormException @C nil)
+            _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "quiet" $ nil_ $ const $ lift do
-          silence
+        brief "silent mode"
+         $ entry $ bindMatch "quiet" $ nil_ $ const $ lift do
+            silence
 
-        entry $ bindMatch "index-block-size" $ nil_ \case
+        hidden $
+         entry $ bindMatch "index-block-size" $ nil_ \case
           [ LitIntVal size ]-> lift do
             setIndexBlockSize (fromIntegral size)
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "git:tree:ls" $ nil_ $ const do
+        brief "list current git objects"
+         $ entry $ bindMatch "git:tree:ls" $ nil_ $ const do
           r <- gitReadTree "HEAD"
           for_ r $ \GitTreeEntry{..} -> do
-            liftIO $ print $  pretty gitEntryHash
+            liftIO $ print $  fill 40 (pretty gitEntryHash)
                           <+> pretty gitEntryType
                           <+> pretty gitEntrySize
                           <+> pretty gitEntryName
 
-        entry $ bindMatch "debug" $ nil_ $ const do
-         setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+        brief "turn debug output on"
+         $ entry $ bindMatch "debug" $ nil_ $ const do
+            setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
 
         -- hidden do
 
@@ -176,25 +181,26 @@ compression      ;  prints compression level
               liftIO $ print $ "object" <+> pretty h <+> pretty s
 
 
-        entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ connectedDo do
+        hidden $
+          entry $ bindMatch "reflog:index:search" $ nil_ $ \syn -> lift $ connectedDo do
 
-          let (_, argz) = splitOpts [] syn
+            let (_, argz) = splitOpts [] syn
 
-          hash <- case argz of
-                    [ x@StringLike{}, GitHashLike h ] -> do
-                      resolveRepoKeyThrow [x] >>= setGitRepoKey
-                      waitRepo Nothing =<< getGitRepoKeyThrow
-                      pure h
+            hash <- case argz of
+                      [ x@StringLike{}, GitHashLike h ] -> do
+                        resolveRepoKeyThrow [x] >>= setGitRepoKey
+                        waitRepo Nothing =<< getGitRepoKeyThrow
+                        pure h
 
-                    _ -> throwIO $ BadFormException @C nil
+                      _ -> throwIO $ BadFormException @C nil
 
-          idx <- openIndex
+            idx <- openIndex
 
-          answ <- indexEntryLookup idx hash
+            answ <- indexEntryLookup idx hash
 
-          for_ answ $ \bs -> do
-            let a = coerce (BS.take 32 bs) :: HashRef
-            liftIO $ print $ pretty a
+            for_ answ $ \bs -> do
+              let a = coerce (BS.take 32 bs) :: HashRef
+              liftIO $ print $ pretty a
 
         entry $ bindMatch "test:segment:dump" $ nil_ $ \syn -> lift do
           sto <- getStorage
@@ -218,24 +224,30 @@ compression      ;  prints compression level
           for_ trees $ \tree -> do
             writeAsGitPack dir tree
 
-        entry $ bindMatch "reflog:index:list:count" $ nil_ $ const $ lift $ connectedDo do
-          idx <- openIndex
-          num_ <- newIORef 0
-          enumEntries idx $ \_ -> void $ atomicModifyIORef num_ (\x -> (succ x, x))
-          readIORef num_ >>= liftIO . print . pretty
+        brief "prints indexed object count for repo" $
+          entry $ bindMatch "repo:index:count" $ nil_ $ \syn -> lift $ connectedDo do
 
-        entry $ bindMatch "reflog:index:list" $ nil_ $ const $ lift $ connectedDo do
-          files <- listObjectIndexFiles
-          for_ files  $ \(ifn,_) -> do
-            lbs <- liftIO $ LBS.readFile ifn
+            resolveRepo syn
 
-            void $ runConsumeLBS lbs $ readSections $ \s ss -> do
+            idx <- openIndex
+            num_ <- newIORef 0
+            enumEntries idx $ \_ -> void $ atomicModifyIORef num_ (\x -> (succ x, x))
+            readIORef num_ >>= liftIO . print . pretty
 
-              let (sha1, blake) = LBS.splitAt 20 ss
-                                      & over _1 (coerce @_ @GitHash . LBS.toStrict)
-                                      & over _2 (coerce @_ @HashRef . LBS.toStrict)
+        brief "lists indexed objects for repo" $
+          entry $ bindMatch "repo:index:list" $ nil_ $ \syn -> lift $ connectedDo do
+            resolveRepo syn
+            files <- listObjectIndexFiles
+            for_ files  $ \(ifn,_) -> do
+              lbs <- liftIO $ LBS.readFile ifn
 
-              liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
+              void $ runConsumeLBS lbs $ readSections $ \s ss -> do
+
+                let (sha1, blake) = LBS.splitAt 20 ss
+                                        & over _1 (coerce @_ @GitHash . LBS.toStrict)
+                                        & over _2 (coerce @_ @HashRef . LBS.toStrict)
+
+                liftIO $ hPrint stdout $ pretty sha1 <+> pretty blake
 
         entry $ bindMatch "reflog:index:check" $ nil_ $ \case
           [ StringLike fn ] -> lift do
@@ -246,24 +258,26 @@ compression      ;  prints compression level
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "reflog:index:compact" $ nil_ $ \_ -> lift $ connectedDo do
+        entry $ bindMatch "repo:index:compact" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           size <- getIndexBlockSize
           compactIndex size
 
-        entry $ bindMatch "reflog:index:path" $ nil_ $ const $ lift $ connectedDo do
+        entry $ bindMatch "repo:index:path" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           indexPath >>= liftIO . print . pretty
 
           -- let entriesListOf lbs = S.toList_ $ runConsumeLBS lbs $ readSections $ \s ss -> do
-        entry $ bindMatch "reflog:index:files" $ nil_ $ \syn -> lift $ connectedDo do
+        entry $ bindMatch "repo:index:files" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           files <- listObjectIndexFiles
           cur <- pwd
           for_ files $ \(f',s) -> do
             let f = makeRelative cur f'
             liftIO $ print $ fill 10 (pretty s) <+> pretty f
 
-        entry $ bindMatch "reflog:index:list:tx" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+        entry $ bindMatch "repo:index:list:tx" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           r <- newIORef  ( mempty :: HashSet HashRef )
           index <- openIndex
           enumEntries index $ \bs -> do
@@ -275,9 +289,8 @@ compression      ;  prints compression level
           for_ z $ \h ->do
             liftIO $ print $  pretty h
 
-        entry $ bindMatch "reflog:index:build" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+        entry $ bindMatch "repo:index:build" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           updateReflogIndex
 
         entry $ bindMatch "test:reflog:index:lookup" $ nil_ \case
@@ -289,7 +302,9 @@ compression      ;  prints compression level
           _ -> throwIO (BadFormException @C nil)
 
         entry $ bindMatch "git:commit:list:objects:new" $ nil_ $ \case
-          [ StringLike what ] -> lift $ connectedDo do
+          [ repo, StringLike what ] -> lift $ connectedDo do
+
+            resolveRepo [repo]
 
             commit  <- gitRevParseThrow what
 
@@ -323,86 +338,63 @@ compression      ;  prints compression level
 
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift $ connectedDo do
-          let (opts,argz) = splitOpts [] syn
+        manGitListObjectsNew $
+          entry $ bindMatch "git:list:objects:new" $ nil_ $ \syn -> lift $ connectedDo do
 
-          let what = headDef "HEAD" [ x | StringLike x <- argz ]
+            resolveRepo syn
 
-          h0  <- gitRevParseThrow what
+            let (opts,argz) = splitOpts [("-r", 1)] (tail syn)
 
-          no_ <- newTVarIO 0
+            let what = headDef "HEAD" [ x | MatchOption "-r" (StringLike x) <- opts ]
 
-          void $ flip runContT pure do
+            h0  <- gitRevParseThrow what
 
-            lift updateReflogIndex
+            no_ <- newTVarIO 0
 
-            idx <- lift openIndex
-            let req h = lift $ indexEntryLookup idx h <&> isNothing
+            void $ flip runContT pure do
 
-            (t1,r) <- timeItT (lift $ readCommitChainHPSQ req Nothing h0 dontHandle)
+              lift updateReflogIndex
 
-            let s = HPSQ.size r
-            debug $ pretty s <+> "new commits read at" <+> pretty (realToFrac @_ @(Fixed E3) t1)
+              idx <- lift openIndex
+              let req h = lift $ indexEntryLookup idx h <&> isNothing
 
-            cap <- liftIO getNumCapabilities
-            gitCatBatchQ <- contWorkerPool cap do
-              che <- ContT withGitCat
-              pure $ gitReadObjectMaybe che
+              (t1,r) <- timeItT (lift $ readCommitChainHPSQ req Nothing h0 dontHandle)
 
-            uniq_ <- newTVarIO mempty
-            -- c1 <- newCacheFixedHPSQ 1000
-            (t3, _) <- timeItT $ lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
+              let s = HPSQ.size r
+              debug $ pretty s <+> "new commits read at" <+> pretty (realToFrac @_ @(Fixed E3) t1)
 
-              (_,self) <- gitCatBatchQ commit
-                             >>= orThrow (GitReadError (show $ pretty commit))
+              cap <- liftIO getNumCapabilities
+              gitCatBatchQ <- contWorkerPool cap do
+                che <- ContT withGitCat
+                pure $ gitReadObjectMaybe che
 
-              tree <- gitReadCommitTree self
+              uniq_ <- newTVarIO mempty
+              -- c1 <- newCacheFixedHPSQ 1000
+              (t3, _) <- timeItT $ lift $ forConcurrently_ (HPSQ.toList r) $ \(commit,_,_) -> do
 
-              -- читаем только те объекты, которые не в индексе
-              gitReadTreeObjectsOnly commit
-                  <&> ([commit,tree]<>)
-                  >>= \hs -> atomically (for_ hs (modifyTVar uniq_ . HS.insert))
+                (_,self) <- gitCatBatchQ commit
+                               >>= orThrow (GitReadError (show $ pretty commit))
 
-            debug $ "read new objects" <+> pretty (realToFrac @_ @(Fixed E2) t3)
+                tree <- gitReadCommitTree self
 
-            (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
+                -- читаем только те объекты, которые не в индексе
+                gitReadTreeObjectsOnly commit
+                    <&> ([commit,tree]<>)
+                    >>= \hs -> atomically (for_ hs (modifyTVar uniq_ . HS.insert))
 
-            liftIO $ for_ new $ \n -> do
-               print $ pretty n
-            -- notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
+              debug $ "read new objects" <+> pretty (realToFrac @_ @(Fixed E2) t3)
 
+              (t4,new) <- lift $ timeItT $ readTVarIO uniq_ >>= indexFilterNewObjects idx
 
-        entry $ bindMatch "reflog:tx:list:imported" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-          txImported >>= liftIO . print . vcat . (fmap pretty) . HS.toList
-
-          let (opts, argz) = splitOpts [ ("--checkpoints",0)
-                                    , ("--segments",0)
-                                    ] syn
-
-          let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
-          let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
-
-          resolveRepoKeyThrow argz >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-
-          hxs <- txListAll Nothing
-
-          liftIO $ forM_ hxs $ \(h,tx) -> do
-            let decoded = case tx of
-                  TxSegment x   | not cpOnly ->
-                    Just ("S" <+> fill 44 (pretty h) <+> fill 44 (pretty x))
-
-                  TxCheckpoint n x | not sOnly ->
-                    Just ("C" <+> fill 44 (pretty h) <+> pretty x <+> fill 8 (pretty n))
-
-                  _ -> Nothing
-
-            forM_ decoded print
+              liftIO $ for_ new $ \n -> do
+                 print $ pretty n
+              -- notice $ pretty (length new) <+> "new objects" <+> "at" <+> pretty (realToFrac @_ @(Fixed E2) t4)
 
 
-        entry $ bindMatch "reflog:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
+        entry $ bindMatch "repo:tx:list:imported" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
+
+          txImported >>= liftIO . print . vcat . fmap pretty . HS.toList
 
           let (opts, argz) = splitOpts [ ("--checkpoints",0)
                                     , ("--segments",0)
@@ -428,65 +420,81 @@ compression      ;  prints compression level
 
             forM_ decoded print
 
-        entry $ bindMatch "reflog:refs" $ nil_ $ \syn -> lift $ connectedDo do
 
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+        entry $ bindMatch "repo:tx:list" $ nil_ $ \syn -> lift $ connectedDo do
+
+          resolveRepo syn
+
+          let (opts, argz) = splitOpts [ ("--checkpoints",0)
+                                       , ("--segments",0)
+                                       ] syn
+
+          let cpOnly   = or [ True | ListVal [StringLike "--checkpoints"] <- opts ]
+          let sOnly    = or [ True | ListVal [StringLike "--segments"] <- opts ]
+
+          hxs <- txListAll Nothing
+
+          liftIO $ forM_ hxs $ \(h,tx) -> do
+            let decoded = case tx of
+                  TxSegment x   | not cpOnly ->
+                    Just ("S" <+> fill 44 (pretty h) <+> fill 44 (pretty x))
+
+                  TxCheckpoint n x | not sOnly ->
+                    Just ("C" <+> fill 44 (pretty h) <+> pretty x <+> fill 8 (pretty n))
+
+                  _ -> Nothing
+
+            forM_ decoded print
+
+        entry $ bindMatch "repo:refs" $ nil_ $ \syn -> lift $ connectedDo do
+
+          resolveRepo syn
 
           rrefs <- importedRefs
           for_  rrefs $ \(r,h) -> do
             liftIO $ print $ fill 20  (pretty h) <+> pretty r
 
-        entry $ bindMatch "reflog:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-
+        entry $ bindMatch "repo:refs:raw" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           refsFiles >>= readRefsRaw >>= liftIO . mapM_ (print . pretty)
 
         entry $ bindMatch "repo:wait" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-
+          resolveRepo syn
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
         manRemotes $ entry $ bindAlias "remotes" "repo:remotes"
 
-        hidden $
-          manRemotes $
-            entry $ bindMatch "repo:remotes" $ nil_ $ const $ lift do
-            remotes <- listRemotes
-            liftIO $ for_ remotes $ \(r,k) -> do
-              print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
+        manRemotes $
+          entry $ bindMatch "repo:remotes" $ nil_ $ const $ lift do
+          remotes <- listRemotes
+          liftIO $ for_ remotes $ \(r,k) -> do
+            print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
 
-        entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+        entry $ bindMatch "repo:imported" $ nil_ $ \syn -> lift $ connectedDo do
+          resolveRepo syn
           p <- importedCheckpoint
           liftIO $ print $ pretty p
 
-        entry $ bindMatch "reflog:import" $ nil_ $ \syn -> lift $ connectedDo do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
-          importGitRefLog
+        hidden do
+          entry $ bindMatch "repo:import" $ nil_ $ \syn -> lift $ connectedDo do
+            resolveRepo syn
+            importGitRefLog
 
         brief "shows repo manifest" $
           entry $ bindMatch "repo:manifest" $ nil_ $ \syn -> lift $ connectedDo do
-            resolveRepoKeyThrow syn >>= setGitRepoKey
+            resolveRepo syn
             manifest <- Repo.getRepoManifest
             liftIO $ print $ pretty $ mkForm "manifest" (coerce manifest)
 
         brief "shows repo reflog" $
-          entry $ bindMatch "repo:reflog" $ nil_ $ const $ lift $ connectedDo do
+          entry $ bindMatch "repo:reflog" $ nil_ $ \syn -> lift $ connectedDo do
+            resolveRepo syn
             repo <- Repo.getRepoManifest
-
             reflog <- getRefLog repo  & orThrow GitRepoManifestMalformed
-
             liftIO $ print $ pretty (AsBase58 reflog)
 
         entry $ bindMatch "repo:credentials" $ nil_ $ \syn -> lift $ connectedDo $ do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo (Just 10) =<< getGitRepoKeyThrow
-
+          resolveRepo syn
           (p,_) <- getRepoRefLogCredentials
           liftIO $ print $ pretty $ mkForm @C "matched" [mkSym (show $ pretty ( AsBase58 p) )]
 
@@ -525,25 +533,21 @@ compression      ;  prints compression level
 
         -- FIXME: maybe-add-default-remote
         entry $ bindMatch "repo:head" $ nil_ $ \syn -> lift $ connectedDo $ do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+          resolveRepo syn
           lww <- getRepoRefMaybe
           liftIO $ print $ pretty lww
 
         entry $ bindMatch "repo:gk:journal:import" $ nil_ $ \syn -> lift $ connectedDo $ do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+          resolveRepo syn
           importGroupKeys
 
         entry $ bindMatch "repo:gk:journal:imported" $ nil_ $ \syn -> lift $ connectedDo $ do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+          resolveRepo syn
           readGroupKeyFile <&> maybe nil (mkSym @C . show . pretty)
             >>= liftIO . print . pretty
 
         entry $ bindMatch "repo:gk:journal" $ nil_ $ \syn -> lift $ connectedDo $ do
-          resolveRepoKeyThrow syn >>= setGitRepoKey
-          waitRepo Nothing =<< getGitRepoKeyThrow
+          resolveRepo syn
 
           ref <- getGitRepoKeyThrow
 
@@ -573,12 +577,13 @@ compression      ;  prints compression level
         manInit $ entry $
           bindAlias "init" "repo:init"
 
-        entry $ bindMatch "repo:relay-only" $ nil_ $ \case
-          [ SignPubKeyLike repo ] -> lift $ connectedDo do
-            setGitRepoKey repo
-            waitRepo (Just 10) =<< getGitRepoKeyThrow
+        manRepoRelayOnly $
+          entry $ bindMatch "repo:relay-only" $ nil_ $ \case
+            [ SignPubKeyLike repo ] -> lift $ connectedDo do
+              setGitRepoKey repo
+              waitRepo (Just 10) =<< getGitRepoKeyThrow
 
-          _ -> throwIO (BadFormException @C nil)
+            _ -> throwIO (BadFormException @C nil)
 
         exportEntries "reflog:"
 

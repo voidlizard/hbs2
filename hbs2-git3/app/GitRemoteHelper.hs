@@ -230,6 +230,8 @@ main =  flip runContT pure do
 
   setupLogger
 
+  setStatusOn
+
   env <- nullGit3Env
 
   ops <- DeferredOps <$> newTQueueIO

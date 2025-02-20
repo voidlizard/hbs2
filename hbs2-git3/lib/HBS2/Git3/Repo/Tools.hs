@@ -56,8 +56,16 @@ listRemotes = do
 
   pure  urls
 
-resolveRepoKeyThrow :: MonadIO m => [Syntax C] -> m GitRepoKey
-resolveRepoKeyThrow = \case
+resolveRepo :: forall c m . (IsContext c, HBS2GitPerks m) => [Syntax c] -> Git3 m ()
+resolveRepo syn = do
+    resolveRepoKeyThrow syn >>= setGitRepoKey
+    waitRepo Nothing =<< getGitRepoKeyThrow
+
+resolved :: forall c m . (IsContext c, HBS2GitPerks m) => [Syntax c] -> Git3 m ()
+resolved = resolveRepo
+
+resolveRepoKeyThrow :: forall c m . (IsContext c, MonadIO m) => [Syntax c] -> m GitRepoKey
+resolveRepoKeyThrow s = case maybeToList (headMay s) of
   [ SignPubKeyLike url ] -> pure url
   [ RepoURL url ]  -> pure url
   [ StringLike x ] -> do

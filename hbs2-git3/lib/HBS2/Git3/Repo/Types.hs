@@ -7,16 +7,16 @@ import Data.Config.Suckless.Script
 import Data.HashSet qualified as HS
 import Data.Text qualified as Text
 
-pattern RepoURL :: GitRemoteKey -> Syntax C
+pattern RepoURL :: forall {c}  . IsContext c => GitRemoteKey -> Syntax c
 pattern RepoURL x <- (isRepoURL [ "hbs2", "hbs23" ] -> Just x)
 
-pattern RepoURL3 :: GitRemoteKey -> Syntax C
+pattern RepoURL3 :: forall {c} . IsContext c => GitRemoteKey -> Syntax c
 pattern RepoURL3 x <- (isRepoURL [ "hbs23" ] -> Just x)
 
 remoteRepoURL :: GitRemoteKey -> Text
 remoteRepoURL k = Text.pack $ show $ "hbs23://" <> pretty (AsBase58 k)
 
-isRepoURL :: [Text] -> Syntax C -> Maybe GitRemoteKey
+isRepoURL :: forall c . IsContext c => [Text] -> Syntax c -> Maybe GitRemoteKey
 isRepoURL pref = \case
   TextLike xs -> case mkList @C (fmap mkStr (Text.splitOn "://" xs)) of
     ListVal [TextLike pref, SignPubKeyLike puk] | pref `HS.member` prefixes -> Just puk

@@ -1,10 +1,15 @@
+{-# Language AllowAmbiguousTypes #-}
 module HBS2.Git3.Logger ( setupLogger
                         , flushLoggers
                         , silence
                         , debugPrefix
+                        , status, setStatusOn, STATUS
                         ) where
 
-import HBS2.Git3.Prelude
+import HBS2.Prelude
+import HBS2.System.Logger.Simple.ANSI as Logger
+
+data STATUS
 
 -- debugPrefix :: LoggerEntry -> LoggerEntry
 -- debugPrefix :: LoggerEntry -> LoggerEntry
@@ -30,5 +35,15 @@ silence = do
   setLoggingOff @WARN
   setLoggingOff @NOTICE
   setLoggingOff @INFO
+
+instance HasLogLevel STATUS where
+  type instance LogLevel STATUS = 10
+
+status :: forall a m . (MonadIO m) => Doc a ->  m ()
+status = Logger.writeLog @STATUS . show
+
+setStatusOn :: MonadIO m => m ()
+setStatusOn = do
+  setLogging @STATUS $ toStderr . logPrefix ""
 
 

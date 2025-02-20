@@ -39,6 +39,7 @@ import HBS2.Storage.Operations.Class as Exported
 import HBS2.System.Logger.Simple.ANSI as Exported
 
 import HBS2.Git3.Types as Exported
+import HBS2.Git3.Logger as Exported
 -- import HBS2.Git3.State.Types as Exported
 
 import HBS2.System.Dir

@@ -51,3 +51,21 @@ hbs2-git3  repo:remotes
 
   |]
 
+manGitListObjectsNew :: MakeDictM c m () -> MakeDictM c m ()
+manGitListObjectsNew =
+  brief "lists new git objects"
+  . args [ arg "hash|name"   "remote"
+         , arg "(-r rev)?"   "git revision"
+         ]
+
+manRepoRelayOnly ::  MakeDictM c m () -> MakeDictM c m ()
+manRepoRelayOnly =  brief "subscribe hbs2-peer to repository references (lwwref+reflog)"
+                   . desc description
+                   . args [ arg "public-key" "lwwref"]
+
+  where
+    description = vcat [
+          "useful when you want hbs2-peer to distribute and backup"
+       <> "the repository data without git fetching/cloning"
+                ]
+

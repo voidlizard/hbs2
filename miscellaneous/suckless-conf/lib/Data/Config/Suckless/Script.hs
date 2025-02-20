@@ -50,6 +50,11 @@ helpEntry what = do
 pattern HelpEntryBound :: forall {c}. Id -> [Syntax c]
 pattern HelpEntryBound what <- [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )]
 
+pattern MatchOption:: forall {c} . Id -> Syntax c -> Syntax c
+pattern MatchOption n e <- ListVal [SymbolVal n, e]
+
+pattern MatchFlag :: forall {c} . Id -> Syntax c
+pattern MatchFlag n  <- ListVal [SymbolVal n]
 
 splitOpts :: [(Id,Int)]
           -> [Syntax C]
