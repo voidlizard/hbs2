@@ -298,25 +298,9 @@ getTreeHash sto part what'' = void $ flip runContT pure do
       meta' <- extractMetadataHash sto what'
                 >>= orElse (status status404)
 
-      let meta = p <> meta'
+      let meta = meta' <> p
 
       debug $ red "META/0" <+> pretty meta <+> line
-
-      let tp = headDef "application/octet-stream"
-               [ show (pretty w)
-               | ListVal [SymbolVal "mime-type:", LitStrVal w] <- meta
-               ]
-
-      let fn = headMay
-               [ show (pretty w)
-               | ListVal [SymbolVal "file-name:", LitStrVal w] <- meta
-               ]
-
-      let ce = headMay
-               [ show (pretty w)
-               | ListVal [SymbolVal "content-encoding:", StringLike w] <- meta
-               ]
-
 
       let re = headMay
                [ show (pretty w)
@@ -331,8 +315,46 @@ getTreeHash sto part what'' = void $ flip runContT pure do
                   | ( webRef @C -> Just (name, w) ) <- meta
                   ] & HM.fromList
 
-      for_ ce $ \c ->
-        lift $ addHeader "Content-Encoding" (fromString c)
+
+      (isRef,key,lmeta) <- case HM.lookup part parts of
+         Just (RefTree key) -> do
+          meta'' <- extractMetadataHash sto key
+                       <&> fromMaybe mempty
+          pure (False, key, meta'' <> meta)
+
+         Just (RefRef lww)  -> do
+          key <- lookupLWWRef @e sto lww
+          meta'' <- extractMetadataHash sto key
+                       <&> fromMaybe mempty
+          pure $ (True,key,meta''<>meta)
+
+         Just (RefRedirect s)  -> do
+            lift $ redirect (LT.fromStrict s)
+            exit ()
+
+         _ -> pure (False,HashRef what, meta)
+
+      let fn = headMay
+               [ show (pretty w)
+               | ListVal [SymbolVal "file-name:", LitStrVal w] <- lmeta
+               ]
+
+      let ce = headMay
+               [ show (pretty w)
+               | ListVal [SymbolVal "content-encoding:", StringLike w] <- lmeta
+               ]
+
+      let tp = headDef "application/octet-stream"
+               [ show (pretty w)
+               | ListVal [SymbolVal "mime-type:", LitStrVal w] <- lmeta
+               ]
+
+      let isHtml = or [ True
+                      | ListVal [SymbolVal "mime-type:", TextLike s ] <- lmeta
+                      , "text/html" `elem` Text.splitOn ";" s
+                      ]
+
+      debug $ red "META/2" <> pretty lmeta
 
       let webroot = headMay [ w
                             | i < 2
@@ -351,30 +373,22 @@ getTreeHash sto part what'' = void $ flip runContT pure do
           -- liftIO $ print $ pretty meta
 
           case fn of
-            Just x | takeExtension x == ".html" -> pure  ()
+            Just x | takeExtension x `elem` [".html",".css",".js"] || isHtml -> pure  ()
                    | otherwise -> lift $ do
                        addHeader "content-disposition" [qc|attachment; filename="{x}"|]
 
             _ -> pure ()
 
-          lift $ addHeader "content-type" (fromString tp)
-
           debug $ red "META" <+> pretty meta <+> line <+> pretty (HM.keys parts)
 
-          key <- case HM.lookup part parts of
-                   Just (RefTree key) -> do
-                    pure key
 
-                   Just (RefRef lww)  -> lookupLWWRef @e sto lww
-
-                   Just (RefRedirect s)  -> do
-                      lift $ redirect (LT.fromStrict s)
-                      exit ()
-
-                   _ -> pure (HashRef what)
+          for_ ce $ \c ->
+            lift $ setHeader "Content-Encoding" (fromString c)
 
           lift $ addHeader "ETag" (LT.pack $ show $ pretty key)
           elbs <- lift $ runExceptT $ readFromMerkle sto (SimpleKey (coerce key))
+
+          lift $ setHeader "content-type" (fromString tp)
 
           case elbs of
             Left{} -> lift $ status status404
