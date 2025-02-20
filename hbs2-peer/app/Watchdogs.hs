@@ -33,6 +33,7 @@ runRpcWatchDog peer soname = do
 
         WCall n | n > 2 -> do
           err $ red "RpcWatchDog fired"
+          throwTo peer GoAgainException
 
         WCall n -> do
           debug $ "RpcWatchDog" <+> pretty n
