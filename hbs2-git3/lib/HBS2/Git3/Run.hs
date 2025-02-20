@@ -63,7 +63,7 @@ theDict = do
 
   where
 
-    myEntries = hidePrefixes ["test", "debug", "segment", "reflog:index"] do
+    myEntries = hidePrefixes ["test", "debug", "segment", "reflog:index", "tss"] do
         entry $ bindMatch "--help" $ nil_ $ \case
           HelpEntryBound what -> do
             helpEntry what
@@ -449,12 +449,14 @@ compression      ;  prints compression level
 
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
-        entry $ bindMatch "repo:remotes" $ nil_ $ \syn -> lift do
+        manRemotes $ entry $ bindAlias "remotes" "repo:remotes"
 
-          remotes <- listRemotes
-
-          liftIO $ for_ remotes $ \(r,k) -> do
-            print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
+        hidden $
+          manRemotes $
+            entry $ bindMatch "repo:remotes" $ nil_ $ const $ lift do
+            remotes <- listRemotes
+            liftIO $ for_ remotes $ \(r,k) -> do
+              print $ fill 44 (pretty (AsBase58 k)) <+> pretty r
 
         entry $ bindMatch "reflog:imported" $ nil_ $ \syn -> lift $ connectedDo do
           resolveRepoKeyThrow syn >>= setGitRepoKey

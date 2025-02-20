@@ -5,6 +5,10 @@ import Data.Config.Suckless.Script
 
 import Text.InterpolatedString.Perl6 (qc)
 
+manRemotes :: MakeDictM c m () -> MakeDictM c m ()
+manRemotes = brief "show known hbs2-git remotes"
+
+
 manInit :: MakeDictM c m () -> MakeDictM c m ()
 manInit = brief "initializes a new repository"
     . args [ arg "new repository flag"                     "--new"
