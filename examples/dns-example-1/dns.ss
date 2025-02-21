@@ -76,11 +76,15 @@
     (local txs (grep :propose (hbs2:refchan:tx:raw:list REFCHAN)))
     (local (hostname e)  (car (cdr (car (top:string (bytes:decode [nth 4 _1]))))) )
     (local peers (map (lambda [x] [car [cdr x]]) (car (call:proc hbs2-peer do peer-info))))
+
     (local peers2 (map [fn 1  [list (lookup:uw :key _1) (strip (lookup:uw :addr _1))]] peers))
+    (local peers3 (filter [fn 1 [not (eq? [nth 1 _1] :192.168.1.1)]] peers2))
+
     (local state (map [fn 1 [list [nth 2 _1] [hostname _1] ]] txs))
 
-    (local (entry e) [list [lookup:uw [nth 0 e] (cons self peers2)] [nth 1 e] ])
+    (local (entry e) [list [lookup:uw [nth 0 e] (cons self peers3)] [nth 1 e] ])
     (local res [map [fn 1 [entry _1]]  state])
+
     res
   )
 )

@@ -1656,7 +1656,7 @@ internalEntries = do
       _ -> pure $ mkBool False
 
     entry $ bindMatch "not" $ \case
-      [w] -> pure (mkBool (isTrue w))
+      [w] -> pure (mkBool (isFalse w))
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "setenv" $ nil_ \case
