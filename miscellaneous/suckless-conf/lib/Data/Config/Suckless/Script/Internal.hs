@@ -1523,6 +1523,13 @@ internalEntries = do
       liftIO TIO.getContents
           <&> either (const nil) (mkList . fmap fixContext) . parseTop
 
+
+    entry $ bindMatch "top:string" $ \case
+      [TextLike s] -> do
+        pure $ either (const nil) (mkList . fmap fixContext) (parseTop s)
+
+      _ -> throwIO (BadFormException @c nil)
+
     entry $ bindMatch "top:file" $ \case
       [StringLike fn] -> do
         liftIO $ TIO.readFile fn

@@ -56,9 +56,10 @@ pattern MatchOption n e <- ListVal [SymbolVal n, e]
 pattern MatchFlag :: forall {c} . Id -> Syntax c
 pattern MatchFlag n  <- ListVal [SymbolVal n]
 
-splitOpts :: [(Id,Int)]
-          -> [Syntax C]
-          -> ([Syntax C], [Syntax C])
+splitOpts :: forall c . IsContext c
+          => [(Id,Int)]
+          -> [Syntax c]
+          -> ([Syntax c], [Syntax c])
 
 splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
   (acc, []) -> acc
@@ -67,7 +68,7 @@ splitOpts def opts' = flip fix (mempty, opts) $ \go -> \case
       Nothing -> go ((o, a <> [r]), rs)
       Just n  -> do
         let (w, rest) = List.splitAt n rs
-        let result = mkList @C ( r : w )
+        let result = mkList @c ( r : w )
         go ( (o <> [result], a), rest )
   ( (o,a), r : rs ) -> do
       go ((o, a <> [r]), rs)

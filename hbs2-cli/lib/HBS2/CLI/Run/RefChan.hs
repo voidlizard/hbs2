@@ -6,6 +6,8 @@ module HBS2.CLI.Run.RefChan
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.KeyMan
+import HBS2.CLI.Run.Internal.RefChan
+
 
 import HBS2.Data.Types.Refs
 import HBS2.Peer.CLI.Detect
@@ -23,7 +25,8 @@ import HBS2.Storage.Operations.ByteString
 -- import HBS2.Events
 -- import HBS2.Peer.Proto.Peer
 -- import HBS2.Net.Proto.Sessions
--- import HBS2.Data.Types.Refs
+import HBS2.Data.Types.Refs
+import HBS2.Data.Detect
 -- import HBS2.Data.Types.SignedBox
 -- import HBS2.Storage
 
@@ -45,13 +48,17 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Coerce
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Control.Monad.Except
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Char8 qualified as BS8
 import Data.Text qualified as Text
 import Codec.Serialise
+import Control.Concurrent.STM qualified as STM
 
 import Text.InterpolatedString.Perl6 (qc)
+import Streaming.Prelude qualified as S
 
 refchanEntries :: forall c m . ( IsContext c
                                , MonadUnliftIO m
@@ -131,30 +138,40 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
       _ -> throwIO (BadFormException @c nil)
 
-  entry $ bindMatch "hbs2:refchan:head:update" $ \case
-      [SignPubKeyLike rchan, StringLike headFile] -> do
+  entry $ bindMatch "hbs2:refchan:head:update" $ \syn -> do
 
-        sto <- getStorage
+      (rchan, rch) <- case syn of
+        [SignPubKeyLike rchan, StringLike headFile] -> do
 
-        rchanApi <- getClientAPI @RefChanAPI @UNIX
+            rch <- liftIO (readFile headFile)
+               <&> fromStringMay @(RefChanHeadBlock L4Proto)
+               >>= orThrowUser "can't parse RefChanHeadBlock"
 
-        rch <- liftIO (readFile headFile)
-                 <&> fromStringMay @(RefChanHeadBlock L4Proto)
-                 >>= orThrowUser "can't parse RefChanHeadBlock"
+            pure (rchan, rch)
 
-        creds <- runKeymanClient $ loadCredentials rchan
-                       >>= orThrowUser "can't load credentials"
+        [SignPubKeyLike rchan, ListVal syn] -> do
+            rch <- fromStringMay @(RefChanHeadBlock L4Proto) (show $ vcat (fmap pretty syn))
+                     & orThrowUser "can't parse RefChanHeadBlock"
 
-        let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch
+            pure (rchan, rch)
 
-        href <- writeAsMerkle sto  (serialise box)
+        _ -> throwIO (BadFormException @c nil)
 
-        callService @RpcRefChanHeadPost rchanApi (HashRef href)
-            >>= orThrowUser "can't post refchan head"
+      sto <- getStorage
 
-        pure nil
+      rchanApi <- getClientAPI @RefChanAPI @UNIX
 
-      _ -> throwIO (BadFormException @c nil)
+      creds <- runKeymanClient $ loadCredentials rchan
+                     >>= orThrowUser "can't load credentials"
+
+      let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch
+
+      href <- writeAsMerkle sto  (serialise box)
+
+      callService @RpcRefChanHeadPost rchanApi (HashRef href)
+          >>= orThrowUser "can't post refchan head"
+
+      pure nil
 
 
   entry $ bindMatch "hbs2:refchan:get" $ \case
@@ -169,13 +186,17 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
     _ -> throwIO (BadFormException @c nil)
 
+
   entry $ bindMatch "hbs2:refchan:create" $ \syn -> do
 
     peerApi  <- getClientAPI @PeerAPI @UNIX
-    rchanApi <- getClientAPI @RefChanAPI @UNIX
-    sto      <- getStorage
 
     rch <- case syn of
+
+      [ListVal es] -> do
+        fromStringMay @(RefChanHeadBlock L4Proto) (show $ vcat (fmap pretty es))
+             & orThrowUser "Invalid refchan head syntax"
+
       [StringLike headFile] -> do
         liftIO (readFile headFile)
            <&> fromStringMay @(RefChanHeadBlock L4Proto)
@@ -199,25 +220,8 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
 
       _ -> throwIO (BadFormException @c nil)
 
-    refchan <- keymanNewCredentials (Just "refchan") 0
-
-    creds <- runKeymanClient $ loadCredentials refchan
-                   >>= orThrowUser "can't load credentials"
-
-    let box = makeSignedBox @'HBS2Basic (view peerSignPk creds) (view peerSignSk creds) rch
-
-    href <- writeAsMerkle sto  (serialise box)
-
-    callService @RpcPollAdd peerApi (refchan, "refchan", 17)
-        >>= orThrowUser "can't subscribe to refchan"
-
-    callService @RpcRefChanHeadPost rchanApi (HashRef href)
-        >>= orThrowUser "can't post refchan head"
-
-    let r = mkStr @c $ show $ "; refchan " <+> pretty (AsBase58 refchan) <> line
-                           <> pretty rch
-
-    pure r
+    refchan <- createNewRefChan @c Nothing rch
+    pure $ mkSym (show $ pretty (AsBase58 refchan))
 
   brief "prints refchan head example"
     $ returns "nil" mempty
@@ -310,19 +314,92 @@ HucjFUznHJeA2UYZCdUFHtnE3pTwhCW5Dp7LV3ArZBcr
          sto <- getStorage
          void $ hasBlock sto (fromHashRef hash) `orDie` "no block found"
          let lbs = AnnotatedHashRef Nothing hash & serialise
-         creds  <- runKeymanClient $ loadCredentials signpk >>= orThrowUser "can't find credentials"
+         creds  <- runKeymanClientRO $ loadCredentials signpk >>= orThrowUser "can't find credentials"
          let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs) & serialise
          pure $ mkForm @c "blob" [mkStr (LBS8.unpack box)]
 
       _ -> throwIO (BadFormException @c nil)
 
+
+  brief "creates RefChanUpdate/SeqRef transaction for refchan" $
+    args [arg "string" "sign-key", arg "string" "payload-tree-hash", arg "(-t int)?" "seqno"] $
+    entry $ bindMatch "hbs2:refchan:tx:seqref:create" $ \syn -> do
+      now <- liftIO $ getPOSIXTime <&> round
+      let (opts, argz) = splitOpts [("-s",1)] syn
+      let s = headDef now  [ x | MatchOption "-n" (LitIntVal x) <- opts]
+      case opts of
+        [SignPubKeyLike signpk, HashLike hash] -> do
+           sto <- getStorage
+           void $ hasBlock sto (fromHashRef hash) `orDie` "no block found"
+           let lbs = SequentialRef s (AnnotatedHashRef Nothing hash) & serialise
+           creds  <- runKeymanClientRO $ loadCredentials signpk >>= orThrowUser "can't find credentials"
+           let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs) & serialise
+           pure $ mkForm @c "blob" [mkStr (LBS8.unpack box)]
+        _ -> throwIO (BadFormException @c nil)
+
+  brief "creates RefChanUpdate/Raw transaction for refchan" $
+    args [arg "string" "sign-key", arg "string" "data"] $
+    entry $ bindMatch "hbs2:refchan:tx:raw:create" $ \syn -> do
+      case syn of
+        [SignPubKeyLike signpk, StringLike x] -> do
+           let lbs = LBS8.pack x & serialise
+           creds  <- runKeymanClientRO $ loadCredentials signpk >>= orThrowUser "can't find credentials"
+           let box = makeSignedBox @HBS2Basic (view peerSignPk creds) (view peerSignSk creds) (LBS.toStrict lbs) & serialise
+           mkOpaque @c box
+
+        _ -> throwIO (BadFormException @c nil)
+
+
+  entry $ bindMatch "hbs2:refchan:tx:raw:list" $ \case
+    [SignPubKeyLike rchan] -> lift do
+
+      q <- newTQueueIO
+
+      walkRefChanTx @UNIX (const $ pure True) rchan $ \txh u -> do
+
+        case  u of
+
+          A (AcceptTran (Just ts) self what) -> do
+            let tx = fromIntegral ts :: Integer
+            let hs = show $ pretty self
+            let they = show $ pretty what
+            let x = mkForm @c "accept" [ mkSym hs, mkInt tx, mkSym they ]
+            atomically $ writeTQueue q x
+
+          A _  -> none
+
+          P1 ppk h (ProposeTran _ box) -> void $ runMaybeT do
+            (pk, bs) <- unboxSignedBox0 box & toMPlus
+            bss <- deserialiseOrFail @LBS.ByteString (LBS.fromStrict bs) & toMPlus
+            e <- mkOpaque bss
+            let hs = show $ pretty h
+            let ppks = show (pretty (AsBase58 ppk))
+            let pks  = show (pretty (AsBase58 pk))
+            let x = mkForm @c "propose" [ mkSym hs, mkSym ppks, mkSym pks, e ]
+            atomically $ writeTQueue q x
+
+          P0{} -> none
+
+      mkList <$>  atomically (STM.flushTQueue q)
+
+    e -> throwIO (BadFormException @c (mkList e))
+
   brief "posts Propose transaction to the refchan" $
     args [arg "string" "refchan", arg "blob" "signed-box"] $
-    entry $ bindMatch "hbs2:refchan:tx:propose" $ nil_ $ \case
-      [SignPubKeyLike rchan, ListVal [SymbolVal "blob", LitStrVal box]] -> do
-        api <- getClientAPI @RefChanAPI @UNIX
-        bbox <- Text.unpack box & LBS8.pack & deserialiseOrFail & orThrowUser "bad transaction"
-        void $ callService @RpcRefChanPropose api (rchan, bbox)
+    entry $ bindMatch "hbs2:refchan:tx:propose" $ nil_ $ \syn -> do
 
-      _ -> throwIO (BadFormException @c nil)
+      (chan,lbs) <- case syn of
+         [SignPubKeyLike rchan, ListVal [SymbolVal "blob", LitStrVal box]] -> do
+          bbox <- Text.unpack box & LBS8.pack & deserialiseOrFail & orThrowUser "bad transaction"
+          pure (rchan, bbox)
+
+         [SignPubKeyLike rchan, MatchOpaqueVal @_ @LBS.ByteString lbs] -> do
+           pure (rchan, lbs)
+
+         _ -> throwIO (BadFormException @c (mkList syn))
+
+      api <- getClientAPI @RefChanAPI @UNIX
+      box  <- deserialiseOrFail lbs & orThrowUser "invalid box"
+      void $ callService @RpcRefChanPropose api (chan, box)
+
 

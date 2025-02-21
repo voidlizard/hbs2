@@ -1,3 +1,5 @@
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
 {-# Language AllowAmbiguousTypes #-}
 module HBS2.Peer.RPC.Client.RefChan where
 
@@ -134,10 +136,16 @@ instance Monad m => HasClientAPI RefChanAPI proto (ReaderT (RScanEnv proto) m) w
   getClientAPI = asks rchanAPI
 
 data RefChanUpdateUnpacked e =
-  A (AcceptTran e) | P HashRef (ProposeTran e)
+    A (AcceptTran e)
+  | P0 HashRef (ProposeTran e)
+  | P1 (PubKey Sign (Encryption e)) HashRef (ProposeTran e)
+
   deriving stock (Generic)
 
-{-# COMPLETE A,P #-}
+{-# COMPLETE A,P,P1 #-}
+
+pattern P :: HashRef -> ProposeTran e -> RefChanUpdateUnpacked e
+pattern P h p <- P1 _ h p
 
 unpackRefChanUpdate :: forall e . ForRefChans e
                     => HashRef
@@ -154,8 +162,8 @@ unpackRefChanUpdate href lbs = runIdentity $ runMaybeT do
       pure (A txx)
 
     Propose _ box -> do
-      (_, txx) <- MaybeT $ pure $ unboxSignedBox0 box
-      pure (P href txx)
+      (ppk, txx) <- MaybeT $ pure $ unboxSignedBox0 box
+      pure (P1 ppk href txx)
 
 walkRefChanTx :: forall proto m . ( MonadIO m
                                   , HasClientAPI RefChanAPI proto m

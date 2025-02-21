@@ -698,7 +698,7 @@ refchanImport = do
 
       A _  -> none
 
-      P orig (ProposeTran _ box) -> void $ runMaybeT do
+      P1 ppk orig (ProposeTran _ box) -> void $ runMaybeT do
         (_, bs) <- unboxSignedBox0 box & toMPlus
 
         AnnotatedHashRef sn href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
