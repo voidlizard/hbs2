@@ -61,10 +61,10 @@
   )
 )
 
-(define (post:name:update refchan)
+(define (post:name:update)
   (begin
     (local tx (create:name:update HOST))
-    (hbs2:refchan:tx:propose refchan tx)
+    (hbs2:refchan:tx:propose REFCHAN tx)
   )
 )
 
