@@ -47,6 +47,7 @@
 
 ;; created once by create-refchan
 (define REFCHAN :Aze8PNNexhfz629UfaE79oyRW8Rf7fTGSVoJW4qD95Z7)
+(define HOST  [car [car [call:proc hostname]]])
 
 (define (update-refchan)
   [hbs2:refchan:head:update REFCHAN my-refchan-head]
@@ -60,22 +61,27 @@
   )
 )
 
-(define (post:name:update refchan host)
+(define (post:name:update refchan)
   (begin
-    (local tx (create:name:update host))
+    (local tx (create:name:update HOST))
     (hbs2:refchan:tx:propose refchan tx)
   )
 )
 
 (define (state:get)
   (begin
-    (local self [sym [car [cdr [car [ grep peer-key [hbs2:peer:poke] ]]]]])
+    ; won't work on ipv6 address 'cause of their stupid : as separator
+    (local (strip x) [sym [car [split :: [last [split :// x]]]]] )
+    (local self [list [sym [car [cdr [car [ grep peer-key [hbs2:peer:poke] ]]]]] :127.0.0.1])
     (local txs (grep :propose (hbs2:refchan:tx:raw:list REFCHAN)))
     (local (hostname e)  (car (cdr (car (top:string (bytes:decode [nth 4 _1]))))) )
-    (local peers (call:proc hbs2-peer do peer-info))
-    peers
-    ; self
-    ; (map [fn 1 [list [nth 2 _1] [hostname _1] ]] txs)
+    (local peers (map (lambda [x] [car [cdr x]]) (car (call:proc hbs2-peer do peer-info))))
+    (local peers2 (map [fn 1  [list (lookup:uw :key _1) (strip (lookup:uw :addr _1))]] peers))
+    (local state (map [fn 1 [list [nth 2 _1] [hostname _1] ]] txs))
+
+    (local (entry e) [list [lookup:uw [nth 0 e] (cons self peers2)] [nth 1 e] ])
+    (local res [map [fn 1 [entry _1]]  state])
+    res
   )
 )
 
