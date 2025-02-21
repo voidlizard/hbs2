@@ -133,10 +133,11 @@ compression      ;  prints compression level
           [ StringLike s ] -> display $ mkStr @C (show $ pretty $ gitNormaliseRef (fromString s))
           _ -> throwIO (BadFormException @C nil)
 
-        entry $ bindMatch "test:hbs2:peer:poke" $ nil_ $ \syn -> do
-          peer <- getClientAPI @PeerAPI @UNIX
-          r    <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 peer () >>= orThrowUser "hbs2-peer not found"
-          notice $ pretty r
+        brief "checks if hbs2-peer available"
+          $ entry $ bindMatch "hbs2:peer:poke" $ nil_ $ \syn -> do
+            peer <- getClientAPI @PeerAPI @UNIX
+            r    <- callRpcWaitRetry @RpcPoke (TimeoutSec 0.5) 2 peer () >>= orThrowUser "hbs2-peer not found"
+            notice $ pretty r
 
         hidden do
           entry $ bindMatch "git:hash:blob" $ nil_ $ const $ liftIO do

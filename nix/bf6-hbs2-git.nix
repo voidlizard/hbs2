@@ -27,5 +27,8 @@ stdenv.mkDerivation {
   in ''
     mkdir -p $out/bin
     cp ${p}/bin/${name} $out/bin
-  '';
+    '';
+
+
+
 }

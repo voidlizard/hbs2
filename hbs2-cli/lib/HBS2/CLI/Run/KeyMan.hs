@@ -38,16 +38,17 @@ keymanEntries = do
   entry $ bindMatch "hbs2:keyman:config" $ \_ -> do
     mkForm  "dict" <$> keymanGetConfig
 
-  entry $ bindMatch "hbs2:keyman:keys:add" $ \case
-    [ LitStrVal ke ] -> do
-      conf <- keymanGetConfig @C
-      path <- getDefaultKeyPath conf
-      let n =  hashObject @HbSync (serialise ke) & pretty & show
-      let fname = n `addExtension` ".key"
-      let fpath = path </> fname
-      liftIO $ TIO.writeFile fpath ke
-      keymanUpdate
-      pure $ mkStr fpath
+  args [ arg "string" "keyring-data"] $
+    entry $ bindMatch "hbs2:keyman:keys:add" $ \case
+      [ LitStrVal ke ] -> do
+        conf <- keymanGetConfig @C
+        path <- getDefaultKeyPath conf
+        let n =  hashObject @HbSync (serialise ke) & pretty & show
+        let fname = n `addExtension` ".key"
+        let fpath = path </> fname
+        liftIO $ TIO.writeFile fpath ke
+        keymanUpdate
+        pure $ mkStr fpath
 
-    _ -> throwIO (BadFormException @C nil)
+      _ -> throwIO (BadFormException @C nil)
 
