@@ -56,7 +56,7 @@ common shared-properties
       , hbs2-peer
       , hbs2-storage-simple
       , hbs2-keyman-direct-lib
-      , hbs2-git
+      , hbs2-git3
       , hbs2-cli
       , db-pipe
       , suckless-conf
@@ -135,7 +135,7 @@ executable fixme-new
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, fixme-new, hbs2-core, hbs2-peer, hbs2-git
+        base, fixme-new, hbs2-core, hbs2-peer
         , binary
         , vector
         , optparse-applicative

@@ -59,7 +59,6 @@ common shared-properties
       , hbs2-peer
       , hbs2-storage-simple
       , hbs2-keyman-direct-lib
-      , hbs2-git
       , hbs2-cli
       , db-pipe
       , suckless-conf
@@ -121,6 +120,9 @@ library
     other-modules:
 
     exposed-modules:
+      HBS2.Git.Client.Prelude
+      HBS2.Git.Local
+      HBS2.Git.Local.CLI
       HBS2.Git3.Types
       HBS2.Git3.Prelude
       HBS2.Git3.Export
@@ -162,7 +164,7 @@ executable hbs2-git3
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
+        base, hbs2-git3, hbs2-core, hbs2-peer
         , binary
         , psqueues
         , vector
@@ -178,7 +180,7 @@ executable git-remote-hbs23
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base, hbs2-git3, hbs2-core, hbs2-peer, hbs2-git
+        base, hbs2-git3, hbs2-core, hbs2-peer
         , binary
         , vector
         , ansi-terminal
@@ -191,8 +193,8 @@ test-suite spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
 
-  other-modules:
-    HBS2.Git3.Git.PackSpec
+  -- other-modules:
+      -- HBS2.Git3.Git.PackSpec
       -- Data.Config.Suckless.KeyValueSpec
       -- Data.Config.Suckless.AesonSpec
 

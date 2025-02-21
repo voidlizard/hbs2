@@ -33,7 +33,6 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       "hbs2-peer"
       "hbs2-core"
       "hbs2-storage-simple"
-      "hbs2-git"
       "hbs2-git3"
       "hbs2-cli"
       "hbs2-sync"
