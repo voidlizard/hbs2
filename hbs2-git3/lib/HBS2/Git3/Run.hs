@@ -579,12 +579,7 @@ compression      ;  prints compression level
           bindAlias "init" "repo:init"
 
         manRepoRelayOnly $
-          entry $ bindMatch "repo:relay-only" $ nil_ $ \case
-            [ SignPubKeyLike repo ] -> lift $ connectedDo do
-              setGitRepoKey repo
-              waitRepo (Just 10) =<< getGitRepoKeyThrow
-
-            _ -> throwIO (BadFormException @C nil)
+          entry $ bindMatch "repo:relay-only" $ nil_ $ lift . relayOnlyRepo
 
         exportEntries "reflog:"
 

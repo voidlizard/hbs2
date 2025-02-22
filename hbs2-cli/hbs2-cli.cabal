@@ -110,6 +110,7 @@ library
       HBS2.CLI.Run.Internal.Merkle
       HBS2.CLI.Run.Internal.KeyMan
       HBS2.CLI.Run.Internal.RefChan
+      HBS2.CLI.Run.Internal.RefLog
       HBS2.CLI.Run.GroupKey
       HBS2.CLI.Run.KeyMan
       HBS2.CLI.Run.Keyring

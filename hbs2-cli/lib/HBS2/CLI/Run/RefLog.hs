@@ -1,8 +1,12 @@
-module HBS2.CLI.Run.RefLog where
+module HBS2.CLI.Run.RefLog
+  ( module HBS2.CLI.Run.RefLog
+  , module HBS2.CLI.Run.Internal.RefLog
+  ) where
 
 import HBS2.CLI.Prelude
 import HBS2.CLI.Run.Internal
 import HBS2.CLI.Run.Internal.KeyMan
+import HBS2.CLI.Run.Internal.RefLog
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
@@ -94,6 +98,16 @@ reflogEntries = do
 
     _ -> throwIO (BadFormException @C nil)
 
+
+  entry $ bindMatch "hbs2:reflog:tx:copy:all" $ nil_ \case
+    [SignPubKeyLike a, SignPubKeyLike b] -> do
+
+      let cre = runKeymanClientRO (loadCredentials b)
+                   >>= orThrow (RefLogNoCredentials (show $ pretty (AsBase58 b)))
+
+      copyTransactions cre a b
+
+    e -> throwIO (BadFormException @c (mkList e))
 
   entry $ bindMatch "hbs2:reflog:tx:post" $ nil_ \case
     [BlobLike blob] -> do

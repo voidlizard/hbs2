@@ -1,6 +1,6 @@
 {-# Language UndecidableInstances #-}
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.Git3.Repo.Init (initRepo,newRepoOpt,encryptedNewOpt) where
+module HBS2.Git3.Repo.Init (initRepo,newRepoOpt,encryptedNewOpt,relayOnlyRepo) where
 
 import HBS2.Git3.Prelude
 import HBS2.Git3.State
@@ -18,6 +18,8 @@ import HBS2.KeyMan.Keys.Direct
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
 
+import Data.List qualified as List
+import Data.Maybe
 import Data.Word
 import Data.Text qualified as Text
 import Lens.Micro.Platform
@@ -42,11 +44,22 @@ encryptedNewOpt :: Syntax C
 encryptedNewOpt = mkSym "--encrypted"
 
 
+relayOnlyRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
+relayOnlyRepo syn = connectedDo do
+  case syn of
+    [ SignPubKeyLike repo ] -> do
+      setGitRepoKey repo
+      waitRepo (Just 10) =<< getGitRepoKeyThrow
+
+    e -> throwIO (BadFormException (mkList e))
+
 
 initRepo :: forall m . HBS2GitPerks m => [Syntax C] -> Git3 m ()
 initRepo syn = do
 
-  let (opts, _) = splitOpts [("--new",0),("--encrypted",1)] syn
+  let (opts, _) = splitOpts [ ("--new",0)
+                            , ("--encrypted",1)
+                            ] syn
 
   let new = or [ True | ListVal [SymbolVal "--new"] <- opts ]
   let gkh = lastMay [ gk | ListVal [SymbolVal "--encrypted", HashLike gk] <- opts ]
