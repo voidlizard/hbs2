@@ -99,7 +99,7 @@ blockChunksProto adapter (BlockChunks c p) = do
 
       bsz' <- blkSize adapter h
 
-      maybe1 bsz' (pure ()) $ \bsz -> do
+      maybe1 bsz' (pure ()) $ \bsz -> deferred @proto do
 
         let offsets' = calcChunks bsz (fromIntegral size) :: [(Offset, Size)]
         let offsets = take (fromIntegral num) $ drop (fromIntegral n1) $ zip offsets' [0..]
