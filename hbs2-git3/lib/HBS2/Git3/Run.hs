@@ -487,6 +487,8 @@ compression      ;  prints compression level
             manifest <- Repo.getRepoManifest
             liftIO $ print $ pretty $ mkForm "manifest" (coerce manifest)
 
+        entry $ bindAlias "manifest" "repo:manifest"
+
         brief "shows repo reflog" $
           entry $ bindMatch "repo:reflog" $ nil_ $ \syn -> lift $ connectedDo do
             resolveRepo syn

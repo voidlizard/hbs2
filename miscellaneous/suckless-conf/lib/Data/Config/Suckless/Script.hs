@@ -40,12 +40,18 @@ helpList hasDoc p = do
     docDefined _ = False
 
 helpEntry :: MonadUnliftIO m => Id -> RunM c m ()
-helpEntry what = do
-  man <- ask >>= readTVarIO
-           <&> HM.lookup what
-           <&> maybe mzero bindMan
+helpEntry what' = do
 
-  liftIO $ hPutDoc stdout (pretty man)
+  found <- flip fix what' $ \next what -> do
+    ask >>= readTVarIO
+       <&> HM.lookup what
+       <&> (bindMan =<<)
+       >>= \case
+        Nothing -> pure Nothing
+        Just (Man{manIsAliasFor = Just x, manBrief = Nothing}) -> next x
+        Just x -> pure (Just ( x { manName = Just (ManName what') } ))
+
+  liftIO $ hPutDoc stdout (pretty found)
 
 pattern HelpEntryBound :: forall {c}. Id -> [Syntax c]
 pattern HelpEntryBound what <- [ListVal (SymbolVal "builtin:lambda" : SymbolVal what : _ )]

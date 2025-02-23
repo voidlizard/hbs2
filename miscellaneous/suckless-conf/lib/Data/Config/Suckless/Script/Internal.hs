@@ -113,18 +113,19 @@ class ManNameOf a ann where
 
 data Man a =
   Man
-  { manName     :: Maybe (ManName a)
-  , manHidden   :: Bool
-  , manBrief    :: Maybe ManBrief
-  , manSynopsis :: [ManSynopsis]
-  , manDesc     :: Maybe ManDesc
-  , manReturns  :: Maybe ManReturns
-  , manExamples :: [ManExamples]
+  { manName       :: Maybe (ManName a)
+  , manHidden     :: Bool
+  , manBrief      :: Maybe ManBrief
+  , manSynopsis   :: [ManSynopsis]
+  , manDesc       :: Maybe ManDesc
+  , manReturns    :: Maybe ManReturns
+  , manExamples   :: [ManExamples]
+  , manIsAliasFor :: Maybe Id
   }
   deriving stock (Eq,Show,Generic)
 
 instance Monoid (Man a) where
-  mempty = Man Nothing False Nothing mempty Nothing Nothing mempty
+  mempty = Man Nothing False Nothing mempty Nothing Nothing mempty Nothing
 
 instance Semigroup (Man a) where
   (<>) a b = Man (manName b <|> manName a)
@@ -134,6 +135,7 @@ instance Semigroup (Man a) where
                  (manDesc b <|> manDesc a)
                  (manReturns b <|> manReturns a)
                  (manExamples a <> manExamples b)
+                 (manIsAliasFor b <|> manIsAliasFor a)
 
 instance ManNameOf Id a where
   manNameOf = ManName
@@ -873,7 +875,7 @@ bindAlias :: forall c m . ( MonadUnliftIO m
           => Id -> Id  -> Dict c m
 bindAlias n fn = HM.singleton n (Bind man (BindLambda callAlias))
   where
-    man = Just $ mempty { manName = Just (manNameOf n) }
+    man = Just $ mempty { manName = Just (manNameOf n), manIsAliasFor = Just fn }
     callAlias syn = do
       ask  >>= readTVarIO
            <&> (fmap bindAction . HM.lookup fn)
