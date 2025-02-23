@@ -830,9 +830,9 @@ runPeer opts = respawnOnError opts $ do
   simpleStorageSetProbe s stoProbe
   addProbe stoProbe
 
-  stn <- getNumCapabilities -- <&> max 2 . div 2
+  stn <- getNumCapabilities  <&> max 2 . div 1
 
-  w <- replicateM stn $ async $ liftIO $ simpleStorageWorker s
+  w <- replicateM stn $ asyncBound $ liftIO $ simpleStorageWorker s
 
   localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )
