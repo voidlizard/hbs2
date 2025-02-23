@@ -830,7 +830,7 @@ runPeer opts = respawnOnError opts $ do
   simpleStorageSetProbe s stoProbe
   addProbe stoProbe
 
-  stn <- getNumCapabilities <&> max 2 . div 4
+  stn <- getNumCapabilities -- <&> max 2 . div 2
 
   w <- replicateM stn $ async $ liftIO $ simpleStorageWorker s
 
