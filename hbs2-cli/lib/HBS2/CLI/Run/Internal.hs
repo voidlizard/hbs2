@@ -184,19 +184,6 @@ internalEntries = do
 
       pure $ mkList r
 
-    -- TODO: move-somewhere
-    entry $ bindMatch "rm" $ nil_ \case
-      [ StringLike p ] -> rm p
-      _ -> throwIO (BadFormException @c nil)
-
-    entry $ bindMatch "touch" $ nil_ \case
-      [ StringLike p ] -> touch p
-      _ -> throwIO (BadFormException @c nil)
-
-    entry $ bindMatch "mkdir" $ nil_ \case
-      [ StringLike p ] -> mkdir p
-      _ -> throwIO (BadFormException @c nil)
-
     entry $ bindMatch "blob:base58" $ \case
       [LitStrVal t] -> do
         bs <- pure (Text.unpack t & BS8.pack & fromBase58)

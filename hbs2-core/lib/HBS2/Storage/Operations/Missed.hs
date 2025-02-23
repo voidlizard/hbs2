@@ -57,8 +57,6 @@ findMissedBlocks2 sto href = void $ runMaybeT do
                 let w = tryDetect (fromHashRef hx) bs
                 let refs = extractBlockRefs (coerce hx) bs
 
-                -- err $ "PIZDA!" <+> pretty hx <+> pretty refs
-
                 for_ refs $ \r -> do
                   -- findMissedBlocks sto r >>= lift . mapM_ S.yield
                   here <- hasBlock sto (coerce r) <&> isJust

@@ -10,6 +10,7 @@ import HBS2.CLI.Run.Internal.RefLog
 
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
+import HBS2.Data.Detect
 import HBS2.Storage
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.CLI.Detect
@@ -182,14 +183,14 @@ reflogEntries = do
     _ -> throwIO (BadFormException @C nil)
 
 
-  entry $ bindMatch "hbs2:reflog:tx:seqref:decode" $ \case
-    [ListVal [SymbolVal "blob", LitStrVal s]] -> do
-      let lbs =  Text.unpack s & BS8.pack & LBS.fromStrict
+  entry $ bindMatch "hbs2:reflog:tx:decode" $ \case
+    [HashLike s] -> do
+      sto <- getStorage
+      blk <- getBlock sto (coerce s)
+      pure $ maybe1 blk nil (decodeRefLogTx @c (Just s))
 
-      SequentialRef n (AnnotatedHashRef _ h) <-  deserialiseOrFail @SequentialRef lbs
-                                                   & orThrowUser "FUCKED"
-
-      pure $ mkForm "seqref" [mkInt n, mkStr (show $ pretty h)]
+    [MatchOpaqueVal @_ @(HashRef, ByteString) (ha,bs)] -> do
+      pure $ decodeRefLogTx @c (Just ha) (LBS.fromStrict bs)
 
     e -> throwIO $ BadFormException @c nil
 
@@ -221,14 +222,13 @@ reflogEntries = do
                      >>= orThrowUser "invalid-tx"
 
             let bs = view refLogUpdData tx
-            let bs8 = BS8.unpack bs
 
-            lift $ apply_ e [mkForm "blob" [mkStr bs8]]
+            payload <- mkOpaque (ha,bs)
+
+            lift $ apply_ e [payload]
 
           pure $ mkList rr
 
      _ -> throwIO (BadFormException @C nil)
-
-
 
 

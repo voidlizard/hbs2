@@ -1,5 +1,5 @@
 {-# Language AllowAmbiguousTypes #-}
-module HBS2.CLI.Run.Internal.RefLog (copyTransactions, RefLogCLIException(..)) where
+module HBS2.CLI.Run.Internal.RefLog (copyTransactions, RefLogCLIException(..),decodeRefLogTx) where
 
 import HBS2.CLI.Prelude hiding (mapMaybe)
 import HBS2.CLI.Run.Internal
@@ -87,5 +87,23 @@ copyTransactions cre a b  = do
 
     lift $ for_ (catMaybes new) $ \n -> do
       void $ callService @RpcRefLogPost api n
+
+
+decodeRefLogTx :: forall c. IsContext c => Maybe HashRef -> LBS.ByteString -> Syntax c
+decodeRefLogTx h lbs = do
+
+  let ha = maybe (hashObject @HbSync lbs) coerce h
+
+  case tryDetect ha lbs of
+
+    SeqRef (SequentialRef n (AnnotatedHashRef ann ha)) ->
+      mkForm "seqref" [mkInt n, mkForm "annref" [mkSym (show $ pretty ann), mkSym (show $ pretty ha)]]
+
+    AnnRef (AnnotatedHashRef ann ha) -> do
+       mkForm "annref" [mkSym (show $ pretty ann), mkSym (show $ pretty ha)]
+
+    Blob{} -> mkForm "blob" [mkSym (show $ pretty ha)]
+
+    _ -> mkForm "tree" [mkSym (show $ pretty ha)]
 
 

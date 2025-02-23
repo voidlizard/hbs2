@@ -268,16 +268,13 @@ export mbh refs = withStateDo do
 
             let mbytes = realToFrac b / 1024/1024  & realToFrac @_ @(Fixed E2)
 
-            let dbdt = mbytes / tspent
+            let dbdt = if tspent == 0 then Nothing else Just (mbytes / tspent)
 
-            -- liftIO $ IO.hPutStr stderr  $ show $
-            --     "                 \r"
-            --     <+> pretty tspent <> "s"
-            --     <+> pretty mbytes <> "mb"
-            --     <+> pretty dbdt <> "mbs"
-            --     <+> pretty pp <> "%"
-
-            -- liftIO $ IO.hPutStr stderr  $ "\r"
+            status $ "export"
+                <+> brackets ("commits" <+> pretty p)
+                <+> brackets ("mb" <+> pretty mbytes)
+                <+> brackets ("mbs" <+> pretty dbdt)
+                <+> brackets ("time" <+> pretty tspent)
 
             next (t1,b)
 

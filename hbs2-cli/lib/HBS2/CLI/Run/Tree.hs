@@ -9,6 +9,7 @@ import HBS2.CLI.Run.Internal.Merkle
 
 import HBS2.Defaults
 
+import HBS2.Base58
 import HBS2.Data.Types.Refs
 import HBS2.Merkle
 import HBS2.Data.Detect
@@ -28,6 +29,7 @@ import Data.Coerce
 import Data.Text qualified as Text
 import Control.Monad.Except
 import Codec.Serialise
+import Streaming.Prelude qualified as S
 
 pattern GroveHashes :: forall {c}. [HashRef] -> [Syntax c]
 pattern GroveHashes hashes <- ( groveHashes -> hashes )
@@ -124,5 +126,33 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
       pure $ mkList @c (fmap (mkStr . show . pretty) refs)
 
     _ -> throwIO (BadFormException @c nil)
+
+
+  brief "shallow scan of a block/tree" $
+    entry $ bindMatch "hbs2:tree:scan" $ \case
+      [HashLike href] -> do
+        sto <- getStorage
+
+        r <- S.toList_ $
+                deepScan ScanShallow (const none) (coerce href) (getBlock sto) $ \ha -> S.yield ha
+
+        -- let refs = extractBlockRefs (coerce href) blk
+        pure $ mkList @c (fmap (mkSym . show . pretty . HashRef) r)
+
+      _ -> throwIO (BadFormException @c nil)
+
+
+  brief "shallow scan of a block/tree" $
+    entry $ bindMatch "hbs2:tree:scan:deep" $ \case
+      [HashLike href] -> do
+        sto <- getStorage
+
+        r <- S.toList_ $
+                deepScan ScanDeep (const none) (coerce href) (getBlock sto) $ \ha -> S.yield ha
+
+        -- let refs = extractBlockRefs (coerce href) blk
+        pure $ mkList @c (fmap (mkSym . show . pretty . HashRef) r)
+
+      _ -> throwIO (BadFormException @c nil)
 
 

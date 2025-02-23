@@ -463,7 +463,7 @@ compression      ;  prints compression level
           resolveRepo syn
           getRepoManifest >>= liftIO . print . pretty . mkForm "manifest" . coerce
 
-        manRemotes $ entry $ bindAlias "remotes" "repo:remotes"
+        entry $ bindAlias "remotes" "repo:remotes"
 
         manRemotes $
           entry $ bindMatch "repo:remotes" $ nil_ $ const $ lift do
