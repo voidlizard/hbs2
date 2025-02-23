@@ -16,6 +16,7 @@ import HBS2.Git3.Repo
 import HBS2.Git3.Logger
 import HBS2.Git3.Man
 import HBS2.Net.Auth.GroupKeySymm
+import HBS2.Peer.RPC.Client.RefLog
 
 import Data.Config.Suckless.Script
 import Data.Config.Suckless.Almost.RPC
@@ -585,4 +586,50 @@ compression      ;  prints compression level
 
         exportEntries "reflog:"
 
+        brief "purges repo and unsubscribes" $
+          desc "potentially dangerous / experimental" $
+          args [ arg "(ref|remote-name)" "repo" ] $
+          entry $ bindMatch "repo:purge" $ nil_ $ \syn -> lift $ connectedDo do
+            resolveRepo syn
+
+            warn "purge repo"
+
+            repoKey <- getGitRepoKey >>= orThrowUser "remote not set"
+
+            sto <- getStorage
+            peerAPI <- getClientAPI @PeerAPI @UNIX
+            repo <- getRepoManifest
+            reflog <- getRefLog repo  & orThrow GitRepoManifestMalformed
+
+            -- TODO: add-ref-type-into-seed-during-key-generation?
+
+            callRpcWaitMay @RpcPollDel (TimeoutSec 1) peerAPI reflog
+              >>= orThrow RpcTimeout
+
+            callRpcWaitMay @RpcPollDel (TimeoutSec 1) peerAPI repoKey
+              >>= orThrow RpcTimeout
+
+            w <- getRefLogValue @UNIX  reflog
+                    >>= orThrow GitRepoRefEmpty
+
+            liftIO $ print $ "reflog" <+> pretty (AsBase58 reflog) <+> pretty w
+
+            rms <- newTVarIO ( mempty :: HashSet HashRef )
+
+            walkRefLogTx @UNIX (const $ pure True) reflog $ \h bs -> do
+              let refs = extractBlockRefs (coerce h) (LBS.fromStrict bs)
+              -- let what = tryDetect (coerce h (LBS.fromStrict bs)
+              for_ refs  $ \r -> do
+                deepScan ScanDeep (const none) (coerce r) (getBlock sto) $ \ha -> do
+                   liftIO $ print $ "about to remove" <+> pretty ha
+                   atomically $ modifyTVar rms (HS.insert (coerce ha))
+
+            r <- readTVarIO rms
+
+            readLogThrow (getBlock sto) w >>= mapM_ (atomically . modifyTVar rms . HS.insert . coerce)
+
+            for_ r $ \h -> do
+              delBlock sto (coerce h)
+
+            delBlock sto (coerce w)
 
