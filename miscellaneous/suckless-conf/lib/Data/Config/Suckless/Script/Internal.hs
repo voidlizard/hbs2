@@ -1637,7 +1637,7 @@ internalEntries = do
         [SymbolVal _]  -> pure $ mkSym "symbol"
         [LitStrVal _]  -> pure $ mkSym "string"
         [LitIntVal _]  -> pure $ mkSym "int"
-        [LitScientificVal _] -> pure $ mkSym "float"
+        [LitScientificVal _] -> pure $ mkSym "real"
         [LitBoolVal _] -> pure $ mkSym "bool"
         _ -> throwIO (BadFormException @c nil)
 
@@ -1663,16 +1663,22 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
-    for_ ["int?","sym?","bool?","str?","real?"] $ \pred -> do
+    for_ ["int?", "sym?","bool?","str?","real?"] $ \pred -> do
       let ref = "bf6:" <> pred
 
       entry $ bindMatch pred $ \case
-        [ SymbolVal "_" ] -> pure $ mkForm "builtin:closure" [mkSym ref, mkSym "_"]
-        [ a ]   -> pure $ mkForm "builtin:closure" [mkSym ref,  a]
+        [a]   -> pure $ mkForm "builtin:closure" [mkSym ref,  a]
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch ref $ \case
-        [a,b] -> termMatches (mkList [mkSym ref, a]) b
+        [SymbolVal "_", b] -> pure  b
+
+        [a, b] | bf6TypeOf a == bf6TypeOf b -> do
+          if a == b then pure b else pure nil
+
+        [a,b] -> apply_ a [b] >>= \w -> do
+          if isFalse w then pure nil else pure b
+
         e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "list?" $ \case
@@ -2237,6 +2243,19 @@ matched = \case
 
   z -> throwIO (BadFormException @c (mkList z))
 
+bf6TypeOf :: forall c . (IsContext c)
+          => Syntax c
+          -> Maybe (Syntax c)
+bf6TypeOf = \case
+  ListVal{}   -> pure $ mkSym "list"
+  SymbolVal{}  -> pure $ mkSym "symbol"
+  LitStrVal{}   -> pure $ mkSym "string"
+  LitIntVal{}   -> pure $ mkSym "int"
+  LitScientificVal{} -> pure $ mkSym "real"
+  LitBoolVal{} -> pure $ mkSym "bool"
+  OpaqueValue{} -> pure $ mkSym "opaque"
+  _ -> Nothing
+
 termMatches :: forall c m . ( IsContext c
                             , MonadUnliftIO m
                             , Exception (BadFormException c)
@@ -2245,21 +2264,6 @@ termMatches :: forall c m . ( IsContext c
 
 termMatches pred what = case (pred, what) of
   (SymbolVal "_", a) -> pure a
-
-  -- Обобщённый матчинг для типов (int, str, sym, real, bool)
-  (ListVal [SymbolVal typePred, SymbolVal "_"], val)
-    | Just mk <- typeMatcher typePred val -> pure $ bound_ (mk val)
-
-  (ListVal [SymbolVal typePred, valA], valB)
-    | Just mk <- typeMatcher typePred valB -> do
-      pure $ if valA == valB then bound_ (mk valB) else nil
-      -- if valA == valB then error "MANDA!" else error "PIZDA!" -- nil
-
-  (ListVal [SymbolVal typePred, e], val)
-    | Just mk <- typeMatcher typePred val -> do
-        apply_ e [val] <&> isTrue >>= \case
-          False -> pure nil
-          True  -> pure $ bound_ (mk val)
 
   (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> pure $ bound_ b
 
@@ -2271,9 +2275,9 @@ termMatches pred what = case (pred, what) of
         Just (a,b) -> lift (apply_ a [b]) >>= \case
           ListVal (e:es) -> pure (mkList (e:es))
           e | e /= nil -> pure $ mkList [mkSym "_", e]
-          _ -> mzero
+          e -> mzero
 
-  (_,_) -> pure nil
+  e -> error $ show $ pretty  e
 
   where
 
@@ -2285,14 +2289,6 @@ termMatches pred what = case (pred, what) of
     emit [] (_:_) = [Nothing]
     emit (SymbolVal "..." : _) bs = [ Just (mkSym "_", x) | x <- bs ]
     emit (a:as) (b:bs) = Just (a,b) : emit as bs
-
-    typeMatcher :: Id -> Syntax c -> Maybe (Syntax c -> Syntax c)
-    typeMatcher "bf6:int?"  e@(LitIntVal _)        = Just (const e)
-    typeMatcher "bf6:str?"  e@(LitStrVal _)        = Just (const e)
-    typeMatcher "bf6:sym?"  e@(SymbolVal _)        = Just (const e)
-    typeMatcher "bf6:real?" e@(LitScientificVal _) = Just (const e)
-    typeMatcher "bf6:bool?" e@(LitBoolVal _)       = Just (const e)
-    typeMatcher _ _ = Nothing
 
 
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
