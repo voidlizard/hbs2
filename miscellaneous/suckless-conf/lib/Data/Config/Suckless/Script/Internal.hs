@@ -1693,7 +1693,7 @@ internalEntries = do
         [SymbolVal "_", b] ->do
           if bf6TypeOfPred pred == bf6TypeOf b then pure  b else pure nil
 
-        [a, b] | bf6TypeOfPred pred == bf6TypeOf b -> do
+        [a@(Literal _ _), b] | bf6TypeOfPred pred == bf6TypeOf b -> do
           if a == b then pure b else pure nil
 
         [a,b] -> do
