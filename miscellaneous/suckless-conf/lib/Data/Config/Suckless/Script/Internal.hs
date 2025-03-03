@@ -795,9 +795,28 @@ eval' dict0 syn' = handle (handleForm syn') $ do
       e@(ListVal (SymbolVal "blob" : what)) -> do
         pure e
 
+      r@(ListVal (SymbolVal "cond" : clauses)) -> do
+
+        flip fix clauses $  \next -> \case
+
+          (ListVal [SymbolVal "_", e1] : _) -> do
+            eval e1
+
+          (ListVal [p', e1] : rest) -> do
+
+            p <- eval p'
+
+            if isFalse p then
+              next rest
+            else do
+              eval e1
+
+          (_ : _) -> throwIO (BadFormException r)
+
+          [] -> pure nil
+
       r@(ListVal (SymbolVal "match" : e' : clauses)) -> do
         e <- eval e'
-        -- $ show $ "MATCH"  <+> pretty e <+> pretty clauses
 
         flip fix clauses $  \next -> \case
 
