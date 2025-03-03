@@ -73,6 +73,7 @@ import Lens.Micro.Platform
 import UnliftIO
 import UnliftIO.Concurrent
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 
 -- TODO: move-to-suckless-conf
 
@@ -1605,16 +1606,6 @@ internalEntries = do
         entry $ bindMatch "atom" atomFrom
 
 
-    entry $ bindMatch "int" $ \case
-      [ StringLike x ] -> pure $ maybe nil mkInt (readMay x)
-      [ LitScientificVal v ] -> pure $ mkInt (round v)
-      _ -> pure nil
-
-    entry $ bindMatch "str" $ \case
-      []  -> pure $ mkStr ""
-      [x] -> pure $ mkStr (show $ pretty x)
-      xs  -> pure $ mkStr $ mconcat [ show (pretty e) | e <- xs ]
-
     entry $ bindMatch "and" $ \case
       xs -> pure $ mkBool $ and [ not (isFalse x) | x <- xs ]
 
@@ -1629,28 +1620,24 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
-    entry $ bindMatch "int?" \case
-      [p,e] -> pure $ mkList (termMatches (mkList [mkSym "int?", p]) e)
-      e -> throwIO (BadFormException @c (mkList e))
+    for_ ["int?","sym?","bool?","str?"] $ \pred -> do
+      let ref = "bf6:" <> pred
 
-    entry $ bindMatch "sym?" \case
-      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "sym?", p]) e)
-      e -> throwIO (BadFormException @c (mkList e))
+      entry $ bindMatch pred $ \case
+        [ SymbolVal "_" ] -> pure $ mkForm "builtin:closure" [mkSym ref, mkSym "_"]
+        [ a ]   -> pure $ mkForm "builtin:closure" [mkSym ref,  a]
+        e -> throwIO (BadFormException @c (mkList e))
 
-    entry $ bindMatch "str?" \case
-      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "str?", p]) e)
-      e -> throwIO (BadFormException @c (mkList e))
+      entry $ bindMatch ref $ \case
+        [a,b] -> mkList <$> termMatches (mkList [mkSym ref, a]) b
+        e -> throwIO (BadFormException @c (mkList e))
 
-    entry $ bindMatch "real?" \case
-      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "real?", p]) e)
-      e -> throwIO (BadFormException @c (mkList e))
+    entry $ bindMatch "list?" $ \case
+      [SymbolVal "..."]-> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkSym "..."]
+      es -> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkList es]
 
-    entry $ bindMatch "bool?" \case
-      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "bool?", p]) e)
-      e -> throwIO (BadFormException @c (mkList e))
-
-    entry $ bindMatch "list?" \case
-      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "list?", p]) e)
+    entry $ bindMatch "bf6:list?" $ \case
+      [a,b] -> mkList <$> termMatches (mkList [mkSym "bf6:list?", a]) b
       e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "le?" $ \case
@@ -2152,35 +2139,67 @@ concatTerms s =  \case
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
 
-termMatches :: forall c . IsContext c => Syntax c -> Syntax c -> [Syntax c]
+termMatches :: forall c m . ( IsContext c
+                            , MonadUnliftIO m
+                            , Exception (BadFormException c)
+                            )
+            => Syntax c -> Syntax c -> RunM c m [Syntax c]
 
 termMatches pred what = case (pred, what) of
-  (SymbolVal "_", a) -> [a]
-  (ListVal [SymbolVal "int?", SymbolVal "_"], LitIntVal n) -> [mkInt n]
-  (ListVal [SymbolVal "int?", LitIntVal a], LitIntVal b) -> [mkInt b]
+  (SymbolVal "_", a) -> pure [a]
+  (ListVal [SymbolVal "bf6:int?", SymbolVal "_"], LitIntVal n) -> pure $ bound_ (mkInt n)
+  (ListVal [SymbolVal "bf6:int?", LitIntVal a], LitIntVal b) | a == b -> pure $ bound_ (mkInt b)
 
   -- String matching
-  (ListVal [SymbolVal "sym?", SymbolVal "_"], SymbolVal s) -> [mkSym s]
-  (ListVal [SymbolVal "sym?", SymbolVal a], SymbolVal b) | a == b -> [mkSym b]
+  (ListVal [SymbolVal "bf6:sym?", SymbolVal "_"], SymbolVal s) -> pure $ bound_ (mkSym s)
+  (ListVal [SymbolVal "bf6:sym?", SymbolVal a], SymbolVal b) | a == b -> pure $ bound_ (mkSym b)
 
   -- String matching
-  (ListVal [SymbolVal "str?", SymbolVal "_"], LitStrVal s) -> [mkStr s]
-  (ListVal [SymbolVal "str?", LitStrVal a], LitStrVal b) | a == b -> [mkStr b]
+  (ListVal [SymbolVal "bf6:str?", SymbolVal "_"], LitStrVal s) -> pure $ bound_ (mkStr s)
+  (ListVal [SymbolVal "bf6:str?", LitStrVal a], LitStrVal b) | a == b -> pure $ bound_ (mkStr b)
 
   -- Real number matching
-  (ListVal [SymbolVal "real?", SymbolVal "_"], LitScientificVal r) -> [mkDouble r]
-  (ListVal [SymbolVal "real?", LitScientificVal a], LitScientificVal b) | a == b -> [mkDouble b]
+  (ListVal [SymbolVal "bf6:real?", SymbolVal "_"], LitScientificVal r) ->
+    pure $ bound_ (mkDouble r)
+
+  (ListVal [SymbolVal "bf6:real?", LitScientificVal a], LitScientificVal b) | a == b ->
+    pure $ bound_ (mkDouble b)
 
   -- Boolean matching
-  (ListVal [SymbolVal "bool?", SymbolVal "_"], LitBoolVal b) -> [mkBool b]
-  (ListVal [SymbolVal "bool?", LitBoolVal a], LitBoolVal b) | a == b -> [mkBool b]
+  (ListVal [SymbolVal "bf6:bool?", SymbolVal "_"], LitBoolVal b) ->
+    pure $ bound_ (mkBool b)
+
+  (ListVal [SymbolVal "bf6:bool?", LitBoolVal a], LitBoolVal b) | a == b ->
+    pure $ bound_ (mkBool b)
 
   -- ListMatch
-  (ListVal [SymbolVal "list?", SymbolVal "_"], b@ListVal{}) -> [b]
-  (ListVal [SymbolVal "list?", a@(ListVal as)], b@(ListVal bs)) -> do
-    foldMap (uncurry termMatches) (zip as bs)
 
-  (_,_) -> mempty
+  (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> do
+    pure $ bound_ b
+
+  (ListVal [SymbolVal "bf6:list?", a@(ListVal as)], b@(ListVal bs)) -> do
+    do
+      maybe mempty id <$> runMaybeT do
+        for (emit as bs) $ \case
+          Nothing    -> mzero
+          Just (SymbolVal "_", b) -> pure b
+          Just (a,b) -> lift (apply_ a [b]) >>= \case
+            ListVal (e:es) -> pure (mkList (e:es))
+            _ -> mzero
+
+  (_,_) -> pure mempty
+
+  where
+
+    bound_ e = [e]
+
+    emit [] [] = mempty
+    emit (SymbolVal "..." : _) [] = mempty
+    emit (_:_) [] = [Nothing]
+    emit [] (_:_) = [Nothing]
+    emit (SymbolVal "..." : _) bs = [ Just (mkSym "_", x) | x <- bs ]
+    emit (a:as) (b:bs) = Just (a,b) : emit as bs
+
 
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
