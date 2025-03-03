@@ -1690,13 +1690,15 @@ internalEntries = do
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch ref $ \case
-        [SymbolVal "_", b] -> pure  b
+        [SymbolVal "_", b] ->do
+          if bf6TypeOfPred pred == bf6TypeOf b then pure  b else pure nil
 
-        [a, b] | bf6TypeOf a == bf6TypeOf b -> do
+        [a, b] | bf6TypeOfPred pred == bf6TypeOf b -> do
           if a == b then pure b else pure nil
 
-        [a,b] -> apply_ a [b] >>= \w -> do
-          if isFalse w then pure nil else pure b
+        [a,b] -> do
+          apply_ a [b] >>= \w -> do
+            if isFalse w then pure nil else pure b
 
         e -> throwIO (BadFormException @c (mkList e))
 
@@ -2275,6 +2277,19 @@ bf6TypeOf = \case
   OpaqueValue{} -> pure $ mkSym "opaque"
   _ -> Nothing
 
+
+bf6TypeOfPred :: forall c . (IsContext c)
+          => Id
+          -> Maybe (Syntax c)
+bf6TypeOfPred = \case
+  "list?"   -> pure $ mkSym "list"
+  "sym?"    -> pure $ mkSym "symbol"
+  "str?"    -> pure $ mkSym "string"
+  "int?"    -> pure $ mkSym "int"
+  "real?"   -> pure $ mkSym "real"
+  "bool?"   -> pure $ mkSym "bool"
+  _ -> Nothing
+
 termMatches :: forall c m . ( IsContext c
                             , MonadUnliftIO m
                             , Exception (BadFormException c)
@@ -2290,7 +2305,8 @@ termMatches pred what = case (pred, what) of
     maybe nil mkList <$> runMaybeT do
       for (emit as bs) $ \case
         Nothing    -> mzero
-        Just (SymbolVal w, b) -> pure $ mkList [mkSym w, b]
+        Just (SymbolVal w, b) -> do
+          pure $ mkList [mkSym w, b]
         Just (a,b) -> lift (apply_ a [b]) >>= \case
           ListVal (e:es) -> pure (mkList (e:es))
           e | e /= nil -> pure $ mkList [mkSym "_", e]
