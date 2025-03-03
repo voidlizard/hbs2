@@ -530,8 +530,8 @@ apply_ :: forall c m . ( IsContext c
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
 
-  ListVal (SymbolVal "builtin:closure" : what@(SymbolVal _) : free) -> do
-    apply_ what (free <> args)
+  ListVal (SymbolVal "builtin:closure" : e : free) -> do
+    apply_ e (free <> args)
 
   SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
@@ -1087,6 +1087,10 @@ internalEntries = do
     entry $ bindMatch "eval" $ \syn -> do
       r <- mapM eval syn
       pure $ lastDef nil r
+
+    entry $ bindMatch "curry" \case
+      [e1, e2] -> pure $ mkForm "builtin:closure" [e1, e2]
+      e -> throwIO (BadFormException @c  (mkList e))
 
     entry $ bindMatch "id" $ \case
       [ e ] -> pure e
