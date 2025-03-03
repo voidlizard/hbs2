@@ -48,3 +48,25 @@
   ( _ (print "whatever") )
 )
 
+(newline)
+
+(match 100
+  ( [int? _] (print okay) )
+  ( _  (print not-okay) )
+)
+
+(newline)
+
+(match 100
+  ( [? a [int? _] ] (print okay :: a) )
+  ( _  (print not-okay) )
+)
+
+(newline)
+
+(match :aaa
+  ( [? a [int? _] ] (print not-okay :: a) )
+  ( _  (print okay) )
+)
+
+
