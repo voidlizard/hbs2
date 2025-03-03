@@ -32,6 +32,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Data
 import Data.Coerce
+import Data.Foldable
 import Data.Function as Export
 import Data.Functor as Export
 import Data.Hashable
@@ -527,6 +528,10 @@ apply_ :: forall c m . ( IsContext c
 
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
+
+  ListVal (SymbolVal "builtin:closure" : what@(SymbolVal _) : free) -> do
+    apply_ what (free <> args)
+
   SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal   what  -> apply what args
@@ -1072,11 +1077,6 @@ internalEntries = do
 
       z ->
         throwIO (BadFormException @C nil)
-
-    entry $ bindMatch "bound?" $ \case
-      [ SymbolVal x ] -> do
-        error "DONT KNOW"
-      _ -> pure $ mkBool False
 
     entry $ bindMatch "apply" $ \case
       [e, ListVal es] -> apply_ e es
@@ -1629,6 +1629,29 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
+    entry $ bindMatch "int?" \case
+      [p,e] -> pure $ mkList (termMatches (mkList [mkSym "int?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "sym?" \case
+      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "sym?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "str?" \case
+      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "str?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "real?" \case
+      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "real?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "bool?" \case
+      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "bool?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "list?" \case
+      [p, e] -> pure $ mkList (termMatches (mkList [mkSym "list?", p]) e)
+      e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "le?" $ \case
       [a, b] -> pure $ mkBool (compareSyn a b == LT)
@@ -2128,6 +2151,36 @@ concatTerms s =  \case
      mkStr @c  ( show $ pretty $ concatTerms s xs )
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
+
+termMatches :: forall c . IsContext c => Syntax c -> Syntax c -> [Syntax c]
+
+termMatches pred what = case (pred, what) of
+  (SymbolVal "_", a) -> [a]
+  (ListVal [SymbolVal "int?", SymbolVal "_"], LitIntVal n) -> [mkInt n]
+  (ListVal [SymbolVal "int?", LitIntVal a], LitIntVal b) -> [mkInt b]
+
+  -- String matching
+  (ListVal [SymbolVal "sym?", SymbolVal "_"], SymbolVal s) -> [mkSym s]
+  (ListVal [SymbolVal "sym?", SymbolVal a], SymbolVal b) | a == b -> [mkSym b]
+
+  -- String matching
+  (ListVal [SymbolVal "str?", SymbolVal "_"], LitStrVal s) -> [mkStr s]
+  (ListVal [SymbolVal "str?", LitStrVal a], LitStrVal b) | a == b -> [mkStr b]
+
+  -- Real number matching
+  (ListVal [SymbolVal "real?", SymbolVal "_"], LitScientificVal r) -> [mkDouble r]
+  (ListVal [SymbolVal "real?", LitScientificVal a], LitScientificVal b) | a == b -> [mkDouble b]
+
+  -- Boolean matching
+  (ListVal [SymbolVal "bool?", SymbolVal "_"], LitBoolVal b) -> [mkBool b]
+  (ListVal [SymbolVal "bool?", LitBoolVal a], LitBoolVal b) | a == b -> [mkBool b]
+
+  -- ListMatch
+  (ListVal [SymbolVal "list?", SymbolVal "_"], b@ListVal{}) -> [b]
+  (ListVal [SymbolVal "list?", a@(ListVal as)], b@(ListVal bs)) -> do
+    foldMap (uncurry termMatches) (zip as bs)
+
+  (_,_) -> mempty
 
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
