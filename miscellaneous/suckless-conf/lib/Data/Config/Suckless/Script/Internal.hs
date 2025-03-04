@@ -302,14 +302,25 @@ lambdaArgList :: Syntax c -> Maybe [Id]
 lambdaArgList (ListVal a) = sequence argz
   where
     argz = flip fmap a \case
-      (SymbolVal x) -> Just x
-      _             -> Nothing
+      (SymbolVal x) | x `notElem` [".","_"] -> Just x
+      _                                     -> Nothing
 
 lambdaArgList _ = Nothing
+
+pattern ArgList :: [Id] -> [Syntax c]
+pattern ArgList a <- (argList -> Just a)
+
+argList :: [Syntax c] -> Maybe [Id]
+argList syn = sequence argz
+  where
+    argz = flip fmap syn \case
+      (SymbolVal x) | x `notElem` [".","_"] -> Just x
+      _                                     -> Nothing
 
 
 pattern PairList :: [Syntax c] -> [Syntax c]
 pattern PairList es <- (pairList -> es)
+
 
 pairList :: [Syntax c ] -> [Syntax c]
 pairList syn = [ isPair s | s <- syn ] & takeWhile isJust & catMaybes
@@ -762,6 +773,21 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         let b = Bind mzero (BindMacro runMacro)
         atomically $ modifyTVar t (HM.insert name b)
         pure nil
+
+      w@(ListVal (SymbolVal "fn" : a@(SymbolVal{}) : rest)) -> do
+        let dot = mkSym "."
+        let (aa, body') = List.break (== dot) rest
+                              & over _2  (List.dropWhile (==dot))
+
+        args <- argList (a:aa) & \case
+                  Nothing -> throwIO (BadFormException @c w)
+                  Just xs -> pure xs
+
+        body <- case body' of
+                  [e] -> pure e
+                  _   -> throwIO (BadFormException @c w)
+
+        pure $ mkForm @c "lambda" [ mkList (fmap mkSym args), body ]
 
       ListVal [SymbolVal "fn", LitIntVal n, body] -> do
         pure $ mkForm @c "lambda" [ mkList [ mkSym ("_" <> show i) | i <- [1..n]  ], body ]
