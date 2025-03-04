@@ -32,23 +32,24 @@ import HBS2.Prelude (asyncLinked)
 
 data RPC2Context =
   RPC2Context
-  { rpcSelf                :: ThreadId
-  , rpcConfig              :: [Syntax C]
-  , rpcMessaging           :: MessagingUnix
-  , rpcTCP                 :: Maybe MessagingTCP
-  , rpcPokeAnswer          :: String
-  , rpcPeerEnv             :: PeerEnv L4Proto
-  , rpcLocalMultiCast      :: Peer L4Proto
-  , rpcStorage             :: AnyStorage
-  , rpcBrains              :: SomeBrains L4Proto
-  , rpcByPassInfo          :: IO ByPassStat
-  , rpcProbes              :: TVar [AnyProbe]
-  , rpcDoFetch             :: HashRef -> IO ()
-  , rpcDoRefChanHeadPost   :: HashRef -> IO ()
-  , rpcDoRefChanPropose    :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
-  , rpcDoRefChanNotify     :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
-  , rpcMailboxService      :: AnyMailboxService HBS2Basic
-  , rpcMailboxAdapter      :: AnyMailboxAdapter HBS2Basic
+  { rpcSelf                   :: ThreadId
+  , rpcConfig                 :: [Syntax C]
+  , rpcMessaging              :: MessagingUnix
+  , rpcTCP                    :: Maybe MessagingTCP
+  , rpcPokeAnswer             :: String
+  , rpcPeerEnv                :: PeerEnv L4Proto
+  , rpcLocalMultiCast         :: Peer L4Proto
+  , rpcStorage                :: AnyStorage
+  , rpcBrains                 :: SomeBrains L4Proto
+  , rpcByPassInfo             :: IO ByPassStat
+  , rpcProbes                 :: TVar [AnyProbe]
+  , rpcCleanupByPassMessaging :: IO ()
+  , rpcDoFetch                :: HashRef -> IO ()
+  , rpcDoRefChanHeadPost      :: HashRef -> IO ()
+  , rpcDoRefChanPropose       :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  , rpcDoRefChanNotify        :: (PubKey 'Sign 'HBS2Basic, SignedBox ByteString 'HBS2Basic) -> IO ()
+  , rpcMailboxService         :: AnyMailboxService HBS2Basic
+  , rpcMailboxAdapter         :: AnyMailboxAdapter HBS2Basic
   }
 
 instance (Monad m, Messaging MessagingUnix UNIX (Encoded UNIX)) => HasFabriq UNIX (ReaderT RPC2Context m) where

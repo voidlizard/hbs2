@@ -1319,6 +1319,11 @@ runPeer opts = respawnOnError opts $ do
   setProbe rpcmsg rpcProbe
   addProbe rpcProbe
 
+  let doCleanupByPassMessaging = withPeerM penv do
+        debug $ red "doCleanupByPassMessaging"
+        pips <- getKnownPeers @L4Proto
+        cleanupByPassMessaging byPass pips
+
   let rpcctx = RPC2Context { rpcSelf = myself
                            , rpcConfig = fromPeerConfig conf
                            , rpcMessaging = rpcmsg
@@ -1331,6 +1336,7 @@ runPeer opts = respawnOnError opts $ do
                            , rpcByPassInfo = liftIO (getStat byPass)
                            , rpcProbes = probes
                            , rpcDoFetch = liftIO . fetchHash penv
+                           , rpcCleanupByPassMessaging = doCleanupByPassMessaging
                            , rpcDoRefChanHeadPost = refChanHeadPostAction
                            , rpcDoRefChanPropose = refChanProposeAction
                            , rpcDoRefChanNotify = refChanNotifyAction

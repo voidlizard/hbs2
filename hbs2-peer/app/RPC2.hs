@@ -218,6 +218,9 @@ instance (e ~ L4Proto, MonadUnliftIO m, HasRpcContext PeerAPI RPC2Context m) => 
           _ -> do
             pure nil
 
+        entry $ bindMatch "test:cleanupByPassMessaging" $ const $ do
+          liftIO rpcCleanupByPassMessaging
+          pure $ mkSym "done"
 
         entry $ bindMatch "test:explode" $ const do
 
