@@ -32,6 +32,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Data
 import Data.Coerce
+import Data.Foldable
 import Data.Function as Export
 import Data.Functor as Export
 import Data.Hashable
@@ -72,6 +73,7 @@ import Lens.Micro.Platform
 import UnliftIO
 import UnliftIO.Concurrent
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 
 -- TODO: move-to-suckless-conf
 
@@ -302,14 +304,25 @@ lambdaArgList :: Syntax c -> Maybe [Id]
 lambdaArgList (ListVal a) = sequence argz
   where
     argz = flip fmap a \case
-      (SymbolVal x) -> Just x
-      _             -> Nothing
+      (SymbolVal x) | x `notElem` [".","_"] -> Just x
+      _                                     -> Nothing
 
 lambdaArgList _ = Nothing
+
+pattern ArgList :: [Id] -> [Syntax c]
+pattern ArgList a <- (argList -> Just a)
+
+argList :: [Syntax c] -> Maybe [Id]
+argList syn = sequence argz
+  where
+    argz = flip fmap syn \case
+      (SymbolVal x) | x `notElem` [".","_"] -> Just x
+      _                                     -> Nothing
 
 
 pattern PairList :: [Syntax c] -> [Syntax c]
 pattern PairList es <- (pairList -> es)
+
 
 pairList :: [Syntax c ] -> [Syntax c]
 pairList syn = [ isPair s | s <- syn ] & takeWhile isJust & catMaybes
@@ -529,6 +542,13 @@ apply_ :: forall c m . ( IsContext c
 
 apply_ s args = case s of
   ListVal [SymbolVal "builtin:lambda", SymbolVal n]  -> apply n args
+
+  ListVal (SymbolVal "builtin:closure" : e : free) -> do
+    apply_ e (free <> args)
+
+  ListVal (SymbolVal "builtin:rclosure" : e : free) -> do
+    apply_ e (args <> free)
+
   SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal   what  -> apply what args
@@ -557,8 +577,8 @@ apply name args' = do
     Just (BindLambda e) -> do
       e args'
 
-    Just (BindValue (Lambda argz body) )  -> do
-      applyLambda argz body args'
+    Just (BindValue e)  -> do
+      apply_ e args'
 
     Just (BindMacro macro) -> do
       macro args'
@@ -650,7 +670,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
     dict1 <- ask >>= readTVarIO
 
-    let dict = dict0 <> dict1
+    let dict = dict1 <> dict0
 
     -- liiftIO $ print $ show $ "TRACE EXP" <+> pretty syn
     let importDecls = HS.fromList [ "import", "define", "define-macro" :: Id ]
@@ -756,8 +776,30 @@ eval' dict0 syn' = handle (handleForm syn') $ do
         atomically $ modifyTVar t (HM.insert name b)
         pure nil
 
+      w@(ListVal (SymbolVal "fn" : a@(SymbolVal{}) : rest)) -> do
+        let dot = mkSym "."
+        let (aa, body') = List.break (== dot) rest
+                              & over _2  (List.dropWhile (==dot))
+
+        args <- argList (a:aa) & \case
+                  Nothing -> throwIO (BadFormException @c w)
+                  Just xs -> pure xs
+
+        body <- case body' of
+                  [e] -> pure e
+                  es  -> pure $ mkList es
+
+        pure $ mkForm @c "lambda" [ mkList (fmap mkSym args), body ]
+
       ListVal [SymbolVal "fn", LitIntVal n, body] -> do
         pure $ mkForm @c "lambda" [ mkList [ mkSym ("_" <> show i) | i <- [1..n]  ], body ]
+
+      ListVal (SymbolVal "fn1" : body) -> do
+        let e = case body of
+                  [e] -> e
+                  es  -> mkList es
+
+        pure $ mkForm @c "lambda" [ mkList [ mkSym "_1"  ], e ]
 
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
@@ -787,7 +829,58 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
       e@(ListVal (SymbolVal "blob" : what)) -> do
         pure e
-        -- evalTop what
+
+      r@(ListVal (SymbolVal "cond" : clauses)) -> do
+
+        flip fix clauses $  \next -> \case
+
+          (ListVal [SymbolVal "_", e1] : _) -> do
+            eval e1
+
+          (ListVal [p', e1] : rest) -> do
+
+            p <- eval p'
+
+            if isFalse p then
+              next rest
+            else do
+              eval e1
+
+          (_ : _) -> throwIO (BadFormException r)
+
+          [] -> pure nil
+
+      r@(ListVal (SymbolVal "match" : e' : clauses)) -> do
+        e <- eval e'
+
+        flip fix clauses $  \next -> \case
+
+          (ListVal [SymbolVal "_", e1] : rest) -> do
+            eval e1
+
+          (ListVal [p', e1] : rest) -> do
+
+            p <- eval p'
+
+            -- error $ show $ pretty p
+
+            wat <- matched [p,e] <&> \case
+                     ListVal es -> es
+                     _ -> mempty
+
+            let found =  [ (n, Bind mzero (BindValue x))
+                         | ListVal [SymbolVal  n,x] <- wat, n /= "_"
+                         ] & HM.fromList
+
+            if List.null wat then
+              next rest
+            else do
+              eval' found e1
+
+          (_ : _) -> throwIO (BadFormException r)
+
+          [] -> pure nil
+
 
       lc@(ListVal (Lambda decl body : args))  -> do
         applyLambda decl body =<< evargs dict args
@@ -1075,11 +1168,6 @@ internalEntries = do
       z ->
         throwIO (BadFormException @C nil)
 
-    entry $ bindMatch "bound?" $ \case
-      [ SymbolVal x ] -> do
-        error "DONT KNOW"
-      _ -> pure $ mkBool False
-
     entry $ bindMatch "apply" $ \case
       [e, ListVal es] -> apply_ e es
 
@@ -1088,6 +1176,14 @@ internalEntries = do
     entry $ bindMatch "eval" $ \syn -> do
       r <- mapM eval syn
       pure $ lastDef nil r
+
+    entry $ bindMatch "curry" \case
+      [e1, e2] -> pure $ mkForm "builtin:closure" [e1, e2]
+      e -> throwIO (BadFormException @c  (mkList e))
+
+    entry $ bindMatch "rcurry" \case
+      [e1, e2] -> pure $ mkForm "builtin:rclosure" [e1, e2]
+      e -> throwIO (BadFormException @c  (mkList e))
 
     entry $ bindMatch "id" $ \case
       [ e ] -> pure e
@@ -1595,7 +1691,7 @@ internalEntries = do
         [SymbolVal _]  -> pure $ mkSym "symbol"
         [LitStrVal _]  -> pure $ mkSym "string"
         [LitIntVal _]  -> pure $ mkSym "int"
-        [LitScientificVal _] -> pure $ mkSym "float"
+        [LitScientificVal _] -> pure $ mkSym "real"
         [LitBoolVal _] -> pure $ mkSym "bool"
         _ -> throwIO (BadFormException @c nil)
 
@@ -1631,6 +1727,54 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
+    for_ ["int?", "sym?","bool?","str?","real?"] $ \pred -> do
+      let ref = "bf6:" <> pred
+
+      entry $ bindMatch pred $ \case
+        [a]   -> pure $ mkForm "builtin:closure" [mkSym ref,  a]
+        e -> throwIO (BadFormException @c (mkList e))
+
+      entry $ bindMatch ref $ \case
+        [SymbolVal "_", b] ->do
+          if bf6TypeOfPred pred == bf6TypeOf b then pure  b else pure nil
+
+        [a@(Literal _ _), b] | bf6TypeOfPred pred == bf6TypeOf b -> do
+          if a == b then pure b else pure nil
+
+        [a,b] -> do
+          apply_ a [b] >>= \w -> do
+            if isFalse w then pure nil else pure b
+
+        e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "list?" $ \case
+      [SymbolVal "..."]-> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkSym "..."]
+      es -> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkList es]
+
+    entry $ bindMatch "bf6:list?" $ \case
+      [a,b] -> termMatches (mkList [mkSym "bf6:list?", a]) b
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "?" $ \case
+      [ SymbolVal n, e ] -> pure $ mkForm "builtin:closure" [mkSym "bf6:?", mkSym n, e]
+      [ e ] -> pure $ mkForm "builtin:closure" [mkSym "bf6:?", e]
+
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "bf6:?" $ \case
+      [ SymbolVal n, e, e2 ] -> do
+        apply_ e [e2] >>= \case
+          ListVal [] -> pure nil
+          r          -> pure $ mkList [mkSym n, r]
+
+      [ e, e2 ] -> do
+        apply_ e [e2] >>= \case
+          ListVal [] -> pure nil
+          r          -> pure $ mkList [mkSym "_", r]
+
+      e -> throwIO (BadFormException @c (mkList e))
+
+    entry $ bindMatch "matched?" matched
 
     entry $ bindMatch "le?" $ \case
       [a, b] -> pure $ mkBool (compareSyn a b == LT)
@@ -2130,6 +2274,102 @@ concatTerms s =  \case
      mkStr @c  ( show $ pretty $ concatTerms s xs )
 
   xs -> mkStr ( show $ s (fmap fmt xs) )
+
+
+matched :: forall c m . ( IsContext c
+                        , MonadUnliftIO m
+                        , Exception (BadFormException c)
+                        )
+       => [Syntax c] -> RunM c m (Syntax c)
+matched = \case
+  [ a, b ] -> do
+
+    syn <- apply_ a [b]
+
+    -- error $ show $ "AAAAA" <+> pretty a <+> pretty syn
+
+    (_,w) <- runWriterT $ scan syn
+
+    pure $ mkList [ mkList [mkSym n, e] | (n,e) <- w ]
+
+    where
+      scan = \case
+        ListVal [SymbolVal x, e] -> do
+          e' <- scan e
+          tell [(x, e')]
+          pure e'
+
+        ListVal es -> do
+          es' <- mapM scan es
+          pure (mkList es')
+
+        e -> do
+          tell [("_", e)]
+          pure e
+
+  z -> throwIO (BadFormException @c (mkList z))
+
+bf6TypeOf :: forall c . (IsContext c)
+          => Syntax c
+          -> Maybe (Syntax c)
+bf6TypeOf = \case
+  ListVal{}   -> pure $ mkSym "list"
+  SymbolVal{}  -> pure $ mkSym "symbol"
+  LitStrVal{}   -> pure $ mkSym "string"
+  LitIntVal{}   -> pure $ mkSym "int"
+  LitScientificVal{} -> pure $ mkSym "real"
+  LitBoolVal{} -> pure $ mkSym "bool"
+  OpaqueValue{} -> pure $ mkSym "opaque"
+  _ -> Nothing
+
+
+bf6TypeOfPred :: forall c . (IsContext c)
+          => Id
+          -> Maybe (Syntax c)
+bf6TypeOfPred = \case
+  "list?"   -> pure $ mkSym "list"
+  "sym?"    -> pure $ mkSym "symbol"
+  "str?"    -> pure $ mkSym "string"
+  "int?"    -> pure $ mkSym "int"
+  "real?"   -> pure $ mkSym "real"
+  "bool?"   -> pure $ mkSym "bool"
+  _ -> Nothing
+
+termMatches :: forall c m . ( IsContext c
+                            , MonadUnliftIO m
+                            , Exception (BadFormException c)
+                            )
+            => Syntax c -> Syntax c -> RunM c m (Syntax c)
+
+termMatches pred what = case (pred, what) of
+  (SymbolVal "_", a) -> pure a
+
+  (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> pure $ bound_ b
+
+  (ListVal [SymbolVal "bf6:list?", a@(ListVal as)], b@(ListVal bs)) -> do
+    maybe nil mkList <$> runMaybeT do
+      for (emit as bs) $ \case
+        Nothing    -> mzero
+        Just (SymbolVal w, b) -> do
+          pure $ mkList [mkSym w, b]
+        Just (a,b) -> lift (apply_ a [b]) >>= \case
+          ListVal (e:es) -> pure (mkList (e:es))
+          e | e /= nil -> pure $ mkList [mkSym "_", e]
+          e -> mzero
+
+  e -> error $ show $ pretty  e
+
+  where
+
+    bound_ e = e
+
+    emit [] [] = mempty
+    emit (SymbolVal "..." : _) [] = mempty
+    emit (_:_) [] = [Nothing]
+    emit [] (_:_) = [Nothing]
+    emit (SymbolVal "..." : _) bs = [ Just (mkSym "_", x) | x <- bs ]
+    emit (a:as) (b:bs) = Just (a,b) : emit as bs
+
 
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
