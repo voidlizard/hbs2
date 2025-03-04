@@ -43,6 +43,7 @@ import Data.Maybe
 import Data.Word
 import System.Random
 import System.IO.Unsafe (unsafePerformIO)
+import Control.Monad.Trans.Cont
 import UnliftIO
 
 heySeed :: Word8
@@ -111,8 +112,8 @@ data ByPass e them =
   , ske          :: PrivKey 'Encrypt (Encryption e)
   , proxied      :: them
   , nonceA       :: NonceA
-  , delayed      :: TQueue (To e, ByteString)
   , heySent      :: TVar (HashMap (Peer e) TimeSpec)
+  , heySentNum   :: TVar (HashMap (Peer e) Int)
   , noncesByPeer :: TVar (HashMap (Peer e) NonceA)
   , banned       :: TVar (HashMap (Peer e) TimeSpec)
   , flowKeys     :: TVar (HashMap FlowKey CombinedKey)
@@ -207,9 +208,9 @@ cleanupByPassMessaging  bus pips = do
     let liveFlows =  HM.filterWithKey (\k _ -> k `HashSet.member` liveFk) flows
 
     writeTVar (heySent bus) liveSent
+    writeTVar (heySentNum bus) mempty
     writeTVar (noncesByPeer bus) livePeers
     writeTVar (flowKeys bus) liveFlows
-
     modifyTVar (banned bus) (HM.filter (now>))
 
 
@@ -242,7 +243,7 @@ newByPassMessaging :: forall e w m . ( ForByPass e
 newByPassMessaging o w self ps sk  = do
   (Keypair s p) <- liftIO PKE.newKeypair
   let n = mySipHash (LBS.toStrict (serialise s))
-  ByPass @e o self ps sk p s w n <$> newTQueueIO
+  ByPass @e o self ps sk p s w n <$> newTVarIO mempty
                                  <*> newTVarIO mempty
                                  <*> newTVarIO mempty
                                  <*> newTVarIO mempty
@@ -262,36 +263,47 @@ newByPassMessaging o w self ps sk  = do
 instance (ForByPass e, Messaging w e ByteString)
   => Messaging (ByPass e w) e ByteString where
 
-  sendTo bus t@(To whom) f m = do
+  sendTo bus@ByPass{..} t@(To whom) f m = void $ flip runContT pure do
 
-    mkey <- lookupEncKey bus whom
+    callCC \exit -> do
 
-    atomically do
-      modifyTVar (sentNum bus) succ
-      modifyTVar (sentBytes bus) (+ (fromIntegral $ LBS.length m))
+      ban <- readTVarIO banned <&> HM.member whom
 
-    case mkey of
-      Just fck -> do
-        sendTo (proxied bus) t f =<< encryptMessage bus fck m
+      when ban $ exit ()
 
-      Nothing -> do
-        -- let ByPassOpts{..} = opts bus
+      mkey <- lookupEncKey bus whom
 
-        if False then do
-          atomically $ writeTQueue (delayed bus) (t,m)
-        else do
-          trace $ "bypassed message to"  <+> pretty whom
-          atomically $ modifyTVar (bypassed bus) succ
-          sendTo (proxied bus) t f m
+      atomically do
+        modifyTVar sentNum succ
+        modifyTVar sentBytes (+ (fromIntegral $ LBS.length m))
+
+      case mkey of
+        Just fck -> do
+          sendTo proxied t f =<< encryptMessage bus fck m
+
+        Nothing -> do
+          -- let ByPassOpts{..} = opts bus
+
+         atomically $ modifyTVar bypassed succ
+         sendTo proxied t f m
 
         -- TODO: stop-sending-hey-after-while
         --   Если адрес кривой и мы его не знаем/не можем
         --   на него послать/ничего с него не получаем ---
         --   надо переставать слать на него HEY с какого-то момента
 
-        -- TODO: fix-timeout-hardcode
-        withHeySent bus 30 whom do
+         heys <- readTVarIO heySentNum <&> fromMaybe 0 . HM.lookup whom
+
+         when (heys > 10) do
+          nowTs <- getTimeCoarse
+          let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 600)
+          atomically $ modifyTVar banned (HM.insert whom till)
+          exit ()
+
+          -- TODO: fix-timeout-hardcode
+         withHeySent bus 30 whom do
           sendHey bus whom
+          atomically $ modifyTVar heySentNum (HM.insertWith (+) whom 1)
 
   receive bus@ByPass{..} f = do
     msgs <- receive  proxied f
@@ -335,7 +347,13 @@ instance (ForByPass e, Messaging w e ByteString)
 
         let o = opts
 
-        let (code, hbs) = runCodeLazy bs
+        w <- liftIO $ race (pause @'Seconds 1) (pure $! runCodeLazy bs)
+
+        (code, hbs) <- case w of
+                         Right x -> pure x
+                         Left{} -> do
+                          err $ "ByPass: bytecode run timeout" <+> pretty orig
+                          pure (Nothing, mempty)
 
         -- FIXME: check-code
         guard ( code == Just heySeed )
