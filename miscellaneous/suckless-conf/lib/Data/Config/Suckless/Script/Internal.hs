@@ -304,8 +304,8 @@ lambdaArgList :: Syntax c -> Maybe [Id]
 lambdaArgList (ListVal a) = sequence argz
   where
     argz = flip fmap a \case
-      (SymbolVal x) | x `notElem` [".","_"] -> Just x
-      _                                     -> Nothing
+      (SymbolVal x) -> Just x
+      _             -> Nothing
 
 lambdaArgList _ = Nothing
 
