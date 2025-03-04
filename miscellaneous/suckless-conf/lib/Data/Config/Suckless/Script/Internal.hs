@@ -785,12 +785,19 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
         body <- case body' of
                   [e] -> pure e
-                  _   -> throwIO (BadFormException @c w)
+                  es  -> pure $ mkList es
 
         pure $ mkForm @c "lambda" [ mkList (fmap mkSym args), body ]
 
       ListVal [SymbolVal "fn", LitIntVal n, body] -> do
         pure $ mkForm @c "lambda" [ mkList [ mkSym ("_" <> show i) | i <- [1..n]  ], body ]
+
+      ListVal (SymbolVal "fn1" : body) -> do
+        let e = case body of
+                  [e] -> e
+                  es  -> mkList es
+
+        pure $ mkForm @c "lambda" [ mkList [ mkSym "_1"  ], e ]
 
       ListVal [SymbolVal "lambda", arglist, body] -> do
         pure $ mkForm @c "lambda" [ arglist, body ]
