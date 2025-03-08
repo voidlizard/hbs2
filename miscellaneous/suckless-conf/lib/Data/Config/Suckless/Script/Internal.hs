@@ -1248,6 +1248,11 @@ internalEntries = do
         [] -> pure nil
         [ListVal []] -> pure nil
         [ListVal es] -> pure $ mkList  (tail es)
+
+        [StringLike es] -> pure $ case tailSafe es  of
+                                    [] -> nil
+                                    xs -> mkSym xs
+
         _ -> throwIO (BadFormException @c nil)
 
     entry $ bindAlias "cdr" "tail"
