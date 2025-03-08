@@ -56,7 +56,6 @@ byPassWorker bp@ByPass{..} = do
     forever do
       pips <- lift getKnownPeers
       cleanupByPassMessaging bp pips
-      pause @'Seconds 600
-
+      pause @'Seconds 120
 
 

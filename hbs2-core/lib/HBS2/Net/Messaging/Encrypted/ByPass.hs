@@ -211,7 +211,7 @@ cleanupByPassMessaging  bus pips = do
     writeTVar (heySentNum bus) mempty
     writeTVar (noncesByPeer bus) livePeers
     writeTVar (flowKeys bus) liveFlows
-    modifyTVar (banned bus) (HM.filter (now>))
+    modifyTVar (banned bus) (HM.filter (>now))
 
 
 byPassDef :: ByPassOpts e
@@ -296,7 +296,7 @@ instance (ForByPass e, Messaging w e ByteString)
 
          when (heys > 10) do
           nowTs <- getTimeCoarse
-          let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 600)
+          let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 1800)
           atomically $ modifyTVar banned (HM.insert whom till)
           exit ()
 
@@ -369,7 +369,7 @@ instance (ForByPass e, Messaging w e ByteString)
             debug $ "GOT HEY MESSAGE" <+> parens (pretty code) <+> pretty heyNonceA
 
             when (heyNonceA  == nonceA) do
-              let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 600)
+              let till = toTimeSpec (TimeoutTS nowTs) + toTimeSpec (TimeoutSec 3600)
               atomically $ modifyTVar banned (HM.insert orig till)
               warn $ "ByPass: loop detected"
 
