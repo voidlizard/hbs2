@@ -392,10 +392,10 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
           -- client sockets
 
           -- смотрим к кому надо
-          who <- atomically do
+          who <- atomically $ fix \next -> do
                    who <- readTQueue _tcpConnDemand
                    already <- readTVar _tcpPeerConn <&> HM.member who
-                   if not already then pure who else STM.retry
+                   if not already then pure who else next
 
           debug $ "DEMAND:" <+> pretty who
 

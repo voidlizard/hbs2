@@ -287,15 +287,13 @@ runMessagingUnix env = do
 
       sock <- ContT $ bracket openSock closeSock
 
-      sockReady <- newTVarIO False
-
       void $ ContT $ bracket (createQueues env who) dropQueuesFor
 
       let attemptConnect = do
             result <- liftIO $ try $ connect sock $ SockAddrUnix (msgUnixSockPath env)
             case result of
               Right _ -> do
-                atomically $ writeTVar sockReady True
+                none
 
               Left (e :: SomeException) -> do
                 warn $ "MessagingUnix. failed to connect" <+> pretty sa <+> viaShow e
@@ -307,9 +305,6 @@ runMessagingUnix env = do
       writer <- ContT $ liftIO . withAsync  do
 
                   forever do
-
-                    atomically do
-                      readTVar sockReady `orElse` retry
 
                     -- Мы клиент. Шлём кому? **ЕМУ**, на том конце трубы.
                     -- У нас один контрагент, имя сокета (файла) == адрес пира.
