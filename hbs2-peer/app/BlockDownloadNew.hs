@@ -696,26 +696,14 @@ downloadDispatcher probe brains env = do
         missed <- findMissedBlocks sto what
         for_ missed insertNewDownload
 
-      idle <- ContT $ withAsync $ do
-        t0 <- getTimeCoarse
-        flip fix t0 $ \next ti -> do
-          num <- readTVarIO wip <&> HM.size
-          t1 <- getTimeCoarse
-          if num /= 0 then do
-            pause @Seconds 5 >> next t1
-          else do
-            let idle = expired (TimeoutSec 600) (t1 - ti)
-            -- debug $ blue "EXPIRED" <+> pretty (idle,t1,ti)
-            when idle $ throwIO DownloadSweepOnIdle
-            pause @Seconds 5
-            next t0
 
       ContT $ withAsync $ forever $ (>> pause @'Seconds 10) do
         sw0  <- readTVarIO wip <&> HM.size
         n    <- countDownloads @e brains
         debug $ yellow $ "wip" <+> pretty sw0 <+> parens (pretty n)
 
-      void $ waitCatch idle
+      void $ forever do
+        pause @'Seconds 300
 
   where
 
