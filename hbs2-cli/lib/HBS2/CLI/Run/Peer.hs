@@ -84,12 +84,12 @@ peerEntries = do
 
     [isOpaqueOf @LBS.ByteString -> Just lbs] -> do
       sto <- getStorage
-      (putBlock sto lbs <&> fmap (mkStr . show . pretty . HashRef) )
+      (putBlock sto lbs <&> fmap (mkSym . show . pretty . HashRef) )
         >>= orThrowUser "storage error"
 
     [isOpaqueOf @BS.ByteString -> Just bs] -> do
       sto <- getStorage
-      (putBlock sto (LBS.fromStrict bs) <&> fmap (mkStr . show . pretty . HashRef) )
+      (putBlock sto (LBS.fromStrict bs) <&> fmap (mkSym . show . pretty . HashRef) )
         >>= orThrowUser "storage error"
 
     -- FIXME: deprecate-this
@@ -103,7 +103,14 @@ peerEntries = do
         sto <- getStorage
         lift $ putTextLit sto s
 
-    _ -> throwIO $ BadFormException @c nil
+    [] -> do
+        bs <- liftIO BS.getContents
+        sto <- getStorage
+        putBlock sto (LBS.fromStrict bs) >>= \case
+          Nothing -> pure nil
+          Just h  -> pure $ mkSym (show $ pretty $ HashRef h)
+
+    e -> throwIO $ BadFormException @c (mkList e)
 
   brief "checks if peer available"
     $ noArgs

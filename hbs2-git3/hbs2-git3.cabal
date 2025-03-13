@@ -56,6 +56,7 @@ common shared-properties
 
   build-depends:
         hbs2-core
+      , hbs2-log-structured
       , hbs2-peer
       , hbs2-storage-simple
       , hbs2-keyman-direct-lib

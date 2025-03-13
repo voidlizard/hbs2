@@ -495,6 +495,7 @@ downloadFromPeer bu cache env h peer = liftIO $ withPeerM env do
 
           let w0 = 2.0 :: Timeout 'MilliSeconds
 
+          -- FIXME: possible-busyloop
           let watchdog = flip fix 0 \next x -> do
                r <- race (pause @'MilliSeconds wx) do
                       atomically do

@@ -26,7 +26,7 @@ BINS := \
   fixme-new          \
 	hbs2-git3 \
 	git-remote-hbs23 \
-
+	hbs2-ncq \
 
 RT_DIR := tests/RT
 
