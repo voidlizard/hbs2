@@ -357,7 +357,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     stopped <- readTVarIO ncqStopped
 
     when (dumpByTime || bytes >= dumpData || flushNow || stopped) do
-      debug "NCQStorage: dump data!"
+      -- debug "NCQStorage: dump data!"
       liftIO $ writeJournal indexQ syncData
 
   mapM_ waitCatch [writer,indexer,refsWriter]
