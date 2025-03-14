@@ -311,6 +311,7 @@ main = do
             h2 <- lift $ ncqStoragePut ncq "PECHENTRESKI!"
 
             liftIO $ ncqStorageStop ncq
+            wait writer
 
             pure $ mkList [mkSym (show $ pretty h), mkSym (show $ pretty h2)]
 
@@ -402,6 +403,7 @@ main = do
             href <- liftIO $ ncqStoragePut ncq (LBS.fromStrict what)
 
             liftIO $ ncqStorageStop ncq
+            wait writer
 
             pure $ maybe nil (mkSym . show . pretty) href
 
@@ -442,7 +444,26 @@ main = do
 
             liftIO $ print $ pretty m
 
+            debug "stopping"
             liftIO $ ncqStorageStop ncq
+            debug "stopping done"
+
+            wait writer
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:one-ref" $ nil_ $ \case
+          [StringLike fn] -> liftIO $ flip runContT pure do
+
+            ncq <- lift $ ncqStorageOpen fn
+
+            writer <- ContT $ withAsync $ ncqStorageRun ncq
+            link writer
+
+            ContT $ bracket none $ const do
+              none
+
+            none
 
           e -> throwIO $ BadFormException @C (mkList e)
 
@@ -477,34 +498,10 @@ main = do
 
             liftIO $ ncqStorageStop ncq
 
+            wait writer
+
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "test:retry" $ nil_ $ const $ flip runContT pure do
-
-          q <- newTQueueIO
-          w <- newTVarIO 0
-
-          p1 <- ContT $ withAsync $ forever do
-                  pause @'Seconds 0.001
-                  x <- randomIO @Word64
-                  atomically do
-                    writeTQueue q x
-                    modifyTVar w succ
-
-          p2 <- ContT $ withAsync $ do
-                  atomically $ fix \next ->  do
-                    e <- readTQueue q
-                    if (e == 0xDEADF00D) then none else next
-
-          p3 <- ContT $ withAsync $ do
-                   pause @'Seconds 10
-
-          waitAnyCatchCancel [p1,p2,p3]
-
-          s <- atomically $ STM.flushTQueue q
-          n <- readTVarIO w
-
-          liftIO $ print $ "so?" <+> pretty n <+> pretty (length s)
 
   setupLogger
 
