@@ -9,7 +9,6 @@ module HBS2.Sync.Prelude
   , module Exported
   ) where
 
-
 import HBS2.Prelude.Plated as Exported
 import HBS2.Base58 as Exported
 import HBS2.OrDie as Exported
@@ -23,6 +22,7 @@ import HBS2.Storage.Compact as Compact
 import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client hiding (encode,decode) -- as Exported
 import HBS2.Peer.RPC.Client.Unix (UNIX)
+import HBS2.Peer.RPC.Client.RefChan (fetchRefChanHead, fetchRefChan, getRefChanValue)
 import HBS2.Peer.RPC.Client.StorageClient
 import HBS2.Peer.RPC.API.Peer
 import HBS2.Peer.RPC.API.RefChan
@@ -60,9 +60,12 @@ import Data.Maybe as Exported
 import Data.Time.Clock.POSIX
 import Data.Word
 import Lens.Micro.Platform
-import System.Exit qualified as Exit
+import System.Console.ANSI qualified as IO
 import System.Directory
+import System.Exit qualified as Exit
+import System.IO qualified as IO
 import UnliftIO as Exported
+import HBS2.CLI.Prelude (IsTimeout)
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -449,3 +452,49 @@ die :: forall a m . (MonadUnliftIO m, Pretty a) => a -> m ()
 die what = liftIO do
   hPutDoc stderr (pretty what)
   Exit.exitFailure
+
+animateSpinner =
+  async $ forM_ (cycle "|/-\\") $ \c -> do
+    IO.putChar c
+    IO.hFlush IO.stdout
+    IO.cursorBackward 1
+    pause (TimeoutSec 0.25)
+
+waitForRefchan ::
+  ( HasClientAPI PeerAPI UNIX m
+  , HasClientAPI RefChanAPI UNIX m
+  , MonadUnliftIO m
+  , IsTimeout t
+  )
+  => PubKey 'Sign 'HBS2Basic
+  -> Timeout t
+  -> m (Maybe HashRef)
+waitForRefchan refchan timeout = do
+  peerApi <- getClientAPI @PeerAPI @UNIX
+
+  callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerApi (refchan, "refchan", 17)
+    >>= orThrowUser "can't subscribe to refchan"
+
+  liftIO $ putStr "waiting for refchan "
+  spinner <- liftIO animateSpinner
+  res <- race (pause timeout) (wait 1)
+  cancel spinner
+  liftIO $ do
+    IO.setCursorColumn 0
+    IO.clearLine
+
+  case res of
+    Right x -> pure (Just x)
+    _ -> pure Nothing
+
+  where
+    wait seconds = do
+      fetchRefChanHead @UNIX refchan
+      fetchRefChan @UNIX refchan
+      getRefChanValue @UNIX refchan >>= \case
+        Just value ->
+          pure value
+
+        Nothing -> do
+          pause @'Seconds seconds
+          wait (seconds * 2)

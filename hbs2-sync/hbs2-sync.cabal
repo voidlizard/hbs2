@@ -60,6 +60,7 @@ common shared-properties
       , db-pipe
       , suckless-conf
 
+      , ansi-terminal
       , atomic-write
       , bytestring
       , containers
@@ -110,4 +111,3 @@ executable hbs2-sync
 
     hs-source-dirs:   app
     default-language: GHC2021
-

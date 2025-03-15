@@ -13,6 +13,7 @@ import HBS2.Storage.Compact as Compact
 import HBS2.Storage.Operations.Class
 
 import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.RPC.API.Peer (PeerAPI)
 import HBS2.Peer.RPC.API.RefChan
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.Unix (UNIX)
@@ -690,6 +691,7 @@ mergeState seed orig = do
 
 runDirectory :: ( IsContext c
                 , SyncAppPerks m
+                , HasClientAPI PeerAPI UNIX m
                 , HasClientAPI RefChanAPI UNIX m
                 , HasClientAPI StorageAPI UNIX m
                 , HasStorage m
@@ -774,7 +776,8 @@ runDirectory = do
 
       refchan <- view dirSyncRefChan env & orThrow RefChanNotSetException
 
-      fetchRefChan @UNIX refchan
+      waitForRefchan refchan (TimeoutMin 1)
+        >>= orThrow RefChanHeadNotFoundException
 
       -- FIXME: multiple-directory-scans
 

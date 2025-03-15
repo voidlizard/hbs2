@@ -132,10 +132,10 @@ syncInit keys = do
 
   href <- writeAsMerkle storage (serialise box)
 
-  callService @RpcPollAdd peerApi (refchan, "refchan", 17)
+  callRpcWaitMay @RpcPollAdd (TimeoutSec 1) peerApi (refchan, "refchan", 17)
     >>= orThrowUser "can't subscribe to refchan"
 
-  callService @RpcRefChanHeadPost rchanApi (HashRef href)
+  callRpcWaitMay @RpcRefChanHeadPost (TimeoutSec 1) rchanApi (HashRef href)
     >>= orThrowUser "can't post refchan head"
 
   let authorString = show $ pretty $ AsBase58 authorKey
@@ -203,6 +203,9 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
         refchanKey <-
           fromStringMay @(PubKey 'Sign HBS2Basic) refchanString
             & orThrowUser "refchan not found"
+
+        waitForRefchan refchanKey (TimeoutMin 1)
+          >>= orThrowUser "waiting for refchan timed out"
 
         headBlock <-
           RefChanClient.getRefChanHead @UNIX refchanKey
