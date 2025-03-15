@@ -94,6 +94,7 @@ data NCQStorage =
   , ncqRefsMem        :: TVar (HashMap HashRef HashRef)
   , ncqRefsDirty      :: TVar Int
   , ncqWriteQueue     :: TVar (HashPSQ HashRef TimeSpec LBS.ByteString)
+  , ncqDeleteQueue    :: TVar (HashPSQ HashRef TimeSpec LBS.ByteString)
   , ncqWaitIndex      :: TVar (HashPSQ HashRef TimeSpec (Word64,Word64))
   , ncqTrackedFiles   :: TVar (HashSet FileKey)
   , ncqCachedIndexes  :: TVar (HashPSQ FileKey TimeSpec (ByteString,NWayHash))
@@ -642,8 +643,17 @@ ncqStorageDelRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m ()
 ncqStorageDelRef NCQStorage{..} ref = atomically do
   modifyTVar ncqRefsMem (HM.delete ref)
 
-ncqStorageDel :: MonadUnliftIO m => NCQStorage -> HashRef -> m NCQStorage
-ncqStorageDel sto h = do
+ncqStorageDel :: MonadUnliftIO m => NCQStorage -> HashRef -> m ()
+ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
+  readTVarIO ncqStopped >>= \case
+    True -> exit ()
+    _    -> none
+
+  atomically $ modifyTVar ncqWriteQueue (HPSQ.delete h)
+
+  ncqLocate ncq h >>= \case
+    _ -> none
+
   error "not implemented yet"
 
 ncqStorageSync :: MonadUnliftIO m => NCQStorage -> m ()
@@ -770,6 +780,7 @@ ncqStorageInit_ check path = do
   let ncqMaxCachedData = ncqMaxCachedIdx `div` 2
 
   ncqWriteQueue    <- newTVarIO HPSQ.empty
+  ncqDeleteQueue   <- newTVarIO HPSQ.empty
 
   ncqNotWritten    <- newTVarIO 0
   ncqLastWritten   <- getTimeCoarse >>= newTVarIO
