@@ -391,11 +391,11 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
         forever $ void $ runMaybeT do
           -- client sockets
 
-          -- смотрим к кому надо
-          who <- atomically $ fix \next -> do
-                   who <- readTQueue _tcpConnDemand
-                   already <- readTVar _tcpPeerConn <&> HM.member who
-                   if not already then pure who else next
+          who <- atomically $ readTQueue _tcpConnDemand
+
+          already <- readTVarIO _tcpPeerConn <&> HM.member who
+
+          when already mzero
 
           debug $ "DEMAND:" <+> pretty who
 
