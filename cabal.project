@@ -9,6 +9,8 @@ constraints:
   , suckless-conf >= 0.1.2.7
   , http-client >=0.7.16 && <0.8
 
+
+debug-info: True
 -- executable-static: True
 -- profiling: True
 --library-profiling: False

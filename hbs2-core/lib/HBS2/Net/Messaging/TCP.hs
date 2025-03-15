@@ -243,20 +243,20 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
           S.yield =<< ( readTVarIO _tcpSent <&> ("tcpSent",) . fromIntegral . HM.size)
 
       sweepCookies <- ContT $ withAsync $ forever do
-        pause @'Seconds 10
-        atomically do
-          pips <- readTVar _tcpPeerConn
-          modifyTVar _tcpPeerToCookie (HM.filterWithKey (\k _ -> HM.member k pips))
-          alive <- readTVar _tcpPeerToCookie <&> HS.fromList . HM.elems
-          modifyTVar _tcpPeerCookie (HM.filterWithKey (\k _ -> HS.member k alive))
+        pause @'Seconds 120
+        -- atomically do
+        --   pips <- readTVar _tcpPeerConn
+        --   modifyTVar _tcpPeerToCookie (HM.filterWithKey (\k _ -> HM.member k pips))
+        --   alive <- readTVar _tcpPeerToCookie <&> HS.fromList . HM.elems
+          -- modifyTVar _tcpPeerCookie (HM.filterWithKey (\k _ -> HS.member k alive))
 
       sweep <- ContT $ withAsync $ forever do
-        pause @'Seconds 60
-        atomically do
-          pips <- readTVar _tcpPeerConn
-          modifyTVar _tcpSent (HM.filterWithKey (\k _ -> HM.member k pips))
-          modifyTVar _tcpPeerSocket (HM.filterWithKey (\k _ -> HM.member k pips))
-          modifyTVar _tcpPeerCookie (HM.filter (>=1))
+        pause @'Seconds 120
+        -- atomically do
+        --   pips <- readTVar _tcpPeerConn
+        --   modifyTVar _tcpSent (HM.filterWithKey (\k _ -> HM.member k pips))
+        --   modifyTVar _tcpPeerSocket (HM.filterWithKey (\k _ -> HM.member k pips))
+        --   modifyTVar _tcpPeerCookie (HM.filter (>=1))
 
       waitAnyCatchCancel [p1,p2,probes,sweep,sweepCookies]
 
