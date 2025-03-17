@@ -65,6 +65,7 @@ import Text.InterpolatedString.Perl6 (qc)
 import Streaming.Prelude qualified as S
 import System.TimeIt
 
+import System.IO.Unsafe (unsafePerformIO)
 
 setupLogger :: MonadIO m => m ()
 setupLogger = do
@@ -84,6 +85,8 @@ silence = do
   setLoggingOff @WARN
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
+
+
 
 main :: IO ()
 main = do
@@ -497,6 +500,35 @@ main = do
                 ncqStoragePut ncq blk
 
             liftIO $ ncqStorageStop ncq
+
+            wait writer
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "test:ncq:raw:del-some" $ nil_ \case
+          [StringLike fn] -> liftIO $ flip runContT pure do
+
+            hashes <- liftIO $ getContents  <&> mapMaybe (fromStringMay @HashRef) . lines
+
+            ncq <- lift $ ncqStorageOpen fn
+
+            writer <- ContT $ withAsync $ ncqStorageRun ncq
+            link writer
+
+            ContT $ bracket none $ const do
+              none
+
+            debug $ "TO DELETE" <+> pretty (length hashes)
+
+            for_ hashes $ \h -> runMaybeT do
+              liftIO do
+                print $ "delete" <+> pretty h
+                ncqStorageDel ncq h
+
+            liftIO $ ncqStorageStop ncq
+
+            pause @'Seconds 5
 
             wait writer
 
