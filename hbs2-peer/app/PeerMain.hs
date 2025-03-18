@@ -252,6 +252,7 @@ runCLI = do
           <*> hsubparser (
                    command "init"      (info pInit (progDesc "creates default config"))
                 <> command "run"       (info pRun  (progDesc "run peer"))
+                <> command "start"     (info pRunStart  (progDesc "run peer"))
                 <> command "poke"      (info pPoke (progDesc "poke peer by rpc"))
                 <> command "die"       (info pDie (progDesc "die cmd"))
                 <> command "announce"  (info pAnnounce (progDesc "announce block"))
@@ -306,7 +307,26 @@ runCLI = do
 
     pPubKeySign = maybeReader (fromStringMay @(PubKey 'Sign 'HBS2Basic))
 
-    pRun = do
+    pRun = pure do
+      self <- getExecutablePath
+      args' <- getArgs
+
+      print (self, args')
+
+      let args = "start" : L.dropWhile (=="run") args'
+
+      flip runContT pure $ fix \next -> do
+
+        pid <- ContT $ withAsync do
+          liftIO (executeFile self False args Nothing)
+
+        void $ waitCatch pid
+
+        liftIO $ putStrLn "hbs2-peer run stopped/terminated; respawning"
+        pause @'Seconds 3
+        next
+
+    pRunStart = do
       runPeer <$> common
 
     pDie = do
