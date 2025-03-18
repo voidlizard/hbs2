@@ -260,7 +260,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
         now <- getTimeCoarse
         atomically do
           w <- readTVar _tcpSent <&> HPSQ.toList
-          let live = [ x | x@(_,t,_) <- w, realToFrac (now - t) / 1e9 < 1200 ]
+          let live = [ x | x@(_,t,_) <- w, realToFrac (now - t) / 1e9 < 300 ]
           writeTVar _tcpSent (HPSQ.fromList live)
         -- atomically do
         --   pips <- readTVar _tcpPeerConn
