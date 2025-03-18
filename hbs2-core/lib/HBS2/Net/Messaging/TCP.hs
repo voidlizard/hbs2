@@ -249,11 +249,11 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
 
       sweepCookies <- ContT $ withAsync $ forever do
         pause @'Seconds 300
-        -- atomically do
-        --   pips <- readTVar _tcpPeerConn
-        --   modifyTVar _tcpPeerToCookie (HM.filterWithKey (\k _ -> HM.member k pips))
-        --   alive <- readTVar _tcpPeerToCookie <&> HS.fromList . HM.elems
-          -- modifyTVar _tcpPeerCookie (HM.filterWithKey (\k _ -> HS.member k alive))
+        atomically do
+          pips <- readTVar _tcpPeerConn
+          modifyTVar _tcpPeerToCookie (HM.filterWithKey (\k _ -> HM.member k pips))
+          alive <- readTVar _tcpPeerToCookie <&> HS.fromList . HM.elems
+          modifyTVar _tcpPeerCookie (HM.filterWithKey (\k _ -> HS.member k alive))
 
       sweep <- ContT $ withAsync $ forever do
         pause @'Seconds 300
