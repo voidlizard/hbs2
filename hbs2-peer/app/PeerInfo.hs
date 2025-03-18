@@ -234,22 +234,17 @@ peerPingLoop (PeerConfig syn) penv = do
 
     forever do
 
-      -- FIXME: defaults
-      r <- liftIO $ race (pause @'Seconds pingTime)
-                         (atomically $ readTQueue wake)
-
-      sas' <- liftIO $ atomically $ STM.flushTQueue wake <&> mconcat
-
-      let sas = case r of
-            Left{}   -> sas'
-            Right sa -> sa <> sas'
-
       debug "peerPingLoop"
 
-      pips <- knownPeers @e pl <&> (<> sas) <&> List.nub
+      let pips = do
+            sas <- liftIO (atomically $ STM.flushTQueue wake <&> mconcat)
+            rest <- knownPeers @e pl
+            pure (fmap (,realToFrac pingTime) (List.nub $ sas <> rest))
 
-      for_ pips $ \p -> do
-        -- trace $ "SEND PING TO" <+> pretty p
-        lift $ sendPing @e p
-        -- trace $ "SENT PING TO" <+> pretty p
+      polling (Polling 2.5 2) pips $ \p -> do
+        liftIO $ withPeerM penv do
+          debug $ "SEND PING TO" <+> pretty p
+          try @_ @IOError (sendPing @e p) >>= \case
+            Left e -> err (viaShow e)
+            Right{} -> none
 
