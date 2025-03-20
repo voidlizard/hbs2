@@ -495,12 +495,14 @@ main = do
             for_ hashes $ \h -> runMaybeT do
               already <- liftIO (ncqStorageHasBlock ncq h <&> isJust)
               guard (not already)
+              -- debug $ "write" <+> pretty h
               blk <- getBlock sto (coerce h) >>= toMPlus
               liftIO do
                 let l = LBS.length blk
                 -- print $ pretty h <+> pretty l
                 ncqStoragePut ncq blk
 
+            warn "about to stop storage!"
             liftIO $ ncqStorageStop ncq
 
             wait writer

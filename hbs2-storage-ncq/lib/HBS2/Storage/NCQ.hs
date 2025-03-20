@@ -261,6 +261,7 @@ ncqStorageStop ncq@NCQStorage{..} = do
     doneD <- isEmptyTBQueue ncqDeleteQ
     let done = doneW && doneD
     unless done STM.retry
+  debug "ncqStorageStop DONE"
 
 ncqStorageRun :: MonadUnliftIO m => NCQStorage -> m ()
 ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
@@ -311,8 +312,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
     makeWriter indexQ = do
 
-      let dumpTimeout = round 10e6
-      let dumpData    = 1024 ^ 2
+      let dumpTimeout = TimeoutSec 10
+      let dumpData    = 1024 ^ 10
       let syncData    = fromIntegral ncqSyncSize
 
       writer <- ContT $ withAsync do
@@ -322,28 +323,18 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
         fix \next -> do
 
-          flush <- liftIO $ race (pause @'Seconds ( realToFrac dumpTimeout / 4e6 )) $ atomically do
-                     flush <- isEmptyTQueue myFlushQ <&> not
-                     stop  <- readTVar ncqStopped
-                     if flush || stop then pure True else STM.retry
+          liftIO $ race (pause dumpTimeout) $ atomically do
+            flush <- isEmptyTQueue myFlushQ <&> not
+            stop  <- readTVar ncqStopped
+            bytes <- readTVar ncqLastWritten
+            if bytes > dumpData || flush || stop then none else STM.retry
 
-          void $ atomically (readTQueue myFlushQ >> STM.flushTQueue myFlushQ)
+          void $ atomically (STM.flushTQueue myFlushQ)
 
-          let flushNow = fromRight False flush
-
-          now    <- getTimeCoarse
-          lastW  <- readTVarIO ncqLastWritten
-          bytes  <- readTVarIO ncqNotWritten
-
-          let dumpByTime = toMicroSeconds (TimeoutTS (now - lastW)) > dumpTimeout && bytes > 0
-
-          stopped <- readTVarIO ncqStopped
-
-          when (dumpByTime || bytes >= dumpData || flushNow || stopped) do
-            -- debug "NCQStorage: dump data!"
-            liftIO $ writeJournal indexQ syncData
+          liftIO $ writeJournal indexQ syncData
 
           done <- atomically $ readTVar ncqWriteQueue <&> HPSQ.null
+          stopped <- readTVarIO ncqStopped
 
           if done && stopped then none else next
 
@@ -410,23 +401,22 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         myFlushQ <- newTQueueIO
         atomically $ modifyTVar ncqFlushNow (myFlushQ:)
 
-        debug "delWriter running"
+        mt <- atomically $ isEmptyTBQueue ncqDeleteQ
+        debug $ "delWriter running" <+> pretty mt
 
         fix \next -> do
 
-         debug "BEBEBEBE"
-
-         void $ race (pause @'Seconds 1) $ atomically do
+         void $ race (pause @'Seconds 2) $ atomically do
             stop  <- readTVar ncqStopped
-            -- flush <- isEmptyTQueue myFlushQ <&> not
+            flush <- isEmptyTQueue myFlushQ <&> not
             size  <- lengthTBQueue ncqDeleteQ <&> (>= fsyncAt)
-            -- unless (flush || size || stop) STM.retry
-            unless (size || stop) STM.retry
+            unless (flush || size || stop) STM.retry
 
          toWrite <- atomically $ STM.flushTBQueue ncqDeleteQ
 
          liftIO do
            w <- readTVarIO ncqDeletedW
+           -- debug "write shit"
            for_ toWrite $ \(hx,delta) -> do
              let sdelta = N.bytestring16 (fromIntegral delta)
              let k = coerce @_ @ByteString hx
@@ -439,9 +429,12 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
              debug $ "DELETED" <+> pretty hx
            fileSynchronise w
 
-         atomically (isEmptyTBQueue ncqDeleteQ) >>= \case
-          True -> none
-          False -> next
+         stop <- readTVarIO ncqStopped
+         size  <- atomically $ lengthTBQueue ncqDeleteQ
+
+         if stop && size <= 0 then none else next
+
+        debug "delWriter stopped"
 
       link delWriter
       pure delWriter

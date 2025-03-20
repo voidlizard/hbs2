@@ -14,6 +14,7 @@ import Data.Aeson(FromJSON(..),ToJSON(..),Value(..))
 import Data.Binary (Binary(..))
 import Data.ByteArray qualified as BA
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
 -- import Data.ByteString.Short qualified as SB
@@ -73,9 +74,10 @@ instance IsString (Hash HbSync) where
       doDecode = fromBase58 (BS8.pack s)
 
 instance FromStringMaybe (Hash HbSync) where
-  fromStringMay s= HbSyncHash <$> doDecode
+  fromStringMay "" = Nothing
+  fromStringMay s  = HbSyncHash <$> unbase58
     where
-      doDecode = fromBase58 (BS8.pack s)
+      unbase58 = fromBase58 (BS8.pack s)
 
 instance Pretty (Hash HbSync) where
   pretty (HbSyncHash s) = pretty @String [qc|{toBase58 s}|]
