@@ -65,7 +65,6 @@ import System.Directory
 import System.Exit qualified as Exit
 import System.IO qualified as IO
 import UnliftIO as Exported
-import HBS2.CLI.Prelude (IsTimeout)
 
 {- HLINT ignore "Functor law" -}
 {- HLINT ignore "Eta reduce" -}
@@ -453,12 +452,15 @@ die what = liftIO do
   hPutDoc stderr (pretty what)
   Exit.exitFailure
 
+
+animateSpinner :: IO (Async ())
 animateSpinner =
   async $ forM_ (cycle "|/-\\") $ \c -> do
     IO.putChar c
     IO.hFlush IO.stdout
     IO.cursorBackward 1
     pause (TimeoutSec 0.25)
+
 
 waitForRefchan ::
   ( HasClientAPI PeerAPI UNIX m
@@ -477,16 +479,13 @@ waitForRefchan refchan timeout = do
 
   liftIO $ putStr "waiting for refchan "
   spinner <- liftIO animateSpinner
-  res <- race (pause timeout) (wait 1)
+  result <- race (pause timeout) (wait 1)
   cancel spinner
   liftIO $ do
     IO.setCursorColumn 0
     IO.clearLine
 
-  case res of
-    Right x -> pure (Just x)
-    _ -> pure Nothing
-
+  pure $ eitherToMaybe result
   where
     wait seconds = do
       fetchRefChanHead @UNIX refchan
