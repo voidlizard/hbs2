@@ -313,7 +313,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     makeWriter indexQ = do
 
       let dumpTimeout = TimeoutSec 10
-      let dumpData    = 1024 ^ 10
+      let dumpData    = fromIntegral ncqSyncSize
       let syncData    = fromIntegral ncqSyncSize
 
       writer <- ContT $ withAsync do
@@ -326,7 +326,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
           liftIO $ race (pause dumpTimeout) $ atomically do
             flush <- isEmptyTQueue myFlushQ <&> not
             stop  <- readTVar ncqStopped
-            bytes <- readTVar ncqLastWritten
+            bytes <- readTVar ncqNotWritten
             if bytes > dumpData || flush || stop then none else STM.retry
 
           void $ atomically (STM.flushTQueue myFlushQ)
@@ -426,7 +426,6 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                                    , sdelta
                                    ]
              void $ Posix.fdWrite w deleted
-             debug $ "DELETED" <+> pretty hx
            fileSynchronise w
 
          stop <- readTVarIO ncqStopped
@@ -569,9 +568,9 @@ ncqStoragePut ncq@NCQStorage{..} lbs = flip runContT pure $ callCC \exit -> do
   atomically do
     ql <- readTVar ncqWriteQueue <&> HPSQ.size
     -- FIXME: hardcode
-    when (ql > 8192) STM.retry
+    -- when (ql > 8192) STM.retry
     modifyTVar ncqWriteQueue (HPSQ.insert h now lbs)
-    modifyTVar ncqNotWritten (+ (fromIntegral $ 36 + LBS.length lbs))
+    modifyTVar ncqNotWritten (+ (fromIntegral $ 4 + 32 + LBS.length lbs))
     pure (Just h)
 
 ncqLocatedSize :: Location -> Integer
@@ -783,6 +782,19 @@ ncqFixIndexes ncq@NCQStorage{..} = do
       newKey <- ncqIndexFile ncq dataName <&> fromString @FileKey
       atomically $ ncqAddTrackedFilesSTM ncq [newKey]
 
+
+-- NOTE:
+--   merely find in fossil files,
+--   because "current" is filtered on load
+--   and it's okay, we may compact only
+--   fossils
+ncqScanDeleted :: MonadUnliftIO m => NCQStorage -> m [Location]
+ncqScanDeleted ncq@NCQStorage{..} = do
+  readTVarIO ncqDeleted
+    <&> fmap fst . List.filter ((>0).snd) . HM.toList
+    >>= mapM (ncqLocate ncq)
+    <&> catMaybes
+
 ncqStorageOpen :: MonadUnliftIO m => FilePath -> m NCQStorage
 ncqStorageOpen fp = do
   ncq@NCQStorage{..} <- ncqStorageInit_ False fp
@@ -890,7 +902,7 @@ ncqStorageInit_ check path = do
   ncqRefsMem       <- newTVarIO mempty
   ncqRefsDirty     <- newTVarIO 0
 
-  let ncqSyncSize  = 32 * (1024 ^ 2)
+  let ncqSyncSize  = 64 * (1024 ^ 2)
   let ncqMinLog    =  2 * (1024 ^ 3)
   let ncqMaxLog    = 10 * (1024 ^ 3)
 
