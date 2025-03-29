@@ -776,9 +776,6 @@ runDirectory = do
 
       refchan <- view dirSyncRefChan env & orThrow RefChanNotSetException
 
-      waitForRefchan refchan (TimeoutMin 1)
-        >>= orThrow RefChanHeadNotFoundException
-
       -- FIXME: multiple-directory-scans
 
       local  <- getStateFromDir0 True

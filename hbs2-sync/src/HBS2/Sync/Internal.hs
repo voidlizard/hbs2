@@ -242,11 +242,11 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
 
       refchan <-
         view dirSyncRefChan env
-        & orThrowUser "refchan not found"
+          & orThrowUser "refchan not found"
 
       state <- getStateFromRefChan refchan
       let tombs = filter (isTomb . snd) state
-      for_ tombs $ \(path, entry)  -> do
+      for_ tombs $ \(path, entry) -> do
         when (isTomb entry) do
           liftIO $ putStrLn path
 
@@ -258,7 +258,7 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
 
       refchan <-
         view dirSyncRefChan env
-        & orThrowUser "refchan not found"
+          & orThrowUser "refchan not found"
 
       accepted <- getAccepted refchan <&> L.sortOn getEntryTimestamp
 
