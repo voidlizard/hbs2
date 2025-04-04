@@ -67,6 +67,7 @@ common shared-properties
       , directory
       , filepath
       , filepattern
+      , hfuse
       , interpolatedstring-perl6
       , memory
       , microlens-platform
@@ -80,6 +81,7 @@ common shared-properties
       , timeit
       , transformers
       , typed-process
+      , unix
       , unordered-containers
       , unliftio
       , zlib
@@ -91,23 +93,17 @@ library
     exposed-modules:
       HBS2.Sync.Prelude
       HBS2.Sync.State
+      HBS2.Sync.Mount
       HBS2.Sync.Internal
       HBS2.Sync
 
-    other-modules:
-
-    -- other-modules:
-    -- other-extensions:
     build-depends:    base, hbs2-peer, hbs2-cli
     hs-source-dirs:   src
 
 executable hbs2-sync
     import:           shared-properties
     main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
     build-depends:
         base, hbs2-sync, hbs2-peer
-
     hs-source-dirs:   app
     default-language: GHC2021

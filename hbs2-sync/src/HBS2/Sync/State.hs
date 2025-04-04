@@ -157,6 +157,57 @@ entriesFromFile h ts fn0 = do
     dirEntry p   = DirEntry (EntryDesc Dir ts Nothing) p
     fileEntry p  = DirEntry (EntryDesc File ts h) p
 
+getEntriesFromRefchan ::
+  forall m . ( MonadUnliftIO m, HasStorage m, HasClientAPI RefChanAPI UNIX m )
+  => KeyManClientEnv
+  -> AnyStorage
+  -> MyRefChan
+  -> m [Entry]
+getEntriesFromRefchan keymanEnv storage refchan = do
+  outq <- newTQueueIO
+  tss <- newTVarIO mempty
+
+  let findKey = lift . lift . withKeymanClientRO keymanEnv . findMatchedGroupKeySecret storage
+
+  walkRefChanTx @UNIX (const (pure True)) refchan $ \_ unpacked -> do
+    case unpacked of
+      A (AcceptTran acceptTime _ what) -> do
+        for_ acceptTime $ \timestamp -> do
+          atomically $ modifyTVar tss (HM.insertWith max what (coerce @_ @Word64 timestamp))
+
+      P proposeHash (ProposeTran _ box) -> void $ runMaybeT do
+        (_, unboxed) <- unboxSignedBox0 box & toMPlus
+        AnnotatedHashRef _ href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict unboxed)
+                                    & toMPlus . either (const Nothing) Just
+
+        meta <- runExceptT (extractMetaData @'HBS2Basic findKey storage href) >>= toMPlus
+        atomically $ writeTQueue outq (proposeHash, href, meta)
+
+  trees <- atomically (flushTQueue outq)
+  tsmap <- readTVarIO tss
+
+  pure $ concatMap (makeEntry tsmap) trees
+
+  where
+    makeEntry tsmap (hash, tree, meta) = do
+      let what = parseTop meta & fromRight mempty
+      let location = headDef "" [ l | ListVal [StringLike "location:", StringLike l] <- what ]
+
+      let maybeFileName = headMay [ l | ListVal [StringLike "file-name:", StringLike l] <- what ]
+      let maybeTimestamp = HM.lookup hash tsmap
+      case (maybeFileName, maybeTimestamp) of
+        (Just fileName, Just timestamp) -> do
+          let isTombSet = or [ True | TombLikeOpt <- what ]
+          let fullPath = location </> fileName
+
+          if isTombSet then
+            [makeTomb timestamp fullPath (Just tree)]
+          else
+            [DirEntry (EntryDesc File timestamp (Just tree)) fullPath]
+
+        _ ->
+          []
+
 -- NOTE: getStateFromDir
 --  что бы устранить противоречия в "удалённом" стейте и
 --  локальном, мы должны о них узнать

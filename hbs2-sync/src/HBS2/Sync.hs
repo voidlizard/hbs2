@@ -5,5 +5,3 @@ module HBS2.Sync
 
 import HBS2.Sync.Internal as Exported
 import HBS2.Sync.State as Exported
-
-

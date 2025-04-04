@@ -4,6 +4,7 @@ module HBS2.Sync.Internal
 
 import HBS2.Sync.Prelude
 import HBS2.Sync.State
+import HBS2.Sync.Mount (mountPath)
 import HBS2.System.Dir
 import HBS2.Storage.Operations.ByteString
 import HBS2.Peer.RPC.API.RefChan
@@ -105,11 +106,9 @@ syncInit keys = do
       >>= orThrowUser "invalid hbs2-peer attributes"
 
   peerKey <-
-    [ x
-    | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked
-    ]
-    & headMay
-    & orThrowUser "hbs2-peer key not found"
+    [x | ListVal [SymbolVal "peer-key:", SignPubKeyLike x] <- poked]
+      & headMay
+      & orThrowUser "hbs2-peer key not found"
 
   (authorKey, readerKey) <- getKeys keys
 
@@ -234,6 +233,29 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
       _ -> do
         err "unknown parameters, please use `help init` command"
 
+  brief "mount"
+    $ desc "mount"
+    $ entry $ bindMatch "mount" $ nil_ $ \case
+      [StringLike configPath, StringLike path] -> do
+        config :: [Syntax c] <-
+          try @_ @IOError (liftIO $ readFile configPath)
+            <&> fromRight mempty
+            <&> parseTop
+            <&> either mempty (fmap fixContext)
+
+        void $ evalTop $ [mkList [mkSym "dir", mkStr "."]] ++ config
+
+        dir <- getRunDir
+        env <- getRunDirEnv dir >>= orThrow DirNotSet
+        refchan <-
+           view dirSyncRefChan env
+             & orThrowUser "refchan not found"
+
+        liftIO $ mountPath refchan path
+
+      _ ->
+        err "unknown"
+
   brief "deleted entries"
     $ desc "show deleted entries"
     $ entry $ bindMatch "deleted" $ nil_ $ \_ -> do
@@ -266,7 +288,7 @@ hbs2-sync init --refchan 94GF31TtD38yWG6iZLRy1xZBb1dxcAC7BRBJTMyAq8VF
         let action = if isTomb entry then red "T" else green "F"
         let utcTime = posixSecondsToUTCTime $ fromIntegral $ getEntryTimestamp entry
         let datetime = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" utcTime
-        notice $ action <+> pretty datetime <+>  pretty (getEntryHash entry) <+> pretty (entryPath entry)
+        notice $ action <+> pretty datetime <+> pretty (getEntryHash entry) <+> pretty (entryPath entry)
 
   brief "revert file to a hash"
     $ args [arg "hash" "<href>"]
