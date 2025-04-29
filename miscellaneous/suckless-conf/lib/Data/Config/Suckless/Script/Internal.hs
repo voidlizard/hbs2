@@ -68,6 +68,8 @@ import System.Directory qualified as Dir
 import System.FilePath.Posix as P
 import System.IO.Temp qualified as Temp
 import System.Exit qualified as Exit
+import System.Random as R
+import System.Random.Shuffle (shuffleM)
 import Text.InterpolatedString.Perl6 (qc)
 import Lens.Micro.Platform
 import UnliftIO
@@ -1421,21 +1423,22 @@ internalEntries = do
       _ -> pure nil
 
     entry $ bindMatch "mod" $ \case
-      [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (a `mod` b)
+      [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (mod a b)
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindAlias "%" "mod"
 
-    entry $ bindMatch "sum" $ \case
-      [ ListVal es ]  -> do
-        let v = flip mapMaybe es \case
-                  LitIntVal n         -> Just $ realToFrac  n
-                  LitScientificVal n  -> Just $ realToFrac @_ @Double n
-                  _ -> Nothing
+    entry $ bindMatch "sum" $ \x -> do
+      ds <- case x of
+              [ ListVal es ]  -> pure es
+              es -> pure es
 
-        pure $ mkDouble $ sum v
+      let v = flip mapMaybe ds \case
+                LitIntVal n         -> Just $ realToFrac  n
+                LitScientificVal n  -> Just $ realToFrac @_ @Double n
+                _ -> Nothing
 
-      _ -> pure $ mkDouble 0
+      pure $ mkDouble $ sum v
 
     entry $ bindMatch "assoc:nth" $ \case
       [LitIntVal i, k, ListVal es ] -> do
@@ -2121,6 +2124,54 @@ internalEntries = do
 
       _ -> throwIO $ BadFormException @c nil
 
+    entry $ bindMatch "random:flip" $ const do
+      mkBool <$> randomIO @Bool
+
+    entry $ bindMatch "random:int" $ \case
+      [ ]  -> mkInt <$> randomIO
+      [ LitIntVal a, LitIntVal b ]  -> mkInt <$> randomRIO (a,b)
+      _ -> mkInt <$> randomIO
+
+    entry $ bindMatch "random:uint" $ \case
+      [ ] -> mkInt . abs <$> randomIO
+      [ LitIntVal a, LitIntVal b ] -> mkInt <$> randomRIO (abs a, abs b)
+      _ -> mkInt . abs <$> randomIO
+
+    entry $ bindMatch "random:float" $ \input -> do
+      case input of
+        [] -> mkDouble <$> randomIO
+
+        [ LitScientificVal a, LitScientificVal b ] -> do
+          x <- randomRIO (realToFrac a, realToFrac b)
+          pure $ mkDouble x
+
+        _ -> mkDouble <$> randomIO
+
+
+    entry $ bindMatch "random:shuffle" $ \input -> do
+      case arglistOrList input of
+        [] -> pure $ mkList []
+        xs -> mkList <$> liftIO (shuffleM xs)
+
+    entry $ bindMatch "random:seq" $ \input -> do
+      case input of
+        (LitIntVal n : rest) | n > 0 -> do
+          case arglistOrList rest of
+            [] -> pure $ mkList []
+            xs -> do
+              shuffled <- liftIO (shuffleM xs)
+              pure . mkList $ take (fromIntegral n) shuffled
+
+        _ -> pure $ mkList []
+
+    entry $ bindMatch "random:choice" $ \input -> do
+      case arglistOrList input of
+        [] -> pure $ mkList []
+        xs -> do
+          i <- randomRIO (0, length xs - 1)
+          case Safe.atMay xs i of
+            Just v  -> pure v
+            Nothing -> pure $ mkList []
 
     entry $ bindMatch "strftime" $ \case
       [ StringLike fmt, LitIntVal t ] -> do
@@ -2196,6 +2247,13 @@ internalEntries = do
 
           pure $ mkStr (show wtf)
 
+
+
+arglistOrList :: forall c . IsContext c => [Syntax c] -> [Syntax c]
+arglistOrList = \case
+  [ ListVal xs ] -> xs
+  xs@(_:_)    -> xs
+  _           -> []
 
 parseJson :: forall c . IsContext c => LBS.ByteString -> Syntax c
 parseJson input = case Aeson.decode @Value input of
