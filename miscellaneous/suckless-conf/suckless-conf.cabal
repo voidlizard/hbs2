@@ -92,6 +92,8 @@ library
                     , mtl
                     , prettyprinter
                     , prettyprinter-ansi-terminal
+                    , random
+                    , random-shuffle
                     , safe
                     , scientific
                     , streaming
