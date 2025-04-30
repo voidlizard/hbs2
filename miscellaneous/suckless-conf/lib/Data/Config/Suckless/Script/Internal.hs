@@ -32,6 +32,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Data
 import Data.Coerce
+import Data.Fixed
 import Data.Foldable
 import Data.Function as Export
 import Data.Functor as Export
@@ -1427,6 +1428,55 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindAlias "%" "mod"
+
+    entry $ bindMatch "floor" $ \case
+      [LitScientificVal x] ->
+        pure $ mkDouble (realToFrac $ floor x)
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "ceiling" $ \case
+      [LitScientificVal x] ->
+        pure $ mkDouble (realToFrac $ ceiling x)
+      _ -> throwIO (BadFormException @c nil)
+
+
+    entry $ bindMatch "fixed" $ \case
+
+      [LitIntVal 1, LitScientificVal x] -> do
+        pure $ mkSym $ show (realToFrac $ realToFrac @_ @(Fixed E1) x)
+
+      [LitIntVal 2, LitScientificVal x] -> do
+        pure $ mkSym $ show (realToFrac $ realToFrac @_ @(Fixed E2) x)
+
+      [LitIntVal 3, LitScientificVal x] -> do
+        pure $ mkSym $ show $ (realToFrac $ realToFrac @_ @(Fixed E3) x)
+
+      [LitIntVal 6, LitScientificVal x] -> do
+        pure $ mkSym $ show (realToFrac $ realToFrac @_ @(Fixed E6) x)
+
+      [LitIntVal 9, LitScientificVal x] -> do
+        pure $ mkSym $ show (realToFrac $ realToFrac @_ @(Fixed E9) x)
+
+      [LitIntVal 12, LitScientificVal x] -> do
+        pure $ mkSym $ show  (realToFrac $ realToFrac @_ @(Fixed E12) x)
+
+      [LitIntVal _, LitScientificVal x] -> do
+        pure $ mkDouble x
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "round" $ \case
+
+      [LitScientificVal x] -> do
+        pure $ mkDouble (realToFrac $ floor x)
+
+      [LitIntVal n, LitScientificVal x] -> do
+        let factor = 10 ^ n
+            rounded = fromIntegral (round (x * fromIntegral factor)) / fromIntegral factor
+        pure (mkDouble rounded)
+
+      _ -> throwIO (BadFormException @c nil)
+
 
     entry $ bindMatch "sum" $ \x -> do
       ds <- case x of
