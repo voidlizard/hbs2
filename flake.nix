@@ -36,6 +36,7 @@ outputs = { self, nixpkgs, flake-utils, ... }@inputs:
       "hbs2-git3"
       "hbs2-cli"
       "hbs2-sync"
+      "hbs2-log-structured"
       "fixme-new"
       "suckless-conf"
       ];
