@@ -293,11 +293,6 @@ main = do
             for_ trf $ \tf -> do
               notice $ "tracked" <+> pretty tf
 
-            tri <- readTVarIO ncqCachedIndexes  <&> HPSQ.toList
-
-            for_ tri $ \(k,_,_) -> do
-                notice $ "cached-index" <+> pretty k
-
           e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:raw" $ \case
