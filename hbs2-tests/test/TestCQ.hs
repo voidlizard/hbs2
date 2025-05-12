@@ -288,7 +288,7 @@ main = do
             writer <- ContT $ withAsync $ ncqStorageRun ncq
             link writer
 
-            trf <- readTVarIO ncqTrackedFiles <&> HS.toList
+            trf <- readTVarIO ncqTrackedFiles <&> HPSQ.keys
 
             for_ trf $ \tf -> do
               notice $ "tracked" <+> pretty tf
