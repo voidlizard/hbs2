@@ -240,7 +240,7 @@ main = do
             writer <- ContT $ withAsync $ ncqStorageRun ncq
             link writer
 
-            fres <- lift $ ncqIndexFile ncq fsrc
+            (fres,_) <- lift $ ncqIndexFile ncq fsrc
 
             pure $ mkSym fres
 
