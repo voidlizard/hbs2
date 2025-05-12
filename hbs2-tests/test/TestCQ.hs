@@ -509,28 +509,6 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "test:ncq:raw:scan-deleted" $ nil_ \case
-          [StringLike fn] -> liftIO $ flip runContT pure do
-
-            ncq <- lift $ ncqStorageOpen fn
-
-            writer <- ContT $ withAsync $ ncqStorageRun ncq
-            link writer
-
-            ContT $ bracket none $ const do
-              none
-
-            what <- lift $ ncqScanDeleted ncq
-
-            for_ what $ \l -> do
-              liftIO $ print l
-
-            liftIO $ ncqStorageStop ncq
-
-            wait writer
-
-          e -> throwIO $ BadFormException @C (mkList e)
-
         entry $ bindMatch "test:ncq:raw:del-some" $ nil_ \case
           [StringLike fn] -> liftIO $ flip runContT pure do
 
