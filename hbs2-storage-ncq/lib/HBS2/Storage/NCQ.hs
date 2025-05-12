@@ -120,7 +120,6 @@ data NCQStorage =
   , ncqLastWritten    :: TVar TimeSpec
   , ncqCurrentHandleW :: TVar Fd
   , ncqCurrentHandleR :: TVar Fd
-  , ncqDeletedW       :: TVar Fd
   , ncqCurrentUsage   :: TVar (IntMap Int)
   , ncqCurrentReadReq :: TVar (Seq (Fd, Word64, Word64, TMVar ByteString))
   , ncqFlushNow       :: TVar [TQueue ()]
@@ -294,7 +293,6 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   ContT $ bracket none $ const $ liftIO do
     -- writeJournal syncData
     readTVarIO ncqCurrentHandleW >>= closeFd
-    readTVarIO ncqDeletedW >>= closeFd
 
   debug "RUNNING STORAGE!"
 
@@ -892,7 +890,6 @@ ncqStorageInit_ check path = do
   when hereCurrent $ liftIO do
     let ncqCurrentHandleW = undefined
     let ncqCurrentHandleR = undefined
-    let ncqDeletedW       = undefined
     let ncq0 = NCQStorage{..}
 
     lastSz <- try @_ @IOException (BS.readFile currentSize)
@@ -922,15 +919,11 @@ ncqStorageInit_ check path = do
 
   debug $ "currentFileName" <+> pretty (ncqGetCurrentName_ path ncqGen)
 
-  ncqDeletedW <- newTVarIO undefined
 
   let ncq = NCQStorage{..}
 
   touch (ncqGetRefsDataFileName ncq)
   touch (ncqGetDeletedFileName ncq)
-
-  liftIO (PosixBase.openFd (ncqGetDeletedFileName ncq) Posix.WriteOnly flags { append = True})
-     >>= atomically . writeTVar ncqDeletedW
 
   pure ncq
 
