@@ -99,6 +99,9 @@ data CachedEntry =
               , cachedTs         :: TVar TimeSpec
               }
 
+instance Show CachedEntry where
+  show _ = "<CachedEntry>"
+
 data NCQStorage =
   NCQStorage
   { ncqRoot           :: FilePath
@@ -129,14 +132,14 @@ data NCQStorage =
 data Location =
     InWriteQueue LBS.ByteString
   | InCurrent    (Word64, Word64)
-  | InFossil     FileKey (Word64, Word64)
-  deriving stock (Eq,Show)
+  | InFossil     CachedEntry (Word64, Word64)
+  deriving stock (Show)
 
 instance Pretty Location where
   pretty = \case
-    InWriteQueue{}   -> "write-queue"
-    InCurrent (o,l)  -> pretty $ mkForm @C "current" [mkInt o, mkInt l]
-    InFossil f (o,l) -> pretty $ mkForm @C "fossil " [mkSym (show (pretty f)), mkList [mkInt o, mkInt l]]
+    InWriteQueue{}     -> "write-queue"
+    InCurrent (o,l)    -> pretty $ mkForm @C "current" [mkInt o, mkInt l]
+    InFossil _ (o,l) -> pretty $ mkForm @C "fossil " [mkList [mkInt o, mkInt l]]
 
 type IsHCQKey h  = ( Eq (Key h)
                    , Hashable (Key h)
@@ -540,10 +543,9 @@ ncqStoragePut ncq@NCQStorage{..} lbs = flip runContT pure $ callCC \exit -> do
 
 ncqLocatedSize :: Location -> Integer
 ncqLocatedSize = \case
-  InWriteQueue lbs -> fromIntegral $ LBS.length lbs
-  InCurrent (_,s)  -> fromIntegral s
+  InWriteQueue lbs   -> fromIntegral $ LBS.length lbs
+  InCurrent (_,s)    -> fromIntegral s
   InFossil _ (_,s) -> fromIntegral s
-
 
 
 evictIfNeededSTM :: NCQStorage -> Maybe Int -> STM ()
@@ -591,8 +593,8 @@ ncqLocate ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
   for_ (HPSQ.toList tracked) $ \(fk, prio, mCached) -> do
     case mCached of
 
-      Just (CachedEntry{..}) -> do
-        lookupEntry h (cachedMmapedIdx, cachedNway) <&> fmap (InFossil fk) >>= \case
+      Just ce@CachedEntry{..} -> do
+        lookupEntry h (cachedMmapedIdx, cachedNway) <&> fmap (InFossil ce) >>= \case
           Just loc -> do
             atomically $ writeTVar cachedTs now
 
@@ -607,13 +609,13 @@ ncqLocate ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
         (idxBs, idxNway) <- liftIO (nwayHashMMapReadOnly indexFile) >>= toMPlus
         datBs <- liftIO $ mmapFileByteString dataFile Nothing
 
-        e <- lookupEntry h (idxBs, idxNway) <&> fmap (InFossil fk) >>= toMPlus
+        ce <- CachedEntry idxBs datBs idxNway <$> newTVarIO now
+        e <- lookupEntry h (idxBs, idxNway) <&> fmap (InFossil ce) >>= toMPlus
 
         liftIO $ atomically do
           files <- readTVar ncqTrackedFiles
           case HPSQ.lookup fk files of
             Just (p, _) -> do
-              ce <- CachedEntry idxBs datBs idxNway <$> newTVar now
               modifyTVar ncqTrackedFiles (HPSQ.insert fk p (Just ce))
               modifyTVar ncqCachedEntries (+1)
               evictIfNeededSTM ncq (Just 1)
@@ -692,21 +694,11 @@ ncqStorageGet ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
         pure a
       atomically $ takeTMVar answ <&> Just . LBS.fromStrict
 
-    Just (InFossil key (o,l)) -> do
-      mCE <- atomically do
-        files <- readTVar ncqTrackedFiles
-        pure $ HPSQ.lookup key files >>= snd
-
-      case mCE of
-        Just CachedEntry{..} -> do
-          now <- getTimeCoarse
-          atomically $ writeTVar cachedTs now
-          let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) cachedMmapedData)
-          pure $ Just $ LBS.fromStrict chunk
-
-        Nothing -> do
-          err $ "ncqStorageGet: missing CachedEntry for " <+> pretty key
-          pure Nothing
+    Just (InFossil CachedEntry{..} (o,l)) -> do
+      now <- getTimeCoarse
+      atomically $ writeTVar cachedTs now
+      let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) cachedMmapedData)
+      pure $ Just $ LBS.fromStrict chunk
 
 
 ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef)
