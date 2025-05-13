@@ -192,11 +192,6 @@ ncqGetErrorLogName :: NCQStorage -> FilePath
 ncqGetErrorLogName ncq = do
   ncqGetFileName ncq "errors.log"
 
-ncqGetDeletedFileName :: NCQStorage -> FilePath
-ncqGetDeletedFileName ncq = do
-  ncqGetFileName ncq "deleted.data"
-
-
 ncqEmptyDataHash :: HashRef
 ncqEmptyDataHash = HashRef $ hashObject @HbSync (mempty :: ByteString)
 
@@ -323,16 +318,20 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
       cap <- getNumCapabilities
       reader <- ContT $ withAsync $ untilStopped do
 
-                  reqs <- atomically do
-                            xs <- stateTVar ncqCurrentReadReq (Seq.splitAt cap)
-                            when (List.null xs) STM.retry
-                            pure xs
+          debug "I'm READER THREAD"
 
-                  for_ reqs $ \(fd,off,l,answ) -> liftIO do
-                    atomically $ modifyTVar ncqCurrentUsage (IntMap.adjust pred (fromIntegral fd))
-                    fdSeek fd AbsoluteSeek (fromIntegral $ 4 + 32 + off)
-                    bs <- Posix.fdRead fd (fromIntegral l)
-                    atomically $ putTMVar answ bs
+          reqs <- atomically do
+                    xs <- stateTVar ncqCurrentReadReq (Seq.splitAt cap)
+                    when (List.null xs) STM.retry
+                    pure xs
+
+
+          for_ reqs $ \(fd,off,l,answ) -> liftIO do
+            debug $ "READER: PROCEED REQUEST" <+> viaShow fd <+> pretty off
+            atomically $ modifyTVar ncqCurrentUsage (IntMap.adjust pred (fromIntegral fd))
+            fdSeek fd AbsoluteSeek (fromIntegral $ 4 + 32 + off)
+            bs <- Posix.fdRead fd (fromIntegral l)
+            atomically $ putTMVar answ bs
 
       link reader
       pure reader
@@ -714,18 +713,20 @@ ncqStorageScanDataFile ncq fp' action = do
 
 ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteString)
 ncqStorageGet ncq@NCQStorage{..} h = do
-  mloc <- ncqLocate ncq h
-  ncqCheckDeleted h mloc \case
-
+  location <- ncqLocate ncq h
+  ncqCheckDeleted h location \case
     InWriteQueue lbs ->
       pure $ Just lbs
 
-    InCurrent (o,l) -> atomically do
-      a <- newEmptyTMVar
-      fd <- readTVar ncqCurrentHandleR
-      modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fd) 1)
-      modifyTVar ncqCurrentReadReq (|> (fd, o, l, a))
-      Just . LBS.fromStrict <$> takeTMVar a
+    InCurrent (o,l) -> do
+      r <- atomically do
+        a <- newEmptyTMVar
+        fd <- readTVar ncqCurrentHandleR
+        modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fd) 1)
+        modifyTVar ncqCurrentReadReq (|> (fd, o, l, a))
+        pure a
+
+      atomically (takeTMVar r) <&> Just . LBS.fromStrict
 
     InFossil ce (o,l) -> do
       now <- getTimeCoarse
@@ -799,8 +800,6 @@ ncqLoadSomeIndexes ncq@NCQStorage{..} keys = do
           modifyTVar ncqTrackedFiles (HPSQ.insert k p (Just ce))
           modifyTVar ncqCachedEntries (+1)
         _ -> pure ()
-
-
 
 
 ncqLoadIndexes :: MonadIO m => NCQStorage -> m ()
@@ -923,7 +922,6 @@ ncqStorageInit_ check path = do
   ncqStopped        <- newTVarIO False
   ncqTrackedFiles   <- newTVarIO HPSQ.empty
   ncqCachedEntries  <- newTVarIO 0
-  ncqSeqNo          <- newTVarIO 1
 
   let currentName = ncqGetCurrentName_ path ncqGen
 
@@ -967,8 +965,19 @@ ncqStorageInit_ check path = do
   let ncq = NCQStorage{..}
 
   touch (ncqGetRefsDataFileName ncq)
-  touch (ncqGetDeletedFileName ncq)
 
   pure ncq
 
+withNCQ :: forall m a . MonadUnliftIO  m
+        => (NCQStorage -> NCQStorage)
+        -> FilePath
+        -> (NCQStorage -> m a)
+        -> m a
+withNCQ setopts p action = flip runContT pure do
+  ncq <- lift (ncqStorageOpen p) <&> setopts
+  writer <- ContT $ withAsync (ncqStorageRun ncq)
+  link writer
+  e <- lift (action ncq)
+  lift (ncqStorageStop ncq)
+  pure e
 

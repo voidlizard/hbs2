@@ -55,11 +55,14 @@ import System.Posix.Fcntl
 import System.Posix.IO
 import System.IO.MMap
 import System.IO qualified as IO
+import System.Exit (exitSuccess, exitFailure)
 import System.Random
 import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
+
 import UnliftIO
+
 import Text.InterpolatedString.Perl6 (qc)
 
 import Streaming.Prelude qualified as S
@@ -247,20 +250,11 @@ main = do
           e -> throwIO $ BadFormException @C (mkList e)
 
 
-        entry $ bindMatch "test:ncq:raw:get" $ \case
+        entry $ bindMatch "test:ncq:raw:get:stdout" $ nil_ \case
 
-          [StringLike fn, HashLike h] -> liftIO $ flip runContT pure do
-
-            ncq <- lift $ ncqStorageOpen fn
-            writer <- ContT $ withAsync $ ncqStorageRun ncq
-            link writer
-
-            lift do
-              ncqStorageGet ncq h >>= \case
-                Nothing -> pure nil
-                Just bs  -> do
-                  -- debug $ "GET" <+> pretty (LBS.length bs) <+> pretty (hashObject @HbSync bs)
-                  mkOpaque bs
+          [StringLike fn, HashLike h] -> lift $ withNCQ id fn $ \ncq -> do
+            w <- ncqStorageGet ncq h
+            maybe1 w exitFailure LBS.putStr
 
           e -> throwIO $ BadFormException @C (mkList e)
 
@@ -371,43 +365,28 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "test:ncq:raw:locate" $ nil_ \case
-          [StringLike fn] -> liftIO $ flip runContT pure do
-            hashes <- liftIO $ getContents  <&> mapMaybe (fromStringMay @HashRef) . lines
-
-            ncq <- lift $ ncqStorageOpen fn
-
-            writer <- ContT $ withAsync $ ncqStorageRun ncq
-            link writer
-
-            timeItNamed (show $ "lookup" <+> pretty (List.length hashes)) do
-              for_ hashes $ \h -> liftIO do
-                 ncqLocate ncq h >>= \case
-                  Nothing -> print $ pretty "not-found" <+> pretty h
-                  Just l  -> print $ pretty "found" <+> pretty h <+> pretty l
+        entry $ bindMatch "test:ncq:raw:locate:one" $ nil_ \case
+          [StringLike fn, HashLike h] -> lift $ withNCQ id fn $ \ncq -> do
+            ncqLocate ncq h >>= \case
+              Nothing -> print $ pretty "not-found" <+> pretty h
+              Just l  -> print $ pretty "found" <+> pretty h <+> pretty l
 
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "test:ncq:raw:put" $  \case
-          [StringLike fn] -> liftIO $ flip runContT pure do
-
+        entry $ bindMatch "test:ncq:raw:put:stdin" $ \case
+          [StringLike fn] -> lift $ withNCQ id fn $ \ncq -> do
             what <- liftIO BS.getContents
-
-            ncq <- lift $ ncqStorageOpen fn
-
-            writer <- ContT $ withAsync $ ncqStorageRun ncq
-            link writer
-
             href <- liftIO $ ncqStoragePut ncq (LBS.fromStrict what)
-
-            liftIO $ ncqStorageStop ncq
-            wait writer
-
             pure $ maybe nil (mkSym . show . pretty) href
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "test:ncq:raw:get" $ nil_ \case
+          [StringLike fn, HashLike href] -> lift $ withNCQ id fn $ \ncq -> do
+            mbs <- ncqStorageGet ncq href
+            maybe1 mbs exitFailure LBS.putStr
 
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:raw:merkle:write" $ nil_ \case
           [StringLike fn, StringLike what] -> liftIO $ flip runContT pure do
@@ -527,6 +506,13 @@ main = do
             liftIO $ ncqStorageStop ncq
 
             wait writer
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:run" $ nil_ \case
+          [StringLike p] -> lift do
+            withNCQ id p $ \_ -> do
+              display_ $ "hello from ncq" <+> pretty p
 
           e -> throwIO $ BadFormException @C (mkList e)
 
