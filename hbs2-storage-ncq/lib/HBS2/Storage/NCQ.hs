@@ -310,7 +310,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   indexer    <- makeIndexer indexQ
   writer     <- makeWriter indexQ
 
-  mapM_ waitCatch [writer,refsWriter]
+  mapM_ waitCatch [writer,indexer,refsWriter]
   -- mapM_ waitCatch [writer,indexer,refsWriter] -- ,indexer,refsWriter]
   mapM_ cancel  [reader]
 

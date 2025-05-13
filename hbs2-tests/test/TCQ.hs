@@ -133,6 +133,8 @@ main = do
 
         internalEntries
 
+        entry $ bindMatch "#!" $ nil_ $ const none
+
         entry $ bindMatch "--run" $ \case
           [ StringLike what ] -> liftIO do
             liftIO (readFile what)
