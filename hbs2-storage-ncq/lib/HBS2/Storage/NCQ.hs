@@ -45,6 +45,7 @@ import Lens.Micro.Platform
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict qualified as HM
+import System.Directory (makeAbsolute)
 import System.FilePath.Posix
 import System.Posix.Fcntl
 import System.Posix.Files qualified as Posix
@@ -119,6 +120,7 @@ data NCQStorage =
   , ncqRefsDirty      :: TVar Int
   , ncqWriteQueue     :: TVar (HashPSQ HashRef TimeSpec WQItem)
   , ncqWaitIndex      :: TVar (HashPSQ HashRef TimeSpec (Word64,Word64))
+  , ncqIndexNow       :: TVar Int
   , ncqTrackedFiles   :: TVar (HashPSQ FileKey FilePrio (Maybe CachedEntry))
   , ncqCachedEntries  :: TVar Int
   , ncqNotWritten     :: TVar Word64
@@ -308,7 +310,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   indexer    <- makeIndexer indexQ
   writer     <- makeWriter indexQ
 
-  mapM_ waitCatch [writer,indexer,refsWriter]
+  mapM_ waitCatch [writer,refsWriter]
+  -- mapM_ waitCatch [writer,indexer,refsWriter] -- ,indexer,refsWriter]
   mapM_ cancel  [reader]
 
   where
@@ -381,7 +384,12 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         -- FIXME: timeout-hardcode
 
           void $ race (pause @'Seconds 1) $ atomically do
-            void $ readTQueue myFlushQ >> STM.flushTQueue myFlushQ
+            q <- tryPeekTQueue myFlushQ
+            s <- readTVar ncqStopped
+            if not (isJust q || s) then
+              STM.retry
+            else do
+              STM.flushTQueue myFlushQ
 
           dirty <- readTVarIO ncqRefsDirty
 
@@ -405,20 +413,28 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     makeIndexer indexQ = do
       indexer <- ContT $ withAsync $ untilStopped do
 
+         debug $ "STARTED INDEXER"
+
          what' <- race (pause @'Seconds 1) $ atomically do
-                    peekTQueue indexQ >> STM.flushTQueue indexQ
+                    stop  <- readTVar ncqStopped
+                    q <- tryPeekTQueue indexQ
+                    if not (stop || isJust q) then
+                      STM.retry
+                    else do
+                      STM.flushTQueue indexQ
 
          let what = fromRight mempty what'
 
          for_ what $ \(fd,fn) -> do
 
-           (key, added) <- ncqIndexFile ncq fn <&> over _2 HS.fromList
+           debug $ "FUCKING WRITE INDEX" <+> pretty fn
 
-           atomically do
-             r <- readTVar ncqWaitIndex <&> HPSQ.toList
-             let new = [(k,p,v) | (k,p,v) <- r, not (k `HS.member` added)]
-             writeTVar ncqWaitIndex (HPSQ.fromList new)
+           (key, _) <- ncqIndexFile ncq fn <&> over _2 HS.fromList
 
+           -- atomically do
+           --   r <- readTVar ncqWaitIndex <&> HPSQ.toList
+           --   let new = [(k,p,v) | (k,p,v) <- r, not (k `HS.member` added)]
+           --   writeTVar ncqWaitIndex (HPSQ.fromList new)
 
            ncqAddTrackedFilesIO ncq [key]
            atomically do
@@ -489,7 +505,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
       writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
 
-      when (fromIntegral size >= ncqMinLog) do
+      indexNow <- readTVarIO ncqIndexNow
+
+      when (fromIntegral size >= ncqMinLog || indexNow > 0) do
 
         (n,u) <- atomically do
                       r <- readTVar ncqCurrentHandleR <&> fromIntegral
@@ -505,6 +523,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         mv current fossilized
 
         atomically do
+          writeTVar ncqIndexNow 0
           r <- readTVar ncqCurrentHandleR
           -- NOTE: extra-use
           --   добавляем лишний 1 для индексации.
@@ -831,7 +850,8 @@ ncqFixIndexes ncq@NCQStorage{..} = do
 
 
 ncqStorageOpen :: MonadUnliftIO m => FilePath -> m NCQStorage
-ncqStorageOpen fp = do
+ncqStorageOpen fp' = do
+  fp <- liftIO $ makeAbsolute fp'
   ncq@NCQStorage{..} <- ncqStorageInit_ False fp
   ncqReadTrackedFiles ncq
   ncqFixIndexes ncq
@@ -926,6 +946,7 @@ ncqStorageInit_ check path = do
   ncqStopped        <- newTVarIO False
   ncqTrackedFiles   <- newTVarIO HPSQ.empty
   ncqCachedEntries  <- newTVarIO 0
+  ncqIndexNow       <- newTVarIO 0
 
   let currentName = ncqGetCurrentName_ path ncqGen
 
@@ -972,6 +993,9 @@ ncqStorageInit_ check path = do
   touch (ncqGetRefsDataFileName ncq)
 
   pure ncq
+
+ncqIndexRightNow :: MonadUnliftIO m => NCQStorage -> m ()
+ncqIndexRightNow NCQStorage{..} = atomically $ modifyTVar ncqIndexNow succ
 
 withNCQ :: forall m a . MonadUnliftIO  m
         => (NCQStorage -> NCQStorage)

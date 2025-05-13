@@ -103,6 +103,15 @@ main = do
 
         internalEntries
 
+        entry $ bindMatch "run" $ \case
+          [ StringLike what ] -> do
+            liftIO (readFile what)
+              <&> parseTop
+              >>= either (error.show) pure
+              >>= evalTop
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "test:sqlite" $ nil_ $ \case
           [StringLike fn] -> liftIO do
             hashes <- readFile fn <&> mapMaybe (fromStringMay @HashRef) . lines
@@ -511,6 +520,17 @@ main = do
             liftIO $ ncqStorageStop ncq
 
             wait writer
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "test:ncq:index:now" $ nil_ \case
+          [StringLike p] -> lift do
+            withNCQ id p $ \ncq -> do
+              display_ $ "test:ncq:index:now" <+> pretty p
+              ncqIndexRightNow ncq
+              pause @'Seconds 10
+              display_ $ "test:ncq:index:now" <+> pretty p <+> "done"
 
           e -> throwIO $ BadFormException @C (mkList e)
 
