@@ -182,6 +182,24 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:fossilize" $ nil_ \case
+          [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
+            ncq <- getNCQ tcq
+            ncqIndexRightNow ncq
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:locate" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
+            ncq <- getNCQ tcq
+            ncqLocate ncq hash >>= \case
+              Just x -> do
+                parseSyntax (show $ pretty x) & either (error.show) pure
+
+              _      -> pure nil
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:get" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
             ncq <- getNCQ tcq
