@@ -189,6 +189,13 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:cached:entries" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
+            NCQStorage{..} <- getNCQ tcq
+            readTVarIO ncqCachedEntries <&> mkInt
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:locate" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
             ncq <- getNCQ tcq
@@ -200,10 +207,32 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+
+        entry $ bindMatch "ncq:has" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
+            ncq <- getNCQ tcq
+            ncqStorageHasBlock ncq hash <&> maybe nil mkInt
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:get" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
             ncq <- getNCQ tcq
             ncqStorageGet ncq hash >>= maybe (pure nil) mkOpaque
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:del" $ nil_ \case
+          [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
+            ncq <- getNCQ tcq
+            ncqStorageDel ncq hash
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:flush" $ nil_ \case
+          [ isOpaqueOf @TCQ -> Just tcq  ] -> lift do
+            ncq <- getNCQ tcq
+            ncqStorageFlush ncq
 
           e -> throwIO $ BadFormException @C (mkList e)
 

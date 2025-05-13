@@ -707,7 +707,9 @@ ncqCheckDeleted h (Just loc) act = case loc of
     | l == 0 && h /= ncqEmptyDataHash -> pure Nothing
     | otherwise -> act loc
 
-  _ -> act loc
+  InCurrent (_, l)
+    | l == 0 && h /= ncqEmptyDataHash -> pure Nothing
+    | otherwise -> act loc
 
 ncqStorageHasBlock :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Integer)
 ncqStorageHasBlock ncq h = do
@@ -750,6 +752,7 @@ ncqStorageGet ncq@NCQStorage{..} h = do
       pure $ Just lbs
 
     InCurrent (o,l) -> do
+      debug $ "IN FUCKIN CURRENT" <+> pretty l
       r <- atomically do
         a <- newEmptyTMVar
         fd <- readTVar ncqCurrentHandleR
@@ -794,7 +797,10 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
-    Just (InCurrent  _)   -> writeTombstone (WQItem False Nothing)
+    Just (InCurrent  _)   -> do
+      modifyTVar ncqWaitIndex (HPSQ.delete h)
+      writeTombstone (WQItem False Nothing)
+
     Just (InWriteQueue _) -> writeTombstone (WQItem True Nothing)
     _ -> pure ()
 
@@ -1001,6 +1007,9 @@ ncqStorageInit_ check path = do
   touch (ncqGetRefsDataFileName ncq)
 
   pure ncq
+
+ncqStorageFlush :: MonadUnliftIO m => NCQStorage -> m ()
+ncqStorageFlush = ncqStorageSync
 
 ncqIndexRightNow :: MonadUnliftIO m => NCQStorage -> m ()
 ncqIndexRightNow NCQStorage{..} = atomically $ modifyTVar ncqIndexNow succ
