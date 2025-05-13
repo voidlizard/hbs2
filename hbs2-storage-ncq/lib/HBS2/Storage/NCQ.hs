@@ -137,10 +137,9 @@ data NCQStorage =
 
 
 data Location =
-    InWriteQueue LBS.ByteString
+    InWriteQueue WQItem
   | InCurrent    (Word64, Word64)
   | InFossil     CachedEntry (Word64, Word64)
-  deriving stock (Show)
 
 instance Pretty Location where
   pretty = \case
@@ -595,10 +594,9 @@ ncqStoragePutFaster = ncqStoragePut_ False
 
 ncqLocatedSize :: Location -> Integer
 ncqLocatedSize = \case
-  InWriteQueue lbs   -> fromIntegral $ LBS.length lbs
-  InCurrent (_,s)    -> fromIntegral s
-  InFossil _ (_,s) -> fromIntegral s
-
+  InWriteQueue WQItem{..} -> fromIntegral $ maybe 0 LBS.length wqData
+  InCurrent (_,s)         -> fromIntegral s
+  InFossil _ (_,s)        -> fromIntegral s
 
 evictIfNeededSTM :: NCQStorage -> Maybe Int -> STM ()
 evictIfNeededSTM NCQStorage{..} howMany = do
@@ -634,8 +632,8 @@ ncqLocate ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
     inQ <- readTVar ncqWriteQueue
             <&> (fmap snd . HPSQ.lookup h)
             <&> \case
-                Just (WQItem{ wqData = Just bs})  -> Just (InWriteQueue bs)
-                _ -> Nothing
+                Just wq  -> Just (InWriteQueue wq)
+                _        -> Nothing
 
     inC <- readTVar ncqWaitIndex  <&> (fmap snd . HPSQ.lookup h) <&> fmap InCurrent
     pure (inQ <|> inC)
@@ -699,9 +697,9 @@ ncqCheckDeleted :: Monad m
 ncqCheckDeleted _ Nothing _ = pure Nothing
 
 ncqCheckDeleted h (Just loc) act = case loc of
-  InWriteQueue bs
-    | LBS.null bs && h /= ncqEmptyDataHash -> pure Nothing
-    | otherwise -> act loc
+  InWriteQueue WQItem{ wqData = Nothing } -> pure Nothing
+
+  InWriteQueue WQItem{ wqData = Just _ }  -> act loc
 
   InFossil _ (_, l)
     | l == 0 && h /= ncqEmptyDataHash -> pure Nothing
@@ -748,11 +746,10 @@ ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteSt
 ncqStorageGet ncq@NCQStorage{..} h = do
   location <- ncqLocate ncq h
   ncqCheckDeleted h location \case
-    InWriteQueue lbs ->
+    InWriteQueue WQItem{ wqData = Just lbs } -> do
       pure $ Just lbs
 
     InCurrent (o,l) -> do
-      debug $ "IN FUCKIN CURRENT" <+> pretty l
       r <- atomically do
         a <- newEmptyTMVar
         fd <- readTVar ncqCurrentHandleR
@@ -768,6 +765,7 @@ ncqStorageGet ncq@NCQStorage{..} h = do
       let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) (cachedMmapedData ce))
       pure $ Just $ LBS.fromStrict chunk
 
+    _ -> pure Nothing
 
 ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef)
 ncqStorageGetRef NCQStorage{..} ref = readTVarIO ncqRefsMem <&> HM.lookup ref

@@ -189,6 +189,22 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:close" $ nil_ \case
+          [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
+            ncq <- getNCQ tcq
+            ncqStorageStop ncq
+
+            void $ runMaybeT do
+              (s,r) <- readTVarIO instances
+                      <&> HM.lookup (coerce tcq)
+                      >>= toMPlus
+
+              wait r
+              atomically $ modifyTVar instances (HM.delete (coerce tcq))
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
         entry $ bindMatch "ncq:cached:entries" $ \case
           [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
             NCQStorage{..} <- getNCQ tcq
@@ -206,7 +222,6 @@ main = do
               _      -> pure nil
 
           e -> throwIO $ BadFormException @C (mkList e)
-
 
         entry $ bindMatch "ncq:has" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
