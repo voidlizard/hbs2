@@ -249,6 +249,11 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "test:ncq:raw:list-tracked-files" $ nil_ \case
+          [StringLike fn] -> lift $ withNCQ id fn $ \ncq -> do
+            ncqListTrackedFiles ncq >>= mapM_ display_
+
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:raw:get:stdout" $ nil_ \case
 

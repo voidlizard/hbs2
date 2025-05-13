@@ -141,8 +141,8 @@ data Location =
 
 instance Pretty Location where
   pretty = \case
-    InWriteQueue{}     -> "write-queue"
-    InCurrent (o,l)    -> pretty $ mkForm @C "current" [mkInt o, mkInt l]
+    InWriteQueue{}   -> "write-queue"
+    InCurrent (o,l)  -> pretty $ mkForm @C "current" [mkInt o, mkInt l]
     InFossil _ (o,l) -> pretty $ mkForm @C "fossil " [mkList [mkInt o, mkInt l]]
 
 type IsHCQKey h  = ( Eq (Key h)
@@ -214,17 +214,18 @@ ncqAddCachedSTM now limit tv k v = do
 
     writeTVar tv (HPSQ.insert k now v dst)
 
-
 ncqAddTrackedFilesIO :: MonadIO m => NCQStorage -> [FilePath] -> m ()
 ncqAddTrackedFilesIO ncq fps = do
-  tsFiles <- catMaybes <$> forM fps \fp -> liftIO $ do
+  tsFiles <- catMaybes <$> forM fps \fp' -> liftIO $ do
     catchIOError
       (do
-          stat <- getFileStatus fp
+          let fp = fromString fp'
+          let dataFile = ncqGetDataFileName ncq fp
+          stat <- getFileStatus dataFile
           let ts = modificationTimeHiRes stat
-          pure $ Just (FileKey (fromString fp), TimeSpec (floor ts) 0))
+          pure $ Just (fp, TimeSpec (floor ts) 0))
       (\e -> do
-          err $ "ncqAddTrackedFilesIO: failed to stat " <+> pretty fp <+> pretty (displayException e)
+          err $ "ncqAddTrackedFilesIO: failed to stat " <+> viaShow e
           pure Nothing)
 
   atomically $ ncqAddTrackedFilesSTM ncq tsFiles
@@ -239,13 +240,16 @@ ncqAddTrackedFilesSTM NCQStorage{..} keys = do
 
   writeTVar ncqTrackedFiles new
 
+ncqListTrackedFiles :: MonadIO m => NCQStorage -> m [FilePath]
+ncqListTrackedFiles ncq = do
+  let wd = ncqGetCurrentDir ncq
+  dirFiles wd
+     >>= mapM (pure . takeBaseName)
+     <&> List.filter (List.isPrefixOf "fossil-")
+
 ncqReadTrackedFiles :: MonadIO m => NCQStorage -> m ()
 ncqReadTrackedFiles ncq@NCQStorage{} = do
-
-  files <- dirFiles (ncqGetCurrentDir ncq)
-             >>= mapM (pure . takeBaseName)
-             <&> List.filter (List.isPrefixOf "fossil-")
-
+  files <- ncqListTrackedFiles ncq
   ncqAddTrackedFilesIO ncq files
 
 ncqWriteError :: MonadIO m => NCQStorage -> Text -> m ()
@@ -943,6 +947,7 @@ ncqStorageInit_ check path = do
 
     when (lastSz /= currSz ) do
       fossilized <- ncqGetNewFossilName ncq0
+      debug $ "NEW FOSSIL FILE" <+> pretty fossilized
       let fn = takeFileName fossilized
       let msg = fromString $ show $ "wrong-size" <+> pretty lastSz <+> pretty fn
       err $ pretty msg
@@ -979,5 +984,6 @@ withNCQ setopts p action = flip runContT pure do
   link writer
   e <- lift (action ncq)
   lift (ncqStorageStop ncq)
+  wait writer
   pure e
 
