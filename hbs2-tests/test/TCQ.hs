@@ -3,6 +3,7 @@
 {-# Language MultiWayIf #-}
 {-# Language RecordWildCards #-}
 {-# Language ViewPatterns #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Main where
 
 import HBS2.Prelude.Plated
@@ -21,9 +22,10 @@ import HBS2.System.Logger.Simple.ANSI
 import HBS2.Storage.NCQ
 import HBS2.Data.Log.Structured.NCQ
 
+import HBS2.CLI.Run.Internal.Merkle
 
 import Data.Config.Suckless.Syntax
-import Data.Config.Suckless.Script
+import Data.Config.Suckless.Script as SC
 import Data.Config.Suckless.System
 
 import DBPipe.SQLite hiding (field)
@@ -42,6 +44,7 @@ import Data.Vector qualified as V
 import Data.Vector ((!))
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
+import Control.Monad.Except (runExceptT)
 import Network.ByteOrder qualified as N
 import Data.Coerce
 import Data.HashPSQ qualified as HPSQ
@@ -105,6 +108,17 @@ newtype TCQ =
   TCQ FilePath
   deriving newtype (Eq,Ord,Show,Typeable)
 
+instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
+    putBlock ncq lbs = fmap coerce <$> ncqStoragePut ncq lbs
+    enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePut ncq lbs
+    getBlock ncq h = ncqStorageGet ncq (coerce h)
+    getChunk _ _ _  = error "getChunk not defined"
+    hasBlock ncq = hasBlock ncq . coerce
+    updateRef = error "updateRef not defined"
+    getRef = error "getRef not no defined"
+    delBlock = error "delBlock not defined"
+    delRef = error "delRef not defined"
+
 main :: IO ()
 main = do
 
@@ -136,11 +150,21 @@ main = do
         entry $ bindMatch "#!" $ nil_ $ const none
 
         entry $ bindMatch "--run" $ \case
-          [ StringLike what ] -> liftIO do
+          (StringLike what : args) -> liftIO do
+
             liftIO (readFile what)
               <&> parseTop
               >>= either (error.show) pure
-              >>= runEval tvd
+              >>= \syn -> do
+                    runTM tvd do
+
+                      for_ (zip [1..] args) $ \(i,a) -> do
+                        let n = Id ("$" <> fromString (show i))
+                        SC.bind n a
+
+                      SC.bind "$argv" (mkList args)
+
+                      evalTop syn
 
           e -> throwIO $ BadFormException @C (mkList e)
 
@@ -266,6 +290,44 @@ main = do
             r <- ncqStoragePut ncq bs
             pure $ maybe nil (mkSym . show . pretty) r
 
+        entry $ bindMatch "ncq:merkle:write" $ \syn -> do
+          (tcq,fname) <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq, StringLike f ] -> lift do
+              pure (tcq, f)
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          lift do
+            ncq <- getNCQ tcq
+
+            lbs <- liftIO $ LBS.readFile fname
+
+            chu <- S.toList_ (readChunkedBS lbs (256*1024))
+            hashes <- forConcurrently chu $ \chunk -> do
+              ncqStoragePut ncq chunk >>= orThrowUser "can't save"
+
+            -- FIXME: handle-hardcode
+            let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes -- FIXME: settings
+
+            m <- makeMerkle 0 pt $ \(_,_,bss) -> liftIO do
+                   void $ ncqStoragePut ncq bss >>= orThrowUser "can't save"
+
+            pure $ mkSym (show $ pretty m)
+
+        entry $ bindMatch "ncq:merkle:read:stdout" $ nil_ \syn -> do
+          (tcq,h) <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq, HashLike f ] -> lift do
+              pure (tcq, f)
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          lift do
+            ncq <- getNCQ tcq
+
+            lbs <- runExceptT (getTreeContents (AnyStorage ncq) h)
+                    >>= orThrowPassIO
+
+            LBS.putStr lbs
 
   setupLogger
 

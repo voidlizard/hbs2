@@ -936,6 +936,13 @@ runM  d  m = do
   tvd <- newTVarIO d
   runReaderT (fromRunM m) tvd
 
+runTM :: forall c m a. ( IsContext c
+                      , MonadUnliftIO m
+                      , Exception (BadFormException c)
+                      ) => TVar (Dict c m) -> RunM c m a ->  m a
+runTM  tvd  m = do
+  runReaderT (fromRunM m) tvd
+
 run :: forall c m . ( IsContext c
                     , MonadUnliftIO m
                     , Exception (BadFormException c)
