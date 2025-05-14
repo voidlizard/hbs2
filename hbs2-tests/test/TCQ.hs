@@ -382,6 +382,38 @@ main = do
 
             LBS.putStr lbs
 
+        entry $ bindMatch "ncq:nway:stats" $ \case
+          [StringLike fn] -> liftIO do
+
+            mt_    <- newTVarIO 0
+            total_ <- newTVarIO 0
+
+            (mmaped,meta@NWayHash{..}) <- nwayHashMMapReadOnly fn >>= orThrow (NWayHashInvalidMetaData fn)
+
+            let emptyKey = BS.replicate nwayKeySize 0
+            nwayHashScanAll meta mmaped $ \o k v -> do
+              atomically do
+                modifyTVar total_ succ
+                when (k == emptyKey) do
+                  modifyTVar mt_ succ
+
+            mt    <- readTVarIO mt_
+            total <- readTVarIO total_
+            let used = total - mt
+
+            let ratio = realToFrac @_ @(Fixed E3) (realToFrac used / realToFrac total)
+
+            let stats = mkForm @C "stats" [ mkForm "empty" [mkInt mt]
+                                          , mkForm "used"  [mkInt used]
+                                          , mkForm "total" [mkInt total]
+                                          , mkForm "ratio" [mkDouble ratio]
+                                          ]
+
+            pure $ mkList [mkForm "metadata" [mkSyntax meta], stats]
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
   setupLogger
 
   argz <- liftIO getArgs

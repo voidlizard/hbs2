@@ -32,6 +32,7 @@ import Data.IntMap (IntMap)
 import Data.Sequence as Seq
 import Data.List qualified as List
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -536,6 +537,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
               debug $ "CLOSE FD" <+> pretty f
               Posix.closeFd (fromIntegral f)
 
+--
 ncqStoragePut_ :: MonadUnliftIO m
                => Bool
                -> NCQStorage
@@ -546,10 +548,12 @@ ncqStoragePut_ :: MonadUnliftIO m
 ncqStoragePut_ check ncq@NCQStorage{..} h lbs = flip runContT pure $ callCC \exit -> do
 
   when check do
-    already <- lift (ncqStorageGet ncq h)
-    let tomb  = maybe False (not . ncqIsNotTomb) already
-    when (isJust already && not tomb) do
-      exit $ Just h
+    lift (ncqLocate  ncq h) >>= \case
+      Nothing -> none
+      Just loc -> do
+        what <- lift $ ncqStorageGet_ ncq loc
+        let tomb  = maybe True ncqIsTomb what -- continue if no record found || tomb
+        unless tomb $ exit (Just h)
 
   now <- getTimeCoarse
   atomically do
@@ -562,10 +566,11 @@ ncqStoragePutBlock :: MonadUnliftIO m => NCQStorage -> LBS.ByteString -> m (Mayb
 ncqStoragePutBlock ncq lbs = ncqStoragePut_ True ncq h (LBS.fromStrict ncqBlockPrefix <> lbs)
   where h = HashRef (hashObject lbs)
 
-ncqIsNotTomb :: LBS.ByteString -> Bool
-ncqIsNotTomb lbs = do
+ncqIsTomb :: LBS.ByteString -> Bool
+ncqIsTomb lbs = do
   let (pre,_) = LBS.splitAt (fromIntegral ncqPrefixLen) lbs
-  pre /= LBS.fromStrict ncqTombPrefix
+  LBS.isPrefixOf "T" pre
+{-# INLINE ncqIsTomb #-}
 
 ncqStorageHasBlock :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Integer)
 ncqStorageHasBlock ncq h = runMaybeT do
@@ -574,8 +579,8 @@ ncqStorageHasBlock ncq h = runMaybeT do
   if s > ncqPrefixLen then
     pure (s - ncqPrefixLen)
   else do
-    what <- lift (ncqStorageGet ncq h) >>= toMPlus
-    guard (ncqIsNotTomb what)
+    what <- lift (ncqStorageGet_ ncq location) >>= toMPlus
+    guard (not $ ncqIsTomb what)
     pure 0
 
 ncqStorageGetBlock :: MonadUnliftIO m
@@ -585,7 +590,7 @@ ncqStorageGetBlock :: MonadUnliftIO m
 
 ncqStorageGetBlock ncq h = runMaybeT do
   lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
-  guard (ncqIsNotTomb lbs)
+  guard (not $ ncqIsTomb lbs)
   pure $ LBS.drop (fromIntegral ncqPrefixLen) lbs
 
 ncqPrefixLen :: Integer
@@ -721,16 +726,17 @@ ncqStorageScanDataFile ncq fp' action = do
 
      next (4 + o + fromIntegral w, BS.drop (w+4) bs)
 
-
 ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteString)
-ncqStorageGet ncq@NCQStorage{..} h = do
+ncqStorageGet ncq h = runMaybeT do
+  location <- ncqLocate ncq h >>= toMPlus
+  lift (ncqStorageGet_ ncq location) >>= toMPlus
 
-  location <- ncqLocate ncq h
-  case location of
-    Just (InWriteQueue WQItem{ wqData = Just lbs }) -> do
+ncqStorageGet_ :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe LBS.ByteString)
+ncqStorageGet_ NCQStorage{..} = \case
+    InWriteQueue WQItem{ wqData = Just lbs } -> do
       pure $ Just lbs
 
-    Just (InCurrent (o,l)) -> do
+    InCurrent (o,l) -> do
       r <- atomically do
         a <- newEmptyTMVar
         fd <- readTVar ncqCurrentHandleR
@@ -740,7 +746,7 @@ ncqStorageGet ncq@NCQStorage{..} h = do
 
       atomically (takeTMVar r) <&> Just . LBS.fromStrict
 
-    Just (InFossil ce (o,l)) -> do
+    InFossil ce (o,l) -> do
       now <- getTimeCoarse
       atomically $ writeTVar (cachedTs ce) now
       let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) (cachedMmapedData ce))
@@ -748,13 +754,15 @@ ncqStorageGet ncq@NCQStorage{..} h = do
 
     _ -> pure Nothing
 
+{-# INLINE ncqStorageGet_ #-}
+
 ncqRefHash :: NCQStorage -> HashRef -> HashRef
 ncqRefHash NCQStorage{..} h = HashRef (hashObject (coerce @_ @ByteString h <> coerce ncqSalt))
 
 ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef)
 ncqStorageGetRef ncq ref = runMaybeT do
   lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
-  guard (ncqIsNotTomb lbs)
+  guard (not $ ncqIsTomb lbs)
   let hbs = LBS.toStrict (LBS.drop (fromIntegral ncqPrefixLen) lbs)
   guard (BS.length hbs == 32)
   pure $ coerce hbs
