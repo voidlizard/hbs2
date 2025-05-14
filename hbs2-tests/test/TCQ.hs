@@ -114,10 +114,20 @@ instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     getBlock ncq h = ncqStorageGet ncq (coerce h)
     hasBlock ncq = hasBlock ncq . coerce
     delBlock ncq = ncqStorageDel ncq . coerce
-    getChunk _ _ _  = error "getChunk not defined"
-    updateRef = error "updateRef not defined"
-    getRef = error "getRef not no defined"
-    delRef = error "delRef not defined"
+
+    updateRef ncq k v =  do
+      ncqStorageSetRef ncq (HashRef $ hashObject k) (HashRef v)
+
+    getRef ncq k =
+      ncqStorageGetRef ncq (HashRef $ hashObject k) <&> fmap coerce
+
+    delRef ncq k =
+      ncqStorageDelRef ncq (HashRef $ hashObject k)
+
+    getChunk ncq h off size = runMaybeT do
+      block <- lift (ncqStorageGetBlock ncq (coerce h)) >>= toMPlus
+      let chunk = LBS.take (fromIntegral size) $ LBS.drop (fromIntegral off) block
+      pure chunk
 
 main :: IO ()
 main = do
