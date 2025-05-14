@@ -109,8 +109,8 @@ newtype TCQ =
   deriving newtype (Eq,Ord,Show,Typeable)
 
 instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
-    putBlock ncq lbs = fmap coerce <$> ncqStoragePut ncq lbs
-    enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePut ncq lbs
+    putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
+    enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
     getBlock ncq h = ncqStorageGet ncq (coerce h)
     getChunk _ _ _  = error "getChunk not defined"
     hasBlock ncq = hasBlock ncq . coerce
@@ -257,7 +257,7 @@ main = do
         entry $ bindMatch "ncq:get" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
             ncq <- getNCQ tcq
-            ncqStorageGet ncq hash >>= maybe (pure nil) mkOpaque
+            ncqStorageGetBlock ncq hash >>= maybe (pure nil) mkOpaque
 
           e -> throwIO $ BadFormException @C (mkList e)
 
@@ -275,6 +275,15 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:hash" $ \case
+            [ isOpaqueOf @ByteString -> Just bs ] -> lift do
+              pure $ mkSym ( show $ pretty $ hashObject @HbSync bs )
+
+            [ StringLike s ] -> lift do
+              pure $ mkSym ( show $ pretty $ hashObject @HbSync (BS8.pack s) )
+
+            e -> pure nil
+
         entry $ bindMatch "ncq:put" $ \syn -> do
           (tcq,bs) <- case syn of
             [ isOpaqueOf @TCQ -> Just tcq, isOpaqueOf @ByteString -> Just bs ] -> lift do
@@ -287,7 +296,7 @@ main = do
 
           lift do
             ncq <- getNCQ tcq
-            r <- ncqStoragePut ncq bs
+            r <- ncqStoragePutBlock ncq bs
             pure $ maybe nil (mkSym . show . pretty) r
 
         entry $ bindMatch "ncq:merkle:write" $ \syn -> do
@@ -304,13 +313,13 @@ main = do
 
             chu <- S.toList_ (readChunkedBS lbs (256*1024))
             hashes <- forConcurrently chu $ \chunk -> do
-              ncqStoragePut ncq chunk >>= orThrowUser "can't save"
+              ncqStoragePutBlock ncq chunk >>= orThrowUser "can't save"
 
             -- FIXME: handle-hardcode
             let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes -- FIXME: settings
 
             m <- makeMerkle 0 pt $ \(_,_,bss) -> liftIO do
-                   void $ ncqStoragePut ncq bss >>= orThrowUser "can't save"
+                   void $ ncqStoragePutBlock ncq bss >>= orThrowUser "can't save"
 
             pure $ mkSym (show $ pretty m)
 

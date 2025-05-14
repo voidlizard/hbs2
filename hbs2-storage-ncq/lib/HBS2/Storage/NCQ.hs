@@ -433,8 +433,11 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
          Just (h,_,WQItem{..},rest) -> do
 
           off <- fdSeek fh SeekFromEnd 0
+
+          -- we really have to write tomb prefix here
           let b = byteString (coerce @_ @ByteString h)
-                   <> lazyByteString (fromMaybe mempty wqData)
+                   <> lazyByteString (fromMaybe (LBS.fromStrict ncqTombPrefix) wqData)
+
           let wbs = toLazyByteString b
           let len = LBS.length wbs
           let ws  = N.bytestring32  (fromIntegral len)
@@ -535,8 +538,14 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
               debug $ "CLOSE FD" <+> pretty f
               Posix.closeFd (fromIntegral f)
 
-ncqStoragePut_ :: MonadUnliftIO m => Bool -> NCQStorage -> LBS.ByteString -> m (Maybe HashRef)
-ncqStoragePut_ check ncq@NCQStorage{..} lbs = flip runContT pure $ callCC \exit -> do
+ncqStoragePut_ :: MonadUnliftIO m
+               => Bool
+               -> NCQStorage
+               -> HashRef
+               -> LBS.ByteString
+               -> m (Maybe HashRef)
+
+ncqStoragePut_ check ncq@NCQStorage{..} h lbs = flip runContT pure $ callCC \exit -> do
 
   stoped <- readTVarIO ncqStopped
 
@@ -544,11 +553,10 @@ ncqStoragePut_ check ncq@NCQStorage{..} lbs = flip runContT pure $ callCC \exit 
 
   when (LBS.null lbs) $ exit Nothing
 
-  let h = hashObject @HbSync lbs & coerce
-
   when check do
     already <- lift (ncqStorageGet ncq h)
-    when (isJust already) do
+    let tomb  = maybe False (not . ncqIsNotTomb) already
+    when (isJust already && not tomb) do
       exit $ Just h
 
   now <- getTimeCoarse
@@ -558,8 +566,47 @@ ncqStoragePut_ check ncq@NCQStorage{..} lbs = flip runContT pure $ callCC \exit 
     modifyTVar ncqNotWritten (+ (fromIntegral $ 4 + 32 + LBS.length lbs))
     pure (Just h)
 
-ncqStoragePut :: MonadUnliftIO m => NCQStorage -> LBS.ByteString -> m (Maybe HashRef)
-ncqStoragePut = ncqStoragePut_ True
+ncqStoragePutBlock :: MonadUnliftIO m => NCQStorage -> LBS.ByteString -> m (Maybe HashRef)
+ncqStoragePutBlock ncq lbs = ncqStoragePut_ True ncq h (LBS.fromStrict ncqBlockPrefix <> lbs)
+  where h = HashRef (hashObject lbs)
+
+ncqIsNotTomb :: LBS.ByteString -> Bool
+ncqIsNotTomb lbs = do
+  let (pre,_) = LBS.splitAt (fromIntegral ncqPrefixLen) lbs
+  pre /= LBS.fromStrict ncqTombPrefix
+
+ncqStorageHasBlock :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Integer)
+ncqStorageHasBlock ncq h = runMaybeT do
+  location <- ncqLocate ncq h >>= toMPlus
+  let s  = ncqLocatedSize location
+  if s > ncqPrefixLen then
+    pure (s - ncqPrefixLen)
+  else do
+    what <- lift (ncqStorageGet ncq h) >>= toMPlus
+    guard (ncqIsNotTomb what)
+    pure 0
+
+ncqStorageGetBlock :: MonadUnliftIO m
+                   => NCQStorage
+                   -> HashRef
+                   -> m (Maybe LBS.ByteString)
+
+ncqStorageGetBlock ncq h = runMaybeT do
+  lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
+  guard (ncqIsNotTomb lbs)
+  pure $ LBS.drop (fromIntegral ncqPrefixLen) lbs
+
+ncqPrefixLen :: Integer
+ncqPrefixLen = 4
+
+ncqRefPrefix :: ByteString
+ncqRefPrefix = "R;;\x00"
+
+ncqBlockPrefix :: ByteString
+ncqBlockPrefix = "B;;\x00"
+
+ncqTombPrefix :: ByteString
+ncqTombPrefix = "T;;\x00"
 
 ncqLocatedSize :: Location -> Integer
 ncqLocatedSize = \case
@@ -655,34 +702,6 @@ ncqLocate ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
         , fromIntegral $ N.word32 (BS.take 4 (BS.drop 8 entryBs)) )
 
 
-
-
-ncqCheckDeleted :: Monad m
-                => HashRef
-                -> Maybe Location
-                -> (Location -> m (Maybe a))
-                -> m (Maybe a)
-
-ncqCheckDeleted _ Nothing _ = pure Nothing
-
-ncqCheckDeleted h (Just loc) act = case loc of
-  InWriteQueue WQItem{ wqData = Nothing } -> pure Nothing
-
-  InWriteQueue WQItem{ wqData = Just _ }  -> act loc
-
-  InFossil _ (_, l)
-    | l == 0 && h /= ncqEmptyDataHash -> pure Nothing
-    | otherwise -> act loc
-
-  InCurrent (_, l)
-    | l == 0 && h /= ncqEmptyDataHash -> pure Nothing
-    | otherwise -> act loc
-
-ncqStorageHasBlock :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Integer)
-ncqStorageHasBlock ncq h = do
-  mloc <- ncqLocate ncq h
-  ncqCheckDeleted h mloc (pure . Just . ncqLocatedSize)
-
 ncqStorageScanDataFile :: MonadIO m
                        => NCQStorage
                        -> FilePath
@@ -714,11 +733,11 @@ ncqStorageScanDataFile ncq fp' action = do
 ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteString)
 ncqStorageGet ncq@NCQStorage{..} h = do
   location <- ncqLocate ncq h
-  ncqCheckDeleted h location \case
-    InWriteQueue WQItem{ wqData = Just lbs } -> do
+  case location of
+    Just (InWriteQueue WQItem{ wqData = Just lbs }) -> do
       pure $ Just lbs
 
-    InCurrent (o,l) -> do
+    Just (InCurrent (o,l)) -> do
       r <- atomically do
         a <- newEmptyTMVar
         fd <- readTVar ncqCurrentHandleR
@@ -728,7 +747,7 @@ ncqStorageGet ncq@NCQStorage{..} h = do
 
       atomically (takeTMVar r) <&> Just . LBS.fromStrict
 
-    InFossil ce (o,l) -> do
+    Just (InFossil ce (o,l)) -> do
       now <- getTimeCoarse
       atomically $ writeTVar (cachedTs ce) now
       let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) (cachedMmapedData ce))
@@ -754,7 +773,7 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
   now <- getTimeCoarse
   let writeTombstone wq = do
           modifyTVar ncqWriteQueue (HPSQ.insert h now wq)
-          modifyTVar ncqNotWritten (+ fromIntegral (4 + 32 + 0))
+          modifyTVar ncqNotWritten (+ fromIntegral (4 + 32 + ncqPrefixLen))
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
