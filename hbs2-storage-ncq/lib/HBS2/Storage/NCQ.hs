@@ -81,6 +81,7 @@ type NCQPerks m = MonadIO m
 data NCQStorageException =
     NCQStorageAlreadyExist String
   | NCQStorageSeedMissed
+  | NCQStorageTimeout
   deriving stock (Show,Typeable)
 
 instance Exception NCQStorageException
@@ -547,12 +548,6 @@ ncqStoragePut_ :: MonadUnliftIO m
 
 ncqStoragePut_ check ncq@NCQStorage{..} h lbs = flip runContT pure $ callCC \exit -> do
 
-  stoped <- readTVarIO ncqStopped
-
-  when stoped $ exit Nothing
-
-  when (LBS.null lbs) $ exit Nothing
-
   when check do
     already <- lift (ncqStorageGet ncq h)
     let tomb  = maybe False (not . ncqIsNotTomb) already
@@ -732,6 +727,7 @@ ncqStorageScanDataFile ncq fp' action = do
 
 ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteString)
 ncqStorageGet ncq@NCQStorage{..} h = do
+
   location <- ncqLocate ncq h
   case location of
     Just (InWriteQueue WQItem{ wqData = Just lbs }) -> do

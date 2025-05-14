@@ -111,7 +111,7 @@ newtype TCQ =
 instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
     enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
-    getBlock ncq h = ncqStorageGet ncq (coerce h)
+    getBlock ncq h = ncqStorageGetBlock ncq (coerce h)
     hasBlock ncq = hasBlock ncq . coerce
     delBlock ncq = ncqStorageDel ncq . coerce
 
