@@ -187,9 +187,6 @@ ncqGetNewFossilName n@NCQStorage{} = do
   let (p,tpl)  = splitFileName fn
   liftIO $ emptyTempFile p tpl
 
-ncqGetRefsDataFileName :: NCQStorage -> FilePath
-ncqGetRefsDataFileName ncq = ncqGetFileName ncq "refs.data"
-
 ncqGetIndexFileName :: NCQStorage -> FileKey -> FilePath
 ncqGetIndexFileName ncq fk = do
   ncqGetFileName ncq (addExtension (dropExtension (BS8.unpack (coerce fk))) ".cq")
@@ -995,10 +992,7 @@ ncqStorageInit_ check path = do
 
   debug $ "currentFileName" <+> pretty (ncqGetCurrentName_ path ncqGen)
 
-
   let ncq = NCQStorage{..}
-
-  touch (ncqGetRefsDataFileName ncq)
 
   pure ncq
 
