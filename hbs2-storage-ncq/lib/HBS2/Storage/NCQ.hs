@@ -568,7 +568,7 @@ ncqStoragePutBlock ncq lbs = ncqStoragePut_ True ncq h (LBS.fromStrict ncqBlockP
 
 ncqIsTomb :: LBS.ByteString -> Bool
 ncqIsTomb lbs = do
-  let (pre,_) = LBS.splitAt (fromIntegral ncqPrefixLen) lbs
+  let (pre,_) = LBS.splitAt ncqPrefixLen lbs
   LBS.isPrefixOf "T" pre
 {-# INLINE ncqIsTomb #-}
 
@@ -588,13 +588,14 @@ ncqStorageGetBlock :: MonadUnliftIO m
                    -> HashRef
                    -> m (Maybe LBS.ByteString)
 
-ncqStorageGetBlock ncq h = runMaybeT do
-  lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
-  guard (not $ ncqIsTomb lbs)
-  pure $ LBS.drop (fromIntegral ncqPrefixLen) lbs
+ncqStorageGetBlock ncq h = do
+  ncqStorageGet ncq h >>= \case
+    Just lbs | not (ncqIsTomb lbs) -> pure (Just $ LBS.drop ncqPrefixLen lbs)
+    _ -> pure Nothing
 
-ncqPrefixLen :: Integer
+ncqPrefixLen :: Integral a => a
 ncqPrefixLen = 4
+{-# INLINE ncqPrefixLen #-}
 
 ncqRefPrefix :: ByteString
 ncqRefPrefix = "R;;\x00"
@@ -763,7 +764,7 @@ ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef
 ncqStorageGetRef ncq ref = runMaybeT do
   lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
   guard (not $ ncqIsTomb lbs)
-  let hbs = LBS.toStrict (LBS.drop (fromIntegral ncqPrefixLen) lbs)
+  let hbs = LBS.toStrict (LBS.drop ncqPrefixLen lbs)
   guard (BS.length hbs == 32)
   pure $ coerce hbs
   where h = ncqRefHash ncq ref
@@ -788,7 +789,7 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
   now <- getTimeCoarse
   let writeTombstone wq = do
           modifyTVar ncqWriteQueue (HPSQ.insert h now wq)
-          modifyTVar ncqNotWritten (+ fromIntegral (4 + 32 + ncqPrefixLen))
+          modifyTVar ncqNotWritten (+ (4 + 32 + ncqPrefixLen))
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
