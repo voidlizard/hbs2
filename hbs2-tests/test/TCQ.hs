@@ -112,11 +112,11 @@ instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
     enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
     getBlock ncq h = ncqStorageGet ncq (coerce h)
-    getChunk _ _ _  = error "getChunk not defined"
     hasBlock ncq = hasBlock ncq . coerce
+    delBlock ncq = ncqStorageDel ncq . coerce
+    getChunk _ _ _  = error "getChunk not defined"
     updateRef = error "updateRef not defined"
     getRef = error "getRef not no defined"
-    delBlock = error "delBlock not defined"
     delRef = error "delRef not defined"
 
 main :: IO ()
@@ -254,12 +254,6 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "ncq:get" $ \case
-          [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
-            ncq <- getNCQ tcq
-            ncqStorageGetBlock ncq hash >>= maybe (pure nil) mkOpaque
-
-          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "ncq:del" $ nil_ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
@@ -275,6 +269,39 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+
+        entry $ bindMatch "ncq:set:ref" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq, HashLike ref , HashLike val ] -> lift do
+              ncq <- getNCQ tcq
+              ncqStorageSetRef ncq ref val
+              pure nil
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:del:ref" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq , HashLike ref ] -> lift do
+              ncq <- getNCQ tcq
+              ncqStorageDelRef ncq ref
+              pure nil
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:get:ref" $ \case
+            [ isOpaqueOf @TCQ -> Just tcq, HashLike w ] -> lift do
+              ncq <- getNCQ tcq
+              ref <- ncqStorageGetRef ncq w
+              pure $ maybe nil (mkSym . show . pretty) ref
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:refhash" $ \case
+            [ isOpaqueOf @TCQ -> Just tcq, HashLike w ] -> lift do
+              ncq <- getNCQ tcq
+              let rf = ncqRefHash ncq w
+              pure $ mkSym ( show $ pretty $ rf )
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:hash" $ \case
             [ isOpaqueOf @ByteString -> Just bs ] -> lift do
               pure $ mkSym ( show $ pretty $ hashObject @HbSync bs )
@@ -283,6 +310,13 @@ main = do
               pure $ mkSym ( show $ pretty $ hashObject @HbSync (BS8.pack s) )
 
             e -> pure nil
+
+        entry $ bindMatch "ncq:get" $ \case
+          [ isOpaqueOf @TCQ -> Just tcq, HashLike hash ] -> lift do
+            ncq <- getNCQ tcq
+            ncqStorageGetBlock ncq hash >>= maybe (pure nil) mkOpaque
+
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "ncq:put" $ \syn -> do
           (tcq,bs) <- case syn of

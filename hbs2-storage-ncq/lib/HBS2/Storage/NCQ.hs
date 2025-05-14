@@ -755,14 +755,28 @@ ncqStorageGet ncq@NCQStorage{..} h = do
 
     _ -> pure Nothing
 
+ncqRefHash :: NCQStorage -> HashRef -> HashRef
+ncqRefHash NCQStorage{..} h = HashRef (hashObject (coerce @_ @ByteString h <> coerce ncqSalt))
+
 ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef)
-ncqStorageGetRef NCQStorage{..} ref = error "not implemented"
+ncqStorageGetRef ncq ref = runMaybeT do
+  lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
+  guard (ncqIsNotTomb lbs)
+  let hbs = LBS.toStrict (LBS.drop (fromIntegral ncqPrefixLen) lbs)
+  guard (BS.length hbs == 32)
+  pure $ coerce hbs
+  where h = ncqRefHash ncq ref
 
 ncqStorageSetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> HashRef -> m ()
-ncqStorageSetRef NCQStorage{..} ref val = error "not implemented"
+ncqStorageSetRef ncq ref val = do
+  current <- ncqStorageGetRef ncq ref
+  unless (current == Just val) do
+    void $ ncqStoragePut_ False ncq h (LBS.fromStrict $ ncqRefPrefix <> coerce val)
+  where h = ncqRefHash ncq ref
 
 ncqStorageDelRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m ()
-ncqStorageDelRef NCQStorage{..} ref = error "not implemented"
+ncqStorageDelRef ncq ref = ncqStorageDel ncq h
+  where h = ncqRefHash ncq ref
 
 ncqStorageDel :: MonadUnliftIO m => NCQStorage -> HashRef -> m ()
 ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
