@@ -17,6 +17,11 @@ import HBS2.Data.Log.Structured.SD
 import Data.Config.Suckless.System
 import Data.Config.Suckless.Script hiding (void)
 
+import Codec.Compression.Zstd qualified as Zstd
+import Codec.Compression.Zstd.Lazy as ZstdL
+import Codec.Compression.Zstd.Streaming qualified as ZstdS
+import Codec.Compression.Zstd.Streaming (Result(..))
+
 import Control.Applicative
 import Data.ByteString.Builder
 import Network.ByteOrder qualified as N
