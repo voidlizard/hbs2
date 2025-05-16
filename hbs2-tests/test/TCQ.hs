@@ -148,6 +148,11 @@ main = do
           <&> fmap fst
           >>= orThrow  (TCQGone p)
 
+  let getTCQ (TCQ p) = do
+        readTVarIO instances
+          <&> HM.lookup p
+          >>= orThrow  (TCQGone p)
+
   let dict = makeDict @C do
 
         entry $ bindMatch "--help" $ nil_ \case
@@ -223,6 +228,19 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:merge:step" $ \syn -> lift do
+
+          tcq <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq ] -> do
+              pure tcq
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          ncq <- getNCQ tcq
+          ncqStorageMergeStep ncq
+
+          pure nil
+
         entry $ bindMatch "ncq:close" $ nil_ \case
           [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
             ncq <- getNCQ tcq
@@ -279,6 +297,14 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "ncq:stop" $ nil_ \case
+          [ isOpaqueOf @TCQ -> Just tcq  ] -> lift do
+            (ncq, w) <- getTCQ tcq
+            ncqStorageStop ncq
+            debug "wait storage to stop"
+            wait w
+
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "ncq:set:ref" $ \case
           [ isOpaqueOf @TCQ -> Just tcq, HashLike ref , HashLike val ] -> lift do
@@ -342,6 +368,20 @@ main = do
             ncq <- getNCQ tcq
             r <- ncqStoragePutBlock ncq bs
             pure $ maybe nil (mkSym . show . pretty) r
+
+        entry $ bindMatch "ncq:merkle:hashes" $ \case
+            [ isOpaqueOf @TCQ -> Just tcq, HashLike h ] -> lift do
+                ncq <- getNCQ tcq
+                liftIO do
+                  let sto = AnyStorage ncq
+                  mkList <$> S.toList_ do
+                    walkMerkle (coerce h) (getBlock sto) $ \case
+                      Left{} -> throwIO MissedBlockError
+                      Right (hrr :: [HashRef]) -> do
+                          forM_ hrr $ \hx -> do
+                            S.yield (mkSym $ show $ pretty hx)
+
+            e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "ncq:merkle:write" $ \syn -> do
           (tcq,fname) <- case syn of
