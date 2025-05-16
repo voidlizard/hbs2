@@ -376,6 +376,48 @@ main = do
 
             e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "sqlite:merkle:write" $ nil_ \case
+            [ StringLike dbf, StringLike fname ] -> lift do
+              db <- newDBPipeEnv dbPipeOptsDef dbf
+
+
+              withDB db do
+                ddl "create table if not exists block (hash blob not null primary key, value blob)"
+                commitAll
+
+              withDB db do
+                ddl [qc|
+pragma journal_mode=WAL;
+pragma synchronous=normal;
+                |]
+
+              flip runContT pure do
+                pipe <- ContT $ withAsync (runPipe db)
+
+                lbs <- liftIO $ LBS.readFile fname
+
+                chu <- S.toList_ (readChunkedBS lbs (256*1024))
+
+                let sql = [qc|insert into block (hash, value) values(?,?) on conflict (hash) do nothing |]
+
+                withDB db do
+                  hashes <- for chu $ \chunk -> do
+                      let ha = hashObject @HbSync chunk
+                      insert sql (coerce @_ @ByteString ha, chunk)
+                      pure ha
+
+                  let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes
+
+                  m <- makeMerkle 0 pt $ \(ha,_,bss) -> do
+                         insert sql (coerce @_ @ByteString ha, bss)
+
+                  withDB db do
+                    commitAll
+
+                  pure $ mkSym @C (show $ pretty m)
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:merkle:write" $ \syn -> do
           (tcq,fname) <- case syn of
             [ isOpaqueOf @TCQ -> Just tcq, StringLike f ] -> lift do
