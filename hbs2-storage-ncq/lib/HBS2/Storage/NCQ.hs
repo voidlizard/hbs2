@@ -34,6 +34,8 @@ import Data.HashPSQ qualified as HPSQ
 import Data.HashPSQ (HashPSQ)
 import Data.IntMap qualified as IntMap
 import Data.IntMap (IntMap)
+import Data.IntSet qualified as IntSet
+import Data.IntSet (IntSet)
 import Data.Sequence as Seq
 import Data.List qualified as List
 import Data.ByteString.Lazy qualified as LBS
@@ -88,6 +90,8 @@ data NCQStorageException =
     NCQStorageAlreadyExist String
   | NCQStorageSeedMissed
   | NCQStorageTimeout
+  | NCQStorageCurrentAlreadyOpen
+  | NCQStorageCantOpenCurrent
   deriving stock (Show,Typeable)
 
 instance Exception NCQStorageException
@@ -124,6 +128,10 @@ data WQItem =
            , wqData :: Maybe LBS.ByteString
            }
 
+newtype RFd = RFd { unRfd :: Fd }
+
+newtype WFd = WFd { unWfd :: Fd }
+
 data NCQStorage =
   NCQStorage
   { ncqRoot           :: FilePath
@@ -134,14 +142,14 @@ data NCQStorage =
   , ncqMaxCached      :: Int
   , ncqSalt           :: HashRef
   , ncqWriteQueue     :: TVar (HashPSQ HashRef TimeSpec WQItem)
-  , ncqWaitIndex      :: TVar (HashPSQ HashRef TimeSpec (Word64,Word64))
+  , ncqStaged         :: TVar (IntMap (HashPSQ HashRef TimeSpec (Word64,Word64)))
+  , ncqIndexed        :: TVar IntSet
   , ncqIndexNow       :: TVar Int
   , ncqTrackedFiles   :: TVar (HashPSQ FileKey FilePrio (Maybe CachedEntry))
   , ncqCachedEntries  :: TVar Int
   , ncqNotWritten     :: TVar Word64
   , ncqLastWritten    :: TVar TimeSpec
-  , ncqCurrentHandleW :: TVar Fd
-  , ncqCurrentHandleR :: TVar Fd
+  , ncqCurrentFd      :: TVar (Maybe (RFd,WFd))
   , ncqCurrentUsage   :: TVar (IntMap Int)
   , ncqCurrentReadReq :: TVar (Seq (Fd, Word64, Word64, TMVar ByteString))
   , ncqFlushNow       :: TVar [TQueue ()]
@@ -152,14 +160,14 @@ data NCQStorage =
 
 data Location =
     InWriteQueue WQItem
-  | InCurrent    (Word64, Word64)
+  | InCurrent    (Fd,Word64, Word64)
   | InFossil     CachedEntry (Word64, Word64)
 
 instance Pretty Location where
   pretty = \case
-    InWriteQueue{}   -> "write-queue"
-    InCurrent (o,l)  -> pretty $ mkForm @C "current" [mkInt o, mkInt l]
-    InFossil _ (o,l) -> pretty $ mkForm @C "fossil " [mkInt o, mkInt l]
+    InWriteQueue{}       -> "write-queue"
+    InCurrent  (fd,o,l)  -> pretty $ mkForm @C "current" [mkInt fd, mkInt o, mkInt l]
+    InFossil _ (o,l)     -> pretty $ mkForm @C "fossil " [mkInt o, mkInt l]
 
 type IsHCQKey h  = ( Eq (Key h)
                    , Hashable (Key h)
@@ -311,8 +319,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   indexQ <- newTQueueIO
 
   ContT $ bracket none $ const $ liftIO do
-    -- writeJournal syncData
-    readTVarIO ncqCurrentHandleW >>= closeFd
+    ncqFinalize ncq
 
   debug "RUNNING STORAGE!"
 
@@ -407,10 +414,11 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
            (key, _) <- ncqIndexFile ncq fn <&> over _2 HS.fromList
 
            ncqAddTrackedFilesIO ncq [key]
+           ncqLoadSomeIndexes ncq [fromString key]
+
            atomically do
              modifyTVar ncqCurrentUsage (IntMap.adjust pred (fromIntegral fd))
-
-           ncqLoadSomeIndexes ncq [fromString key]
+             modifyTVar ncqIndexed (IntSet.insert (fromIntegral fd))
 
          down <- atomically do
            writerDown <- pollSTM w <&> isJust
@@ -422,11 +430,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
       link indexer
       pure indexer
 
-    writeJournal indexQ syncData = liftIO do
+    writeJournal indexQ syncData = ncqWithCurrent ncq $ \(RFd fdr, WFd fh) -> liftIO do
 
       trace $ "writeJournal" <+> pretty syncData
-
-      fh <- readTVarIO ncqCurrentHandleW
 
       fdSeek fh SeekFromEnd 0
 
@@ -462,11 +468,12 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
       fileSynchronise fh
       size <- fdSeek fh SeekFromEnd 0
+      writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
 
       now1 <- getTimeCoarse
       atomically do
         q0 <- readTVar ncqWriteQueue
-        w0 <- readTVar ncqWaitIndex
+        w0 <- readTVar ncqStaged <&> fromMaybe HPSQ.empty . IntMap.lookup (fromIntegral fdr)
         b0 <- readTVar ncqNotWritten
 
         wbytes <- newTVar 0
@@ -479,24 +486,20 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                          next (HPSQ.delete h q, HPSQ.insert h now1 (o,l) w,xs)
 
         writeTVar  ncqWriteQueue rq
-        writeTVar  ncqWaitIndex rw
+        modifyTVar ncqStaged (IntMap.insert (fromIntegral fdr) rw)
         bw <- readTVar wbytes
         writeTVar ncqNotWritten (max 0 (b0 - bw))
-
-      writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
 
       indexNow <- readTVarIO ncqIndexNow
 
       when (fromIntegral size >= ncqMinLog || indexNow > 0) do
 
-        fsize <- readTVarIO ncqCurrentHandleR
-                    >>= getFdStatus
-                    <&> PFS.fileSize
+        fsize <- getFdStatus fdr <&> PFS.fileSize
 
         unless (fsize == 0) do
 
           (n,u) <- atomically do
-                        r <- readTVar ncqCurrentHandleR <&> fromIntegral
+                        let r = fromIntegral fdr
                         u <- readTVar ncqCurrentUsage <&> fromMaybe 0 . IntMap.lookup r
                         pure (fromIntegral @_ @Word32 r, u)
 
@@ -510,37 +513,42 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
           atomically do
             writeTVar ncqIndexNow 0
-            r <- readTVar ncqCurrentHandleR
             -- NOTE: extra-use
             --   добавляем лишний 1 для индексации.
             --   исходный файл закрываем, только когда проиндексировано.
             --   то есть должны отнять 1 после индексации.
-            modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral r) 1)
-            writeTQueue indexQ (r, fossilized)
+            modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fdr) 1)
+            writeTQueue indexQ (fdr, fossilized)
 
-          let flags = defaultFileFlags { exclusive = True }
-
-          touch current
+          closeFd fh
           writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 0)
-
-          liftIO (PosixBase.openFd current  Posix.ReadWrite flags)
-              >>= atomically . writeTVar ncqCurrentHandleW
-
-          liftIO (PosixBase.openFd current  Posix.ReadWrite flags)
-              >>= atomically . writeTVar ncqCurrentHandleR
+          ncqOpenCurrent ncq
 
           debug $ "TRUNCATED, moved to" <+> pretty fossilized
 
-          toClose <- atomically do
-            w <- readTVar ncqCurrentUsage <&> IntMap.toList
-            let (alive,dead) = List.partition( (>0) . snd) w
-            writeTVar ncqCurrentUsage (IntMap.fromList alive)
-            pure dead
 
-          for_ toClose $ \(f,_) -> do
-            when (f > 0) do
-              debug $ "CLOSE FD" <+> pretty f
-              Posix.closeFd (fromIntegral f)
+          toClose <- atomically do
+            usage   <- readTVar ncqCurrentUsage
+            staged  <- readTVar ncqStaged
+            indexed <- readTVar ncqIndexed
+
+            let (alive, dead) = List.partition (\(_, u) -> u > 0) (IntMap.toList usage)
+
+            let closable = do
+                  (f, _) <- dead
+                  guard (IntSet.member f indexed)
+                  guard (maybe True HPSQ.null (IntMap.lookup f staged))
+                  pure f
+
+            writeTVar ncqCurrentUsage (IntMap.fromList alive)
+            writeTVar ncqIndexed      (indexed  `IntSet.difference` IntSet.fromList closable)
+            writeTVar ncqStaged       (foldr IntMap.delete staged closable)
+
+            pure closable
+
+          for_ toClose $ \f -> do
+            debug $ "CLOSE FD" <+> pretty f
+            closeFd (fromIntegral f)
 
 --
 ncqStoragePut_ :: MonadUnliftIO m
@@ -614,7 +622,7 @@ ncqTombPrefix = "T;;\x00"
 ncqLocatedSize :: Location -> Integer
 ncqLocatedSize = \case
   InWriteQueue WQItem{..} -> fromIntegral $ maybe 0 LBS.length wqData
-  InCurrent (_,s)         -> fromIntegral s
+  InCurrent (_,_,s)       -> fromIntegral s
   InFossil _ (_,s)        -> fromIntegral s
 
 evictIfNeededSTM :: NCQStorage -> Maybe Int -> STM ()
@@ -646,18 +654,23 @@ evictIfNeededSTM NCQStorage{..} howMany = do
 
 ncqLocate :: MonadIO m => NCQStorage -> HashRef -> m (Maybe Location)
 ncqLocate ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
-  l1 <- atomically do
 
-    inQ <- readTVar ncqWriteQueue
-            <&> (fmap snd . HPSQ.lookup h)
-            <&> \case
-                Just wq  -> Just (InWriteQueue wq)
-                _        -> Nothing
+  inQ <- atomically $ readTVar ncqWriteQueue
+          <&> (fmap snd . HPSQ.lookup h)
+          <&> \case
+              Just wq  -> Just (InWriteQueue wq)
+              _        -> Nothing
 
-    inC <- readTVar ncqWaitIndex  <&> (fmap snd . HPSQ.lookup h) <&> fmap InCurrent
-    pure (inQ <|> inC)
+  for_ inQ $ exit . Just
 
-  for_ l1 $ exit . Just
+  inC <- atomically $ do
+    s <- readTVar ncqStaged <&> IntMap.toList
+    let found = lastMay $ catMaybes [ (fd,) <$> HPSQ.lookup h hpsq | (fd, hpsq)  <- s ]
+    case found of
+      Just (f, (_,(off,size))) -> pure (Just (InCurrent (fromIntegral f,off,size)))
+      Nothing -> pure Nothing
+
+  for_ inC $ exit . Just
 
   now <- getTimeCoarse
   tracked <- readTVarIO ncqTrackedFiles
@@ -738,14 +751,13 @@ ncqStorageGet ncq h = runMaybeT do
   lift (ncqStorageGet_ ncq location) >>= toMPlus
 
 ncqStorageGet_ :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe LBS.ByteString)
-ncqStorageGet_ NCQStorage{..} = \case
+ncqStorageGet_ ncq@NCQStorage{..} = \case
     InWriteQueue WQItem{ wqData = Just lbs } -> do
       pure $ Just lbs
 
-    InCurrent (o,l) -> do
+    InCurrent (fd,o,l) -> do
       r <- atomically do
         a <- newEmptyTMVar
-        fd <- readTVar ncqCurrentHandleR
         modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fd) 1)
         modifyTVar ncqCurrentReadReq (|> (fd, o, l, a))
         pure a
@@ -798,8 +810,8 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
-    Just (InCurrent  _)   -> do
-      modifyTVar ncqWaitIndex (HPSQ.delete h)
+    Just (InCurrent  (fd,_,_))   -> do
+      modifyTVar ncqStaged (IntMap.adjust (HPSQ.delete h) (fromIntegral fd))
       writeTombstone (WQItem False Nothing)
 
     Just (InWriteQueue _) -> writeTombstone (WQItem True Nothing)
@@ -877,7 +889,7 @@ ncqStorageOpen fp' = do
 
   where
 
-    readCurrent ncq@NCQStorage{..} = do
+    readCurrent ncq@NCQStorage{..} = ncqWithCurrent ncq \(RFd fd, _) -> do
       let fn = ncqGetCurrentName ncq
       -- liftIO $ print $ pretty "FILE" <+> pretty fn
       bs0 <- liftIO $ mmapFileByteString fn Nothing
@@ -902,11 +914,33 @@ ncqStorageOpen fp' = do
 
             next (o+w+4, BS.drop (w+4) bs)
 
-      atomically $ writeTVar ncqWaitIndex (HPSQ.fromList items)
+      atomically $ modifyTVar ncqStaged (IntMap.insert (fromIntegral fd) (HPSQ.fromList items))
 
 ncqStorageInit :: MonadUnliftIO m => FilePath -> m NCQStorage
 ncqStorageInit = ncqStorageInit_ True
 
+ncqOpenCurrent :: MonadUnliftIO m => NCQStorage -> m ()
+ncqOpenCurrent ncq@NCQStorage{..} = do
+  let fp = ncqGetCurrentName ncq
+  touch fp
+  let flags = defaultFileFlags { exclusive = True }
+  fdw <- liftIO (PosixBase.openFd fp  Posix.ReadWrite flags) <&> WFd
+  fdr <- liftIO (PosixBase.openFd fp Posix.ReadOnly flags) <&> RFd
+  atomically $ writeTVar ncqCurrentFd (Just (fdr, fdw))
+
+ncqWithCurrent :: MonadUnliftIO m => NCQStorage -> ((RFd, WFd) -> m a) -> m a
+ncqWithCurrent ncq@NCQStorage{..} action = do
+  flip fix 2 $ \next i -> do
+    readTVarIO ncqCurrentFd >>= \case
+
+      Just a -> action a
+
+      Nothing | i >= 0 -> do
+        ncqOpenCurrent ncq
+        next (pred i)
+
+      Nothing -> do
+        throwIO NCQStorageCantOpenCurrent
 
 ncqStorageInit_ :: MonadUnliftIO m => Bool -> FilePath -> m NCQStorage
 ncqStorageInit_ check path = do
@@ -956,7 +990,7 @@ ncqStorageInit_ check path = do
 
   ncqNotWritten    <- newTVarIO 0
   ncqLastWritten   <- getTimeCoarse >>= newTVarIO
-  ncqWaitIndex     <- newTVarIO HPSQ.empty
+  ncqStaged        <- newTVarIO mempty
 
   ncqFlushNow       <- newTVarIO mempty
   ncqOpenDone       <- newEmptyTMVarIO
@@ -966,6 +1000,8 @@ ncqStorageInit_ check path = do
   ncqTrackedFiles   <- newTVarIO HPSQ.empty
   ncqCachedEntries  <- newTVarIO 0
   ncqIndexNow       <- newTVarIO 0
+  ncqCurrentFd      <- newTVarIO Nothing
+  ncqIndexed        <- newTVarIO mempty
 
   let currentName = ncqGetCurrentName_ path ncqGen
 
@@ -974,8 +1010,6 @@ ncqStorageInit_ check path = do
   hereCurrent <- doesPathExist currentName
 
   when hereCurrent $ liftIO do
-    let ncqCurrentHandleW = undefined
-    let ncqCurrentHandleR = undefined
     let ncq0 = NCQStorage{..}
 
     lastSz <- try @_ @IOException (BS.readFile currentSize)
@@ -994,19 +1028,10 @@ ncqStorageInit_ check path = do
       ncqWriteError ncq0 msg
       mv currentName fossilized
 
-  touch currentName
-
-  let flags = defaultFileFlags { exclusive = True }
-
-  ncqCurrentHandleW <- liftIO (PosixBase.openFd currentName  Posix.ReadWrite flags)
-                          >>= newTVarIO
-
-  ncqCurrentHandleR  <- liftIO (PosixBase.openFd currentName Posix.ReadOnly flags)
-                          >>= newTVarIO
-
   debug $ "currentFileName" <+> pretty (ncqGetCurrentName_ path ncqGen)
 
   let ncq = NCQStorage{..}
+  ncqOpenCurrent ncq
 
   pure ncq
 
@@ -1015,6 +1040,19 @@ ncqStorageFlush = ncqStorageSync
 
 ncqIndexRightNow :: MonadUnliftIO m => NCQStorage -> m ()
 ncqIndexRightNow NCQStorage{..} = atomically $ modifyTVar ncqIndexNow succ
+
+ncqFinalize :: MonadUnliftIO m => NCQStorage -> m ()
+ncqFinalize NCQStorage{..} = do
+
+  liftIO $ readTVarIO ncqStaged <&> IntMap.keys >>= mapM_ (closeFd . fromIntegral)
+  atomically (writeTVar ncqStaged mempty)
+
+  readTVarIO ncqCurrentFd >>= \case
+    Just (RFd _, WFd wfd) -> do
+      liftIO (closeFd wfd)
+      atomically (writeTVar ncqCurrentFd Nothing)
+
+    _ -> none
 
 withNCQ :: forall m a . MonadUnliftIO  m
         => (NCQStorage -> NCQStorage)
