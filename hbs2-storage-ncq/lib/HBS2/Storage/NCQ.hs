@@ -162,6 +162,28 @@ data NCQStorage =
   }
 
 
+instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
+    putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
+    enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
+    getBlock ncq h = ncqStorageGetBlock ncq (coerce h)
+    hasBlock ncq = hasBlock ncq . coerce
+    delBlock ncq = ncqStorageDel ncq . coerce
+
+    updateRef ncq k v =  do
+      ncqStorageSetRef ncq (HashRef $ hashObject k) (HashRef v)
+
+    getRef ncq k =
+      ncqStorageGetRef ncq (HashRef $ hashObject k) <&> fmap coerce
+
+    delRef ncq k =
+      ncqStorageDelRef ncq (HashRef $ hashObject k)
+
+    getChunk ncq h off size = runMaybeT do
+      block <- lift (ncqStorageGetBlock ncq (coerce h)) >>= toMPlus
+      let chunk = LBS.take (fromIntegral size) $ LBS.drop (fromIntegral off) block
+      pure chunk
+
+
 data Location =
     InWriteQueue WQItem
   | InCurrent    (Fd,Word64, Word64)
