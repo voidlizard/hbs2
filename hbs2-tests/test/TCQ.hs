@@ -221,6 +221,19 @@ main = do
 
           pure nil
 
+        entry $ bindMatch "ncq:merge" $ \syn -> lift do
+
+          tcq <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq ] -> do
+              pure tcq
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          ncq <- getNCQ tcq
+          ncqStorageMerge ncq
+
+          pure nil
+
         entry $ bindMatch "ncq:close" $ nil_ \case
           [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
             ncq <- getNCQ tcq

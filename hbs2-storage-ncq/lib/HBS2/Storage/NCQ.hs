@@ -403,7 +403,16 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     makeMerge = do
       me <- ContT $ withAsync $ untilStopped do
         micropause @'Seconds 10
-        debug "MERGE THREAD"
+        req <- readTVarIO ncqMergeReq
+
+        when (req > 0) do
+          debug $ "STARTED MERGE" <+> pretty req
+
+          try @_ @SomeException (ncqStorageMergeStep ncq) >>= \case
+            Right{} -> none
+            Left e -> err ("MERGE ERROR:" <+> viaShow e)
+
+          atomically $ writeTVar ncqMergeReq 0
 
       link me
       pure me
