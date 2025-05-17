@@ -130,7 +130,7 @@ localDict DeferredOps{..} = makeDict @C do
     splitPushArgs :: forall m . MonadIO m => (Maybe GitRef -> GitRef -> m ()) -> [Syntax C] -> m ()
     splitPushArgs action = \case
       [ StringLike params ] -> do
-        case Text.splitOn ":" (fromString params) of
+        case Text.splitOn ":" (Text.dropWhile (=='+') (fromString params)) of
           [ b ] -> action Nothing (fromString (Text.unpack b))
           [ a, b ] -> action (Just (fromString (Text.unpack a))) (fromString (Text.unpack b))
           _  -> throwIO (BadFormException @C nil)
@@ -141,94 +141,114 @@ runTop :: (ParseSExp what, MonadUnliftIO m) => Dict C m -> what -> m ()
 runTop dict s = parseTop s & either (const none) (void . run dict)
 
 
+-- setupTrace :: ContT r IO ()
+setupTrace :: Foldable t => TVar (Maybe (Text, Integer)) -> TVar (t a) -> ContT r IO ()
+setupTrace cp_ refz = do
+  traceMode <- isJust <$> liftIO (lookupEnv "HBS2TRACE")
+  setupTrace_ traceMode
+
+  where
+    setupTrace_ True = do
+     setLogging @DEBUG debugPrefix
+
+    setupTrace_ _ = do
+      --
+      none
+
+      origStderr <- liftIO $ dup stdError
+      (readEnd, writeEnd) <- liftIO createPipe
+      liftIO $ dupTo writeEnd stdError
+      liftIO $ closeFd writeEnd
+
+      rStderr <- liftIO $ fdToHandle readEnd
+      origHandle <- liftIO $ fdToHandle origStderr
+
+      liftIO $ hSetBuffering origHandle NoBuffering
+      liftIO $ hSetBuffering rStderr    NoBuffering
+
+      lift $ void $ installHandler sigPIPE Ignore Nothing
+
+      ready_ <- newEmptyTMVarIO
+
+      -- doesPathExist
+
+      pp <- ContT $ withAsync $ liftIO $ flip runContT pure do
+        callCC \finished -> do
+          atomically $ putTMVar ready_ True
+
+          forever  do
+
+            pause @'Seconds 0.1
+
+            wut <- liftIO $ IO.hGetContents rStderr <&> lines
+            for_ wut $ \s -> do
+
+              let what = parseTop s & fromRight mempty
+
+              case what of
+                [ListVal [SymbolVal "checkpoint", TextLike w, LitIntVal r]] -> do
+                  atomically do
+                    ts0 <- readTVar cp_ <&> fmap snd
+                    when (Just r > ts0) do
+                      writeTVar cp_ (Just (w,r))
+
+                [ListVal [SymbolVal "status", TextLike "FLUSH"]] -> do
+                  finished ()
+
+                _ -> none
+
+              liftIO do
+                hSetCursorColumn origHandle 0
+                hClearLine origHandle
+
+                unless (null (words s)) do
+                  IO.hPutStr origHandle s
+
+                hSetCursorColumn origHandle 0
+
+      ContT $ bracket none $ const do
+
+        cancel pp
+
+        hClearLine origHandle
+        hSetCursorColumn origHandle 0
+
+        cp <- readTVarIO cp_
+
+        let cpHash = fst <$> cp
+        let ts   = maybe 0 (fromIntegral . snd) cp & formatTs
+
+        hClearLine origHandle
+        hSetCursorColumn origHandle 0
+
+        when (isJust cp) do
+          hPutDoc origHandle $ "fetched from checkpoint" <+> pretty ts <+> pretty cpHash <> line
+
+        new <- readTVarIO refz <&> List.null
+
+        when new do
+          hPutDoc origHandle $ "use" <+> yellow "git fetch" <+> "to get latest versions" <> line
+
+        hFlush origHandle
+
+      void $ atomically $ takeTMVar ready_
+
 {- HLINT ignore "Functor law" -}
 main :: IO ()
 main =  flip runContT pure do
+
+  ContT $ bracket none $ const do
+    flushLoggers
+
   hSetBuffering stdin  LineBuffering
   hSetBuffering stdout LineBuffering
 
-
-  origStderr <- liftIO $ dup stdError
-  (readEnd, writeEnd) <- liftIO createPipe
-  liftIO $ dupTo writeEnd stdError
-  liftIO $ closeFd writeEnd
-
-  rStderr <- liftIO $ fdToHandle readEnd
-  origHandle <- liftIO $ fdToHandle origStderr
-
-  liftIO $ hSetBuffering origHandle NoBuffering
-  liftIO $ hSetBuffering rStderr    NoBuffering
-
-  lift $ void $ installHandler sigPIPE Ignore Nothing
-
-  ready_ <- newEmptyTMVarIO
-  cp_ <- newTVarIO Nothing
+  cp <- newTVarIO Nothing
   refz <- newTVarIO mempty
 
-  -- doesPathExist
-
-  pp <- ContT $ withAsync $ liftIO $ flip runContT pure do
-    callCC \finished -> do
-      atomically $ putTMVar ready_ True
-
-      forever  do
-
-        pause @'Seconds 0.1
-
-        wut <- liftIO $ IO.hGetContents rStderr <&> lines
-        for_ wut $ \s -> do
-
-          let what = parseTop s & fromRight mempty
-
-          case what of
-            [ListVal [SymbolVal "checkpoint", TextLike w, LitIntVal r]] -> do
-              atomically do
-                ts0 <- readTVar cp_ <&> fmap snd
-                when (Just r > ts0) do
-                  writeTVar cp_ (Just (w,r))
-
-            [ListVal [SymbolVal "status", TextLike "FLUSH"]] -> do
-              finished ()
-
-            _ -> none
-
-          liftIO do
-            hSetCursorColumn origHandle 0
-            hClearLine origHandle
-
-            unless (null (words s)) do
-              IO.hPutStr origHandle s
-
-            hSetCursorColumn origHandle 0
-
-  ContT $ bracket none $ const do
-
-    cancel pp
-
-    hClearLine origHandle
-    hSetCursorColumn origHandle 0
-
-    cp <- readTVarIO cp_
-
-    let cpHash = fst <$> cp
-    let ts   = maybe 0 (fromIntegral . snd) cp & formatTs
-
-    hClearLine origHandle
-    hSetCursorColumn origHandle 0
-
-    when (isJust cp) do
-      hPutDoc origHandle $ "fetched from checkpoint" <+> pretty ts <+> pretty cpHash <> line
-
-    new <- readTVarIO refz <&> List.null
-
-    when new do
-      hPutDoc origHandle $ "use" <+> yellow "git fetch" <+> "to get latest versions" <> line
-
-    hFlush origHandle
-
-  atomically $ takeTMVar ready_
-
   setupLogger
+
+  setupTrace cp refz
 
   setStatusOn
 
@@ -246,6 +266,8 @@ main =  flip runContT pure do
     conf <- readLocalConf
 
     cli <- parseCLI
+
+    -- debug $ "CLI:" <+> pretty cli
 
     url <- case cli of
       [ ListVal [_, RepoURL x ] ] -> do
