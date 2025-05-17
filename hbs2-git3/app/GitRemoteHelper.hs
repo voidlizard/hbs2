@@ -130,7 +130,7 @@ localDict DeferredOps{..} = makeDict @C do
     splitPushArgs :: forall m . MonadIO m => (Maybe GitRef -> GitRef -> m ()) -> [Syntax C] -> m ()
     splitPushArgs action = \case
       [ StringLike params ] -> do
-        case Text.splitOn ":" (fromString params) of
+        case Text.splitOn ":" (Text.dropWhile (=='+') (fromString params)) of
           [ b ] -> action Nothing (fromString (Text.unpack b))
           [ a, b ] -> action (Just (fromString (Text.unpack a))) (fromString (Text.unpack b))
           _  -> throwIO (BadFormException @C nil)
@@ -236,6 +236,10 @@ setupTrace cp_ refz = do
 {- HLINT ignore "Functor law" -}
 main :: IO ()
 main =  flip runContT pure do
+
+  ContT $ bracket none $ const do
+    flushLoggers
+
   hSetBuffering stdin  LineBuffering
   hSetBuffering stdout LineBuffering
 
@@ -263,7 +267,9 @@ main =  flip runContT pure do
 
     cli <- parseCLI
 
-    debug $ "CLI:" <+> pretty cli
+    liftIO $ IO.hPrint stderr $ pretty cli
+
+    -- debug $ "CLI:" <+> pretty cli
 
     url <- case cli of
       [ ListVal [_, RepoURL x ] ] -> do
