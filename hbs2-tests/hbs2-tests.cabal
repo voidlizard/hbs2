@@ -1200,3 +1200,24 @@ executable tcq
         , unix
 
 
+executable test-ncq
+    import:           shared-properties
+    import:           common-deps
+    default-language: Haskell2010
+    ghc-options:
+    hs-source-dirs:   test
+    main-is:          TestNCQ.hs
+    build-depends:
+          base, hbs2-core, hbs2-log-structured, hbs2-storage-ncq
+        , network
+        , string-conversions
+        , db-pipe
+        , suckless-conf
+        , network-byte-order
+        , text
+        , time
+        , mmap
+        , zstd
+        , unix
+
+

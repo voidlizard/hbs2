@@ -26,6 +26,7 @@ import Control.Applicative
 import Data.ByteString.Builder
 import Network.ByteOrder qualified as N
 import Data.HashMap.Strict (HashMap)
+import Control.Monad.Except
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.Ord (Down(..),comparing)
@@ -155,6 +156,7 @@ data NCQStorage =
   , ncqCurrentFd      :: TVar (Maybe (RFd,WFd))
   , ncqCurrentUsage   :: TVar (IntMap Int)
   , ncqCurrentReadReq :: TVar (Seq (Fd, Word64, Word64, TMVar ByteString))
+  , ncqFsyncNum       :: TVar Int
   , ncqFlushNow       :: TVar [TQueue ()]
   , ncqMergeReq       :: TVar Int
   , ncqOpenDone       :: TMVar Bool
@@ -166,7 +168,9 @@ instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
     enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
     getBlock ncq h = ncqStorageGetBlock ncq (coerce h)
-    hasBlock ncq = hasBlock ncq . coerce
+
+    hasBlock ncq = ncqStorageHasBlock ncq . coerce
+
     delBlock ncq = ncqStorageDel ncq . coerce
 
     updateRef ncq k v =  do
@@ -334,6 +338,11 @@ ncqIndexFile n@NCQStorage{}  fp' = do
   mv result fp
 
   pure fp
+
+ncqFsync :: MonadUnliftIO m => NCQStorage -> Fd -> m ()
+ncqFsync NCQStorage{..} fh = liftIO do
+  fileSynchronise fh
+  atomically $ modifyTVar ncqFsyncNum succ
 
 ncqStorageStop :: MonadUnliftIO m => NCQStorage -> m ()
 ncqStorageStop ncq@NCQStorage{..} = do
@@ -513,16 +522,21 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
             pure ()
           else void do
             liftIO (Posix.fdWrite fh (ws <> LBS.toStrict wbs))
+            -- liftIO $ fileSynchronise fh
 
-          written' <- if written < syncData then do
-                        pure (written + w)
-                      else do
-                        fileSynchronise fh
-                        pure 0
+          (written',sz) <- if written < syncData then do
+                            pure (written + w,0)
+                           else do
+                              ncqFsync ncq fh
+                              fsize <- getFdStatus fh <&> PFS.fileSize
+                              pure (0,fromIntegral fsize)
 
-          ((h, (fromIntegral off, fromIntegral len)) : ) <$> next (written', rest)
+          if sz < ncqMinLog then do
+            ((h, (fromIntegral off, fromIntegral len)) : ) <$> next (written', rest)
+          else  do
+            pure [(h, (fromIntegral off, fromIntegral len))]
 
-      fileSynchronise fh
+      ncqFsync ncq fh
       size <- fdSeek fh SeekFromEnd 0
       writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
 
@@ -641,6 +655,27 @@ ncqIsTomb lbs = do
   LBS.isPrefixOf "T" pre
 {-# INLINE ncqIsTomb #-}
 
+
+data HasBlockError =
+    LocationNotFound
+  | DataNotRead
+  | BlockIsTomb
+  deriving stock (Eq,Show,Typeable)
+
+
+instance Exception HasBlockError
+
+ncqStorageHasBlockEither :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Either HasBlockError Integer)
+ncqStorageHasBlockEither ncq h = runExceptT do
+  location <- ncqLocate ncq h >>= orThrow LocationNotFound
+  let s  = ncqLocatedSize location
+  if s > ncqPrefixLen then
+    pure (s - ncqPrefixLen)
+  else do
+    what <- lift (ncqStorageGet_ ncq location) >>= orThrow DataNotRead
+    when (ncqIsTomb what) $ throwIO BlockIsTomb
+    pure 0
+
 ncqStorageHasBlock :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Integer)
 ncqStorageHasBlock ncq h = runMaybeT do
   location <- ncqLocate ncq h >>= toMPlus
@@ -680,6 +715,8 @@ ncqLocatedSize = \case
   InWriteQueue WQItem{..} -> fromIntegral $ maybe 0 LBS.length wqData
   InCurrent (_,_,s)       -> fromIntegral s
   InFossil _ (_,s)        -> fromIntegral s
+
+-- ncqFsync :: MonadUnliftIO m => NCQStorage{..} -> FilePath
 
 evictIfNeededSTM :: NCQStorage -> Maybe Int -> STM ()
 evictIfNeededSTM NCQStorage{..} howMany = do
@@ -866,6 +903,7 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
+
     Just (InCurrent  (fd,_,_))   -> do
       modifyTVar ncqStaged (IntMap.adjust (HPSQ.delete h) (fromIntegral fd))
       writeTombstone (WQItem False Nothing)
@@ -1032,11 +1070,11 @@ ncqStorageInit_ check path = do
 
   let ncqRoot = path
 
-  let ncqSyncSize  =  64 * (1024 ^ 2)
-  let ncqMinLog    = 512 * (1024 ^ 2)
-  let ncqMaxLog    =   4 * (1024 ^ 3)
+  let ncqSyncSize  =  64   * (1024 ^ 2)
+  let ncqMinLog    =  1024 * (1024 ^ 2)
+  let ncqMaxLog    =    4  * (1024 ^ 3)
 
-  let ncqMaxCached = 64
+  let ncqMaxCached = 128
 
   ncqSalt <- try @_ @IOException (liftIO $ BS.readFile seedPath)
                >>= orThrow NCQStorageSeedMissed
@@ -1059,6 +1097,7 @@ ncqStorageInit_ check path = do
   ncqCurrentFd      <- newTVarIO Nothing
   ncqIndexed        <- newTVarIO mempty
   ncqMergeReq       <- newTVarIO 0
+  ncqFsyncNum       <- newTVarIO 0
 
   let currentName = ncqGetCurrentName_ path ncqGen
 

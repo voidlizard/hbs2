@@ -28,6 +28,7 @@ BINS := \
 	git-remote-hbs23 \
 	hbs2-ncq \
 	tcq \
+	test-ncq \
 
 RT_DIR := tests/RT
 
