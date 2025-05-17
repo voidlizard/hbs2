@@ -148,7 +148,7 @@ setupTrace cp_ refz = do
   setupTrace_ traceMode
 
   where
-    setupTrace_ False = none
+    setupTrace_ True = none
     setupTrace_ _ = do
       --
       none
