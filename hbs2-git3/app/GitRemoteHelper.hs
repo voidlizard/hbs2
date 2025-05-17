@@ -148,7 +148,9 @@ setupTrace cp_ refz = do
   setupTrace_ traceMode
 
   where
-    setupTrace_ True = none
+    setupTrace_ True = do
+     setLogging @DEBUG debugPrefix
+
     setupTrace_ _ = do
       --
       none
@@ -240,9 +242,9 @@ main =  flip runContT pure do
   cp <- newTVarIO Nothing
   refz <- newTVarIO mempty
 
-  setupTrace cp refz
-
   setupLogger
+
+  setupTrace cp refz
 
   setStatusOn
 
@@ -260,6 +262,8 @@ main =  flip runContT pure do
     conf <- readLocalConf
 
     cli <- parseCLI
+
+    debug $ "CLI:" <+> pretty cli
 
     url <- case cli of
       [ ListVal [_, RepoURL x ] ] -> do
