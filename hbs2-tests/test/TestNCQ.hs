@@ -112,7 +112,7 @@ testNCQFuckupRecovery1 prefix = flip runContT pure do
   let ncqDir   = tmp </> "ncq-test-data"
 
   ContT $ bracket none $ const do
-    none
+    rm tmp
 
   (cur,ha,h0) <- lift $ withNCQ id ncqDir $ \ncq -> do
     let sto = AnyStorage ncq
