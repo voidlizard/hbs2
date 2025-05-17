@@ -99,6 +99,59 @@ silence = do
   setLoggingOff @NOTICE
   setLoggingOff @TRACE
 
+
+testNCQFuckupRecovery1 :: MonadUnliftIO m
+                       => FilePath
+                       -> m ()
+
+testNCQFuckupRecovery1 prefix = flip runContT pure do
+
+  mkdir prefix
+
+  tmp <- liftIO (Temp.createTempDirectory prefix "ncq-test")
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  ContT $ bracket none $ const do
+    none
+
+  (cur,ha,h0) <- lift $ withNCQ id ncqDir $ \ncq -> do
+    let sto = AnyStorage ncq
+
+    source <- LBS.take (100 * 1024^2) <$> liftIO (LBS.readFile "/dev/urandom")
+
+    let h0 = hashObject @HbSync source
+
+    hash <- runExceptT (writeAsMerkle sto source <&> HashRef)
+               >>= orThrowPassIO @_ @SomeException
+
+    notice $ "stored" <+> pretty hash <+> pretty (LBS.length source)
+
+    pure (ncqGetCurrentName ncq, hash, h0)
+
+  liftIO do
+    ss <- randomRIO (1, 32*1024)
+    shit <- LBS.take ss <$> LBS.readFile "/dev/urandom"
+    BS.appendFile cur (LBS.toStrict shit)
+    newSize <- getFileSize cur
+    notice $ "CURRENT-FILE" <+> pretty cur <+> "successfully corrupted" <+> pretty newSize
+
+  notice $ "CURRENT-FILE" <+> pretty cur
+
+  lift $ withNCQ id ncqDir $ \ncq -> do
+    notice $ "REOPEN STORAGE"
+    let sto = AnyStorage ncq
+
+    lbs <- runExceptT (getTreeContents sto ha)
+               >>= orThrowPassIO
+
+    let h1 = hashObject @HbSync lbs
+
+    when (h0 /= h1) do
+      error "corrupted state"
+
+    notice $ "loaded" <+> pretty ha <+> pretty (LBS.length lbs)
+
+
 testNCQ1 :: MonadUnliftIO m
          => Bool
          -> FilePath
@@ -276,6 +329,10 @@ main = do
 
           _ ->
              setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
+
+        entry $ bindMatch "ncq:test:ncq:fuckup-recovery1" $ nil_ $ \_ -> lift do
+          debug $ "ncq:test:ncq:fuckup-recovery1"
+          testNCQFuckupRecovery1 "./tmp-ncq"
 
         entry $ bindMatch "test:ncq:test1" $ nil_ $ \syn -> lift do
           let (opts, argz) = splitOpts [("-n",1)] syn

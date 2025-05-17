@@ -1,3 +1,4 @@
+{-# Language MultiWayIf #-}
 {-# Language RecordWildCards #-}
 module HBS2.Storage.NCQ where
 
@@ -1115,14 +1116,23 @@ ncqStorageInit_ check path = do
                 <&> fromRight 0
                 <&> fromIntegral
 
-    when (lastSz /= currSz ) do
-      fossilized <- ncqGetNewFossilName ncq0
-      debug $ "NEW FOSSIL FILE" <+> pretty fossilized
-      let fn = takeFileName fossilized
-      let msg = fromString $ show $ "wrong-size" <+> pretty lastSz <+> pretty fn
-      err $ pretty msg
-      ncqWriteError ncq0 msg
-      mv currentName fossilized
+    if | currSz > lastSz -> do
+            fossilized <- ncqGetNewFossilName ncq0
+            debug $ "NEW FOSSIL FILE" <+> pretty fossilized
+            let fn = takeFileName fossilized
+            let msg = fromString $ show $ "wrong-size" <+> pretty lastSz <+> pretty fn
+            err $ pretty msg
+            ncqWriteError ncq0 msg
+            mv currentName fossilized
+            PFS.setFileSize fossilized (fromIntegral lastSz)
+            rm currentSize
+
+       | currSz < lastSz -> do
+            err "current log is broken, removing, data loss"
+            ncqWriteError ncq0 $ "current log is broken, removing, data loss"
+            none
+
+       | otherwise -> none
 
   debug $ "currentFileName" <+> pretty (ncqGetCurrentName_ path ncqGen)
 

@@ -1216,8 +1216,10 @@ executable test-ncq
         , network-byte-order
         , text
         , time
+        , tasty-hunit
         , mmap
         , zstd
         , unix
+
 
 
