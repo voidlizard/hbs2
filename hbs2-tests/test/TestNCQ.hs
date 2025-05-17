@@ -330,8 +330,8 @@ main = do
           _ ->
              setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
 
-        entry $ bindMatch "ncq:test:ncq:fuckup-recovery1" $ nil_ $ \_ -> lift do
-          debug $ "ncq:test:ncq:fuckup-recovery1"
+        entry $ bindMatch "test:ncq:fuckup-recovery1" $ nil_ $ \_ -> lift do
+          debug $ "test:ncq:fuckup-recovery1"
           testNCQFuckupRecovery1 "./tmp-ncq"
 
         entry $ bindMatch "test:ncq:test1" $ nil_ $ \syn -> lift do
