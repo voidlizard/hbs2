@@ -352,14 +352,12 @@ main = do
 
   let dict = makeDict @C do
 
+
         entry $ bindMatch "--help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
-          [StringLike s]      -> helpList False (Just s)
-          _                   -> helpList False Nothing
+          [StringLike s]      -> helpList True (Just s)
+          _                   -> helpList True Nothing
 
-        internalEntries
-
-        entry $ bindMatch "#!" $ nil_ $ const none
 
         entry $ bindMatch "--run" $ \case
           (StringLike what : args) -> liftIO do
@@ -419,6 +417,9 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        hidden do
+          internalEntries
+          entry $ bindMatch "#!" $ nil_ $ const none
 
   setupLogger
 
