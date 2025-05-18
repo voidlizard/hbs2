@@ -71,6 +71,7 @@ import System.IO.Temp qualified as Temp
 
 import UnliftIO
 
+import Test.Tasty.HUnit
 import Text.InterpolatedString.Perl6 (qc)
 
 import Streaming.Prelude qualified as S
@@ -100,19 +101,39 @@ silence = do
   setLoggingOff @TRACE
 
 
+data TestEnv =
+  TestEnv
+  { testEnvDir :: FilePath
+  }
+
+runTest :: forall m a . MonadUnliftIO m => (TestEnv -> m a) -> RunM C m a
+runTest action = do
+  pref <- lookupValueDef nil "test:root" >>= \case
+            StringLike dir -> pure dir
+            _              -> pure "/tmp/ncq-tests"
+
+  keep <- lookupValueDef nil "test:dir:keep" >>= \case
+            LitBoolVal True -> pure True
+            _               -> pure False
+
+  mkdir pref
+
+  tmp <- liftIO (Temp.createTempDirectory pref "ncq-test")
+  SC.bind "test:dir"  (mkStr tmp)
+
+  flip runContT pure do
+    ContT $ bracket none $ const do
+      unless keep (rm tmp)
+
+    lift $ lift $ action (TestEnv tmp)
+
 testNCQFuckupRecovery1 :: MonadUnliftIO m
-                       => FilePath
+                       => TestEnv
                        -> m ()
 
-testNCQFuckupRecovery1 prefix = flip runContT pure do
+testNCQFuckupRecovery1 TestEnv{..} = flip runContT pure do
 
-  mkdir prefix
-
-  tmp <- liftIO (Temp.createTempDirectory prefix "ncq-test")
-  let ncqDir   = tmp </> "ncq-test-data"
-
-  ContT $ bracket none $ const do
-    rm tmp
+  let ncqDir = testEnvDir </> "ncq"
 
   (cur,ha,h0) <- lift $ withNCQ id ncqDir $ \ncq -> do
     let sto = AnyStorage ncq
@@ -153,24 +174,18 @@ testNCQFuckupRecovery1 prefix = flip runContT pure do
 
 
 testNCQ1 :: MonadUnliftIO m
-         => Bool
-         -> FilePath
-         -> Int
+         => Int
+         -> TestEnv
          -> m ()
 
-testNCQ1 keep prefix n = flip runContT pure do
+testNCQ1 n TestEnv{..} = flip runContT pure do
 
-    mkdir prefix
-
-    tmp <- liftIO (Temp.createTempDirectory prefix "ncq-test")
+    let tmp = testEnvDir
 
     let inputDir = tmp </> "input"
     let ncqDir   = tmp </> "ncq-test-data"
 
     for_ [inputDir] mkdir
-
-    ContT $ bracket none $ const do
-      unless keep $ rm tmp
 
     twritten <- newTVarIO (mempty :: HashSet HashRef)
 
@@ -284,6 +299,52 @@ testNCQ1 keep prefix n = flip runContT pure do
 
 
 
+testNCQRefs1 :: MonadUnliftIO m
+         => Int
+         -> TestEnv
+         -> m ()
+
+testNCQRefs1 n TestEnv{..} = flip runContT pure do
+
+  let tmp = testEnvDir
+
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  refs <- liftIO $ replicateM n $ do
+            ref <- SomeRefKey <$> randomIO @Word64
+            val <- randomIO @Word64 <&> hashObject . serialise
+            pure (ref, val)
+
+  lift $ withNCQ id ncqDir $ \ncq -> do
+    let sto = AnyStorage ncq
+
+    for_ refs $ \(k,v) -> do
+      updateRef sto k v
+
+    for_ refs $ \(k,v0) -> liftIO do
+      v1 <- getRef sto k
+      assertBool "refs equal 1" (Just v0 == v1)
+
+  notice $ "all" <+> pretty n  <+> "refs found"
+
+  debug "restart storage"
+
+  lift $ withNCQ id ncqDir $ \ncq -> do
+    let sto = AnyStorage ncq
+
+    for_ refs $ \(k,v0) -> liftIO do
+      v1 <- getRef sto k
+      assertBool "refs equal 2" (Just v0 == v1)
+      delRef sto k
+
+    notice $ "all" <+> pretty n  <+> "refs found after restart"
+
+    for_ refs $ \(k,_) -> liftIO do
+      v1 <- getRef sto k
+      assertBool "ref deleted" (isNothing v1)
+
+    notice $ "all" <+> pretty n  <+> "refs deleted"
+
 main :: IO ()
 main = do
 
@@ -330,15 +391,34 @@ main = do
           _ ->
              setLogging @DEBUG  $ toStderr . logPrefix "[debug] "
 
-        entry $ bindMatch "test:ncq:fuckup-recovery1" $ nil_ $ \_ -> lift do
-          debug $ "test:ncq:fuckup-recovery1"
-          testNCQFuckupRecovery1 "./tmp-ncq"
+        entry $ bindMatch "test:root" $ nil_ $ \case
+          [ s@(StringLike _) ] -> do
+            SC.bind "test:root" s
 
-        entry $ bindMatch "test:ncq:test1" $ nil_ $ \syn -> lift do
-          let (opts, argz) = splitOpts [("-n",1)] syn
-          let n = headDef 100 [ x | ListVal [ StringLike "-n", LitIntVal x ] <- opts  ]
-          debug $ "ncq:test1" <+> pretty n
-          testNCQ1 False "./tmp-ncq" (fromIntegral n)
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:dir:keep" $ nil_ $ \case
+          [] -> SC.bind "test:dir:keep" (mkBool True)
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:fuckup-recovery1" $ nil_ $ \_ -> do
+          debug $ "test:ncq:fuckup-recovery1"
+          runTest testNCQFuckupRecovery1
+
+        entry $ bindMatch "test:ncq:test1" $ nil_ $ \case
+          [ LitIntVal n ] -> do
+            debug $ "ncq:test1" <+> pretty n
+            runTest $ testNCQ1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:refs1" $ nil_ $ \case
+          [ LitIntVal n ] -> do
+            debug $ "ncq:refs1" <+> pretty n
+            runTest $ testNCQRefs1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
 
   setupLogger
 
