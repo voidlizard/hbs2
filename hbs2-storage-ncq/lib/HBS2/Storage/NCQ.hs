@@ -96,6 +96,7 @@ data NCQStorageException =
   | NCQStorageTimeout
   | NCQStorageCurrentAlreadyOpen
   | NCQStorageCantOpenCurrent
+  | NCQStorageBrokenCurrent
   | NCQMergeInvariantFailed String
   deriving stock (Show,Typeable)
 
@@ -310,11 +311,13 @@ ncqReadTrackedFiles ncq@NCQStorage{} = do
   files <- ncqListTrackedFiles ncq
   ncqAddTrackedFilesIO ncq files
 
-ncqWriteError :: MonadIO m => NCQStorage -> Text -> m ()
+ncqWriteError :: (MonadIO m) => NCQStorage -> Doc AnsiStyle -> m ()
 ncqWriteError ncq txt = liftIO do
   p <- getPOSIXTime <&> round @_ @Integer
-  let msg = Text.pack $ show $ "error" <+> fill 12 (pretty p) <+> pretty txt <> line
-  Text.appendFile (ncqGetErrorLogName ncq) msg
+  let msg = "error" <+> fill 12 (pretty p) <+> txt
+  err msg
+  let msgTxt = fromString $ show (msg <> line)
+  Text.appendFile (ncqGetErrorLogName ncq) msgTxt
 
 ncqIndexFile :: MonadUnliftIO m => NCQStorage -> FilePath -> m FilePath
 ncqIndexFile n@NCQStorage{}  fp' = do
@@ -973,14 +976,28 @@ ncqFixIndexes ncq@NCQStorage{..} = do
 
 ncqStorageOpen :: MonadUnliftIO m => FilePath -> m NCQStorage
 ncqStorageOpen fp' = do
-  fp <- liftIO $ makeAbsolute fp'
-  ncq@NCQStorage{..} <- ncqStorageInit_ False fp
-  ncqReadTrackedFiles ncq
-  ncqFixIndexes ncq
-  ncqLoadIndexes ncq
-  readCurrent ncq
-  atomically $ putTMVar ncqOpenDone True
-  pure ncq
+    flip fix 0 $ \next i -> do
+      fp <- liftIO $ makeAbsolute fp'
+      ncq@NCQStorage{..} <- ncqStorageInit_ False fp
+      ncqReadTrackedFiles ncq
+      ncqFixIndexes ncq
+      ncqLoadIndexes ncq
+
+      readCurrent ncq `catch`  \case
+        NCQStorageBrokenCurrent  | i < 2 -> do
+          let fn = ncqGetCurrentName ncq
+          let msg = "broken file" <+> pretty (takeFileName fn)
+          ncqWriteError ncq msg
+          let (p,tpl)  = splitFileName (dropExtension fn `addExtension` ".broken")
+          newFn <- liftIO $ emptyTempFile p tpl
+          mv fn newFn
+          rm (ncqGetCurrentSizeName ncq)
+          void $ next (succ i)
+
+        e -> throwIO e
+
+      atomically $ putTMVar ncqOpenDone True
+      pure ncq
 
   where
 
@@ -999,8 +1016,7 @@ ncqStorageOpen fp' = do
             let p = BS.take w (BS.drop 4 bs)
 
             when (BS.length p < w ) do
-              err $ "broken file" <+> pretty fn
-              exit ()
+              throwIO NCQStorageBrokenCurrent
 
             let k  = BS.take 32 p & coerce . BS.copy
             let vs = w - 32
@@ -1120,8 +1136,7 @@ ncqStorageInit_ check path = do
             fossilized <- ncqGetNewFossilName ncq0
             debug $ "NEW FOSSIL FILE" <+> pretty fossilized
             let fn = takeFileName fossilized
-            let msg = fromString $ show $ "wrong-size" <+> pretty lastSz <+> pretty fn
-            err $ pretty msg
+            let msg = "wrong-size" <+> pretty lastSz <+> pretty fn
             ncqWriteError ncq0 msg
             mv currentName fossilized
             PFS.setFileSize fossilized (fromIntegral lastSz)
