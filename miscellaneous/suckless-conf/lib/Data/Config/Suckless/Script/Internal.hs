@@ -865,7 +865,7 @@ eval' dict0 syn' = handle (handleForm syn') $ do
 
             p <- eval p'
 
-            -- error $ show $ pretty p
+            -- display_  $ "EVALUATED:" <+> pretty p
 
             wat <- matched [p,e] <&> \case
                      ListVal es -> es
@@ -874,6 +874,9 @@ eval' dict0 syn' = handle (handleForm syn') $ do
             let found =  [ (n, Bind mzero (BindValue x))
                          | ListVal [SymbolVal  n,x] <- wat, n /= "_"
                          ] & HM.fromList
+
+            -- display_ $ "WAT"   <+> pretty wat
+            -- display_ $ "FOUND" <+>  found
 
             if List.null wat then
               next rest
@@ -1829,7 +1832,9 @@ internalEntries = do
       es -> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkList es]
 
     entry $ bindMatch "bf6:list?" $ \case
-      [a,b] -> termMatches (mkList [mkSym "bf6:list?", a]) b
+      [a,b] -> do
+        termMatches (mkList [mkSym "bf6:list?", a]) b
+
       e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "?" $ \case
@@ -2457,7 +2462,7 @@ matched = \case
 
     syn <- apply_ a [b]
 
-    -- error $ show $ "AAAAA" <+> pretty a <+> pretty syn
+    -- display_ $ show $ "AAAAA" <+> pretty a <+> pretty syn
 
     (_,w) <- runWriterT $ scan syn
 
@@ -2466,9 +2471,10 @@ matched = \case
     where
       scan = \case
         ListVal [SymbolVal x, e] -> do
-          e' <- scan e
-          tell [(x, e')]
-          pure e'
+          -- display_ $ "KHUYAK" <+> pretty x <+> pretty e
+          -- e' <- scan e
+          tell [(x, e)]
+          pure e
 
         ListVal es -> do
           es' <- mapM scan es
@@ -2519,14 +2525,20 @@ termMatches pred what = case (pred, what) of
 
   (ListVal [SymbolVal "bf6:list?", a@(ListVal as)], b@(ListVal bs)) -> do
     maybe nil mkList <$> runMaybeT do
-      for (emit as bs) $ \case
-        Nothing    -> mzero
-        Just (SymbolVal w, b) -> do
-          pure $ mkList [mkSym w, b]
-        Just (a,b) -> lift (apply_ a [b]) >>= \case
-          ListVal (e:es) -> pure (mkList (e:es))
-          e | e /= nil -> pure $ mkList [mkSym "_", e]
-          e -> mzero
+      for (emit as bs) $ \syn -> do
+
+
+        case syn of
+          Nothing    -> mzero
+
+          Just (SymbolVal w, b) -> do
+            -- error $ show $ "right fucking here 111" <+> pretty w <+> "->" <+> pretty b
+            pure $ mkList [mkSym w, b]
+
+          Just (a,b) -> lift (apply_ a [b]) >>= \case
+            ListVal (e:es) -> pure (mkList (e:es))
+            e | e /= nil -> pure $ mkList [mkSym "_", e]
+            e -> mzero
 
   e -> error $ show $ pretty  e
 
