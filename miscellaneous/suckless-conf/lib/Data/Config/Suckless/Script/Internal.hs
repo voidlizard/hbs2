@@ -878,7 +878,9 @@ eval' dict0 syn' = handle (handleForm syn') $ do
             if List.null wat then
               next rest
             else do
-              eval' found e1
+              -- display_ $ "FUCKING EVAL WITH FOUND" <+> pretty e1
+              dict0 <- ask >>= readTVarIO <&> (<> found)
+              lift $ runM dict0 (eval e1)
 
           (_ : _) -> throwIO (BadFormException r)
 
@@ -1784,6 +1786,10 @@ internalEntries = do
     entry $ bindMatch "or" $ \case
       xs -> pure $ mkBool $ or [ not (isFalse x) | x <- xs ]
 
+    entry $ bindMatch "bf6:is" $ \case
+      [a,b] | a == b -> pure a
+      _ -> pure nil
+
     brief "compares two terms" $
       args [arg "term" "a", arg "term" "b"] $
       returns "boolean" "#t if terms are equal, otherwise #f" $
@@ -1792,7 +1798,7 @@ internalEntries = do
             pure $ if a == b then mkBool True else mkBool False
           _ -> throwIO (BadFormException @c nil)
 
-    for_ ["int?", "sym?","bool?","str?","real?"] $ \pred -> do
+    for_ ["int?", "sym?","bool?","str?","real?","is"] $ \pred -> do
       let ref = "bf6:" <> pred
 
       entry $ bindMatch pred $ \case
@@ -1810,13 +1816,9 @@ internalEntries = do
           if a == b then pure  b else pure nil
 
         [a@(Literal _ _), b] -> do
-          if bf6TypeOfPred pred == bf6TypeOf b then
-            if a == b then pure b else pure nil
-          else
-            pure nil
+          if bf6TypeOfPred pred == bf6TypeOf b && a == b then pure b else pure nil
 
         [a,b] -> do
-          error $ show $ "FUCKED RIGH HERE" <+> pretty a <+> pretty b
           apply_ a [b] >>= \w -> do
             if isFalse w then pure nil else pure b
 
@@ -1837,6 +1839,7 @@ internalEntries = do
       e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "bf6:?" $ \case
+
       [ SymbolVal n, e, e2 ] -> do
         apply_ e [e2] >>= \case
           ListVal [] -> pure nil
@@ -2474,7 +2477,7 @@ termMatches :: forall c m . ( IsContext c
 termMatches pred what = case (pred, what) of
   (SymbolVal "_", a) -> pure a
 
-  (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> pure $ bound_ b
+  (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> pure $ (mkList [mkSym "...", b])
 
   (ListVal [SymbolVal "bf6:list?", a@(ListVal as)], b@(ListVal bs)) -> do
     maybe nil mkList <$> runMaybeT do
@@ -2497,7 +2500,9 @@ termMatches pred what = case (pred, what) of
     emit (SymbolVal "..." : _) [] = mempty
     emit (_:_) [] = [Nothing]
     emit [] (_:_) = [Nothing]
-    emit (SymbolVal "..." : _) bs = [ Just (mkSym "_", x) | x <- bs ]
+    emit (SymbolVal "..." : a) bs = [Just (mkSym "...", mkList bs)]
+      -- error $ show $ "FUCK2" <+> pretty a <+> ">>>" <+> pretty bs
+      -- [ Just (mkSym "_", x) | x <- bs ]
     emit (a:as) (b:bs) = Just (a,b) : emit as bs
 
 

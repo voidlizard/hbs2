@@ -1,20 +1,17 @@
 #! /usr/bin/env -S hbs2-cli file
 
-; println *args
+println *args
+
+; # (println (grep (sym "-g") *args))
 
 (match *args
-  ( (list? store)
-    (display (hbs2:tree:metadata:stdin [kw])) )
+  ( (list? _ ...)
+    (begin
+      (println "FUCKING STORE" space ...))
 
-  ( (list? store  [? fn [sym? _]])
-    (println "PIZDA") )
-
-    ; (display (hbs2:tree:metadata:file [kw] fn))  )
-    ; (display (hbs2:tree:metadata:file [kw] fn))  )
-
-  ( (list? cat [? hash [sym? _]])
-    (hbs2:tree:read:stdout hash) )
+  )
 
   ( _ nil)
 )
+
 
