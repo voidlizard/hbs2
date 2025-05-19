@@ -7,9 +7,26 @@
 (match *args
   ( (list? [sym? store] ...)
     (begin
-      # (local optdef (kw -g 1 --group-key 1))
-      # (local opts (cli:split optdef ...))
-      (println "FUCKING STORE " ... ))
+      (local optdef (kw -g 1 --group-key 1))
+      (local cli (cli:split optdef ...))
+      (local opts (nth 0 cli))
+      (local gk1 (lookup:uw --group-key opts))
+      (local gk2 (lookup:uw -g opts))
+      (local gk (car (filter [fn x . [not [nil? x]]] `[,gk1 ,gk2])))
+      (local fname (head (nth 1 cli)))
+
+      (local kwa `[ ,(if gk [list :gk gk] '() )
+                  ]
+      )
+
+      [local r
+        (if fname
+          (hbs2:tree:metadata:file  kwa fname)
+          (hbs2:tree:metadata:stdin kwa))]
+
+      (display r)
+
+    )
 
   )
 

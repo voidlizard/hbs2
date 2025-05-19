@@ -29,6 +29,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Char8 qualified as BS8
 import Data.Either
 import Data.Set qualified as Set
 import Data.HashMap.Strict qualified as HM
@@ -225,7 +226,10 @@ file-name: "qqq.txt"
   metadataCreateMan $ args [kw] $
     entry $ bindMatch "hbs2:tree:metadata:stdin" $ \case
         [syn@(ListVal{})] -> do
-          doCreateMetadataTree mempty syn (liftIO LBS.getContents)
+          _reader <- hIsTerminalDevice stdin >>= \case
+             _ -> pure (liftIO LBS.getContents)
+
+          doCreateMetadataTree mempty syn _reader
 
         _ -> throwIO (BadFormException @c nil)
 
