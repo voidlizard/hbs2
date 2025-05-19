@@ -248,17 +248,27 @@ file-name: "qqq.txt"
     _ -> throwIO (BadFormException @c nil)
 
 
-groupKeyFromSyntax :: Syntax c -> Maybe HashRef
+groupKeyFromSyntax :: Syntax c -> Either (Syntax c) (Maybe HashRef)
 groupKeyFromSyntax = \case
-  ListVal es -> headMay [ v | ListVal [ TextLike "gk", HashLike v ] <- es ]
-  _ -> Nothing
+  ListVal es -> do
+    let mbGk = headMay [ z | z@(ListVal [ TextLike "gk", v ]) <- es ]
+
+    case mbGk of
+      Just (ListVal [ TextLike "gk", HashLike v]) -> Right (Just v)
+      Just w@(ListVal [ TextLike "gk", v]) -> Left w
+      _ -> Right Nothing
+
+  _ -> Right Nothing
 
 loadGroupKeyFromSyntax :: ( ForMetadata c m )
                        => Syntax c
                        -> RunM c m (Maybe (GroupKey 'Symm 'HBS2Basic))
 
 loadGroupKeyFromSyntax syn = runMaybeT do
-  hash <- groupKeyFromSyntax syn & toMPlus
+  hash <- case groupKeyFromSyntax syn of
+             Right w -> toMPlus w
+             Left e -> throwIO (BadFormException e)
+
   toMPlus =<< lift (loadGroupKey hash)
 
 metadataFromSyntax :: Syntax c -> HashMap Text Text
@@ -278,8 +288,11 @@ doCreateMetadataTree meta0 syn getLbs = do
 
   gk <- loadGroupKeyFromSyntax syn
 
-  when (isJust gkh && isNothing gk) do
-    throwIO (GroupKeyNotFound 1)
+  -- notice $ "GK" <+> pretty (isRight gkh) <+> pretty gk
+
+  case (gkh, gk) of
+    (Right (Just _), Nothing) -> throwIO (GroupKeyNotFound 1)
+    _ -> none
 
   sto <- getStorage
 

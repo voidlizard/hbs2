@@ -1410,6 +1410,8 @@ internalEntries = do
       [k, ListVal es ] -> pure $ headDef nil [ r | r@(ListVal (w:_)) <- es, k == w ]
       _ -> throwIO (BadFormException @c nil)
 
+
+
     --TODO: integral sum
 
     entry $ bindMatch "upper" $ \case
@@ -1523,6 +1525,8 @@ internalEntries = do
         pure nil
 
       _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindAlias "@?" "lookup:uw"
 
     entry $ bindMatch "lookup" $ \case
       [k, ListVal es ] -> do
@@ -2155,8 +2159,15 @@ internalEntries = do
 
           opts <- Map.fromList <$> S.toList_ do
              for_ p $ \case
-               StringLike x -> S.yield (x, 0)
-               ListVal [StringLike x, LitIntVal n] -> S.yield (x, n)
+               StringLike x ->
+                 S.yield (x, (0, mkSym x))
+
+               ListVal [StringLike x, LitIntVal n] ->
+                 S.yield (x, (n, mkSym @c x))
+
+               ListVal [StringLike x, LitIntVal n, StringLike alias] ->
+                 S.yield (x, (n, mkSym @c alias))
+
                _ -> pure ()
 
           -- error $ show opts
@@ -2166,12 +2177,12 @@ internalEntries = do
 
             ( w@(StringLike piece) : rest ) -> do
               case Map.lookup piece opts of
-                Nothing     -> S.yield  (Right w) >> go rest
-                Just 0 -> S.yield (Left (nil @c)) >> go rest
-                Just 1 -> S.yield (Left (mkList [w, headDef nil rest])) >> go (drop 1 rest)
-                Just n' -> do
+                Nothing     -> S.yield (Right w) >> go rest
+                Just (0,s)  -> S.yield (Left (mkList [s, mkBool True])) >> go rest
+                Just (1,s)  -> S.yield (Left (mkList [s, headDef nil rest])) >> go (drop 1 rest)
+                Just (n',s) -> do
                   let n = fromIntegral n'
-                  S.yield (Left (mkList [w, mkList (take n rest)]))
+                  S.yield (Left (mkList [s, mkList (take n rest)]))
                   go (drop n rest)
 
             ( w : rest ) -> do

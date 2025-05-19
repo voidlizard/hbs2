@@ -5,35 +5,49 @@
 ; # (println (grep (sym "-g") *args))
 
 (match *args
+
   ( (list? [sym? store] ...)
     (begin
-      (local optdef (kw -g 1 --group-key 1))
-      (local cli (cli:split optdef ...))
-      (local opts (nth 0 cli))
-      (local gk1 (lookup:uw --group-key opts))
-      (local gk2 (lookup:uw -g opts))
-      (local gk (car (filter [fn x . [not [nil? x]]] `[,gk1 ,gk2])))
-      (local fname (head (nth 1 cli)))
+      (local optdef
+        `( [-g          1 GROUPKEY]
+           [--group-key 1 GROUPKEY] ))
 
-      (local kwa `[ ,(if gk [list :gk gk] '() )
-                  ]
-      )
+      (local split (cli:split optdef ...))
+      (local opts (nth 0 split))
+      (local args (nth 1 split))
 
-      [local r
+      (local gk (@? GROUPKEY opts))
+      (local fname (head args))
+
+      (local kwa `[ ,(if gk [list :gk gk] '() ) ])
+
+      ; (display kwa)
+
+      (display
         (if fname
-          (hbs2:tree:metadata:file  kwa fname)
-          (hbs2:tree:metadata:stdin kwa))]
-
-      (display r)
-
+          (hbs2:tree:metadata:file kwa fname)
+          (hbs2:tree:metadata:stdin kwa)))
     )
-
   )
+
 
   ( (list? [sym? cat] ...)
     (begin
       (println "FUCKING CAT" space ...))
 
+  )
+
+  ( (list? [sym? keyring] [sym? new] ...)
+      (begin
+
+        (local optdef `( [-n       1 NUM]
+                         [--number 1 NUM]
+                       ))
+
+        (local opts (nth 0 (cli:split optdef ...)))
+        ;  (println opts)
+        (print (hbs2:keyring:new (@? NUM opts)))
+      )
   )
 
   ( _  (--help) )
