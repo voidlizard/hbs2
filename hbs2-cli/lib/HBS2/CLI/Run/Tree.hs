@@ -25,6 +25,7 @@ import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client
 import HBS2.Peer.RPC.Client.Unix
 
+import Data.ByteString.Lazy qualified as LBS
 import Data.Coerce
 import Data.Text qualified as Text
 import Control.Monad.Except
@@ -64,7 +65,22 @@ treeEntries = do
        _ -> throwIO (BadFormException @c nil)
 
 
-  brief "reads merkle tree data from storage"
+  brief "reads merkle tree data from storage to stdout"
+    $ args [arg "string" "tree"]
+    $ desc "hbs2:tree:read:stdout HASH"
+    $ returns "nil" ""
+    $ entry $ bindMatch "hbs2:tree:read:stdout" $ nil_ \case
+       [ HashLike h ] -> lift do
+        sto <- getStorage
+
+        runExceptT (getTreeContents sto h)
+                >>= orThrowPassIO
+                >>= liftIO . LBS.putStr
+
+       _ -> throwIO (BadFormException @c nil)
+
+
+  brief "creates a 'grove' -- an annotated hashref list"
     $ args [arg "list of hashes" "trees"]
     $ desc [qc|hbs2:grove creates a 'grove' - merkle tree of list of hashes of merkle trees
 It's just an easy way to create a such thing, you may browse it by hbs2 cat -H

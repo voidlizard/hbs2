@@ -99,7 +99,6 @@ library
                     , HBS2.Merkle.MetaData
                     , HBS2.Merkle.Walk
                     , HBS2.Net.Auth.Schema
-                    , HBS2.Net.Auth.GroupKeyAsymm
                     , HBS2.Net.Auth.GroupKeySymm
                     , HBS2.Net.Auth.Credentials
                     , HBS2.Net.Auth.Credentials.Sigil

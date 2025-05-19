@@ -1,3 +1,4 @@
+{-# Language TypeOperators #-}
 module Main where
 
 import HBS2.Base58
@@ -12,7 +13,6 @@ import HBS2.Peer.CLI.Detect
 import HBS2.Peer.RPC.Client.Unix
 import HBS2.Peer.RPC.API.Storage
 import HBS2.Peer.RPC.Client.StorageClient
-import HBS2.Net.Auth.GroupKeyAsymm as Asymm
 import HBS2.Net.Auth.GroupKeySymm qualified as Symm
 import HBS2.Net.Auth.GroupKeySymm
 import HBS2.Net.Auth.Credentials
@@ -374,34 +374,7 @@ runStore opts ss = runResourceT do
               Left e  -> die (show e)
               Right h -> hPrint stdout (pretty h)
 
-        Just (EncAsymm gk) -> liftIO $ IO.withFile inputFile IO.ReadMode $ \ha -> do
-
-          accKeyh <- (putBlock ss . serialise . permitted . accessKey) gk
-              `orDie` "can not store access key"
-
-          let rawChunks = readChunked ha (fromIntegral defBlockSize) -- FIXME: to settings!
-
-          let encryptedChunks = rawChunks
-                  & S.mapM (fmap LBS.fromStrict . Encrypt.boxSeal (recipientPk gk) . LBS.toStrict)
-
-          mhash <- putAsMerkle ss encryptedChunks
-          mtree <- ((either (const Nothing) Just . deserialiseOrFail =<<) <$> getBlock ss (fromMerkleHash mhash))
-              `orDie` "merkle tree was not stored properly with `putAsMerkle`"
-
-          mannh <- maybe (die "can not store MerkleAnn") pure
-                =<< (putBlock ss . serialise @(MTreeAnn [HashRef])) do
-              MTreeAnn NoMetaData (CryptAccessKeyNaClAsymm accKeyh) mtree
-
-          hPrint stdout $ "merkle-ann-root: " <+> pretty mannh
-
-runNewGroupKeyAsymm :: forall s . (s ~ 'HBS2Basic) => FilePath -> IO ()
-runNewGroupKeyAsymm pubkeysFile = do
-  s <- BS.readFile pubkeysFile
-  pubkeys <- pure (parsePubKeys @s s) `orDie` "bad pubkeys file"
-  keypair <- newKeypair @s Nothing
-  accesskey <- AccessKeyNaClAsymm @s <$> do
-      List.sort pubkeys `forM` \pk -> (pk, ) <$> mkEncryptedKey keypair pk
-  print $ pretty $ AsGroupKeyFile $ AsBase58 $ GroupKeyNaClAsymm (_krPk keypair) accesskey
+        _ -> die "Unsupported (obsolete) encryption scheme"
 
 runNewKey :: forall s . (s ~ 'HBS2Basic) => Int -> IO ()
 runNewKey n = do
