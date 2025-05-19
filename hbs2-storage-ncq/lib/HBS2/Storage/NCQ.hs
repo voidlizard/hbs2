@@ -86,6 +86,8 @@ import UnliftIO
 import UnliftIO.Concurrent(getNumCapabilities)
 import UnliftIO.IO.File
 
+import System.FileLock as FL
+
 {- HLINT ignore "Functor law" -}
 
 type NCQPerks m = MonadIO m
@@ -98,6 +100,7 @@ data NCQStorageException =
   | NCQStorageCantOpenCurrent
   | NCQStorageBrokenCurrent
   | NCQMergeInvariantFailed String
+  | NCQStorageCantLock FilePath
   deriving stock (Show,Typeable)
 
 instance Exception NCQStorageException
@@ -158,6 +161,7 @@ data NCQStorage =
   , ncqCurrentFd      :: TVar (Maybe (RFd,WFd))
   , ncqCurrentUsage   :: TVar (IntMap Int)
   , ncqCurrentReadReq :: TVar (Seq (Fd, Word64, Word64, TMVar ByteString))
+  , ncqLock           :: TVar FL.FileLock
   , ncqFsyncNum       :: TVar Int
   , ncqFlushNow       :: TVar [TQueue ()]
   , ncqMergeReq       :: TVar Int
@@ -978,7 +982,9 @@ ncqStorageOpen :: MonadUnliftIO m => FilePath -> m NCQStorage
 ncqStorageOpen fp' = do
     flip fix 0 $ \next i -> do
       fp <- liftIO $ makeAbsolute fp'
+
       ncq@NCQStorage{..} <- ncqStorageInit_ False fp
+
       ncqReadTrackedFiles ncq
       ncqFixIndexes ncq
       ncqLoadIndexes ncq
@@ -1058,6 +1064,8 @@ ncqStorageInit_ check path = do
 
   let ncqGen = 0
 
+  let lockName = dropFileName (ncqGetCurrentName_ path ncqGen) </>  ".lock"
+
   here <- doesPathExist path
 
   when (here && check) $ throwIO (NCQStorageAlreadyExist path)
@@ -1065,6 +1073,12 @@ ncqStorageInit_ check path = do
   mkdir (path </> show ncqGen)
 
   let seedPath = path </> ".seed"
+
+  ncqLock_ <- liftIO do
+    mkdir (takeDirectory lockName)
+    l <- tryLockFile lockName Exclusive >>= orThrow (NCQStorageCantLock lockName)
+    touch lockName
+    pure l
 
   unless here do
     now <- liftIO $ getPOSIXTime <&> round @_ @Int
@@ -1115,6 +1129,7 @@ ncqStorageInit_ check path = do
   ncqIndexed        <- newTVarIO mempty
   ncqMergeReq       <- newTVarIO 0
   ncqFsyncNum       <- newTVarIO 0
+  ncqLock           <- newTVarIO ncqLock_
 
   let currentName = ncqGetCurrentName_ path ncqGen
 
@@ -1152,6 +1167,7 @@ ncqStorageInit_ check path = do
   debug $ "currentFileName" <+> pretty (ncqGetCurrentName_ path ncqGen)
 
   let ncq = NCQStorage{..}
+
   ncqOpenCurrent ncq
 
   pure ncq
@@ -1174,6 +1190,8 @@ ncqFinalize NCQStorage{..} = do
       atomically (writeTVar ncqCurrentFd Nothing)
 
     _ -> none
+
+  liftIO $ unlockFile =<< readTVarIO ncqLock
 
 withNCQ :: forall m a . MonadUnliftIO  m
         => (NCQStorage -> NCQStorage)

@@ -38,6 +38,7 @@ import Data.Text.Encoding qualified as TE
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Builder
 import Data.Maybe
+import Data.Either
 import Data.Word
 import Data.List qualified as List
 import Data.Vector qualified as V
@@ -414,6 +415,35 @@ main = do
           [ LitIntVal n ] -> do
             debug $ "ncq:refs1" <+> pretty n
             runTest $ testNCQRefs1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "test:ncq:test-lock" $ nil_ $ \case
+          [ ] -> do
+            runTest $ \TestEnv{..} -> do
+              debug $ "test:ncq:test-lock" <+> pretty testEnvDir
+
+              let ncq1 = testEnvDir </> "ncq1"
+
+              flip runContT pure do
+
+                pause @'Seconds 2
+                r1 <- ContT $ withAsync do
+                        withNCQ id ncq1 $ \_ -> do
+                          forever $ pause @'Seconds 1
+
+                -- link r1
+
+                sto2 <- ContT $ withNCQ id ncq1
+
+                result <- poll r1
+
+                notice $ viaShow result
+
+                case result of
+                  Just Left{} -> none
+                  _ ->  liftIO $ assertBool "must be (Left _)" False
 
           e -> throwIO $ BadFormException @C (mkList e)
 
