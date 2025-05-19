@@ -59,6 +59,12 @@ main = do
   cli <- getArgs <&> unlines . fmap unwords . splitForms
            >>= either (error.show) pure . parseTop
 
+  let runScript dict argz what = liftIO do
+        script <- either (error.show) pure $ parseTop what
+        runHBS2Cli $ recover $ runM dict do
+          bindCliArgs argz
+          void $ evalTop script
+
   let dict = makeDict do
 
         internalEntries
@@ -85,15 +91,21 @@ main = do
         entry $ bindMatch "debug:cli:show" $ nil_ \case
           _ -> display cli
 
+        entry $ bindMatch "#!" $ nil_ $ const none
+
+        entry $ bindMatch "stdin" $ nil_ $ \case
+          argz  -> do
+            liftIO getContents >>= runScript dict argz
+
+        entry $ bindMatch "file" $ nil_ $ \case
+          ( StringLike fn : argz ) -> do
+            liftIO (readFile fn) >>= runScript dict argz
+
+          e -> error (show $ pretty $ mkList e)
+
   runHBS2Cli do
 
-
     case cli of
-      [ListVal [SymbolVal "stdin"]] -> do
-        what <- liftIO getContents
-                  >>= either (error.show) pure . parseTop
-
-        recover $ run dict what >>= eatNil display
 
       [] -> do
         eof <- liftIO IO.isEOF

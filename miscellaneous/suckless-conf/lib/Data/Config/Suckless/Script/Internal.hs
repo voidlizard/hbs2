@@ -1796,17 +1796,27 @@ internalEntries = do
       let ref = "bf6:" <> pred
 
       entry $ bindMatch pred $ \case
-        [a]   -> pure $ mkForm "builtin:closure" [mkSym ref,  a]
+        [a]   -> do
+          -- error $ show $ "FUCK!" <+> pretty a
+          pure $ mkForm "builtin:closure" [mkSym ref,  a]
+
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch ref $ \case
         [SymbolVal "_", b] ->do
           if bf6TypeOfPred pred == bf6TypeOf b then pure  b else pure nil
 
-        [a@(Literal _ _), b] | bf6TypeOfPred pred == bf6TypeOf b -> do
-          if a == b then pure b else pure nil
+        [a@(SymbolVal e), b] -> do
+          if a == b then pure  b else pure nil
+
+        [a@(Literal _ _), b] -> do
+          if bf6TypeOfPred pred == bf6TypeOf b then
+            if a == b then pure b else pure nil
+          else
+            pure nil
 
         [a,b] -> do
+          error $ show $ "FUCKED RIGH HERE" <+> pretty a <+> pretty b
           apply_ a [b] >>= \w -> do
             if isFalse w then pure nil else pure b
 
