@@ -105,7 +105,18 @@ main = do
 
   runHBS2Cli do
 
+    -- error (show $ pretty cli)
+
     case cli of
+
+      ( cmd@(ListVal [StringLike "file", StringLike fn]) : _ ) -> do
+        void $ run dict [cmd]
+
+      ( cmd@(ListVal [StringLike "stdin"]) : _ ) -> do
+        void $ run dict [cmd]
+
+      ( cmd@(ListVal [StringLike "--help"]) : _ ) -> do
+        void $ run dict [cmd]
 
       [] -> do
         eof <- liftIO IO.isEOF

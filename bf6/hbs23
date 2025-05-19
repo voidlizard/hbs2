@@ -1,17 +1,17 @@
 #! /usr/bin/env -S hbs2-cli file
 
-println *args
+; # println *args
 
 ; # (println (grep (sym "-g") *args))
 
 (match *args
-  ( (list? _ ...)
+  ( (list? [sym? store] ...)
     (begin
       (println "FUCKING STORE" space ...))
 
   )
 
-  ( _ nil)
+  ( _  (println "FUCK") )
 )
 
 
