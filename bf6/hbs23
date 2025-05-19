@@ -53,4 +53,5 @@
   ( _  (--help) )
 )
 
+; vim: filetype=lisp
 
