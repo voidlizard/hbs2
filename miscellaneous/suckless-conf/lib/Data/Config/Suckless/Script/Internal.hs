@@ -2140,6 +2140,44 @@ internalEntries = do
     entry $ bindMatch "uuid" $ const do
       mkSym @c . show <$> liftIO UUID.nextRandom
 
+    brief "splits command line arguments"
+      $ args [ arg "definintion" "list", arg "..." "CLI" ]
+      $ desc ""
+      $ entry $ bindMatch "cli:split" $ \case
+
+        [ListVal p] -> pure nil
+        [ListVal p,  ListVal es0] -> do
+
+          opts <- Map.fromList <$> S.toList_ do
+             for_ p $ \case
+               StringLike x -> S.yield (x, 0)
+               ListVal [StringLike x, LitIntVal n] -> S.yield (x, n)
+               _ -> pure ()
+
+          -- error $ show opts
+
+          parsed <- S.toList_ $ flip fix es0 $ \go -> \case
+            [] -> pure ()
+
+            ( w@(StringLike piece) : rest ) -> do
+              case Map.lookup piece opts of
+                Nothing     -> S.yield  (Right w) >> go rest
+                Just 0 -> S.yield (Left (nil @c)) >> go rest
+                Just 1 -> S.yield (Left (mkList [w, headDef nil rest])) >> go (drop 1 rest)
+                Just n' -> do
+                  let n = fromIntegral n'
+                  S.yield (Left (mkList [w, mkList (take n rest)]))
+                  go (drop n rest)
+
+            ( w : rest ) -> do
+              S.yield (Right w) >> go (drop 1 rest)
+
+          pure $  mkList [ mkList (lefts parsed)
+                         , mkList (rights parsed)
+                         ]
+
+        _ -> pure nil
+
     entry $ bindMatch "path:exists?" $ \case
       [ StringLike p ] -> lift do
         liftIO (Dir.doesPathExist p) <&> mkBool

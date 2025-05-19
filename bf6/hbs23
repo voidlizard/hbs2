@@ -7,11 +7,19 @@
 (match *args
   ( (list? [sym? store] ...)
     (begin
-      (println "FUCKING STORE" space ...))
+      # (local optdef (kw -g 1 --group-key 1))
+      # (local opts (cli:split optdef ...))
+      (println "FUCKING STORE " ... ))
 
   )
 
-  ( _  (println "FUCK") )
+  ( (list? [sym? cat] ...)
+    (begin
+      (println "FUCKING CAT" space ...))
+
+  )
+
+  ( _  (--help) )
 )
 
 
