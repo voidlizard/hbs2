@@ -66,7 +66,10 @@
 (import-blocks)
 (import-refs)
 
+(debug)
 
-; ; (println OKAY)
+(ncq:fossilize ncq)
+
+(println done)
 
 

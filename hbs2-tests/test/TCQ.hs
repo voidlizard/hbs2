@@ -16,6 +16,10 @@ import HBS2.Merkle
 import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.ByteString
+import HBS2.Net.Auth.Credentials
+import HBS2.Peer.Proto.RefLog
+import HBS2.Peer.Proto.LWWRef
+import HBS2.Data.Types.SignedBox
 
 import HBS2.System.Logger.Simple.ANSI
 
@@ -319,7 +323,34 @@ main = do
             [ isOpaqueOf @TCQ -> Just tcq, HashLike w ] -> lift do
               ncq <- getNCQ tcq
               ref <- ncqStorageGetRef ncq w
+              debug $ "ref" <+> pretty w <+> pretty ref
               pure $ maybe nil (mkSym . show . pretty) ref
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:get:reflog" $ \case
+            [ isOpaqueOf @TCQ -> Just tcq,  SignPubKeyLike reflog ] -> lift do
+              ncq <- getNCQ tcq
+              let sto = AnyStorage ncq
+              let ha = hashObject @HbSync (RefLogKey @HBS2Basic reflog)
+              debug $ "refhash" <+> pretty ha
+              ref <- getRef sto (RefLogKey @HBS2Basic reflog)
+              pure $ maybe nil (mkSym . show . pretty) ref
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:get:lwwref" $ \case
+            [ isOpaqueOf @TCQ -> Just tcq,  SignPubKeyLike lww ] -> lift do
+              ncq <- getNCQ tcq
+              let sto = AnyStorage ncq
+              val <- runMaybeT do
+                rv <- getRef sto (LWWRefKey @HBS2Basic lww) >>= toMPlus
+                getBlock sto rv >>= toMPlus
+                      <&> unboxSignedBox @(LWWRef 'HBS2Basic) @HBS2Basic
+                      >>= toMPlus
+                      <&> snd
+
+              pure $ maybe nil (mkSym . show . pretty) val
 
             e -> throwIO $ BadFormException @C (mkList e)
 

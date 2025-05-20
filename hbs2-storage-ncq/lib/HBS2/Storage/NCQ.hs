@@ -473,7 +473,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
          what' <- race (pause @'Seconds 1) $ atomically do
             stop  <- readTVar ncqStopped
             q <- tryPeekTQueue indexQ
-            if not ( stop  || isJust q) then
+            if not (stop  || isJust q) then
               STM.retry
             else do
               STM.flushTQueue indexQ
@@ -539,7 +539,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                               fsize <- getFdStatus fh <&> PFS.fileSize
                               pure (0,fromIntegral fsize)
 
-          if sz < ncqMinLog then do
+          now <- readTVarIO ncqIndexNow
+
+          if sz < ncqMinLog && now <= 0 then do
             ((h, (fromIntegral off, fromIntegral len)) : ) <$> next (written', rest)
           else  do
             pure [(h, (fromIntegral off, fromIntegral len))]
@@ -568,7 +570,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         bw <- readTVar wbytes
         writeTVar ncqNotWritten (max 0 (b0 - bw))
 
-      indexNow <- readTVarIO ncqIndexNow
+      indexNow <- atomically $ stateTVar ncqIndexNow (,0)
 
       when (fromIntegral size >= ncqMinLog || indexNow > 0) do
 
@@ -596,7 +598,6 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
             --   то есть должны отнять 1 после индексации.
             modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fdr) 1)
             writeTQueue indexQ (fdr, fossilized)
-            writeTVar ncqIndexNow 0
 
           closeFd fh
           writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 0)
