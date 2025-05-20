@@ -1168,6 +1168,12 @@ internalEntries = do
       _ -> do
         throwIO (BadFormException @C nil)
 
+    entry $ bindMatch "for" $ nil_ $ \case
+      [ ListVal es, what ] -> do
+        mapM_ (apply_ what . List.singleton) es
+
+      _ -> do
+        throwIO (BadFormException @C nil)
 
     entry $ bindMatch "replicate" $ \case
       [LitIntVal n, e] -> pure $ mkList (replicate (fromIntegral n) e)
@@ -1614,6 +1620,19 @@ internalEntries = do
     entry $ bindMatch "println" $ nil_ $ \case
       [ sy ] -> display sy >> liftIO (putStrLn "")
       ss     -> mapM_ display ss >> liftIO (putStrLn "")
+
+    entry $ bindMatch "flush:stdout" $ nil_ $ \case
+      [] -> liftIO do
+        hFlush stdout
+
+      _ -> throwIO (BadFormException @c nil)
+
+    entry $ bindMatch "str:getchar:stdin" $ \case
+      [] -> liftIO do
+        hSetBuffering stdin NoBuffering
+        mkStr . List.singleton <$> getChar
+
+      _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "str:stdin" $ \case
       [] -> liftIO getContents <&> mkStr @c
@@ -2099,8 +2118,13 @@ internalEntries = do
 
       _ -> throwIO $ BadFormException @c nil
 
+    entry $ bindMatch "quit" $ nil_ $ \case
+      [] -> liftIO $ Exit.exitSuccess
+      _ -> throwIO $ BadFormException @c nil
+
     entry $ bindMatch "die" $ nil_ $ \case
-      e -> liftIO $ Exit.die (show $ foldMap asSym e)
+      [] -> liftIO $ Exit.exitFailure
+      e  -> liftIO $ Exit.die (show $ foldMap asSym e)
 
     entry $ bindMatch "cp" $ nil_ $ \case
       (StringLikeList p) -> liftIO do

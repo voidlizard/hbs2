@@ -66,7 +66,16 @@ peerEntries = do
         lbs <- getBlock sto (fromHashRef ha)
                 `orDie` show ("missed-block" <+> pretty ha)
 
-        pure $ mkForm "blob" [mkStr (LBS8.unpack lbs)]
+        mkOpaque lbs
+
+    _ -> throwIO $ BadFormException @c nil
+
+  entry $ bindMatch "hbs2:peer:storage:block:del" $ \case
+    [HashLike ha] -> do
+      flip runContT pure do
+        sto <- getStorage
+        delBlock sto (fromHashRef ha)
+        pure nil
 
     _ -> throwIO $ BadFormException @c nil
 

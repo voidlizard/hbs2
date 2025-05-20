@@ -4,6 +4,18 @@
 
 ; # (println (grep (sym "-g") *args))
 
+(define (--help)
+  (begin
+    (println [concat
+
+"hbs2-cli wrapper"           chr:lf
+"supported commands list:"   chr:lf
+"  "
+
+             ])
+  )
+)
+
 (match *args
 
   ( (list? [sym? store] ...)
@@ -30,10 +42,102 @@
     )
   )
 
+  ( (list? [sym? has] hash)
+    (begin
+      (local s (hbs2:peer:storage:block:size hash))
+      (cond
+        ( (eq? :no-block s) (die))
+        ( _ (print s))
+      ))
+  )
 
   ( (list? [sym? cat] ...)
-    (begin
-      (println "FUCKING CAT" space ...))
+
+      (begin
+
+        (local optdef `( [-H           0 HASHES]
+                         [--raw        0 RAW]
+                         [--metadata   0 META]
+                         [--m          0 META]
+                       ))
+
+        (local parsed (cli:split optdef ...))
+        (local opts (nth 0 parsed))
+        (local hash (head (nth 1 parsed)))
+
+        (if (@? HASHES opts)
+          (begin
+            (iterate [fn x . println x] [tail [hbs2:tree:scan:deep hash]])
+            (quit)
+        ))
+
+
+        (if (@? RAW    opts)
+          (begin
+            (bytes:put (hbs2:peer:storage:block:get hash))
+            (quit)
+          )
+        )
+
+        (if (@? META opts)
+          (begin
+            (display (hbs2:tree:metadata:get hash))
+            (quit)
+          )
+        )
+
+        (hbs2:tree:read:stdout hash)
+
+      )
+  )
+
+  ( (list? [sym? del] ...)
+
+      (begin
+
+        (local optdef `( [-y       0 YES]
+                         [-r       0 REC]
+                       ))
+
+        (local parsed (cli:split optdef ...))
+        (local opts (nth 0 parsed))
+        (local hash (head (nth 1 parsed)))
+
+        (local hashes
+          (cond
+            ( (@? REC opts)  (hbs2:tree:scan:deep hash) )
+            ( _              (hbs2:tree:scan hash)  )
+          )
+        )
+
+        (define (ask ha)
+            (if (@? YES opts) true
+            (begin
+              (print "deleting " ha " ")
+              (print "sure [y/n]? ") (flush:stdout)
+              (local answ (str:getchar:stdin))
+              (newline)
+              (eq? (upper answ) "Y")
+            ))
+        )
+
+        (cond
+          ( (and (@? YES opts) (@? REC opts)) (hbs2:tree:delete hash))
+          ( _
+            (for (reverse hashes)
+              [fn ha .
+                  [begin
+                    (local y (or (@? YES opts) (ask ha)))
+                    (if y
+                      (begin
+                        (hbs2:peer:storage:block:del ha)
+                     ))
+                  ]])
+          )
+        )
+
+
+      )
 
   )
 
@@ -50,8 +154,23 @@
       )
   )
 
+  ( (list? [sym? reflog] [sym? get] hash)
+    (display (hbs2:reflog:get hash))
+  )
+
+  ( (list? [sym? reflog] [sym? fetch] hash)
+    (hbs2:reflog:fetch hash)
+  )
+
+  ( (list? [sym? metadata] [sym? dump] hash)
+    (display (hbs2:tree:metadata:get hash))
+  )
+
+  ( (list? [sym? deps] hash)
+    (iterate println (hbs2:tree:scan:deep hash) )
+  )
+
   ( _  (--help) )
 )
 
-; vim: filetype=lisp
-
+; vim: filetype=scheme syntax=scheme

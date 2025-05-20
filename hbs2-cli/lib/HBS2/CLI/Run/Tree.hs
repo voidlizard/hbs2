@@ -157,6 +157,20 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
 
       _ -> throwIO (BadFormException @c nil)
 
+  brief "delete tree" $
+    entry $ bindMatch "hbs2:tree:delete" $ nil_ \case
+      [HashLike href] -> do
+        sto <- getStorage
+
+        what <- S.toList_ $ deepScan ScanDeep (const none) (coerce href) (getBlock sto) $ \ha -> do
+          S.yield ha
+
+        for_ (reverse what) $ \ha -> do
+          display_ $ "deleting" <+> pretty ha
+          delBlock sto ha
+
+      _ -> throwIO (BadFormException @c nil)
+
 
   brief "shallow scan of a block/tree" $
     entry $ bindMatch "hbs2:tree:scan:deep" $ \case
