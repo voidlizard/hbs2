@@ -46,12 +46,19 @@
     ; (local (write x) (ncq:put ncq (bytes:file x)))
     (for blocks (fn x .
       (begin
-        (local ha (sym (ncq:put ncq (bytes:strict:file x))))
         (local h0 (sym (readhash x)))
-        (local s  (coalesce "" (ncq:has ncq ha)))
-        (local ok (if (eq? ha h0) (ansi :green _ ok) (ansi :red _ fail)))
-        (println block space ok space (align -6 (str s)) space ha space h0 space )
-        (if (not (eq? ha h0)) (die "*** block import error:" ha space h0))
+        (local here  (ncq:has ncq h0))
+        (if (not here)
+          (begin
+            (local ha (sym (ncq:put ncq (bytes:strict:file x))))
+            (local s  (coalesce "" (ncq:has ncq ha)))
+            (local ok (if (eq? ha h0) (ansi :green _ ok) (ansi :red _ fail)))
+            (println block space ok space (align -6 (str s)) space ha space h0 space )
+            ; (println block space ok space space ha space h0 space )
+            (if (not (eq? ha h0)) (die "*** block import error:" ha space h0)))
+
+          (println "block" space (ansi :yellow _ "skip") space h0)
+        )
     )))
   )
 )
