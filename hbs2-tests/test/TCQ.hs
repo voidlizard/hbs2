@@ -27,6 +27,7 @@ import HBS2.CLI.Run.Internal.Merkle
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Script as SC
 import Data.Config.Suckless.System
+import Data.Config.Suckless.Script.File as SF
 
 import DBPipe.SQLite hiding (field)
 
@@ -116,6 +117,12 @@ main = do
 
   tvd <- newTVarIO mempty
 
+  let runScript dict argz what = liftIO do
+        script <- either (error.show) pure $ parseTop what
+        runM dict do
+          bindCliArgs argz
+          void $ evalTop script
+
   let finalizeStorages = do
         debug "finalize ncq"
         r <- readTVarIO instances <&> HM.toList
@@ -141,27 +148,20 @@ main = do
           _                   -> helpList False Nothing
 
         internalEntries
+        SF.entries
 
         entry $ bindMatch "#!" $ nil_ $ const none
 
-        entry $ bindMatch "--run" $ \case
-          (StringLike what : args) -> liftIO do
+        entry $ bindMatch "stdin" $ nil_ $ \case
+          argz  -> do
+            liftIO getContents >>= runScript dict argz
 
-            liftIO (readFile what)
-              <&> parseTop
-              >>= either (error.show) pure
-              >>= \syn -> do
-                    runTM tvd do
+        entry $ bindMatch "file" $ nil_ $ \case
+          ( StringLike fn : argz ) -> do
+            liftIO (readFile fn) >>= runScript dict argz
 
-                      for_ (zip [1..] args) $ \(i,a) -> do
-                        let n = Id ("$" <> fromString (show i))
-                        SC.bind n a
+          e -> error (show $ pretty $ mkList e)
 
-                      SC.bind "$argv" (mkList args)
-
-                      evalTop syn
-
-          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "debug" $ nil_ \case
 
@@ -498,8 +498,38 @@ pragma synchronous=normal;
 
   atomically $ writeTVar tvd dict
 
-  (runEval tvd forms >>= eatNil display)
-    `finally` (finalizeStorages >> flushLoggers)
+  flip runContT pure do
+
+    ContT $ bracket none $ const do
+      finalizeStorages
+      flushLoggers
+
+    lift do
+      case forms of
+
+        ( cmd@(ListVal [StringLike "file", StringLike fn]) : _ ) -> do
+          void $ run dict [cmd]
+
+        ( cmd@(ListVal [StringLike "stdin"]) : _ ) -> do
+          void $ run dict [cmd]
+
+        ( cmd@(ListVal [StringLike "--help"]) : _ ) -> do
+          void $ run dict [cmd]
+
+        [] -> do
+          eof <- liftIO IO.isEOF
+          if eof then
+            void $ run dict [mkForm  "help" []]
+          else do
+            what <- liftIO getContents
+                      >>= either (error.show) pure . parseTop
+
+            run dict what >>= eatNil display
+
+        e -> void $ run dict e
+
+  -- (runEval tvd forms >>= eatNil display)
+  --   `finally` (finalizeStorages >> flushLoggers)
 
 
 

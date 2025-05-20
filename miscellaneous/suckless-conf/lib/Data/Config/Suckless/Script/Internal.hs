@@ -1417,8 +1417,25 @@ internalEntries = do
       _ -> throwIO (BadFormException @c nil)
 
 
+    entry $ bindMatch "coalesce" $  \case
+      [a] -> pure a
+      [a,b] | isFalse b -> pure a
+      [a,_] -> pure a
+      _ -> pure nil
+
+    entry $ bindAlias "nvl" "coalesce"
 
     --TODO: integral sum
+
+    entry $ bindMatch "align" $  \syn -> do
+      (n,f,s)  <- case syn of
+                    [ LitIntVal n, TextLike s ] -> pure (n,' ',s)
+                    [ LitIntVal n, TextLike f, TextLike s ] -> pure (n, maybe ' ' fst (Text.uncons f) ,s)
+                    e -> throwIO (BadFormException @c (mkList e))
+
+      let shift = fromIntegral $ abs n
+      let fn = if n >= 0 then Text.justifyLeft else Text.justifyRight
+      pure $ mkStr (fn shift f s)
 
     entry $ bindMatch "upper" $ \case
       [ LitStrVal x ] -> pure $ mkStr $ Text.toUpper x
@@ -1590,6 +1607,8 @@ internalEntries = do
           other -> do
             let s = renderStrict $ layoutPretty defaultLayoutOptions (annotate f $ pretty other)
             mkStr s
+
+
 
     entry $ bindMatch "ansi" $  \case
       [ SymbolVal fg, SymbolVal bg, term ] | HM.member fg colorz && HM.member bg colorz -> do
@@ -1994,6 +2013,14 @@ internalEntries = do
 
         _ -> throwIO (BadFormException @c nil)
 
+    brief "reads bytes from a file"
+     $ desc "bytes:strict:file FILE"
+     $ entry $ bindMatch "bytes:strict:file" $ \case
+        [ StringLike fn ] -> do
+          liftIO (BS.readFile fn) >>= mkOpaque
+
+        _ -> throwIO (BadFormException @c nil)
+
     brief "reads bytes from a STDIN"
      $ desc "bytes:stdin"
      $ entry $ bindMatch "bytes:stdin" $ \case
@@ -2217,6 +2244,15 @@ internalEntries = do
                          ]
 
         _ -> pure nil
+
+    entry $ bindMatch "path:join" $ \case
+      StringLikeList es -> lift do
+        pure $ mkSym (joinPath es)
+
+      [ ListVal (StringLikeList es) ] -> do
+        pure $ mkSym (joinPath es)
+
+      _ -> pure nil
 
     entry $ bindMatch "path:exists?" $ \case
       [ StringLike p ] -> lift do
