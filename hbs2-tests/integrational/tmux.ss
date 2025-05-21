@@ -1,7 +1,7 @@
 
 (define local-net macvlan-wtf)
 (define remote-net macvlan1)
-(define local-phy enp2s0)
+(define local-phy eno1)
 
 (define local-ip   :192.168.1.171/24)
 (define remote-ip  :192.168.1.172/24)

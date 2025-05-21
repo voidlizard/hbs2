@@ -32,6 +32,7 @@ import HBS2.Net.Proto.Notify
 import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
+import HBS2.Storage.NCQ
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
@@ -771,7 +772,7 @@ runPeer :: forall e s . ( e ~ L4Proto
                         , HasStorage (PeerM e IO)
                         )=> PeerOpts -> IO ()
 
-runPeer opts = respawnOnError opts $ do
+runPeer opts = respawnOnError opts $ flip runContT pure do
 
   probes <- liftIO $ newTVarIO (mempty :: [AnyProbe])
 
@@ -810,9 +811,11 @@ runPeer opts = respawnOnError opts $ do
 
   credFile <- pure (view peerCredFile opts <|> keyConf) `orDie` "credentials not set"
 
-  let pref = view storage opts <|> storConf <|> Just xdg
+  let pref = fromMaybe xdg (view storage opts <|> storConf)
 
-  debug $ "storage prefix:" <+> pretty pref
+  let ncqPath = coerce pref </> "ncq"
+
+  debug $ "storage prefix:" <+> pretty ncqPath
 
   liftIO $ print $ pretty "debug: " <+> pretty (show debugConf)
   liftIO $ print $ pretty "trace: " <+> pretty (show traceConf)
@@ -843,16 +846,23 @@ runPeer opts = respawnOnError opts $ do
 
   notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
 
-  s <- simpleStorageInit @HbSync (Just pref)
+  debug $ "STORAGE PREFIX" <+> pretty pref
+
+  -- error "STOP"
+
+  s <- lift $ ncqStorageOpen ncqPath
+
+  -- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
 
   stoProbe <- newSimpleProbe "StorageSimple"
-  simpleStorageSetProbe s stoProbe
+  -- simpleStorageSetProbe s stoProbe
   addProbe stoProbe
 
   stn <- getNumCapabilities  <&> max 2 . div 1
 
-  w <- replicateM stn $ asyncBound $ liftIO $ simpleStorageWorker s
+  w <- liftIO $ async (ncqStorageRun s)
+  -- liftIO $ replicateM stn $ asyncBound $ liftIO $ simpleStorageWorker s
 
   localMulticast <- liftIO $ (headMay <$> parseAddrUDP (fromString defLocalMulticast)
                                       <&> fmap (fromSockAddr @'UDP . addrAddress) )
@@ -865,8 +875,7 @@ runPeer opts = respawnOnError opts $ do
   addProbe bProbe
   basicBrainsSetProbe brains bProbe
 
-  brainsThread <- async $ runBasicBrains conf brains
-
+  brainsThread <- liftIO $ async $ runBasicBrains conf brains
 
   pl <- AnyPeerLocator <$> newBrainyPeerLocator @e (SomeBrains @e brains) mempty
 
@@ -972,13 +981,13 @@ runPeer opts = respawnOnError opts $ do
       pause @'Seconds 10
       peerEnvCollectProbes penv
 
-  proxyThread <- async $ runDispatchProxy proxy
+  proxyThread <- liftIO $ async $ runDispatchProxy proxy
 
   let peerMeta = mkPeerMeta conf penv
 
   nbcache <- liftIO $ Cache.newCache (Just $ toTimeSpec ( 600 :: Timeout 'Seconds))
 
-  void $ async $ forever do
+  void $ liftIO $ async $ forever do
     pause @'Seconds 600
     liftIO $ Cache.purgeExpired nbcache
 
@@ -1011,7 +1020,7 @@ runPeer opts = respawnOnError opts $ do
         --     pure ()
         }
 
-  rcw <- async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
+  rcw <- liftIO $ async $ liftIO $ runRefChanRelyWorker rce refChanAdapter
 
   mailboxWorker <- createMailboxProtoWorker pc  penv (AnyStorage s)
 
@@ -1245,9 +1254,9 @@ runPeer opts = respawnOnError opts $ do
                 peerThread "lwwRefWorker" (lwwRefWorker @e conf (SomeBrains brains))
 
                 -- setup mailboxes stuff
-                let defConf = coerce conf
-                let mboxConf = maybe1 pref defConf $ \p -> do
-                       let mboxDir = takeDirectory (coerce p) </> "hbs2-mailbox"
+                let PeerConfig defConf = coerce conf
+                let mboxConf = do -- maybe1 pref defConf $ \p -> do
+                       let mboxDir = takeDirectory (coerce pref) </> "hbs2-mailbox"
                        mkList [mkSym hbs2MailboxDirOpt, mkStr mboxDir] : coerce defConf
 
                 peerThread "mailboxProtoWorker" (mailboxProtoWorker (pure mboxConf) mailboxWorker)
@@ -1364,9 +1373,9 @@ runPeer opts = respawnOnError opts $ do
                            , rpcMailboxAdapter  = AnyMailboxAdapter @s mailboxWorker
                            }
 
-  m1 <- asyncLinked $ runMessagingUnix rpcmsg
+  m1 <- liftIO $ asyncLinked $ runMessagingUnix rpcmsg
 
-  rpcProto <- async $ flip runReaderT rpcctx do
+  rpcProto <- liftIO $ async $ flip runReaderT rpcctx do
     env <- newNotifyEnvServer @(RefChanEvents L4Proto) refChanNotifySource
     envrl <- newNotifyEnvServer @(RefLogEvents L4Proto) refLogNotifySource
     w1 <- asyncLinked $ runNotifyWorkerServer env
@@ -1383,9 +1392,9 @@ runPeer opts = respawnOnError opts $ do
       ]
     void $ waitAnyCancel (w1 : w2 : wws )
 
-  monkeys <- async $ runMonkeys rpcctx
+  monkeys <- liftIO $ async $ runMonkeys rpcctx
 
-  void $ waitAnyCancel $ w <> [ loop
+  void $ waitAnyCancel $ w : [ loop
                               , m1
                               , rpcProto
                               -- , probesMenv
@@ -1397,10 +1406,10 @@ runPeer opts = respawnOnError opts $ do
                               , monkeys
                               ]
 
-  liftIO $ simpleStorageStop s
+  -- liftIO $ ncqStorageStop s
   pause @'Seconds 1
 
   -- we want to clean up all resources
-  throwIO GoAgainException
+  lift (throwIO GoAgainException)
 
 
