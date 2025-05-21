@@ -15,6 +15,8 @@
 (define local-temp     (join :/ local-temp-dir .tmp))
 (define resolv.conf    (join :/ local-temp-dir :resolv.conf))
 (define workdir        (pwd))
+(define bf6-src (join :/ workdir bf6))
+(define bf6-dst /opt/bf6)
 (define locale-dir /run/current-system/sw/lib/locale/locale-archive)
 
 (define HOME (env :HOME))
@@ -113,6 +115,7 @@
               ,(nbind-ro profile-bin profile-bin)
               ,(nbind locale-dir remote-locale-dir )
               ,(nbind dist-dir dist-dir)
+              ,(nbind bf6-src bf6-dst)
               ,(nbind ./bin /opt/bin)
               ,iface
               ,setenv ,(param LOCAL_ARCHIVE remote-locale-dir)
