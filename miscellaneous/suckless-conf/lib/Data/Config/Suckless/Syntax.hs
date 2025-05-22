@@ -365,6 +365,9 @@ instance MkId (String,Integer) where
 instance IsContext c => MkSym c Id where
   mkSym = Symbol noContext
 
+instance {-# OVERLAPPABLE #-} (IsContext c, Pretty a) => MkSym c a where
+  mkSym a = Symbol noContext (mkId (show $ pretty a))
+
 class IsContext c => MkStr c s where
   mkStr :: s -> Syntax c
 

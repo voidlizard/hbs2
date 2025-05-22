@@ -170,6 +170,36 @@ data NCQStorage =
   }
 
 
+-- Log structure:
+-- (SD)*
+-- S      ::= word32be, section prefix
+-- D      ::= HASH PREFIX DATA
+-- HASH   ::= BYTESTRING(32)
+-- PREFIX ::= BYTESTRING(4)
+-- DATA   ::= BYTESTRING(n) | n == S - LEN(WORD32) - LEN(HASH) - LEN(PREFIX)
+
+newtype NCQFullRecordLen a =
+  NCQFullRecordLen a
+  deriving newtype (Num,Enum,Integral,Real,Ord,Eq)
+
+-- including prefix
+ncqFullDataLen :: forall a . Integral a => NCQFullRecordLen a -> a
+ncqFullDataLen full = fromIntegral full - ncqKeyLen
+{-# INLINE ncqFullDataLen #-}
+
+ncqKeyLen :: forall a . Integral a => a
+ncqKeyLen = 32
+{-# INLINE ncqKeyLen #-}
+
+-- 'S' in SD, i.e size, i.e section header
+ncqSLen:: forall a . Integral a => a
+ncqSLen = 4
+{-# INLINE ncqSLen #-}
+
+ncqDataOffset :: forall a b . (Integral a, Integral b) => a -> b
+ncqDataOffset base = fromIntegral base + ncqSLen + ncqKeyLen
+{-# INLINE ncqDataOffset #-}
+
 instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
     enqueueBlock ncq lbs  = fmap coerce <$> ncqStoragePutBlock ncq lbs
@@ -412,6 +442,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
             atomically $ modifyTVar ncqCurrentUsage (IntMap.adjust pred (fromIntegral fd))
             fdSeek fd AbsoluteSeek (fromIntegral $ 4 + 32 + off)
             bs <- Posix.fdRead fd (fromIntegral l)
+
+            unless (BS.length bs == fromIntegral l) do
+              err $ "READ MISMATCH" <+> pretty l <+> pretty (BS.length bs)
+
             atomically $ putTMVar answ bs
 
       link reader
@@ -473,7 +507,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
          what' <- race (pause @'Seconds 1) $ atomically do
             stop  <- readTVar ncqStopped
             q <- tryPeekTQueue indexQ
-            if not (stop  || isJust q) then
+            if not ( stop  || isJust q) then
               STM.retry
             else do
               STM.flushTQueue indexQ
@@ -515,7 +549,6 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
          Nothing ->  pure mempty
          Just (h,_,WQItem{..},rest) -> do
 
-          off <- fdSeek fh SeekFromEnd 0
 
           -- we really have to write tomb prefix here
           let b = byteString (coerce @_ @ByteString h)
@@ -524,7 +557,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
           let wbs = toLazyByteString b
           let len = LBS.length wbs
           let ws  = N.bytestring32  (fromIntegral len)
-          let w = 4 + len
+          let w = ncqSLen + len
+
+          off <- fdSeek fh SeekFromEnd 0
 
           if isNothing wqData && wqNew then
             pure ()
@@ -539,9 +574,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                               fsize <- getFdStatus fh <&> PFS.fileSize
                               pure (0,fromIntegral fsize)
 
-          now <- readTVarIO ncqIndexNow
 
-          if sz < ncqMinLog && now <= 0 then do
+          -- off <- fdSeek fh SeekFromEnd 0 <&> subtract (fromIntegral w)
+
+          if sz < ncqMinLog then do
             ((h, (fromIntegral off, fromIntegral len)) : ) <$> next (written', rest)
           else  do
             pure [(h, (fromIntegral off, fromIntegral len))]
@@ -563,14 +599,15 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                        [] -> pure (q,w)
                        ((h,(o,l)):xs) -> do
                          modifyTVar wbytes (+l)
-                         next (HPSQ.delete h q, HPSQ.insert h now1 (o,l) w,xs)
+                         let recLen = ncqFullDataLen (NCQFullRecordLen l)
+                         next (HPSQ.delete h q, HPSQ.insert h now1 (o,recLen) w,xs)
 
         writeTVar  ncqWriteQueue rq
         modifyTVar ncqStaged (IntMap.insert (fromIntegral fdr) rw)
         bw <- readTVar wbytes
         writeTVar ncqNotWritten (max 0 (b0 - bw))
 
-      indexNow <- atomically $ stateTVar ncqIndexNow (,0)
+      indexNow <- readTVarIO ncqIndexNow
 
       when (fromIntegral size >= ncqMinLog || indexNow > 0) do
 
@@ -598,6 +635,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
             --   то есть должны отнять 1 после индексации.
             modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fdr) 1)
             writeTQueue indexQ (fdr, fossilized)
+            writeTVar ncqIndexNow 0
 
           closeFd fh
           writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 0)
@@ -705,6 +743,15 @@ ncqStorageGetBlock ncq h = do
   ncqStorageGet ncq h >>= \case
     Just lbs | not (ncqIsTomb lbs) -> pure (Just $ LBS.drop ncqPrefixLen lbs)
     _ -> pure Nothing
+
+data NCQSectionType = B | R | T
+                      deriving stock (Eq,Ord,Show)
+
+instance Pretty NCQSectionType where
+  pretty = \case
+    B -> "B"
+    T -> "T"
+    R -> "R"
 
 ncqPrefixLen :: Integral a => a
 ncqPrefixLen = 4
@@ -832,20 +879,20 @@ ncqStorageScanDataFile ncq fp' action = do
   flip runContT pure $ callCC \exit -> do
     flip fix (0,mmaped) $ \next (o,bs) -> do
 
-     when (BS.length bs < 4) $ exit ()
+     when (BS.length bs < ncqSLen) $ exit ()
 
-     let w = BS.take 4 bs & N.word32 & fromIntegral
+     let w = BS.take ncqSLen bs & N.word32 & fromIntegral
 
-     when (BS.length bs < 4 + w) $ exit ()
+     when (BS.length bs < ncqSLen + w) $ exit ()
 
-     let kv = BS.drop 4 bs
+     let kv = BS.drop ncqSLen bs
 
-     let k = BS.take 32 kv & coerce @_ @HashRef
-     let v = BS.take (w-32) $ BS.drop 32 kv
+     let k = BS.take ncqKeyLen kv & coerce @_ @HashRef
+     let v = BS.take (ncqFullDataLen (NCQFullRecordLen w)) $ BS.drop ncqKeyLen kv
 
      lift (action o (fromIntegral w) k v)
 
-     next (4 + o + fromIntegral w, BS.drop (w+4) bs)
+     next (ncqSLen + o + fromIntegral w, BS.drop (w+ncqSLen) bs)
 
 ncqStorageGet :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe LBS.ByteString)
 ncqStorageGet ncq h = runMaybeT do
@@ -869,7 +916,7 @@ ncqStorageGet_ ncq@NCQStorage{..} = \case
     InFossil ce (o,l) -> do
       now <- getTimeCoarse
       atomically $ writeTVar (cachedTs ce) now
-      let chunk = BS.take (fromIntegral l) (BS.drop (fromIntegral o + 4 + 32) (cachedMmapedData ce))
+      let chunk = BS.take (fromIntegral l) (BS.drop (ncqDataOffset o) (cachedMmapedData ce))
       pure $ Just $ LBS.fromStrict chunk
 
     _ -> pure Nothing
@@ -884,7 +931,7 @@ ncqStorageGetRef ncq ref = runMaybeT do
   lbs <- lift (ncqStorageGet ncq h) >>= toMPlus
   guard (not $ ncqIsTomb lbs)
   let hbs = LBS.toStrict (LBS.drop ncqPrefixLen lbs)
-  guard (BS.length hbs == 32)
+  guard (BS.length hbs == ncqKeyLen)
   pure $ coerce hbs
   where h = ncqRefHash ncq ref
 
@@ -907,8 +954,9 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
 
   now <- getTimeCoarse
   let writeTombstone wq = do
+          let recordPrefixLen = ncqSLen + ncqKeyLen + ncqPrefixLen
           modifyTVar ncqWriteQueue (HPSQ.insert h now wq)
-          modifyTVar ncqNotWritten (+ (4 + 32 + ncqPrefixLen))
+          modifyTVar ncqNotWritten (+ recordPrefixLen)
 
   ncqLocate ncq h >>= atomically . \case
     Just (InFossil _ _)   -> writeTombstone (WQItem False Nothing)
@@ -1018,19 +1066,19 @@ ncqStorageOpen fp' = do
       items <- S.toList_ <$>
         flip runContT pure $ callCC \exit ->do
           flip fix (0,bs0) $ \next (o,bs) -> do
-            when (BS.length bs < 4) $ exit ()
-            let w = BS.take 4 bs & N.word32 & fromIntegral
-            let p = BS.take w (BS.drop 4 bs)
+            when (BS.length bs < ncqSLen) $ exit ()
+            let w = BS.take ncqSLen bs & N.word32 & fromIntegral
+            let p = BS.take w (BS.drop ncqSLen bs)
 
             when (BS.length p < w ) do
               throwIO NCQStorageBrokenCurrent
 
-            let k  = BS.take 32 p & coerce . BS.copy
-            let vs = w - 32
+            let k  = BS.take ncqKeyLen p & coerce . BS.copy
+            let vs = ncqFullDataLen (NCQFullRecordLen w)
 
             lift $ S.yield (k,now, (fromIntegral o, fromIntegral vs))
 
-            next (o+w+4, BS.drop (w+4) bs)
+            next (o+w+ncqSLen, BS.drop (w+ncqSLen) bs)
 
       atomically $ modifyTVar ncqStaged (IntMap.insert (fromIntegral fd) (HPSQ.fromList items))
 
@@ -1148,7 +1196,7 @@ ncqStorageInit_ check path = do
                 <&> fromRight 0
                 <&> fromIntegral
 
-    if | currSz > lastSz -> do
+    if | currSz > lastSz  -> do
             fossilized <- ncqGetNewFossilName ncq0
             debug $ "NEW FOSSIL FILE" <+> pretty fossilized
             let fn = takeFileName fossilized
@@ -1172,6 +1220,81 @@ ncqStorageInit_ check path = do
   ncqOpenCurrent ncq
 
   pure ncq
+
+
+data NCQFsckException =
+  NCQFsckException
+  deriving stock (Show,Typeable)
+
+instance Exception NCQFsckException
+
+data NCQFsckIssueType =
+    FsckInvalidPrefix
+  | FsckInvalidContent
+  | FsckInvalidFileSize
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+data NCQFsckIssue =
+  NCQFsckIssue FilePath Word64 NCQFsckIssueType
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+ncqFsck :: MonadUnliftIO m => FilePath -> m [NCQFsckIssue]
+ncqFsck fp = do
+  isFile <- doesFileExist fp
+  if isFile then
+    ncqFsckOne fp
+  else do
+    fs <- dirFiles fp <&> List.filter ((== ".data") . takeExtension)
+    concat <$> mapM ncqFsckOne fs
+
+ncqFsckOne :: MonadUnliftIO m => FilePath -> m [NCQFsckIssue]
+ncqFsckOne fp = do
+  mmaped <- liftIO $ mmapFileByteString fp Nothing
+
+  toff <- newTVarIO 0
+  issuesQ <- newTQueueIO
+
+  let
+    emit :: forall m . MonadIO m => NCQFsckIssue -> m ()
+    emit = atomically . writeTQueue issuesQ
+
+  handle (\(_ :: ReadLogError) -> none) do
+    runConsumeBS mmaped do
+      readSections $ \size bs -> do
+        let ssz  = LBS.length bs
+        let (hash,   rest1) = LBS.splitAt 32 bs & over _1 (coerce . LBS.toStrict)
+        let (prefix, rest2) = LBS.splitAt ncqPrefixLen  rest1 & over _1 LBS.toStrict
+
+        let (prefixOk,pt) = if | prefix == ncqBlockPrefix -> (True, Just B)
+                               | prefix == ncqRefPrefix   -> (True, Just R)
+                               | prefix == ncqTombPrefix  -> (True, Just T)
+                               | otherwise                -> (False, Nothing)
+
+        let contentOk = case pt of
+                Just B -> hash == hashObject @HbSync rest2
+                _      -> True
+
+        off <- readTVarIO toff
+
+        unless prefixOk $ emit (NCQFsckIssue fp off FsckInvalidPrefix)
+
+        unless contentOk $ emit (NCQFsckIssue fp off FsckInvalidContent)
+
+        liftIO $ atomically $ modifyTVar toff (\x -> x + 4 + fromIntegral (LBS.length bs))
+
+        debug $ pretty (takeFileName fp)
+                   <+> pretty size
+                   <+> pretty ssz
+                   <+> brackets (pretty $ maybe "E" show pt)
+                   <+> brackets (if contentOk then pretty hash else "invalid hash")
+
+  lastOff <- readTVarIO toff
+
+  unless (fromIntegral (BS.length mmaped) == lastOff) do
+    emit (NCQFsckIssue fp lastOff FsckInvalidFileSize)
+
+  atomically $ STM.flushTQueue issuesQ
+
 
 ncqStorageFlush :: MonadUnliftIO m => NCQStorage -> m ()
 ncqStorageFlush = ncqStorageSync

@@ -186,3 +186,14 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
       _ -> throwIO (BadFormException @c nil)
 
 
+  brief "shallow scan of a block/tree" $
+    entry $ bindMatch "hbs2:tree:scan:deep:stdout" $ nil_ \case
+      [HashLike href] -> do
+        sto <- getStorage
+
+        deepScan ScanDeep (const none) (coerce href) (getBlock sto) $ \ha -> do
+          liftIO  $ print $ pretty ha
+
+      _ -> throwIO (BadFormException @c nil)
+
+

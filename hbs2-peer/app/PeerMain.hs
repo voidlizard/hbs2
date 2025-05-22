@@ -846,7 +846,7 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
 
-  debug $ "STORAGE PREFIX" <+> pretty pref
+  notice $ red "STORAGE PREFIX" <+> pretty pref
 
   -- error "STOP"
 

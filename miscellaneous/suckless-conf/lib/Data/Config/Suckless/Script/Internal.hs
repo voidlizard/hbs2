@@ -1070,7 +1070,7 @@ bindCliArgs :: forall c m . (IsContext c, MonadUnliftIO m, Exception (BadFormExc
 bindCliArgs a = do
   bind "$*" (mkList a)
   bind "*args" (mkList a)
-  forM_ (zip [0..] a) $ \(i,e) -> do
+  forM_ (zip [1..] a) $ \(i,e) -> do
     bind (fromString ("$"<>show i)) e
 
 internalEntries :: forall c m . ( IsContext c

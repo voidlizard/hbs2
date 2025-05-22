@@ -254,6 +254,17 @@ main = do
           e -> throwIO $ BadFormException @C (mkList e)
 
 
+        entry $ bindMatch "ncq:fsck" $ nil_ \case
+          [ StringLike fpath ] -> lift do
+            issues <- ncqFsck fpath
+
+            for_ issues $ \i -> do
+              err $ viaShow i
+
+            unless (List.null issues) exitFailure
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "ncq:cached:entries" $ \case
           [ isOpaqueOf @TCQ -> Just tcq ] -> lift do
             NCQStorage{..} <- getNCQ tcq

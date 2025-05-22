@@ -12,6 +12,7 @@ import HBS2.Hash
 import HBS2.Data.Types.Refs
 import HBS2.Clock
 import HBS2.Merkle
+import HBS2.Polling
 
 import HBS2.Storage
 import HBS2.Storage.Simple
@@ -30,6 +31,7 @@ import Data.Config.Suckless.System
 
 import DBPipe.SQLite hiding (field)
 
+import Data.Char
 import Data.Bits
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -174,6 +176,125 @@ testNCQFuckupRecovery1 TestEnv{..} = flip runContT pure do
     notice $ "loaded" <+> pretty ha <+> pretty (LBS.length lbs)
 
 
+
+testNCQSimple1 :: MonadUnliftIO m => TestEnv -> m ()
+testNCQSimple1 TestEnv{..} = flip runContT pure do
+  let ncqDir = testEnvDir </> "ncq-simple"
+
+  for_ [ 0 .. 18 ] $ \s -> do
+    let size = 2 ^ s
+    let payload = LBS.replicate size 0x41 -- 0x41 = 'A'
+    let expectedHash = hashObject @HbSync payload
+
+    -- Step 1: Write block
+    lift $ withNCQ id ncqDir $ \ncq -> do
+      let sto = AnyStorage ncq
+      h <- putBlock sto payload `orDie` "failed to write block"
+      liftIO $ assertBool "hashes match (write)" (h == expectedHash)
+
+    -- Step 2: Read back
+    lift $ withNCQ id ncqDir $ \ncq -> do
+      let sto = AnyStorage ncq
+      blk <- getBlock sto (coerce expectedHash) `orDie` "block not found"
+      sx <- hasBlock sto (coerce expectedHash)
+
+      loc <- ncqLocate ncq (coerce expectedHash)
+               >>= orThrowUser "not found"
+
+      blk0 <- ncqStorageGet_ ncq loc
+
+      let sblk0 = LBS.length <$> blk0
+
+      liftIO $ print $ "block size"
+                 <+> pretty sx
+                 <+> ";"
+                 <+> pretty (LBS.length blk)
+                 <+> ";"
+                 <+> pretty size
+                 <+> ";"
+                 <+> pretty sblk0
+                 <+> pretty loc
+
+      liftIO $ do
+        assertBool "block has correct length" (LBS.length blk == size)
+        assertBool "block contents are correct" (blk == payload)
+
+
+testNCQSimple2 :: MonadUnliftIO m => Int -> TestEnv -> m ()
+testNCQSimple2 n TestEnv{..} = flip runContT pure do
+  let ncqDir = testEnvDir </> "ncq-simple2"
+
+  let alph_ = V.fromList ['A' .. 'z']
+  cnt <- newTVarIO 0
+
+  let alphx = liftIO do
+       i <- atomically $ stateTVar cnt (\x -> (x, succ x))
+       pure $ alph_ ! ( i `mod` V.length alph_)
+
+  -- Step 1: write N blocks
+  hashes <- lift $ withNCQ id ncqDir $ \ncq -> do
+    let sto = AnyStorage ncq
+    replicateM n do
+      size <- liftIO $ randomRIO (0, 256 * 1024)
+      chr <- alphx
+      let payload = LBS.replicate size (fromIntegral $ ord chr)
+      let h = hashObject @HbSync payload
+      h' <- putBlock sto payload `orDie` "putBlock failed"
+      loc <- ncqLocate ncq (coerce h)
+      s <- hasBlock sto h
+      w <- getBlock sto h
+      let w' = fromMaybe mempty w
+
+      if w == Just payload then do
+        debug $ "okay" <+> pretty loc
+      else do
+        err $ pretty s <> "/" <> pretty size
+               <+> viaShow (LBS.take 48 w')
+               <+> ".."
+               <+> viaShow (LBS.take 8 $ LBS.reverse w')
+               <> line
+               <+> pretty loc
+
+        error "ABORTED"
+
+      liftIO $ assertBool "hash matches" (h == h')
+      pure (h, size, payload)
+
+  let testRead ncq = do
+        let sto = AnyStorage ncq
+        forM_ hashes $ \(h, expectedSize, expectedPayload) -> do
+          loc <- ncqLocate ncq (coerce h) >>= orThrowUser "not found"
+          blk <- getBlock sto (coerce h) `orDie` "block not found"
+          sx  <- hasBlock sto (coerce h)
+          blk0 <- ncqStorageGet_ ncq loc
+          let sblk0 = LBS.length <$> blk0
+          let actualSize = LBS.length blk
+
+          debug $ "block size"
+              <+> pretty sx
+              <+> ";"
+              <+> pretty actualSize
+              <+> ";"
+              <+> pretty expectedSize
+              <+> ";"
+              <+> pretty sblk0
+              <+> pretty loc
+
+          liftIO do
+            assertBool "size match" (actualSize == expectedSize)
+            assertBool "payload match" (blk == expectedPayload)
+
+  -- Step 2: reopen and verify
+  lift $ withNCQ id ncqDir $ \ncq -> do
+      testRead ncq
+      -- ncqIndexRightNow ncq
+      pause @'Seconds 2
+
+  liftIO $ print $ "LAST PASS"
+  -- Step 3: reopen and verify - fossil
+  lift $ withNCQ id ncqDir $ \ncq -> do
+    testRead ncq
+
 testNCQ1 :: MonadUnliftIO m
          => Int
          -> TestEnv
@@ -196,109 +317,113 @@ testNCQ1 n TestEnv{..} = flip runContT pure do
       let fname = inputDir </> show i <> ".bin"
       size <- randomRIO (1, 256*1024)
       atomically $ modifyTVar nSize (+size)
-      file <- LBS.take size <$> LBS.readFile "/dev/urandom"
-      BS.writeFile fname (BS.toStrict file)
-      pure fname
+      file <- LBS.toStrict . LBS.take size <$> LBS.readFile "/dev/urandom"
+      BS.writeFile fname file
+      let ha = hashObject @HbSync file
+      pure (fname, (ha, fromIntegral $ BS.length file))
 
-    ncq <- liftIO $ ncqStorageOpen ncqDir
-    r   <- liftIO $ async (ncqStorageRun ncq)
-
-    let sto = AnyStorage ncq
-
-    nWq     <- newTVarIO 0
-    nCu     <- newTVarIO 0
-    nFo     <- newTVarIO 0
-    nMissed <- newTVarIO 0
-
-    let
-      updateStats :: forall m . MonadIO m => NCQStorage -> HashRef -> m (Maybe Location)
-      updateStats ncq h = do
-          w <- ncqLocate ncq (coerce h)
-
-          case w of
-            Just (InWriteQueue _) -> atomically $ modifyTVar nWq succ
-            Just (InCurrent _)    -> atomically $ modifyTVar nCu succ
-            Just (InFossil _ _)   -> atomically $ modifyTVar nFo succ
-            Nothing               -> atomically $ modifyTVar nMissed succ
-
-          pure w
-
-
-    t1 <- ContT $ withAsync $ fix \loop -> do
-
-            what <- readTVarIO twritten
-            p <- randomRIO (0.01, 0.5)
-            pause @'Seconds (realToFrac p)
-
-            forConcurrently_ what $ \h -> do
-
-              w <- updateStats ncq h
-
-              what <- ncqStorageHasBlockEither ncq (coerce h)
-              case what of
-                Left LocationNotFound | isJust w -> do
-                  error $ show $ "FUCKING RACE!" <+> pretty w
-
-                Left e -> throwIO e
-                Right _ -> none
-
-            done <- readTVarIO (ncqStopped ncq)
-            unless done loop
-
-    link t1
-    --
-
-    out <- newTQueueIO
 
     liftIO do
-      forConcurrently_ fss $ \f -> do
-        -- debug $ "process file" <+> pretty f
-        blk <- BS.readFile f
-        h <- putBlock sto (LBS.fromStrict blk)  `orDie` ("Can't store block " <> f)
-        atomically do
-          writeTQueue out (HashRef h)
-          modifyTVar twritten (HS.insert (coerce h))
+      withNCQ id ncqDir $ \ncq -> flip runContT pure do
 
-    blkQ <- atomically do
-      STM.flushTQueue out
+        let sto = AnyStorage ncq
+        let fileMap = HM.fromList [ (ha,(s,fn)) | (fn,(ha,s)) <- fss ]
 
-    notice $ "WAIT BLOCKS DONE" <+> pretty (List.length blkQ)
+        let
+          written :: forall m a . (Fractional a, MonadIO m) => m [(HashRef, a)]
+          written = readTVarIO twritten <&> HS.toList <&> fmap (,0.1)
 
-    lift $ ncqStorageFlush ncq
+        ContT $ withAsync $ forever do
+          polling (Polling 0.25 0.25)  written $ \(HashRef hz) -> liftIO $ void $ asyncLinked do
+            what <- getBlock sto hz >>= orThrowUser ("block not found" <+> pretty hz)
+            let h2 = hashObject @HbSync what
 
-    for_ blkQ $ \h -> liftIO do
-      void $ updateStats ncq h
-      hasBlock sto (coerce h)
-             `orDie` show ("missed" <+> pretty h)
+            (s,_) <- HM.lookup hz fileMap & orThrowUser "fileMap entry  missed"
 
-    liftIO $ ncqStorageStop ncq
+            ssz <- hasBlock sto hz
+                     >>= orThrowUser ("block size not found" <+> pretty hz)
 
-    wait t1
+            when (ssz /= s) do
+              error $ show $ "size mismatch" <+> pretty hz
 
-    let vars = zip [ "write-q"
-                   , "current"
-                   , "fossil"
-                   , "missed"
-                   , "size"
-                   ]
-                   [nWq, nCu, nFo, nMissed, nSize]
+            when (hz /= h2) do
+              error $ show $ pretty "hash does not  match" <+> pretty hz <+> pretty s
 
-    liftIO $ wait r
+        liftIO $ forConcurrently_ fss $ \(fn, (ha,s)) -> do
+          co  <- liftIO (BS.readFile fn) <&> LBS.fromStrict
+          h1 <- putBlock sto co >>= orThrowUser "block not written"
+          lbs2 <- getBlock sto ha >>= orThrowUser "block not found"
+          let h2 = hashObject @HbSync lbs2
 
-    lift $ withNCQ id  ncqDir $ \ncq1 -> do
-      for_ blkQ $ \h -> liftIO do
-        void $ updateStats ncq1 h
-        hasBlock (AnyStorage ncq1) (coerce h) >>= \case
-          Nothing -> print $ "missed" <+> pretty h
-          Just x  -> none
+          when (ha /= h2 || h1 /= ha) do
+            error $ show $ pretty "hash does not  match" <+> pretty h1 <+> pretty s
 
-      results <- for vars $ \(k,w) -> do
-          v <- readTVarIO w
-          pure $ mkList @C [ mkSym k, mkInt v]
+          atomically $ modifyTVar twritten (HS.insert (HashRef h1))
 
-      liftIO $ print $ pretty $ mkList (mkSym "results" : results)
+          debug $ "putBlock" <+> pretty ha <+> pretty h2
+
+        liftIO $ forConcurrently_ fss $ \(fn, (ha,s)) -> do
+          lbs2 <- getBlock sto ha >>= orThrowUser "block not found"
+          let h2 = hashObject @HbSync lbs2
+
+          when (ha /= h2) do
+            error $ show $ pretty "hash does not  match" <+> pretty ha <+> pretty s
+
+          debug $ "getBlock" <+> pretty ha <+> pretty h2
+
+    liftIO do
+      withNCQ id ncqDir $ \ncq -> flip runContT pure do
+
+        let sto = AnyStorage ncq
+
+        for_ fss $ \(fn, (ha,s)) -> do
+          lbs2 <- getBlock sto ha >>= orThrowUser "block not found"
+          let h2 = hashObject @HbSync lbs2
+
+          when (ha /= h2) do
+            error $ show $ pretty "hash does not  match" <+> pretty ha <+> pretty s
+
+          debug $ "getBlock" <+> pretty ha <+> pretty h2
 
 
+testNCQTree1 :: MonadUnliftIO m
+         => Int
+         -> TestEnv
+         -> m ()
+
+testNCQTree1 n TestEnv{..} = flip runContT pure do
+
+  let size = 1024 * 1024 * fromIntegral n
+
+  let tmp = testEnvDir
+
+  let inputDir = tmp </> "input"
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  treeLbs <- LBS.take size <$> liftIO (LBS.readFile ("/dev/urandom"))
+
+  let h1 = hashObject @HbSync treeLbs
+
+  lift $ withNCQ id  ncqDir $ \ncq1 -> do
+
+    let sto = AnyStorage ncq1
+
+    r <- createTreeWithMetadata sto Nothing mempty treeLbs
+           >>= orThrowPassIO
+
+    lbs2 <- runExceptT (getTreeContents sto r)
+              >>= orThrowPassIO
+
+    let h2 = hashObject @HbSync lbs2
+
+
+    let l1 = LBS.length treeLbs
+    let l2 = LBS.length treeLbs
+    display (mkList @C [mkSym r, mkSym h1, mkSym h2, mkInt l1, mkInt l2])
+
+    liftIO $ assertBool "hashes equal" (h1 == h2)
+
+    -- display (mkSym @C $ show $ pretty r)
 
 testNCQRefs1 :: MonadUnliftIO m
          => Int
@@ -404,6 +529,14 @@ main = do
           debug $ "test:ncq:fuckup-recovery1"
           runTest testNCQFuckupRecovery1
 
+        entry $ bindMatch "test:ncq:test-simple1" $ nil_ $ \case
+          [] -> runTest $ testNCQSimple1
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:test-simple2" $ nil_ $ \case
+          [ LitIntVal n ] -> runTest $ testNCQSimple2 (fromIntegral n)
+          e -> throwIO $ BadFormException @C (mkList e)
+
         entry $ bindMatch "test:ncq:test1" $ nil_ $ \case
           [ LitIntVal n ] -> do
             debug $ "ncq:test1" <+> pretty n
@@ -418,6 +551,12 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "test:ncq:tree1" $ nil_ $ \case
+          [ LitIntVal n ] -> do
+            debug $ "ncq:tree1" <+> pretty n
+            runTest $ testNCQTree1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:test-lock" $ nil_ $ \case
           [ ] -> do
