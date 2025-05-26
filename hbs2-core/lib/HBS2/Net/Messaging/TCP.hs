@@ -238,6 +238,7 @@ runMessagingTCP env@MessagingTCP{..} = liftIO do
             S.yield =<< ( readTVarIO _tcpClientThreads <&> ("tcpClientThreads",) . fromIntegral . HM.size )
             S.yield =<< ( readTVarIO _tcpServerThreadsCount <&> ("tcpServerThreadsCount",) . fromIntegral )
             S.yield =<< ( readTVarIO _tcpPeerConn <&> ("tcpPeerConn",) . fromIntegral . HM.size)
+            S.yield =<< ( readTVarIO _tcpConnDemand <&> ("tcpPeerConnDemand",) . fromIntegral . HPSQ.size)
 
             coo <- readTVarIO _tcpPeerCookie --  <&> ("tcpPeerCookie",)
             let cooNn = sum [ 1 | (_,v) <- HM.toList coo, v >= 1 ]
