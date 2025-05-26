@@ -148,10 +148,12 @@ main = do
 
         entry $ bindMatch "--help" $ nil_ \case
           HelpEntryBound what -> helpEntry what
-          [StringLike s]      -> helpList False (Just s)
-          _                   -> helpList False Nothing
+          [StringLike s]      -> helpList True (Just s)
+          _                   -> helpList True Nothing
 
-        internalEntries
+
+        hidden $ internalEntries
+
         SF.entries
 
         entry $ bindMatch "#!" $ nil_ $ const none
