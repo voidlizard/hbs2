@@ -214,7 +214,9 @@ nwayWriteBatch :: MonadUnliftIO m
                -> [(ByteString, ByteString)]
                -> m FilePath
 
-nwayWriteBatch nwa@NWayHashAlloc{..} path tpl items = do
+nwayWriteBatch nwa@NWayHashAlloc{..} path tpl items' = do
+
+ let items = HM.fromList items' & HM.toList
 
  let  ks     = nwayAllocKeySize
 

@@ -429,7 +429,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
       cap <- getNumCapabilities
       reader <- ContT $ withAsync $ untilStopped do
 
-          debug "I'm READER THREAD"
+          trace "I'm READER THREAD"
 
           reqs <- atomically do
                     xs <- stateTVar ncqCurrentReadReq (Seq.splitAt cap)
@@ -438,7 +438,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
 
           for_ reqs $ \(fd,off,l,answ) -> liftIO do
-            debug $ "READER: PROCEED REQUEST" <+> viaShow fd <+> pretty off
+            -- FIXME: probe-requests-count
+            trace $ "READER: PROCEED REQUEST" <+> viaShow fd <+> pretty off
             atomically $ modifyTVar ncqCurrentUsage (IntMap.adjust pred (fromIntegral fd))
             fdSeek fd AbsoluteSeek (fromIntegral $ 4 + 32 + off)
             bs <- Posix.fdRead fd (fromIntegral l)
