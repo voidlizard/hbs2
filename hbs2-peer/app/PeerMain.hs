@@ -1,4 +1,3 @@
-
 {-# Language TemplateHaskell #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
@@ -930,12 +929,13 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
                   addProbe tcpProbe
                   messagingTCPSetProbe tcpEnv tcpProbe
 
-                void $ liftIO ( async do
+                void $ liftIO ( asyncLinked do
                           runMessagingTCP tcpEnv
                             `U.withException` \(e :: SomeException) -> do
                             err (viaShow e)
                             err "!!! TCP messaging stopped"
                             liftIO $ atomically $ modifyTVar msgAlive pred
+                            throwIO e
                        )
                 let tcpaddr = view tcpOwnPeer tcpEnv
                 liftIO $ atomically $ modifyTVar msgAlive succ
