@@ -1252,8 +1252,13 @@ ncqFsckOne :: MonadUnliftIO m => FilePath -> m [NCQFsckIssue]
 ncqFsckOne fp = do
   mmaped <- liftIO $ mmapFileByteString fp Nothing
 
+  notice $ "file" <+> pretty (takeFileName fp) <+> pretty (BS.length mmaped)
+
   toff <- newTVarIO 0
   issuesQ <- newTQueueIO
+
+  ttombs <- newTVarIO 0
+  ttotal <- newTVarIO 0
 
   let
     emit :: forall m . MonadIO m => NCQFsckIssue -> m ()
@@ -1270,6 +1275,10 @@ ncqFsckOne fp = do
                                | prefix == ncqRefPrefix   -> (True, Just R)
                                | prefix == ncqTombPrefix  -> (True, Just T)
                                | otherwise                -> (False, Nothing)
+
+        atomically do
+          when (prefix == ncqTombPrefix) $ modifyTVar ttombs succ
+          modifyTVar ttotal succ
 
         let contentOk = case pt of
                 Just B -> hash == hashObject @HbSync rest2
@@ -1293,6 +1302,12 @@ ncqFsckOne fp = do
 
   unless (fromIntegral (BS.length mmaped) == lastOff) do
     emit (NCQFsckIssue fp lastOff FsckInvalidFileSize)
+
+  tombs <- readTVarIO ttombs <&> realToFrac
+  total <- readTVarIO ttotal <&> realToFrac
+  let ttr = if total /= 0 then tombs / total else 0 :: Fixed E3
+
+  notice $ "tombs/total" <+> pretty ttr <+> pretty tombs <> "/" <> pretty total
 
   atomically $ STM.flushTQueue issuesQ
 

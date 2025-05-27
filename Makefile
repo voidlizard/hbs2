@@ -71,7 +71,7 @@ symlinks: $(BIN_DIR)
 >	done
 > ln -sfn ../hbs2-git3/bf6/git-hbs2 bin/git-hbs2
 > ln -sfn ../hbs2-git3/bf6/hbs2-git bin/hbs2-git
-> ln -sfn ../bf6/hbs23 bin/hbs23
+> ln -sfn ../bf6/hbs2 bin/hbs2
 
 
 .PHONY: build

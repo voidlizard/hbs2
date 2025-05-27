@@ -58,7 +58,7 @@ common shared-properties
                      , TypeFamilies
 
 
-executable hbs2
+executable hbs2-obsolete
     import:           shared-properties
     main-is:          Main.hs
     other-modules:
