@@ -402,14 +402,15 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
   debug "RUNNING STORAGE!"
 
-  reader     <- makeReader
-  writer     <- makeWriter indexQ
-  indexer    <- makeIndexer writer indexQ
-  merge      <- makeMerge
+  reader      <- makeReader
+  writer      <- makeWriter indexQ
+  indexer     <- makeIndexer writer indexQ
+  merge       <- makeMerge
+  flagWatcher <- makeFlagWatcher
 
   mapM_ waitCatch [writer,indexer,merge]
   -- mapM_ waitCatch [writer,indexer,refsWriter] -- ,indexer,refsWriter]
-  mapM_ cancel  [reader]
+  mapM_ cancel  [reader,flagWatcher]
 
   where
 
@@ -424,6 +425,27 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         atomically do
         s <- readTVar ncqStopped
         unless s STM.retry
+
+
+    makeFlagWatcher = do
+      let flags = ncqGetFileName ncq ".flags"
+      let needIndexFlag = flags </> "index:now"
+      let needMergeFlag = flags </> "merge:now"
+
+      ContT $ withAsync $ fix \again -> do
+        pause @'Seconds 1
+        needIndex <- doesPathExist needIndexFlag
+        needMerge <- doesPathExist needMergeFlag
+
+        when needIndex do
+          rm needIndexFlag
+          ncqIndexRightNow ncq
+
+        when needMerge do
+          rm needMergeFlag
+          ncqStorageMerge ncq
+
+        again
 
     makeReader = do
       cap <- getNumCapabilities
@@ -508,7 +530,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
          what' <- race (pause @'Seconds 1) $ atomically do
             stop  <- readTVar ncqStopped
             q <- tryPeekTQueue indexQ
-            if not ( stop  || isJust q) then
+            if not (stop  || isJust q) then
               STM.retry
             else do
               STM.flushTQueue indexQ
@@ -1034,6 +1056,10 @@ ncqStorageOpen fp' = do
       fp <- liftIO $ makeAbsolute fp'
 
       ncq@NCQStorage{..} <- ncqStorageInit_ False fp
+
+      let flagz = ncqGetFileName ncq ".flags"
+
+      mkdir flagz
 
       ncqReadTrackedFiles ncq
       ncqFixIndexes ncq
