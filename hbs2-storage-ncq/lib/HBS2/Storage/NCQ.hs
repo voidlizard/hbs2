@@ -1617,7 +1617,7 @@ ncqCompact ncq@NCQStorage{..} = do
   state0 <- readTVarIO q
 
   for_ (HM.toList state0) $ \(fk, es) -> do
-    notice $ "TO DELETE" <+> pretty fk <+> pretty (HS.size es)
+    trace $ "TO DELETE" <+> pretty fk <+> pretty (HS.size es)
 
     let fDataNameA = ncqGetDataFileName ncq fk
     let fIndexNameA = ncqGetIndexFileName ncq fk
