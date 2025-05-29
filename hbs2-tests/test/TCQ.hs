@@ -16,6 +16,7 @@ import HBS2.Merkle
 import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.ByteString
+import HBS2.Storage.Operations.Delete
 import HBS2.Net.Auth.Credentials
 import HBS2.Peer.Proto.RefLog
 import HBS2.Peer.Proto.LWWRef
@@ -24,13 +25,14 @@ import HBS2.Data.Types.SignedBox
 import HBS2.System.Logger.Simple.ANSI
 
 import HBS2.Storage.NCQ
+import HBS2.Data.Log.Structured.SD
 import HBS2.Data.Log.Structured.NCQ
 
 import HBS2.CLI.Run.Internal.Merkle
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Script as SC
-import Data.Config.Suckless.System
+import Data.Config.Suckless.System as SF
 import Data.Config.Suckless.Script.File as SF
 
 import DBPipe.SQLite hiding (field)
@@ -70,6 +72,7 @@ import System.Random
 import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
+import Data.Hashable
 
 import UnliftIO
 
@@ -486,6 +489,20 @@ pragma synchronous=normal;
 
             pure $ mkSym (show $ pretty m)
 
+
+        entry $ bindMatch "ncq:merkle:del" $ nil_ \syn -> do
+          (sto,root) <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq, HashLike root ] -> lift do
+
+              ncq <- AnyStorage <$> getNCQ tcq
+              pure (ncq, root)
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          lift do
+            deleteMerkleTree sto root
+
+
         entry $ bindMatch "ncq:merkle:read:stdout" $ nil_ \syn -> do
           (tcq,h) <- case syn of
             [ isOpaqueOf @TCQ -> Just tcq, HashLike f ] -> lift do
@@ -500,6 +517,88 @@ pragma synchronous=normal;
                     >>= orThrowPassIO
 
             LBS.putStr lbs
+
+
+        entry $ bindMatch "ncq:sd:scan:test" $  \case
+          [StringLike fn] -> liftIO do
+
+            isDir <- SF.doesDirectoryExist fn
+
+            files <- if not isDir then
+                       pure [fn]
+                     else do
+                       S.toList_ do
+                         glob ["**/*.data"] [] fn $ \f -> do
+                           S.yield f
+                           pure True
+
+
+            ttombs <- newTVarIO 0
+            rrefs  <- newTVarIO 0
+
+            for_ files $ \fp -> do
+
+              mmaped <- liftIO $ mmapFileByteString fp Nothing
+
+              runConsumeBS mmaped do
+                readSections $ \size bs -> do
+                  let ssz  = LBS.length bs
+                  let (_,   rest1) = LBS.splitAt 32 bs
+                  let (prefix, _) = LBS.splitAt ncqPrefixLen  rest1 & over _1 LBS.toStrict
+
+                  if | prefix == ncqTombPrefix -> do
+                      atomically $ modifyTVar ttombs succ
+                     | prefix == ncqRefPrefix  -> do
+                      atomically $ modifyTVar rrefs succ
+                     | otherwise -> none
+
+            r <- readTVarIO rrefs
+            t <- readTVarIO ttombs
+
+            pure $ mkList [mkInt t, mkInt r]
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "ncq:scan:for-compact" $ nil_ \syn -> do
+          ncq@NCQStorage{..} <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq ] -> lift $ getNCQ tcq
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          ncqLinearScanForCompact ncq $ \fk h -> do
+            notice $ "TO DELETE" <+> pretty fk <+> pretty h
+
+        entry $ bindMatch "ncq:nway:scan:cq:test" $  \case
+          [StringLike fn] -> liftIO do
+
+            isDir <- SF.doesDirectoryExist fn
+
+            files <- if not isDir then
+                       pure [fn]
+                     else do
+                       S.toList_ do
+                         glob ["**/*.cq"] [] fn $ \f -> do
+                           S.yield f
+                           pure True
+
+            counters <- newTVarIO mempty
+
+            for_ files $ \f -> do
+
+              (mmaped,meta@NWayHash{..}) <- nwayHashMMapReadOnly f >>= orThrow (NWayHashInvalidMetaData f)
+
+              let emptyKey = BS.replicate nwayKeySize 0
+              nwayHashScanAll meta mmaped $ \o k v -> do
+                unless (k == emptyKey) do
+                  atomically do
+                    let k1 = hash k `mod` (2 ^ 17)
+                    modifyTVar counters (IntMap.insertWith (+) k1 1)
+
+            r <- readTVarIO counters <&> IntMap.size
+            pure $ mkInt r
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
 
         entry $ bindMatch "ncq:nway:stats" $ \case
           [StringLike fn] -> liftIO do

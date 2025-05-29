@@ -25,6 +25,8 @@ runMonkeys RPC2Context{..} = flip runContT pure do
 
     idleSleep = 120
 
+    -- FIXME: does-not-work-well
+    --  IDLE detection is weak
     idleMonkey = do
       flip fix 0 $ \next bytes0 -> do
         ByPassStat{..} <- liftIO rpcByPassInfo

@@ -18,6 +18,7 @@ import HBS2.Storage
 import HBS2.Storage.Operations.Class
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.Operations.Missed
+import HBS2.Storage.Operations.Delete
 
 import HBS2.Net.Auth.Schema()
 
@@ -161,13 +162,7 @@ It's just an easy way to create a such thing, you may browse it by hbs2 cat -H
     entry $ bindMatch "hbs2:tree:delete" $ nil_ \case
       [HashLike href] -> do
         sto <- getStorage
-
-        what <- S.toList_ $ deepScan ScanDeep (const none) (coerce href) (getBlock sto) $ \ha -> do
-          S.yield ha
-
-        for_ (reverse what) $ \ha -> do
-          display_ $ "deleting" <+> pretty ha
-          delBlock sto ha
+        deleteMerkleTree sto href
 
       _ -> throwIO (BadFormException @c nil)
 

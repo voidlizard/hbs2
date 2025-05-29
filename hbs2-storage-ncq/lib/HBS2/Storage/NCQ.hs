@@ -122,6 +122,10 @@ newtype FilePrio = FilePrio (Down TimeSpec)
 mkFilePrio :: TimeSpec -> FilePrio
 mkFilePrio = FilePrio . Down
 
+timeSpecFromFilePrio :: FilePrio -> TimeSpec
+timeSpecFromFilePrio (FilePrio what) = getDown what
+{-# INLINE timeSpecFromFilePrio #-}
+
 data CachedEntry =
   CachedEntry { cachedMmapedIdx  :: ByteString
               , cachedMmapedData :: ByteString
@@ -1050,7 +1054,9 @@ ncqFixIndexes ncq@NCQStorage{..} = do
       ncqAddTrackedFilesIO ncq [newKey]
 
 
-ncqStorageOpen :: MonadUnliftIO m => FilePath -> m NCQStorage
+ncqStorageOpen :: MonadUnliftIO m
+               => FilePath
+               -> m NCQStorage
 ncqStorageOpen fp' = do
     flip fix 0 $ \next i -> do
       fp <- liftIO $ makeAbsolute fp'
@@ -1504,5 +1510,82 @@ posixToTimeSpec pt =
   let (s, frac) = properFraction pt :: (Integer, POSIXTime)
       ns = round (frac * 1e9)
   in TimeSpec (fromIntegral s) ns
+
+
+-- NOTE: incremental
+--   now it may became incremental if we'll
+--   limit amount of tombs per one pass
+--   then remove all dead entries,
+--   then call again to remove tombs. etc
+ncqLinearScanForCompact :: MonadUnliftIO m
+                        => NCQStorage
+                        -> ( FileKey -> HashRef -> m () )
+                        -> m Int
+ncqLinearScanForCompact ncq@NCQStorage{..} action = do
+
+  tracked <- readTVarIO ncqTrackedFiles <&> HPSQ.toList
+
+  let state0 = mempty :: HashMap HashRef TimeSpec
+
+  bodyCount <- newTVarIO 0
+  tombUse   <- newTVarIO (mempty :: HashMap HashRef (FileKey, Int))
+
+  flip fix  (tracked, state0) $ \next -> \case
+    ([], s) -> none
+    ((fk,p,_):rest, state) -> do
+
+      let cqFile = ncqGetIndexFileName ncq fk
+      let dataFile = ncqGetDataFileName ncq fk
+
+      (mmaped,meta@NWayHash{..}) <- nwayHashMMapReadOnly cqFile
+               >>= orThrow (NWayHashInvalidMetaData cqFile)
+
+      let emptyKey = BS.replicate nwayKeySize 0
+
+      found <- S.toList_ do
+        nwayHashScanAll meta mmaped $ \o k entryBs -> do
+          unless (k == emptyKey) do
+
+            let off =  N.word64 (BS.take 8 entryBs)
+            let sz   = N.word32 (BS.take 4 (BS.drop 8 entryBs))
+
+            when (sz == ncqPrefixLen || sz ==  ncqPrefixLen + 32) do
+                S.yield off
+
+            let kk = coerce k
+
+            case HM.lookup kk state of
+              Just ts | ts > timeSpecFromFilePrio p -> do
+                atomically do
+                  modifyTVar bodyCount succ
+                  modifyTVar tombUse (HM.adjust (over _2 succ) kk)
+                lift $ action (fromString dataFile) kk
+
+              _ -> none
+
+      newEntries <- S.toList_ do
+        unless (List.null found) do
+         dataBs <- liftIO $ mmapFileByteString dataFile Nothing
+         for_ found $ \o -> do
+          let pre = BS.take (fromIntegral ncqPrefixLen) (BS.drop (ncqDataOffset o) dataBs)
+
+          when (pre == ncqRefPrefix || pre == ncqTombPrefix) do
+            let keyBs = BS.take ncqKeyLen (BS.drop (fromIntegral o + ncqSLen) dataBs)
+            let key = coerce (BS.copy keyBs)
+            unless (HM.member key state) do
+              S.yield (key, timeSpecFromFilePrio p)
+              when ( pre == ncqTombPrefix ) do
+                atomically $ modifyTVar tombUse (HM.insert key (fk,0))
+
+      next (rest, state <> HM.fromList newEntries)
+
+  use <- readTVarIO tombUse
+  let useless = [ (f,h) | (h, (f,n)) <- HM.toList use, n == 0 ]
+
+  for_ useless $ \(f,h) -> do
+    atomically $ modifyTVar bodyCount succ
+    action f h
+
+  readTVarIO bodyCount
 
 
