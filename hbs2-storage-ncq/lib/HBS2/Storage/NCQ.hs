@@ -1270,7 +1270,7 @@ ncqStorageInit_ check path = do
   ncqIndexed        <- newTVarIO mempty
   ncqMergeReq       <- newTVarIO 0
   ncqCompactReq     <- newTVarIO 0
-  ncqCompactBusy    <- newEmptyTMVarIO
+  ncqCompactBusy    <- newTMVarIO ()
   ncqFsyncNum       <- newTVarIO 0
   ncqLock           <- newTVarIO ncqLock_
 
@@ -1630,6 +1630,7 @@ ncqLinearScanForCompact ncq@NCQStorage{..} action = flip runContT pure do
 
             case HM.lookup kk state of
               Just ts | ts > timeSpecFromFilePrio p -> do
+                notice $ pretty kk <+> pretty (sz + ncqSLen)
                 atomically do
                   modifyTVar profit ( + (sz + ncqSLen) )
                   modifyTVar tombUse (HM.adjust (over _2 succ) kk)

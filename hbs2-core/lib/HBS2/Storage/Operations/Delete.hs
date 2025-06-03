@@ -23,5 +23,6 @@ deleteMerkleTree sto root =  do
       S.yield ha
 
     for_ (reverse what) $ \ha -> do
+      -- debug $ "delete" <+> pretty ha
       delBlock sto ha
 

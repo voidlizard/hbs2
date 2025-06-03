@@ -243,6 +243,19 @@ main = do
 
           pure nil
 
+        entry $ bindMatch "ncq:compact:scan" $ \syn -> lift do
+
+          tcq <- case syn of
+            [ isOpaqueOf @TCQ -> Just tcq ] -> do
+              pure tcq
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
+          ncq <- getNCQ tcq
+          r <- ncqLinearScanForCompact ncq (\_ _ -> none)
+
+          pure $ mkInt r
+
         entry $ bindMatch "ncq:merge" $ \syn -> lift do
 
           tcq <- case syn of
