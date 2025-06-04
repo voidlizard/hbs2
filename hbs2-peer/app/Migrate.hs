@@ -153,6 +153,39 @@ migrate syn = flip runContT pure $ callCC \exit -> do
   checkQ <- newTQueueIO
   checkN <- newTVarIO 0
 
+  errors <- newTVarIO 0
+
+  rmp <- liftIO $ async $ fix \next -> do
+    atomically (readTQueue checkQ) >>= \case
+      Nothing -> none
+      Just what -> do
+
+        toWipe <- ncqLocate ncq what >>= \case
+          Just (InCurrent{})    -> do
+            atomically $ modifyTVar checkN pred
+            pure True
+
+          Just (InFossil{})     -> do
+            atomically $ modifyTVar checkN pred
+            pure True
+
+          Just (InWriteQueue{}) -> do
+            atomically $ unGetTQueue checkQ (Just what)
+            pure False
+
+          Nothing               -> do
+            atomically $ modifyTVar errors succ
+            pure False
+
+        when toWipe do
+          let path = b </> hashToPath what
+          info $ yellow "d" <+> pretty what
+
+          unless dry do
+            rm path
+
+        next
+
   glob ["**/*"] [] b $ \fn -> flip runContT pure $ callCC \next -> do
     sz <- liftIO $ getFileSize fn
 
@@ -179,7 +212,7 @@ migrate syn = flip runContT pure $ callCC \exit -> do
       next True
 
     for_ placed $ \hx -> atomically do
-      writeTQueue checkQ hx
+      writeTQueue checkQ (Just hx)
       modifyTVar checkN succ
 
     info $ green "ok" <+> "B" <+> fill 44 (pretty placed) <+> pretty sz
@@ -212,43 +245,15 @@ migrate syn = flip runContT pure $ callCC \exit -> do
 
   liftIO $ ncqIndexRightNow ncq
 
-  info $ "check migration"
+  info $ "check migration / wait to complete"
+
+  atomically $ writeTQueue checkQ Nothing
+
+  wait rmp
 
   num <- readTVarIO checkN
 
   when (num == 0) $ exit ()
-
-  errors <- newTVarIO 0
-
-  fix \next -> do
-    what <- atomically $ readTQueue checkQ
-
-    toWipe <- ncqLocate ncq what >>= \case
-      Just (InCurrent{})    -> do
-        atomically $ modifyTVar checkN pred
-        pure True
-
-      Just (InFossil{})     -> do
-        atomically $ modifyTVar checkN pred
-        pure True
-
-      Just (InWriteQueue{}) -> do
-        atomically $ unGetTQueue checkQ what
-        pure False
-
-      Nothing               -> do
-        atomically $ modifyTVar errors succ
-        pure False
-
-    when toWipe do
-      let path = b </> hashToPath what
-      info $ yellow "d" <+> pretty what
-
-      unless dry do
-        rm path
-
-    mt <- atomically $ isEmptyTQueue checkQ
-    unless mt next
 
   ee <- readTVarIO errors
   rest <- readTVarIO checkN
