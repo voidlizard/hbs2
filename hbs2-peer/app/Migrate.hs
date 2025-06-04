@@ -186,6 +186,8 @@ migrate syn = flip runContT pure $ callCC \exit -> do
 
         next
 
+  cnt <- newTVarIO 0
+
   glob ["**/*"] [] b $ \fn -> flip runContT pure $ callCC \next -> do
     sz <- liftIO $ getFileSize fn
 
@@ -198,7 +200,7 @@ migrate syn = flip runContT pure $ callCC \exit -> do
 
     let hs = nameToHash fn
 
-    bs <- liftIO $ BS.readFile fn
+    bs <- liftIO $ BS.copy <$> BS.readFile fn
     let h = HashRef $ hashObject @HbSync bs
 
     unless ( h == hs ) do
@@ -207,9 +209,21 @@ migrate syn = flip runContT pure $ callCC \exit -> do
 
     placed <- liftIO $ ncqStoragePutBlock ncq (LBS.fromStrict bs)
 
+    flush <- atomically do
+      n <- readTVar cnt
+      if n > 1000 then do
+        writeTVar cnt 0
+        pure True
+      else do
+        modifyTVar cnt succ
+        pure False
+
     unless ( placed == Just hs ) do
       err $ red "NCQ write error" <+> pretty fn
       next True
+
+    when flush do
+      liftIO (ncqStorageFlush ncq)
 
     for_ placed $ \hx -> atomically do
       writeTQueue checkQ (Just hx)
