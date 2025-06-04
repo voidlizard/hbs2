@@ -69,6 +69,7 @@ import RefChan
 import RefChanNotifyLog
 import Fetch (fetchHash)
 import Log hiding (info)
+import Migrate
 
 import HBS2.Misc.PrettyStuff
 import HBS2.Peer.RPC.Internal.Types()
@@ -88,6 +89,8 @@ import HBS2.Peer.Proto.LWWRef.Internal
 import RPC2(RPC2Context(..))
 
 import Data.Config.Suckless.Script hiding (optional)
+import Data.Config.Suckless.Script.File (glob)
+import Data.Config.Suckless.System as Sy
 import Data.Config.Suckless.Almost.RPC
 
 import Codec.Serialise as Serialise
@@ -210,7 +213,7 @@ main = do
 
   sodiumInit
 
-  setLogging @INFO   defLog
+  setLogging @INFO   (logPrefix "" . toStdout)
   setLogging @ERROR  errorPrefix
   setLogging @WARN   warnPrefix
   setLogging @NOTICE noticePrefix
@@ -218,8 +221,8 @@ main = do
   setLoggingOff @TRACE
   setLoggingOff @TRACE1
 
-  withSimpleLogger runCLI
-
+  withSimpleLogger do
+    runCLI
 
 
 data GOpts =
@@ -271,6 +274,7 @@ runCLI = do
                 <> command "gc"        (info pRunGC (progDesc "run RAM garbage collector"))
                 <> command "probes"    (info pRunProbes (progDesc "show probes"))
                 <> command "do"        (info pDoScript (progDesc "execute a command in peer context"))
+                <> command "migrate"   (info pMigrate (progDesc "migrate storage"))
                 <> command "version"   (info pVersion (progDesc "show program version"))
                 )
 
@@ -669,6 +673,15 @@ runCLI = do
            for_ (parseTop r & fromRight mempty) \sexy -> do
              liftIO $ hPutDoc stdout (pretty sexy)
 
+    pMigrate = do
+      argz <- many (strArgument (metavar "TERM" <> help "script terms"))
+
+      pure do
+        s <- for argz $ \s ->
+                parseSyntax s & either (error.show) pure
+
+        migrate s
+
     refP :: ReadM (PubKey 'Sign 'HBS2Basic)
     refP = maybeReader fromStringMay
 
@@ -846,6 +859,8 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
   notice $ "run peer" <+> pretty (AsBase58 (view peerSignPk pc))
 
   notice $ red "STORAGE PREFIX" <+> pretty pref
+
+  checkMigration (coerce pref)
 
   -- error "STOP"
 
@@ -1411,5 +1426,33 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   -- we want to clean up all resources
   lift (throwIO GoAgainException)
+
+
+checkMigration :: forall m . MonadIO m => FilePath -> m ()
+checkMigration prefix  = flip runContT pure $ callCC \exit -> do
+
+  blocks <- S.toList_ do
+              glob ["**/*"] [] (prefix </> "blocks") $ \fn -> S.yield fn >> pure False
+
+
+  let migration = prefix </> "migrate"
+
+  already <- Sy.doesDirectoryExist migration
+
+  when (L.null blocks && not already) do
+    exit ()
+
+  let reason = if already then
+                 red "Migration WIP discovered" <+> pretty migration
+                else
+                 red "Legacy storage discovered" <+> pretty prefix
+
+  notice $ reason <> line
+           <> red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
+           <> line
+           <> "to migrate the storage to a new version"
+
+  liftIO exitFailure
+
 
 

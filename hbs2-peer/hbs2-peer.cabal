@@ -293,6 +293,7 @@ executable hbs2-peer
                     , Brains
                     , DispatchProxy
                     , Monkeys
+                    , Migrate
                     , CLI.Common
                     , CLI.RefChan
                     , CLI.LWWRef
