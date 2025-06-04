@@ -72,8 +72,8 @@ migrate syn = flip runContT pure $ callCC \exit -> do
   liftIO $ hPutDoc stdout $
     yellow "Storage migration process is about to start" <> line
      <> "It will convert the current storage structure to a new one (NCQ storage)" <> line
-     <> "to use with hbs2 0.26 and newer" <> line
-     <> "hbs2-peer 0.25 and earlier versions  don't work with the new storage." <> line
+     <> "to use with hbs2 0.25.2 and newer" <> line
+     <> "hbs2-peer 0.25.1 and earlier versions  don't work with the new storage." <> line
      <> "If you want to backup your data first just for in case" <> line
      <> "You may store the contents of directory" <> line
      <> line
