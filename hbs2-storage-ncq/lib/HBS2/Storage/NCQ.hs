@@ -77,6 +77,7 @@ import System.Posix.Files qualified as PFS
 import System.IO.Error (catchIOError)
 import System.IO.MMap as MMap
 import System.IO.Temp (emptyTempFile)
+import System.Mem
 -- import Foreign.Ptr
 -- import Foreign di
 import qualified Data.ByteString.Internal as BSI
@@ -149,11 +150,13 @@ data NCQStorage =
   NCQStorage
   { ncqRoot            :: FilePath
   , ncqGen             :: Int
+  , ncqQLen            :: Int
   , ncqSyncSize        :: Int
   , ncqMinLog          :: Int
   , ncqMaxSegments     :: Int
   , ncqMaxCached       :: Int
   , ncqCompactTreshold :: Int
+  , ncqCapabilities    :: Int
   , ncqSalt            :: HashRef
   , ncqWriteQueue      :: TVar (HashPSQ HashRef TimeSpec WQItem)
   , ncqStaged          :: TVar (IntMap (HashPSQ HashRef TimeSpec (Word64,Word64)))
@@ -352,6 +355,11 @@ ncqAddTrackedFilesSTM NCQStorage{..} keys = do
 
   writeTVar ncqTrackedFiles new
 
+ncqWaitForSlotSTM :: NCQStorage -> STM ()
+ncqWaitForSlotSTM NCQStorage{..} = do
+  s <- readTVar ncqWriteQueue <&> HPSQ.size
+  when ( s >= ncqQLen ) STM.retry
+
 ncqListTrackedFiles :: MonadIO m => NCQStorage -> m [FilePath]
 ncqListTrackedFiles ncq = do
   let wd = ncqGetCurrentDir ncq
@@ -429,9 +437,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   checkCompact <- makeCheckCompact
   checkMerge   <- makeCheckMerge
   flagWatcher  <- makeFlagWatcher
+  sweep        <- makeSweep
 
   mapM_ waitCatch [writer,indexer,merge,compact]
-  mapM_ cancel  [reader,flagWatcher,checkCompact,checkMerge]
+  mapM_ cancel  [reader,flagWatcher,checkCompact,checkMerge,sweep]
 
   where
 
@@ -474,6 +483,35 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
 
         again
+
+    makeSweep = do
+      ContT $ withAsync $ liftIO $ fix \next -> do
+        pause @'Seconds 10
+
+        toClose <- atomically do
+          usage   <- readTVar ncqCurrentUsage
+          staged  <- readTVar ncqStaged
+          indexed <- readTVar ncqIndexed
+
+          let (alive, dead) = List.partition (\(_, u) -> u > 0) (IntMap.toList usage)
+
+          let closable = do
+                (f, _) <- dead
+                guard (IntSet.member f indexed)
+                guard (maybe True HPSQ.null (IntMap.lookup f staged))
+                pure f
+
+          writeTVar ncqCurrentUsage (IntMap.fromList alive)
+          writeTVar ncqIndexed      (indexed  `IntSet.difference` IntSet.fromList closable)
+          writeTVar ncqStaged       (foldr IntMap.delete staged closable)
+
+          pure closable
+
+        for_ toClose $ \f -> do
+          debug $ "CLOSE FD" <+> pretty f
+          closeFd (fromIntegral f)
+
+        next
 
     makeReader = do
       cap <- getNumCapabilities
@@ -639,42 +677,36 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
       initQ <- readTVarIO ncqWriteQueue
 
-      wResult <- flip fix (0,initQ) \next (written,q) -> case HPSQ.minView q of
-         Nothing ->  pure mempty
-         Just (h,_,WQItem{..},rest) -> do
+      wResult <- flip runContT pure $ callCC \exit -> do
 
+        flip fix (0,initQ,mempty) \next (written,q,rq) -> do
 
-          -- we really have to write tomb prefix here
-          let b = byteString (coerce @_ @ByteString h)
-                   <> lazyByteString (fromMaybe (LBS.fromStrict ncqTombPrefix) wqData)
+         when (written >= syncData) $ exit rq
 
-          let wbs = toLazyByteString b
-          let len = LBS.length wbs
-          let ws  = N.bytestring32  (fromIntegral len)
-          let w = ncqSLen + len
+         -- when (HPSQ.null q) $ exit rq
 
-          off <- fdSeek fh SeekFromEnd 0
+         case HPSQ.minView q of
+          Nothing -> pure rq
+          Just (h,_,WQItem{..},rest) -> do
 
-          if isNothing wqData && wqNew then
-            pure ()
-          else void do
-            liftIO (Posix.fdWrite fh (ws <> LBS.toStrict wbs))
-            -- liftIO $ fileSynchronise fh
+            let b = byteString (coerce @_ @ByteString h)
+                     <> lazyByteString (fromMaybe (LBS.fromStrict ncqTombPrefix) wqData)
 
-          (written',sz) <- if written < syncData then do
-                            pure (written + w,0)
-                           else do
-                              ncqFsync ncq fh
-                              fsize <- getFdStatus fh <&> PFS.fileSize
-                              pure (0,fromIntegral fsize)
+            let wbs = toLazyByteString b
+            let len = LBS.length wbs
+            let ws  = N.bytestring32  (fromIntegral len)
+            let w = ncqSLen + len
 
+            off <- liftIO $ fdSeek fh SeekFromEnd 0
 
-          -- off <- fdSeek fh SeekFromEnd 0 <&> subtract (fromIntegral w)
+            ww <- if isNothing wqData && wqNew then
+                    pure 0
+                  else do
+                    liftIO (Posix.fdWrite fh (ws <> LBS.toStrict wbs))
+                      <&> fromIntegral
 
-          if sz < ncqMinLog then do
-            ((h, (fromIntegral off, fromIntegral len)) : ) <$> next (written', rest)
-          else  do
-            pure [(h, (fromIntegral off, fromIntegral len))]
+            let item = (h, (fromIntegral off, fromIntegral len))
+            next (written + ww, rest, item : rq )
 
       ncqFsync ncq fh
       size <- fdSeek fh SeekFromEnd 0
@@ -737,30 +769,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
           debug $ "TRUNCATED, moved to" <+> pretty fossilized
 
-
-          toClose <- atomically do
-            usage   <- readTVar ncqCurrentUsage
-            staged  <- readTVar ncqStaged
-            indexed <- readTVar ncqIndexed
-
-            let (alive, dead) = List.partition (\(_, u) -> u > 0) (IntMap.toList usage)
-
-            let closable = do
-                  (f, _) <- dead
-                  guard (IntSet.member f indexed)
-                  guard (maybe True HPSQ.null (IntMap.lookup f staged))
-                  pure f
-
-            writeTVar ncqCurrentUsage (IntMap.fromList alive)
-            writeTVar ncqIndexed      (indexed  `IntSet.difference` IntSet.fromList closable)
-            writeTVar ncqStaged       (foldr IntMap.delete staged closable)
-
-            pure closable
-
-          for_ toClose $ \f -> do
-            debug $ "CLOSE FD" <+> pretty f
-            closeFd (fromIntegral f)
-
+          -- ncqSweep
 --
 ncqStoragePut_ :: MonadUnliftIO m
                => Bool
@@ -781,6 +790,7 @@ ncqStoragePut_ check ncq@NCQStorage{..} h lbs = flip runContT pure $ callCC \exi
 
   now <- getTimeCoarse
   atomically do
+    ncqWaitForSlotSTM ncq
     let wqi = WQItem True (Just lbs)
     modifyTVar ncqWriteQueue (HPSQ.insert h now wqi)
     modifyTVar ncqNotWritten (+ (fromIntegral $ 4 + 32 + LBS.length lbs))
@@ -1001,6 +1011,8 @@ ncqStorageGet_ ncq@NCQStorage{..} = \case
     InCurrent (fd,o,l) -> do
       r <- atomically do
         a <- newEmptyTMVar
+        inRQ <- readTVar ncqCurrentReadReq <&> Seq.length
+        when (inRQ > 4 * ncqCapabilities) STM.retry
         modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fd) 1)
         modifyTVar ncqCurrentReadReq (|> (fd, o, l, a))
         pure a
@@ -1048,6 +1060,7 @@ ncqStorageDel ncq@NCQStorage{..} h = flip runContT pure $ callCC \exit -> do
 
   now <- getTimeCoarse
   let writeTombstone wq = do
+          ncqWaitForSlotSTM ncq
           let recordPrefixLen = ncqSLen + ncqKeyLen + ncqPrefixLen
           modifyTVar ncqWriteQueue (HPSQ.insert h now wq)
           modifyTVar ncqNotWritten (+ recordPrefixLen)
@@ -1250,7 +1263,8 @@ ncqStorageInit_ check path = do
 
   let ncqRoot = path
 
-  let ncqSyncSize        = 64   * (1024 ^ 2)
+  let ncqQLen            = 32000
+  let ncqSyncSize        = 32   * (1024 ^ 2)
   let ncqMinLog          = 1024 * (1024 ^ 2)
   let ncqMaxSegments     = 64
   let ncqCompactTreshold = 128  * 1024^2
@@ -1282,6 +1296,7 @@ ncqStorageInit_ check path = do
   ncqCompactBusy    <- newTMVarIO ()
   ncqFsyncNum       <- newTVarIO 0
   ncqLock           <- newTVarIO ncqLock_
+  ncqCapabilities   <- getNumCapabilities
 
   let currentName = ncqGetCurrentName_ path ncqGen
 

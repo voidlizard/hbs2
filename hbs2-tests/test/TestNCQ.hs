@@ -71,6 +71,7 @@ import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
 import System.IO.Temp qualified as Temp
+import System.Mem
 
 import UnliftIO
 
@@ -176,6 +177,43 @@ testNCQFuckupRecovery1 TestEnv{..} = flip runContT pure do
     notice $ "loaded" <+> pretty ha <+> pretty (LBS.length lbs)
 
 
+
+testNCQLongWrite :: MonadUnliftIO m => Int -> TestEnv -> m ()
+testNCQLongWrite n TestEnv{..} = flip runContT pure do
+  let ncqDir = testEnvDir </> "ncq-simple"
+
+  -- Step 1: Write block
+  lift $ withNCQ id ncqDir $ \ncq -> liftIO do
+    let sto = AnyStorage ncq
+    replicateM_ n do
+      size  <- randomRIO (1, 256*1024)
+      let payload = LBS.replicate size 0x41 -- 0x41 = 'A'
+      h <- putBlock sto payload
+      assertBool "block written" (isJust h)
+
+
+testNCQLongWriteRead :: MonadUnliftIO m => Int -> TestEnv -> m ()
+testNCQLongWriteRead n TestEnv{..} = flip runContT pure do
+  let ncqDir = testEnvDir </> "ncq-simple"
+
+  wq <- newTQueueIO
+
+  -- Step 1: Write block
+  lift $ withNCQ id ncqDir $ \ncq -> liftIO do
+    let sto = AnyStorage ncq
+    replicateM_ n do
+      size  <- randomRIO (1, 256*1024)
+      let payload = LBS.replicate size 0x41 -- 0x41 = 'A'
+      h <- putBlock sto payload
+      assertBool "block written" (isJust h)
+      for_ h $ \hhh -> do
+        atomically $ writeTQueue wq (HashRef hhh)
+
+    r <- atomically $ STM.flushTQueue wq
+
+    for_ r $ \h -> do
+      s <- ncqLocate ncq h
+      assertBool "actually written" (isJust s)
 
 testNCQSimple1 :: MonadUnliftIO m => TestEnv -> m ()
 testNCQSimple1 TestEnv{..} = flip runContT pure do
@@ -300,7 +338,7 @@ testNCQ1 :: MonadUnliftIO m
          -> TestEnv
          -> m ()
 
-testNCQ1 n TestEnv{..} = flip runContT pure do
+testNCQ1 n TestEnv{..} = flip runContT pure $  callCC \stop -> do
 
     let tmp = testEnvDir
 
@@ -313,15 +351,26 @@ testNCQ1 n TestEnv{..} = flip runContT pure do
 
     nSize <- newTVarIO 0
 
-    fss <- for [1..n] $ \i -> liftIO do
-      let fname = inputDir </> show i <> ".bin"
-      size <- randomRIO (1, 256*1024)
-      atomically $ modifyTVar nSize (+size)
-      file <- LBS.toStrict . LBS.take size <$> LBS.readFile "/dev/urandom"
-      BS.writeFile fname file
-      let ha = hashObject @HbSync file
-      pure (fname, (ha, fromIntegral $ BS.length file))
+    tssQ <- newTQueueIO
 
+    forM_ [1..n] $ \i -> liftIO do
+      withBinaryFile "/dev/urandom" ReadMode \urandom -> do
+        let fname = inputDir </> show i <> ".bin"
+        size <- randomRIO (1, 256*1024)
+        atomically $ modifyTVar' nSize (+size)
+        file <- BS.copy <$> BS.hGetSome urandom size
+        BS.writeFile fname file
+        let !ha = hashObject @HbSync file
+        let !len = fromIntegral $ BS.length file
+        -- atomically $ writeTQueue tssQ (fname, (ha, fromIntegral $! BS.length file))
+        -- l <- getFileSize fname
+        -- atomically $ writeTQueue tssQ (fname, (ha, l))
+        atomically $ writeTQueue tssQ (fname, (ha, len))
+        -- performGC
+
+    fss <- atomically (STM.flushTQueue tssQ)
+
+    stop ()
 
     liftIO do
       withNCQ id ncqDir $ \ncq -> flip runContT pure do
@@ -334,7 +383,7 @@ testNCQ1 n TestEnv{..} = flip runContT pure do
           written = readTVarIO twritten <&> HS.toList <&> fmap (,0.1)
 
         ContT $ withAsync $ forever do
-          polling (Polling 0.25 0.25)  written $ \(HashRef hz) -> liftIO $ void $ asyncLinked do
+          polling (Polling 0.25 0.25)  written $ \(HashRef hz) -> liftIO do
             what <- getBlock sto hz >>= orThrowUser ("block not found" <+> pretty hz)
             let h2 = hashObject @HbSync what
 
@@ -528,6 +577,14 @@ main = do
         entry $ bindMatch "test:ncq:fuckup-recovery1" $ nil_ $ \_ -> do
           debug $ "test:ncq:fuckup-recovery1"
           runTest testNCQFuckupRecovery1
+
+        entry $ bindMatch "test:ncq:long-write" $ nil_ $ \case
+          [ LitIntVal n ] -> runTest $ testNCQLongWrite (fromIntegral n)
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:long-write-read" $ nil_ $ \case
+          [ LitIntVal n ] -> runTest $ testNCQLongWriteRead (fromIntegral n)
+          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:test-simple1" $ nil_ $ \case
           [] -> runTest $ testNCQSimple1
