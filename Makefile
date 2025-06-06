@@ -19,7 +19,6 @@ BINS := \
   hbs2               \
   hbs2-peer          \
   hbs2-keyman        \
-	hbs2-git-subscribe \
   git-remote-hbs2    \
   hbs2-cli           \
   hbs2-sync          \
@@ -27,6 +26,7 @@ BINS := \
 	hbs2-git3 \
 	git-remote-hbs23 \
 	hbs2-ncq \
+	hbs2-obsolete \
 	tcq \
 	test-ncq \
 

@@ -170,6 +170,29 @@
     (iterate println (hbs2:tree:scan:deep hash) )
   )
 
+  ( (list? [sym? fsck] [sym? -h])
+    (begin
+      (println "usage: hbs2 fsck <PATH>")
+      (println "default for <PATH> is hbs2-peer storage path")
+    )
+  )
+
+  ( (list? [sym? fsck] ...)
+    (begin
+      (local sto1 (if (eq? (type ...) :list) (car ...) '()))
+      (if sto1
+        (run:proc:attached tcq ncq:fsck (concat sto1 :/ :0))
+        (begin
+          (local answ (fallback #f '(call:proc hbs2-peer poke)))
+          (unless answ (die "hbs2-peer seems down, but you may pass storage directory manually"))
+          (local sto (lookup:uw storage: answ))
+          (println (ansi :red _ "check") space sto)
+          (run:proc:attached tcq ncq:fsck (concat sto :/ :0))
+        )
+      )
+    )
+  )
+
   ( _  (--help) )
 )
 

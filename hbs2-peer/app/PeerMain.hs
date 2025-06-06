@@ -893,12 +893,6 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   pl <- AnyPeerLocator <$> newBrainyPeerLocator @e (SomeBrains @e brains) mempty
 
-  -- FIXME: messaing-watchdog
-  --    Раз уж мы не помирает в случае, если один
-  --    из месседжингов отвалился --- то нужно
-  --    сделать watchdog, который будет респавнить
-  --    всё, если нет ни одного живого месседжинга
-
   msgAlive <- liftIO $ newTVarIO 0
 
   messWatchDog <- liftIO $ async do
@@ -1353,6 +1347,7 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
                              , "tcp:" <+> dquotes (pretty (fst . snd <$> tcpPoint))
                              , "local-multicast:" <+> dquotes (pretty localMulticast)
                              , "rpc:" <+> dquotes (pretty rpc)
+                             , "storage:" <+> dquotes (pretty ncqPath)
                              , http
                              ]
 

@@ -2110,16 +2110,8 @@ internalEntries = do
       [ e, expr ] -> do
         try @_ @SomeException (eval expr) >>= \case
           Right x -> pure x
-          Left x  -> pure e
+          Left  _  -> eval e
       other -> throwIO (BadFormException @c (mkList other))
-
-    entry $ bindMatch "fallback1" $ \case
-      [ e, expr ] -> do
-        try @_ @SomeException (eval expr) >>= \case
-          Right x -> pure x
-          Left x  -> error (show x)
-      other -> throwIO (BadFormException @c (mkList other))
-
 
     entry $ bindMatch "grep" \case
       [TextLike needle, what ] | matchOne needle what
