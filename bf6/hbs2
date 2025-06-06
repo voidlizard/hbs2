@@ -42,6 +42,13 @@
     )
   )
 
+  ( (list? [sym? hash] ...)
+    (begin
+      (local what (if (eq? (type ...) :list) ... '()))
+      (display (eval `(hbs2:hash ,@what)))
+    )
+  )
+
   ( (list? [sym? has] hash)
     (begin
       (local s (hbs2:peer:storage:block:size hash))

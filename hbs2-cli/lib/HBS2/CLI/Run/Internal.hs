@@ -32,6 +32,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString qualified as BS
 import Data.Text qualified as Text
 import Lens.Micro.Platform
 
@@ -171,18 +172,22 @@ internalEntries = do
 
     -- TODO: re-implement-all-on-top-of-opaque
 
-    entry $ bindMatch "hbs2:hash" $ \syn -> do
-      i <- case syn of
-             [ListVal (StringLikeList xs)] -> pure xs
-             StringLikeList xs -> pure xs
-             e -> throwIO (BadFormException @c (mkList e))
+    entry $ bindMatch "hbs2:hash" $ \case
+      [] -> liftIO do
+        LBS.getContents
+          <&> mkSym . HashRef . hashObject @HbSync
 
-      r <- forM i $ \f -> do
-        liftIO (LBS.readFile f)
-          <&> hashObject @HbSync
-          <&> mkSym @c . show . pretty
+      [ StringLike fn ] -> liftIO do
+        LBS.readFile fn
+          <&> mkSym . HashRef . hashObject @HbSync
 
-      pure $ mkList r
+      [isOpaqueOf @LBS.ByteString -> Just s ] -> do
+          pure $ mkSym $ HashRef $ hashObject @HbSync s
+
+      [isOpaqueOf @BS.ByteString -> Just s ] -> do
+          pure $ mkSym $ HashRef $ hashObject @HbSync s
+
+      e -> throwIO (BadFormException @c (mkList e))
 
     entry $ bindMatch "blob:base58" $ \case
       [LitStrVal t] -> do
