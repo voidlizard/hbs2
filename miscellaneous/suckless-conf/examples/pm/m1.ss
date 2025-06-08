@@ -2,11 +2,11 @@
 (define foo1 '[1 2 yeah])
 (define foo2 '[a b [2 33] 45])
 
-(define p1 (list? _ _ [list? _ e ...] [? n [int? [rcurry gt? 20]]] ...))
-(define p2 (list? _ _ [list? _ e ...] [? n [int? [rcurry eq? 45]]] ...))
-(define p3 (list? _ _ [list? _ e ...] [? n [int? _]] ...))
-(define p4 (list? _ _ [list? _ e ...] [? n [int? 45]] ...))
-(define p5 (list? _ _ [list? _ e ...] [? n [int? 26]] ...))
+(define p1 '(list? _ _ [list? _ e ...] [? n [int? [rcurry gt? 20]]] ...))
+(define p2 '(list? _ _ [list? _ e ...] [? n [int? [rcurry eq? 45]]] ...))
+(define p3 '(list? _ _ [list? _ e ...] [? n [int? _]] ...))
+(define p4 '(list? _ _ [list? _ e ...] [? n [int? 45]] ...))
+(define p5 '(list? _ _ [list? _ e ...] [? n [int? 26]] ...))
 
 (match foo1
   ( (list? _ _ k) (print "3-list" space k) )

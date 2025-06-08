@@ -269,6 +269,11 @@ display_ = liftIO . print
 {- HLINT ignore "Functor law" -}
 
 
+isNil :: forall c . IsContext c => Syntax c -> Bool
+isNil = \case
+  ListVal [] -> True
+  _          -> False
+
 isFalse :: forall c . IsContext c => Syntax c -> Bool
 isFalse = \case
     Literal _ (LitBool False) -> True
@@ -554,9 +559,9 @@ apply_ s args = case s of
 
   SymbolVal "quasiquot"   -> mkList <$> mapM (evalQQ mempty) args
   SymbolVal "quasiquote"  -> mkList <$> mapM (evalQQ mempty) args
-  SymbolVal   what  -> apply what args
-  Lambda d body     -> applyLambda d body args
-  e                 -> throwIO $ NotLambda e
+  SymbolVal   what        -> apply what args
+  Lambda d body           -> applyLambda d body args
+  e                       -> throwIO $ NotLambda e
 
 apply :: forall c m . ( IsContext c
                       , MonadUnliftIO m
@@ -670,6 +675,8 @@ eval' :: forall c m . ( IsContext c
                        -> Syntax c
                        -> RunM c m (Syntax c)
 eval' dict0 syn' = handle (handleForm syn') $ do
+
+    -- display_ $ "EVAL:" <+> pretty syn'
 
     dict1 <- ask >>= readTVarIO
 
@@ -856,38 +863,23 @@ eval' dict0 syn' = handle (handleForm syn') $ do
       r@(ListVal (SymbolVal "match" : e' : clauses)) -> do
         e <- eval e'
 
-        flip fix clauses $  \next -> \case
+        flip  runContT pure $ callCC \exit -> do
 
-          (ListVal [SymbolVal "_", e1] : rest) -> do
-            eval e1
+          for_ clauses $ \case
 
-          (ListVal [p', e1] : rest) -> do
+            ListVal [ SymbolVal "_" , e1' ] -> do
+              e1 <- lift (eval e1')
+              -- error $ show $ "SHIT MATCHED" <+> pretty e1
+              exit e1
 
-            p <- eval p'
+            ListVal [ p, e1' ] -> do
+              lift (matchPattern p e e1') >>= \case
+                Nothing  -> pure ()
+                Just m   -> exit m
 
-            -- display_  $ "EVALUATED:" <+> pretty p
+            _ -> pure ()
 
-            wat <- matched [p,e] <&> \case
-                     ListVal es -> es
-                     _ -> mempty
-
-            let found =  [ (n, Bind mzero (BindValue x))
-                         | ListVal [SymbolVal  n,x] <- wat, n /= "_"
-                         ] & HM.fromList
-
-            -- display_ $ "WAT"   <+> pretty wat
-            -- display_ $ "FOUND" <+>  found
-
-            if List.null wat then
-              next rest
-            else do
-              -- display_ $ "FUCKING EVAL WITH FOUND" <+> pretty e1
-              dict0 <- ask >>= readTVarIO <&> (<> found)
-              lift $ runM dict0 (eval e1)
-
-          (_ : _) -> throwIO (BadFormException r)
-
-          [] -> pure nil
+          pure nil
 
 
       lc@(ListVal (Lambda decl body : args))  -> do
@@ -1869,36 +1861,6 @@ internalEntries = do
 
         e -> throwIO (BadFormException @c (mkList e))
 
-    entry $ bindMatch "list?" $ \case
-      [SymbolVal "..."]-> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkSym "..."]
-      es -> pure $ mkForm "builtin:closure" [mkSym "bf6:list?", mkList es]
-
-    entry $ bindMatch "bf6:list?" $ \case
-      [a,b] -> do
-        termMatches (mkList [mkSym "bf6:list?", a]) b
-
-      e -> throwIO (BadFormException @c (mkList e))
-
-    entry $ bindMatch "?" $ \case
-      [ SymbolVal n, e ] -> pure $ mkForm "builtin:closure" [mkSym "bf6:?", mkSym n, e]
-      [ e ] -> pure $ mkForm "builtin:closure" [mkSym "bf6:?", e]
-
-      e -> throwIO (BadFormException @c (mkList e))
-
-    entry $ bindMatch "bf6:?" $ \case
-
-      [ SymbolVal n, e, e2 ] -> do
-        apply_ e [e2] >>= \case
-          ListVal [] -> pure nil
-          r          -> pure $ mkList [mkSym n, r]
-
-      [ e, e2 ] -> do
-        apply_ e [e2] >>= \case
-          ListVal [] -> pure nil
-          r          -> pure $ mkList [mkSym "_", r]
-
-      e -> throwIO (BadFormException @c (mkList e))
-
     entry $ bindMatch "matched?" matched
 
     entry $ bindMatch "le?" $ \case
@@ -2575,50 +2537,6 @@ bf6TypeOfPred = \case
   "bool?"   -> pure $ mkSym "bool"
   _ -> Nothing
 
-termMatches :: forall c m . ( IsContext c
-                            , MonadUnliftIO m
-                            , Exception (BadFormException c)
-                            )
-            => Syntax c -> Syntax c -> RunM c m (Syntax c)
-
-termMatches pred what = case (pred, what) of
-  (SymbolVal "_", a) -> pure a
-
-  (ListVal [SymbolVal "bf6:list?", SymbolVal "..."], b@(ListVal bs)) -> pure $ (mkList [mkSym "...", b])
-
-  (ListVal [SymbolVal "bf6:list?", a@(ListVal as)], b@(ListVal bs)) -> do
-    maybe nil mkList <$> runMaybeT do
-      for (emit as bs) $ \syn -> do
-
-
-        case syn of
-          Nothing    -> mzero
-
-          Just (SymbolVal w, b) -> do
-            -- error $ show $ "right fucking here 111" <+> pretty w <+> "->" <+> pretty b
-            pure $ mkList [mkSym w, b]
-
-          Just (a,b) -> lift (apply_ a [b]) >>= \case
-            ListVal (e:es) -> pure (mkList (e:es))
-            e | e /= nil -> pure $ mkList [mkSym "_", e]
-            e -> mzero
-
-  e -> error $ show $ pretty  e
-
-  where
-
-    bound_ e = e
-
-    emit [] [] = mempty
-    emit (SymbolVal "..." : _) [] = mempty
-    emit (_:_) [] = [Nothing]
-    emit [] (_:_) = [Nothing]
-    emit (SymbolVal "..." : a) bs = [Just (mkSym "...", mkList bs)]
-      -- error $ show $ "FUCK2" <+> pretty a <+> ">>>" <+> pretty bs
-      -- [ Just (mkSym "_", x) | x <- bs ]
-    emit (a:as) (b:bs) = Just (a,b) : emit as bs
-
-
 asSym :: forall ann c . IsContext c => Syntax c -> Doc ann
 asSym = \case
   TextLike s -> pretty (mkSym @c s)
@@ -2630,5 +2548,104 @@ restoreEnvironment newEnv = liftIO do
     let toRemove = map fst currentEnv \\ map fst newEnv
     mapM_ unsetEnv toRemove
     mapM_ (uncurry setEnv) newEnv
+
+
+substIn :: forall c . IsContext c => HashMap Id (Syntax c) -> Syntax c -> Syntax c
+substIn repl = go
+  where
+    go = \case
+      List    c xs -> List c (fmap go xs)
+      s@(Symbol _ n)  -> fromMaybe s (HM.lookup n repl)
+      e    -> e
+
+matchPattern :: forall c m . (IsContext c, MonadUnliftIO m, Exception (BadFormException c))
+             => Syntax c -- ^ pattern
+             -> Syntax c -- ^ expression
+             -> Syntax c -- ^ production
+             -> RunM c m (Maybe (Syntax c))
+matchPattern p0 e0 syn = do
+
+  pMatchOne p0 e0 >>= \case
+    Nothing   -> pure $ Nothing
+    Just repl -> do
+
+      d0 <- ask >>= readTVarIO
+
+      for_ (List.reverse repl) $ \(n,e) -> do
+        bind n e
+
+      r <- eval syn
+
+      t <- ask
+      atomically (writeTVar t d0)
+
+      pure $ Just r
+
+  where
+
+    pMatchOne p e = do
+
+      case p of
+
+        ListVal [ SymbolVal "?", SymbolVal n, pe ] -> do
+          pMatchOne pe e >>= \case
+            Just found -> pure $ Just $ (n,e) : found
+            Nothing -> pure Nothing
+
+        ListVal [ SymbolVal "list?" ] | isNil e -> pure $ Just []
+
+        ListVal (SymbolVal "list?" : rest) -> runMaybeT do
+
+          lls <- case e of
+                   ListVal es -> pure es
+                   _          -> mzero
+
+          flip fix (rest,lls,mempty) \next -> \case
+
+            ([SymbolVal "..."], xs, rs) -> pure (("...", mkList xs) : rs)
+
+            ([SymbolVal ".", SymbolVal b], xs, rs) -> do
+              pure ((b, mkList xs) : rs)
+
+            (SymbolVal "..." : _ : _ , _, _) -> throwIO $ BadFormException p
+
+            (SymbolVal "."   : _, _, _) -> throwIO $ BadFormException p
+
+            (SymbolVal c : es, x:xs, rs) -> do
+              next (es,xs,(c,x):rs)
+
+            ( pp : ps, x:xs, rs) -> do
+              r <- MaybeT (pMatchOne pp x)
+              next (ps, xs, r <> rs)
+
+            ([],[],rs) -> pure rs
+
+            (what, _, _) -> mzero
+
+        ListVal [ SymbolVal pp, SymbolVal "_"] -> do
+          if bf6TypeOf e == bf6TypeOfPred pp then pure $ Just [] else pure Nothing
+
+        ListVal [ SymbolVal pp ] | isJust (bf6TypeOfPred @c pp) -> do
+          if bf6TypeOf e == bf6TypeOfPred pp then pure $ Just [] else pure Nothing
+
+        ListVal [ SymbolVal pp, ppe@(ListVal{}) ] -> do
+          let tp = bf6TypeOf e == bf6TypeOfPred pp
+          if not tp then
+            pure Nothing
+          else do
+            pe <- eval ppe
+            what <- apply_ @c pe [e]
+            if isTrue what then pure $ Just [] else pure Nothing
+
+        ListVal [ SymbolVal pp, pEq' ] -> do
+         if bf6TypeOf e == bf6TypeOfPred pp then do
+           pEq <- eval pEq'
+           if pEq == e then pure $ Just [] else pure Nothing
+         else
+           pure Nothing
+
+        SymbolVal n -> pure $ Just [(n,e)]
+
+        zu -> error $ show $ "not yet" <+> pretty zu
 
 
