@@ -710,7 +710,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
       ncqFsync ncq fh
       size <- fdSeek fh SeekFromEnd 0
-      writeBinaryFileDurable (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
+      writeBinaryFileDurableAtomic (ncqGetCurrentSizeName ncq) (N.bytestring64 (fromIntegral size))
 
       now1 <- getTimeCoarse
       atomically do
@@ -1202,7 +1202,7 @@ ncqOpenCurrent :: MonadUnliftIO m => NCQStorage -> m ()
 ncqOpenCurrent ncq@NCQStorage{..} = do
   let fp = ncqGetCurrentName ncq
   touch fp
-  let flags = defaultFileFlags { exclusive = True }
+  let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
   fdw <- liftIO (PosixBase.openFd fp  Posix.ReadWrite flags) <&> WFd
   fdr <- liftIO (PosixBase.openFd fp Posix.ReadOnly flags) <&> RFd
   atomically $ writeTVar ncqCurrentFd (Just (fdr, fdw))

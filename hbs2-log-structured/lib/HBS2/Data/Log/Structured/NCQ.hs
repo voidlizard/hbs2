@@ -1,3 +1,4 @@
+{-# Language CPP #-}
 {-# Language MultiWayIf #-}
 {-# Language AllowAmbiguousTypes #-}
 {-# Language UndecidableInstances #-}
@@ -36,6 +37,7 @@ import Data.IntMap qualified as IntMap
 import Data.IntMap (IntMap)
 import Data.Fixed
 import System.Environment
+import System.Posix
 import System.Posix.Fcntl
 import System.Posix.IO
 import System.Posix.Files (setFileSize)
@@ -207,6 +209,18 @@ nwayAllocPow2 NWayHashAlloc{..} num = fromIntegral $
 nwayAllocResizeDefault :: NWayHashAlloc -> Int -> Int -> Int -> Maybe Int
 nwayAllocResizeDefault NWayHashAlloc{..} i c num = Nothing
 
+
+nwayFileAllocate :: Fd -> COff -> COff -> IO ()
+#ifdef darwin_HOST_OS
+nwayFileAllocate fd offset size = do
+  let chunk = BS.replicate (fromIntegral size) 0
+  _ <- fdSeek fd AbsoluteSeek (fromIntegral offset)
+  void $ fdWrite fd chunk
+#else
+nwayFileAllocate = fileAllocate
+#endif
+
+
 nwayWriteBatch :: MonadUnliftIO m
                => NWayHashAlloc
                -> FilePath -- ^ dir
@@ -272,7 +286,7 @@ nwayWriteBatch nwa@NWayHashAlloc{..} path tpl items' = do
      let pageSize = buckNum * buckSize
 
      liftIO do
-       fileAllocate fd pageOff (fromIntegral pageSize)
+       nwayFileAllocate fd pageOff (fromIntegral pageSize)
 
      for_ es $ \(k,v) -> do
        let ki = BS.take kpiece (BS.drop (i*kpiece) k ) & N.word64

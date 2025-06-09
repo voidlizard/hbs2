@@ -46,6 +46,7 @@ import Data.Kind
 import Data.List (isPrefixOf)
 import Data.List qualified as List
 import Data.List ((\\))
+import Data.List.Split (chunksOf)
 import Data.Maybe
 import Data.Either
 import Data.String
@@ -1301,6 +1302,13 @@ internalEntries = do
             _ -> pure False
 
         pure $ mkList filtered
+
+      _ -> throwIO (BadFormException @c nil)
+
+
+    entry $ bindMatch "list:chunks" $ \case
+      [ LitIntVal n, ListVal xs ] -> do
+        pure $ mkList [ mkList es | es <- chunksOf (fromIntegral n) xs ]
 
       _ -> throwIO (BadFormException @c nil)
 
