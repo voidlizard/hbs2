@@ -1012,7 +1012,7 @@ ncqStorageGet_ ncq@NCQStorage{..} = \case
       r <- atomically do
         a <- newEmptyTMVar
         inRQ <- readTVar ncqCurrentReadReq <&> Seq.length
-        when (inRQ > 4 * ncqCapabilities) STM.retry
+        when (inRQ > 1024 * ncqCapabilities) STM.retry
         modifyTVar ncqCurrentUsage (IntMap.insertWith (+) (fromIntegral fd) 1)
         modifyTVar ncqCurrentReadReq (|> (fd, o, l, a))
         pure a

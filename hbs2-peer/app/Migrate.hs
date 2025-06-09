@@ -247,7 +247,7 @@ migrate syn = flip runContT pure $ callCC \exit -> do
       refTo <- liftIO (readFile fn)
                 <&> coerce @_ @HashRef . fromString @(Hash HbSync)
 
-      here <- ncqLocate ncq refTo
+      here <- liftIO (ncqLocate ncq refTo)
 
       if isJust here then         do
         liftIO $ ncqStorageSetRef ncq ref refTo

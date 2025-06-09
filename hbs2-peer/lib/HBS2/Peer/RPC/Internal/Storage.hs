@@ -25,35 +25,35 @@ type StorageContext m = (MonadIO m, HasStorage m)
 instance (StorageContext m) => HandleMethod m RpcStorageHasBlock where
 
   handleMethod href = do
-    debug $ "rpc.storage.hasBlock" <+> pretty href
+    -- debug $ "rpc.storage.hasBlock" <+> pretty href
     sto <- getStorage
     liftIO $ hasBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageGetBlock where
 
   handleMethod href = do
-    debug $ "rpc.storage.getBlock" <+> pretty href
+    -- debug $ "rpc.storage.getBlock" <+> pretty href
     sto <- getStorage
     liftIO $ getBlock sto (fromHashRef href)
 
 instance (StorageContext m) => HandleMethod m RpcStorageEnqueueBlock where
 
   handleMethod lbs = do
-    debug $ "rpc.storage.enqueueBlock"
+    -- debug $ "rpc.storage.enqueueBlock"
     sto <- getStorage
     liftIO $ enqueueBlock sto lbs <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStoragePutBlock where
 
   handleMethod lbs = do
-    debug $ "rpc.storage.putBlock"
+    -- debug $ "rpc.storage.putBlock"
     sto <- getStorage
     liftIO $ putBlock sto lbs <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStorageDelBlock where
 
   handleMethod href = do
-    debug $ "rpc.storage.delBlock" <+> pretty href
+    -- debug $ "rpc.storage.delBlock" <+> pretty href
     sto <- getStorage
     liftIO $ delBlock sto (fromHashRef href)
 
@@ -66,21 +66,21 @@ instance (StorageContext m) => HandleMethod m RpcStorageGetChunk where
 instance (StorageContext m) => HandleMethod m RpcStorageGetRef where
 
   handleMethod ref = do
-    debug $ "rpc.storage.getRef" <+> pretty ref
+    trace $ "rpc.storage.getRef" <+> pretty ref
     sto <- getStorage
     liftIO $ getRef sto ref <&> fmap HashRef
 
 instance (StorageContext m) => HandleMethod m RpcStorageUpdateRef where
 
   handleMethod (ref, val) = do
-    debug $ "rpc.storage.updateRef" <+> pretty ref <+> pretty (refMetaData ref)
+    trace $ "rpc.storage.updateRef" <+> pretty ref <+> pretty (refMetaData ref)
     sto <- getStorage
     liftIO $ updateRef sto ref (fromHashRef val)
 
 instance (StorageContext m) => HandleMethod m RpcStorageDelRef where
 
   handleMethod ref = do
-    debug $ "rpc.storage.delRef" <+> pretty ref
+    trace $ "rpc.storage.delRef" <+> pretty ref
     sto <- getStorage
     liftIO $ delRef sto ref
 
