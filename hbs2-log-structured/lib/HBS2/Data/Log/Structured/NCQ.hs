@@ -41,6 +41,7 @@ import System.Posix
 import System.Posix.Fcntl
 import System.Posix.IO
 import System.Posix.Files (setFileSize)
+import System.Posix.IO.ByteString as Posix
 import System.FilePath.Posix
 import System.IO.MMap
 import System.IO.Temp
@@ -215,10 +216,11 @@ nwayFileAllocate :: Fd -> COff -> COff -> IO ()
 nwayFileAllocate fd offset size = do
   let chunk = BS.replicate (fromIntegral size) 0
   _ <- fdSeek fd AbsoluteSeek (fromIntegral offset)
-  void $ fdWrite fd chunk
+  void $ Posix.fdWrite fd chunk
 #else
 nwayFileAllocate = fileAllocate
 #endif
+{-# INLINE nwayFileAllocate #-}
 
 
 nwayWriteBatch :: MonadUnliftIO m
