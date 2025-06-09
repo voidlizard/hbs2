@@ -1266,7 +1266,7 @@ ncqStorageInit_ check path = do
   let ncqQLen            = 32000
   let ncqSyncSize        = 32   * (1024 ^ 2)
   let ncqMinLog          = 1024 * (1024 ^ 2)
-  let ncqMaxSegments     = 64
+  let ncqMaxSegments     = 16
   let ncqCompactTreshold = 128  * 1024^2
 
   let ncqMaxCached = 128
