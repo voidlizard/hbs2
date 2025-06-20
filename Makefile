@@ -19,7 +19,6 @@ BINS := \
   hbs2               \
   hbs2-peer          \
   hbs2-keyman        \
-  git-remote-hbs2    \
   hbs2-cli           \
   hbs2-sync          \
   fixme-new          \

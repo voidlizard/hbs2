@@ -2216,6 +2216,10 @@ internalEntries = do
 
       _ -> pure nil
 
+    entry $ bindMatch "path:split" $ \case
+      [ StringLike p ] -> pure $ mkList (fmap mkStr (splitPath p))
+      _ -> throwIO $ BadFormException @c nil
+
     entry $ bindMatch "path:exists?" $ \case
       [ StringLike p ] -> lift do
         liftIO (Dir.doesPathExist p) <&> mkBool
