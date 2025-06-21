@@ -67,6 +67,7 @@ import System.IO.MMap
 import System.IO qualified as IO
 import System.Exit (exitSuccess, exitFailure)
 import System.Random
+import System.Random.Shuffle (shuffleM)
 import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
@@ -520,6 +521,63 @@ testNCQRefs1 n TestEnv{..} = flip runContT pure do
 
     notice $ "all" <+> pretty n  <+> "refs deleted"
 
+
+testNCQConcurrent1 :: MonadUnliftIO m
+         => Bool
+         -> Int
+         -> Int
+         -> TestEnv
+         -> m ()
+
+testNCQConcurrent1 noRead tn n TestEnv{..} = flip runContT pure do
+
+  let tmp = testEnvDir
+  let inputDir = tmp </> "input"
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  debug "preparing"
+
+  mkdir inputDir
+
+  debug $ pretty inputDir
+
+  filez <- liftIO $ pooledReplicateConcurrentlyN 8 n $ do
+    size <- randomRIO (64*1024, 256*1024)
+    w <- liftIO (randomIO :: IO Word8)
+    let tbs = BS.replicate size w -- replicateM size w <&> BS.pack
+    let ha = hashObject @HbSync tbs -- & show . pretty
+    let fn = inputDir </> show (pretty ha)
+    liftIO $ BS.writeFile fn tbs
+    pure (fn, ha, BS.length tbs)
+
+  debug "done"
+
+  let fnv = V.fromList filez
+  let ssz = sum [ s | (_,_,s) <- filez ] & realToFrac
+
+  setLoggingOff @DEBUG
+
+  for_ [1 .. tn] $ \tnn -> do
+
+    (t,_) <- timeItT $ liftIO $ withNCQ id  ncqDir $ \ncq1 -> do
+
+      pooledForConcurrentlyN_ tnn  fnv $ \(n,ha,_) -> do
+        co <- BS.readFile n <&> LBS.fromStrict
+        putBlock ncq1 co
+
+      pooledReplicateConcurrentlyN_ tnn (10 * V.length fnv) do
+        unless noRead do
+          i <- randomRIO (0, V.length fnv - 1)
+          let (n,ha,_) = fnv ! i
+          sz <- getBlock ncq1 ha
+          none
+
+    let tt = realToFrac @_ @(Fixed E2) t
+    let speed = ((ssz / (1024 **2)) / t) & realToFrac @_ @(Fixed E2)
+    notice $ pretty tnn <+> pretty tt <+> pretty speed
+
+    rm ncqDir
+
 main :: IO ()
 main = do
 
@@ -612,6 +670,20 @@ main = do
           [ LitIntVal n ] -> do
             debug $ "ncq:tree1" <+> pretty n
             runTest $ testNCQTree1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:concurrent1" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            debug $ "ncq:concurrent1" <+> pretty tn <+> pretty n
+            runTest $ testNCQConcurrent1 False ( fromIntegral tn) (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq:concurrent1:wo" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            debug $ "ncq:concurrent1" <+> pretty tn <+> pretty n
+            runTest $ testNCQConcurrent1 True ( fromIntegral tn) (fromIntegral n)
 
           e -> throwIO $ BadFormException @C (mkList e)
 
