@@ -615,9 +615,9 @@ testNCQ2Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
 
   notice "NO SHIT"
 
-  setLoggingOff @DEBUG
+  -- setLoggingOff @DEBUG
 
-  for_ [1 .. tn] $ \tnn -> do
+  for_ [1..tn] $ \tnn -> do
 
     ncq1 <- ncqStorageOpen2 ncqDir (\x -> x { ncqFsync = 64^(1024^2) } )
     w <- ContT $ withAsync (ncqStorageRun2 ncq1)
@@ -628,14 +628,14 @@ testNCQ2Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
         co <- BS.readFile n
         ncqPutBS ncq1 co
 
+      ncqStorageStop2 ncq1
+      performMajorGC
+      wait w
+      rm ncqDir
+
     let tt = realToFrac @_ @(Fixed E2) t
     let speed = ((ssz / (1024 **2)) / t) & realToFrac @_ @(Fixed E2)
     notice $ pretty tnn <+> pretty tt <+> pretty speed
-
-    rm ncqDir
-
-    lift $ ncqStorageStop2 ncq1
-    wait w
 
 main :: IO ()
 main = do
