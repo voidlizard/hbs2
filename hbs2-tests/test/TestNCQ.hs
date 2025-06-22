@@ -21,6 +21,7 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.System.Logger.Simple.ANSI
 
 import HBS2.Storage.NCQ
+import HBS2.Storage.NCQ2
 import HBS2.Data.Log.Structured.NCQ
 
 import HBS2.CLI.Run.Internal.Merkle
@@ -578,6 +579,64 @@ testNCQConcurrent1 noRead tn n TestEnv{..} = flip runContT pure do
 
     rm ncqDir
 
+
+testNCQ2Concurrent1 :: MonadUnliftIO m
+         => Bool
+         -> Int
+         -> Int
+         -> TestEnv
+         -> m ()
+
+testNCQ2Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
+
+  let tmp = testEnvDir
+  let inputDir = tmp </> "input"
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  debug "preparing"
+
+  mkdir inputDir
+
+  debug $ pretty inputDir
+
+  filez <- liftIO $ pooledReplicateConcurrentlyN 8 n $ do
+    size <- randomRIO (64*1024, 256*1024)
+    w <- liftIO (randomIO :: IO Word8)
+    let tbs = BS.replicate size w -- replicateM size w <&> BS.pack
+    let ha = hashObject @HbSync tbs -- & show . pretty
+    let fn = inputDir </> show (pretty ha)
+    liftIO $ BS.writeFile fn tbs
+    pure (fn, ha, BS.length tbs)
+
+  debug "done"
+
+  let fnv = V.fromList filez
+  let ssz = sum [ s | (_,_,s) <- filez ] & realToFrac
+
+  notice "NO SHIT"
+
+  setLoggingOff @DEBUG
+
+  for_ [1 .. tn] $ \tnn -> do
+
+    ncq1 <- ncqStorageOpen2 ncqDir (\x -> x { ncqFsync = 64^(1024^2) } )
+    w <- ContT $ withAsync (ncqStorageRun2 ncq1)
+
+    (t,_) <- timeItT $ liftIO do
+
+      pooledForConcurrentlyN_ tnn  fnv $ \(n,ha,_) -> do
+        co <- BS.readFile n
+        ncqPutBS ncq1 co
+
+    let tt = realToFrac @_ @(Fixed E2) t
+    let speed = ((ssz / (1024 **2)) / t) & realToFrac @_ @(Fixed E2)
+    notice $ pretty tnn <+> pretty tt <+> pretty speed
+
+    rm ncqDir
+
+    lift $ ncqStorageStop2 ncq1
+    wait w
+
 main :: IO ()
 main = do
 
@@ -677,6 +736,13 @@ main = do
           [ LitIntVal tn, LitIntVal n ] -> do
             debug $ "ncq:concurrent1" <+> pretty tn <+> pretty n
             runTest $ testNCQConcurrent1 False ( fromIntegral tn) (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:concurrent1" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
+            runTest $ testNCQ2Concurrent1 False ( fromIntegral tn) (fromIntegral n)
 
           e -> throwIO $ BadFormException @C (mkList e)
 

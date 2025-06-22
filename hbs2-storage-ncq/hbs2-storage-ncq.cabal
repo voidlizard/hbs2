@@ -57,7 +57,9 @@ common shared-properties
 
 library
     import:           shared-properties
-    exposed-modules:  HBS2.Storage.NCQ
+    exposed-modules:
+      HBS2.Storage.NCQ
+      HBS2.Storage.NCQ2
     -- other-modules:
     -- other-extensions:
     build-depends:    base, hbs2-core, hbs2-log-structured, suckless-conf
