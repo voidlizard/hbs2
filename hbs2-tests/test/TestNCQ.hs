@@ -626,7 +626,7 @@ testNCQ2Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
 
       pooledForConcurrentlyN_ tnn  fnv $ \(n,ha,_) -> do
         co <- BS.readFile n
-        ncqPutBS ncq1 co
+        ncqPutBS ncq1 (Just B) Nothing co
 
       ncqStorageStop2 ncq1
       performMajorGC

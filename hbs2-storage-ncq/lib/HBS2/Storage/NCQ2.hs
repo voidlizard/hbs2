@@ -159,9 +159,15 @@ ncqLookupEntrySTM ncq h = do
         v <- readTVar tv
         pure $ Just (v, tv)
 
-ncqPutBS :: MonadUnliftIO m => NCQStorage2 -> ByteString -> m HashRef
-ncqPutBS ncq@NCQStorage2{..} bs = do
-  let h = HashRef (hashObject @HbSync bs)
+ncqPutBS :: MonadUnliftIO m
+         => NCQStorage2
+         -> Maybe NCQSectionType
+         -> Maybe HashRef
+         -> ByteString
+         -> m HashRef
+ncqPutBS ncq@NCQStorage2{..} mtp mhref bs' = do
+  let h = fromMaybe (HashRef (hashObject @HbSync bs')) mhref
+  let bs = ncqMakeSectionBS mtp h bs'
   atomically do
     waitTSem ncqWriteSem
     stop <- readTVar ncqStorageStopReq
@@ -220,7 +226,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure $ callCC \exit -> do
     sync <- readTVarIO ncqStorageSyncReq
 
     when (w > ncqFsync || sync) do
-      liftIO (appendEntry fh undefined (NCQEntryNew 0 ""))
+      -- liftIO (appendEntry fh undefined (NCQEntryNew 0 ""))
       liftIO (fileSynchronise fh)
       atomically do
         writeTVar   ncqStorageSyncReq False
@@ -241,26 +247,26 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure $ callCC \exit -> do
       Right chu -> do
         ws <- for chu $ \h -> do
                 atomically (ncqLookupEntrySTM ncq h) >>= \case
-                  Nothing -> pure 0
-                  Just (r,t)  -> lift (appendEntry fh h r)
+                  Just (r@(NCQEntryNew n bs),t)  -> do
+                    n <- lift (appendSection fh h bs)
+                    atomically (writeTVar t (NCQEntryJustWritten n fh bs))
+                    pure n
+
+                  _ -> pure 0
 
         loop (fh, w + sum ws)
 
   where
 
-    appendEntry :: forall m . MonadUnliftIO m
+    appendSection :: forall m . MonadUnliftIO m
                 => Fd
                 -> HashRef
-                -> NCQEntry
+                -> ByteString
                 -> m Int
 
-    appendEntry fh h (NCQEntryNew _ bs) = do
-      let section = ncqMakeSectionBS Nothing h bs
+    appendSection fh h section = do
       liftIO (Posix.fdWrite fh section) <&> fromIntegral
 
-    appendEntry fh h _ = do
-      pure 0
-
-    {-# INLINE appendEntry #-}
+    {-# INLINE appendSection #-}
 
 
