@@ -1,6 +1,9 @@
 {-# Language MultiWayIf #-}
 {-# Language RecordWildCards #-}
-module HBS2.Storage.NCQ where
+module HBS2.Storage.NCQ
+  ( module HBS2.Storage.NCQ
+  , module HBS2.Storage.NCQ.Types
+  ) where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
@@ -9,8 +12,10 @@ import HBS2.Data.Types.Refs
 import HBS2.Base58
 import HBS2.Net.Auth.Credentials
 import HBS2.Storage
+import HBS2.Storage.NCQ.Types
 import HBS2.Misc.PrettyStuff
 import HBS2.System.Logger.Simple.ANSI
+
 
 import HBS2.Data.Log.Structured.NCQ
 import HBS2.Data.Log.Structured.SD
@@ -180,40 +185,6 @@ data NCQStorage =
   }
 
 
--- Log structure:
--- (SD)*
--- S      ::= word32be, section prefix
--- D      ::= HASH PREFIX DATA
--- HASH   ::= BYTESTRING(32)
--- PREFIX ::= BYTESTRING(4)
--- DATA   ::= BYTESTRING(n) | n == S - LEN(WORD32) - LEN(HASH) - LEN(PREFIX)
-
-newtype NCQFullRecordLen a =
-  NCQFullRecordLen a
-  deriving newtype (Num,Enum,Integral,Real,Ord,Eq)
-
--- including prefix
-ncqFullDataLen :: forall a . Integral a => NCQFullRecordLen a -> a
-ncqFullDataLen full = fromIntegral full - ncqKeyLen
-{-# INLINE ncqFullDataLen #-}
-
-ncqKeyLen :: forall a . Integral a => a
-ncqKeyLen = 32
-{-# INLINE ncqKeyLen #-}
-
--- 'S' in SD, i.e size, i.e section header
-ncqSLen:: forall a . Integral a => a
-ncqSLen = 4
-{-# INLINE ncqSLen #-}
-
-ncqDataOffset :: forall a b . (Integral a, Integral b) => a -> b
-ncqDataOffset base = fromIntegral base + ncqSLen + ncqKeyLen
-{-# INLINE ncqDataOffset #-}
-
-
-ncqFullTombLen :: forall a . Integral a => a
-ncqFullTombLen = ncqSLen + ncqKeyLen + ncqPrefixLen + 0
-{-# INLINE ncqFullTombLen #-}
 
 instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString  m where
     putBlock ncq lbs = fmap coerce <$> ncqStoragePutBlock ncq lbs
@@ -848,27 +819,6 @@ ncqStorageGetBlock ncq h = do
     Just lbs | not (ncqIsTomb lbs) -> pure (Just $ LBS.drop ncqPrefixLen lbs)
     _ -> pure Nothing
 
-data NCQSectionType = B | R | T
-                      deriving stock (Eq,Ord,Show)
-
-instance Pretty NCQSectionType where
-  pretty = \case
-    B -> "B"
-    T -> "T"
-    R -> "R"
-
-ncqPrefixLen :: Integral a => a
-ncqPrefixLen = 4
-{-# INLINE ncqPrefixLen #-}
-
-ncqRefPrefix :: ByteString
-ncqRefPrefix = "R;;\x00"
-
-ncqBlockPrefix :: ByteString
-ncqBlockPrefix = "B;;\x00"
-
-ncqTombPrefix :: ByteString
-ncqTombPrefix = "T;;\x00"
 
 ncqLocatedSize :: Location -> Integer
 ncqLocatedSize = \case

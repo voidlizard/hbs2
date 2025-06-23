@@ -1,6 +1,10 @@
 {-# Language MultiWayIf #-}
 {-# Language RecordWildCards #-}
-module HBS2.Storage.NCQ2 where
+module HBS2.Storage.NCQ2
+  ( module HBS2.Storage.NCQ2
+  , module HBS2.Storage.NCQ.Types
+  )
+  where
 
 import HBS2.Prelude.Plated
 import HBS2.Hash
@@ -14,6 +18,8 @@ import HBS2.System.Logger.Simple.ANSI
 
 import HBS2.Data.Log.Structured.NCQ
 import HBS2.Data.Log.Structured.SD
+
+import HBS2.Storage.NCQ.Types
 
 import Data.Config.Suckless.System
 import Data.Config.Suckless.Script hiding (void)
@@ -214,6 +220,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure $ callCC \exit -> do
     sync <- readTVarIO ncqStorageSyncReq
 
     when (w > ncqFsync || sync) do
+      liftIO (appendEntry fh undefined (NCQEntryNew 0 ""))
       liftIO (fileSynchronise fh)
       atomically do
         writeTVar   ncqStorageSyncReq False
@@ -241,11 +248,14 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure $ callCC \exit -> do
 
   where
 
-    appendEntry :: Fd -> HashRef -> NCQEntry -> m Int
+    appendEntry :: forall m . MonadUnliftIO m
+                => Fd
+                -> HashRef
+                -> NCQEntry
+                -> m Int
 
     appendEntry fh h (NCQEntryNew _ bs) = do
-      let ss = N.bytestring32 (32 + fromIntegral (BS.length bs))
-      let section = ss <> coerce h <> bs
+      let section = ncqMakeSectionBS Nothing h bs
       liftIO (Posix.fdWrite fh section) <&> fromIntegral
 
     appendEntry fh h _ = do

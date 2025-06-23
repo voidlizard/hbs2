@@ -60,6 +60,7 @@ library
     exposed-modules:
       HBS2.Storage.NCQ
       HBS2.Storage.NCQ2
+      HBS2.Storage.NCQ.Types
     -- other-modules:
     -- other-extensions:
     build-depends:    base, hbs2-core, hbs2-log-structured, suckless-conf
