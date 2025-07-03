@@ -130,8 +130,10 @@ runTest action = do
   flip runContT pure do
     ContT $ bracket none $ const do
       unless keep (rm tmp)
+      flushLoggers
 
     lift $ lift $ action (TestEnv tmp)
+
 
 testNCQFuckupRecovery1 :: MonadUnliftIO m
                        => TestEnv
@@ -680,6 +682,7 @@ testNCQ2ConcurrentWriteSimple1 tn n TestEnv{..} = flip runContT pure do
     ncqPutBS ncq1 (Just B) Nothing co
 
   liftIO $ ncqStorageStop2 ncq1
+  wait w
 
 main :: IO ()
 main = do
