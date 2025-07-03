@@ -6,8 +6,13 @@ import HBS2.Hash
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Network.ByteOrder qualified as N
 import Data.Coerce
+import System.FilePath
+import Data.Word
+import Data.Data
+import Control.Exception
 
 -- Log structure:
 -- (SD)*
@@ -16,6 +21,17 @@ import Data.Coerce
 -- HASH   ::= BYTESTRING(32)
 -- PREFIX ::= BYTESTRING(4)
 -- DATA   ::= BYTESTRING(n) | n == S - LEN(WORD32) - LEN(HASH) - LEN(PREFIX)
+
+newtype FileKey = FileKey ByteString
+                  deriving newtype (Eq,Ord,Hashable,Show)
+
+instance IsString FileKey where
+  fromString = FileKey . BS8.pack . dropExtension . takeFileName
+
+instance Pretty FileKey where
+  pretty (FileKey s) = parens ("file-key" <+> pretty (BS8.unpack s))
+
+
 
 newtype NCQFullRecordLen a =
   NCQFullRecordLen a
@@ -86,5 +102,22 @@ ncqMakeSectionBS t h bs = do
         Just R  -> (ncqPrefixLen, ncqRefPrefix)
 
 {-# INLINE ncqMakeSectionBS #-}
+
+
+data NCQFsckException =
+  NCQFsckException | NCQFsckIssueExt NCQFsckIssueType
+  deriving stock (Show,Typeable)
+
+instance Exception NCQFsckException
+
+data NCQFsckIssueType =
+    FsckInvalidPrefix
+  | FsckInvalidContent
+  | FsckInvalidFileSize Integer
+  deriving stock (Eq,Ord,Show,Data,Generic)
+
+data NCQFsckIssue =
+  NCQFsckIssue FilePath Word64 NCQFsckIssueType
+  deriving stock (Eq,Ord,Show,Data,Generic)
 
 

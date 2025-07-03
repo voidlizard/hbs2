@@ -637,6 +637,50 @@ testNCQ2Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
     let speed = ((ssz / (1024 **2)) / t) & realToFrac @_ @(Fixed E2)
     notice $ pretty tnn <+> pretty tt <+> pretty speed
 
+
+testNCQ2ConcurrentWriteSimple1 :: MonadUnliftIO m
+         => Int
+         -> Int
+         -> TestEnv
+         -> m ()
+
+testNCQ2ConcurrentWriteSimple1 tn n TestEnv{..} = flip runContT pure do
+
+  let tmp = testEnvDir
+  let inputDir = tmp </> "input"
+  let ncqDir   = tmp </> "ncq-test-data"
+
+  debug "preparing"
+
+  mkdir inputDir
+
+  debug $ pretty inputDir
+
+  filez <- liftIO $ pooledReplicateConcurrentlyN 8 n $ do
+    size <- randomRIO (64*1024, 256*1024)
+    w <- liftIO (randomIO :: IO Word8)
+    let tbs = BS.replicate size w -- replicateM size w <&> BS.pack
+    let ha = hashObject @HbSync tbs -- & show . pretty
+    let fn = inputDir </> show (pretty ha)
+    liftIO $ BS.writeFile fn tbs
+    pure (fn, ha, BS.length tbs)
+
+  debug "done"
+
+  let fnv = V.fromList filez
+  let ssz = sum [ s | (_,_,s) <- filez ] & realToFrac
+
+  -- setLoggingOff @DEBUG
+
+  ncq1 <- ncqStorageOpen2 ncqDir (\x -> x { ncqFsync = 64^(1024^2) } )
+  w <- ContT $ withAsync (ncqStorageRun2 ncq1)
+
+  liftIO $ pooledForConcurrentlyN_ tn  fnv $ \(n,ha,_) -> do
+    co <- BS.readFile n
+    ncqPutBS ncq1 (Just B) Nothing co
+
+  liftIO $ ncqStorageStop2 ncq1
+
 main :: IO ()
 main = do
 
@@ -743,6 +787,19 @@ main = do
           [ LitIntVal tn, LitIntVal n ] -> do
             debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
             runTest $ testNCQ2Concurrent1 False ( fromIntegral tn) (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "test:ncq2:filefastcheck" $ nil_ $ \case
+          [ StringLike fn ] -> do
+            ncqFileFastCheck fn
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:concurrent:write:simple1" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            runTest $ testNCQ2ConcurrentWriteSimple1 ( fromIntegral tn) (fromIntegral n)
 
           e -> throwIO $ BadFormException @C (mkList e)
 

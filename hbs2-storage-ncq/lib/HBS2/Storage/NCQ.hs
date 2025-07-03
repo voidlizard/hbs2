@@ -112,15 +112,6 @@ data NCQStorageException =
 instance Exception NCQStorageException
 
 
-newtype FileKey = FileKey ByteString
-                  deriving newtype (Eq,Ord,Hashable,Show)
-
-instance IsString FileKey where
-  fromString = FileKey . BS8.pack . dropExtension . takeFileName
-
-instance Pretty FileKey where
-  pretty (FileKey s) = parens ("file-key" <+> pretty (BS8.unpack s))
-
 newtype FilePrio = FilePrio (Down TimeSpec)
                     deriving newtype (Eq,Ord)
                     deriving stock (Generic,Show)
@@ -1290,21 +1281,6 @@ ncqStorageInit_ check path = do
   pure ncq
 
 
-data NCQFsckException =
-  NCQFsckException
-  deriving stock (Show,Typeable)
-
-instance Exception NCQFsckException
-
-data NCQFsckIssueType =
-    FsckInvalidPrefix
-  | FsckInvalidContent
-  | FsckInvalidFileSize
-  deriving stock (Eq,Ord,Show,Data,Generic)
-
-data NCQFsckIssue =
-  NCQFsckIssue FilePath Word64 NCQFsckIssueType
-  deriving stock (Eq,Ord,Show,Data,Generic)
 
 ncqFsck :: MonadUnliftIO m => FilePath -> m [NCQFsckIssue]
 ncqFsck fp = do
@@ -1368,7 +1344,7 @@ ncqFsckOne fp = do
   lastOff <- readTVarIO toff
 
   unless (fromIntegral (BS.length mmaped) == lastOff) do
-    emit (NCQFsckIssue fp lastOff FsckInvalidFileSize)
+    emit (NCQFsckIssue fp lastOff (FsckInvalidFileSize (fromIntegral lastOff)))
 
   tombs <- readTVarIO ttombs <&> realToFrac
   total <- readTVarIO ttotal <&> realToFrac
