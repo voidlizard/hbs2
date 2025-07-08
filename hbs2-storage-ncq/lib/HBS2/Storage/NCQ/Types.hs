@@ -4,15 +4,20 @@ import HBS2.Prelude
 import HBS2.Data.Types.Refs
 import HBS2.Hash
 
+import HBS2.Data.Log.Structured.NCQ
+
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Network.ByteOrder qualified as N
+import Data.Ord (Down(..))
 import Data.Coerce
 import System.FilePath
 import Data.Word
 import Data.Data
 import Control.Exception
+
+import UnliftIO (TVar)
 
 -- Log structure:
 -- (SD)*
@@ -22,6 +27,20 @@ import Control.Exception
 -- PREFIX ::= BYTESTRING(4)
 -- DATA   ::= BYTESTRING(n) | n == S - LEN(WORD32) - LEN(HASH) - LEN(PREFIX)
 
+data NCQStorageException =
+    NCQStorageAlreadyExist String
+  | NCQStorageSeedMissed
+  | NCQStorageTimeout
+  | NCQStorageCurrentAlreadyOpen
+  | NCQStorageCantOpenCurrent
+  | NCQStorageBrokenCurrent
+  | NCQMergeInvariantFailed String
+  | NCQStorageCantLock FilePath
+  | NCQStorageCantMapFile FilePath
+  deriving stock (Show,Typeable)
+
+instance Exception NCQStorageException
+
 newtype FileKey = FileKey ByteString
                   deriving newtype (Eq,Ord,Hashable,Show)
 
@@ -30,6 +49,50 @@ instance IsString FileKey where
 
 instance Pretty FileKey where
   pretty (FileKey s) = parens ("file-key" <+> pretty (BS8.unpack s))
+
+newtype DataFile a = DataFile a
+
+newtype IndexFile a = IndexFile a
+
+class ToFileName a where
+  toFileName :: a -> FilePath
+
+instance ToFileName FileKey where
+  toFileName = BS8.unpack . coerce
+
+instance ToFileName (DataFile FileKey) where
+  toFileName (DataFile fk) = dropExtension  (toFileName fk) `addExtension` ".data"
+
+
+instance ToFileName (IndexFile FileKey) where
+  toFileName (IndexFile fk) = dropExtension  (toFileName fk) `addExtension` ".cq"
+
+instance ToFileName (DataFile FilePath) where
+  toFileName (DataFile fp) = dropExtension  fp `addExtension` ".data"
+
+instance ToFileName (IndexFile FilePath) where
+  toFileName (IndexFile fp) = dropExtension  fp `addExtension` ".cq"
+
+newtype FilePrio = FilePrio (Down TimeSpec)
+                    deriving newtype (Eq,Ord)
+                    deriving stock (Generic,Show)
+
+mkFilePrio :: TimeSpec -> FilePrio
+mkFilePrio = FilePrio . Down
+
+timeSpecFromFilePrio :: FilePrio -> TimeSpec
+timeSpecFromFilePrio (FilePrio what) = getDown what
+{-# INLINE timeSpecFromFilePrio #-}
+
+data CachedEntry =
+  CachedEntry { cachedMmapedIdx  :: ByteString
+              , cachedMmapedData :: ByteString
+              , cachedNway       :: NWayHash
+              , cachedTs         :: TVar TimeSpec
+              }
+
+instance Show CachedEntry where
+  show _ = "CachedEntry{...}"
 
 
 
@@ -119,5 +182,12 @@ data NCQFsckIssueType =
 data NCQFsckIssue =
   NCQFsckIssue FilePath Word64 NCQFsckIssueType
   deriving stock (Eq,Ord,Show,Data,Generic)
+
+
+posixToTimeSpec :: POSIXTime -> TimeSpec
+posixToTimeSpec pt =
+  let (s, frac) = properFraction pt :: (Integer, POSIXTime)
+      ns = round (frac * 1e9)
+  in TimeSpec (fromIntegral s) ns
 
 

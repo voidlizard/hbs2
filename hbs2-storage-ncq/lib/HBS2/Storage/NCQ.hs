@@ -98,40 +98,8 @@ import System.FileLock as FL
 
 type NCQPerks m = MonadIO m
 
-data NCQStorageException =
-    NCQStorageAlreadyExist String
-  | NCQStorageSeedMissed
-  | NCQStorageTimeout
-  | NCQStorageCurrentAlreadyOpen
-  | NCQStorageCantOpenCurrent
-  | NCQStorageBrokenCurrent
-  | NCQMergeInvariantFailed String
-  | NCQStorageCantLock FilePath
-  deriving stock (Show,Typeable)
-
-instance Exception NCQStorageException
 
 
-newtype FilePrio = FilePrio (Down TimeSpec)
-                    deriving newtype (Eq,Ord)
-                    deriving stock (Generic,Show)
-
-mkFilePrio :: TimeSpec -> FilePrio
-mkFilePrio = FilePrio . Down
-
-timeSpecFromFilePrio :: FilePrio -> TimeSpec
-timeSpecFromFilePrio (FilePrio what) = getDown what
-{-# INLINE timeSpecFromFilePrio #-}
-
-data CachedEntry =
-  CachedEntry { cachedMmapedIdx  :: ByteString
-              , cachedMmapedData :: ByteString
-              , cachedNway       :: NWayHash
-              , cachedTs         :: TVar TimeSpec
-              }
-
-instance Show CachedEntry where
-  show _ = "CachedEntry{...}"
 
 data WQItem =
     WQItem { wqNew :: Bool
@@ -1525,12 +1493,6 @@ ncqStorageMergeStep ncq@NCQStorage{..}  = flip runContT pure do
       r <- what
       unless r (throwIO (NCQMergeInvariantFailed (show e)))
 
-
-posixToTimeSpec :: POSIXTime -> TimeSpec
-posixToTimeSpec pt =
-  let (s, frac) = properFraction pt :: (Integer, POSIXTime)
-      ns = round (frac * 1e9)
-  in TimeSpec (fromIntegral s) ns
 
 
 -- NOTE: incremental

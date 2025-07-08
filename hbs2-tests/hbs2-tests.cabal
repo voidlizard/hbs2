@@ -1220,6 +1220,7 @@ executable test-ncq
         , mmap
         , zstd
         , unix
+        , mwc-random
 
 
 
