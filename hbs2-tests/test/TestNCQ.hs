@@ -597,7 +597,7 @@ testNCQ2Simple1 TestEnv{..} = do
 
   g <- liftIO MWC.createSystemRandom
 
-  bz <- replicateM 1000 $ liftIO do
+  bz <- replicateM 30000 $ liftIO do
           n <- (`mod` (256*1024)) <$> uniformM @Int g
           uniformByteStringM n g
 
@@ -615,6 +615,50 @@ testNCQ2Simple1 TestEnv{..} = do
       assertBool (show $ "found-immediate" <+> pretty ha) (found > 0)
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
+
+testNCQ2Repair1:: MonadUnliftIO m
+         => TestEnv
+         -> m ()
+
+testNCQ2Repair1 TestEnv{..} = do
+  debug "testNCQ2Repair1"
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+  q <- newTQueueIO
+
+  g <- liftIO MWC.createSystemRandom
+
+  bz <- replicateM 3000 $ liftIO do
+          n <- (`mod` (256*1024)) <$> uniformM @Int g
+          uniformByteStringM n g
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    for_ bz $ \z ->  do
+      h <- ncqPutBS sto (Just B) Nothing z
+      atomically $ writeTQueue q h
+      found <- ncqSearchBS sto h <&> maybe (-1) BS.length
+      assertBool (show $ "found-immediate" <+> pretty h) (found > 0)
+    written <- N2.ncqListTrackedFiles sto
+    debug $ "TRACKED" <+> vcat (fmap pretty written)
+    toDestroy <- pure (headMay written) `orDie` "no file written"
+
+    debug $ "adding garbage to" <+> pretty toDestroy
+
+    k <- (`mod` 4096) <$> uniformM @Int g
+    shit <- uniformByteStringM k g
+    let df = toFileName (DataFile toDestroy)
+    let f = N2.ncqGetFileName sto df
+    let cq = N2.ncqGetFileName sto (toFileName (IndexFile toDestroy))
+    rm cq
+    BS.appendFile f shit
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    hashes <- atomically (STM.flushTQueue q)
+    for_ hashes $ \ha -> do
+      found <- ncqSearchBS sto ha <&> maybe (-1) BS.length
+      none
+      -- assertBool (show $ "found-immediate" <+> pretty ha) (found > 0)
+      -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
 testNCQ2Concurrent1 :: MonadUnliftIO m
          => Bool
@@ -829,6 +873,9 @@ main = do
 
         entry $ bindMatch "test:ncq2:simple1" $ nil_ $ const $ do
             runTest testNCQ2Simple1
+
+        entry $ bindMatch "test:ncq2:repair1" $ nil_ $ const $ do
+            runTest testNCQ2Repair1
 
         entry $ bindMatch "test:ncq2:filefastcheck" $ nil_ $ \case
           [ StringLike fn ] -> do

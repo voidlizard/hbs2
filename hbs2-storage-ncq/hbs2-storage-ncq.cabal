@@ -68,6 +68,7 @@ library
                     , binary
                     , bytestring
                     , bytestring-mmap
+                    , bitvec
                     , containers
                     , directory
                     , filepath
@@ -125,6 +126,7 @@ executable hbs2-ncq
                     , base58-bytestring
                     , binary
                     , bytestring
+                    , bitvec
                     , cborg
                     , clock
                     , containers

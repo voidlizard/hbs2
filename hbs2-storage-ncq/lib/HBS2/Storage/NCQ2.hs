@@ -32,6 +32,7 @@ import Codec.Compression.Zstd.Streaming (Result(..))
 import Control.Applicative
 import Data.ByteString.Builder
 import Network.ByteOrder qualified as N
+import Data.Bit.ThreadSafe qualified as BV
 import Data.HashMap.Strict (HashMap)
 import Control.Monad.Except
 import Control.Monad.Trans.Cont
@@ -110,6 +111,7 @@ data NCQStorage2 =
   NCQStorage2
   { ncqRoot           :: FilePath
   , ncqGen            :: Int
+  , ncqSalt           :: HashRef
   , ncqFsync          :: Int
   , ncqWriteQLen      :: Int
   , ncqWriteBlock     :: Int
@@ -147,13 +149,18 @@ ncqStorageOpen2 fp upd = do
   ncqSyncNo         <- newTVarIO 0
   ncqTrackedFiles   <- newTVarIO HPSQ.empty
   ncqCachedEntries  <- newTVarIO 0
+
+  let ncqSalt       = "EstEFasxrCFqsGDxcY4haFcha9e4ZHRzsPbGUmDfdxLk"
+
   let ncq = NCQStorage2{..} & upd
 
   mkdir (ncqGetWorkDir ncq)
 
   ncqRepair ncq
+  ncqLoadIndexes ncq
 
   pure ncq
+
 
 ncqWithStorage :: MonadUnliftIO m => FilePath -> ( NCQStorage2 -> m a ) -> m a
 ncqWithStorage fp action = flip runContT pure do
@@ -276,6 +283,14 @@ ncqAlterEntrySTM :: NCQStorage2 -> HashRef -> (Maybe NCQEntry -> Maybe NCQEntry)
 ncqAlterEntrySTM ncq h alterFn = do
   let shard = ncqGetShard ncq h
   modifyTVar shard (HM.alter alterFn h)
+
+
+ncqStorageDel :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m ()
+ncqStorageDel ncq@NCQStorage2{..} h = flip runContT pure $ callCC \exit -> do
+  -- 1. absent
+  -- 1. in memtable only
+  -- 2. in disk
+  none
 
 data RunSt =
     RunNew
@@ -407,7 +422,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
       -- on open: last w64be == fileSize
       let paylo = N.bytestring64 (fromIntegral w + zeroSyncEntrySize)
       let h     = hashObject @HbSync paylo & coerce
-      ncqMakeSectionBS (Just B) h paylo
+      ncqMakeSectionBS (Just M) h paylo
     {-# INLINE fileTailRecord #-}
 
     appendSection :: forall m . MonadUnliftIO m
@@ -491,39 +506,24 @@ ncqIndexFile n@NCQStorage2{}  fk = do
   mv result dest
   pure dest
 
-
-ncqAddTrackedFilesSTM :: NCQStorage2 -> [(FileKey, TimeSpec)] -> STM ()
-ncqAddTrackedFilesSTM NCQStorage2{..} keys = do
-  old <- readTVar ncqTrackedFiles
-  let new = flip fix (old, keys) \next -> \case
-       (s, []) -> s
-       (s, (k,ts):xs) -> next (HPSQ.insert k (FilePrio (Down ts)) Nothing s, xs)
-  writeTVar ncqTrackedFiles new
-
-ncqAddTrackedFile :: MonadIO m => NCQStorage2 -> DataFile FileKey -> m ()
-ncqAddTrackedFile ncq fkey = do
+ncqAddTrackedFile :: MonadIO m => NCQStorage2 -> DataFile FileKey -> m Bool
+ncqAddTrackedFile ncq@NCQStorage2{..} fkey = flip runContT pure $ callCC \exit -> do
   let fname = ncqGetFileName ncq (toFileName fkey)
+  let idxName = ncqGetFileName ncq (toFileName (IndexFile (coerce @_ @FileKey fkey)))
+
+  idxHere <- doesFileExist idxName
+
+  unless idxHere do
+    err $ "Index does not exist"  <+> pretty (takeFileName idxName)
+    exit False
+
   stat <- liftIO $ PFS.getFileStatus fname
+  -- FIXME: maybe-creation-time-actually
   let ts = posixToTimeSpec $ PFS.modificationTimeHiRes stat
   let fk = fromString (takeFileName fname)
-  atomically $ ncqAddTrackedFilesSTM ncq [(fk, ts)]
-
-
-ncqAddTrackedFilesIO :: MonadIO m => NCQStorage2 -> [FilePath] -> m ()
-ncqAddTrackedFilesIO ncq fps = do
-  tsFiles <- catMaybes <$> forM fps \fp' -> liftIO $ do
-    catchIOError
-      (do
-          let fp = fromString fp'
-          let dataFile = ncqGetFileName ncq (toFileName (DataFile fp))
-          stat <- getFileStatus dataFile
-          let ts = modificationTimeHiRes stat
-          pure $ Just (fp, posixToTimeSpec ts))
-      (\e -> do
-          err $ "ncqAddTrackedFilesIO: failed to stat " <+> viaShow e
-          pure Nothing)
-
-  atomically $ ncqAddTrackedFilesSTM ncq tsFiles
+  atomically do
+    modifyTVar' ncqTrackedFiles (HPSQ.insert fk (FilePrio (Down ts)) Nothing)
+    pure True
 
 evictIfNeededSTM :: NCQStorage2 -> Maybe Int -> STM ()
 evictIfNeededSTM NCQStorage2{..} howMany = do
@@ -562,18 +562,54 @@ ncqListTrackedFiles ncq = do
      <&> List.filter (List.isPrefixOf "fossil-")
      <&> HS.toList . HS.fromList
 
+
+ncqLoadSomeIndexes :: MonadIO m => NCQStorage2 -> [FileKey] -> m ()
+ncqLoadSomeIndexes ncq@NCQStorage2{..} keys = do
+  now <- getTimeCoarse
+
+  mapM_ (ncqAddTrackedFile ncq) (fmap DataFile keys)
+
+  loaded <- catMaybes <$> forM keys \key -> runMaybeT do
+    mEntry <- liftIO $ readTVarIO ncqTrackedFiles <&> HPSQ.lookup key
+    guard (maybe True (\(_, m) -> isNothing m) mEntry)
+
+    let idxFile = ncqGetFileName ncq (toFileName $ IndexFile key)
+    let datFile = ncqGetFileName  ncq (toFileName $ DataFile key)
+
+    (mmIdx, nway) <- MaybeT $ liftIO $ nwayHashMMapReadOnly idxFile
+    mmData        <- liftIO $ mmapFileByteString datFile Nothing
+    tnow <- newTVarIO now
+    pure (key, CachedEntry mmIdx mmData nway tnow)
+
+  atomically do
+    evictIfNeededSTM ncq (Just (List.length loaded))
+
+    for_ loaded \(k, ce) -> do
+      files <- readTVar ncqTrackedFiles
+      case HPSQ.lookup k files of
+        Just (p, Nothing) -> do
+          modifyTVar ncqTrackedFiles (HPSQ.insert k p (Just ce))
+          modifyTVar ncqCachedEntries (+1)
+        _ -> pure ()
+
+ncqLoadIndexes :: MonadIO m => NCQStorage2 -> m ()
+ncqLoadIndexes ncq@NCQStorage2{..} = do
+  w <- readTVarIO ncqTrackedFiles
+          <&> List.take (ncqMaxCached `div` 2) . HPSQ.keys
+  ncqLoadSomeIndexes ncq w
+
 ncqRepair :: MonadIO m => NCQStorage2 -> m ()
-ncqRepair me@NCQStorage2{..} = do
+ncqRepair me@NCQStorage2{} = do
   fossils <- ncqListTrackedFiles me
-  debug "ncqRepair"
-  debug $ vcat (fmap pretty fossils)
 
   for_ fossils $ \fo -> liftIO $ flip fix 0 \next i -> do
     let dataFile = ncqGetFileName me $ toFileName (DataFile fo)
-    try @_ @IOException (ncqFileFastCheck dataFile) >>= \case
+    try @_ @SomeException (ncqFileFastCheck dataFile) >>= \case
       Left e -> do
         err (viaShow e)
-        mv fo (dropExtension fo `addExtension` ".broken")
+        -- TODO: try-fix-later
+        mv dataFile (dropExtension dataFile `addExtension` ".broken")
+        rm (ncqGetFileName me (toFileName (IndexFile fo)))
 
       Right{} | i <= 1 -> do
         let dataKey = DataFile (fromString fo)
@@ -585,8 +621,12 @@ ncqRepair me@NCQStorage2{..} = do
           debug  $ "indexed" <+> pretty r
           next (succ i)
 
-        ncqAddTrackedFile me dataKey
+        void $ ncqAddTrackedFile me dataKey
 
       Right{} -> do
         err $ "skip indexing" <+> pretty dataFile
+
+
+ncqRefHash :: NCQStorage2 -> HashRef -> HashRef
+ncqRefHash NCQStorage2 {..} h = HashRef (hashObject (coerce @_ @ByteString h <> coerce ncqSalt))
 

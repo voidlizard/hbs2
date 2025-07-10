@@ -124,7 +124,7 @@ ncqFullTombLen = ncqSLen + ncqKeyLen + ncqPrefixLen + 0
 {-# INLINE ncqFullTombLen #-}
 
 
-data NCQSectionType = B | R | T
+data NCQSectionType = B | R | T | M
                       deriving stock (Eq,Ord,Show)
 
 instance Pretty NCQSectionType where
@@ -132,6 +132,7 @@ instance Pretty NCQSectionType where
     B -> "B"
     T -> "T"
     R -> "R"
+    M -> "M"
 
 ncqPrefixLen :: Integral a => a
 ncqPrefixLen = 4
@@ -145,6 +146,9 @@ ncqBlockPrefix = "B;;\x00"
 
 ncqTombPrefix :: ByteString
 ncqTombPrefix = "T;;\x00"
+
+ncqMetaPrefix :: ByteString
+ncqMetaPrefix = "M;;\x00"
 
 ncqMakeSectionBS :: Maybe NCQSectionType
                  -> HashRef
@@ -163,6 +167,7 @@ ncqMakeSectionBS t h bs = do
         Just B  -> (ncqPrefixLen, ncqBlockPrefix)
         Just T  -> (ncqPrefixLen, ncqTombPrefix)
         Just R  -> (ncqPrefixLen, ncqRefPrefix)
+        Just M  -> (ncqPrefixLen, ncqMetaPrefix)
 
 {-# INLINE ncqMakeSectionBS #-}
 
