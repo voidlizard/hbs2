@@ -22,6 +22,7 @@ common common-deps
         , fuzzy-parse
         , async
         , bytestring
+        , bloomfilter
         , cache
         , containers
         , data-default

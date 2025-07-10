@@ -40,6 +40,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text.Encoding qualified as TE
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Builder
+import Data.Hashable (hash)
 import Data.Maybe
 import Data.Either
 import Data.Word
@@ -58,6 +59,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.IntMap qualified as IntMap
 import Data.IntMap (IntMap)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.Fixed
 import System.Environment
 import System.FilePath.Posix
@@ -87,6 +90,8 @@ import Streaming.Prelude qualified as S
 import System.TimeIt
 
 import System.IO.Unsafe (unsafePerformIO)
+
+import Data.BloomFilter.Easy as Bloom
 
 {- HLINT ignore "Functor law" -}
 
@@ -616,6 +621,83 @@ testNCQ2Simple1 TestEnv{..} = do
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
 
+
+testFilterEmulate1 :: MonadUnliftIO m
+         => Int
+         -> TestEnv
+         -> m ()
+
+testFilterEmulate1 n TestEnv{..} = do
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+
+  g <- liftIO MWC.createSystemRandom
+
+  bz <- replicateM n $ liftIO do
+          n <- (`mod` (64*1024)) <$> uniformM @Int g
+          uniformByteStringM n g
+
+
+  hs' <- newTVarIO (mempty  :: HashSet HashRef)
+  noHs' <- newTVarIO (mempty  :: HashSet HashRef)
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    for bz $ \z ->  do
+      h <- ncqPutBS sto (Just B) Nothing z
+      atomically $ modifyTVar' hs' (HS.insert h)
+
+  replicateM_ (max 100 (n `div` 3)) $ liftIO do
+    n <- (`mod` (64*1024)) <$> uniformM @Int g
+    fake <- HashRef . hashObject @HbSync <$> uniformByteStringM n g
+    atomically $ modifyTVar' noHs' (HS.insert fake)
+
+  hs <- readTVarIO hs'
+  noHs <- readTVarIO noHs'
+
+  let allShit = HS.toList hs <> HS.toList noHs
+
+  let bloom = easyList 0.01 (fmap (coerce @_ @ByteString) (HS.toList hs))
+
+  let bucno e = hash e `mod` 4096
+
+  let dumb  = IntSet.fromList [ bucno k | k <- HS.toList hs ]
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+
+    for_ [1..4] $ \i -> do
+
+      notice $ "-- pass" <+> pretty i <+> "--"
+
+      (t1,_) <- timeItT do
+          for_ allShit $ \ha -> do
+             ncqSearchBS sto ha <&> maybe (-1) BS.length
+
+      notice $ "lookup-no-filter" <+> pretty (realToFrac @_ @(Fixed E3) t1)
+
+      (t2,_) <- timeItT do
+          for_ allShit $ \ha -> do
+             unless (HS.member  ha noHs) do
+               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+
+      notice $ "lookup-fake-filter" <+> pretty (realToFrac @_ @(Fixed E3) t2)
+
+      (t3,_) <- timeItT do
+          for_ allShit $ \ha -> do
+             let here = IntSet.member (bucno ha) dumb
+             when here do
+               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+
+      notice $ "lookup-dumb-filter" <+> pretty (realToFrac @_ @(Fixed E3) t3)
+
+      (t4,_) <- timeItT do
+          for_ allShit $ \ha -> do
+             let here = Bloom.elem (coerce ha) bloom
+             when here do
+               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+
+      notice $ "lookup-simple-bloom-filter" <+> pretty (realToFrac @_ @(Fixed E3) t4)
+
+
 testNCQ2Repair1:: MonadUnliftIO m
          => TestEnv
          -> m ()
@@ -922,6 +1004,11 @@ main = do
                   Just Left{} -> none
                   _ ->  liftIO $ assertBool "must be (Left _)" False
 
+          e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "test:filter:emulate-1" $ nil_ $ \case
+          [ LitIntVal n ] -> runTest $ testFilterEmulate1 (fromIntegral n)
           e -> throwIO $ BadFormException @C (mkList e)
 
         hidden do
