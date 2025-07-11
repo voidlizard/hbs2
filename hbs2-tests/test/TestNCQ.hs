@@ -1105,6 +1105,19 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
+        entry $ bindMatch "test:ncq2:ema" $ nil_ $ const do
+          notice "test:ncq2:ema"
+          runTest $ \TestEnv{..} -> do
+            g <- liftIO MWC.createSystemRandom
+            let dir = testEnvDir </> "ncq1"
+            let n = 50000
+            ncqWithStorage dir $ \sto -> do
+              replicateM_ n do
+                ncqPutBS sto (Just B) Nothing =<< genRandomBS g (256*1024)
+
+              notice $ "written" <+> pretty n
+
+              pause @'Seconds 120
 
         entry $ bindMatch "test:filter:emulate-1" $ nil_ $ \case
           [ LitIntVal n ] -> runTest $ testFilterEmulate1 (fromIntegral n)
