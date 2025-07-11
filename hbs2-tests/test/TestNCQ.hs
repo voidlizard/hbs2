@@ -621,6 +621,99 @@ testNCQ2Simple1 TestEnv{..} = do
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
 
+genRandomBS :: forall g m . (Monad m, StatefulGen g m) => g -> Int -> m ByteString
+genRandomBS g n = do
+  n <- (`mod` (64*1024)) <$> uniformM @Int g
+  uniformByteStringM n g
+
+sec6 :: RealFrac a => a -> Fixed E6
+sec6 = realToFrac
+
+sec2 :: RealFrac a => a -> Fixed E2
+sec2 = realToFrac
+
+sec3 :: RealFrac a => a -> Fixed E3
+sec3 = realToFrac
+
+testNCQ2Merge1 :: MonadUnliftIO m
+         => Int
+         -> TestEnv
+         -> m ()
+
+testNCQ2Merge1 n TestEnv{..} = do
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+
+  g <- liftIO MWC.createSystemRandom
+
+  let fake = n `div` 3
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+
+    notice $ "write" <+> pretty n <+> "random blocks"
+
+    ws <- flip fix (mempty :: HashSet HashRef) $ \loop -> \case
+      hs | HS.size hs >= n -> pure hs
+         | otherwise  -> do
+
+        s <- liftIO $ genRandomBS g (256 * 1024)
+        h <- ncqPutBS sto (Just B) Nothing s
+        loop (HS.insert h hs)
+
+    notice $ "written" <+> pretty (HS.size ws)
+
+    assertBool "all written" (HS.size ws == n)
+
+    nHashes <- HS.fromList . filter (not . flip HS.member ws) <$> replicateM fake do
+                 liftIO (genRandomBS g (64*1024)) <&> HashRef . hashObject
+
+    notice $ "gen" <+> pretty (HS.size nHashes) <+> pretty "missed hashes"
+
+
+    (t1,n1) <- over _2 sum <$> timeItT do
+                  for (HS.toList ws) $ \h -> do
+                    r <- ncqLocate2 sto h
+
+                    unless (isJust r) do
+                      err $ "not found" <+> pretty h
+
+                    pure $ maybe 0 (const 1) r
+
+    notice $ pretty (sec3 t1) <+> pretty n1 <+> pretty (n1 == HS.size ws)
+
+    assertBool "all written" (n1 == HS.size ws)
+
+    ncqWaitTasks sto
+
+    let hashes = HS.toList ws <> HS.toList nHashes
+
+    (t2,_) <- timeItT do
+                for hashes $ \h -> do
+                  r <- ncqLocate2 sto h
+                  pure $ maybe 0 (const 1) r
+
+    notice $ "before-merge" <+> pretty (sec3 t1) <+> pretty (List.length hashes)
+
+    notice $ "merge whatever possible"
+
+    n <- flip fix 0 \next i -> do
+           N2.ncqStorageMergeStep sto >>= \case
+            False -> pure i
+            True  -> next (succ i)
+
+    notice $ "merged" <+> pretty n
+
+    (t3,r) <- timeItT do
+                  for hashes $ \h -> do
+                    ncqLocate2 sto h >>= \case
+                      Nothing -> pure $ Left h
+                      Just{}  -> pure $ Right h
+
+    let w1 = HS.fromList (rights r)
+    let n2 = HS.fromList (lefts r)
+
+    notice $ "after-merge" <+> pretty (sec3 t3) <+> pretty (HS.size w1) <+> pretty (HS.size n2)
+
 testFilterEmulate1 :: MonadUnliftIO m
          => Int
          -> TestEnv
@@ -945,30 +1038,6 @@ main = do
 
           e -> throwIO $ BadFormException @C (mkList e)
 
-        entry $ bindMatch "test:ncq2:concurrent1" $ nil_ $ \case
-          [ LitIntVal tn, LitIntVal n ] -> do
-            debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
-            runTest $ testNCQ2Concurrent1 False ( fromIntegral tn) (fromIntegral n)
-
-          e -> throwIO $ BadFormException @C (mkList e)
-
-        entry $ bindMatch "test:ncq2:simple1" $ nil_ $ const $ do
-            runTest testNCQ2Simple1
-
-        entry $ bindMatch "test:ncq2:repair1" $ nil_ $ const $ do
-            runTest testNCQ2Repair1
-
-        entry $ bindMatch "test:ncq2:filefastcheck" $ nil_ $ \case
-          [ StringLike fn ] -> do
-            ncqFileFastCheck fn
-
-          e -> throwIO $ BadFormException @C (mkList e)
-
-        entry $ bindMatch "test:ncq2:concurrent:write:simple1" $ nil_ $ \case
-          [ LitIntVal tn, LitIntVal n ] -> do
-            runTest $ testNCQ2ConcurrentWriteSimple1 ( fromIntegral tn) (fromIntegral n)
-
-          e -> throwIO $ BadFormException @C (mkList e)
 
         entry $ bindMatch "test:ncq:concurrent1:wo" $ nil_ $ \case
           [ LitIntVal tn, LitIntVal n ] -> do
@@ -1002,6 +1071,37 @@ main = do
                 case result of
                   Just Left{} -> none
                   _ ->  liftIO $ assertBool "must be (Left _)" False
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:merge1" $ nil_ $ \case
+          [ LitIntVal n ] -> do
+            runTest $ testNCQ2Merge1 (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:concurrent1" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
+            runTest $ testNCQ2Concurrent1 False ( fromIntegral tn) (fromIntegral n)
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:simple1" $ nil_ $ const $ do
+            runTest testNCQ2Simple1
+
+        entry $ bindMatch "test:ncq2:repair1" $ nil_ $ const $ do
+            runTest testNCQ2Repair1
+
+        entry $ bindMatch "test:ncq2:filefastcheck" $ nil_ $ \case
+          [ StringLike fn ] -> do
+            ncqFileFastCheck fn
+
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:ncq2:concurrent:write:simple1" $ nil_ $ \case
+          [ LitIntVal tn, LitIntVal n ] -> do
+            runTest $ testNCQ2ConcurrentWriteSimple1 ( fromIntegral tn) (fromIntegral n)
 
           e -> throwIO $ BadFormException @C (mkList e)
 
