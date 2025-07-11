@@ -279,7 +279,7 @@ ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
 
   lift (ncqLookupEntry ncq href) >>= maybe none (exit . Just . InMemory . coerce)
 
-  atomically $ modifyTVar' ncqWrites succ
+  -- atomically $ modifyTVar' ncqWrites succ
 
   tracked <- readTVarIO ncqTrackedFiles <&> HPSQ.toList
 
