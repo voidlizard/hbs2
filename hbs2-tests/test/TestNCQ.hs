@@ -756,7 +756,7 @@ testFilterEmulate1 n TestEnv{..} = do
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
 
-    for_ [1..4] $ \i -> do
+    for_ [1..5] $ \i -> do
 
       notice $ "-- pass" <+> pretty i <+> "--"
 

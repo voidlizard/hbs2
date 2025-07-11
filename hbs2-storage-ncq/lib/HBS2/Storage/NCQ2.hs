@@ -316,11 +316,14 @@ ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
   pure mzero
 
   where
-    lookupEntry (hx :: HashRef) (mmaped, nway) = runMaybeT do
-      entryBs <- liftIO (nwayHashLookup nway mmaped (coerce hx)) >>= toMPlus
-      pure
-        ( fromIntegral $ N.word64 (BS.take 8 entryBs)
-        , fromIntegral $ N.word32 (BS.take 4 (BS.drop 8 entryBs)) )
+    lookupEntry (hx :: HashRef) (mmaped, nway) =
+      liftIO (nwayHashLookup nway mmaped (coerce hx)) >>= \case
+        Nothing -> pure Nothing
+        Just entryBs -> do
+          pure $ Just
+            ( fromIntegral $ N.word64 (BS.take 8 entryBs)
+            , fromIntegral $ N.word32 (BS.take 4 (BS.drop 8 entryBs)) )
+
     {-# INLINE lookupEntry #-}
 
 ncqAlterEntrySTM :: NCQStorage2 -> HashRef -> (Maybe NCQEntry -> Maybe NCQEntry) -> STM ()
@@ -595,7 +598,7 @@ evictIfNeededSTM :: NCQStorage2 -> Maybe Int -> STM ()
 evictIfNeededSTM NCQStorage2{..} howMany = do
   cur <- readTVar ncqCachedEntries
 
-  let need   = fromMaybe (cur `div` 2) howMany
+  let need   = fromMaybe cur howMany
       excess = max 0 (cur + need - ncqMaxCached)
 
   when (excess > 0) do
