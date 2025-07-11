@@ -343,10 +343,9 @@ ncqStorageRun2 :: forall m . MonadUnliftIO m
                -> m ()
 ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
 
-  jobQ <- newTQueueIO
   closeQ <- newTQueueIO
 
-  closer <- ContT $ withAsync $ liftIO $ fix \loop -> do
+  closer <- spawnActivity $ liftIO $ fix \loop -> do
     what <- atomically do
               stop <- readTVar ncqStorageStopReq
               tryReadTQueue closeQ >>= \case
@@ -366,8 +365,6 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
               unless (k == emptyKey) $ atomically do
                 ncqAlterEntrySTM ncq (coerce k) (const Nothing)
         loop
-
-  link closer
 
   spawnActivity $ forever (liftIO $ join $ atomically (readTQueue ncqJobQ))
 
