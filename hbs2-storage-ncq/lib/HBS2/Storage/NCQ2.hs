@@ -107,6 +107,13 @@ newtype NCQEntry = NCQEntry ByteString
 
 type Shard = TVar (HashMap HashRef NCQEntry)
 
+type NCQOffset = Word64
+type NCQSize   = Word32
+
+data Location =
+       InFossil  ByteString NCQOffset NCQSize
+     | InMemory  ByteString
+
 data NCQStorage2 =
   NCQStorage2
   { ncqRoot           :: FilePath
@@ -228,15 +235,22 @@ ncqPutBS ncq@NCQStorage2{..} mtp mhref bs' = do
 ncqLookupEntry :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe NCQEntry)
 ncqLookupEntry sto hash = atomically (ncqLookupEntrySTM sto hash)
 
-ncqReadEntry :: ByteString -> Word64 -> Word32 -> ByteString
-ncqReadEntry mmaped off size = BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmaped
-{-# INLINE ncqReadEntry #-}
+ncqGetEntryBS :: NCQStorage2 -> Location -> ByteString
+ncqGetEntryBS _ = \case
+  InMemory bs -> bs
+  InFossil mmap off size -> do
+    BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmap
 
-ncqSearchBS :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe ByteString)
-ncqSearchBS ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
+ncqEntrySize :: forall a . Integral a => Location -> a
+ncqEntrySize = \case
+  InFossil _ _ size -> fromIntegral size
+  InMemory bs       -> fromIntegral (BS.length bs)
+
+ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
+ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
   now <- getTimeCoarse
 
-  lift (ncqLookupEntry ncq href) >>= maybe none (exit . Just . coerce)
+  lift (ncqLookupEntry ncq href) >>= maybe none (exit . Just . InMemory . coerce)
 
   tracked <- readTVarIO ncqTrackedFiles <&> HPSQ.toList
 
@@ -246,7 +260,7 @@ ncqSearchBS ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
           Nothing -> none
           Just (offset,size) -> do
             atomically $ writeTVar cachedTs now
-            exit (Just $ ncqReadEntry cachedMmapedData offset size)
+            exit (Just $ InFossil cachedMmapedData offset size)
 
       Nothing ->  do
         let indexFile = ncqGetFileName ncq (toFileName (IndexFile fk))
@@ -268,7 +282,7 @@ ncqSearchBS ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
               modifyTVar ncqCachedEntries (+1)
               evictIfNeededSTM ncq (Just 1)
 
-            exit $ Just (ncqReadEntry datBs offset size)
+            exit $ Just (InFossil datBs offset size)
 
   pure mzero
 

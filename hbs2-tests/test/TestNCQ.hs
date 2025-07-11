@@ -610,16 +610,15 @@ testNCQ2Simple1 TestEnv{..} = do
     for bz $ \z ->  do
       h <- ncqPutBS sto (Just B) Nothing z
       atomically $ writeTQueue q h
-      found <- ncqSearchBS sto h <&> maybe (-1) BS.length
+      found <- ncqLocate2 sto h <&> maybe (-1) ncqEntrySize
       assertBool (show $ "found-immediate" <+> pretty h) (found > 0)
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
     hashes <- atomically (STM.flushTQueue q)
     for_ hashes $ \ha -> do
-      found <- ncqSearchBS sto ha <&> maybe (-1) BS.length
+      found <- ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
       assertBool (show $ "found-immediate" <+> pretty ha) (found > 0)
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
-
 
 
 testFilterEmulate1 :: MonadUnliftIO m
@@ -670,14 +669,14 @@ testFilterEmulate1 n TestEnv{..} = do
 
       (t1,_) <- timeItT do
           for_ allShit $ \ha -> do
-             ncqSearchBS sto ha <&> maybe (-1) BS.length
+             ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
 
       notice $ "lookup-no-filter" <+> pretty (realToFrac @_ @(Fixed E3) t1)
 
       (t2,_) <- timeItT do
           for_ allShit $ \ha -> do
              unless (HS.member  ha noHs) do
-               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
 
       notice $ "lookup-fake-filter" <+> pretty (realToFrac @_ @(Fixed E3) t2)
 
@@ -685,7 +684,7 @@ testFilterEmulate1 n TestEnv{..} = do
           for_ allShit $ \ha -> do
              let here = IntSet.member (bucno ha) dumb
              when here do
-               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
 
       notice $ "lookup-dumb-filter" <+> pretty (realToFrac @_ @(Fixed E3) t3)
 
@@ -693,7 +692,7 @@ testFilterEmulate1 n TestEnv{..} = do
           for_ allShit $ \ha -> do
              let here = Bloom.elem (coerce ha) bloom
              when here do
-               void $ ncqSearchBS sto ha <&> maybe (-1) BS.length
+               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
 
       notice $ "lookup-simple-bloom-filter" <+> pretty (realToFrac @_ @(Fixed E3) t4)
 
@@ -718,7 +717,7 @@ testNCQ2Repair1 TestEnv{..} = do
     for_ bz $ \z ->  do
       h <- ncqPutBS sto (Just B) Nothing z
       atomically $ writeTQueue q h
-      found <- ncqSearchBS sto h <&> maybe (-1) BS.length
+      found <- ncqLocate2 sto h <&> maybe (-1) ncqEntrySize
       assertBool (show $ "found-immediate" <+> pretty h) (found > 0)
     written <- N2.ncqListTrackedFiles sto
     debug $ "TRACKED" <+> vcat (fmap pretty written)
@@ -737,7 +736,7 @@ testNCQ2Repair1 TestEnv{..} = do
   ncqWithStorage ncqDir $ \sto -> liftIO do
     hashes <- atomically (STM.flushTQueue q)
     for_ hashes $ \ha -> do
-      found <- ncqSearchBS sto ha <&> maybe (-1) BS.length
+      found <- ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
       none
       -- assertBool (show $ "found-immediate" <+> pretty ha) (found > 0)
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
