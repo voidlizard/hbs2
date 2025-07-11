@@ -272,11 +272,14 @@ ncqEntrySize = \case
   InFossil _ _ size -> fromIntegral size
   InMemory bs       -> fromIntegral (BS.length bs)
 
+
 ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
 ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
   now <- getTimeCoarse
 
   lift (ncqLookupEntry ncq href) >>= maybe none (exit . Just . InMemory . coerce)
+
+  atomically $ modifyTVar' ncqWrites succ
 
   tracked <- readTVarIO ncqTrackedFiles <&> HPSQ.toList
 
@@ -318,6 +321,7 @@ ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
       pure
         ( fromIntegral $ N.word64 (BS.take 8 entryBs)
         , fromIntegral $ N.word32 (BS.take 4 (BS.drop 8 entryBs)) )
+    {-# INLINE lookupEntry #-}
 
 ncqAlterEntrySTM :: NCQStorage2 -> HashRef -> (Maybe NCQEntry -> Maybe NCQEntry) -> STM ()
 ncqAlterEntrySTM ncq h alterFn = do
