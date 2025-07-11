@@ -669,14 +669,14 @@ testFilterEmulate1 n TestEnv{..} = do
 
       (t1,_) <- timeItT do
           for_ allShit $ \ha -> do
-             ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
+             void $ ncqLocate2 sto ha
 
       notice $ "lookup-no-filter" <+> pretty (realToFrac @_ @(Fixed E3) t1)
 
       (t2,_) <- timeItT do
           for_ allShit $ \ha -> do
              unless (HS.member  ha noHs) do
-               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
+               void $ ncqLocate2 sto ha
 
       notice $ "lookup-fake-filter" <+> pretty (realToFrac @_ @(Fixed E3) t2)
 
@@ -684,7 +684,7 @@ testFilterEmulate1 n TestEnv{..} = do
           for_ allShit $ \ha -> do
              let here = IntSet.member (bucno ha) dumb
              when here do
-               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
+               void $ ncqLocate2 sto ha
 
       notice $ "lookup-dumb-filter" <+> pretty (realToFrac @_ @(Fixed E3) t3)
 
@@ -692,7 +692,7 @@ testFilterEmulate1 n TestEnv{..} = do
           for_ allShit $ \ha -> do
              let here = Bloom.elem (coerce ha) bloom
              when here do
-               void $ ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
+               void $ ncqLocate2 sto ha
 
       notice $ "lookup-simple-bloom-filter" <+> pretty (realToFrac @_ @(Fixed E3) t4)
 
