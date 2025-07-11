@@ -157,19 +157,19 @@ ncqStorageOpen2 fp upd = do
   let ncqMaxCached  = 128
   let ncqIdleThrsh  = 50.00
 
-  cap               <- getNumCapabilities <&> fromIntegral
-  ncqWriteQ         <- newTVarIO mempty
-  ncqWriteSem       <- atomically $ newTSem 16 -- (fromIntegral cap)
-  ncqMemTable       <- V.fromList <$> replicateM cap (newTVarIO mempty)
-  ncqStorageStopReq <- newTVarIO False
-  ncqStorageSyncReq <- newTVarIO False
-  ncqSyncNo         <- newTVarIO 0
-  ncqTrackedFiles   <- newTVarIO HPSQ.empty
-  ncqCachedEntries  <- newTVarIO 0
-  ncqStorageTasks   <- newTVarIO 0
-  ncqWrites         <- newTVarIO 0
-  ncqWriteEMA       <- newTVarIO 0.00
-  ncqJobQ           <- newTQueueIO
+  cap                <- getNumCapabilities <&> fromIntegral
+  ncqWriteQ          <- newTVarIO mempty
+  ncqWriteSem        <- atomically $ newTSem 16 -- (fromIntegral cap)
+  ncqMemTable        <- V.fromList <$> replicateM cap (newTVarIO mempty)
+  ncqStorageStopReq  <- newTVarIO False
+  ncqStorageSyncReq  <- newTVarIO False
+  ncqSyncNo          <- newTVarIO 0
+  ncqTrackedFiles    <- newTVarIO HPSQ.empty
+  ncqCachedEntries   <- newTVarIO 0
+  ncqStorageTasks    <- newTVarIO 0
+  ncqWrites          <- newTVarIO 0
+  ncqWriteEMA        <- newTVarIO 0.00
+  ncqJobQ            <- newTQueueIO
 
   let ncqSalt       = "EstEFasxrCFqsGDxcY4haFcha9e4ZHRzsPbGUmDfdxLk"
 
@@ -281,9 +281,13 @@ ncqLocate2 ncq@NCQStorage2{..} href = flip runContT pure $ callCC \exit -> do
 
   -- atomically $ modifyTVar' ncqWrites succ
 
+  -- FIXME: race
+  --   merge can-delete-file-while-in-use
+
   tracked <- readTVarIO ncqTrackedFiles <&> HPSQ.toList
 
-  for_ tracked $ \(fk, prio, mCached) -> case mCached of
+  for_ tracked $ \(fk, prio, mCached) -> do
+    case mCached of
       Just CachedEntry{..} -> do
         lookupEntry href (cachedMmapedIdx, cachedNway) >>= \case
           Nothing -> none
@@ -713,6 +717,8 @@ ncqWaitTasks NCQStorage2{..} = atomically do
   tno <- readTVar ncqStorageTasks
   when (tno > 0) STM.retry
 
+
+-- FIXME: sometime-causes-no-such-file-or-directory
 ncqStorageMergeStep :: MonadUnliftIO m => NCQStorage2 -> m Bool
 ncqStorageMergeStep ncq@NCQStorage2{..}  = ncqRunTask ncq False $ flip runContT pure do
 
