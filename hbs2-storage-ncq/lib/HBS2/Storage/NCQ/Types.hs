@@ -90,11 +90,12 @@ data CachedEntry =
               , cachedNway       :: NWayHash
               , cachedTs         :: TVar TimeSpec
               }
+  | PendingEntry {}
 
 instance Show CachedEntry where
-  show _ = "CachedEntry{...}"
-
-
+  show = \case
+    CachedEntry{}  -> "CachedEntry{...}"
+    PendingEntry{} -> "PendingEntry{...}"
 
 newtype NCQFullRecordLen a =
   NCQFullRecordLen a
