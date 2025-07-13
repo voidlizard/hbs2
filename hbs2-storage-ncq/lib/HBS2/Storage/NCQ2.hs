@@ -412,9 +412,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         mq <- newEmptyTMVarIO
 
         spawnJob $ do
-          -- TODO: back-to-merge
-          -- merged <- ncqStorageMergeStep ncq
-          let merged = True
+          merged <- ncqStorageMergeStep ncq
           atomically $ putTMVar mq merged
 
         -- TODO: detect-dead-merge
