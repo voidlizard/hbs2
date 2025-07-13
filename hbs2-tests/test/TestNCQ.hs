@@ -697,7 +697,7 @@ testNCQ2Merge1 n TestEnv{..} = do
     notice $ "merge whatever possible"
 
     n <- flip fix 0 \next i -> do
-           N2.ncqStorageMergeStep sto >>= \case
+           N2.ncqMergeStep sto >>= \case
             False -> pure i
             True  -> next (succ i)
 
@@ -714,12 +714,15 @@ testNCQ2Merge1 n TestEnv{..} = do
 
     notice $ "after-merge" <+> pretty (sec3 t3) <+> pretty (HS.size w1) <+> pretty (HS.size n2)
 
+    pause @'Seconds 300
+
 testFilterEmulate1 :: MonadUnliftIO m
-         => Int
+         => Bool
+         -> Int
          -> TestEnv
          -> m ()
 
-testFilterEmulate1 n TestEnv{..} = do
+testFilterEmulate1 doMerge n TestEnv{..} = do
   let tmp = testEnvDir
   let ncqDir   = tmp
 
@@ -734,6 +737,7 @@ testFilterEmulate1 n TestEnv{..} = do
   noHs' <- newTVarIO (mempty  :: HashSet HashRef)
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
+
     for bz $ \z ->  do
       h <- ncqPutBS sto (Just B) Nothing z
       atomically $ modifyTVar' hs' (HS.insert h)
@@ -755,6 +759,12 @@ testFilterEmulate1 n TestEnv{..} = do
   let dumb  = IntSet.fromList [ bucno k | k <- HS.toList hs ]
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
+
+    when doMerge do
+      notice "merge data"
+      fix $ \next -> ncqMergeStep sto >>= \case
+        True  -> next
+        False -> none
 
     for_ [1..5] $ \i -> do
 
@@ -812,6 +822,8 @@ testNCQ2Repair1 TestEnv{..} = do
       atomically $ writeTQueue q h
       found <- ncqLocate2 sto h <&> maybe (-1) ncqEntrySize
       assertBool (show $ "found-immediate" <+> pretty h) (found > 0)
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
     written <- N2.ncqListTrackedFiles sto
     debug $ "TRACKED" <+> vcat (fmap pretty written)
     toDestroy <- pure (headMay written) `orDie` "no file written"
@@ -825,6 +837,8 @@ testNCQ2Repair1 TestEnv{..} = do
     let cq = N2.ncqGetFileName sto (toFileName (IndexFile toDestroy))
     rm cq
     BS.appendFile f shit
+
+  notice "after destroying storage"
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
     hashes <- atomically (STM.flushTQueue q)
@@ -1120,7 +1134,11 @@ main = do
               pause @'Seconds 120
 
         entry $ bindMatch "test:filter:emulate-1" $ nil_ $ \case
-          [ LitIntVal n ] -> runTest $ testFilterEmulate1 (fromIntegral n)
+          [ LitIntVal n ] -> runTest $ testFilterEmulate1 False (fromIntegral n)
+          e -> throwIO $ BadFormException @C (mkList e)
+
+        entry $ bindMatch "test:filter:emulate:merged" $ nil_ $ \case
+          [ LitIntVal n ] -> runTest $ testFilterEmulate1 True (fromIntegral n)
           e -> throwIO $ BadFormException @C (mkList e)
 
         hidden do
