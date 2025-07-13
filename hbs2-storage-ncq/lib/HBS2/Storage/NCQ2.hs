@@ -388,7 +388,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         closeFd fh
         -- notice $ yellow "indexing" <+> pretty fname
         idx <- ncqRunTaskNoMatterWhat ncq (ncqIndexFile ncq (DataFile fk))
-        ncqStateUpdate ncq [F 0 fk]
+        ncqRunTaskNoMatterWhat ncq $ ncqStateUpdate ncq [F 0 fk]
         -- ncqAddTrackedFile ncq (DataFile fk)
         nwayHashMMapReadOnly idx >>= \case
           Nothing -> err $ "can't open index" <+> pretty idx
@@ -412,7 +412,8 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         mq <- newEmptyTMVarIO
 
         spawnJob $ do
-          merged <- ncqStorageMergeStep ncq
+          -- merged <- ncqStorageMergeStep ncq
+          let merged = True
           atomically $ putTMVar mq merged
 
         -- TODO: detect-dead-merge
@@ -457,6 +458,8 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                   pure w
                 else do
                   appendTailSection fh >> liftIO (fileSynchronise fh)
+                  -- FIXME: slow!
+                  liftIO (ncqStateUpdate ncq [F 0 fk])
                   atomically do
                     writeTVar   ncqStorageSyncReq False
                     modifyTVar' ncqSyncNo succ
@@ -758,16 +761,17 @@ ncqStateUpdate :: MonadUnliftIO m => NCQStorage2 -> [StateOP] -> m Bool
 ncqStateUpdate me@NCQStorage2{..} ops' = flip runContT pure $ callCC \exit -> do
   t1 <- fromIntegral <$> liftIO getTimeCoarse
 
+  keys0 <- readTVarIO ncqTrackedFiles <&> HPSQ.keys
+
   ops <- for ops' $ \case
     f@(F _ fk) -> do
-      let idxFile = ncqGetFileName me (toFileName $ IndexFile fk)
+      -- let idxFile = ncqGetFileName me (toFileName $ IndexFile fk)
       let datFile = ncqGetFileName me (toFileName $ DataFile fk)
 
-      e1 <- doesFileExist idxFile
       e2 <- doesFileExist datFile
 
-      unless (e1 && e2) do
-        err $ "ncqStateUpdate invariant fail" <+> pretty idxFile <+> pretty datFile
+      unless e2 do
+        err $ "ncqStateUpdate invariant fail" <+> pretty datFile
         exit False
 
       ts <- liftIO (getFileStatus datFile) <&>
@@ -798,7 +802,9 @@ ncqStateUpdate me@NCQStorage2{..} ops' = flip runContT pure $ callCC \exit -> do
 
     modifyTVar' ncqStateUsage (IntMap.alter doAlter k0)
 
-    pure c
+    k1 <- readTVar ncqTrackedFiles <&> HPSQ.keys
+
+    pure (c && k1 /= keys0)
 
   when changed (lift $ ncqDumpCurrentState me)
 
