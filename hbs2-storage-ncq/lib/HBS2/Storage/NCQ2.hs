@@ -112,7 +112,7 @@ type NCQSize   = Word32
 
 type StateVersion = Word64
 
-data StateOP = D FileKey | F TimeSpec FileKey
+data StateOP = D FileKey | F TimeSpec FileKey | P FileKey
                deriving (Eq,Ord,Show)
 
 data NCQFlag =
@@ -473,10 +473,9 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                 else do
                   appendTailSection fh >> liftIO (fileSynchronise fh)
                   -- FIXME: slow!
-                  -- liftIO (ncqStateUpdate ncq [F 0 fk])
+                  -- to make it appear in state, but to ignore until index is done
+                  liftIO (ncqStateUpdate ncq [P fk])
                   atomically do
-                    -- to make it appear in state, but to ignore until indexed
-                    modifyTVar ncqTrackedFiles (HPSQ.insert fk (FilePrio (Down 0)) (Just PendingEntry))
                     writeTVar  ncqStorageSyncReq False
                     modifyTVar' ncqSyncNo succ
 
@@ -859,6 +858,13 @@ ncqStateUpdate me@NCQStorage2{..} ops' = flip runContT pure $ callCC \exit -> do
             for_ ops $ \case
               D fk -> modifyTVar' ncqTrackedFiles (HPSQ.delete fk)
               F t fk -> ncqAddTrackedFileSTM me (coerce fk) t
+              P fk   -> do
+                let onlyIfMissed = \case
+                      Nothing -> ((), Just (FilePrio (Down 0), Just PendingEntry))
+                      Just (p,v) -> ((), Just (p,v))
+
+                modifyTVar' ncqTrackedFiles (snd . HPSQ.alter onlyIfMissed fk)
+
             pure True
 
     old <- readTVar ncqTrackedFiles <&> HS.fromList . HPSQ.keys
