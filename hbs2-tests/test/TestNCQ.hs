@@ -602,7 +602,7 @@ testNCQ2Simple1 TestEnv{..} = do
 
   g <- liftIO MWC.createSystemRandom
 
-  bz <- replicateM 30000 $ liftIO do
+  bz <- replicateM 100000 $ liftIO do
           n <- (`mod` (256*1024)) <$> uniformM @Int g
           uniformByteStringM n g
 
@@ -614,10 +614,18 @@ testNCQ2Simple1 TestEnv{..} = do
       assertBool (show $ "found-immediate" <+> pretty h) (found > 0)
 
   ncqWithStorage ncqDir $ \sto -> liftIO do
+    notice "perform merge"
+    ncqMergeFull sto
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    ncqSweepStates sto
+    ncqSweepFossils sto
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
     hashes <- atomically (STM.flushTQueue q)
     for_ hashes $ \ha -> do
       found <- ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
-      assertBool (show $ "found-immediate" <+> pretty ha) (found > 0)
+      assertBool (show $ "found" <+> pretty ha) (found > 0)
       -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
 
