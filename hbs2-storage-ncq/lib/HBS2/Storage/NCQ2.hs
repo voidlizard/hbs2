@@ -183,6 +183,8 @@ data NCQStorage2 =
   , ncqSweepSem       :: TSem
   , ncqMergeTasks     :: TVar Int
   , ncqOnRunWriteIdle :: TVar (IO ())
+
+  , ncqReadSem        :: TSem
   }
 
 megabytes :: forall a . Integral a => a
@@ -202,7 +204,7 @@ ncqStorageOpen2 fp upd = do
   let ncqWriteBlock = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCached  = 128
   let ncqIdleThrsh  = 50.00
-  let ncqPostponeMerge = 30.00
+  let ncqPostponeMerge = 600.00
   let ncqPostponeSweep = 2 * ncqPostponeMerge
   let ncqLuckyNum   = 2
 
@@ -232,6 +234,8 @@ ncqStorageOpen2 fp upd = do
   ncqSweepSem        <- atomically (newTSem 1)
   ncqMergeTasks      <- newTVarIO 0
   ncqOnRunWriteIdle  <- newTVarIO none
+
+  ncqReadSem <- atomically $ newTSem 1
 
   ncqWriteOps <- replicateM wopNum newTQueueIO <&> V.fromList
 
@@ -469,7 +473,7 @@ ncqSeekInFossils :: forall a f m . (MonadUnliftIO m, Monoid (f a))
                  -> HashRef
                  -> (Location -> m (Seek (f a)))
                  -> m (f a)
-ncqSeekInFossils ncq@NCQStorage2{..} href action = useVersion ncq $ const do
+ncqSeekInFossils ncq@NCQStorage2{..} href action = withSem ncqReadSem $ useVersion ncq $ const do
   tracked <- readTVarIO ncqTrackedFiles
   let l = V.length tracked
 
@@ -493,7 +497,7 @@ ncqSeekInFossils ncq@NCQStorage2{..} href action = useVersion ncq $ const do
               go i (a+1) r
 
             Just CachedEntry{..} -> do
-              liftIO (lookupEntry href (cachedMmapedIdx, cachedNway)) >>= \case
+              liftIO (ncqLookupIndex href (cachedMmapedIdx, cachedNway)) >>= \case
                 Nothing -> go (i+1) 0 r
                 Just (offset, size) -> do
                   now <- getTimeCoarse
@@ -504,18 +508,21 @@ ncqSeekInFossils ncq@NCQStorage2{..} href action = useVersion ncq $ const do
 
   go 0 0 mempty
 
-  where
 
-    {-# INLINE lookupEntry #-}
-    lookupEntry hx (mmaped, nway) = do
-      fmap decodeEntry <$> nwayHashLookup nway mmaped (coerce hx)
-      where
-        {-# INLINE decodeEntry #-}
-        decodeEntry entryBs = do
-          let (p,r) = BS.splitAt 8 entryBs
-          let off = fromIntegral (N.word64 p)
-          let size = fromIntegral (N.word32 (BS.take 4 r))
-          ( off, size )
+ncqLookupIndex :: MonadUnliftIO m
+               => HashRef
+               -> (ByteString, NWayHash)
+               -> m (Maybe ( NCQOffset, NCQSize ))
+ncqLookupIndex hx (mmaped, nway) = do
+  fmap decodeEntry <$> nwayHashLookup nway mmaped (coerce hx)
+  where
+    {-# INLINE decodeEntry #-}
+    decodeEntry entryBs = do
+      let (p,r) = BS.splitAt 8 entryBs
+      let off = fromIntegral (N.word64 p)
+      let size = fromIntegral (N.word32 (BS.take 4 r))
+      ( off, size )
+{-# INLINE ncqLookupIndex #-}
 
 ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
 ncqLocate2 ncq href = do

@@ -752,6 +752,7 @@ testNCQ2Simple1 syn TestEnv{..} = do
   let l = headDef 5 $ drop 1 [ fromIntegral x | LitIntVal x <- argz ]
   let s = headDef (256*1024) $ drop 2 [ fromIntegral (1024 * x) | LitIntVal x <- argz ]
 
+
   notice $ "insert" <+> pretty n <+> "random blocks of size" <+> pretty s
 
   thashes <- newTQueueIO
@@ -817,6 +818,125 @@ testNCQ2Simple1 syn TestEnv{..} = do
             -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
       notice $ pretty (sec6 t1) <+> "lookup" <+> pretty n <+> "blocks"
+
+
+
+testNCQ2Lookup1:: forall c m . (MonadUnliftIO m, IsContext c)
+         => [Syntax c]
+         -> TestEnv
+         -> m ()
+
+testNCQ2Lookup1 syn TestEnv{..} = do
+  debug $ "testNCQ2Simple1" <+> pretty syn
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+  q <- newTQueueIO
+
+  g <- liftIO MWC.createSystemRandom
+
+  let (opts, argz) = splitOpts [("-r",1),("-m",0)] syn
+
+  let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
+  let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
+  let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
+  let r = (4*1024, 64*1024)
+
+  let rt = headDef 2 [ fromIntegral x | ListVal [StringLike "-r", LitIntVal x ] <- opts ]
+  let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
+
+  notice $ "insert" <+> pretty n <+> "random blocks of size" <+> parens (pretty r) <+> pretty opts
+
+  thashes <- newTQueueIO
+
+  sizes <- liftIO $ replicateM n (uniformRM r g )
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    pooledForConcurrentlyN_ 8  sizes $ \size -> do
+      z <- uniformByteStringM size g
+      h <- ncqPutBS sto (Just B) Nothing z
+      atomically $ writeTQueue thashes h
+
+
+    hs <- atomically $ STM.flushTQueue thashes
+
+    when merge do
+      notice "merge full"
+      ncqMergeFull sto
+
+    ffs <- N2.ncqListTrackedFiles sto
+    notice $ "database prepared" <+> pretty (List.length ffs) <+> pretty (List.length hs)
+
+    replicateM_ nl do
+
+      tfound <- newTVarIO 0
+
+      t0 <- getTimeCoarse
+
+      void $ flip runContT pure $ callCC \exit -> do
+
+        readQ <- newTQueueIO
+
+        reader <- replicateM rt $ ContT $ withAsync $ fix \next -> do
+
+          (h, answ) <- atomically $ readTQueue readQ
+
+          f1 <- ncqLookupEntry sto h <&> isJust
+
+          when f1 do
+            atomically (putTMVar answ True) >> next
+
+          ffs <- liftIO $ N2.ncqListTrackedFiles sto
+
+          for_ ffs $ \(f, ce, te) -> do
+
+            -- when (isNotPending ce) do
+            case ce of
+              Just (PendingEntry{}) -> none
+
+              Just (CachedEntry{..}) -> do
+                found <- ncqLookupIndex h (cachedMmapedIdx, cachedNway) <&> isJust
+
+                when found do
+                  atomically (putTMVar answ True) >> next
+
+              Nothing -> do
+
+                tnow <- getTimeCoarse >>= newTVarIO
+
+                let indexFile = N2.ncqGetFileName sto (toFileName (IndexFile f))
+                let dataFile  = N2.ncqGetFileName sto (toFileName (DataFile f))
+
+                what@(idxBs, idxNway) <- nwayHashMMapReadOnly indexFile `orDie` "mmap fucked"
+                datBs  <- mmapFileByteString dataFile Nothing
+
+                let ce = CachedEntry idxBs datBs idxNway tnow
+
+                atomically $ writeTVar te (Just ce)
+
+                found <- ncqLookupIndex h what <&> isJust
+
+                when found do
+                  atomically (putTMVar answ True) >> next
+
+          atomically (putTMVar answ False) >> next
+
+        liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
+          answ <- newEmptyTMVarIO
+          atomically $ writeTQueue readQ (h, answ)
+          found <- atomically $ takeTMVar answ
+
+          when found do
+            atomically $ modifyTVar' tfound succ
+
+      t1 <- getTimeCoarse
+
+      let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
+
+      found <- readTVarIO tfound
+
+      notice $ "scan all files" <+> pretty dt <+> pretty found
+
+    -- pause @'Seconds 5
 
 
 genRandomBS :: forall g m . (Monad m, StatefulGen g m) => g -> Int -> m ByteString
@@ -1346,6 +1466,9 @@ main = do
 
         entry $ bindMatch "test:ncq2:simple1" $ nil_ $ \e -> do
             runTest (testNCQ2Simple1 e)
+
+        entry $ bindMatch "test:ncq2:lookup1" $ nil_ $ \e -> do
+            runTest (testNCQ2Lookup1 e)
 
         entry $ bindMatch "test:ncq2:sweep1" $ nil_ $ \e -> do
             runTest (testNCQ2Sweep1 e)
