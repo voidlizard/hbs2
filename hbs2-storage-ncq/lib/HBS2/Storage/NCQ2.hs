@@ -196,7 +196,7 @@ ncqStorageOpen2 :: MonadIO m => FilePath -> (NCQStorage2 -> NCQStorage2)-> m NCQ
 ncqStorageOpen2 fp upd = do
   let ncqRoot       = fp
   let ncqGen        = 0
-  let ncqFsync      = 8   * megabytes
+  let ncqFsync      = 16   * megabytes
   let ncqWriteQLen  = 1024 * 4
   let ncqMinLog     = 512 * megabytes
   let ncqMaxLog     = 16 * gigabytes -- ???
@@ -348,13 +348,13 @@ ncqPutBS ncq@NCQStorage2{..} mtp mhref bs' = do
                           | otherwise -> (False, Just e)
 
           when upd  do
-            modifyTVar' ncqWriteQ (|> h)
+            modifyTVar ncqWriteQ (|> h)
 
           putTMVar waiter h
 
   atomically do
     nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
-    modifyTVar' ncqWrites succ
+    modifyTVar ncqWrites succ
     writeTQueue (ncqWriteOps ! nw) work
 
   atomically $ takeTMVar waiter
@@ -574,7 +574,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                 lift $ ncqAlterEntrySTM ncq (coerce k) (const Nothing)
 
         ncqPreloadIndexes ncq
-        atomically (modifyTVar' ncqCurrentFiles (HS.delete fk))
+        atomically (modifyTVar ncqCurrentFiles (HS.delete fk))
         loop
 
   spawnActivity $ forever (liftIO $ join $ atomically (readTQueue ncqJobQ))
@@ -598,16 +598,16 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         Nothing  -> none
         Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
 
-      -- useVersion ncq $ const do
+      useVersion ncq $ const do
 
-      tracked <- readTVarIO ncqTrackedFiles
+        tracked <- readTVarIO ncqTrackedFiles
 
-      for_ tracked $ \(TrackedFile{..}) -> do
-          readTVarIO tfCached >>= \case
-            Just ce -> lookupCached tfKey ce
-            Nothing -> ncqLoadTrackedFile ncq TrackedFile{..} >>= \case
-              Nothing -> err $ "unable to load index" <+> pretty tfKey
+        for_ tracked $ \(TrackedFile{..}) -> do
+            readTVarIO tfCached >>= \case
               Just ce -> lookupCached tfKey ce
+              Nothing -> ncqLoadTrackedFile ncq TrackedFile{..} >>= \case
+                Nothing -> err $ "unable to load index" <+> pretty tfKey
+                Just ce -> lookupCached tfKey ce
 
       next
 
@@ -699,7 +699,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                   -- to make it appear in state, but to ignore until index is done
                   atomically do
                     writeTVar  ncqStorageSyncReq False
-                    modifyTVar' ncqSyncNo succ
+                    modifyTVar ncqSyncNo succ
 
                   pure 0
 
@@ -754,7 +754,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
       fname <- ncqGetNewFossilName ncq
-      atomically $ modifyTVar' ncqCurrentFiles (HS.insert (fromString fname))
+      atomically $ modifyTVar ncqCurrentFiles (HS.insert (fromString fname))
       touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
       (fromString fname,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)
@@ -779,7 +779,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         t1 <- getTimeCoarse
         let dt = max 1e-9 (realToFrac @_ @Double (t1 - t0)) / 1e9
             dw = fromIntegral (w1 - w0)
-        atomically $ modifyTVar' ncqWriteEMA \ema -> alpha * (dw/dt) + 0.9 * ema
+        atomically $ modifyTVar ncqWriteEMA \ema -> alpha * (dw/dt) + 0.9 * ema
         pause @'Seconds step >> loop (Just (w1,t1))
 
       where
@@ -1038,13 +1038,15 @@ ncqWaitTasks NCQStorage2{..} = atomically do
 ncqStateUseSTM :: NCQStorage2 -> STM ()
 ncqStateUseSTM NCQStorage2{..} = do
   k <- readTVar ncqStateVersion <&> fromIntegral
-  modifyTVar' ncqStateUsage (IntMap.update (Just . over _1 succ) k)
+  modifyTVar ncqStateUsage (IntMap.update (Just . over _1 succ) k)
+{-# INLINE ncqStateUseSTM #-}
 
 ncqStateUnuseSTM :: NCQStorage2 -> STM ()
 ncqStateUnuseSTM NCQStorage2{..} = do
   k <- readTVar ncqStateVersion <&> fromIntegral
   -- TODO: remove when n <= 0
-  modifyTVar' ncqStateUsage (IntMap.update (Just . over _1 pred) k)
+  modifyTVar ncqStateUsage (IntMap.update (Just . over _1 pred) k)
+{-# INLINE ncqStateUnuseSTM #-}
 
 ncqStateUpdate :: MonadUnliftIO m => NCQStorage2 -> [StateOP] -> m Bool
 ncqStateUpdate me@NCQStorage2{..} ops' = withSem ncqStateSem $ flip runContT pure $ callCC \exit -> do
@@ -1124,8 +1126,7 @@ ncqStateUpdate me@NCQStorage2{..} ops' = withSem ncqStateSem $ flip runContT pur
             Nothing    -> Just (0, currentKeys)
             Just (u,f) -> Just (u,f)
 
-      modifyTVar' ncqStateUsage (IntMap.alter doAlter k0)
-
+      modifyTVar ncqStateUsage (IntMap.alter doAlter k0)
 
     checkWithDisk onFail = for ops' $ \case  --
       f@(F _ fk) -> do

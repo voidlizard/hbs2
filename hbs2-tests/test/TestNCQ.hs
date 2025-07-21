@@ -34,6 +34,8 @@ import Data.Config.Suckless.System
 
 import DBPipe.SQLite hiding (field)
 
+import Codec.Compression.Zstd qualified as Zstd
+
 import System.Posix.Files qualified as PFS
 import Numeric (showHex)
 import Data.Ord (Down(..))
