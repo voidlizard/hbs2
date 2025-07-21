@@ -1667,6 +1667,7 @@ main = do
               useVersion sto $ const do
                 tfs <- N2.ncqListTrackedFiles sto <&> filter (isNotPending . view _2) . V.toList
 
+                t0 <- getTimeCoarse
                 for_ tfs $ \(fk,_,_)  -> void $ runMaybeT do
 
                   let idxf = N2.ncqGetFileName sto $ toFileName (IndexFile fk)
@@ -1684,6 +1685,13 @@ main = do
                   let stat = HM.fromListWith (+) stat'
                   for_ (HM.toList stat) $ \(k, num) -> do
                     notice $ pretty k <+> pretty num
+
+                t1 <- getTimeCoarse
+
+                let dt = realToFrac (toNanoSecs (t1 - t0)) * 1e-9 & sec3
+
+                notice $ "scan time" <+> pretty dt
+
 
         entry $ bindMatch "test:ncq2:del1" $ nil_ $ \syn -> do
 
