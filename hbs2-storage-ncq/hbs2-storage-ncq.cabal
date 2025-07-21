@@ -45,14 +45,15 @@ common shared-properties
                      , ImportQualifiedPost
                      , LambdaCase
                      , MultiParamTypeClasses
+                     , NumericUnderscores
                      , OverloadedStrings
                      , QuasiQuotes
                      , ScopedTypeVariables
                      , StandaloneDeriving
                      , TupleSections
                      , TypeApplications
-                     , TypeOperators
                      , TypeFamilies
+                     , TypeOperators
 
 
 library
@@ -73,6 +74,7 @@ library
                     , directory
                     , filepath
                     , filepattern
+                    , hashable
                     , memory
                     , microlens-platform
                     , mmap

@@ -37,6 +37,9 @@ import Data.Config.Suckless.Script.File as SF
 
 import DBPipe.SQLite hiding (field)
 
+import System.Random.MWC as MWC
+
+import System.IO.Temp as Temp
 import Data.Bits
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -69,12 +72,14 @@ import System.IO.MMap
 import System.IO qualified as IO
 import System.Exit (exitSuccess, exitFailure)
 import System.Random
+import System.Random.Stateful
 import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
 import Data.Hashable
 
 import UnliftIO
+import UnliftIO.Async
 
 import Text.InterpolatedString.Perl6 (qc)
 
@@ -449,6 +454,82 @@ main = do
                             S.yield (mkSym $ show $ pretty hx)
 
             e -> throwIO $ BadFormException @C (mkList e)
+
+
+        entry $ bindMatch "sqlite:nwrite" $ nil_ \case
+            [ LitIntVal tn', LitIntVal n ] -> lift do
+
+              let tn = fromIntegral tn'
+              let num = fromIntegral n
+
+
+              g <- liftIO MWC.createSystemRandom
+
+              for_ [1..tn] $ \tnn -> flip runContT pure do
+
+                let fnv = num `quot` tnn
+
+                mkdir "temp"
+
+                let tmp = "temp"
+
+                -- tmp <- ContT $ Temp.withTempDirectory "temp" "nwrite"
+
+                dbf <- liftIO $ Temp.emptyTempFile tmp "nwrite-.db"
+
+                db <- newDBPipeEnv dbPipeOptsDef dbf
+
+                pipe <- ContT $ withAsync (runPipe db)
+
+                tw <- newTVarIO 0
+
+                withDB db do
+                  ddl "create table if not exists block (hash blob not null primary key, value blob)"
+                  commitAll
+
+                withDB db do
+                  ddl [qc|
+  pragma journal_mode=WAL;
+  pragma synchronous=normal;
+                  |]
+
+
+                  t0 <- getTimeCoarse
+
+                  ss <- replicateM num $ liftIO $ MWC.uniformRM (64*1024, 256*1024) g
+
+                  liftIO $ pooledForConcurrentlyN_ tnn ss $ \size -> do
+                    lbs <- uniformByteStringM size g <&> LBS.fromStrict
+
+                    let ha = hashObject @HbSync lbs
+
+                    let sql = [qc|insert into block (hash, value) values(?,?) on conflict (hash) do nothing |]
+
+                    withDB db do
+                      insert sql (coerce @_ @ByteString ha, lbs)
+                      atomically $ modifyTVar tw (+ (32 + size))
+
+                  withDB db do
+                      commitAll
+
+                  w  <- readTVarIO tw
+                  t1 <- getTimeCoarse
+
+                  let t = realToFrac (toNanoSecs (t1 - t0)) / 1e9
+                  let tsec = realToFrac @_ @(Fixed E2) t
+
+                  let total = realToFrac w
+
+                  let speed = if t > 0 then total / t else 0
+                  let totMegs = realToFrac @_ @(Fixed E2) $ total / (1024**2)
+                  let speedMbs = realToFrac @_ @(Fixed E2) $ speed / (1024**2)
+
+                  notice $ pretty tnn <+> pretty (tsec) <+> pretty totMegs <+> pretty speedMbs
+
+                  none
+
+            e -> throwIO $ BadFormException @C (mkList e)
+
 
         entry $ bindMatch "sqlite:merkle:write" $ nil_ \case
             [ StringLike dbf, StringLike fname ] -> lift do

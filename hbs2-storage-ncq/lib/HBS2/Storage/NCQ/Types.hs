@@ -54,6 +54,9 @@ newtype DataFile a = DataFile a
 
 newtype IndexFile a = IndexFile a
 
+newtype StateFile = StateFile FileKey
+                    deriving newtype (IsString,Eq,Ord,Pretty)
+
 class ToFileName a where
   toFileName :: a -> FilePath
 
@@ -63,7 +66,6 @@ instance ToFileName FileKey where
 instance ToFileName (DataFile FileKey) where
   toFileName (DataFile fk) = dropExtension  (toFileName fk) `addExtension` ".data"
 
-
 instance ToFileName (IndexFile FileKey) where
   toFileName (IndexFile fk) = dropExtension  (toFileName fk) `addExtension` ".cq"
 
@@ -72,6 +74,9 @@ instance ToFileName (DataFile FilePath) where
 
 instance ToFileName (IndexFile FilePath) where
   toFileName (IndexFile fp) = dropExtension  fp `addExtension` ".cq"
+
+instance ToFileName StateFile where
+  toFileName (StateFile fk) = toFileName fk
 
 newtype FilePrio = FilePrio (Down TimeSpec)
                     deriving newtype (Eq,Ord)
@@ -150,6 +155,14 @@ ncqTombPrefix = "T;;\x00"
 
 ncqMetaPrefix :: ByteString
 ncqMetaPrefix = "M;;\x00"
+
+ncqIsMeta :: ByteString -> Maybe NCQSectionType
+ncqIsMeta bs = headMay [ t | (t,x) <- meta, BS.isPrefixOf x bs ]
+  where meta = [ (R, ncqRefPrefix)
+               , (B, ncqBlockPrefix)
+               , (T, ncqTombPrefix)
+               , (M, ncqMetaPrefix)
+               ]
 
 ncqMakeSectionBS :: Maybe NCQSectionType
                  -> HashRef
