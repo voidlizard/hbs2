@@ -1628,6 +1628,63 @@ main = do
 
           e -> throwIO (BadFormException (mkList e))
 
+
+        entry $ bindMatch "test:ncq2:del2" $ nil_ $ \syn -> do
+
+          runTest $ \TestEnv{..} -> do
+            g <- liftIO MWC.createSystemRandom
+            let dir = testEnvDir
+
+            let (_, argz) = splitOpts [] syn
+            let n = headDef 50000 [ fromIntegral x | LitIntVal x <- argz ]
+            let p0 = headDef 0.25  [ realToFrac x   | LitScientificVal x <- drop 1 argz ]
+
+            thashes <- newTVarIO mempty
+
+            ncqWithStorage dir $ \sto@NCQStorage2{..} -> do
+
+              sizes <- replicateM n $ uniformRM (32*1024, 256*1024) g
+
+              notice $ "write" <+> pretty n <+> "blocks"
+              pooledForConcurrentlyN_ 16 sizes $ \s -> do
+                h <- ncqPutBS sto (Just B) Nothing =<< genRandomBS g s
+
+                p1 <- uniformRM @Double (0, 1) g
+
+                when (p1 < p0) do
+                  ncqDelEntry sto h
+                  atomically $ modifyTVar thashes (HS.insert h)
+
+              deleted <- readTVarIO thashes
+
+              tombs <- for (HS.toList deleted) $ \d -> do
+                         ncqLocate2 sto d <&>  maybe False (N2.ncqIsTomb sto)
+
+              let tnum = sum [ 1 | x <- tombs, x ]
+
+              notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
+
+              useVersion sto $ const do
+                tfs <- N2.ncqListTrackedFiles sto <&> filter (isNotPending . view _2) . V.toList
+
+                for_ tfs $ \(fk,_,_)  -> void $ runMaybeT do
+
+                  let idxf = N2.ncqGetFileName sto $ toFileName (IndexFile fk)
+
+                  (idxBs, nway) <- liftIO $ nwayHashMMapReadOnly idxf
+                                        >>= orThrowUser "can't mmap index"
+
+                  stat' <- S.toList_ $ nwayHashScanAll nway idxBs $ \_ k v -> do
+                    unless (k == ncqEmptyKey) do
+                      let (o,s) = decodeEntry v
+                      when ( s == ncqSLen + ncqKeyLen + ncqPrefixLen ) do
+                        let hk = coerce @_ @HashRef k
+                        S.yield (fk, 1)
+
+                  let stat = HM.fromListWith (+) stat'
+                  for_ (HM.toList stat) $ \(k, num) -> do
+                    notice $ pretty k <+> pretty num
+
         entry $ bindMatch "test:ncq2:del1" $ nil_ $ \syn -> do
 
           runTest $ \TestEnv{..} -> do

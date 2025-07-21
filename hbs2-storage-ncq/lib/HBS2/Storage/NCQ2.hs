@@ -281,6 +281,9 @@ ncqNewUniqFileName  me@NCQStorage2{..} pref suff = liftIO $ withSem ncqMiscSem d
     False -> pure n
     True  -> next (succ i)
 
+ncqEmptyKey :: ByteString
+ncqEmptyKey = BS.replicate ncqKeyLen 0
+
 ncqGetNewFossilName :: MonadIO m => NCQStorage2 -> m FilePath
 ncqGetNewFossilName me = ncqNewUniqFileName me "fossil-" ".data"
 
@@ -514,14 +517,15 @@ ncqLookupIndex :: MonadUnliftIO m
                -> m (Maybe ( NCQOffset, NCQSize ))
 ncqLookupIndex hx (mmaped, nway) = do
   fmap decodeEntry <$> nwayHashLookup nway mmaped (coerce hx)
-  where
-    {-# INLINE decodeEntry #-}
-    decodeEntry entryBs = do
-      let (p,r) = BS.splitAt 8 entryBs
-      let off = fromIntegral (N.word64 p)
-      let size = fromIntegral (N.word32 (BS.take 4 r))
-      ( off, size )
 {-# INLINE ncqLookupIndex #-}
+
+decodeEntry :: ByteString -> ( NCQOffset, NCQSize )
+decodeEntry entryBs = do
+    let (p,r) = BS.splitAt 8 entryBs
+    let off = fromIntegral (N.word64 p)
+    let size = fromIntegral (N.word32 (BS.take 4 r))
+    ( off, size )
+{-# INLINE decodeEntry #-}
 
 ncqLocateActually :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
 ncqLocateActually ncq href = do
@@ -749,7 +753,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
 
   where
 
-    emptyKey = BS.replicate ncqKeyLen 0
+    emptyKey = ncqEmptyKey
 
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
