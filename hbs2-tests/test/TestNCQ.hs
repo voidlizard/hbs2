@@ -821,13 +821,85 @@ testNCQ2Simple1 syn TestEnv{..} = do
 
 
 
+testNCQ2Lookup2:: forall c m . (MonadUnliftIO m, IsContext c)
+         => [Syntax c]
+         -> TestEnv
+         -> m ()
+
+testNCQ2Lookup2 syn TestEnv{..} = do
+  debug $ "testNCQ2Lookup2" <+> pretty syn
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+  q <- newTQueueIO
+
+  g <- liftIO MWC.createSystemRandom
+
+  let (opts, argz) = splitOpts [("-m",0)] syn
+
+  let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
+  let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
+  let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
+  let r = (4*1024, 64*1024)
+
+  let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
+
+  notice $ "insert" <+> pretty n <+> "random blocks of size" <+> parens (pretty r) <+> pretty opts
+
+  thashes <- newTQueueIO
+
+  sizes <- liftIO $ replicateM n (uniformRM r g )
+
+  res <- newTQueueIO
+
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    pooledForConcurrentlyN_ 8  sizes $ \size -> do
+      z <- uniformByteStringM size g
+      h <- ncqPutBS sto (Just B) Nothing z
+      atomically $ writeTQueue thashes h
+
+    hs <- atomically $ STM.flushTQueue thashes
+
+    when merge do
+      notice "merge full"
+      ncqMergeFull sto
+
+    ffs <- N2.ncqListTrackedFiles sto
+    notice $ "database prepared" <+> pretty (List.length ffs) <+> pretty (List.length hs)
+
+    replicateM_ nl do
+
+      tfound <- newTVarIO 0
+
+      t0 <- getTimeCoarse
+
+      liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
+        found <- ncqLocate2 sto h <&> isJust
+        when found do
+          atomically $ modifyTVar' tfound succ
+
+      t1 <- getTimeCoarse
+
+      let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
+      atomically $ writeTQueue res dt
+
+      found <- readTVarIO tfound
+
+      notice $ "scan all files" <+> pretty dt <+> pretty found
+
+    m <- atomically (STM.flushTQueue res)
+          <&> List.sort
+          <&> \x -> atDef 0 x (List.length x `quot` 2)
+
+    notice $ "median" <+> pretty m
+
+
 testNCQ2Lookup1:: forall c m . (MonadUnliftIO m, IsContext c)
          => [Syntax c]
          -> TestEnv
          -> m ()
 
 testNCQ2Lookup1 syn TestEnv{..} = do
-  debug $ "testNCQ2Simple1" <+> pretty syn
+  debug $ "testNCQ2Lookup1" <+> pretty syn
   let tmp = testEnvDir
   let ncqDir   = tmp
   q <- newTQueueIO
@@ -865,6 +937,8 @@ testNCQ2Lookup1 syn TestEnv{..} = do
 
     ffs <- N2.ncqListTrackedFiles sto
     notice $ "database prepared" <+> pretty (List.length ffs) <+> pretty (List.length hs)
+
+    res <- newTQueueIO
 
     replicateM_ nl do
 
@@ -931,12 +1005,17 @@ testNCQ2Lookup1 syn TestEnv{..} = do
       t1 <- getTimeCoarse
 
       let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
+      atomically $ writeTQueue res dt
 
       found <- readTVarIO tfound
 
       notice $ "scan all files" <+> pretty dt <+> pretty found
 
-    -- pause @'Seconds 5
+    m <- atomically (STM.flushTQueue res)
+          <&> List.sort
+          <&> \x -> atDef 0 x (List.length x `quot` 2)
+
+    notice $ "median" <+> pretty m
 
 
 genRandomBS :: forall g m . (Monad m, StatefulGen g m) => g -> Int -> m ByteString
@@ -1469,6 +1548,9 @@ main = do
 
         entry $ bindMatch "test:ncq2:lookup1" $ nil_ $ \e -> do
             runTest (testNCQ2Lookup1 e)
+
+        entry $ bindMatch "test:ncq2:lookup2" $ nil_ $ \e -> do
+            runTest (testNCQ2Lookup2 e)
 
         entry $ bindMatch "test:ncq2:sweep1" $ nil_ $ \e -> do
             runTest (testNCQ2Sweep1 e)

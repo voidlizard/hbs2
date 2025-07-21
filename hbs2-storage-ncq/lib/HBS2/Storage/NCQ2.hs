@@ -108,8 +108,8 @@ type FOff = Word64
 
 data  NCQEntry =
   NCQEntry
-  { ncqEntryData   :: ByteString
-  , ncqDumped      :: TVar (Maybe FileKey)
+  { ncqEntryData   :: !ByteString
+  , ncqDumped      :: !(TVar (Maybe FileKey))
   }
 
 type Shard = TVar (HashMap HashRef NCQEntry)
@@ -126,10 +126,9 @@ data NCQFlag =
   NCQMergeNow | NCQCompactNow
   deriving (Eq,Ord,Generic)
 
-
 data Location =
-       InFossil  FileKey !ByteString !NCQOffset !NCQSize
-     | InMemory  ByteString
+       InFossil {-# UNPACK #-} !FileKey !ByteString !NCQOffset !NCQSize
+     | InMemory {-# UNPACK #-} !ByteString
 
 instance Pretty Location where
   pretty = \case
@@ -163,6 +162,7 @@ data NCQStorage2 =
   , ncqMemTable       :: Vector Shard
   , ncqWriteQ         :: TVar (Seq HashRef)
   , ncqWriteOps       :: Vector (TQueue (IO ()))
+  , ncqReadReq        :: TQueue (HashRef, TMVar (Maybe Location))
   , ncqStorageTasks   :: TVar Int
   , ncqStorageStopReq :: TVar Bool
   , ncqStorageSyncReq :: TVar Bool
@@ -184,7 +184,6 @@ data NCQStorage2 =
   , ncqMergeTasks     :: TVar Int
   , ncqOnRunWriteIdle :: TVar (IO ())
 
-  , ncqReadSem        :: TSem
   }
 
 megabytes :: forall a . Integral a => a
@@ -235,7 +234,7 @@ ncqStorageOpen2 fp upd = do
   ncqMergeTasks      <- newTVarIO 0
   ncqOnRunWriteIdle  <- newTVarIO none
 
-  ncqReadSem <- atomically $ newTSem 1
+  ncqReadReq <- newTQueueIO
 
   ncqWriteOps <- replicateM wopNum newTQueueIO <&> V.fromList
 
@@ -473,7 +472,7 @@ ncqSeekInFossils :: forall a f m . (MonadUnliftIO m, Monoid (f a))
                  -> HashRef
                  -> (Location -> m (Seek (f a)))
                  -> m (f a)
-ncqSeekInFossils ncq@NCQStorage2{..} href action = withSem ncqReadSem $ useVersion ncq $ const do
+ncqSeekInFossils ncq@NCQStorage2{..} href action = useVersion ncq $ const do
   tracked <- readTVarIO ncqTrackedFiles
   let l = V.length tracked
 
@@ -524,11 +523,17 @@ ncqLookupIndex hx (mmaped, nway) = do
       ( off, size )
 {-# INLINE ncqLookupIndex #-}
 
-ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
-ncqLocate2 ncq href = do
+ncqLocateActually :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
+ncqLocateActually ncq href = do
   inMem      <- ncqLookupEntry ncq href <&> fmap (InMemory . ncqEntryData)
   inFo       <- listToMaybe <$> ncqSeekInFossils ncq href \loc -> pure (SeekStop [loc])
   pure $ inMem <|> inFo
+
+ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
+ncqLocate2 NCQStorage2{..} href = do
+  answ <- newEmptyTMVarIO
+  atomically $ writeTQueue ncqReadReq (href, answ)
+  atomically $ takeTMVar answ
 
 data RunSt =
     RunNew
@@ -573,6 +578,38 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         loop
 
   spawnActivity $ forever (liftIO $ join $ atomically (readTQueue ncqJobQ))
+
+  replicateM_ 2 $ spawnActivity $ fix \next -> do
+      (h, answ) <- atomically $ readTQueue ncqReadReq
+
+      let answer l = atomically (putTMVar answ l)
+
+      let lookupCached fk = \case
+            PendingEntry{}  -> none
+            CachedEntry{..} -> do
+              ncqLookupIndex h (cachedMmapedIdx, cachedNway) >>= \case
+                Nothing -> none
+                Just (!offset,!size) -> do
+                  answer (Just (InFossil fk cachedMmapedData offset size))
+                  next
+          {-# INLINE lookupCached #-}
+
+      ncqLookupEntry ncq h >>= \case
+        Nothing  -> none
+        Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
+
+      useVersion ncq $ const do
+
+        tracked <- readTVarIO ncqTrackedFiles
+
+        for_ tracked $ \(TrackedFile{..}) -> do
+            readTVarIO tfCached >>= \case
+              Just ce -> lookupCached tfKey ce
+              Nothing -> ncqLoadTrackedFile ncq TrackedFile{..} >>= \case
+                Nothing -> err $ "unable to load index" <+> pretty tfKey
+                Just ce -> lookupCached tfKey ce
+
+      next
 
   let shLast = V.length ncqWriteOps - 1
   spawnActivity $  pooledForConcurrentlyN_ (V.length ncqWriteOps) [0..shLast] $ \i -> do
