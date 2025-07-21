@@ -954,52 +954,40 @@ testNCQ2Lookup1 syn TestEnv{..} = do
 
           (h, answ) <- atomically $ readTQueue readQ
 
-          f1 <- ncqLookupEntry sto h <&> isJust
+          ncqLookupEntry sto h >>= \case
+           Nothing -> none
+           Just e -> atomically (putTMVar answ (Just (InMemory (ncqEntryData e)))) >> next
 
-          when f1 do
-            atomically (putTMVar answ True) >> next
+          ffs <- readTVarIO $ (N2.ncqTrackedFiles sto)
 
-          ffs <- liftIO $ N2.ncqListTrackedFiles sto
+          for_ ffs $ \TrackedFile{..} -> do
+            readTVarIO tfCached >>= \case
 
-          for_ ffs $ \(f, ce, te) -> do
-
-            -- when (isNotPending ce) do
-            case ce of
               Just (PendingEntry{}) -> none
 
               Just (CachedEntry{..}) -> do
-                found <- ncqLookupIndex h (cachedMmapedIdx, cachedNway) <&> isJust
-
-                when found do
-                  atomically (putTMVar answ True) >> next
+                ncqLookupIndex h (cachedMmapedIdx, cachedNway) >>= \case
+                  Nothing -> none
+                  Just (o,s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
 
               Nothing -> do
 
-                tnow <- getTimeCoarse >>= newTVarIO
+                ncqLoadTrackedFile sto TrackedFile{..} >>= \case
+                  Nothing -> err "FUCK" >> next
+                  Just PendingEntry -> next
+                  Just CachedEntry{..} -> do
+                    ncqLookupIndex h (cachedMmapedIdx, cachedNway) >>= \case
+                      Nothing -> none
+                      Just (o,s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
 
-                let indexFile = N2.ncqGetFileName sto (toFileName (IndexFile f))
-                let dataFile  = N2.ncqGetFileName sto (toFileName (DataFile f))
-
-                what@(idxBs, idxNway) <- nwayHashMMapReadOnly indexFile `orDie` "mmap fucked"
-                datBs  <- mmapFileByteString dataFile Nothing
-
-                let ce = CachedEntry idxBs datBs idxNway tnow
-
-                atomically $ writeTVar te (Just ce)
-
-                found <- ncqLookupIndex h what <&> isJust
-
-                when found do
-                  atomically (putTMVar answ True) >> next
-
-          atomically (putTMVar answ False) >> next
+          atomically (putTMVar answ Nothing) >> next
 
         liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
           answ <- newEmptyTMVarIO
           atomically $ writeTQueue readQ (h, answ)
           found <- atomically $ takeTMVar answ
 
-          when found do
+          when (isJust found) do
             atomically $ modifyTVar' tfound succ
 
       t1 <- getTimeCoarse

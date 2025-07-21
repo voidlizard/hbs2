@@ -598,16 +598,16 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         Nothing  -> none
         Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
 
-      useVersion ncq $ const do
+      -- useVersion ncq $ const do
 
-        tracked <- readTVarIO ncqTrackedFiles
+      tracked <- readTVarIO ncqTrackedFiles
 
-        for_ tracked $ \(TrackedFile{..}) -> do
-            readTVarIO tfCached >>= \case
+      for_ tracked $ \(TrackedFile{..}) -> do
+          readTVarIO tfCached >>= \case
+            Just ce -> lookupCached tfKey ce
+            Nothing -> ncqLoadTrackedFile ncq TrackedFile{..} >>= \case
+              Nothing -> err $ "unable to load index" <+> pretty tfKey
               Just ce -> lookupCached tfKey ce
-              Nothing -> ncqLoadTrackedFile ncq TrackedFile{..} >>= \case
-                Nothing -> err $ "unable to load index" <+> pretty tfKey
-                Just ce -> lookupCached tfKey ce
 
       next
 
