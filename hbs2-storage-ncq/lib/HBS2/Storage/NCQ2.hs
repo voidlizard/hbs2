@@ -120,10 +120,7 @@ type NCQSize   = Word32
 type StateVersion = Word64
 
 data NCQIdxEntry =
-  NCQIdxEntry
-  { ncqIdxEntryOffset :: !NCQOffset
-  , ncqIdxEntrySize   :: !NCQSize
-  }
+  NCQIdxEntry {-# UNPACK#-} !NCQOffset !NCQSize
 
 data StateOP = D FileKey | F TimeSpec FileKey | P FileKey
                deriving (Eq,Ord,Show)
@@ -547,7 +544,11 @@ ncqLocateActually ncq href = do
 ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
 ncqLocate2 NCQStorage2{..} href = do
   answ <- newEmptyTMVarIO
-  atomically $ writeTQueue ncqReadReq (href, answ)
+
+  atomically do
+    modifyTVar ncqWrites succ
+    writeTQueue ncqReadReq (href, answ)
+
   atomically $ takeTMVar answ
 
 data RunSt =
@@ -1370,7 +1371,7 @@ ncqCompactStep me@NCQStorage2{..} = withSem ncqMergeSem $ flip runContT pure $ c
     getProfit fk tombs = do
       (bs,nw) <- viewIndex fk
       r <- S.toList_ $ nwayHashScanAll nw bs$ \_ k v -> do
-        when (HS.member (coerce k) tombs) $ S.yield $ ncqIdxEntrySize (decodeEntry v)
+        when (HS.member (coerce k) tombs) $ S.yield $ let (NCQIdxEntry _ s) = decodeEntry v in s
       pure (sum r)
 
     getGargabeSlow :: MonadIO m => FileKey -> HashSet HashRef -> m (HashMap HashRef NCQSize)
