@@ -969,7 +969,7 @@ testNCQ2Lookup1 syn TestEnv{..} = do
               Just (CachedEntry{..}) -> do
                 ncqLookupIndex h (cachedMmapedIdx, cachedNway) >>= \case
                   Nothing -> none
-                  Just (o,s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
+                  Just (NCQIdxEntry o s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
 
               Nothing -> do
 
@@ -979,7 +979,7 @@ testNCQ2Lookup1 syn TestEnv{..} = do
                   Just CachedEntry{..} -> do
                     ncqLookupIndex h (cachedMmapedIdx, cachedNway) >>= \case
                       Nothing -> none
-                      Just (o,s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
+                      Just (NCQIdxEntry o s) -> atomically (putTMVar answ (Just (N2.InFossil tfKey cachedMmapedData o s))) >> next
 
           atomically (putTMVar answ Nothing) >> next
 
@@ -1663,34 +1663,7 @@ main = do
 
               notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
 
-              useVersion sto $ const do
-                tfs <- N2.ncqListTrackedFiles sto <&> filter (isNotPending . view _2) . V.toList
-
-                t0 <- getTimeCoarse
-                for_ tfs $ \(fk,_,_)  -> void $ runMaybeT do
-
-                  let idxf = N2.ncqGetFileName sto $ toFileName (IndexFile fk)
-
-                  (idxBs, nway) <- liftIO $ nwayHashMMapReadOnly idxf
-                                        >>= orThrowUser "can't mmap index"
-
-                  stat' <- S.toList_ $ nwayHashScanAll nway idxBs $ \_ k v -> do
-                    unless (k == ncqEmptyKey) do
-                      let (o,s) = decodeEntry v
-                      when ( s == ncqSLen + ncqKeyLen + ncqPrefixLen ) do
-                        let hk = coerce @_ @HashRef k
-                        S.yield (fk, 1)
-
-                  let stat = HM.fromListWith (+) stat'
-                  for_ (HM.toList stat) $ \(k, num) -> do
-                    notice $ pretty k <+> pretty num
-
-                t1 <- getTimeCoarse
-
-                let dt = realToFrac (toNanoSecs (t1 - t0)) * 1e-9 & sec3
-
-                notice $ "scan time" <+> pretty dt
-
+              ncqCompactStep sto
 
         entry $ bindMatch "test:ncq2:del1" $ nil_ $ \syn -> do
 

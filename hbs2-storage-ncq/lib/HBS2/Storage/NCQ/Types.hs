@@ -35,6 +35,7 @@ data NCQStorageException =
   | NCQStorageCantOpenCurrent
   | NCQStorageBrokenCurrent
   | NCQMergeInvariantFailed String
+  | NCQCompactInvariantFailed String
   | NCQStorageCantLock FilePath
   | NCQStorageCantMapFile FilePath
   deriving stock (Show,Typeable)
@@ -48,7 +49,7 @@ instance IsString FileKey where
   fromString = FileKey . BS8.pack . dropExtension . takeFileName
 
 instance Pretty FileKey where
-  pretty (FileKey s) = parens ("file-key" <+> pretty (BS8.unpack s))
+  pretty (FileKey s) = pretty (BS8.unpack s)
 
 newtype DataFile a = DataFile a
 
