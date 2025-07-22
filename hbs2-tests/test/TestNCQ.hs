@@ -792,17 +792,17 @@ testNCQ2Simple1 syn TestEnv{..} = do
 
   notice $ "merge data"
 
-  ncqWithStorage ncqDir $ \sto -> liftIO do
-    notice "perform merge"
-    ncqMergeFull sto
-    ncqSweepStates sto
-    ncqSweepFossils sto
+  -- ncqWithStorage ncqDir $ \sto -> liftIO do
+  --   notice "perform merge"
+  --   ncqMergeFull sto
+  --   ncqSweepStates sto
+  --   ncqSweepFossils sto
 
-  notice $ "full sweep unused states"
+  -- notice $ "full sweep unused states"
 
-  ncqWithStorage ncqDir $ \sto -> liftIO do
-    ncqSweepStates sto
-    ncqSweepFossils sto
+  -- ncqWithStorage ncqDir $ \sto -> liftIO do
+  --   ncqSweepStates sto
+  --   ncqSweepFossils sto
 
   notice $ "lookup" <+> pretty n <+> "blocks"
 
@@ -810,18 +810,17 @@ testNCQ2Simple1 syn TestEnv{..} = do
 
     replicateM_ l do
 
-      -- performMajorGC
+      t0 <- getTimeCoarse
 
-      (t1,_) <- timeItT do
+      pooledForConcurrentlyN_ 8  hashes $ \ha -> do
+        found <- ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
+        assertBool (show $ "found" <+> pretty ha) (found > 0)
+        -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
 
-          for_ hashes $ \ha -> do
-            found <- ncqLocate2 sto ha <&> maybe (-1) ncqEntrySize
-            assertBool (show $ "found" <+> pretty ha) (found > 0)
-            -- debug $ fill 44 (pretty ha) <+> fill 8 (pretty found)
+      t1 <- getTimeCoarse
+      let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
 
-      notice $ pretty (sec6 t1) <+> "lookup" <+> pretty n <+> "blocks"
-
-
+      notice $ pretty (sec6 dt) <+> "lookup" <+> pretty n <+> "blocks"
 
 testNCQ2Lookup2:: forall c m . (MonadUnliftIO m, IsContext c)
          => [Syntax c]
@@ -841,7 +840,7 @@ testNCQ2Lookup2 syn TestEnv{..} = do
   let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
   let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
   let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
-  let r = (4*1024, 64*1024)
+  let r = (64*1024, 256*1024)
 
   let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
 
