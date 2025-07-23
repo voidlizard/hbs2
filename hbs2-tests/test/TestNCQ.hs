@@ -1781,6 +1781,45 @@ main = do
           e -> throwIO $ BadFormException @C (mkList e)
 
 
+        entry $ bindMatch "test:ncq2:probes-db1" $ nil_ $ \e -> do
+
+          notice "test:ncq2:probes-db1"
+          runTest $ \TestEnv{..} -> do
+            g <- liftIO MWC.createSystemRandom
+            let dir = testEnvDir
+            let n = 30000
+            let p = 0.15
+
+            sizes <- replicateM n (uniformRM (4096, 256*1024) g)
+
+            hashes <- newTVarIO (mempty :: IntMap HashRef)
+
+            ncqWithStorage dir $ \sto -> void $ flip runContT pure do
+              notice $ "write" <+> pretty (List.length sizes) <+> pretty "random blocks"
+
+              ContT $ withAsync $ forever do
+                pause @'Seconds 0.5
+                p1 <-  uniformRM (0,1) g
+                when (p1 <= p) do
+                  hss <- readTVarIO hashes
+                  let s = maybe 0 fst $ IntMap.lookupMax hss
+                  i <- uniformRM (0,s) g
+                  let hm = IntMap.lookup i hss
+                  for_ hm $ \h -> do
+                    ncqDelEntry sto h
+                    atomically $ modifyTVar hashes (IntMap.delete i)
+
+              liftIO $ pooledForConcurrentlyN_ 8  sizes $ \s ->  do
+                h <- ncqPutBS sto (Just B) Nothing =<< genRandomBS g s
+                atomically do
+                  i <- readTVar hashes <&> IntMap.size
+                  modifyTVar hashes (IntMap.insert i h)
+
+              notice $ "written" <+> pretty n
+
+              pause @'Seconds 300
+
+
         hidden do
           internalEntries
           entry $ bindMatch "#!" $ nil_ $ const none

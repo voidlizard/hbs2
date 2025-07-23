@@ -287,6 +287,9 @@ ncqNewUniqFileName  me@NCQStorage2{..} pref suff = liftIO $ withSem ncqMiscSem d
 ncqEmptyKey :: ByteString
 ncqEmptyKey = BS.replicate ncqKeyLen 0
 
+ncqGetProbesDir :: NCQStorage2 -> FilePath
+ncqGetProbesDir me = ncqGetFileName me ".probes"
+
 ncqGetNewFossilName :: MonadIO m => NCQStorage2 -> m FilePath
 ncqGetNewFossilName me = ncqNewUniqFileName me "fossil-" ".data"
 
@@ -675,6 +678,9 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                 when (n == n0) STM.retry
 
 
+  spawnActivity probesDB
+
+
   ContT $ bracket none $ const $ liftIO do
     fhh <- atomically (STM.flushTQueue closeQ)
     for_ fhh ( closeFd . snd )
@@ -799,6 +805,16 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
       where
         alpha = 0.1
         step  = 1.00
+
+    probesDB = do
+      let dir = ncqGetProbesDir ncq
+      debug $ yellow "probesDB started" <+> pretty dir
+      mkdir dir
+
+      forever do
+        debug $ yellow "probesDB wip"
+        pause @'Seconds 10
+
 
 ncqSpawnJob :: forall m . MonadIO m => NCQStorage2 -> IO () -> m ()
 ncqSpawnJob NCQStorage2{..} m = atomically $ writeTQueue ncqJobQ m
