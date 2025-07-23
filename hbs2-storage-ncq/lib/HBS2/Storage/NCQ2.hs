@@ -89,7 +89,7 @@ ncqStorageOpen2 fp upd = do
   let ncqWriteBlock = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCached  = 128
   let ncqIdleThrsh  = 50.00
-  let ncqPostponeMerge = 600.00
+  let ncqPostponeMerge = 30.00
   let ncqPostponeSweep = 2 * ncqPostponeMerge
   let ncqLuckyNum   = 2
 

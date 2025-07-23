@@ -1787,8 +1787,8 @@ main = do
           runTest $ \TestEnv{..} -> do
             g <- liftIO MWC.createSystemRandom
             let dir = testEnvDir
-            let n = 30000
-            let p = 0.25
+            let n = 100000
+            let p = 0.45
 
             sizes <- replicateM n (uniformRM (4096, 256*1024) g)
 
@@ -1798,7 +1798,7 @@ main = do
               notice $ "write" <+> pretty (List.length sizes) <+> pretty "random blocks"
 
               ContT $ withAsync $ forever do
-                pause @'Seconds 0.5
+                pause @'Seconds 0.10
                 p1 <-  uniformRM (0,1) g
                 when (p1 <= p) do
                   hss <- readTVarIO hashes

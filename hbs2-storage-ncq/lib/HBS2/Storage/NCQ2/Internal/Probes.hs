@@ -57,9 +57,10 @@ ncqKeyNumIntersectionProbe me@NCQStorage2{..} = useVersion me $ const $ void $ r
 
   n <- liftIO $ do
     ref <- newTVarIO 0
-    nwayHashScanAll n1 bs1 $ \_ k _ -> do
-      here <- ncqLookupIndex (coerce k) (bs2,n2)
-      when (isJust here) $ atomically $ modifyTVar' ref (+1)
+    nwayHashScanAll n1 bs1 $ \_ k _ -> when (k /= ncqEmptyKey ) do
+        here <- ncqLookupIndex (coerce k) (bs2,n2)
+        when (isJust here) $ atomically $ modifyTVar' ref (+1)
+
     readTVarIO ref
 
   debug $ yellow "ncqKeyNumIntersectionProbe"
