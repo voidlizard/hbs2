@@ -1781,7 +1781,7 @@ main = do
           e -> throwIO $ BadFormException @C (mkList e)
 
 
-        entry $ bindMatch "test:ncq2:probes-db1" $ nil_ $ \e -> do
+        entry $ bindMatch "test:ncq2:facts-db1" $ nil_ $ \e -> do
 
           notice "test:ncq2:probes-db1"
           runTest $ \TestEnv{..} -> do

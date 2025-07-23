@@ -145,6 +145,21 @@ data TrackedFile =
   , tfCached :: TVar (Maybe CachedEntry)
   }
 
+data FactE = EmptyFact
+             deriving (Eq,Ord,Show,Data,Generic)
+
+type FactSeq = POSIXTime
+
+data Fact =
+  Fact
+  { factWritten :: Maybe FactSeq
+  , factE       :: FactE
+  }
+  deriving (Eq,Ord,Show,Data,Generic)
+
+instance Hashable FactE
+instance Hashable Fact
+
 type TrackedFiles = Vector TrackedFile
 
 data NCQStorage2 =
@@ -187,6 +202,8 @@ data NCQStorage2 =
   , ncqMergeTasks     :: TVar Int
   , ncqOnRunWriteIdle :: TVar (IO ())
 
+  , ncqFactFiles      :: TVar (HashSet FileKey)
+  , ncqFacts          :: TVar (HashSet Fact)
   }
 
 megabytes :: forall a . Integral a => a
@@ -236,6 +253,8 @@ ncqStorageOpen2 fp upd = do
   ncqSweepSem        <- atomically (newTSem 1)
   ncqMergeTasks      <- newTVarIO 0
   ncqOnRunWriteIdle  <- newTVarIO none
+  ncqFactFiles       <- newTVarIO mempty
+  ncqFacts           <- newTVarIO mempty
 
   ncqReadReq <- newTQueueIO
 
@@ -287,8 +306,8 @@ ncqNewUniqFileName  me@NCQStorage2{..} pref suff = liftIO $ withSem ncqMiscSem d
 ncqEmptyKey :: ByteString
 ncqEmptyKey = BS.replicate ncqKeyLen 0
 
-ncqGetProbesDir :: NCQStorage2 -> FilePath
-ncqGetProbesDir me = ncqGetFileName me ".probes"
+ncqGetFactsDir :: NCQStorage2 -> FilePath
+ncqGetFactsDir me = ncqGetWorkDir me </> ".facts"
 
 ncqGetNewFossilName :: MonadIO m => NCQStorage2 -> m FilePath
 ncqGetNewFossilName me = ncqNewUniqFileName me "fossil-" ".data"
@@ -298,6 +317,11 @@ ncqGetNewStateName me = ncqNewUniqFileName me "state-" ""
 
 ncqGetNewCompactName :: MonadIO m => NCQStorage2 -> m FilePath
 ncqGetNewCompactName me = ncqNewUniqFileName me "compact-" ".data"
+
+ncqGetNewFactFileName :: MonadIO m => NCQStorage2 -> m FilePath
+ncqGetNewFactFileName me = do
+  ncqNewUniqFileName me (d </> "fact-") ".f"
+  where d = ncqGetFactsDir me
 
 ncqStorageStop2 :: MonadUnliftIO m => NCQStorage2 -> m ()
 ncqStorageStop2 NCQStorage2{..} = do
@@ -678,7 +702,7 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
                 when (n == n0) STM.retry
 
 
-  spawnActivity probesDB
+  spawnActivity factsDB
 
 
   ContT $ bracket none $ const $ liftIO do
@@ -806,13 +830,13 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         alpha = 0.1
         step  = 1.00
 
-    probesDB = do
-      let dir = ncqGetProbesDir ncq
-      debug $ yellow "probesDB started" <+> pretty dir
+    factsDB = do
+      let dir = ncqGetFactsDir ncq
+      debug $ yellow "factsDB started" <+> pretty dir
       mkdir dir
 
       forever do
-        debug $ yellow "probesDB wip"
+        debug $ yellow "factsDB wip"
         pause @'Seconds 10
 
 
@@ -1534,6 +1558,10 @@ ncqSweepStates me@NCQStorage2{..} = withSem ncqSweepSem $ flip runContT pure do
 
 ncqSetOnRunWriteIdle :: MonadUnliftIO m => NCQStorage2 -> IO () -> m ()
 ncqSetOnRunWriteIdle NCQStorage2{..} io = atomically (writeTVar ncqOnRunWriteIdle io)
+
+ncqAddFacts :: MonadUnliftIO m => NCQStorage2 -> [FactE] -> m ()
+ncqAddFacts me facts = do
+  none
 
 writeFiltered :: forall m . MonadIO m
               => NCQStorage2
