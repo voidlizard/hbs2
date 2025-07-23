@@ -61,6 +61,9 @@ library
     exposed-modules:
       HBS2.Storage.NCQ
       HBS2.Storage.NCQ2
+      HBS2.Storage.NCQ2.Internal
+      HBS2.Storage.NCQ2.Internal.Types
+      HBS2.Storage.NCQ2.Internal.Probes
       HBS2.Storage.NCQ.Types
     -- other-modules:
     -- other-extensions:
@@ -79,6 +82,7 @@ library
                     , microlens-platform
                     , mmap
                     , mtl
+                    , mwc-random
                     , network-byte-order
                     , prettyprinter
                     , psqueues

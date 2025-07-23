@@ -1788,7 +1788,7 @@ main = do
             g <- liftIO MWC.createSystemRandom
             let dir = testEnvDir
             let n = 30000
-            let p = 0.15
+            let p = 0.25
 
             sizes <- replicateM n (uniformRM (4096, 256*1024) g)
 

@@ -1,3 +1,4 @@
+{-# Language UndecidableInstances #-}
 module HBS2.Storage.NCQ.Types where
 
 import HBS2.Prelude
@@ -43,7 +44,7 @@ data NCQStorageException =
 instance Exception NCQStorageException
 
 newtype FileKey = FileKey ByteString
-                  deriving newtype (Eq,Ord,Hashable,Show)
+                  deriving newtype (Eq,Ord,Hashable,Show,Serialise)
 
 instance IsString FileKey where
   fromString = FileKey . BS8.pack . dropExtension . takeFileName
