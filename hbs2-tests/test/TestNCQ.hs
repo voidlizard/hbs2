@@ -792,17 +792,17 @@ testNCQ2Simple1 syn TestEnv{..} = do
 
   notice $ "merge data"
 
-  -- ncqWithStorage ncqDir $ \sto -> liftIO do
-  --   notice "perform merge"
-  --   ncqMergeFull sto
-  --   ncqSweepStates sto
-  --   ncqSweepFossils sto
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    notice "perform merge"
+    ncqMergeFull sto
+    ncqSweepStates sto
+    ncqSweepFossils sto
 
-  -- notice $ "full sweep unused states"
+  notice $ "full sweep unused states"
 
-  -- ncqWithStorage ncqDir $ \sto -> liftIO do
-  --   ncqSweepStates sto
-  --   ncqSweepFossils sto
+  ncqWithStorage ncqDir $ \sto -> liftIO do
+    ncqSweepStates sto
+    ncqSweepFossils sto
 
   notice $ "lookup" <+> pretty n <+> "blocks"
 
@@ -1663,7 +1663,18 @@ main = do
 
               notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
 
+              t0 <- getTimeCoarse
+
               ncqCompactStep sto
+
+              t1 <- getTimeCoarse
+
+              let dt = timeSpecDeltaSeconds @(Fixed E6) t0 t1
+
+              notice $ "ncqCompactStep time" <+> pretty dt
+
+              none
+
 
         entry $ bindMatch "test:ncq2:del1" $ nil_ $ \syn -> do
 
@@ -1671,8 +1682,10 @@ main = do
             g <- liftIO MWC.createSystemRandom
             let dir = testEnvDir
 
-            let (_, argz) = splitOpts [] syn
+            let (opts, argz) = splitOpts [("-m",0)] syn
             let n = headDef 10000 [ fromIntegral x | LitIntVal x <- argz ]
+
+            let merge = or [ True | ListVal [StringLike "-m"] <- opts ]
 
             thashes <- newTVarIO mempty
 
@@ -1691,9 +1704,6 @@ main = do
                 assertBool "tomb/1" t
 
                 pure h
-
-
-              pause @'Seconds 5
 
               atomically $ writeTVar thashes (HS.fromList hashes)
 
@@ -1716,6 +1726,10 @@ main = do
                       err $ "FILE" <+> pretty npe <+> pretty tfKey
 
                     exit ()
+
+            when merge do
+              ncqWithStorage dir \sto -> do
+                ncqMergeFull sto
 
             ncqWithStorage dir $ \sto -> do
               -- notice "check deleted"

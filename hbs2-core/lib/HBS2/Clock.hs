@@ -108,6 +108,9 @@ class Expires a where
   -- FIXME: dangerous!
   expiresIn _ = Nothing
 
+timeSpecDeltaSeconds :: RealFrac a => TimeSpec -> TimeSpec -> a
+timeSpecDeltaSeconds a b = realToFrac . (*1e-9) . realToFrac $ toNanoSecs (max a b - min a b)
+
 getEpoch :: MonadIO m => m Word64
 getEpoch = liftIO getPOSIXTime <&> floor
 

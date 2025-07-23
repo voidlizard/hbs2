@@ -368,13 +368,18 @@ ncqPutBS ncq@NCQStorage2{..} mtp mhref bs' = do
 ncqEntryUnwrap :: NCQStorage2
                -> ByteString
                -> (ByteString, Either ByteString (NCQSectionType, ByteString))
-ncqEntryUnwrap _ source = do
+ncqEntryUnwrap n source = do
   let (k,v) = BS.splitAt ncqKeyLen (BS.drop 4 source)
-  case ncqIsMeta v of
-    Just meta -> (k, Right (meta, BS.drop ncqPrefixLen v))
-    Nothing   -> (k, Left v)
+  (k, ncqEntryUnwrapValue n v)
 {-# INLINE ncqEntryUnwrap #-}
 
+ncqEntryUnwrapValue :: NCQStorage2
+                    -> ByteString
+                    -> Either ByteString (NCQSectionType, ByteString)
+ncqEntryUnwrapValue _  v = case ncqIsMeta v of
+  Just meta -> Right (meta, BS.drop ncqPrefixLen v)
+  Nothing   -> Left v
+{-# INLINE ncqEntryUnwrapValue #-}
 
 ncqIdxIsTombSize :: NCQIdxEntry -> Bool
 ncqIdxIsTombSize (NCQIdxEntry _ s) = s == ncqSLen + ncqKeyLen + ncqPrefixLen
@@ -535,12 +540,6 @@ decodeEntry entryBs = do
     NCQIdxEntry off size
 {-# INLINE decodeEntry #-}
 
-ncqLocateActually :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
-ncqLocateActually ncq href = do
-  inMem      <- ncqLookupEntry ncq href <&> fmap (InMemory . ncqEntryData)
-  inFo       <- listToMaybe <$> ncqSeekInFossils ncq href \loc -> pure (SeekStop [loc])
-  pure $ inMem <|> inFo
-
 ncqLocate2 :: MonadUnliftIO m => NCQStorage2 -> HashRef -> m (Maybe Location)
 ncqLocate2 NCQStorage2{..} href = do
   answ <- newEmptyTMVarIO
@@ -578,7 +577,6 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
         debug $ yellow "indexing" <+> pretty fk
         idx <- ncqRunTaskNoMatterWhat ncq (ncqIndexFile ncq (DataFile fk))
         ncqRunTaskNoMatterWhat ncq $ ncqStateUpdate ncq [F 0 fk]
-        debug $ "REMOVE ALL SHIT" <+> pretty idx
         nwayHashMMapReadOnly idx >>= \case
           Nothing -> err $ "can't open index" <+> pretty idx
           Just (bs,nway) -> do
@@ -1253,22 +1251,36 @@ ncqMergeStep ncq@NCQStorage2{..}  = do
 
           debug $ "merge: okay, good to go" <+> pretty (takeFileName mfile)
 
-          (mmIdx, nway) <- nwayHashMMapReadOnly fIndexNameA
+          idxA <- nwayHashMMapReadOnly fIndexNameA
                             >>= orThrow (NCQMergeInvariantFailed (show $ "can't mmap" <+> pretty fIndexNameA))
+
+
+          idxB <- nwayHashMMapReadOnly fIndexNameB
+                            >>= orThrow (NCQMergeInvariantFailed (show $ "can't mmap" <+> pretty fIndexNameB))
 
           debug $ "SCAN FILE A" <+> pretty fDataNameA
 
-          writeFiltered ncq fDataNameA fwh $ \_ _ _ v -> do
+          -- we write only record from A, that last in index(A) and not meta
+
+          writeFiltered ncq fDataNameA fwh $ \o _ k v -> do
             let meta = Just M == ncqIsMeta v
-            pure $ not meta
+            liftIO (ncqLookupIndex (coerce k) idxA ) >>= \case
+                    Just (NCQIdxEntry o1 _) | o1 == fromIntegral o -> pure $ not meta
+                    _                     -> pure $ False
+
+          -- we write only record from B, that last in index(B)
+          -- and not meta and not already written 'A' pass
 
           debug $ "SCAN FILE B" <+> pretty fDataNameA
 
-          writeFiltered ncq fDataNameB fwh $ \_ _ k v -> do
+          writeFiltered ncq fDataNameB fwh $ \o _ k v -> do
             let meta = Just M == ncqIsMeta v
-            foundInA <- liftIO (nwayHashLookup nway mmIdx (coerce k)) <&> isJust
-            let skip = foundInA || meta
-            pure $ not skip
+            foundInA <- liftIO (ncqLookupIndex  (coerce k) idxA) <&> isJust
+            actual <- liftIO (ncqLookupIndex (coerce k) idxB ) >>= \case
+              Just (NCQIdxEntry o1 _) | o1 == fromIntegral o -> pure $ not meta
+              _                     -> pure $ False
+
+            pure $ not ( foundInA || meta || not actual )
 
           appendTailSection =<< handleToFd fwh
 
@@ -1305,15 +1317,30 @@ ncqCompactStep me@NCQStorage2{..} = withSem ncqMergeSem $ flip runContT pure $ c
              <&> zip [0 :: Int ..]
              <&> IntMap.fromList
 
-  for_ (IntMap.elems files) $ \fk -> do
+  (i,fkA,tombsA) <- lift (findFileA files) >>= maybe (exit ()) pure
 
-    let datF = ncqGetFileName me (toFileName (DataFile fk))
-    dataSize <- liftIO (fileSize datF)
-    garbage <- lift $ getGargabeSlow fk mempty
+  let (_,_,rest) = IntMap.splitLookup i files
 
-    let realProfit = sum (HM.elems garbage)
-    let pfl =  (realToFrac realProfit / realToFrac dataSize) & realToFrac @_ @(Fixed E6)
-    notice $ "profit" <+> pretty fk <+> pretty dataSize <+> pretty realProfit <+> pretty pfl
+  garbage0 <- lift $ getGarbageSlow fkA mempty
+
+  -- FIXME: hardcode
+  (j,fkB,tombsB) <- lift (findClosestAmongst rest (HM.keysSet garbage0) 0.15)
+                       >>= maybe (exit ()) pure
+
+  notice $ "found" <+> pretty fkA <+> pretty fkB
+
+
+  -- for_ (IntMap.elems rest) $ \fk -> do
+
+  --   let datF = ncqGetFileName me (toFileName (DataFile fk))
+  --   dataSize <- liftIO (fileSize datF)
+  --   garbage <- lift $ getGarbageSlow fk tombsA
+
+  --   let realProfit = sum (HM.elems garbage)
+  --   let kUse = realToFrac realProfit / (1 + realToFrac dataSize)  :: Fixed E3
+
+
+  --   notice $ "profit" <+> pretty fk <+> pretty dataSize <+> pretty realProfit <+> pretty kUse
 
   -- (aIdx, fileA, nTombs) <- findFileA files >>= maybe (exit  ()) pure
 
@@ -1352,9 +1379,24 @@ ncqCompactStep me@NCQStorage2{..} = withSem ncqMergeSem $ flip runContT pure $ c
 
   where
 
-    -- findFileA files = lift do
-    --   tnums <- for (IntMap.toList files) $ \(i, fk)  -> (i, fk,) . HS.size <$> (getTombsInIndex =<< viewIndex fk)
-    --   pure $ listToMaybe ( List.sortOn ( Down . view _3 ) tnums )
+    findFileA files = do
+      tnums <- for (IntMap.toList files) $ \(i, fk)  -> (i, fk,)  <$> (getTombsInIndex =<< viewIndex fk)
+      pure $ listToMaybe ( List.sortOn ( Down . HS.size . view _3 ) tnums )
+
+    findClosestAmongst rest tombs ratio = flip runContT pure $ callCC \exit -> do
+
+      for_ (IntMap.toList rest) $ \(i,fk) -> do
+
+        let datF = ncqGetFileName me (toFileName (DataFile fk))
+        dataSize <- liftIO (fileSize datF)
+        garbage  <- lift (getGarbageSlow fk tombs)
+
+        let realProfit = sum (HM.elems garbage)
+        let kUse = realToFrac realProfit / (1 + realToFrac dataSize)
+
+        when (kUse >= ratio) $ exit $ Just (i, fk, HM.keysSet garbage)
+
+      pure Nothing
 
     viewIndex fk = do
       let idxf = ncqGetFileName me $ toFileName (IndexFile fk)
@@ -1374,21 +1416,28 @@ ncqCompactStep me@NCQStorage2{..} = withSem ncqMergeSem $ flip runContT pure $ c
         when (HS.member (coerce k) tombs) $ S.yield $ let (NCQIdxEntry _ s) = decodeEntry v in s
       pure (sum r)
 
-    getGargabeSlow :: MonadIO m => FileKey -> HashSet HashRef -> m (HashMap HashRef NCQSize)
-    getGargabeSlow fk tombs = do
+    getGarbageSlow :: MonadUnliftIO m => FileKey -> HashSet HashRef -> m (HashMap HashRef NCQSize)
+    getGarbageSlow fk tombs = do
       let datFile = ncqGetFileName me (toFileName $ DataFile fk)
       idx <- viewIndex fk
 
-      mmaped <- liftIO (mmapFileByteString datFile Nothing)
-
       r <- newTVarIO mempty
-      runConsumeBS mmaped do
-        readSections $ \size bs -> do
-          let k = coerce @_ @HashRef $ fst (ncqEntryUnwrap me (LBS.toStrict bs))
-          found <- isJust <$> lift (ncqLookupIndex k idx)
-          let garbage = HS.member k tombs || not found
-          when garbage $ atomically do
-            modifyTVar' r (HM.insertWith (+) k (fromIntegral size))
+
+      ncqStorageScanDataFile me datFile $ \o s k v -> do
+        case ncqEntryUnwrapValue me v of
+          Left bs -> atomically $ modifyTVar' r (HM.insertWith (+) k (fromIntegral s))
+          Right (t, bs) -> do
+            ncqLookupIndex k idx  >>= \case
+              Nothing -> do
+                -- notice $ "not found in index" <+> pretty k
+                atomically $ modifyTVar' r (HM.insertWith (+) k (fromIntegral s))
+
+              Just (NCQIdxEntry oi _) -> do
+                let garbage = HS.member k tombs || oi /= fromIntegral o
+                when garbage do
+                  -- notice $ "offset mismatch or tomb" <+> pretty o <+> pretty oi <+> pretty k
+                  when garbage $ atomically do
+                    modifyTVar' r (HM.insertWith (+) k (fromIntegral s))
 
       readTVarIO r
 
