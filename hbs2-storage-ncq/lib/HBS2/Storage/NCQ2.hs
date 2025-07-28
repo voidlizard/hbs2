@@ -777,7 +777,7 @@ ncqListDirFossils ncq = do
      <&> List.filter (\f -> List.isPrefixOf "fossil-" f && List.isSuffixOf ".data" f)
      <&> HS.toList . HS.fromList
 
-ncqListStateFiles :: forall m . MonadIO m => NCQStorage2 -> m [(TimeSpec, StateFile)]
+ncqListStateFiles :: forall m . MonadIO m => NCQStorage2 -> m [(TimeSpec, StateFile FileKey)]
 ncqListStateFiles ncq = do
   let wd = ncqGetWorkDir ncq
   dirFiles wd
@@ -818,7 +818,7 @@ ncqRepair me@NCQStorage2{..} = do
 
     readState path = ncqReadStateKeys  me path <&> fmap DataFile
 
-    tryLoadState (fk :: StateFile) = liftIO do
+    tryLoadState (fk :: StateFile FileKey) = liftIO do
 
       debug $ "tryLoadState" <+> pretty fk
 
@@ -978,7 +978,7 @@ ncqStateUpdate me@NCQStorage2{..} ops' = withSem ncqStateSem $ flip runContT pur
       d    -> pure d
 
 
-ncqDumpCurrentState :: MonadUnliftIO m => NCQStorage2 -> m StateFile
+ncqDumpCurrentState :: MonadUnliftIO m => NCQStorage2 -> m (StateFile FileKey)
 ncqDumpCurrentState me@NCQStorage2{..} = do
   files <- ncqListTrackedFiles me
   name <- ncqGetNewStateName me
@@ -1263,7 +1263,7 @@ ncqCompactStep me@NCQStorage2{..} = withSem ncqMergeSem $ flip runContT pure $ c
 
       readTVarIO r
 
-ncqReadStateKeys :: forall m .  MonadUnliftIO m => NCQStorage2 -> StateFile -> m [FileKey]
+ncqReadStateKeys :: forall m .  MonadUnliftIO m => NCQStorage2 -> StateFile FileKey -> m [FileKey]
 ncqReadStateKeys me path = liftIO do
   keys <- BS8.readFile (ncqGetFileName me (toFileName path))
            <&> filter (not . BS8.null) . BS8.lines

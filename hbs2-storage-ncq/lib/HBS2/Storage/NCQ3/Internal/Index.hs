@@ -4,6 +4,7 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 
+import System.Posix.Files qualified as PFS
 import Streaming.Prelude qualified as S
 import Network.ByteOrder qualified as N
 import Control.Monad.Trans.Cont
@@ -14,8 +15,9 @@ ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m FilePath
 ncqIndexFile n@NCQStorage3{}  fk = do
 
   let fp   = toFileName fk & ncqGetFileName n
-  dest  <- ncqGetNewFileKey n
-              <&> ncqGetFileName n . toFileName . IndexFile
+  fki <- ncqGetNewFileKey n IndexFile
+
+  let dest  = ncqGetFileName n (toFileName (IndexFile fki))
 
   debug $ "INDEX" <+> pretty fp <+> pretty dest
 
@@ -38,7 +40,12 @@ ncqIndexFile n@NCQStorage3{}  fk = do
 
   mv result dest
 
-  -- ncqStateUpdate n [F 0 (coerce fk)]
+  stat <- liftIO $ PFS.getFileStatus dest
+  let ts = PFS.modificationTimeHiRes stat
+
+  ncqStateUpdate n do
+    ncqStateAddIndexFile ts fki
+    ncqStateAddDataFile (coerce fk)
 
   pure dest
 

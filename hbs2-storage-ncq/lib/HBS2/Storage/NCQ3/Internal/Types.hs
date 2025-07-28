@@ -27,6 +27,9 @@ instance ToFileName (DataFile FileKey) where
 instance ToFileName (IndexFile FileKey) where
   toFileName (IndexFile fk) = printf "i-%08x.cq" (coerce @_ @Word32 fk)
 
+instance ToFileName (StateFile FileKey) where
+  toFileName (StateFile fk) = printf "s-%08x" (coerce @_ @Word32 fk)
+
 data  NCQEntry =
   NCQEntry
   { ncqEntryData   :: !ByteString
@@ -49,7 +52,7 @@ data NCQStorage3 =
   , ncqIdleThrsh      :: Double
   , ncqMMapCache      :: TVar (HashPSQ FileKey CachePrio CachedMMap)
   , ncqStateFiles     :: TVar (HashSet FileKey)
-  , ncqStateIndex     :: TVar (HashSet FileKey)
+  , ncqStateIndex     :: TVar [(Down POSIXTime, FileKey)] -- backward timestamp order
   , ncqStateFileSeq   :: TVar FileKey
   , ncqStateVersion   :: TVar StateVersion
   , ncqStateUsage     :: TVar (IntMap (Int, HashSet FileKey))

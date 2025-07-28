@@ -132,7 +132,7 @@ data NCQStorage2 =
   , ncqTrackedFiles   :: TVar TrackedFiles
   , ncqStateVersion   :: TVar StateVersion
   , ncqStateUsage     :: TVar (IntMap (Int, HashSet FileKey))
-  , ncqStateName      :: TVar (Maybe StateFile)
+  , ncqStateName      :: TVar (Maybe (StateFile FileKey))
   , ncqStateSem       :: TSem
   , ncqCachedEntries  :: TVar Int
   , ncqWrites         :: TVar Int

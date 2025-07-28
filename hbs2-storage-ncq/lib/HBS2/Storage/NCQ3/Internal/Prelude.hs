@@ -16,6 +16,8 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , ToFileName(..)
   , IndexFile(..)
   , DataFile(..)
+  , StateFile(..)
+  , FilePrio(..)
   , ByteString
   , Vector, (!)
   , Seq(..), (|>),(<|)
@@ -23,6 +25,8 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , HashMap
   , HashPSQ
   , IntMap
+  , Set
+  , Down(..)
   ) where
 
 import HBS2.Prelude as Exported
@@ -46,6 +50,8 @@ import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.IntMap (IntMap)
+import Data.Set    (Set)
+import Data.Ord (Down(..))
 
 
 import UnliftIO as Exported

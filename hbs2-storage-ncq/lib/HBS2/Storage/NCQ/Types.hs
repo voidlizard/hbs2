@@ -56,8 +56,8 @@ newtype DataFile a = DataFile a
 
 newtype IndexFile a = IndexFile a
 
-newtype StateFile = StateFile FileKey
-                    deriving newtype (IsString,Eq,Ord,Pretty)
+newtype StateFile a = StateFile a
+                      deriving newtype (IsString,Eq,Ord,Pretty)
 
 class ToFileName a where
   toFileName :: a -> FilePath
@@ -77,7 +77,7 @@ instance ToFileName (DataFile FilePath) where
 instance ToFileName (IndexFile FilePath) where
   toFileName (IndexFile fp) = dropExtension  fp `addExtension` ".cq"
 
-instance ToFileName StateFile where
+instance ToFileName (StateFile FileKey) where
   toFileName (StateFile fk) = toFileName fk
 
 newtype FilePrio = FilePrio (Down TimeSpec)

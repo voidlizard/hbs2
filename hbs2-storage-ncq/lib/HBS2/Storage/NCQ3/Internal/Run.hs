@@ -152,7 +152,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
-      fk <- ncqGetNewFileKey ncq
+      fk <- ncqGetNewFileKey ncq DataFile
       let fname = ncqGetFileName ncq (toFileName (DataFile fk))
       touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
