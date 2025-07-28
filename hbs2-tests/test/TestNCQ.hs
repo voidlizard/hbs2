@@ -965,18 +965,6 @@ testNCQ2Lookup1 syn TestEnv{..} = do
     notice $ "median" <+> pretty m
 
 
-genRandomBS :: forall g m . (Monad m, StatefulGen g m) => g -> Int -> m ByteString
-genRandomBS g n = do
-  uniformByteStringM n g
-
-sec6 :: RealFrac a => a -> Fixed E6
-sec6 = realToFrac
-
-sec2 :: RealFrac a => a -> Fixed E2
-sec2 = realToFrac
-
-sec3 :: RealFrac a => a -> Fixed E3
-sec3 = realToFrac
 
 testNCQ2Merge1 :: MonadUnliftIO m
          => Int

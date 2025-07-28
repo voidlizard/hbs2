@@ -6,6 +6,7 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Memtable
+import HBS2.Storage.NCQ3.Internal.Index
 
 
 import Control.Monad.Trans.Cont
@@ -53,8 +54,9 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
           if not stop then STM.retry else pure Nothing
 
     maybe1 what none $ \(fk :: FileKey, fh) -> do
-      debug $ red "CLOSE FILE" <+> pretty fk
+      notice $ red "CLOSE FILE" <+> pretty fk
       closeFd fh
+      ncqIndexFile ncq (DataFile fk)
       loop
 
   let shLast = V.length ncqWriteOps - 1
@@ -150,16 +152,16 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
-      fname <- ncqGetFileName ncq . toFileName . DataFile <$> ncqGetNewFileKey ncq
+      fk <- ncqGetNewFileKey ncq
+      let fname = ncqGetFileName ncq (toFileName (DataFile fk))
       touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
-      (fromString fname,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)
+      (fk,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)
 
     spawnActivity m = do
       a <- ContT $ withAsync m
       link a
       pure a
-
 
     measureWPS = void $ flip fix Nothing \loop -> \case
       Nothing      -> do

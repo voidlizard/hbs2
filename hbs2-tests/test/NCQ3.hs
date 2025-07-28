@@ -18,8 +18,6 @@ import HBS2.Storage.NCQ3
 import HBS2.System.Logger.Simple.ANSI
 
 import HBS2.Data.Log.Structured.SD
-import HBS2.Storage.NCQ
-import HBS2.Storage.NCQ2 as N2
 import HBS2.Data.Log.Structured.NCQ
 
 import HBS2.CLI.Run.Internal.Merkle
@@ -30,13 +28,21 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
+import System.Random.MWC as MWC
 import UnliftIO
 
 
 ncq3Tests :: forall m . MonadUnliftIO m => MakeDictM C m ()
 ncq3Tests = do
   entry $ bindMatch "test:ncq3:start-stop" $ nil_ $ \e ->do
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
       runTest $ \TestEnv{..} -> do
         ncqWithStorage3 testEnvDir $ \sto -> do
-           notice "start/stop ncq3 storage"
+           notice "start/stop ncq3 storage / write 1000 blocks"
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 256*1024) g
+             bs <- liftIO $ genRandomBS g n
+             ncqPutBS sto (Just B) Nothing bs
 

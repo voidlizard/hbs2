@@ -14,20 +14,22 @@ ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m FilePath
 ncqIndexFile n@NCQStorage3{}  fk = do
 
   let fp   = toFileName fk & ncqGetFileName n
-  let dest = toFileName (IndexFile (coerce @_ @FileKey fk)) & ncqGetFileName n
+  dest  <- ncqGetNewFileKey n
+              <&> ncqGetFileName n . toFileName . IndexFile
 
   debug $ "INDEX" <+> pretty fp <+> pretty dest
 
   items <- S.toList_ do
-    ncqStorageScanDataFile n fp $ \o w k s -> case ncqIsMeta s of
+    ncqStorageScanDataFile n fp $ \offset w key s -> case ncqIsMeta s of
       Just M -> none
       _ -> do
         -- we need size in order to return block size faster
         -- w/o search in fossil
+        let fks = N.bytestring32 (coerce fk)
         let rs = (w + ncqSLen) & fromIntegral @_ @Word32 & N.bytestring32
-        let os = fromIntegral @_ @Word64 o & N.bytestring64
-        let record = os <> rs
-        S.yield (coerce k, record)
+        let os = fromIntegral @_ @Word64 offset & N.bytestring64
+        let record = fks <> os <> rs
+        S.yield (coerce key, record)
 
   let (dir,name) = splitFileName fp
   let idxTemp = (dropExtension name <> "-") `addExtension` ".cq$"
@@ -67,3 +69,5 @@ ncqStorageScanDataFile ncq fp' action = do
      lift (action o (fromIntegral w) k v)
 
      next (ncqSLen + o + fromIntegral w, BS.drop (w+ncqSLen) bs)
+
+
