@@ -4,6 +4,7 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Memtable
+import HBS2.Storage.NCQ3.Internal.Files
 
 import System.Posix.Files qualified as PFS
 import Streaming.Prelude qualified as S
@@ -79,6 +80,7 @@ ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
   ncqStateUpdate n do
     ncqStateAddIndexFile ts fki
     ncqStateAddDataFile (coerce fk)
+    ncqStateAddFact (FI fk (IndexFile fki))
 
   (bs,nw) <- toMPlus midx
 
@@ -90,7 +92,6 @@ ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
       lift $ ncqAlterEntrySTM n (coerce k) (const Nothing)
 
   pure dest
-
 
 ncqStorageScanDataFile :: MonadIO m
                        => NCQStorage3

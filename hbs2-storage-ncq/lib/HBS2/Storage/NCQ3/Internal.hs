@@ -6,10 +6,11 @@ import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Run
 import HBS2.Storage.NCQ3.Internal.Memtable
+import HBS2.Storage.NCQ3.Internal.Files
 
 import Control.Monad.Trans.Cont
 import Network.ByteOrder qualified as N
-import Data.HashPSQ qualified as PSQ
+import Data.HashPSQ qualified as HPSQ
 import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString qualified as BS
@@ -40,6 +41,7 @@ ncqStorageOpen3 fp upd = do
   let ncqMaxLog         = 2 * ncqMinLog
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCachedIndex = 16
+  let ncqMaxCachedData  = 64
   let ncqIdleThrsh      = 50.0
   let ncqPostponeMerge  = 300.0
   let ncqPostponeSweep  = 2 * ncqPostponeMerge
@@ -50,27 +52,32 @@ ncqStorageOpen3 fp upd = do
   let shardNum = fromIntegral cap
   let wopNum   = 2
 
-  ncqWriteQ        <- newTVarIO mempty
-  ncqMemTable      <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
-  ncqMMapCachedIdx <- newTVarIO PSQ.empty
-  ncqStateFiles    <- newTVarIO mempty
-  ncqStateIndex    <- newTVarIO mempty
-  ncqStateFileSeq  <- newTVarIO 0
-  ncqStateVersion  <- newTVarIO 0
-  ncqStateUsage    <- newTVarIO mempty
-  ncqWrites        <- newTVarIO 0
-  ncqWriteEMA      <- newTVarIO 0.0
-  ncqWriteOps      <- V.fromList <$> replicateM wopNum newTQueueIO
-  ncqReadReq       <- newTQueueIO
-  ncqAlive         <- newTVarIO False
-  ncqStopReq       <- newTVarIO False
-  ncqSyncReq       <- newTVarIO False
+  ncqWriteQ         <- newTVarIO mempty
+  ncqMemTable       <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
+  ncqMMapCachedIdx  <- newTVarIO HPSQ.empty
+  ncqMMapCachedData <- newTVarIO HPSQ.empty
+  ncqStateFiles     <- newTVarIO mempty
+  ncqStateIndex     <- newTVarIO mempty
+  ncqStateFileSeq   <- newTVarIO 0
+  ncqStateVersion   <- newTVarIO 0
+  ncqStateUsage     <- newTVarIO mempty
+  ncqStateFacts     <- newTVarIO mempty
+  ncqWrites         <- newTVarIO 0
+  ncqWriteEMA       <- newTVarIO 0.0
+  ncqWriteOps       <- V.fromList <$> replicateM wopNum newTQueueIO
+  ncqReadReq        <- newTQueueIO
+  ncqAlive          <- newTVarIO False
+  ncqStopReq        <- newTVarIO False
+  ncqSyncReq        <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
-  ncqSyncNo        <- newTVarIO 0
+  ncqSyncNo         <- newTVarIO 0
 
   let ncq = NCQStorage3{..} & upd
 
   mkdir (ncqGetWorkDir ncq)
+
+  liftIO (ncqTryLoadState ncq)
+
   pure ncq
 
 ncqWithStorage3 :: MonadUnliftIO m => FilePath -> (NCQStorage3 -> m a) -> m a

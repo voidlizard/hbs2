@@ -19,6 +19,9 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , StateFile(..)
   , FilePrio(..)
   , NCQStorageException(..)
+  , NCQFsckException(..)
+  , NCQFsckIssue(..)
+  , NCQFsckIssueType(..)
   , ByteString
   , Vector, (!)
   , Seq(..), (|>),(<|)
@@ -53,7 +56,7 @@ import Data.HashPSQ (HashPSQ)
 import Data.IntMap (IntMap)
 import Data.Set    (Set)
 import Data.Ord (Down(..))
-
+import System.IO.MMap as Exported
 
 import UnliftIO as Exported
 import UnliftIO.Concurrent as Exported

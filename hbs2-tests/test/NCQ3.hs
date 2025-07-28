@@ -46,3 +46,21 @@ ncq3Tests = do
              bs <- liftIO $ genRandomBS g n
              ncqPutBS sto (Just B) Nothing bs
 
+  entry $ bindMatch "test:ncq3:write-reopen" $ nil_ $ \e ->do
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
+      runTest $ \TestEnv{..} -> do
+
+        ncqWithStorage3 testEnvDir $ \sto -> do
+           notice $ "write" <+> pretty num <+> "blocks"
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 256*1024) g
+             bs <- liftIO $ genRandomBS g n
+             ncqPutBS sto (Just B) Nothing bs
+
+        notice $ "reopen"
+        ncqWithStorage3 testEnvDir $ \sto -> do
+          pause @'Seconds 2
+          notice $ "done"
+

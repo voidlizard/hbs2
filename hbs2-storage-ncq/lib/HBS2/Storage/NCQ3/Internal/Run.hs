@@ -4,7 +4,7 @@ module HBS2.Storage.NCQ3.Internal.Run where
 import HBS2.Storage.NCQ.Types hiding (FileKey)
 import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
-import HBS2.Storage.NCQ3.Internal.State
+import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.MMapCache
@@ -79,11 +79,10 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
       for_ tracked $ \(_, fk) -> do
        CachedIndex bs nw <- ncqGetCachedIndex ncq fk
        ncqLookupIndex h (bs, nw) >>= \case
-        Just (IndexEntry fk o s) -> undefined >> next
+        Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> next
         Nothing -> none
 
       answer Nothing >> next
-
 
   spawnActivity measureWPS
 
