@@ -5,6 +5,7 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Run
+import HBS2.Storage.NCQ3.Internal.Memtable
 
 import Control.Monad.Trans.Cont
 import Network.ByteOrder qualified as N
@@ -38,7 +39,7 @@ ncqStorageOpen3 fp upd = do
   let ncqMinLog         = 512 * megabytes
   let ncqMaxLog         = 2 * ncqMinLog
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
-  let ncqMaxCached      = 128
+  let ncqMaxCachedIndex = 16
   let ncqIdleThrsh      = 50.0
   let ncqPostponeMerge  = 300.0
   let ncqPostponeSweep  = 2 * ncqPostponeMerge
@@ -49,22 +50,23 @@ ncqStorageOpen3 fp upd = do
   let shardNum = fromIntegral cap
   let wopNum   = 2
 
-  ncqWriteQ       <- newTVarIO mempty
-  ncqMemTable     <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
-  ncqMMapCache    <- newTVarIO PSQ.empty
-  ncqStateFiles   <- newTVarIO mempty
-  ncqStateIndex   <- newTVarIO mempty
-  ncqStateFileSeq <- newTVarIO 0
-  ncqStateVersion <- newTVarIO 0
-  ncqStateUsage   <- newTVarIO mempty
-  ncqWrites       <- newTVarIO 0
-  ncqWriteEMA     <- newTVarIO 0.0
-  ncqWriteOps     <- V.fromList <$> replicateM wopNum newTQueueIO
-  ncqAlive        <- newTVarIO False
-  ncqStopReq      <- newTVarIO False
-  ncqSyncReq      <- newTVarIO False
+  ncqWriteQ        <- newTVarIO mempty
+  ncqMemTable      <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
+  ncqMMapCachedIdx <- newTVarIO PSQ.empty
+  ncqStateFiles    <- newTVarIO mempty
+  ncqStateIndex    <- newTVarIO mempty
+  ncqStateFileSeq  <- newTVarIO 0
+  ncqStateVersion  <- newTVarIO 0
+  ncqStateUsage    <- newTVarIO mempty
+  ncqWrites        <- newTVarIO 0
+  ncqWriteEMA      <- newTVarIO 0.0
+  ncqWriteOps      <- V.fromList <$> replicateM wopNum newTQueueIO
+  ncqReadReq       <- newTQueueIO
+  ncqAlive         <- newTVarIO False
+  ncqStopReq       <- newTVarIO False
+  ncqSyncReq       <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
-  ncqSyncNo       <- newTVarIO 0
+  ncqSyncNo        <- newTVarIO 0
 
   let ncq = NCQStorage3{..} & upd
 
@@ -81,25 +83,7 @@ ncqWithStorage3 fp action = flip runContT pure do
   wait w
   pure r
 
-
-ncqShardIdx :: NCQStorage3 -> HashRef -> Int
-ncqShardIdx NCQStorage3{..} h =
-  fromIntegral (BS.head (coerce h)) `mod` V.length ncqMemTable
-{-# INLINE ncqShardIdx #-}
-
-ncqGetShard :: NCQStorage3 -> HashRef -> Shard
-ncqGetShard ncq@NCQStorage3{..} h = ncqMemTable ! ncqShardIdx ncq h
-{-# INLINE ncqGetShard #-}
-
-ncqStorageSync3 :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
-ncqStorageSync3 NCQStorage3{..} = atomically $ writeTVar ncqSyncReq True
-
-ncqOperation :: MonadIO m => NCQStorage3 -> m a -> m a -> m a
-ncqOperation ncq m0 m = do
-  alive <- readTVarIO (ncqAlive ncq)
-  if alive then m else m0
-
-
+-- FIXME: maybe-on-storage-closed
 ncqPutBS :: MonadUnliftIO m
          => NCQStorage3
          -> Maybe NCQSectionType
@@ -133,4 +117,13 @@ ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe 
 
   atomically $ takeTMVar waiter
 
+ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
+ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
+  answ <- newEmptyTMVarIO
+
+  atomically do
+    modifyTVar ncqWrites succ
+    writeTQueue ncqReadReq (href, answ)
+
+  atomically $ takeTMVar answ
 

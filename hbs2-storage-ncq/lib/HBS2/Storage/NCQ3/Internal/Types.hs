@@ -4,12 +4,11 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 
 import Text.Printf
 
-data CachedMMap =
-    CachedData  ByteString
-  | CachedIndex ByteString NWayHash
+data CachedData =  CachedData !ByteString
+data CachedIndex = CachedIndex !ByteString !NWayHash
 
 
-type CachePrio = Word64
+type CachePrio = TimeSpec
 
 type Shard = TVar (HashMap HashRef NCQEntry)
 
@@ -36,6 +35,18 @@ data  NCQEntry =
   , ncqDumped      :: !(TVar (Maybe FileKey))
   }
 
+type NCQOffset = Word64
+type NCQSize   = Word32
+
+data Location =
+       InFossil {-# UNPACK #-} !FileKey !NCQOffset !NCQSize
+     | InMemory {-# UNPACK #-} !ByteString
+
+instance Pretty Location where
+  pretty = \case
+    InFossil k  o s -> parens $ "in-fossil" <+> pretty k <+> pretty o <+> pretty s
+    InMemory _      -> "in-memory"
+
 data NCQStorage3 =
   NCQStorage3
   { ncqRoot           :: FilePath
@@ -48,11 +59,11 @@ data NCQStorage3 =
   , ncqWriteBlock     :: Int
   , ncqMinLog         :: Int
   , ncqMaxLog         :: Int
-  , ncqMaxCached      :: Int
+  , ncqMaxCachedIndex :: Int
   , ncqIdleThrsh      :: Double
-  , ncqMMapCache      :: TVar (HashPSQ FileKey CachePrio CachedMMap)
+  , ncqMMapCachedIdx  :: TVar (HashPSQ FileKey CachePrio CachedIndex)
   , ncqStateFiles     :: TVar (HashSet FileKey)
-  , ncqStateIndex     :: TVar [(Down POSIXTime, FileKey)] -- backward timestamp order
+  , ncqStateIndex     :: TVar [(Down POSIXTime, FileKey)] -- backward timestamp orde
   , ncqStateFileSeq   :: TVar FileKey
   , ncqStateVersion   :: TVar StateVersion
   , ncqStateUsage     :: TVar (IntMap (Int, HashSet FileKey))
@@ -61,6 +72,7 @@ data NCQStorage3 =
   , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ         :: TVar (Seq HashRef)
   , ncqWriteOps       :: Vector (TQueue (IO ()))
+  , ncqReadReq        :: TQueue (HashRef, TMVar (Maybe Location))
   , ncqAlive          :: TVar Bool
   , ncqStopReq        :: TVar Bool
   , ncqSyncReq        :: TVar Bool

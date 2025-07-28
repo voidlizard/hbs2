@@ -18,6 +18,7 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , DataFile(..)
   , StateFile(..)
   , FilePrio(..)
+  , NCQStorageException(..)
   , ByteString
   , Vector, (!)
   , Seq(..), (|>),(<|)

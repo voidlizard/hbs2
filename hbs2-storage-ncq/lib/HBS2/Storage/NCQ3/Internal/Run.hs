@@ -7,6 +7,7 @@ import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Index
+import HBS2.Storage.NCQ3.Internal.MMapCache
 
 
 import Control.Monad.Trans.Cont
@@ -63,6 +64,26 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
   spawnActivity $ pooledForConcurrentlyN_ (V.length ncqWriteOps) [0..shLast] $ \i -> do
     let q = ncqWriteOps ! i
     forever (liftIO $ join $ atomically (readTQueue q))
+
+
+  replicateM_ 2 $ spawnActivity $ fix \next -> do
+      (h, answ) <- atomically $ readTQueue ncqReadReq
+      let answer l = atomically (putTMVar answ l)
+
+      atomically (ncqLookupEntrySTM ncq h) >>= \case
+        Nothing  -> none
+        Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
+
+      tracked <- readTVarIO ncqStateIndex
+
+      for_ tracked $ \(_, fk) -> do
+       CachedIndex bs nw <- ncqGetCachedIndex ncq fk
+       ncqLookupIndex h (bs, nw) >>= \case
+        Just (IndexEntry fk o s) -> undefined >> next
+        Nothing -> none
+
+      answer Nothing >> next
+
 
   spawnActivity measureWPS
 

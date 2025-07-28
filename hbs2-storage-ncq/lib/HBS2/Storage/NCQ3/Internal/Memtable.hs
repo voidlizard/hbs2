@@ -27,3 +27,14 @@ ncqAlterEntrySTM :: NCQStorage3
 ncqAlterEntrySTM ncq h alterFn = do
   let shard = ncqGetShard ncq h
   modifyTVar shard (HM.alter alterFn h)
+
+ncqStorageSync3 :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
+ncqStorageSync3 NCQStorage3{..} = atomically $ writeTVar ncqSyncReq True
+
+ncqOperation :: MonadIO m => NCQStorage3 -> m a -> m a -> m a
+ncqOperation ncq m0 m = do
+  alive <- readTVarIO (ncqAlive ncq)
+  if alive then m else m0
+
+
+
