@@ -54,11 +54,20 @@ common shared-properties
                      , TypeApplications
                      , TypeFamilies
                      , TypeOperators
+                     , RecordWildCards
 
 
 library
     import:           shared-properties
     exposed-modules:
+      HBS2.Storage.NCQ3
+      HBS2.Storage.NCQ3.Internal
+      HBS2.Storage.NCQ3.Internal.Types
+      HBS2.Storage.NCQ3.Internal.Prelude
+      HBS2.Storage.NCQ3.Internal.State
+      HBS2.Storage.NCQ3.Internal.Run
+      HBS2.Storage.NCQ3.Internal.Memtable
+      HBS2.Storage.NCQ3.Internal.Index
       HBS2.Storage.NCQ
       HBS2.Storage.NCQ2
       HBS2.Storage.NCQ2.Internal

@@ -212,3 +212,10 @@ posixToTimeSpec pt =
   in TimeSpec (fromIntegral s) ns
 
 
+megabytes :: forall a . Integral a => a
+megabytes = 1024 ^ 2
+
+gigabytes :: forall a . Integral a => a
+gigabytes = 1024 ^ 3
+
+

@@ -85,11 +85,12 @@ ncqStorageOpen2 fp upd = do
   let ncqFsync      = 16   * megabytes
   let ncqWriteQLen  = 1024 * 4
   let ncqMinLog     = 512 * megabytes
-  let ncqMaxLog     = 16 * gigabytes -- ???
+  -- let ncqMaxLog     = 16 * gigabytes -- ???
+  let ncqMaxLog     = 2 * ncqMinLog --  * gigabytes -- ???
   let ncqWriteBlock = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCached  = 128
   let ncqIdleThrsh  = 50.00
-  let ncqPostponeMerge = 30.00
+  let ncqPostponeMerge = 300.00
   let ncqPostponeSweep = 2 * ncqPostponeMerge
   let ncqLuckyNum   = 2
 
@@ -493,7 +494,8 @@ ncqStorageRun2 ncq@NCQStorage2{..} = flip runContT pure do
   spawnActivity $ postponed 20 $ forever do
     ema <- readTVarIO ncqWriteEMA
     when (ema < 50 ) do
-      ncqKeyNumIntersectionProbe ncq
+      -- ncqKeyNumIntersectionProbe ncq
+      ncqTombCountProbe ncq
 
     pause @'Seconds 10
 

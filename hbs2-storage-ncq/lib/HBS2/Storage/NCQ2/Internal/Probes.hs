@@ -23,29 +23,54 @@ import Lens.Micro.Platform
 import System.Random.MWC qualified as MWC
 import UnliftIO
 
-ncqKeyNumIntersectionProbe :: MonadUnliftIO m => NCQStorage2 -> m ()
-ncqKeyNumIntersectionProbe me@NCQStorage2{..} = useVersion me $ const $ void $ runMaybeT do
 
-  -- Фильтруем pending
-  files0 <- lift (ncqListTrackedFiles me)
+randomTrackedFile :: MonadUnliftIO m => NCQStorage2 -> m (Maybe FileKey)
+randomTrackedFile ncq@NCQStorage2{..} = runMaybeT do
+  files0 <- lift (ncqListTrackedFiles ncq)
   let files = V.toList $ V.filter (isNotPending . view _2) files0
+  guard (not (null files))
+  i <- liftIO $ MWC.uniformRM (0, length files - 1) ncqRndGen
+  pure (view _1 (files !! i))
 
-  when (length files < 2) mzero
+randomTrackedFilePair :: MonadUnliftIO m => NCQStorage2 -> m (Maybe (FileKey, FileKey))
+randomTrackedFilePair ncq@NCQStorage2{..} = runMaybeT do
+  files0 <- lift (ncqListTrackedFiles ncq)
+  let files = V.toList $ V.filter (isNotPending . view _2) files0
+  guard (length files >= 2)
 
-  (a,b) <- liftIO $ fix \next -> do
+  (a, b) <- liftIO $ fix \loop -> do
     i <- MWC.uniformRM (0, length files - 1) ncqRndGen
     j <- MWC.uniformRM (0, length files - 1) ncqRndGen
-    if i == j then next else pure (files !! min i j, files !! max i j)
+    if i == j then loop else pure (min i j, max i j)
 
-  let fka = view _1 a
-  let fkb = view _1 b
+  let fa = view _1 (files !! a)
+  let fb = view _1 (files !! b)
+  pure (fa, fb)
+
+
+ncqTombCountProbeFor :: MonadUnliftIO m => NCQStorage2 -> FileKey -> m (Maybe Int)
+ncqTombCountProbeFor ncq@NCQStorage2{..} fkey = runMaybeT do
+  let fIndex = ncqGetFileName ncq $ toFileName (IndexFile fkey)
+
+  (bs, nh) <- liftIO (nwayHashMMapReadOnly fIndex) >>= toMPlus
+
+  liftIO do
+    ref <- newTVarIO 0
+    nwayHashScanAll nh bs $ \_ k v -> do
+      let NCQIdxEntry _ s = decodeEntry v
+      when (k /= ncqEmptyKey && s < 64) $
+        atomically $ modifyTVar' ref (+1)
+    readTVarIO ref
+
+ncqKeyNumIntersectionProbeFor :: MonadUnliftIO m => NCQStorage2 -> (FileKey, FileKey) -> m (Maybe Int)
+ncqKeyNumIntersectionProbeFor ncq@NCQStorage2{..} (fka, fkb) = runMaybeT do
   let key = FactKey $ coerce $ hashObject @HbSync $ serialise $ List.sort [fka, fkb]
 
   known <- lift (readTVarIO ncqFacts <&> HM.member key)
-  when known mzero
+  guard (not known)
 
-  let fIndexA = ncqGetFileName me (toFileName (IndexFile fka))
-  let fIndexB = ncqGetFileName me (toFileName (IndexFile fkb))
+  let fIndexA = ncqGetFileName ncq (toFileName (IndexFile fka))
+  let fIndexB = ncqGetFileName ncq (toFileName (IndexFile fkb))
 
   idxPair' <- liftIO $ try @_ @IOException do
     (,) <$> nwayHashMMapReadOnly fIndexA
@@ -55,15 +80,23 @@ ncqKeyNumIntersectionProbe me@NCQStorage2{..} = useVersion me $ const $ void $ r
     Right (Just x, Just y) -> pure (x,y)
     _ -> warn ("can't load index pair" <+> pretty (fka, fkb)) >> mzero
 
-  n <- liftIO $ do
+  liftIO do
     ref <- newTVarIO 0
-    nwayHashScanAll n1 bs1 $ \_ k _ -> when (k /= ncqEmptyKey ) do
-        here <- ncqLookupIndex (coerce k) (bs2,n2)
-        when (isJust here) $ atomically $ modifyTVar' ref (+1)
-
+    nwayHashScanAll n1 bs1 $ \_ k _ -> when (k /= ncqEmptyKey) do
+      here <- ncqLookupIndex (coerce k) (bs2,n2)
+      when (isJust here) $ atomically $ modifyTVar' ref (+1)
     readTVarIO ref
 
-  debug $ yellow "ncqKeyNumIntersectionProbe"
-       <+> pretty fka <+> pretty fkb <+> pretty n
 
+ncqTombCountProbe :: MonadUnliftIO m => NCQStorage2 -> m ()
+ncqTombCountProbe ncq = useVersion ncq $ const $ void $ runMaybeT do
+  fk <- MaybeT (randomTrackedFile ncq)
+  count <- MaybeT (ncqTombCountProbeFor ncq fk)
+  debug $ yellow "ncqTombCountProbe" <+> pretty fk <+> pretty count
+
+ncqKeyNumIntersectionProbe :: MonadUnliftIO m => NCQStorage2 -> m ()
+ncqKeyNumIntersectionProbe ncq = useVersion ncq $ const $ void $ runMaybeT do
+  (fa, fb) <- MaybeT (randomTrackedFilePair ncq)
+  n <- MaybeT (ncqKeyNumIntersectionProbeFor ncq (fa, fb))
+  debug $ yellow "ncqKeyNumIntersectionProbe" <+> pretty fa <+> pretty fb <+> pretty n
 

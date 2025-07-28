@@ -1223,5 +1223,3 @@ executable test-ncq
         , unix
         , mwc-random
 
-
-
