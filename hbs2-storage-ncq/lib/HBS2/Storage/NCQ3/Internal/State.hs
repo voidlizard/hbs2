@@ -98,7 +98,7 @@ readStateMay sto key = fmap sortIndexes <$> do
 
     flip fix (ncqState0, sexps) $ \next -> \case
       (acc, []) -> pure acc
-      (acc, e : ss)  -> liftIO (print (pretty e)) >> next (acc <> entryOf e, ss)
+      (acc, e : ss)  -> next (acc <> entryOf e, ss)
 
   where
 

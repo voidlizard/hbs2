@@ -56,7 +56,6 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
           if not stop then STM.retry else pure Nothing
 
     maybe1 what none $ \(fk :: FileKey, fh) -> do
-      notice $ red "CLOSE FILE" <+> pretty fk
       closeFd fh
       ncqIndexFile ncq (DataFile fk)
       loop
@@ -66,8 +65,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
     let q = ncqWriteOps ! i
     forever (liftIO $ join $ atomically (readTQueue q))
 
-
-  replicateM_ 1 $ spawnActivity $ fix \next -> do
+  replicateM_ 2 $ spawnActivity $ fix \next -> do
 
       (h, answ) <- atomically $ readTQueue ncqReadReq
       let answer l = atomically (putTMVar answ l)
@@ -117,7 +115,9 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
                   pure w
                 else do
                   appendTailSection fh >> liftIO (fileSynchronise fh)
+
                   ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
+
                   ncqStateUpdate ncq do
                     ncqStateAddFact (P (PData (DataFile fk) ss))
 
@@ -172,8 +172,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
           let written = sum ws
           loop $ RunSync (fk, fh, w + written, total' + written, True)
 
-
-  pure ()
+  wait closer
 
   where
     setAlive   = atomically $ writeTVar ncqAlive True

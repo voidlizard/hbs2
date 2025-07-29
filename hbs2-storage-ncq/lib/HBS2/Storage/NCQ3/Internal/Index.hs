@@ -42,7 +42,7 @@ ncqLookupIndex hx (mmaped, nway) = do
 
 
 ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m (Maybe FilePath)
-ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
+ncqIndexFile n fk = runMaybeT do
 
   let fp   = toFileName fk & ncqGetFileName n
   fki <- ncqGetNewFileKey n IndexFile
