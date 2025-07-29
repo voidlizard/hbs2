@@ -16,6 +16,7 @@ import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
 import Data.Set qualified as Set
+import Lens.Micro.Platform
 import Data.ByteString qualified as BS
 import Data.Sequence qualified as Seq
 import System.FilePath.Posix
@@ -95,7 +96,7 @@ ncqPutBS :: MonadUnliftIO m
          -> Maybe HashRef
          -> ByteString
          -> m HashRef
-ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe (HashRef (hashObject @HbSync bs')) mhref) do
+ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe hash0 mhref) do
   waiter <- newEmptyTMVarIO
 
   let work = do
@@ -122,6 +123,8 @@ ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe 
 
   atomically $ takeTMVar waiter
 
+  where hash0 = HashRef (hashObject @HbSync bs')
+
 ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
 ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
   answ <- newEmptyTMVarIO
@@ -132,13 +135,11 @@ ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
 
   atomically $ takeTMVar answ
 
-
-
 ncqTryLoadState :: forall m. MonadUnliftIO m
                 => NCQStorage3
                 -> m ()
 
-ncqTryLoadState me = do
+ncqTryLoadState me@NCQStorage3{..} = do
 
   stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
 
@@ -155,7 +156,9 @@ ncqTryLoadState me = do
                   else
                     next (s : l, s0, ss)
 
-  let (bad, NCQState{..}, rest) = r
+  let (bad, new@NCQState{..}, rest) = r
+
+  atomically $ modifyTVar ncqState (<> new)
 
   for_ [ (d,s) | P (PData d s) <- Set.toList ncqStateFacts ] $ \(dataFile,s) -> do
     let path = ncqGetFileName me dataFile
@@ -172,9 +175,10 @@ ncqTryLoadState me = do
 
     ncqIndexFile me dataFile
 
-    for_ (bad <> drop 3 (fmap snd rest)) $ \f -> do
-      rm (ncqGetFileName me (StateFile f))
-
+  for_ (bad <> drop 3 (fmap snd rest)) $ \f -> do
+    let old = ncqGetFileName me (StateFile f)
+    debug $ "rm old state" <+> pretty old
+    rm old
 
   where
 

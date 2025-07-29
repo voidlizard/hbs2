@@ -8,6 +8,7 @@ import HBS2.Storage.NCQ3.Internal.Files
 import Data.Config.Suckless.Script
 
 import Data.Generics.Product
+import Data.Generics.Labels
 import Data.List qualified as List
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
@@ -48,19 +49,19 @@ ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
-    modifyTVar ncqState (over (field @"ncqStateFiles") (HS.insert fk))
+    modifyTVar ncqState (over #ncqStateFiles (HS.insert fk))
 
 ncqStateAddFact :: Fact -> StateOP ()
 ncqStateAddFact fact = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
-    modifyTVar ncqState (over (field @"ncqStateFacts") (Set.insert fact))
+    modifyTVar ncqState (over #ncqStateFacts (Set.insert fact))
 
 ncqStateDelFact :: Fact -> StateOP ()
 ncqStateDelFact fact = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
-    modifyTVar ncqState (over (field @"ncqStateFacts") (Set.delete fact))
+    modifyTVar ncqState (over #ncqStateFacts (Set.delete fact))
 
 ncqStateAddIndexFile :: POSIXTime
                      -> FileKey
@@ -68,10 +69,10 @@ ncqStateAddIndexFile :: POSIXTime
 
 ncqStateAddIndexFile ts fk  = do
   NCQStorage3{..} <- ask
-  StateOP $ lift $ modifyTVar' ncqState sortIndexes
+  StateOP $ lift $ modifyTVar' ncqState (sortIndexes . over #ncqStateIndex ((Down ts, fk) :))
 
 sortIndexes :: NCQState -> NCQState
-sortIndexes = over (field @"ncqStateIndex") (List.sortOn fst)
+sortIndexes = over #ncqStateIndex (List.sortOn fst)
 
 ncqFileFastCheck :: MonadUnliftIO m => FilePath -> m ()
 ncqFileFastCheck fp = do

@@ -16,6 +16,7 @@ import System.IO.MMap
 
 
 data IndexEntry = IndexEntry {-# UNPACK #-} !FileKey !Word64 !Word32
+                  deriving stock (Eq,Show)
 
 unpackIndexEntry :: ByteString -> IndexEntry
 unpackIndexEntry  entryBs = do
@@ -60,12 +61,13 @@ ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
         let rs = (w + ncqSLen) & fromIntegral @_ @Word32 & N.bytestring32
         let os = fromIntegral @_ @Word64 offset & N.bytestring64
         let record = fks <> os <> rs
+        -- debug $ "WRITE INDEX ENTRY" <+> pretty (BS.length record)
         S.yield (coerce key, record)
 
   let (dir,name) = splitFileName fp
   let idxTemp = (dropExtension name <> "-") `addExtension` ".cq$"
 
-  result <- lift $ nwayWriteBatch (nwayAllocDef 1.10 32 8 12) dir idxTemp items
+  result <- lift $ nwayWriteBatch (nwayAllocDef 1.10 32 8 16) dir idxTemp items
 
   mv result dest
 

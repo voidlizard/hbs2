@@ -29,10 +29,12 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
+import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
 import Data.Ord
 import Data.Set qualified as Set
 import System.Random.MWC as MWC
+import Control.Concurrent.STM qualified as STM
 import UnliftIO
 
 
@@ -78,4 +80,30 @@ ncq3Tests = do
         ncqWithStorage3 testEnvDir $ \sto -> do
           pause @'Seconds 2
           notice $ "done"
+
+
+  entry $ bindMatch "test:ncq3:write:simple" $ nil_ $ \e ->do
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
+      runTest $ \TestEnv{..} -> do
+        hq <- newTQueueIO
+        ncqWithStorage3 testEnvDir $ \sto -> do
+           notice $ "write/lookup" <+> pretty num
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 256*1024) g
+             bs <- liftIO $ genRandomBS g n
+             h <- ncqPutBS sto (Just B) Nothing bs
+             found <- ncqLocate sto h <&> isJust
+             liftIO $ assertBool (show $ "found" <+> pretty h) found
+             atomically $ writeTQueue hq h
+
+        ncqWithStorage3 testEnvDir $ \sto -> do
+          notice $ "reopen/lookup" <+> pretty num
+          hh <- atomically $ STM.flushTQueue hq
+          for_ hh $ \h -> do
+             found <- ncqLocate sto h <&> isJust
+             liftIO $ assertBool (show $ "found2" <+> pretty h) found
+
+        notice $ "done"
 

@@ -67,9 +67,12 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
     forever (liftIO $ join $ atomically (readTQueue q))
 
 
-  replicateM_ 2 $ spawnActivity $ fix \next -> do
+  replicateM_ 1 $ spawnActivity $ fix \next -> do
+
       (h, answ) <- atomically $ readTQueue ncqReadReq
       let answer l = atomically (putTMVar answ l)
+
+      -- debug $ "REQ" <+> pretty h
 
       atomically (ncqLookupEntrySTM ncq h) >>= \case
         Nothing  -> none
@@ -83,6 +86,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
         Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> next
         Nothing -> none
 
+      -- debug $ "NOT FOUND SHIT" <+> pretty h
       answer Nothing >> next
 
   spawnActivity measureWPS

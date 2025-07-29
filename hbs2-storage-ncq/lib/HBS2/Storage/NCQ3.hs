@@ -6,6 +6,7 @@ module HBS2.Storage.NCQ3
   , ncqStorageOpen3
   , ncqStorageRun3
   , ncqPutBS
+  , ncqLocate
   )
   where
 

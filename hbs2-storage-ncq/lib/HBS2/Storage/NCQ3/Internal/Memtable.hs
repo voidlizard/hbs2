@@ -1,3 +1,4 @@
+{-# Language MultiWayIf #-}
 module HBS2.Storage.NCQ3.Internal.Memtable where
 
 import HBS2.Storage.NCQ3.Internal.Types
@@ -6,6 +7,7 @@ import HBS2.Storage.NCQ3.Internal.Prelude
 import Data.ByteString qualified as BS
 import Data.HashMap.Strict qualified as HM
 import Data.Vector qualified as V
+import Control.Concurrent.STM qualified as STM
 
 ncqShardIdx :: NCQStorage3 -> HashRef -> Int
 ncqShardIdx NCQStorage3{..} h =
@@ -32,9 +34,16 @@ ncqStorageSync3 :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
 ncqStorageSync3 NCQStorage3{..} = atomically $ writeTVar ncqSyncReq True
 
 ncqOperation :: MonadIO m => NCQStorage3 -> m a -> m a -> m a
-ncqOperation ncq m0 m = do
-  alive <- readTVarIO (ncqAlive ncq)
-  if alive then m else m0
+ncqOperation NCQStorage3{..} m0 m = do
+  what <- atomically do
+            alive <- readTVar ncqAlive
+            stop  <- readTVar ncqStopReq
+
+            if | not alive && not stop -> STM.retry
+               | not alive && stop     -> pure False
+               | otherwise             -> pure True
+
+  if what then m else m0
 
 
 
