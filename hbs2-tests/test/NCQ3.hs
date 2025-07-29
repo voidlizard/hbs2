@@ -15,6 +15,7 @@ import HBS2.Storage.Simple
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.NCQ3
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Index
 
 import HBS2.System.Logger.Simple.ANSI
 
@@ -35,6 +36,7 @@ import Data.Ord
 import Data.Set qualified as Set
 import System.Random.MWC as MWC
 import Control.Concurrent.STM qualified as STM
+import Data.List qualified as List
 import UnliftIO
 
 
@@ -86,6 +88,11 @@ ncq3Tests = do
       let (opts,args) = splitOpts [] e
       let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
       g <- liftIO MWC.createSystemRandom
+
+      w1 <- newTVarIO 0
+      f1 <- newTVarIO 0
+      m1 <- newTVarIO 0
+
       runTest $ \TestEnv{..} -> do
         hq <- newTQueueIO
         ncqWithStorage3 testEnvDir $ \sto -> do
@@ -96,14 +103,41 @@ ncq3Tests = do
              h <- ncqPutBS sto (Just B) Nothing bs
              found <- ncqLocate sto h <&> isJust
              liftIO $ assertBool (show $ "found" <+> pretty h) found
-             atomically $ writeTQueue hq h
+             atomically do
+              writeTQueue hq h
+              modifyTVar w1 succ
 
         ncqWithStorage3 testEnvDir $ \sto -> do
           notice $ "reopen/lookup" <+> pretty num
           hh <- atomically $ STM.flushTQueue hq
+
           for_ hh $ \h -> do
              found <- ncqLocate sto h <&> isJust
-             liftIO $ assertBool (show $ "found2" <+> pretty h) found
+             atomically do
+               if found then do
+                  modifyTVar f1 succ
+               else do
+                  modifyTVar m1 succ
 
-        notice $ "done"
+        w <- readTVarIO w1
+        f <- readTVarIO f1
+        m <- readTVarIO m1
 
+        notice $ "done" <+> pretty w <+> pretty f <+> pretty m
+
+        liftIO $ assertBool (show $ "all-found" <+> pretty w) (f == w && m == 0)
+
+  entry $ bindMatch "test:ncq3:seek" $ nil_ $ \case
+    [ StringLike p, HashLike h ] -> do
+
+        files <- dirFiles p  <&> filter (List.isPrefixOf "i-" .takeBaseName)
+
+        for_ files $ \f -> do
+          (bs,nw) <- nwayHashMMapReadOnly f >>= orThrowUser ("Can't mmap" <+> pretty f)
+
+          nwayHashScanAll nw bs $ \_ k v -> do
+            unless (coerce k == emptyKey) do
+              let e = unpackIndexEntry v
+              notice $ "found:" <+> pretty (coerce @_ @HashRef k) <+> viaShow e
+
+    e -> throwIO $ BadFormException @C (mkList e)

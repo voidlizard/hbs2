@@ -16,6 +16,7 @@ import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
 import Data.Set qualified as Set
+import Data.Either
 import Lens.Micro.Platform
 import Data.ByteString qualified as BS
 import Data.Sequence qualified as Seq
@@ -164,20 +165,24 @@ ncqTryLoadState me@NCQStorage3{..} = do
     let path = ncqGetFileName me dataFile
     realSize <- fileSize path
 
-    let corrupted = realSize /= fromIntegral s
-    let color = if corrupted then red else id
+    let sizewtf = realSize /= fromIntegral s
+    let color = if sizewtf then red else id
 
-    debug $ yellow "indexing" <+> pretty dataFile <+> pretty s <+> color (pretty realSize)
+    good <- try @_ @NCQFsckException (ncqFileFastCheck path)
+
+    let corrupted = isLeft good
 
     when corrupted $ liftIO do
       warn $ red "trim" <+> pretty s <+> pretty (takeFileName path)
       PFS.setFileSize path (fromIntegral s)
 
+    debug $ yellow "indexing" <+> pretty dataFile <+> pretty s <+> color (pretty realSize)
+
     ncqIndexFile me dataFile
 
   for_ (bad <> drop 3 (fmap snd rest)) $ \f -> do
     let old = ncqGetFileName me (StateFile f)
-    debug $ "rm old state" <+> pretty old
+    -- debug $ "rm old state" <+> pretty old
     rm old
 
   where

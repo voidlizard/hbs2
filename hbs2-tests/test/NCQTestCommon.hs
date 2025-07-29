@@ -37,7 +37,7 @@ runTest action = do
   flip runContT pure do
     ContT $ bracket none $ const do
       unless keep (rm tmp)
-      flushLoggers
+      -- flushLoggers
 
     lift $ lift $ action (TestEnv tmp)
 
