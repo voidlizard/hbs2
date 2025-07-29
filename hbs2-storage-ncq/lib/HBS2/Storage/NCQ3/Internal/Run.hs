@@ -8,6 +8,7 @@ import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.State
+import HBS2.Storage.NCQ3.Internal.Sweep
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
 
@@ -88,6 +89,12 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
       answer Nothing >> next
 
   spawnActivity measureWPS
+
+  spawnActivity $ forever do
+    withSem ncqServiceSem (ncqSweepObsoleteStates ncq)
+    pause @'Seconds 10
+
+  spawnActivity (ncqSweepLoop ncq)
 
   flip fix RunNew $ \loop -> \case
     RunFin -> do

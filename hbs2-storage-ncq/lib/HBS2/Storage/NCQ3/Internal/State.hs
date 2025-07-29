@@ -41,9 +41,11 @@ ncqStateUpdate ncq@NCQStorage3{..} action = do
           readTVar ncqState
 
   unless (s1 == s0) do
-    snkFile <- ncqGetNewFileKey ncq StateFile <&> ncqGetFileName ncq . StateFile
+    key <-  ncqGetNewFileKey ncq StateFile
+    let snkFile = ncqGetFileName ncq (StateFile key)
     liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
       IO.hPrint fh (pretty s1)
+    atomically $ writeTVar ncqStateKey (Just key)
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
@@ -70,6 +72,12 @@ ncqStateAddIndexFile :: POSIXTime
 ncqStateAddIndexFile ts fk  = do
   NCQStorage3{..} <- ask
   StateOP $ lift $ modifyTVar' ncqState (sortIndexes . over #ncqStateIndex ((Down ts, fk) :))
+
+ncqStateDelIndexFile :: FileKey  -> StateOP ()
+ncqStateDelIndexFile fk  = do
+  NCQStorage3{..} <- ask
+  StateOP $ lift $ modifyTVar' ncqState (over #ncqStateIndex $ filter f)
+  where f (_,b) = b /= fk
 
 sortIndexes :: NCQState -> NCQState
 sortIndexes = over #ncqStateIndex (List.sortOn fst)

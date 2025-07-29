@@ -35,6 +35,8 @@ import System.Posix.Files ( getFileStatus
                           )
 import System.Posix.Files qualified as PFS
 import System.IO.MMap as MMap
+import Control.Concurrent.STM qualified as STM
+import Control.Concurrent.STM.TSem
 
 ncqStorageOpen3 :: MonadIO m => FilePath -> (NCQStorage3 -> NCQStorage3) -> m NCQStorage3
 ncqStorageOpen3 fp upd = do
@@ -71,6 +73,8 @@ ncqStorageOpen3 fp upd = do
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
   ncqState          <- newTVarIO mempty
+  ncqStateKey       <- newTVarIO mempty
+  ncqServiceSem     <- atomically $ newTSem 1
 
   let ncq = NCQStorage3{..} & upd
 
@@ -118,8 +122,8 @@ ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe 
           putTMVar waiter h
 
   atomically do
-    nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
     modifyTVar ncqWrites succ
+    nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
     writeTQueue (ncqWriteOps ! nw) work
 
   atomically $ takeTMVar waiter
@@ -180,9 +184,8 @@ ncqTryLoadState me@NCQStorage3{..} = do
 
     ncqIndexFile me dataFile
 
-  for_ (bad <> drop 3 (fmap snd rest)) $ \f -> do
+  for_ (bad <> fmap snd rest) $ \f -> do
     let old = ncqGetFileName me (StateFile f)
-    -- debug $ "rm old state" <+> pretty old
     rm old
 
   where

@@ -39,5 +39,29 @@ ncqListFilesBy  me@NCQStorage3{..} filt = do
 
   pure $ List.sortOn ( Down . fst ) r
 
+ncqFindMinPairOf ::  forall fa m . (ToFileName fa, MonadUnliftIO m)
+                 => NCQStorage3
+                 -> [fa]
+                 -> m (Maybe (NCQFileSize, fa, fa))
+ncqFindMinPairOf sto lst = do
+
+  let files = fmap (\x -> (x, ncqGetFileName sto x)) lst
+
+  flip fix (files, Nothing) $ \next (fs, r) -> do
+    case fs of
+      [] ->  pure r
+      [ _ ] -> pure r
+      ( s1 : s2 : ss ) -> do
+        size1 <- fsize (snd s1)
+        size2 <- fsize (snd s2)
+        let size = fromIntegral $ size1 + size2
+
+        case r of
+          Nothing -> next (s2 : ss, Just (size, fst s1, fst s2) )
+          e@(Just (size0, _, _)) | size0 > size -> next (s2 : ss, Just (size, fst s1, fst s2) )
+                                 | otherwise -> next (s2:ss, e)
+
+  where fsize s = liftIO (PFS.getFileStatus s) <&> PFS.fileSize
+
 
 

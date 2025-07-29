@@ -30,6 +30,7 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
+import Data.HashSet qualified as HS
 import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
 import Data.Ord
@@ -39,6 +40,7 @@ import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
 import UnliftIO
 
+{-HLINT ignore "Functor law"-}
 
 ncq3Tests :: forall m . MonadUnliftIO m => MakeDictM C m ()
 ncq3Tests = do
@@ -141,3 +143,62 @@ ncq3Tests = do
               notice $ "found:" <+> pretty (coerce @_ @HashRef k) <+> viaShow e
 
     e -> throwIO $ BadFormException @C (mkList e)
+
+
+  entry $ bindMatch "test:ncq3:merge" $ nil_ \e -> do
+
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
+
+      runTest $ \TestEnv{..} -> do
+        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> do
+           notice $ "write" <+> pretty num
+           hst <- newTVarIO ( mempty :: HashSet HashRef )
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 64*1024) g
+             bs <- liftIO $ genRandomBS g n
+             h <- ncqPutBS sto (Just B) Nothing bs
+             atomically $ modifyTVar hst (HS.insert h)
+
+           idx <- readTVarIO ncqState
+                     <&> ncqStateIndex
+                     <&> fmap (IndexFile . snd)
+
+           r <- ncqFindMinPairOf sto idx
+           notice $ pretty r
+
+           fix $ \loop -> do
+             notice "compacting once"
+             w <- ncqIndexCompactStep sto
+             when w loop
+
+           nstate <- readTVarIO ncqState
+
+           notice $ "new state" <> line <> pretty nstate
+
+           hss <- readTVarIO hst
+
+           for_ hss $ \h -> do
+              found <- ncqLocate sto h <&> isJust
+              liftIO $ assertBool (show $ "found" <+> pretty h) found
+
+
+  entry $ bindMatch "test:ncq3:sweep" $ nil_ \e -> do
+
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
+
+      runTest $ \TestEnv{..} -> do
+        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> do
+           notice $ "write" <+> pretty num
+           hst <- newTVarIO ( mempty :: HashSet HashRef )
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 64*1024) g
+             bs <- liftIO $ genRandomBS g n
+             h <- ncqPutBS sto (Just B) Nothing bs
+             atomically $ modifyTVar hst (HS.insert h)
+
+           pause @'Seconds 300
+

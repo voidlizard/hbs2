@@ -13,6 +13,8 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.ByteString qualified as BS
 import System.IO.MMap
+import System.IO.Temp as Temp
+import Streaming.Prelude qualified as S
 
 
 data IndexEntry = IndexEntry {-# UNPACK #-} !FileKey !Word64 !Word32
@@ -31,6 +33,12 @@ unpackIndexEntry  entryBs = do
 
 emptyKey :: ByteString
 emptyKey = BS.replicate 32 0
+
+ncqIndexAlloc :: NWayHashAlloc
+ncqIndexAlloc = nwayAllocDef 1.10 32 8 16
+
+ncqIndexAllocForMerge :: NWayHashAlloc
+ncqIndexAllocForMerge = nwayAllocDef 0.8 32 8 16
 
 ncqLookupIndex :: MonadUnliftIO m
                => HashRef
@@ -67,7 +75,7 @@ ncqIndexFile n fk = runMaybeT do
   let (dir,name) = splitFileName fp
   let idxTemp = (dropExtension name <> "-") `addExtension` ".cq$"
 
-  result <- lift $ nwayWriteBatch (nwayAllocDef 1.10 32 8 16) dir idxTemp items
+  result <- lift $ nwayWriteBatch ncqIndexAlloc dir idxTemp items
 
   mv result dest
 
@@ -95,6 +103,59 @@ ncqIndexFile n fk = runMaybeT do
       lift $ ncqAlterEntrySTM n (coerce k) (const Nothing)
 
   pure dest
+
+{-HLINT ignore "Functor law"-}
+
+ncqIndexCompactStep :: MonadUnliftIO m
+                    => NCQStorage3
+                    -> m Bool
+ncqIndexCompactStep me@NCQStorage3{..} = flip runContT pure $ callCC \exit -> do
+
+  idx <- readTVarIO ncqState
+           <&> fmap (IndexFile . snd) . ncqStateIndex
+
+  r' <- lift $ ncqFindMinPairOf me idx
+
+  (_, a, b) <- ContT $ maybe1 r' (pure False)
+
+  let idx1Name = ncqGetFileName me a
+  let idx2Name = ncqGetFileName me b
+
+  (bs1, nw1) <- lift (nwayHashMMapReadOnly idx1Name) >>= \case
+                  Nothing -> err ("missed file" <+> pretty idx1Name) >> exit False
+                  Just e  -> pure e
+
+  (bs2, nw2) <- lift (nwayHashMMapReadOnly idx2Name) >>= \case
+                  Nothing -> err ("missed file" <+> pretty idx2Name) >> exit False
+                  Just e  -> pure e
+
+  e <- S.toList_ do
+         nwayHashScanAll nw1 bs1 $ \_ k v -> unless (k == emptyKey) do
+          S.yield (k,v)
+
+         nwayHashScanAll nw2 bs2 \_ k v -> unless (k == emptyKey) do
+          r <- liftIO (nwayHashLookup nw1 bs1 k)
+          unless (isJust r) do
+            S.yield (k,v)
+
+
+  let dir = ncqGetWorkDir me
+
+  ts <- liftIO (PFS.getFileStatus idx1Name) <&> PFS.modificationTimeHiRes
+
+  result <- lift $ nwayWriteBatch ncqIndexAllocForMerge dir "merged-.cq$" e
+
+  liftIO $ PFS.setFileTimesHiRes result ts ts
+
+  fki <- ncqGetNewFileKey me IndexFile
+  mv result (ncqGetFileName me (IndexFile fki))
+
+  ncqStateUpdate me do
+    ncqStateDelIndexFile (coerce a)
+    ncqStateDelIndexFile (coerce b)
+    ncqStateAddIndexFile ts fki
+
+  pure True
 
 ncqStorageScanDataFile :: MonadIO m
                        => NCQStorage3

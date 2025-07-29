@@ -4,12 +4,12 @@ module HBS2.Storage.NCQ3.Internal.Types where
 
 import HBS2.Storage.NCQ3.Internal.Prelude
 
-import Data.Generics.Product
 import Numeric (readHex)
+import Data.Data
 import Data.Set qualified as Set
 import Data.HashSet qualified as HS
 import Text.Printf
--- import Lens.Micro.Platform
+import Control.Concurrent.STM.TSem (TSem,waitTSem,signalTSem)
 
 
 data CachedData =  CachedData !ByteString
@@ -24,11 +24,15 @@ type StateVersion = Word64
 
 newtype FileKey = FileKey Word32
                   deriving newtype (Eq,Ord,Show,Num,Enum,Real,Integral,Pretty,Hashable)
+                  deriving stock (Data,Generic)
 
 deriving stock instance Eq (DataFile FileKey)
 deriving stock instance Ord (DataFile FileKey)
 deriving stock instance Eq (IndexFile FileKey)
 deriving stock instance Ord (IndexFile FileKey)
+deriving stock instance Data (IndexFile FileKey)
+deriving stock instance Data (DataFile FileKey)
+deriving stock instance Data (StateFile FileKey)
 
 data  NCQEntry =
   NCQEntry
@@ -37,6 +41,7 @@ data  NCQEntry =
   }
 
 type NCQOffset = Word64
+type NCQFileSize = NCQOffset
 type NCQSize   = Word32
 
 data Location =
@@ -47,9 +52,10 @@ data Location =
 data Fact =
     FI (DataFile FileKey) (IndexFile FileKey) -- file X has index Y
   | P  PData                                  -- pending, not indexed
-  deriving stock (Eq,Ord)
+  deriving stock (Eq,Ord,Data)
 
 data PData = PData (DataFile FileKey) Word64
+             deriving stock (Data)
 
 instance Ord PData where
   compare (PData a _) (PData b _) = compare a b
@@ -65,7 +71,7 @@ data NCQState =
   , ncqStateVersion   :: StateVersion
   , ncqStateFacts     :: Set Fact
   }
-  deriving stock (Eq,Generic)
+  deriving stock (Eq,Generic,Data)
 
 data NCQStorage3 =
   NCQStorage3
@@ -86,6 +92,7 @@ data NCQStorage3 =
   , ncqMMapCachedData :: TVar (HashPSQ FileKey CachePrio CachedData)
   , ncqMemTable       :: Vector Shard
   , ncqState          :: TVar NCQState
+  , ncqStateKey       :: TVar (Maybe FileKey)
   , ncqWrites         :: TVar Int
   , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ         :: TVar (Seq HashRef)
@@ -96,8 +103,8 @@ data NCQStorage3 =
   , ncqSyncReq        :: TVar Bool
   , ncqOnRunWriteIdle :: TVar (IO ())
   , ncqSyncNo         :: TVar Int
+  , ncqServiceSem     :: TSem
   }
-
 
 
 instance Monoid FileKey where
@@ -139,6 +146,12 @@ instance Pretty Location where
 
 ncqMakeFossilName :: FileKey -> FilePath
 ncqMakeFossilName = printf "f-%08x.data" . coerce @_ @Word32
+
+withSem :: forall a m . MonadUnliftIO m => TSem -> m a -> m a
+withSem sem action =
+  bracket (atomically (waitTSem sem))
+          (const $ atomically (signalTSem sem))
+          (const action)
 
 ncqState0 :: NCQState
 ncqState0 = NCQState{..}

@@ -65,6 +65,7 @@ library
       HBS2.Storage.NCQ3.Internal.Types
       HBS2.Storage.NCQ3.Internal.Prelude
       HBS2.Storage.NCQ3.Internal.State
+      HBS2.Storage.NCQ3.Internal.Sweep
       HBS2.Storage.NCQ3.Internal.Run
       HBS2.Storage.NCQ3.Internal.Memtable
       HBS2.Storage.NCQ3.Internal.Index
