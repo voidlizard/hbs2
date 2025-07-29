@@ -46,7 +46,7 @@ ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
   let fp   = toFileName fk & ncqGetFileName n
   fki <- ncqGetNewFileKey n IndexFile
 
-  let dest  = ncqGetFileName n (toFileName (IndexFile fki))
+  let dest  = ncqGetFileName n (IndexFile fki)
 
   debug $ "INDEX" <+> pretty fp <+> pretty dest
 
@@ -81,6 +81,7 @@ ncqIndexFile n@NCQStorage3{..}  fk = runMaybeT do
     ncqStateAddIndexFile ts fki
     ncqStateAddDataFile (coerce fk)
     ncqStateAddFact (FI fk (IndexFile fki))
+    ncqStateDelFact (P (PData fk 0))
 
   (bs,nw) <- toMPlus midx
 

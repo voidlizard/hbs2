@@ -14,6 +14,7 @@ import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.NCQ3
+import HBS2.Storage.NCQ3.Internal.Files
 
 import HBS2.System.Logger.Simple.ANSI
 
@@ -28,6 +29,9 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
+import Data.ByteString qualified as BS
+import Data.Ord
+import Data.Set qualified as Set
 import System.Random.MWC as MWC
 import UnliftIO
 
@@ -52,12 +56,23 @@ ncq3Tests = do
       g <- liftIO MWC.createSystemRandom
       runTest $ \TestEnv{..} -> do
 
-        ncqWithStorage3 testEnvDir $ \sto -> do
+        pending <- ncqWithStorage3 testEnvDir $ \sto -> do
            notice $ "write" <+> pretty num <+> "blocks"
            replicateM_ num do
              n <- liftIO $ uniformRM (1024, 256*1024) g
              bs <- liftIO $ genRandomBS g n
              ncqPutBS sto (Just B) Nothing bs
+
+           fa <- readTVarIO (ncqState sto) <&> ncqStateFacts
+
+           pure $ [ (ncqGetFileName sto (toFileName k),s) | P (PData k s) <- Set.toList fa ]
+                           & maximumByMay (comparing snd)
+
+        for_ pending $ \(dataFile,_) -> do
+           n <- liftIO $ uniformRM (1, 16*1024) g
+           bss <- liftIO $ genRandomBS g n
+           notice $ "CORRUPTING PENDING FILE" <+> pretty n <+> pretty dataFile
+           liftIO $ BS.appendFile dataFile bss
 
         notice $ "reopen"
         ncqWithStorage3 testEnvDir $ \sto -> do

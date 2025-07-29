@@ -53,14 +53,19 @@ instance Pretty FileKey where
   pretty (FileKey s) = pretty (BS8.unpack s)
 
 newtype DataFile a = DataFile a
+                      deriving newtype (IsString,Pretty)
 
 newtype IndexFile a = IndexFile a
+                      deriving newtype (IsString,Pretty)
 
 newtype StateFile a = StateFile a
                       deriving newtype (IsString,Eq,Ord,Pretty)
 
 class ToFileName a where
   toFileName :: a -> FilePath
+
+instance ToFileName FilePath where
+  toFileName = id
 
 instance ToFileName FileKey where
   toFileName = BS8.unpack . coerce

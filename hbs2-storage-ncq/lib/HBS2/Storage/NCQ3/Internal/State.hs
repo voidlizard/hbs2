@@ -1,3 +1,4 @@
+{-# Language ViewPatterns #-}
 module HBS2.Storage.NCQ3.Internal.State where
 
 import HBS2.Storage.NCQ3.Internal.Prelude
@@ -6,8 +7,10 @@ import HBS2.Storage.NCQ3.Internal.Files
 
 import Data.Config.Suckless.Script
 
+import Data.Generics.Product
 import Data.List qualified as List
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.HashSet qualified as HS
 import Data.Set qualified as Set
@@ -16,6 +19,8 @@ import UnliftIO.IO.File
 import Network.ByteOrder qualified as N
 import UnliftIO.IO
 import System.IO qualified as IO
+import Lens.Micro.Platform
+import Streaming.Prelude qualified as S
 
 newtype StateOP a =
   StateOP { fromStateOp :: ReaderT NCQStorage3 STM a }
@@ -28,38 +33,34 @@ ncqStateUpdate :: MonadIO m
                -> StateOP a
                -> m ()
 ncqStateUpdate ncq@NCQStorage3{..} action = do
-  snkFile <- ncqGetNewFileKey ncq StateFile <&> ncqGetFileName ncq . toFileName . StateFile
-  (n,i,f,facts) <- atomically do
-                      runReaderT (fromStateOp action) ncq
-                      n  <- readTVar ncqStateFileSeq
-                      i  <- readTVar ncqStateIndex
-                      f  <- readTVar ncqStateFiles
-                      fa <- readTVar ncqStateFacts
-                      pure (n,i,f,fa)
+  s0 <- readTVarIO ncqState
 
-  liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
-    for_ i $ \(Down p, fk) -> do
-      IO.hPrint fh $ "i" <+> pretty fk <+> pretty (round @_ @Word64 p)
+  s1 <- atomically do
+          void $ runReaderT (fromStateOp action) ncq
+          readTVar ncqState
 
-    for_ f $ \fk -> do
-      IO.hPrint fh $  "f" <+> pretty fk
-
-    for_ facts $ \(FI (DataFile a) (IndexFile b)) -> do
-      IO.hPrint fh $  "fi" <+> pretty a <+> pretty b
-
-    IO.hPrint fh $  "n" <+> pretty n
+  unless (s1 == s0) do
+    snkFile <- ncqGetNewFileKey ncq StateFile <&> ncqGetFileName ncq . StateFile
+    liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
+      IO.hPrint fh (pretty s1)
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
-    modifyTVar ncqStateFiles (HS.insert fk)
+    modifyTVar ncqState (over (field @"ncqStateFiles") (HS.insert fk))
 
 ncqStateAddFact :: Fact -> StateOP ()
 ncqStateAddFact fact = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
-    modifyTVar ncqStateFacts (Set.insert fact)
+    modifyTVar ncqState (over (field @"ncqStateFacts") (Set.insert fact))
+
+ncqStateDelFact :: Fact -> StateOP ()
+ncqStateDelFact fact = do
+  NCQStorage3{..} <- ask
+  StateOP $ lift do
+    modifyTVar ncqState (over (field @"ncqStateFacts") (Set.delete fact))
 
 ncqStateAddIndexFile :: POSIXTime
                      -> FileKey
@@ -67,10 +68,10 @@ ncqStateAddIndexFile :: POSIXTime
 
 ncqStateAddIndexFile ts fk  = do
   NCQStorage3{..} <- ask
-  StateOP $ lift do
-    modifyTVar' ncqStateIndex $ \xs ->
-      List.sortOn fst ((Down ts, fk) : xs)
+  StateOP $ lift $ modifyTVar' ncqState sortIndexes
 
+sortIndexes :: NCQState -> NCQState
+sortIndexes = over (field @"ncqStateIndex") (List.sortOn fst)
 
 ncqFileFastCheck :: MonadUnliftIO m => FilePath -> m ()
 ncqFileFastCheck fp = do
@@ -85,73 +86,38 @@ ncqFileFastCheck fp = do
     throwIO $ NCQFsckIssueExt (FsckInvalidFileSize (fromIntegral s))
 
 
-ncqTryLoadState :: forall m. MonadUnliftIO m
+readStateMay :: forall m . MonadUnliftIO m
              => NCQStorage3
-             -> m ()
+             -> FileKey
+             -> m (Maybe NCQState)
+readStateMay sto key = fmap sortIndexes <$> do
+  s <- liftIO (readFile (ncqGetFileName sto (StateFile key)))
+  runMaybeT do
+    sexps <- parseTop s & toMPlus
 
-ncqTryLoadState me@NCQStorage3{..} = do
+    flip fix (ncqState0, sexps) $ \next -> \case
+      (acc, []) -> pure acc
+      (acc, e : ss)  -> liftIO (print (pretty e)) >> next (acc <> entryOf e, ss)
 
-  stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
+  where
 
-  flip  runContT pure $ callCC \exit -> do
+    entryOf = \case
+       ListVal [SymbolVal "i",  LitIntVal n, LitIntVal ts] ->
+         ncqState0 { ncqStateIndex = [ (fromIntegral ts, fromIntegral n) ] }
 
-    for stateFiles $ \(_,fn) -> do
-        none
+       ListVal [SymbolVal "f",  LitIntVal n] ->
+         ncqState0 { ncqStateFiles = HS.singleton (fromIntegral n) }
 
-    none
+       ListVal [SymbolVal "fi", LitIntVal a, LitIntVal b] ->
+         ncqState0 { ncqStateFacts = Set.singleton (FI (DataFile (fromIntegral a)) (IndexFile (fromIntegral b))) }
 
-  -- for_ stateFiles $ \(d,f) -> do
-  --   notice $ "state-file" <+> pretty (toFileName (StateFile f))
+       ListVal [SymbolVal "fp", LitIntVal a, LitIntVal s] ->
+         ncqState0 { ncqStateFacts = Set.singleton (P (PData (DataFile $ fromIntegral a) (fromIntegral s))) }
 
--- tryLoadState :: forall m. MonadUnliftIO m
---              => NCQStorage3
---              -> StateFile FileKey
---              -> m (Maybe (HashSet FileKey, [(Down POSIXTime, FileKey)], FileKey))
--- tryLoadState me@NCQStorage3{..} fk = do
---   debug $ "tryLoadState" <+> pretty fk
+       ListVal [SymbolVal "n", LitIntVal a] ->
+         ncqState0 { ncqStateFileSeq = fromIntegral a }
 
---   (fset, idxList, n) <- liftIO (readState fk)
-
---   let checkFile :: DataFile FileKey -> m Bool
---       checkFile fo = flip fix 0 \next (i :: Int) -> do
---         let dataFile  = ncqGetFileName me (toFileName fo)
---         let indexFile = ncqGetFileName me (toFileName (IndexFile (coerce fo)))
-
---         doesFileExist dataFile >>= \case
---           False -> do
---             rm indexFile
---             pure False
-
---           True -> do
---             try @_ @SomeException (ncqFileFastCheck dataFile) >>= \case
---               Left e -> do
---                 err (viaShow e)
---                 stillThere <- doesFileExist dataFile
---                 when stillThere do
---                   let broken = dropExtension dataFile `addExtension` ".broken"
---                   mv dataFile broken
---                   rm indexFile
---                   warn $ red "renamed" <+> pretty dataFile <+> pretty broken
---                 pure False
-
---               Right{} | i > 1 -> pure False
-
---               Right{} -> do
---                 exists <- doesFileExist indexFile
---                 if exists
---                   then pure True
---                   else do
---                     debug $ "indexing" <+> pretty (toFileName fo)
---                     _ <- ncqIndexFile me fo
---                     debug $ "indexed" <+> pretty indexFile
---                     next (i + 1)
-
---   results <- forM (HS.toList fset) (checkFile . DataFile)
-
---   pure $
---     if and results
---       then Just (fset, idxList, n)
---       else Nothing
+       _ -> ncqState0
 
 
 

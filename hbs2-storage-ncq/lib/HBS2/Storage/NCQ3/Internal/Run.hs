@@ -7,6 +7,7 @@ import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Index
+import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
 
@@ -74,9 +75,9 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
         Nothing  -> none
         Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
 
-      tracked <- readTVarIO ncqStateIndex
+      NCQState{..} <- readTVarIO ncqState
 
-      for_ tracked $ \(_, fk) -> do
+      for_ ncqStateIndex $ \(_, fk) -> do
        CachedIndex bs nw <- ncqGetCachedIndex ncq fk
        ncqLookupIndex h (bs, nw) >>= \case
         Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> next
@@ -112,6 +113,10 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
                   pure w
                 else do
                   appendTailSection fh >> liftIO (fileSynchronise fh)
+                  ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
+                  ncqStateUpdate ncq do
+                    ncqStateAddFact (P (PData (DataFile fk) ss))
+
                   atomically do
                     writeTVar  ncqSyncReq False
                     modifyTVar ncqSyncNo succ
@@ -173,7 +178,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
       fk <- ncqGetNewFileKey ncq DataFile
-      let fname = ncqGetFileName ncq (toFileName (DataFile fk))
+      let fname = ncqGetFileName ncq (DataFile fk)
       touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
       (fk,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)

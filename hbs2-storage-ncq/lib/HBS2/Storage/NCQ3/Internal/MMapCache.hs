@@ -38,7 +38,7 @@ ncqGetCachedData ncq@NCQStorage3{..} =
   cacheLookupOrInsert ncqMaxCachedData load ncqMMapCachedData
   where
     load fk = do
-      let path = ncqGetFileName ncq (toFileName (DataFile fk))
+      let path = ncqGetFileName ncq (DataFile fk)
       bs <- liftIO (mmapFileByteString path Nothing)
       pure (CachedData bs)
 
@@ -47,7 +47,7 @@ ncqGetCachedIndex ncq@NCQStorage3{..} =
   cacheLookupOrInsert ncqMaxCachedIndex load ncqMMapCachedIdx
   where
     load fk = do
-      let path = ncqGetFileName ncq (toFileName (IndexFile fk))
+      let path = ncqGetFileName ncq (IndexFile fk)
       nwayHashMMapReadOnly path >>= \case
         Nothing -> throwIO $ NCQStorageCantMapFile path
         Just (bs, nway) -> pure (CachedIndex bs nway)

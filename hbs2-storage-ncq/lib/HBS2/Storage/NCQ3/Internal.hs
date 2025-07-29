@@ -7,12 +7,15 @@ import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Run
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Index
 
 import Control.Monad.Trans.Cont
 import Network.ByteOrder qualified as N
 import Data.HashPSQ qualified as HPSQ
 import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
+import Data.List qualified as List
+import Data.Set qualified as Set
 import Data.ByteString qualified as BS
 import Data.Sequence qualified as Seq
 import System.FilePath.Posix
@@ -56,12 +59,6 @@ ncqStorageOpen3 fp upd = do
   ncqMemTable       <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
   ncqMMapCachedIdx  <- newTVarIO HPSQ.empty
   ncqMMapCachedData <- newTVarIO HPSQ.empty
-  ncqStateFiles     <- newTVarIO mempty
-  ncqStateIndex     <- newTVarIO mempty
-  ncqStateFileSeq   <- newTVarIO 0
-  ncqStateVersion   <- newTVarIO 0
-  ncqStateUsage     <- newTVarIO mempty
-  ncqStateFacts     <- newTVarIO mempty
   ncqWrites         <- newTVarIO 0
   ncqWriteEMA       <- newTVarIO 0.0
   ncqWriteOps       <- V.fromList <$> replicateM wopNum newTQueueIO
@@ -71,6 +68,7 @@ ncqStorageOpen3 fp upd = do
   ncqSyncReq        <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
+  ncqState          <- newTVarIO mempty
 
   let ncq = NCQStorage3{..} & upd
 
@@ -133,4 +131,68 @@ ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
     writeTQueue ncqReadReq (href, answ)
 
   atomically $ takeTMVar answ
+
+
+
+ncqTryLoadState :: forall m. MonadUnliftIO m
+                => NCQStorage3
+                -> m ()
+
+ncqTryLoadState me = do
+
+  stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
+
+  r <- flip fix  ([], ncqState0, stateFiles) $ \next -> \case
+            (r, s, []) -> pure (r,s,[])
+            (l, s0, (_,s):ss) -> do
+
+              readStateMay me s >>= \case
+                Nothing -> next (s : l, s0, ss)
+                Just ns  -> do
+                  ok <- checkState ns
+                  if ok then
+                    pure (l <> fmap snd ss, ns, ss)
+                  else
+                    next (s : l, s0, ss)
+
+  let (bad, NCQState{..}, rest) = r
+
+  for_ [ (d,s) | P (PData d s) <- Set.toList ncqStateFacts ] $ \(dataFile,s) -> do
+    let path = ncqGetFileName me dataFile
+    realSize <- fileSize path
+
+    let corrupted = realSize /= fromIntegral s
+    let color = if corrupted then red else id
+
+    debug $ yellow "indexing" <+> pretty dataFile <+> pretty s <+> color (pretty realSize)
+
+    when corrupted $ liftIO do
+      warn $ red "trim" <+> pretty s <+> pretty (takeFileName path)
+      PFS.setFileSize path (fromIntegral s)
+
+    ncqIndexFile me dataFile
+
+    for_ (bad <> drop 3 (fmap snd rest)) $ \f -> do
+      rm (ncqGetFileName me (StateFile f))
+
+
+  where
+
+    -- TODO: created-but-not-indexed-file?
+
+    checkState NCQState{..} = flip runContT pure $ callCC \exit -> do
+
+      for_ ncqStateFiles $ \fk -> do
+
+        let dataFile = ncqGetFileName me (DataFile fk)
+        here <- doesFileExist dataFile
+
+        unless here $ exit False
+
+        lift  (try @_ @SomeException (ncqFileFastCheck dataFile)) >>= \case
+          Left e -> err (viaShow e) >> exit False
+          Right () -> none
+
+      pure True
+
 

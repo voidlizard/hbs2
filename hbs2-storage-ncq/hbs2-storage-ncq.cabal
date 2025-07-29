@@ -55,7 +55,7 @@ common shared-properties
                      , TypeFamilies
                      , TypeOperators
                      , RecordWildCards
-
+                     , OverloadedLabels
 
 library
     import:           shared-properties
@@ -81,13 +81,16 @@ library
     build-depends:    base, hbs2-core, hbs2-log-structured, suckless-conf
                     , async
                     , binary
+                    , bitvec
                     , bytestring
                     , bytestring-mmap
-                    , bitvec
                     , containers
                     , directory
+                    , filelock
                     , filepath
                     , filepattern
+                    , generic-lens
+                    -- , generic-optics
                     , hashable
                     , memory
                     , microlens-platform
@@ -95,6 +98,8 @@ library
                     , mtl
                     , mwc-random
                     , network-byte-order
+                    , optics-core
+                    , optics
                     , prettyprinter
                     , psqueues
                     , random
@@ -104,8 +109,8 @@ library
                     , stm-chans
                     , streaming
                     , temporary
-                    , time
                     , text
+                    , time
                     , transformers
                     , uniplate
                     , unix
@@ -113,8 +118,6 @@ library
                     , unordered-containers
                     , vector
                     , zstd
-                    , filelock
-
 
     hs-source-dirs:   lib
     default-language: Haskell2010
