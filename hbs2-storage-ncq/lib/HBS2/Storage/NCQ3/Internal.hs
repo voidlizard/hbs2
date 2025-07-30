@@ -73,7 +73,8 @@ ncqStorageOpen3 fp upd = do
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
   ncqState          <- newTVarIO mempty
-  ncqStateKey       <- newTVarIO mempty
+  ncqStateKey       <- newTVarIO (FileKey maxBound)
+  ncqStateUse       <- newTVarIO mempty
   ncqServiceSem     <- atomically $ newTSem 1
 
   let ncq = NCQStorage3{..} & upd

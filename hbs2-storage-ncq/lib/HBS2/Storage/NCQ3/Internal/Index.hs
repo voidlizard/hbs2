@@ -90,7 +90,6 @@ ncqIndexFile n fk = runMaybeT do
   ncqStateUpdate n do
     ncqStateAddIndexFile ts fki
     ncqStateAddDataFile (coerce fk)
-    ncqStateAddFact (FI fk (IndexFile fki))
     ncqStateDelFact (P (PData fk 0))
 
   (bs,nw) <- toMPlus midx
@@ -110,6 +109,8 @@ ncqIndexCompactStep :: MonadUnliftIO m
                     => NCQStorage3
                     -> m Bool
 ncqIndexCompactStep me@NCQStorage3{..} = flip runContT pure $ callCC \exit -> do
+
+  debug "ncqIndexCompactStep"
 
   idx <- readTVarIO ncqState
            <&> fmap (IndexFile . snd) . ncqStateIndex
@@ -150,6 +151,7 @@ ncqIndexCompactStep me@NCQStorage3{..} = flip runContT pure $ callCC \exit -> do
   fki <- ncqGetNewFileKey me IndexFile
   mv result (ncqGetFileName me (IndexFile fki))
 
+  debug $ "state update" <+> pretty a <+> pretty b <+> "=>" <+> pretty fki
   ncqStateUpdate me do
     ncqStateDelIndexFile (coerce a)
     ncqStateDelIndexFile (coerce b)

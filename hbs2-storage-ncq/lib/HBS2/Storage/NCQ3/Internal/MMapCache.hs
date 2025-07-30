@@ -52,20 +52,17 @@ ncqGetCachedIndex ncq@NCQStorage3{..} =
         Nothing -> throwIO $ NCQStorageCantMapFile path
         Just (bs, nway) -> pure (CachedIndex bs nway)
 
-ncqDelCachedIndex :: forall m . MonadUnliftIO m
-                  => NCQStorage3
-                  -> FileKey
-                  -> m ()
+ncqDelCachedIndexSTM :: NCQStorage3
+                     -> FileKey
+                     -> STM ()
 
-ncqDelCachedIndex NCQStorage3{..} fk =
-  atomically (modifyTVar ncqMMapCachedIdx$ HPSQ.delete fk)
+ncqDelCachedIndexSTM NCQStorage3{..} fk =
+  modifyTVar ncqMMapCachedIdx$ HPSQ.delete fk
 
+ncqDelCachedDataSTM :: NCQStorage3
+                    -> FileKey
+                    -> STM ()
 
-ncqDelCachedData :: forall m . MonadUnliftIO m
-                  => NCQStorage3
-                  -> FileKey
-                  -> m ()
-
-ncqDelCachedData NCQStorage3{..} fk =
-  atomically (modifyTVar ncqMMapCachedData $ HPSQ.delete fk)
+ncqDelCachedDataSTM NCQStorage3{..} fk =
+  modifyTVar ncqMMapCachedData $ HPSQ.delete fk
 

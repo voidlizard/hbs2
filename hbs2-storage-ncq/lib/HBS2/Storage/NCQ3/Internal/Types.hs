@@ -49,9 +49,7 @@ data Location =
      | InMemory {-# UNPACK #-} !ByteString
 
 
-data Fact =
-    FI (DataFile FileKey) (IndexFile FileKey) -- file X has index Y
-  | P  PData                                  -- pending, not indexed
+data Fact = P PData  -- pending, not indexed
   deriving stock (Eq,Ord,Data)
 
 data PData = PData (DataFile FileKey) Word64
@@ -92,7 +90,8 @@ data NCQStorage3 =
   , ncqMMapCachedData :: TVar (HashPSQ FileKey CachePrio CachedData)
   , ncqMemTable       :: Vector Shard
   , ncqState          :: TVar NCQState
-  , ncqStateKey       :: TVar (Maybe FileKey)
+  , ncqStateKey       :: TVar FileKey
+  , ncqStateUse       :: TVar (HashMap FileKey (NCQState, TVar Int))
   , ncqWrites         :: TVar Int
   , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ         :: TVar (Seq HashRef)
@@ -188,6 +187,5 @@ instance Pretty NCQState where
         | f <- Set.toList ncqStateFacts
         ]
 
-      pf (FI (DataFile a) (IndexFile b)) = "fi" <+> pretty a <+> pretty b
       pf (P (PData (DataFile a) s)) = "fp" <+> pretty a <+> pretty s
 

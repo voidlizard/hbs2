@@ -13,6 +13,7 @@ import HBS2.Storage.NCQ3.Internal.MMapCache
 
 
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Network.ByteOrder qualified as N
 import Data.HashSet qualified as HS
 import Data.HashPSQ qualified as PSQ
@@ -20,6 +21,7 @@ import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
 import Data.ByteString qualified as BS
 import Data.Sequence qualified as Seq
+import Data.Fixed
 import System.FilePath.Posix
 import System.Posix.Files qualified as Posix
 import System.Posix.IO as PosixBase
@@ -66,7 +68,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
     let q = ncqWriteOps ! i
     forever (liftIO $ join $ atomically (readTQueue q))
 
-  replicateM_ 2 $ spawnActivity $ fix \next -> do
+  replicateM_ 2 $ spawnActivity $ forever $ flip runContT pure $ callCC \exit -> do
 
       (h, answ) <- atomically $ readTQueue ncqReadReq
       let answer l = atomically (putTMVar answ l)
@@ -75,26 +77,62 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
       atomically (ncqLookupEntrySTM ncq h) >>= \case
         Nothing  -> none
-        Just e -> answer (Just (InMemory (ncqEntryData e))) >> next
+        Just e -> answer (Just (InMemory (ncqEntryData e))) >> exit ()
+
+      ContT $ ncqWithState ncq
 
       NCQState{..} <- readTVarIO ncqState
 
       for_ ncqStateIndex $ \(_, fk) -> do
-       CachedIndex bs nw <- ncqGetCachedIndex ncq fk
-       ncqLookupIndex h (bs, nw) >>= \case
-        Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> next
+       CachedIndex bs nw <- lift $ ncqGetCachedIndex ncq fk
+       lift (ncqLookupIndex h (bs, nw)) >>= \case
+        Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> exit ()
         Nothing -> none
 
       -- debug $ "NOT FOUND SHIT" <+> pretty h
-      answer Nothing >> next
+      answer Nothing >> exit ()
 
   spawnActivity measureWPS
 
-  spawnActivity $ forever do
-    withSem ncqServiceSem (ncqSweepObsoleteStates ncq)
-    pause @'Seconds 10
+  spawnActivity $ postponed 10 $ forever do
 
-  spawnActivity (ncqSweepLoop ncq)
+    ema <- readTVarIO ncqWriteEMA
+
+    when ( ema < ncqIdleThrsh ) do
+      ncqSweepObsoleteStates ncq
+
+    -- FIXME: timeout-hardcode
+    pause @'Seconds 60
+
+  spawnActivity $ forever do
+    pause @'Seconds 30
+    ema <- readTVarIO ncqWriteEMA
+    debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
+
+  spawnActivity $ postponed 10 $ forever do
+    ema <- readTVarIO ncqWriteEMA
+
+    when ( ema < ncqIdleThrsh ) do
+      ncqSweepFiles ncq
+
+    -- FIXME: timeout-hardcode
+    pause @'Seconds 60
+
+  spawnActivity $ postponed 10 $ forever $ void $ runMaybeT do
+    ema <- readTVarIO ncqWriteEMA
+
+    when (ema > ncqIdleThrsh) $ pause @'Seconds 10 >> mzero
+
+    compacted <- lift $ ncqIndexCompactStep ncq
+
+    when compacted mzero
+
+    k0 <- readTVarIO ncqStateKey
+    void $ lift $ race (pause @'Seconds 600) do
+      flip fix k0 $ \waitState k1 -> do
+        pause @'Seconds 60
+        k2 <- readTVarIO ncqStateKey
+        when (k2 == k1) $  waitState k2
 
   flip fix RunNew $ \loop -> \case
     RunFin -> do
@@ -215,6 +253,8 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
       where
         alpha = 0.1
         step  = 1.00
+
+    postponed n m = liftIO (pause @'Seconds n) >> m
 
 data RunSt =
     RunNew

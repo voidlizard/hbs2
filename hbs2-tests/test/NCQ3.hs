@@ -31,6 +31,7 @@ import Data.Config.Suckless.System
 import NCQTestCommon
 
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
 import Data.Ord
@@ -38,6 +39,7 @@ import Data.Set qualified as Set
 import System.Random.MWC as MWC
 import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
+import Control.Monad.Trans.Cont
 import UnliftIO
 
 {-HLINT ignore "Functor law"-}
@@ -186,19 +188,59 @@ ncq3Tests = do
 
   entry $ bindMatch "test:ncq3:sweep" $ nil_ \e -> do
 
+      t0 <- getTimeCoarse
+
       let (opts,args) = splitOpts [] e
       let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
       g <- liftIO MWC.createSystemRandom
 
       runTest $ \TestEnv{..} -> do
-        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> do
-           notice $ "write" <+> pretty num
+        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> flip runContT pure do
+
            hst <- newTVarIO ( mempty :: HashSet HashRef )
+           lostt <- newTVarIO 0
+           req   <- newTVarIO 0
+
+           ContT $ withAsync $ forever do
+            pause @'Seconds 20
+            t <- getTimeCoarse <&> sec2 . (*1e-9) . realToFrac . toNanoSecs . (+ (-t0))
+            l <- readTVarIO lostt
+            r <- readTVarIO req
+            pp <- readTVarIO ncqStateUse <&> HM.size
+            let c = if l > 0 then red else id
+            debug $ "Elapsed" <+> pretty t <+> pretty pp <+> pretty r <+> c (pretty l)
+
+           ContT $ withAsync $ forever do
+            p <- liftIO $ uniformRM (0, 0.75) g
+            pause @'Seconds (realToFrac p)
+            hh <- readTVarIO hst
+
+            when (HS.size hh > 0) do
+
+              i <- liftIO $ uniformRM (0, HS.size hh - 1) g
+              let hi = HS.toList hh !! i
+              found <- ncqLocate sto hi <&> isJust
+              atomically $ modifyTVar req succ
+
+              unless found do
+                err $ red "NOT FOUND" <+> pretty hi
+                atomically $ modifyTVar lostt succ
+
+           notice $ "write" <+> pretty num
            replicateM_ num do
              n <- liftIO $ uniformRM (1024, 64*1024) g
              bs <- liftIO $ genRandomBS g n
-             h <- ncqPutBS sto (Just B) Nothing bs
+             h <- lift  $ ncqPutBS sto (Just B) Nothing bs
              atomically $ modifyTVar hst (HS.insert h)
 
-           pause @'Seconds 300
+           pause @'Seconds 180
+
+           notice "check after compaction"
+
+           h1 <- readTVarIO hst
+
+           for_ h1 $ \h -> lift do
+              found <- ncqLocate sto h <&> isJust
+              liftIO $ assertBool (show $ "found" <+> pretty h) found
+
 

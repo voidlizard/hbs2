@@ -4,6 +4,7 @@ module HBS2.Storage.NCQ3.Internal.State where
 import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Data.Config.Suckless.Script
 
@@ -14,6 +15,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Data.Set qualified as Set
 import Data.ByteString qualified as BS
 import UnliftIO.IO.File
@@ -38,6 +40,7 @@ ncqStateUpdate ncq@NCQStorage3{..} action = do
 
   s1 <- atomically do
           void $ runReaderT (fromStateOp action) ncq
+          modifyTVar ncqWrites succ
           readTVar ncqState
 
   unless (s1 == s0) do
@@ -45,13 +48,20 @@ ncqStateUpdate ncq@NCQStorage3{..} action = do
     let snkFile = ncqGetFileName ncq (StateFile key)
     liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
       IO.hPrint fh (pretty s1)
-    atomically $ writeTVar ncqStateKey (Just key)
+    atomically $ writeTVar ncqStateKey key
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
   NCQStorage3{..} <- ask
   StateOP $ lift do
     modifyTVar ncqState (over #ncqStateFiles (HS.insert fk))
+
+ncqStateDelDataFile :: FileKey -> StateOP ()
+ncqStateDelDataFile fk = do
+  sto@NCQStorage3{..} <- ask
+  StateOP $ lift do
+    modifyTVar ncqState (over #ncqStateFiles (HS.delete fk))
+    ncqDelCachedDataSTM sto fk
 
 ncqStateAddFact :: Fact -> StateOP ()
 ncqStateAddFact fact = do
@@ -75,8 +85,11 @@ ncqStateAddIndexFile ts fk  = do
 
 ncqStateDelIndexFile :: FileKey  -> StateOP ()
 ncqStateDelIndexFile fk  = do
-  NCQStorage3{..} <- ask
-  StateOP $ lift $ modifyTVar' ncqState (over #ncqStateIndex $ filter f)
+  sto@NCQStorage3{..} <- ask
+  StateOP $ lift do
+    modifyTVar' ncqState (over #ncqStateIndex $ filter f)
+    ncqDelCachedIndexSTM sto fk
+
   where f (_,b) = b /= fk
 
 sortIndexes :: NCQState -> NCQState
@@ -94,6 +107,41 @@ ncqFileFastCheck fp = do
   unless ( BS.length mmaped == fromIntegral s ) do
     throwIO $ NCQFsckIssueExt (FsckInvalidFileSize (fromIntegral s))
 
+ncqStateCapture :: forall m . MonadUnliftIO m
+            => NCQStorage3
+            -> m FileKey
+
+ncqStateCapture me@NCQStorage3{..} = do
+  atomically do
+    key      <- readTVar ncqStateKey
+    stateUse <- readTVar ncqStateUse
+    case HM.lookup key stateUse of
+      Just (_, tv) -> modifyTVar tv succ
+      Nothing      -> do
+        state    <- readTVar ncqState
+        new   <- (state,) <$> newTVar 1
+        modifyTVar ncqStateUse (HM.insert key new)
+    pure key
+
+ncqStateDismiss :: forall m . MonadUnliftIO m
+                => NCQStorage3
+                -> FileKey
+                -> m ()
+ncqStateDismiss me@NCQStorage3{..} key = atomically do
+  useMap <- readTVar ncqStateUse
+  case HM.lookup key useMap of
+    Nothing -> pure ()
+    Just (_, tv) -> do
+      modifyTVar tv (max 0 . pred)
+      cnt <- readTVar tv
+      when (cnt <= 0) do
+        modifyTVar ncqStateUse (HM.delete key)
+
+ncqWithState :: forall a m . MonadUnliftIO m
+             => NCQStorage3
+             -> ( FileKey -> m a  )
+             -> m a
+ncqWithState sto = bracket (ncqStateCapture sto) (ncqStateDismiss sto)
 
 readStateMay :: forall m . MonadUnliftIO m
              => NCQStorage3
@@ -116,9 +164,6 @@ readStateMay sto key = fmap sortIndexes <$> do
 
        ListVal [SymbolVal "f",  LitIntVal n] ->
          ncqState0 { ncqStateFiles = HS.singleton (fromIntegral n) }
-
-       ListVal [SymbolVal "fi", LitIntVal a, LitIntVal b] ->
-         ncqState0 { ncqStateFacts = Set.singleton (FI (DataFile (fromIntegral a)) (IndexFile (fromIntegral b))) }
 
        ListVal [SymbolVal "fp", LitIntVal a, LitIntVal s] ->
          ncqState0 { ncqStateFacts = Set.singleton (P (PData (DataFile $ fromIntegral a) (fromIntegral s))) }
