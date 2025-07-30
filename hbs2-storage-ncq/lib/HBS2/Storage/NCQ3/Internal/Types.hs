@@ -22,7 +22,7 @@ type Shard = TVar (HashMap HashRef NCQEntry)
 
 type StateVersion = Word64
 
-newtype FileKey = FileKey Word32
+newtype FileKey = FileKey Word64
                   deriving newtype (Eq,Ord,Show,Num,Enum,Real,Integral,Pretty,Hashable)
                   deriving stock (Data,Generic)
 
@@ -119,10 +119,10 @@ instance ToFileName (DataFile FileKey) where
   toFileName (DataFile fk) = ncqMakeFossilName fk
 
 instance ToFileName (IndexFile FileKey) where
-  toFileName (IndexFile fk) = printf "i-%08x.cq" (coerce @_ @Word32 fk)
+  toFileName (IndexFile fk) = printf "i-%016x.cq" (coerce @_ @Word64 fk)
 
 instance ToFileName (StateFile FileKey) where
-  toFileName (StateFile fk) = printf "s-%08x" (coerce @_ @Word32 fk)
+  toFileName (StateFile fk) = printf "s-%016x" (coerce @_ @Word64 fk)
 
 
 instance Monoid NCQState where
@@ -144,7 +144,7 @@ instance Pretty Location where
     InMemory _      -> "in-memory"
 
 ncqMakeFossilName :: FileKey -> FilePath
-ncqMakeFossilName = printf "f-%08x.data" . coerce @_ @Word32
+ncqMakeFossilName = printf "f-%016x.data" . coerce @_ @Word64
 
 withSem :: forall a m . MonadUnliftIO m => TSem -> m a -> m a
 withSem sem action =

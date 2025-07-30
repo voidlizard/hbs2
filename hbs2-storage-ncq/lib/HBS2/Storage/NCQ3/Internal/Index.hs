@@ -25,7 +25,7 @@ unpackIndexEntry  entryBs = do
     let (fks,rest1)  = BS.splitAt 4 entryBs
     let (offs,rest2) = BS.splitAt 8 rest1
     let ss           = BS.take 4 rest2
-    let fk   = FileKey (N.word32 fks)
+    let fk   = FileKey (N.word64 fks)
     let off  = N.word64 offs
     let size = N.word32 ss
     IndexEntry fk off size
@@ -34,11 +34,9 @@ unpackIndexEntry  entryBs = do
 emptyKey :: ByteString
 emptyKey = BS.replicate 32 0
 
+-- FIXME: better-hashtable-params
 ncqIndexAlloc :: NWayHashAlloc
-ncqIndexAlloc = nwayAllocDef 1.10 32 8 16
-
-ncqIndexAllocForMerge :: NWayHashAlloc
-ncqIndexAllocForMerge = nwayAllocDef 0.8 32 8 16
+ncqIndexAlloc = nwayAllocDef 1.15 32 8 32
 
 ncqLookupIndex :: MonadUnliftIO m
                => HashRef
@@ -80,10 +78,11 @@ ncqIndexFile n fk = runMaybeT do
       _ -> do
         -- we need size in order to return block size faster
         -- w/o search in fossil
-        let fks = N.bytestring32 (coerce fk)
+        let fks = N.bytestring64 (coerce fk)
         let rs = (w + ncqSLen) & fromIntegral @_ @Word32 & N.bytestring32
         let os = fromIntegral @_ @Word64 offset & N.bytestring64
-        let record = fks <> os <> rs
+        let padding = BS.replicate 12 0
+        let record = fks <> os <> rs <> padding
         -- debug $ "WRITE INDEX ENTRY" <+> pretty (BS.length record)
         S.yield (coerce key, record)
 
