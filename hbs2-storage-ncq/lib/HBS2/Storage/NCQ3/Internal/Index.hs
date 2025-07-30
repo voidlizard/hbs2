@@ -120,6 +120,16 @@ ncqIndexFile n fk = runMaybeT do
 
 {-HLINT ignore "Functor law"-}
 
+
+ncqIndexCompactFull :: MonadUnliftIO m
+                    => NCQStorage3
+                    -> m ()
+
+ncqIndexCompactFull ncq = fix \again ->
+  ncqIndexCompactStep ncq >>= \case
+    True -> again
+    False -> none
+
 ncqIndexCompactStep :: MonadUnliftIO m
                     => NCQStorage3
                     -> m Bool

@@ -31,6 +31,11 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
+import Data.Generics.Labels
+import Lens.Micro.Platform
+import Network.ByteOrder qualified as N
+import System.TimeIt
+import Data.Fixed
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict qualified as HM
 import Test.Tasty.HUnit
@@ -41,7 +46,11 @@ import System.Random.MWC as MWC
 import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
 import Control.Monad.Trans.Cont
+import System.IO.Temp qualified as Temp
 import UnliftIO
+import UnliftIO.IO.File
+import UnliftIO.IO as IO
+import UnliftIO.Directory
 
 {-HLINT ignore "Functor law"-}
 
@@ -277,5 +286,171 @@ ncq3Tests = do
            for_ h1 $ \h -> lift do
               found <- ncqLocate sto h <&> isJust
               liftIO $ assertBool (show $ "found" <+> pretty h) found
+
+  entry $ bindMatch "test:ncq3:concurrent1" $ nil_ $ \case
+    [ LitIntVal tn, LitIntVal n ] -> do
+      debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
+      runTest $ testNCQ3Concurrent1 False ( fromIntegral tn) (fromIntegral n)
+    e -> throwIO $ BadFormException @C (mkList e)
+
+  entry $ bindMatch "test:ncq3:lookup1" $ nil_ $ \e -> do
+      runTest (testNCQ3Lookup1 e)
+
+testNCQ3Concurrent1 :: MonadUnliftIO m
+         => Bool
+         -> Int
+         -> Int
+         -> TestEnv
+         -> m ()
+
+testNCQ3Concurrent1 noRead tn n TestEnv{..} = flip runContT pure do
+
+  let tmp = testEnvDir
+  let inputDir = tmp </> "input"
+  let ncqDir   = tmp </> "ncq"
+
+  debug "preparing"
+
+  mkdir inputDir
+
+  debug $ pretty inputDir
+
+  g <- liftIO MWC.createSystemRandom
+
+  log <- liftIO $ Temp.emptyTempFile inputDir "log-.bin"
+
+  (t0,size) <- timeItT do
+    liftIO $ withFile log IO.AppendMode $ \hlog -> do
+      replicateM_ n do
+        size <- MWC.uniformRM (64*1024, 256*1024) g
+        tbs <- genRandomBS g size
+        let ha  = hashObject @HbSync tbs
+        let ss = coerce ha <> tbs
+        let bssize  = N.bytestring32 (fromIntegral $ BS.length ss)
+        BS.hPut hlog (bssize <> ss)
+      getFileSize log
+
+
+  let mbps = realToFrac size / (1024**2)
+  let v0 = mbps / t0
+  notice $ "baseline" <+> pretty n
+                      <+> pretty (sec3 t0)
+                      <+> pretty (realToFrac @_ @(Fixed E2) mbps)
+                      <+> pretty (sec2 v0)
+
+
+  for_ [1..tn] $ \tnn -> liftIO do
+    testWriteNThreads3 ncqDir tnn n
+
+
+testWriteNThreads3 :: forall g m . (MonadUnliftIO m)
+                  => FilePath
+                  -> Int
+                  -> Int
+                  -> m ()
+testWriteNThreads3 ncqDir tnn n = do
+
+    g <- liftIO MWC.createSystemRandom
+
+    wtf <- liftIO getPOSIXTime <&> show . round
+
+    t0 <- getTimeCoarse
+
+    w <- ncqWithStorage3 (ncqDir </> show tnn)  $ \sto -> do
+       ss <- liftIO $ replicateM n $ MWC.uniformRM (64*1024, 256*1024) g
+
+       pooledForConcurrentlyN_ tnn ss $ \len -> do
+         tbs <- liftIO $ genRandomBS g len
+         ncqPutBS sto (Just B) Nothing tbs
+         -- atomically $ modifyTVar' tss (+ len)
+
+       -- 32 bytes per key, 4 per len
+       pure $ (List.length ss * 36) +  sum ss
+
+    t1 <- getTimeCoarse
+
+    let t = realToFrac (toNanoSecs (t1 - t0)) / 1e9
+
+    let total = realToFrac w
+
+    let speed = if t > 0 then total / t else 0
+    let totMegs = realToFrac @_ @(Fixed E2) $ total / (1024**2)
+    let speedMbs = realToFrac @_ @(Fixed E2) $ speed / (1024**2)
+
+    notice $ pretty tnn <+> pretty (sec2 t) <+> pretty totMegs <+> pretty speedMbs
+
+
+
+testNCQ3Lookup1:: forall c m . (MonadUnliftIO m, IsContext c)
+         => [Syntax c]
+         -> TestEnv
+         -> m ()
+
+testNCQ3Lookup1 syn TestEnv{..} = do
+  debug $ "testNCQ3Lookup1" <+> pretty syn
+  let tmp = testEnvDir
+  let ncqDir   = tmp
+  q <- newTQueueIO
+
+  g <- liftIO MWC.createSystemRandom
+
+  let (opts, argz) = splitOpts [("-m",0)] syn
+
+  let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
+  let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
+  let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
+  let r = (64*1024, 256*1024)
+
+  let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
+
+  notice $ "insert" <+> pretty n <+> "random blocks of size" <+> parens (pretty r) <+> pretty opts
+
+  thashes <- newTQueueIO
+
+  sizes <- liftIO $ replicateM n (uniformRM r g )
+
+  res <- newTQueueIO
+
+  ncqWithStorage3 ncqDir $ \sto -> liftIO do
+    pooledForConcurrentlyN_ 8  sizes $ \size -> do
+      z <- genRandomBS g size
+      h <- ncqPutBS sto (Just B) Nothing z
+      atomically $ writeTQueue thashes h
+
+    hs <- atomically $ STM.flushTQueue thashes
+
+    when merge do
+      notice "COMPACT INDEX"
+      ncqIndexCompactFull sto
+
+    idx <- readTVarIO (ncqState sto) <&> List.length . view #ncqStateIndex
+
+    replicateM_ nl do
+
+      tfound <- newTVarIO 0
+
+      t0 <- getTimeCoarse
+
+      liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
+        found <- ncqLocate sto h <&> isJust
+        when found do
+          atomically $ modifyTVar' tfound succ
+
+      t1 <- getTimeCoarse
+
+      let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
+      atomically $ writeTQueue res dt
+
+      found <- readTVarIO tfound
+
+      notice $ "scan all files" <+> pretty idx <+> pretty dt <+> pretty found
+
+    m <- atomically (STM.flushTQueue res)
+          <&> List.sort
+          <&> \x -> atDef 0 x (List.length x `quot` 2)
+
+    notice $ "median" <+> pretty m
+
+
 
 

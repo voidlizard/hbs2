@@ -30,6 +30,7 @@ common common-deps
         , directory
         , filepath
         , hashable
+        , generic-lens
         , microlens-platform
         , mtl
         , mwc-random
@@ -95,6 +96,7 @@ common shared-properties
                      , LambdaCase
                      , MultiParamTypeClasses
                      , OverloadedStrings
+                     , OverloadedLabels
                      , QuasiQuotes
                      , ScopedTypeVariables
                      , StandaloneDeriving
