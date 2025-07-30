@@ -49,6 +49,16 @@ ncqLookupIndex hx (mmaped, nway) = do
 {-# INLINE ncqLookupIndex #-}
 
 
+ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
+ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
+  answ <- newEmptyTMVarIO
+
+  atomically do
+    -- modifyTVar ncqWrites succ
+    writeTQueue ncqReadReq (href, answ)
+
+  atomically $ takeTMVar answ
+
 ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m (Maybe FilePath)
 ncqIndexFile n fk = runMaybeT do
 
@@ -108,7 +118,7 @@ ncqIndexFile n fk = runMaybeT do
 ncqIndexCompactStep :: MonadUnliftIO m
                     => NCQStorage3
                     -> m Bool
-ncqIndexCompactStep me@NCQStorage3{..} = flip runContT pure $ callCC \exit -> do
+ncqIndexCompactStep me@NCQStorage3{..} = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
 
   debug "ncqIndexCompactStep"
 

@@ -45,7 +45,7 @@ ncqStorageOpen3 fp upd = do
   let ncqFsync          = 16 * megabytes
   let ncqWriteQLen      = 1024 * 4
   let ncqMinLog         = 512 * megabytes
-  let ncqMaxLog         = 2 * ncqMinLog
+  let ncqMaxLog         = 32 * gigabytes
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCachedIndex = 16
   let ncqMaxCachedData  = 64
@@ -131,15 +131,6 @@ ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe 
 
   where hash0 = HashRef (hashObject @HbSync bs')
 
-ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
-ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
-  answ <- newEmptyTMVarIO
-
-  atomically do
-    modifyTVar ncqWrites succ
-    writeTQueue ncqReadReq (href, answ)
-
-  atomically $ takeTMVar answ
 
 ncqTryLoadState :: forall m. MonadUnliftIO m
                 => NCQStorage3

@@ -16,6 +16,7 @@ import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.NCQ3
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
+import HBS2.Storage.NCQ3.Internal.Fossil
 
 import HBS2.System.Logger.Simple.ANSI
 
@@ -232,6 +233,40 @@ ncq3Tests = do
              bs <- liftIO $ genRandomBS g n
              h <- lift  $ ncqPutBS sto (Just B) Nothing bs
              atomically $ modifyTVar hst (HS.insert h)
+
+           pause @'Seconds 180
+
+           notice "check after compaction"
+
+           h1 <- readTVarIO hst
+
+           for_ h1 $ \h -> lift do
+              found <- ncqLocate sto h <&> isJust
+              liftIO $ assertBool (show $ "found" <+> pretty h) found
+
+
+
+  entry $ bindMatch "test:ncq3:merge:fossil" $ nil_ \e -> do
+
+      let (opts,args) = splitOpts [] e
+      let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
+      g <- liftIO MWC.createSystemRandom
+
+      runTest $ \TestEnv{..} -> do
+        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> flip runContT pure do
+
+           hst <- newTVarIO ( mempty :: HashSet HashRef )
+
+           notice $ "write" <+> pretty num
+           replicateM_ num do
+             n <- liftIO $ uniformRM (1024, 64*1024) g
+             bs <- liftIO $ genRandomBS g n
+             h <- lift  $ ncqPutBS sto (Just B) Nothing bs
+             atomically $ modifyTVar hst (HS.insert h)
+
+           lift (ncqFossilMergeStep sto)
+
+           notice "merge done"
 
            pause @'Seconds 180
 

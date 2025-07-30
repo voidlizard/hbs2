@@ -10,7 +10,7 @@ import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Sweep
 import HBS2.Storage.NCQ3.Internal.MMapCache
-
+import HBS2.Storage.NCQ3.Internal.Fossil
 
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
@@ -118,21 +118,11 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
     -- FIXME: timeout-hardcode
     pause @'Seconds 60
 
-  spawnActivity $ postponed 10 $ forever $ void $ runMaybeT do
-    ema <- readTVarIO ncqWriteEMA
+  spawnActivity $ postponed 10 $ compactLoop 10 300 do
+    ncqIndexCompactStep ncq
 
-    when (ema > ncqIdleThrsh) $ pause @'Seconds 10 >> mzero
-
-    compacted <- lift $ ncqIndexCompactStep ncq
-
-    when compacted mzero
-
-    k0 <- readTVarIO ncqStateKey
-    void $ lift $ race (pause @'Seconds 600) do
-      flip fix k0 $ \waitState k1 -> do
-        pause @'Seconds 60
-        k2 <- readTVarIO ncqStateKey
-        when (k2 == k1) $  waitState k2
+  spawnActivity $ postponed 15 $ compactLoop 10 600 do
+    ncqFossilMergeStep ncq
 
   flip fix RunNew $ \loop -> \case
     RunFin -> do
@@ -256,50 +246,29 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
     postponed n m = liftIO (pause @'Seconds n) >> m
 
+    compactLoop :: Timeout 'Seconds -> Timeout 'Seconds -> m Bool -> m ()
+    compactLoop t1 t2 what = forever $ void $ runMaybeT do
+      ema <- readTVarIO ncqWriteEMA
+
+      when (ema > ncqIdleThrsh) $ pause @'Seconds t1 >> mzero
+
+      compacted <- lift what
+
+      when compacted mzero
+
+      k0 <- readTVarIO ncqStateKey
+      void $ lift $ race (pause @'Seconds t2) do
+        flip fix k0 $ \waitState k1 -> do
+          pause @'Seconds 60
+          k2 <- readTVarIO ncqStateKey
+          when (k2 == k1) $  waitState k2
+
+
+
 data RunSt =
     RunNew
   | RunWrite (FileKey, Fd, Int, Int)
   | RunSync  (FileKey, Fd, Int, Int, Bool)
   | RunFin
-
-
-zeroSyncEntry :: ByteString
-zeroSyncEntry = ncqMakeSectionBS (Just B) zeroHash zeroPayload
-  where zeroPayload = N.bytestring64 0
-        zeroHash    = HashRef (hashObject zeroPayload)
-{-# INLINE zeroSyncEntry #-}
-
-zeroSyncEntrySize :: Word64
-zeroSyncEntrySize = fromIntegral (BS.length zeroSyncEntry)
-{-# INLINE zeroSyncEntrySize #-}
-
--- 1. It's M-record
--- 2. It's last w64be == fileSize
--- 3. It's hash == hash (bytestring64be fileSize)
--- 4. recovery-strategy: start-to-end, end-to-start
-fileTailRecord :: Integral a => a -> ByteString
-fileTailRecord w = do
-  -- on open: last w64be == fileSize
-  let paylo = N.bytestring64 (fromIntegral w + zeroSyncEntrySize)
-  let h     = hashObject @HbSync paylo & coerce
-  ncqMakeSectionBS (Just M) h paylo
-{-# INLINE fileTailRecord #-}
-
-appendSection :: forall m . MonadUnliftIO m
-            => Fd
-            -> ByteString
-            -> m Int -- (FOff, Int)
-
-appendSection fh sect = do
-  -- off <- liftIO $ fdSeek fh SeekFromEnd 0
-  -- pure (fromIntegral off, fromIntegral len)
-  liftIO (Posix.fdWrite fh sect) <&> fromIntegral
-{-# INLINE appendSection #-}
-
-appendTailSection :: MonadIO m => Fd -> m ()
-appendTailSection fh = liftIO do
-  s <- Posix.fileSize <$> Posix.getFdStatus fh
-  void (appendSection fh (fileTailRecord s))
-{-# INLINE appendTailSection #-}
 
 

@@ -71,6 +71,7 @@ library
       HBS2.Storage.NCQ3.Internal.Index
       HBS2.Storage.NCQ3.Internal.MMapCache
       HBS2.Storage.NCQ3.Internal.Files
+      HBS2.Storage.NCQ3.Internal.Fossil
       HBS2.Storage.NCQ
       HBS2.Storage.NCQ2
       HBS2.Storage.NCQ2.Internal
