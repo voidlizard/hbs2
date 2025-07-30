@@ -1,4 +1,5 @@
 {-# Language RecordWildCards #-}
+{-# Language MultiWayIf #-}
 module NCQ3 where
 
 import HBS2.Prelude.Plated
@@ -394,7 +395,7 @@ testNCQ3Lookup1 syn TestEnv{..} = do
 
   g <- liftIO MWC.createSystemRandom
 
-  let (opts, argz) = splitOpts [("-m",0)] syn
+  let (opts, argz) = splitOpts [("-m",0),("-M",0)] syn
 
   let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
   let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
@@ -402,6 +403,7 @@ testNCQ3Lookup1 syn TestEnv{..} = do
   let r = (64*1024, 256*1024)
 
   let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
+  let mergeFull = headDef False [ True | ListVal [StringLike "-M"] <- opts ]
 
   notice $ "insert" <+> pretty n <+> "random blocks of size" <+> parens (pretty r) <+> pretty opts
 
@@ -419,37 +421,44 @@ testNCQ3Lookup1 syn TestEnv{..} = do
 
     hs <- atomically $ STM.flushTQueue thashes
 
-    when merge do
-      notice "COMPACT INDEX"
-      ncqIndexCompactFull sto
+    let wrap m = if | mergeFull -> notice "full merge" >> ncqIndexCompactFull sto >> m
+                    | merge ->
+                       fix \next -> do
+                          notice "run ncqIndexCompactStep"
+                          left <- ncqIndexCompactStep sto
+                          m
+                          if left then next else none
+                    | otherwise -> m
+    wrap do
 
-    idx <- readTVarIO (ncqState sto) <&> List.length . view #ncqStateIndex
+      idx <- readTVarIO (ncqState sto) <&> List.length . view #ncqStateIndex
 
-    replicateM_ nl do
+      replicateM_ nl do
 
-      tfound <- newTVarIO 0
+        tfound <- newTVarIO 0
 
-      t0 <- getTimeCoarse
 
-      liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
-        found <- ncqLocate sto h <&> isJust
-        when found do
-          atomically $ modifyTVar' tfound succ
+        t0 <- getTimeCoarse
 
-      t1 <- getTimeCoarse
+        liftIO $ pooledForConcurrentlyN_ nt hs $ \h -> do
+          found <- ncqLocate sto h <&> isJust
+          when found do
+            atomically $ modifyTVar' tfound succ
 
-      let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
-      atomically $ writeTQueue res dt
+        t1 <- getTimeCoarse
 
-      found <- readTVarIO tfound
+        let dt = realToFrac (toNanoSecs (t1 - t0)) / 1e9 :: Fixed E3
+        atomically $ writeTQueue res dt
 
-      notice $ "scan all files" <+> pretty idx <+> pretty dt <+> pretty found
+        found <- readTVarIO tfound
 
-    m <- atomically (STM.flushTQueue res)
-          <&> List.sort
-          <&> \x -> atDef 0 x (List.length x `quot` 2)
+        notice $ "scan all files" <+> pretty idx <+> pretty dt <+> pretty found
 
-    notice $ "median" <+> pretty m
+      m <- atomically (STM.flushTQueue res)
+            <&> List.sort
+            <&> \x -> atDef 0 x (List.length x `quot` 2)
+
+      notice $ "median" <+> pretty m
 
 
 
