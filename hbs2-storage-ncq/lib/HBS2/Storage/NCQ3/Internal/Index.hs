@@ -49,15 +49,20 @@ ncqLookupIndex hx (mmaped, nway) = do
 {-# INLINE ncqLookupIndex #-}
 
 
-ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
-ncqLocate me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
+
+ncqLocate_ :: MonadUnliftIO m => Bool -> NCQStorage3 -> HashRef -> m (Maybe Location)
+ncqLocate_ f me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
   answ <- newEmptyTMVarIO
 
   atomically do
-    -- modifyTVar ncqWrites succ
+    when f $ modifyTVar ncqWrites succ
     writeTQueue ncqReadReq (href, answ)
 
   atomically $ takeTMVar answ
+
+ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
+ncqLocate me href = ncqOperation me (pure Nothing) do
+  ncqLocate_ True me href
 
 ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m (Maybe FilePath)
 ncqIndexFile n fk = runMaybeT do
@@ -154,7 +159,8 @@ ncqIndexCompactStep me@NCQStorage3{..} = withSem ncqServiceSem $ flip runContT p
 
   ts <- liftIO (PFS.getFileStatus idx1Name) <&> PFS.modificationTimeHiRes
 
-  result <- lift $ nwayWriteBatch ncqIndexAllocForMerge dir "merged-.cq$" e
+  -- result <- lift $ nwayWriteBatch ncqIndexAllocForMerge dir "merged-.cq$" e
+  result <- lift $ nwayWriteBatch ncqIndexAlloc dir "merged-.cq$" e
 
   liftIO $ PFS.setFileTimesHiRes result ts ts
 

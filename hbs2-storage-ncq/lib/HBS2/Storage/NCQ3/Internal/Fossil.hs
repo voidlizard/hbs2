@@ -72,7 +72,7 @@ ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT p
     for_ [f1, f2] $ \fi -> do
       let fik = coerce fi
       writeFiltered me (ncqGetFileName me fi) fd $ \_ _ k _ -> do
-        ncqLocate me k >>= \case
+        ncqLocate_ False me k >>= \case
           Nothing  -> pure True
           Just (InMemory{}) -> pure False
           Just (InFossil fk _ _) -> do
