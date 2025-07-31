@@ -2452,8 +2452,6 @@ asDouble :: forall c . IsContext c => Syntax c -> Double
 asDouble = \case
   LitIntVal n        -> realToFrac n
   LitScientificVal n -> realToFrac n
-  LitBoolVal False   -> 0.0
-  LitBoolVal True    -> 1.0
   _                  -> 0.0
 
 arglistOrList :: forall c . IsContext c => [Syntax c] -> [Syntax c]
