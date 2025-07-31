@@ -72,6 +72,7 @@ import System.IO.Temp qualified as Temp
 import System.Exit qualified as Exit
 import System.Random as R
 import System.Random.Shuffle (shuffleM)
+import System.FilePattern
 import Text.InterpolatedString.Perl6 (qc)
 import Lens.Micro.Platform
 import UnliftIO
@@ -1084,6 +1085,8 @@ internalEntries = do
     entry $ bindValue "chr:cr"     (mkStr "\r")
     entry $ bindValue "chr:tab"    (mkStr "\t")
     entry $ bindValue "chr:space"  (mkStr " ")
+    entry $ bindValue "chr:dot"    (mkStr ".")
+    entry $ bindValue "dot"        (mkStr ".")
 
     entry $ bindAlias "local" "define"
 
@@ -1468,14 +1471,13 @@ internalEntries = do
 
     entry $ bindMatch "floor" $ \case
       [LitScientificVal x] ->
-        pure $ mkDouble (realToFrac $ floor x)
+        pure $ mkInt (floor x)
       _ -> throwIO (BadFormException @c nil)
 
     entry $ bindMatch "ceiling" $ \case
       [LitScientificVal x] ->
-        pure $ mkDouble (realToFrac $ ceiling x)
+        pure $ mkInt (ceiling x)
       _ -> throwIO (BadFormException @c nil)
-
 
     entry $ bindMatch "fixed" $ \case
 
@@ -2216,6 +2218,13 @@ internalEntries = do
 
       _ -> pure nil
 
+    brief "get file size"
+     $ args [ arg "list" "filename" ]
+     $ returns "file-size" "double"
+     $  entry $ bindMatch "file:size" $ \case
+          [ StringLike p ] -> mkInt <$> fileSize p
+          _ -> throwIO $ BadFormException @c nil
+
     entry $ bindMatch "path:split" $ \case
       [ StringLike p ] -> pure $ mkList (fmap mkStr (splitPath p))
       _ -> throwIO $ BadFormException @c nil
@@ -2257,9 +2266,16 @@ internalEntries = do
       _ -> throwIO $ BadFormException @c nil
 
     entry $ bindMatch "dir:list:files" $ \case
+
+      [ StringLike p, StringLike pat ] -> lift do
+        dirFiles p <&> mkList . fmap mkSym . filter ( (pat ?==) . takeFileName )
+
       [ StringLike p ] -> lift do
         dirFiles p <&> mkList . fmap mkSym
-      _ -> throwIO $ BadFormException @c nil
+
+      [] ->  dirFiles "." <&> mkList . fmap mkSym
+
+      e -> throwIO $ BadFormException @c (mkList e)
 
     entry $ bindMatch "dir:list:all" $ \case
       [ StringLike p ] -> lift do
@@ -2297,6 +2313,24 @@ internalEntries = do
 
         _ -> mkDouble <$> randomIO
 
+
+    brief "average of numeric list"
+      $ args [ arg "list" "list" ]
+      $ returns "double" "double"
+      $ entry $ bindMatch "stat:avg" \case
+         [ ListVal es ] -> pure $ safeAvg es
+         es             -> pure $ safeAvg es
+
+    entry $ bindAlias "avg" "stat:avg"
+
+    brief "median of numeric list"
+      $ args [ arg "list" "list" ]
+      $ returns "double" "double"
+      $ entry $ bindMatch "stat:median" \case
+         [ ListVal es ] -> pure $ safeMedian es
+         es             -> pure $ safeMedian es
+
+    entry $ bindAlias "median" "stat:median"
 
     entry $ bindMatch "random:shuffle" $ \input -> do
       case arglistOrList input of
@@ -2398,6 +2432,29 @@ internalEntries = do
           pure $ mkStr (show wtf)
 
 
+
+safeAvg :: forall c . IsContext c => [Syntax c] -> Syntax c
+safeAvg [] = mkDouble 0.0
+safeAvg es = mkDouble $ sum (map asDouble es) / fromIntegral (List.length es)
+
+safeMedian :: forall c . IsContext c => [Syntax c] -> Syntax c
+safeMedian []  = mkDouble 0.0
+safeMedian esSorted  =
+  let sorted = List.sort (map asDouble esSorted)
+      n = length sorted
+  in mkDouble $
+     if odd n
+        then sorted !! (n `div` 2)
+        else let i = n `div` 2
+              in (sorted !! (i - 1) + sorted !! i) / 2
+
+asDouble :: forall c . IsContext c => Syntax c -> Double
+asDouble = \case
+  LitIntVal n        -> realToFrac n
+  LitScientificVal n -> realToFrac n
+  LitBoolVal False   -> 0.0
+  LitBoolVal True    -> 1.0
+  _                  -> 0.0
 
 arglistOrList :: forall c . IsContext c => [Syntax c] -> [Syntax c]
 arglistOrList = \case

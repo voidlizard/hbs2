@@ -17,8 +17,22 @@ import System.IO.Temp as Temp
 import Streaming.Prelude qualified as S
 
 
-data IndexEntry = IndexEntry {-# UNPACK #-} !FileKey !Word64 !Word32
+-- we need size in order to return block size faster
+-- w/o search in fossil
+data IndexEntry = IndexEntry {-# UNPACK #-} !FileKey !NCQOffset !NCQSize
                   deriving stock (Eq,Show)
+
+ncqIndexEntryPadding :: Int
+ncqIndexEntryPadding = 0
+
+ncqIndexPayloadSize :: Int
+ncqIndexPayloadSize = fileKey + fileOffset + blockSize + padding
+  where
+    fileKey    = 8
+    fileOffset = 8
+    blockSize  = 4
+    padding    = ncqIndexEntryPadding
+{-# INLINE ncqIndexPayloadSize #-}
 
 unpackIndexEntry :: ByteString -> IndexEntry
 unpackIndexEntry  entryBs = do
@@ -31,12 +45,21 @@ unpackIndexEntry  entryBs = do
     IndexEntry fk off size
 {-# INLINE unpackIndexEntry #-}
 
+packIndexEntryPayload :: IndexEntry -> ByteString
+packIndexEntryPayload (IndexEntry fk offset blockSize) = do
+    let fks = N.bytestring64 (coerce fk)
+    let rs = (blockSize + ncqSLen) & fromIntegral @_ @Word32 & N.bytestring32
+    let os = fromIntegral @_ @Word64 offset & N.bytestring64
+    let padding = BS.replicate ncqIndexEntryPadding 0
+    let record = fks <> os <> rs <>  padding
+    record
+
 emptyKey :: ByteString
 emptyKey = BS.replicate 32 0
 
 -- FIXME: better-hashtable-params
 ncqIndexAlloc :: NWayHashAlloc
-ncqIndexAlloc = nwayAllocDef 1.15 32 8 32
+ncqIndexAlloc = nwayAllocDef 1.15 32 8 ncqIndexPayloadSize
 
 ncqLookupIndex :: MonadUnliftIO m
                => HashRef
@@ -76,14 +99,8 @@ ncqIndexFile n fk = runMaybeT do
     ncqStorageScanDataFile n fp $ \offset w key s -> case ncqIsMeta s of
       Just M -> none
       _ -> do
-        -- we need size in order to return block size faster
-        -- w/o search in fossil
-        let fks = N.bytestring64 (coerce fk)
-        let rs = (w + ncqSLen) & fromIntegral @_ @Word32 & N.bytestring32
-        let os = fromIntegral @_ @Word64 offset & N.bytestring64
-        let padding = BS.replicate 12 0
-        let record = fks <> os <> rs <> padding
-        -- debug $ "WRITE INDEX ENTRY" <+> pretty (BS.length record)
+        let entry = IndexEntry (coerce fk) (fromIntegral offset) (fromIntegral w)
+        let record = packIndexEntryPayload entry
         S.yield (coerce key, record)
 
   let (dir,name) = splitFileName fp
