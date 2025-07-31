@@ -364,7 +364,7 @@ ncq3Tests = do
 
       let (_, argz) = splitOpts [] syn
       let n = headDef 50000 [ fromIntegral x | LitIntVal x <- argz ]
-      let p0 = headDef 0.25  [ realToFrac x   | LitScientificVal x <- drop 1 argz ]
+      let p0 = headDef 0.55  [ realToFrac x   | LitScientificVal x <- drop 1 argz ]
 
       thashes <- newTVarIO mempty
 
@@ -391,19 +391,20 @@ ncq3Tests = do
 
         notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
 
-        t0 <- getTimeCoarse
+      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
 
-        ncqIndexCompactFull sto
-        -- ncqCompactStep sto
+        notice "wait for compaction"
 
-        t1 <- getTimeCoarse
+        flip runContT pure do
 
-        let dt = timeSpecDeltaSeconds @(Fixed E6) t0 t1
+          void $ ContT $ withAsync $ forever do
+            fs <- dirFiles (ncqGetWorkDir sto)
+            let n = List.length fs
+            ss <- sum <$> mapM getFileSize fs
+            notice $ "dir size" <+> pretty n <+> pretty (ss `div` megabytes)
+            pause @'Seconds 20
 
-        notice $ "ncqCompactStep time" <+> pretty dt
-
-      none
-
+          pause @'Seconds 600
 
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool

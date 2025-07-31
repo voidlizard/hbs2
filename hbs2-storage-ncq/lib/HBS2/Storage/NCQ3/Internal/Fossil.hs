@@ -71,12 +71,13 @@ ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT p
 
     for_ [f1, f2] $ \fi -> do
       let fik = coerce fi
-      writeFiltered me (ncqGetFileName me fi) fd $ \_ _ k _ -> do
+      writeFiltered me (ncqGetFileName me fi) fd $ \o _ k _ -> do
         ncqLocate_ False me k >>= \case
           Nothing  -> pure False
           Just (InMemory{}) -> pure False
-          Just (InFossil fk _ _) -> do
-            let beWritten = fik >= fk
+          Just (InFossil fk o1 _) -> do
+            let skip = fk > fik || (fk == fik && o1 < fromIntegral o)
+            let beWritten = not skip
             atomically do
               here <- readTVar already <&> HS.member k
               let proceed = not here && beWritten
@@ -118,8 +119,8 @@ writeFiltered ncq fn out filt = do
   ncqStorageScanDataFile ncq fn $ \o s k v -> do
     skip <- filt o s k v <&> not
 
-    when skip do
-      debug $ pretty k <+> pretty "skipped"
+    -- when skip do
+    --   debug $ pretty k <+> pretty "skipped"
 
     unless skip $ liftIO do
       void $ appendSection out (LBS.toStrict (makeEntryLBS k v))
