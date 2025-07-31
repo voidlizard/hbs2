@@ -8,6 +8,7 @@ import HBS2.Storage.NCQ3.Internal.Run
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
+import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Control.Monad.Trans.Cont
 import Network.ByteOrder qualified as N
@@ -200,5 +201,68 @@ ncqTryLoadState me@NCQStorage3{..} = do
           Right () -> none
 
       pure True
+
+
+ncqTombEntrySize :: NCQSize
+ncqTombEntrySize = ncqSLen + ncqKeyLen + ncqPrefixLen
+
+ncqIsTombEntrySize :: Integral a => a -> Bool
+ncqIsTombEntrySize s = fromIntegral s <= ncqTombEntrySize
+{-# INLINE ncqIsTombEntrySize #-}
+
+ncqEntryUnwrap :: ByteString
+               -> (ByteString, Either ByteString (NCQSectionType, ByteString))
+ncqEntryUnwrap source = do
+  let (k,v) = BS.splitAt ncqKeyLen (BS.drop 4 source)
+  (k, ncqEntryUnwrapValue v)
+{-# INLINE ncqEntryUnwrap #-}
+
+ncqEntryUnwrapValue :: ByteString
+                    -> Either ByteString (NCQSectionType, ByteString)
+ncqEntryUnwrapValue  v = case ncqIsMeta v of
+  Just meta -> Right (meta, BS.drop ncqPrefixLen v)
+  Nothing   -> Left v
+{-# INLINE ncqEntryUnwrapValue #-}
+
+
+class IsTomb a where
+  ncqIsTomb :: a -> Bool
+
+instance IsTomb IndexEntry where
+  ncqIsTomb (IndexEntry _ _ s) = s <= (ncqSLen + ncqKeyLen + ncqPrefixLen)
+
+instance IsTomb Location where
+  ncqIsTomb = \case
+    InFossil _ _ s -> ncqIsTombEntrySize s
+    InMemory bs ->  case ncqEntryUnwrap bs of
+                        (_, Right (T, _)) -> True
+                        _                 -> False
+
+ncqGetEntryBS :: MonadUnliftIO m => NCQStorage3 -> Location -> m (Maybe ByteString)
+ncqGetEntryBS me = \case
+  InMemory bs -> pure $ Just bs
+  InFossil fk off size -> do
+    try @_ @SomeException (ncqGetCachedData me fk) >>= \case
+      Left{} -> pure Nothing
+      Right (CachedData mmap) -> do
+        pure $ Just $ BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmap
+
+ncqEntrySize :: forall a . Integral a => Location -> a
+ncqEntrySize = \case
+  InFossil _ _ size -> fromIntegral size
+  InMemory bs       -> fromIntegral (BS.length bs)
+
+ncqDelEntry :: MonadUnliftIO m
+            => NCQStorage3
+            -> HashRef
+            -> m ()
+ncqDelEntry me href = do
+  -- всегда пишем tomb и надеемся на лучшее
+  -- merge/compact разберутся
+  -- однако не пишем, если записи еще нет
+  ncqLocate me href >>= \case
+    Just loc | not (ncqIsTomb loc) -> do
+      void $ ncqPutBS me (Just T) (Just href) ""
+    _ -> none
 
 

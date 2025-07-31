@@ -18,6 +18,7 @@ import HBS2.Storage.NCQ3
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.Fossil
+import HBS2.Storage.NCQ3.Internal
 
 import HBS2.System.Logger.Simple.ANSI
 
@@ -48,6 +49,7 @@ import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
 import Control.Monad.Trans.Cont
 import System.IO.Temp qualified as Temp
+import System.Random.Stateful
 import UnliftIO
 import UnliftIO.IO.File
 import UnliftIO.IO as IO
@@ -296,6 +298,112 @@ ncq3Tests = do
 
   entry $ bindMatch "test:ncq3:lookup1" $ nil_ $ \e -> do
       runTest (testNCQ3Lookup1 e)
+
+
+  entry $ bindMatch "test:ncq3:del1" $ nil_ $ \syn -> do
+
+    runTest $ \TestEnv{..} -> do
+      g <- liftIO MWC.createSystemRandom
+      let dir = testEnvDir
+
+      let (opts, argz) = splitOpts [("-m",0)] syn
+      let n = headDef 10000 [ fromIntegral x | LitIntVal x <- argz ]
+
+      let merge = or [ True | ListVal [StringLike "-m"] <- opts ]
+
+      thashes <- newTVarIO mempty
+
+      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
+
+        notice $ "write+immediate delete" <+> pretty n <+> "records"
+
+        hashes <- replicateM n do
+
+          h <- ncqPutBS sto (Just B) Nothing =<< liftIO (genRandomBS g (64*1024))
+          ncqDelEntry sto h
+
+          t <- (ncqLocate sto h <&> fmap ncqIsTomb)
+                 >>= orThrowUser ("missed" <+> pretty h)
+
+          liftIO $ assertBool (show $ "tomb/1" <+> pretty h) t
+
+          pure h
+
+        atomically $ writeTVar thashes (HS.fromList hashes)
+
+        flip runContT pure $ callCC \exit -> do
+
+          for_ hashes $ \h -> do
+            loc <- lift (ncqLocate sto h)
+                     >>= orThrowUser ("missed" <+> pretty h)
+
+            unless (ncqEntrySize loc == ncqTombEntrySize) do
+              notice $ pretty h <+> pretty (ncqEntrySize loc) <+> pretty ncqTombEntrySize
+
+            liftIO $ assertBool (show $ "tomb/1" <+> pretty h) (ncqIsTomb loc)
+
+        ncqIndexCompactFull sto
+
+      ncqWithStorage3 dir $ \sto -> do
+        -- notice "check deleted"
+        hashes  <- readTVarIO  thashes
+
+        for_ hashes $ \h -> do
+
+          ncqLocate sto h >>= \case
+            Nothing -> notice $ "not-found" <+> pretty h
+            Just loc -> do
+             liftIO $ assertBool (show $ "tomb/1" <+> pretty h) (ncqIsTomb loc)
+
+
+  entry $ bindMatch "test:ncq3:del2" $ nil_ $ \syn -> do
+
+    runTest $ \TestEnv{..} -> do
+      g <- liftIO MWC.createSystemRandom
+      let dir = testEnvDir
+
+      let (_, argz) = splitOpts [] syn
+      let n = headDef 50000 [ fromIntegral x | LitIntVal x <- argz ]
+      let p0 = headDef 0.25  [ realToFrac x   | LitScientificVal x <- drop 1 argz ]
+
+      thashes <- newTVarIO mempty
+
+      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
+
+        sizes <- replicateM n $ liftIO $ uniformRM (32*1024, 256*1024) g
+
+        notice $ "write" <+> pretty n <+> "blocks"
+        pooledForConcurrentlyN_ 16 sizes $ \s -> do
+          h <- ncqPutBS sto (Just B) Nothing =<< liftIO (genRandomBS g s)
+
+          p1 <- liftIO $ uniformRM @Double (0, 1) g
+
+          when (p1 < p0) do
+            ncqDelEntry sto h
+            atomically $ modifyTVar thashes (HS.insert h)
+
+        deleted <- readTVarIO thashes
+
+        tombs <- for (HS.toList deleted) $ \d -> do
+                   ncqLocate sto d <&>  maybe False ncqIsTomb
+
+        let tnum = sum [ 1 | x <- tombs, x ]
+
+        notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
+
+        t0 <- getTimeCoarse
+
+        ncqIndexCompactFull sto
+        -- ncqCompactStep sto
+
+        t1 <- getTimeCoarse
+
+        let dt = timeSpecDeltaSeconds @(Fixed E6) t0 t1
+
+        notice $ "ncqCompactStep time" <+> pretty dt
+
+      none
+
 
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool

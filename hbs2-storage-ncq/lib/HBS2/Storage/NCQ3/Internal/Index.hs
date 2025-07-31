@@ -36,9 +36,10 @@ ncqIndexPayloadSize = fileKey + fileOffset + blockSize + padding
 
 unpackIndexEntry :: ByteString -> IndexEntry
 unpackIndexEntry  entryBs = do
-    let (fks,rest1)  = BS.splitAt 4 entryBs
-    let (offs,rest2) = BS.splitAt 8 rest1
-    let ss           = BS.take 4 rest2
+    let (fks,rest1)  = BS.splitAt 8 entryBs -- FileKey: 8
+    let (offs,rest2) = BS.splitAt 8 rest1   -- Offset:  8
+    let ss           = BS.take    4 rest2   -- Size:    4
+                                            -- padding: 0?
     let fk   = FileKey (N.word64 fks)
     let off  = N.word64 offs
     let size = N.word32 ss
