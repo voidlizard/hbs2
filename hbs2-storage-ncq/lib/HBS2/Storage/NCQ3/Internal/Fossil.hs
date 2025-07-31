@@ -53,7 +53,7 @@ ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT p
 
   r@(sumSize, f1, f2) <- ContT $ maybe1 r' (pure False)
 
-  debug $ "for compacting" <+> pretty f1 <+> pretty f2  <+> pretty r <+> pretty ncqMaxLog
+  debug $ yellow "for compacting" <+> pretty f1 <+> pretty f2  <+> pretty r <+> pretty ncqMaxLog
 
   when (fromIntegral sumSize > ncqMaxLog) $ exit False
 
@@ -75,13 +75,21 @@ ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT p
         ncqLocate_ False me k >>= \case
           Nothing  -> pure False
           Just (InMemory{}) -> pure False
-          Just (InFossil fk o1 _) -> do
-            let skip = fk > fik || (fk == fik && o1 < fromIntegral o)
+          Just (InFossil fk oi si) -> do
+            let skip = fk > fik || (fk == fik && o < fromIntegral oi)
             let beWritten = not skip
+
+            -- let c = if skip then green else id
+            -- when (si == ncqTombEntrySize) do
+            --   debug $ red "fucking TOMB found!"
+            --               <+> pretty k
+            --               <+> viaShow (fk, oi, fik, o)
+            --               <+> "write" <+> c (pretty beWritten)
+
             atomically do
               here <- readTVar already <&> HS.member k
               let proceed = not here && beWritten
-              when proceed (modifyTVar already (HS.insert k))
+              modifyTVar already (HS.insert k)
               pure proceed
 
     appendTailSection fd

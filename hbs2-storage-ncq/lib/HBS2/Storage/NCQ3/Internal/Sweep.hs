@@ -15,14 +15,16 @@ import System.Posix.Files qualified as PFS
 import Control.Monad.Trans.Maybe
 import Data.HashMap.Strict qualified as HM
 
-ncqLiveKeys :: forall m . MonadUnliftIO m => NCQStorage3 -> m (HashSet FileKey)
-ncqLiveKeys NCQStorage3{..} = do
+ncqLiveKeysSTM :: NCQStorage3 -> STM (HashSet FileKey)
+ncqLiveKeysSTM NCQStorage3{..} = do
 
-  merged <- atomically do
-    s0     <- readTVar ncqState
-    readTVar ncqStateUse <&> (s0<>) . foldMap fst . HM.elems
+  s0     <- readTVar ncqState
+  merged <- readTVar ncqStateUse <&> (s0<>) . foldMap fst . HM.elems
 
   pure $ HS.fromList $ universeBi @_ @FileKey merged
+
+ncqLiveKeys :: forall m . MonadIO m => NCQStorage3 -> m (HashSet FileKey)
+ncqLiveKeys  ncq = atomically $ ncqLiveKeysSTM  ncq
 
 ncqSweepFiles :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
 ncqSweepFiles me@NCQStorage3{..} = withSem ncqServiceSem do

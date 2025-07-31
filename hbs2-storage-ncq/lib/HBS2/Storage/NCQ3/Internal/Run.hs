@@ -94,29 +94,28 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
   -- spawnActivity (ncqStateUpdateLoop ncq)
 
-  spawnActivity $ postponed 10 $ forever do
-
-    ema <- readTVarIO ncqWriteEMA
-
-    when ( ema < ncqIdleThrsh ) do
-      ncqSweepObsoleteStates ncq
-
-    -- FIXME: timeout-hardcode
-    pause @'Seconds 60
-
   spawnActivity $ forever do
     pause @'Seconds 30
     ema <- readTVarIO ncqWriteEMA
     debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
 
   spawnActivity $ postponed 10 $ forever do
-    ema <- readTVarIO ncqWriteEMA
+    lsInit <- ncqLiveKeys ncq <&> HS.size
+    void $ race (pause @'Seconds 60) do
+      flip fix lsInit $ \next ls0 -> do
+        (lsA,lsB) <- atomically do
+          ema <- readTVar ncqWriteEMA
+          ls1 <- ncqLiveKeysSTM ncq <&> HS.size
 
-    when ( ema < ncqIdleThrsh ) do
-      ncqSweepFiles ncq
+          if  ls1 /= ls0 && ema < ncqIdleThrsh then
+            pure (ls0,ls1)
+          else
+            STM.retry
 
-    -- FIXME: timeout-hardcode
-    pause @'Seconds 60
+        debug $ "do sweep" <+> pretty lsA <+> pretty lsB
+        ncqSweepObsoleteStates ncq
+        ncqSweepFiles ncq
+        next lsB
 
   spawnActivity $ postponed 10 $ compactLoop 10 300 do
     ncqIndexCompactStep ncq

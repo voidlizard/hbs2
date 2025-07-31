@@ -203,12 +203,6 @@ ncqTryLoadState me@NCQStorage3{..} = do
       pure True
 
 
-ncqTombEntrySize :: NCQSize
-ncqTombEntrySize = ncqSLen + ncqKeyLen + ncqPrefixLen
-
-ncqIsTombEntrySize :: Integral a => a -> Bool
-ncqIsTombEntrySize s = fromIntegral s <= ncqTombEntrySize
-{-# INLINE ncqIsTombEntrySize #-}
 
 ncqEntryUnwrap :: ByteString
                -> (ByteString, Either ByteString (NCQSectionType, ByteString))

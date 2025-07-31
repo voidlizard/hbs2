@@ -190,3 +190,12 @@ instance Pretty NCQState where
 
       pf (P (PData (DataFile a) s)) = "fp" <+> pretty a <+> pretty s
 
+
+
+ncqTombEntrySize :: NCQSize
+ncqTombEntrySize = ncqSLen + ncqKeyLen + ncqPrefixLen
+
+ncqIsTombEntrySize :: Integral a => a -> Bool
+ncqIsTombEntrySize s = fromIntegral s <= ncqTombEntrySize
+{-# INLINE ncqIsTombEntrySize #-}
+

@@ -389,7 +389,7 @@ ncq3Tests = do
 
         let tnum = sum [ 1 | x <- tombs, x ]
 
-        notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum
+        notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum <+> "of" <+> pretty n
 
       ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
 
