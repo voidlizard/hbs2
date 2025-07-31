@@ -395,14 +395,14 @@ testNCQ3Lookup1 syn TestEnv{..} = do
 
   g <- liftIO MWC.createSystemRandom
 
-  let (opts, argz) = splitOpts [("-m",0),("-M",0)] syn
+  let (opts, argz) = splitOpts [("-m",1),("-M",0)] syn
 
   let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
   let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
   let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
   let r = (64*1024, 256*1024)
 
-  let merge = headDef False [ True | ListVal [StringLike "-m"] <- opts ]
+  let merge = headDef 0 [ step | ListVal [StringLike "-m", LitIntVal step] <- opts ]
   let mergeFull = headDef False [ True | ListVal [StringLike "-M"] <- opts ]
 
   notice $ "insert" <+> pretty n <+> "random blocks of size" <+> parens (pretty r) <+> pretty opts
@@ -413,6 +413,10 @@ testNCQ3Lookup1 syn TestEnv{..} = do
 
   res <- newTQueueIO
 
+  let ntimes n m = flip fix n $ \loop i -> do
+        r <- m
+        if r && i > 0 then loop (i - 1) else pure r
+
   ncqWithStorage3 ncqDir $ \sto -> liftIO do
     pooledForConcurrentlyN_ 8  sizes $ \size -> do
       z <- genRandomBS g size
@@ -422,12 +426,14 @@ testNCQ3Lookup1 syn TestEnv{..} = do
     hs <- atomically $ STM.flushTQueue thashes
 
     let wrap m = if | mergeFull -> notice "full merge" >> ncqIndexCompactFull sto >> m
-                    | merge ->
+                    | merge > 0 ->
                        fix \next -> do
-                          notice "run ncqIndexCompactStep"
-                          left <- ncqIndexCompactStep sto
-                          m
-                          if left then next else none
+                          notice $ "run ncqIndexCompactStep" <+> pretty merge
+                          flip fix merge \inner i -> do
+                            left <- ntimes merge (ncqIndexCompactStep sto)
+                            m
+                            if left then next else none
+
                     | otherwise -> m
     wrap do
 

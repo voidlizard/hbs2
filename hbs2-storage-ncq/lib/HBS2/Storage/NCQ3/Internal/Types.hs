@@ -96,6 +96,7 @@ data NCQStorage3 =
   , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ         :: TVar (Seq HashRef)
   , ncqWriteOps       :: Vector (TQueue (IO ()))
+  , ncqSyncOps        :: TQueue (IO ())
   , ncqReadReq        :: TQueue (HashRef, TMVar (Maybe Location))
   , ncqAlive          :: TVar Bool
   , ncqStopReq        :: TVar Bool

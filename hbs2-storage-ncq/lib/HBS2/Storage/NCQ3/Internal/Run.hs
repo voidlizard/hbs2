@@ -59,9 +59,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
           if not stop then STM.retry else pure Nothing
 
     maybe1 what none $ \(fk :: FileKey, fh) -> do
-      closeFd fh
-      ncqIndexFile ncq (DataFile fk)
-      loop
+      closeFd fh >> ncqIndexFile ncq (DataFile fk) >> loop
 
   let shLast = V.length ncqWriteOps - 1
   spawnActivity $ pooledForConcurrentlyN_ (V.length ncqWriteOps) [0..shLast] $ \i -> do
@@ -94,6 +92,8 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
   spawnActivity measureWPS
 
+  -- spawnActivity (ncqStateUpdateLoop ncq)
+
   spawnActivity $ postponed 10 $ forever do
 
     ema <- readTVarIO ncqWriteEMA
@@ -124,6 +124,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
   spawnActivity $ postponed 15 $ compactLoop 10 600 do
     ncqFossilMergeStep ncq
 
+
   flip fix RunNew $ \loop -> \case
     RunFin -> do
       debug "exit storage"
@@ -141,17 +142,21 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
 
     RunSync (fk, fh, w, total, continue) -> do
 
-      stop <- readTVarIO ncqStopReq
-      sync <- readTVarIO ncqSyncReq
+      (stop,sync) <- atomically do
+                           (,) <$> readTVar ncqStopReq
+                               <*> readTVar ncqSyncReq
+                               -- <*> readTVar ncqWriteEMA
 
       let needClose = total >= ncqMinLog || stop
 
       rest <- if not (sync || needClose || w > ncqFsync) then
                   pure w
                 else do
-                  appendTailSection fh >> liftIO (fileSynchronise fh)
 
-                  ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
+                  ss <- appendTailSection fh
+                  liftIO (fileSynchronise fh)
+
+                  -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
 
                   ncqStateUpdate ncq do
                     ncqStateAddFact (P (PData (DataFile fk) ss))
@@ -207,7 +212,7 @@ ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
           let written = sum ws
           loop $ RunSync (fk, fh, w + written, total' + written, True)
 
-  wait closer
+  mapM_ wait [closer]
 
   where
     setAlive   = atomically $ writeTVar ncqAlive True

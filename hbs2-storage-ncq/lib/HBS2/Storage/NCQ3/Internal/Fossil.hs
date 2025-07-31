@@ -171,10 +171,10 @@ appendSection fh sect = do
   liftIO (Posix.fdWrite fh sect) <&> fromIntegral
 {-# INLINE appendSection #-}
 
-appendTailSection :: MonadIO m => Fd -> m ()
+appendTailSection :: MonadIO m => Fd -> m NCQFileSize
 appendTailSection fh = liftIO do
   s <- Posix.fileSize <$> Posix.getFdStatus fh
-  void (appendSection fh (fileTailRecord s))
+  appendSection fh (fileTailRecord s) <&> (+ fromIntegral s) . fromIntegral
 {-# INLINE appendTailSection #-}
 
 

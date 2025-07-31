@@ -45,7 +45,7 @@ ncqStorageOpen3 fp upd = do
   let ncqFsync          = 16 * megabytes
   let ncqWriteQLen      = 1024 * 4
   -- let ncqMinLog         = 512 * megabytes
-  let ncqMinLog         = 1 * gigabytes
+  let ncqMinLog         = 1  * gigabytes
   let ncqMaxLog         = 32 * gigabytes
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCachedIndex = 64
@@ -67,6 +67,7 @@ ncqStorageOpen3 fp upd = do
   ncqWrites         <- newTVarIO 0
   ncqWriteEMA       <- newTVarIO 0.0
   ncqWriteOps       <- V.fromList <$> replicateM wopNum newTQueueIO
+  ncqSyncOps        <- newTQueueIO
   ncqReadReq        <- newTQueueIO
   ncqAlive          <- newTVarIO False
   ncqStopReq        <- newTVarIO False
