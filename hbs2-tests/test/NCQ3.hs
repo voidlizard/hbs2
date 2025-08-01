@@ -536,6 +536,37 @@ ncq3Tests = do
 
           pause @'Seconds 600
 
+  entry $ bindMatch "test:ncq3:lock" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
+
+    w <- newTVarIO 0
+
+    r <- try @_ @SomeException do
+            flip runContT pure do
+
+              notice $ "run 1st storage" <+> pretty testEnvDir
+              sto1 <- ContT $ ncqWithStorage3 testEnvDir
+
+              atomically $ writeTVar w 1
+
+              pause @'Seconds 1
+
+              notice $ "run 2nd storage" <+> pretty testEnvDir
+              sto1 <- ContT $ ncqWithStorage3 testEnvDir
+
+              pause @'Seconds 1
+
+              notice "so what?"
+
+              atomically $ writeTVar w 2
+
+              pure 42
+
+    wx <- readTVarIO w
+
+    liftIO $ assertBool "first run, second fail" (wx == 1)
+
+    notice $ "second must fail" <+> pretty wx <+> "=>" <+> viaShow r
+
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool
          -> Int

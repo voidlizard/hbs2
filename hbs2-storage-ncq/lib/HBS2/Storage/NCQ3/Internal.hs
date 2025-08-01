@@ -39,6 +39,7 @@ import System.Posix.Files qualified as PFS
 import System.IO.MMap as MMap
 import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.STM.TSem
+import System.FileLock as FL
 
 ncqStorageOpen3 :: MonadIO m => FilePath -> (NCQStorage3 -> NCQStorage3) -> m NCQStorage3
 ncqStorageOpen3 fp upd = do
@@ -80,10 +81,15 @@ ncqStorageOpen3 fp upd = do
   ncqStateKey       <- newTVarIO (FileKey maxBound)
   ncqStateUse       <- newTVarIO mempty
   ncqServiceSem     <- atomically $ newTSem 1
+  ncqFileLock       <- newTVarIO Nothing
 
   let ncq = NCQStorage3{..} & upd
 
   mkdir (ncqGetWorkDir ncq)
+
+  liftIO (FL.tryLockFile (ncqGetFileName ncq ".lock") Exclusive)
+    >>= orThrow NCQStorageCurrentAlreadyOpen
+    >>= atomically . writeTVar ncqFileLock . Just
 
   liftIO (ncqTryLoadState ncq)
 

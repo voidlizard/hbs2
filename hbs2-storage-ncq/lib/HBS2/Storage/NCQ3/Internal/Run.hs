@@ -38,15 +38,20 @@ import System.Posix.Files ( getFileStatus
 import System.Posix.Files qualified as PFS
 import System.IO.MMap as MMap
 import Control.Concurrent.STM qualified as STM
+import System.FileLock as FL
 
 ncqStorageStop3 :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
-ncqStorageStop3 NCQStorage3{..} = atomically $ writeTVar ncqStopReq True
+ncqStorageStop3 NCQStorage3{..} = do
+  atomically $ writeTVar ncqStopReq True
 
 ncqStorageRun3 :: forall m . MonadUnliftIO m
                => NCQStorage3
                -> m ()
 ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
   ContT $ bracket setAlive (const unsetAlive)
+
+  ContT $ bracket none $ const $ liftIO do
+    readTVarIO ncqFileLock >>= mapM_  FL.unlockFile
 
   closeQ <- liftIO newTQueueIO
 

@@ -10,7 +10,7 @@ import Data.Set qualified as Set
 import Data.HashSet qualified as HS
 import Text.Printf
 import Control.Concurrent.STM.TSem (TSem,waitTSem,signalTSem)
-
+import System.FileLock (FileLock)
 
 data CachedData =  CachedData !ByteString
 data CachedIndex = CachedIndex !ByteString !NWayHash
@@ -104,6 +104,7 @@ data NCQStorage3 =
   , ncqOnRunWriteIdle :: TVar (IO ())
   , ncqSyncNo         :: TVar Int
   , ncqServiceSem     :: TSem
+  , ncqFileLock       :: TVar (Maybe FileLock)
   }
 
 

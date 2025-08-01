@@ -34,6 +34,7 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   ) where
 
 import HBS2.Prelude as Exported
+import HBS2.OrDie as Exported
 
 import HBS2.Data.Log.Structured.NCQ as Exported
 import HBS2.Data.Types.Refs as Exported
