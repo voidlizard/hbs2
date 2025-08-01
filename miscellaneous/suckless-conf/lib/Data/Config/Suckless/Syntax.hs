@@ -43,6 +43,7 @@ module Data.Config.Suckless.Syntax
   , pattern TextLike
   , pattern StringLikeList
   , pattern TextLikeList
+  , pattern IntLikeList
   , pattern Nil
   , pattern OpaqueVal
   , pattern MatchOpaqueVal
@@ -108,8 +109,17 @@ textLike = \case
   SymbolVal (Id s) -> Just s
   x -> Nothing
 
+intLike :: Syntax c -> Maybe Integer
+intLike = \case
+  LitIntVal s -> Just s
+  _ -> Nothing
+
 stringLikeList :: [Syntax c] -> [String]
 stringLikeList syn = [ stringLike s | s <- syn ] & takeWhile isJust & catMaybes
+
+
+intLikeList :: [Syntax c] -> [Integer]
+intLikeList syn = [ intLike s | s <- syn ] & takeWhile isJust & catMaybes
 
 textLikeList :: [Syntax c] -> [Text]
 textLikeList syn = [ textLike s | s <- syn ] & takeWhile isJust & catMaybes
@@ -128,6 +138,9 @@ pattern StringLikeList e <- (stringLikeList -> e)
 
 pattern TextLikeList :: forall {c} . [Text] -> [Syntax c]
 pattern TextLikeList e <- (textLikeList -> e)
+
+pattern IntLikeList :: forall {c} . [Integer] -> [Syntax c]
+pattern IntLikeList e <- (intLikeList -> e)
 
 pattern Nil :: forall {c} . Syntax c
 pattern Nil <- ListVal []

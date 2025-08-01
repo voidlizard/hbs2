@@ -1463,6 +1463,12 @@ internalEntries = do
       [ TextLike x ] -> pure $ mkList [ mkStr  y | y <- Text.lines x ]
       _ -> pure nil
 
+
+    entry $ bindMatch "unlines" $ \case
+      [ ListVal (TextLikeList xs) ] -> pure $ mkStr (Text.unlines xs)
+      ( TextLikeList xs) -> pure $ mkStr (Text.unwords xs)
+      _ -> pure $ mkStr ""
+
     entry $ bindMatch "mod" $ \case
       [LitIntVal a, LitIntVal b] | b /= 0 -> pure $ mkInt (mod a b)
       _ -> throwIO (BadFormException @c nil)
@@ -1663,6 +1669,92 @@ internalEntries = do
     entry $ bindMatch "str:put" $ nil_ $ \case
       [LitStrVal s] -> liftIO $ TIO.putStr s
       _ -> throwIO (BadFormException @c nil)
+
+    brief "extracts columns from string"
+     $ returns "[string]" "[fields]"
+     $ desc [qc|
+str:cut n str
+  ; extracts column n       from str
+
+str:cut a b str
+  ; extracts columns a -- b from str
+
+str:cut b a str
+  ; extracts columns b -- a from str
+  ; (like in previous case, but in reversed order)
+
+str:cut '[a b c] str
+  ; extracts columns a,b,c   from str
+|]
+
+     $ examples [qc|
+
+$ echo A B C  | bf6 [str:cut [list 2 1] [str:stdin]]
+("C B")
+
+|]
+
+     $ entry $ bindMatch "str:cut" $ \e -> do
+
+        let extract :: Int -> Int -> [Text] -> [Text]
+            extract a b =
+              let extractLine line =
+                    let ws = Text.words line
+                        len = length ws
+                        a' = a
+                        b' = if b < 0 then len - 1 else b
+                        lo = max 0 (min a' b')
+                        hi = min len (max a' b' + 1)
+                        piece = take (hi - lo) (drop lo ws)
+                    in Text.unwords (if a' > b' then reverse piece else piece)
+              in fmap extractLine
+
+            extractOne :: Int -> [Text] -> [Text]
+            extractOne n =
+              let i = max 0 n
+              in fmap \line -> atDef "" (Text.words line) i
+
+            extractMany :: [Int] -> [Text] -> [Text]
+            extractMany ns =
+              fmap \line ->
+                let ws = Text.words line
+                    picked = [ atDef "" ws (max 0 i) | i <- ns ]
+                in Text.unwords picked
+
+            runCut range lines = do
+              let out = case range of
+                    Left n       -> extractOne n lines
+                    Right (a,b)  -> extract a b lines
+              pure $ mkList @c (fmap mkStr out)
+
+            runCutList ns lines = do
+              let out = extractMany ns lines
+              pure $ mkList @c (fmap mkStr out)
+
+        case e of
+          -- Один индекс
+          [LitIntVal n, ListVal (TextLikeList s)] ->
+            runCut (Left (fromIntegral n)) s
+
+          [LitIntVal n, TextLike s] ->
+            runCut (Left (fromIntegral n)) (Text.lines s)
+
+          -- Диапазон
+          [LitIntVal a, LitIntVal b, ListVal (TextLikeList s)] ->
+            runCut (Right (fromIntegral a, fromIntegral b)) s
+
+          [LitIntVal a, LitIntVal b, TextLike s] ->
+            runCut (Right (fromIntegral a, fromIntegral b)) (Text.lines s)
+
+          -- Список колонок
+          [ListVal (IntLikeList ns), ListVal (TextLikeList s)] ->
+            runCutList (map fromIntegral ns) s
+
+          [ListVal (IntLikeList ns), TextLike s] ->
+            runCutList (map fromIntegral ns) (Text.lines s)
+
+          _ -> throwIO (BadFormException @c nil)
+
 
     brief "reads file as a string" do
       entry $ bindMatch "str:file" $ \case
