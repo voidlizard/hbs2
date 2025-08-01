@@ -304,16 +304,17 @@ ncq3Tests = do
               Just p -> pure p
               Nothing -> liftIO $ Temp.createTempDirectory "." "ncq-long-write-test"
 
-    let writtenLog = path </> "written.log"
-    touch writtenLog
 
     ncqWithStorage3 path $ \sto -> do
+
+      let writtenLog = ncqGetFileName sto "written.log"
+      touch writtenLog
 
       race (pause @'Seconds (realToFrac seconds) >> ncqStorageStop3 sto) $ forever do
         n <- liftIO  $ uniformRM (1, 256*1024) g
         s <- liftIO $ genRandomBS g n
         h <- ncqPutBS sto (Just B) Nothing s
-        liftIO $ appendFile writtenLog (show (pretty h <> line))
+        liftIO $ appendFile writtenLog (show (pretty h <+> pretty n <> line))
         none
 
 
@@ -354,7 +355,42 @@ ncq3Tests = do
 
       lift $ ncqWithStorage3 path $ \sto -> do
         notice "okay?"
-        pause @'Seconds 5
+        let log = ncqGetFileName sto "written.log"
+        hashes <- liftIO (readFile log) <&> fmap words . lines
+
+        found       <- newTVarIO 0
+        foundBytes  <- newTVarIO 0
+        missedN     <- newTVarIO 0
+        missedBytes <- newTVarIO 0
+
+        for_ hashes $ \case
+          [hs, slen] -> do
+
+            let h = fromString hs
+            let s = read slen :: Int
+
+            what <- ncqLocate sto h >>= mapM (ncqGetEntryBS sto) <&> join
+
+            case what of
+              Just{}  -> do
+                atomically do
+                  modifyTVar found succ
+                  modifyTVar foundBytes (+s)
+
+              Nothing -> do
+                atomically do
+                  modifyTVar missedN succ
+                  modifyTVar missedBytes (+s)
+
+
+          _ -> error "invalid record"
+
+        f  <- readTVarIO found
+        fb <- readTVarIO foundBytes
+        mb <- readTVarIO missedBytes
+        mn <- readTVarIO missedN
+
+        notice  $ "results (found/lost)" <+> pretty f <+> pretty fb <+> "/" <+> pretty mn <+> pretty mb
 
     none
 

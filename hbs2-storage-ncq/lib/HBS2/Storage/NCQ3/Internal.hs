@@ -7,6 +7,7 @@ import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Run
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Fossil
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
@@ -161,23 +162,35 @@ ncqTryLoadState me@NCQStorage3{..} = do
   atomically $ modifyTVar ncqState (<> new)
 
   for_ [ (d,s) | P (PData d s) <- Set.toList ncqStateFacts ] $ \(dataFile,s) -> do
+
     let path = ncqGetFileName me dataFile
     realSize <- fileSize path
 
     let sizewtf = realSize /= fromIntegral s
     let color = if sizewtf then red else id
 
-    good <- try @_ @NCQFsckException (ncqFileFastCheck path)
+    flip fix 0 $ \again i -> do
 
-    let corrupted = isLeft good
+      good <- try @_ @NCQFsckException (ncqFileFastCheck path)
 
-    when corrupted $ liftIO do
-      warn $ red "trim" <+> pretty s  <+> red (pretty (fromIntegral s - realSize)) <+> pretty (takeFileName path)
-      PFS.setFileSize path (fromIntegral s)
+      let corrupted = isLeft good
 
-    debug $ yellow "indexing" <+> pretty dataFile <+> pretty s <+> color (pretty realSize)
+      if not corrupted then do
+        debug $ yellow "indexing" <+> pretty dataFile
+        ncqIndexFile me dataFile
+      else do
 
-    ncqIndexFile me dataFile
+        o <- ncqFileTryRecover path
+        warn $ "ncqFileTryRecover" <+> pretty path <+> pretty o <+> parens (pretty realSize)
+
+        let best = if i < 1 then max s o else s
+
+        warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
+
+        liftIO $ PFS.setFileSize path (fromIntegral best)
+
+        if i <= 1 then again (succ i) else pure Nothing
+
 
   for_ (bad <> fmap snd rest) $ \f -> do
     let old = ncqGetFileName me (StateFile f)
@@ -204,19 +217,6 @@ ncqTryLoadState me@NCQStorage3{..} = do
 
 
 
-ncqEntryUnwrap :: ByteString
-               -> (ByteString, Either ByteString (NCQSectionType, ByteString))
-ncqEntryUnwrap source = do
-  let (k,v) = BS.splitAt ncqKeyLen (BS.drop 4 source)
-  (k, ncqEntryUnwrapValue v)
-{-# INLINE ncqEntryUnwrap #-}
-
-ncqEntryUnwrapValue :: ByteString
-                    -> Either ByteString (NCQSectionType, ByteString)
-ncqEntryUnwrapValue  v = case ncqIsMeta v of
-  Just meta -> Right (meta, BS.drop ncqPrefixLen v)
-  Nothing   -> Left v
-{-# INLINE ncqEntryUnwrapValue #-}
 
 
 class IsTomb a where

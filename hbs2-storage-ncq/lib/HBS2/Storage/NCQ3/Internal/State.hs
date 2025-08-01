@@ -95,17 +95,6 @@ ncqStateDelIndexFile fk  = do
 sortIndexes :: NCQState -> NCQState
 sortIndexes = over #ncqStateIndex (List.sortOn fst)
 
-ncqFileFastCheck :: MonadUnliftIO m => FilePath -> m ()
-ncqFileFastCheck fp = do
-
-  -- debug $ "ncqFileFastCheck" <+> pretty fp
-
-  mmaped <- liftIO $ mmapFileByteString fp Nothing
-  let size = BS.length mmaped
-  let s = BS.drop (size - 8) mmaped & N.word64
-
-  unless ( BS.length mmaped == fromIntegral s ) do
-    throwIO $ NCQFsckIssueExt (FsckInvalidFileSize (fromIntegral s))
 
 ncqStateCapture :: forall m . MonadUnliftIO m
             => NCQStorage3

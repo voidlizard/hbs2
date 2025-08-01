@@ -31,10 +31,25 @@ import System.Posix.Files ( getFileStatus
                           , setFileMode
                           )
 import System.Posix.Files qualified as PFS
-
+import Lens.Micro.Platform
 import UnliftIO.IO.File
 
 {-HLINT ignore "Functor law"-}
+
+ncqEntryUnwrap :: ByteString
+               -> (ByteString, Either ByteString (NCQSectionType, ByteString))
+ncqEntryUnwrap source = do
+  let (k,v) = BS.splitAt ncqKeyLen (BS.drop 4 source)
+  (k, ncqEntryUnwrapValue v)
+{-# INLINE ncqEntryUnwrap #-}
+
+ncqEntryUnwrapValue :: ByteString
+                    -> Either ByteString (NCQSectionType, ByteString)
+ncqEntryUnwrapValue  v = case ncqIsMeta v of
+  Just meta -> Right (meta, BS.drop ncqPrefixLen v)
+  Nothing   -> Left v
+{-# INLINE ncqEntryUnwrapValue #-}
+
 
 ncqFossilMergeStep :: forall m . MonadUnliftIO m
                => NCQStorage3
@@ -114,6 +129,62 @@ ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT p
   debug $ "COMPACTED" <+> pretty f1 <+> pretty f2  <+> "=>" <+> pretty f3
 
   pure True
+
+ncqFileFastCheck :: MonadUnliftIO m => FilePath -> m ()
+ncqFileFastCheck fp = do
+
+  -- debug $ "ncqFileFastCheck" <+> pretty fp
+
+  mmaped <- liftIO $ mmapFileByteString fp Nothing
+  let size = BS.length mmaped
+  let s = BS.drop (size - 8) mmaped & N.word64
+
+  unless ( BS.length mmaped == fromIntegral s ) do
+    throwIO $ NCQFsckIssueExt (FsckInvalidFileSize (fromIntegral s))
+
+ncqFileTryRecover :: MonadUnliftIO m => FilePath -> m NCQOffset
+ncqFileTryRecover fp = do
+
+  debug $ yellow  "ncqFileTryRecover" <+> pretty fp
+
+  mmaped <- liftIO $ mmapFileByteString fp Nothing
+
+  r <- flip runContT pure $ callCC \exit -> do
+
+    flip fix (0,0,mmaped) $ \next (o,r,bs) -> do
+
+      when (BS.length bs < ncqSLen) $ exit r
+
+      let (s0,rest)  = BS.splitAt  ncqSLen bs & over _1 (fromIntegral . N.word32)
+
+      when (BS.length rest < fromIntegral s0 || BS.length rest < ncqKeyLen) $ exit r
+
+      let (entry, rest2) = BS.splitAt (ncqSLen + s0) bs
+
+      let nextOff = o + ncqSLen + s0
+
+      case ncqEntryUnwrap entry of
+        (_, Left bs)      -> next (nextOff,r,mempty)
+
+        (k, Right (M, s)) -> do
+          let w0 = N.word64 s
+          let w1 = w0 - zeroSyncEntrySize
+          let hk  = coerce @_ @HashRef k
+          let hhs = HashRef $ hashObject @HbSync s
+
+          let thisIsHead = nextOff == fromIntegral w0 && hk == hhs
+
+          -- debug $ yellow "HEAD?" <+> pretty thisIsHead
+          --                        <+> pretty nextOff <+> pretty hhs
+
+          if thisIsHead then
+            next (nextOff, nextOff, rest2)
+          else
+            next (nextOff, r, mempty)
+
+        (_, Right (t, _)) -> next (nextOff, r, rest2)
+
+  pure $ fromIntegral r
 
 
 writeFiltered :: forall m . MonadIO m
