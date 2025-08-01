@@ -8,28 +8,28 @@ import System.Posix.Files qualified as PFS
 import Data.List qualified as List
 
 
-ncqGetFileName :: forall f . ToFileName f => NCQStorage3 -> f -> FilePath
+ncqGetFileName :: forall f . ToFileName f => NCQStorage -> f -> FilePath
 ncqGetFileName ncq fp = ncqGetWorkDir ncq </> takeFileName (toFileName fp)
 
-ncqGetWorkDir :: NCQStorage3 -> FilePath
-ncqGetWorkDir NCQStorage3{..} = ncqRoot </> show ncqGen
+ncqGetWorkDir :: NCQStorage -> FilePath
+ncqGetWorkDir NCQStorage{..} = ncqRoot </> show ncqGen
 
-ncqGetLockFileName :: NCQStorage3 -> FilePath
+ncqGetLockFileName :: NCQStorage -> FilePath
 ncqGetLockFileName ncq = ncqGetFileName ncq ".lock"
 
 ncqGetNewFileKey :: forall f m . (ToFileName f, MonadIO m)
-                    => NCQStorage3
+                    => NCQStorage
                     -> ( FileKey -> f )
                     -> m FileKey
-ncqGetNewFileKey me@NCQStorage3{..} fnameOf = fix \next -> do
+ncqGetNewFileKey me@NCQStorage{..} fnameOf = fix \next -> do
     n <- atomically $ stateTVar ncqState (\e -> (e.ncqStateFileSeq , succSeq e))
     here <- doesFileExist (ncqGetFileName me (fnameOf n))
     if here then next else pure n
   where
     succSeq e = e { ncqStateFileSeq = succ e.ncqStateFileSeq }
 
-ncqListFilesBy :: forall m . MonadUnliftIO m => NCQStorage3 -> (FilePath -> Bool) -> m [(POSIXTime, FileKey)]
-ncqListFilesBy  me@NCQStorage3{..} filt = do
+ncqListFilesBy :: forall m . MonadUnliftIO m => NCQStorage -> (FilePath -> Bool) -> m [(POSIXTime, FileKey)]
+ncqListFilesBy  me@NCQStorage{..} filt = do
   w <- dirFiles (ncqGetWorkDir me)
            <&> filter (filt .  takeFileName)
 
@@ -40,7 +40,7 @@ ncqListFilesBy  me@NCQStorage3{..} filt = do
   pure $ List.sortOn ( Down . fst ) r
 
 ncqFindMinPairOf ::  forall fa m . (ToFileName fa, MonadUnliftIO m)
-                 => NCQStorage3
+                 => NCQStorage
                  -> [fa]
                  -> m (Maybe (NCQFileSize, fa, fa))
 ncqFindMinPairOf sto lst = do

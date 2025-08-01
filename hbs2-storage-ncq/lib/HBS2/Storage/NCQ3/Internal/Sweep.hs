@@ -15,19 +15,19 @@ import System.Posix.Files qualified as PFS
 import Control.Monad.Trans.Maybe
 import Data.HashMap.Strict qualified as HM
 
-ncqLiveKeysSTM :: NCQStorage3 -> STM (HashSet FileKey)
-ncqLiveKeysSTM NCQStorage3{..} = do
+ncqLiveKeysSTM :: NCQStorage -> STM (HashSet FileKey)
+ncqLiveKeysSTM NCQStorage{..} = do
 
   s0     <- readTVar ncqState
   merged <- readTVar ncqStateUse <&> (s0<>) . foldMap fst . HM.elems
 
   pure $ HS.fromList $ universeBi @_ @FileKey merged
 
-ncqLiveKeys :: forall m . MonadIO m => NCQStorage3 -> m (HashSet FileKey)
+ncqLiveKeys :: forall m . MonadIO m => NCQStorage -> m (HashSet FileKey)
 ncqLiveKeys  ncq = atomically $ ncqLiveKeysSTM  ncq
 
-ncqSweepFiles :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
-ncqSweepFiles me@NCQStorage3{..} = withSem ncqServiceSem do
+ncqSweepFiles :: forall m . MonadUnliftIO m => NCQStorage -> m ()
+ncqSweepFiles me@NCQStorage{..} = withSem ncqServiceSem do
 
   debug "ncqSweepFiles"
 
@@ -50,8 +50,8 @@ ncqSweepFiles me@NCQStorage3{..} = withSem ncqServiceSem do
     rm fn
 
 
-ncqSweepObsoleteStates :: forall m .  MonadUnliftIO m => NCQStorage3 -> m ()
-ncqSweepObsoleteStates me@NCQStorage3{..} = withSem ncqServiceSem do
+ncqSweepObsoleteStates :: forall m .  MonadUnliftIO m => NCQStorage -> m ()
+ncqSweepObsoleteStates me@NCQStorage{..} = withSem ncqServiceSem do
     debug $ "ncqSweepObsoleteStates"
 
     k <- readTVarIO ncqStateKey

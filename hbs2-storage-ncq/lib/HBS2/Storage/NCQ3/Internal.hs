@@ -41,8 +41,8 @@ import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.STM.TSem
 import System.FileLock as FL
 
-ncqStorageOpen3 :: MonadIO m => FilePath -> (NCQStorage3 -> NCQStorage3) -> m NCQStorage3
-ncqStorageOpen3 fp upd = do
+ncqStorageOpen :: MonadIO m => FilePath -> (NCQStorage -> NCQStorage) -> m NCQStorage
+ncqStorageOpen fp upd = do
   let ncqRoot           = fp
   let ncqGen            = 0
   let ncqFsync          = 16 * megabytes
@@ -83,7 +83,7 @@ ncqStorageOpen3 fp upd = do
   ncqServiceSem     <- atomically $ newTSem 1
   ncqFileLock       <- newTVarIO Nothing
 
-  let ncq = NCQStorage3{..} & upd
+  let ncq = NCQStorage{..} & upd
 
   mkdir (ncqGetWorkDir ncq)
 
@@ -95,24 +95,24 @@ ncqStorageOpen3 fp upd = do
 
   pure ncq
 
-ncqWithStorage3 :: MonadUnliftIO m => FilePath -> (NCQStorage3 -> m a) -> m a
-ncqWithStorage3 fp action = flip runContT pure do
-  sto <- lift (ncqStorageOpen3 fp id)
-  w <- ContT $ withAsync (ncqStorageRun3 sto) -- TODO: implement run
+ncqWithStorage :: MonadUnliftIO m => FilePath -> (NCQStorage -> m a) -> m a
+ncqWithStorage fp action = flip runContT pure do
+  sto <- lift (ncqStorageOpen fp id)
+  w <- ContT $ withAsync (ncqStorageRun sto)
   link w
   r <- lift (action sto)
-  lift (ncqStorageStop3 sto)
+  lift (ncqStorageStop sto)
   wait w
   pure r
 
 -- FIXME: maybe-on-storage-closed
 ncqPutBS :: MonadUnliftIO m
-         => NCQStorage3
+         => NCQStorage
          -> Maybe NCQSectionType
          -> Maybe HashRef
          -> ByteString
          -> m HashRef
-ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe hash0 mhref) do
+ncqPutBS ncq@NCQStorage{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe hash0 mhref) do
   waiter <- newEmptyTMVarIO
 
   let work = do
@@ -143,10 +143,10 @@ ncqPutBS ncq@NCQStorage3{..} mtp mhref bs' = ncqOperation ncq (pure $ fromMaybe 
 
 
 ncqTryLoadState :: forall m. MonadUnliftIO m
-                => NCQStorage3
+                => NCQStorage
                 -> m ()
 
-ncqTryLoadState me@NCQStorage3{..} = do
+ncqTryLoadState me@NCQStorage{..} = do
 
   stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
 
@@ -238,7 +238,7 @@ instance IsTomb Location where
                         (_, Right (T, _)) -> True
                         _                 -> False
 
-ncqGetEntryBS :: MonadUnliftIO m => NCQStorage3 -> Location -> m (Maybe ByteString)
+ncqGetEntryBS :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe ByteString)
 ncqGetEntryBS me = \case
   InMemory bs -> pure $ Just bs
   InFossil fk off size -> do
@@ -253,7 +253,7 @@ ncqEntrySize = \case
   InMemory bs       -> fromIntegral (BS.length bs)
 
 ncqDelEntry :: MonadUnliftIO m
-            => NCQStorage3
+            => NCQStorage
             -> HashRef
             -> m ()
 ncqDelEntry me href = do

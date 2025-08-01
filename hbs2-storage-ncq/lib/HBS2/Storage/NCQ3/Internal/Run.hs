@@ -40,14 +40,14 @@ import System.IO.MMap as MMap
 import Control.Concurrent.STM qualified as STM
 import System.FileLock as FL
 
-ncqStorageStop3 :: forall m . MonadUnliftIO m => NCQStorage3 -> m ()
-ncqStorageStop3 NCQStorage3{..} = do
+ncqStorageStop :: forall m . MonadUnliftIO m => NCQStorage -> m ()
+ncqStorageStop NCQStorage{..} = do
   atomically $ writeTVar ncqStopReq True
 
-ncqStorageRun3 :: forall m . MonadUnliftIO m
-               => NCQStorage3
+ncqStorageRun :: forall m . MonadUnliftIO m
+               => NCQStorage
                -> m ()
-ncqStorageRun3 ncq@NCQStorage3{..} = flip runContT pure do
+ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   ContT $ bracket setAlive (const unsetAlive)
 
   ContT $ bracket none $ const $ liftIO do

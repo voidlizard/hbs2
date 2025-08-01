@@ -52,10 +52,10 @@ ncqEntryUnwrapValue  v = case ncqIsMeta v of
 
 
 ncqFossilMergeStep :: forall m . MonadUnliftIO m
-               => NCQStorage3
+               => NCQStorage
                -> m Bool
 
-ncqFossilMergeStep me@NCQStorage3{..}  = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
+ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
 
   debug "ncqFossilMergeStep"
 
@@ -188,7 +188,7 @@ ncqFileTryRecover fp = do
 
 
 writeFiltered :: forall m . MonadIO m
-              => NCQStorage3
+              => NCQStorage
               -> FilePath
               -> Fd
               -> ( Integer -> Integer -> HashRef -> ByteString -> m Bool)

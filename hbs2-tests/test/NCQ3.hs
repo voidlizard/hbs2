@@ -66,7 +66,7 @@ ncq3Tests = do
       let num = headDef 1000 [ fromIntegral n | LitIntVal n <- args ]
       g <- liftIO MWC.createSystemRandom
       runTest $ \TestEnv{..} -> do
-        ncqWithStorage3 testEnvDir $ \sto -> do
+        ncqWithStorage testEnvDir $ \sto -> do
            notice "start/stop ncq3 storage / write 1000 blocks"
            replicateM_ num do
              n <- liftIO $ uniformRM (1024, 256*1024) g
@@ -79,7 +79,7 @@ ncq3Tests = do
       g <- liftIO MWC.createSystemRandom
       runTest $ \TestEnv{..} -> do
 
-        pending <- ncqWithStorage3 testEnvDir $ \sto -> do
+        pending <- ncqWithStorage testEnvDir $ \sto -> do
            notice $ "write" <+> pretty num <+> "blocks"
            replicateM_ num do
              n <- liftIO $ uniformRM (1024, 256*1024) g
@@ -98,7 +98,7 @@ ncq3Tests = do
            liftIO $ BS.appendFile dataFile bss
 
         notice $ "reopen"
-        ncqWithStorage3 testEnvDir $ \sto -> do
+        ncqWithStorage testEnvDir $ \sto -> do
           pause @'Seconds 2
           notice $ "done"
 
@@ -114,7 +114,7 @@ ncq3Tests = do
 
       runTest $ \TestEnv{..} -> do
         hq <- newTQueueIO
-        ncqWithStorage3 testEnvDir $ \sto -> do
+        ncqWithStorage testEnvDir $ \sto -> do
            notice $ "write/lookup" <+> pretty num
            replicateM_ num do
              n <- liftIO $ uniformRM (1024, 256*1024) g
@@ -126,7 +126,7 @@ ncq3Tests = do
               writeTQueue hq h
               modifyTVar w1 succ
 
-        ncqWithStorage3 testEnvDir $ \sto -> do
+        ncqWithStorage testEnvDir $ \sto -> do
           notice $ "reopen/lookup" <+> pretty num
           hh <- atomically $ STM.flushTQueue hq
 
@@ -169,7 +169,7 @@ ncq3Tests = do
       g <- liftIO MWC.createSystemRandom
 
       runTest $ \TestEnv{..} -> do
-        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> do
+        ncqWithStorage testEnvDir $ \sto@NCQStorage{..} -> do
            notice $ "write" <+> pretty num
            hst <- newTVarIO ( mempty :: HashSet HashRef )
            replicateM_ num do
@@ -210,7 +210,7 @@ ncq3Tests = do
       g <- liftIO MWC.createSystemRandom
 
       runTest $ \TestEnv{..} -> do
-        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> flip runContT pure do
+        ncqWithStorage testEnvDir $ \sto@NCQStorage{..} -> flip runContT pure do
 
            hst <- newTVarIO ( mempty :: HashSet HashRef )
            lostt <- newTVarIO 0
@@ -267,7 +267,7 @@ ncq3Tests = do
       g <- liftIO MWC.createSystemRandom
 
       runTest $ \TestEnv{..} -> do
-        ncqWithStorage3 testEnvDir $ \sto@NCQStorage3{..} -> flip runContT pure do
+        ncqWithStorage testEnvDir $ \sto@NCQStorage{..} -> flip runContT pure do
 
            hst <- newTVarIO ( mempty :: HashSet HashRef )
 
@@ -305,12 +305,12 @@ ncq3Tests = do
               Nothing -> liftIO $ Temp.createTempDirectory "." "ncq-long-write-test"
 
 
-    ncqWithStorage3 path $ \sto -> do
+    ncqWithStorage path $ \sto -> do
 
       let writtenLog = ncqGetFileName sto "written.log"
       touch writtenLog
 
-      race (pause @'Seconds (realToFrac seconds) >> ncqStorageStop3 sto) $ forever do
+      race (pause @'Seconds (realToFrac seconds) >> ncqStorageStop sto) $ forever do
         n <- liftIO  $ uniformRM (1, 256*1024) g
         s <- liftIO $ genRandomBS g n
         h <- ncqPutBS sto (Just B) Nothing s
@@ -356,7 +356,7 @@ ncq3Tests = do
 
       pause @'Seconds 2
 
-      lift $ ncqWithStorage3 path $ \sto@NCQStorage3{..} -> do
+      lift $ ncqWithStorage path $ \sto@NCQStorage{..} -> do
         let log = ncqGetFileName sto "written.log"
         hashes <- liftIO (readFile log) <&> fmap words . lines
 
@@ -443,7 +443,7 @@ ncq3Tests = do
 
       thashes <- newTVarIO mempty
 
-      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
+      ncqWithStorage dir $ \sto -> do
 
         notice $ "write+immediate delete" <+> pretty n <+> "records"
 
@@ -474,7 +474,7 @@ ncq3Tests = do
 
         ncqIndexCompactFull sto
 
-      ncqWithStorage3 dir $ \sto -> do
+      ncqWithStorage dir $ \sto -> do
         -- notice "check deleted"
         hashes  <- readTVarIO  thashes
 
@@ -498,7 +498,7 @@ ncq3Tests = do
 
       thashes <- newTVarIO mempty
 
-      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
+      ncqWithStorage dir $ \sto -> do
 
         sizes <- replicateM n $ liftIO $ uniformRM (32*1024, 256*1024) g
 
@@ -521,7 +521,7 @@ ncq3Tests = do
 
         notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum <+> "of" <+> pretty n
 
-      ncqWithStorage3 dir $ \sto@NCQStorage3{..} -> do
+      ncqWithStorage dir $ \sto -> do
 
         notice "wait for compaction"
 
@@ -544,14 +544,14 @@ ncq3Tests = do
             flip runContT pure do
 
               notice $ "run 1st storage" <+> pretty testEnvDir
-              sto1 <- ContT $ ncqWithStorage3 testEnvDir
+              sto1 <- ContT $ ncqWithStorage testEnvDir
 
               atomically $ writeTVar w 1
 
               pause @'Seconds 1
 
               notice $ "run 2nd storage" <+> pretty testEnvDir
-              sto1 <- ContT $ ncqWithStorage3 testEnvDir
+              sto1 <- ContT $ ncqWithStorage testEnvDir
 
               pause @'Seconds 1
 
@@ -627,7 +627,7 @@ testWriteNThreads3 ncqDir tnn n = do
 
     t0 <- getTimeCoarse
 
-    w <- ncqWithStorage3 (ncqDir </> show tnn)  $ \sto -> do
+    w <- ncqWithStorage (ncqDir </> show tnn)  $ \sto -> do
        ss <- liftIO $ replicateM n $ MWC.uniformRM (64*1024, 256*1024) g
 
        pooledForConcurrentlyN_ tnn ss $ \len -> do
@@ -687,7 +687,7 @@ testNCQ3Lookup1 syn TestEnv{..} = do
         r <- m
         if r && i > 0 then loop (i - 1) else pure r
 
-  ncqWithStorage3 ncqDir $ \sto -> liftIO do
+  ncqWithStorage ncqDir $ \sto -> liftIO do
     pooledForConcurrentlyN_ 8  sizes $ \size -> do
       z <- genRandomBS g size
       h <- ncqPutBS sto (Just B) Nothing z

@@ -33,8 +33,8 @@ cacheLookupOrInsert maxSize load cacheTVar fk = do
         writeTVar cacheTVar new
       pure val
 
-ncqGetCachedData :: MonadUnliftIO m => NCQStorage3 -> FileKey -> m CachedData
-ncqGetCachedData ncq@NCQStorage3{..} =
+ncqGetCachedData :: MonadUnliftIO m => NCQStorage -> FileKey -> m CachedData
+ncqGetCachedData ncq@NCQStorage{..} =
   cacheLookupOrInsert ncqMaxCachedData load ncqMMapCachedData
   where
     load fk = do
@@ -42,8 +42,8 @@ ncqGetCachedData ncq@NCQStorage3{..} =
       bs <- liftIO (mmapFileByteString path Nothing)
       pure (CachedData bs)
 
-ncqGetCachedIndex :: MonadUnliftIO m => NCQStorage3 -> FileKey -> m CachedIndex
-ncqGetCachedIndex ncq@NCQStorage3{..} =
+ncqGetCachedIndex :: MonadUnliftIO m => NCQStorage -> FileKey -> m CachedIndex
+ncqGetCachedIndex ncq@NCQStorage{..} =
   cacheLookupOrInsert ncqMaxCachedIndex load ncqMMapCachedIdx
   where
     load fk = do
@@ -52,17 +52,17 @@ ncqGetCachedIndex ncq@NCQStorage3{..} =
         Nothing -> throwIO $ NCQStorageCantMapFile path
         Just (bs, nway) -> pure (CachedIndex bs nway)
 
-ncqDelCachedIndexSTM :: NCQStorage3
+ncqDelCachedIndexSTM :: NCQStorage
                      -> FileKey
                      -> STM ()
 
-ncqDelCachedIndexSTM NCQStorage3{..} fk =
+ncqDelCachedIndexSTM NCQStorage{..} fk =
   modifyTVar ncqMMapCachedIdx$ HPSQ.delete fk
 
-ncqDelCachedDataSTM :: NCQStorage3
+ncqDelCachedDataSTM :: NCQStorage
                     -> FileKey
                     -> STM ()
 
-ncqDelCachedDataSTM NCQStorage3{..} fk =
+ncqDelCachedDataSTM NCQStorage{..} fk =
   modifyTVar ncqMMapCachedData $ HPSQ.delete fk
 

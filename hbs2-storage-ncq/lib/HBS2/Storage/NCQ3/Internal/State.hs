@@ -26,16 +26,16 @@ import Lens.Micro.Platform
 import Streaming.Prelude qualified as S
 
 newtype StateOP a =
-  StateOP { fromStateOp :: ReaderT NCQStorage3 STM a }
-  deriving newtype (Functor,Applicative,Monad,MonadReader NCQStorage3)
+  StateOP { fromStateOp :: ReaderT NCQStorage STM a }
+  deriving newtype (Functor,Applicative,Monad,MonadReader NCQStorage)
 
 {- HLINT ignore "Eta reduce"-}
 
 ncqStateUpdate :: MonadIO m
-               => NCQStorage3
+               => NCQStorage
                -> StateOP a
                -> m ()
-ncqStateUpdate ncq@NCQStorage3{..} action = do
+ncqStateUpdate ncq@NCQStorage{..} action = do
   s0 <- readTVarIO ncqState
 
   s1 <- atomically do
@@ -52,26 +52,26 @@ ncqStateUpdate ncq@NCQStorage3{..} action = do
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
-  NCQStorage3{..} <- ask
+  NCQStorage{..} <- ask
   StateOP $ lift do
     modifyTVar ncqState (over #ncqStateFiles (HS.insert fk))
 
 ncqStateDelDataFile :: FileKey -> StateOP ()
 ncqStateDelDataFile fk = do
-  sto@NCQStorage3{..} <- ask
+  sto@NCQStorage{..} <- ask
   StateOP $ lift do
     modifyTVar ncqState (over #ncqStateFiles (HS.delete fk))
     ncqDelCachedDataSTM sto fk
 
 ncqStateAddFact :: Fact -> StateOP ()
 ncqStateAddFact fact = do
-  NCQStorage3{..} <- ask
+  NCQStorage{..} <- ask
   StateOP $ lift do
     modifyTVar ncqState (over #ncqStateFacts (Set.insert fact))
 
 ncqStateDelFact :: Fact -> StateOP ()
 ncqStateDelFact fact = do
-  NCQStorage3{..} <- ask
+  NCQStorage{..} <- ask
   StateOP $ lift do
     modifyTVar ncqState (over #ncqStateFacts (Set.delete fact))
 
@@ -80,12 +80,12 @@ ncqStateAddIndexFile :: POSIXTime
                      -> StateOP ()
 
 ncqStateAddIndexFile ts fk  = do
-  NCQStorage3{..} <- ask
+  NCQStorage{..} <- ask
   StateOP $ lift $ modifyTVar' ncqState (sortIndexes . over #ncqStateIndex ((Down ts, fk) :))
 
 ncqStateDelIndexFile :: FileKey  -> StateOP ()
 ncqStateDelIndexFile fk  = do
-  sto@NCQStorage3{..} <- ask
+  sto@NCQStorage{..} <- ask
   StateOP $ lift do
     modifyTVar' ncqState (over #ncqStateIndex $ filter f)
     ncqDelCachedIndexSTM sto fk
@@ -97,10 +97,10 @@ sortIndexes = over #ncqStateIndex (List.sortOn fst)
 
 
 ncqStateCapture :: forall m . MonadUnliftIO m
-            => NCQStorage3
+            => NCQStorage
             -> m FileKey
 
-ncqStateCapture me@NCQStorage3{..} = do
+ncqStateCapture me@NCQStorage{..} = do
   atomically do
     key      <- readTVar ncqStateKey
     stateUse <- readTVar ncqStateUse
@@ -113,10 +113,10 @@ ncqStateCapture me@NCQStorage3{..} = do
     pure key
 
 ncqStateDismiss :: forall m . MonadUnliftIO m
-                => NCQStorage3
+                => NCQStorage
                 -> FileKey
                 -> m ()
-ncqStateDismiss me@NCQStorage3{..} key = atomically do
+ncqStateDismiss me@NCQStorage{..} key = atomically do
   useMap <- readTVar ncqStateUse
   case HM.lookup key useMap of
     Nothing -> pure ()
@@ -127,13 +127,13 @@ ncqStateDismiss me@NCQStorage3{..} key = atomically do
         modifyTVar ncqStateUse (HM.delete key)
 
 ncqWithState :: forall a m . MonadUnliftIO m
-             => NCQStorage3
+             => NCQStorage
              -> ( FileKey -> m a  )
              -> m a
 ncqWithState sto = bracket (ncqStateCapture sto) (ncqStateDismiss sto)
 
 readStateMay :: forall m . MonadUnliftIO m
-             => NCQStorage3
+             => NCQStorage
              -> FileKey
              -> m (Maybe NCQState)
 readStateMay sto key = fmap sortIndexes <$> do

@@ -1,10 +1,10 @@
 module HBS2.Storage.NCQ3
   ( module Exported
-  , ncqWithStorage3
-  , ncqStorageSync3
-  , ncqStorageStop3
-  , ncqStorageOpen3
-  , ncqStorageRun3
+  , ncqWithStorage
+  , ncqStorageSync
+  , ncqStorageStop
+  , ncqStorageOpen
+  , ncqStorageRun
   , ncqPutBS
   , ncqGetEntryBS
   , IsTomb(..)

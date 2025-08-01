@@ -71,8 +71,8 @@ data NCQState =
   }
   deriving stock (Eq,Generic,Data)
 
-data NCQStorage3 =
-  NCQStorage3
+data NCQStorage =
+  NCQStorage
   { ncqRoot           :: FilePath
   , ncqGen            :: Int
   , ncqSalt           :: HashRef

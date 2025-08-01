@@ -72,8 +72,8 @@ ncqLookupIndex hx (mmaped, nway) = do
 
 
 
-ncqLocate_ :: MonadUnliftIO m => Bool -> NCQStorage3 -> HashRef -> m (Maybe Location)
-ncqLocate_ f me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
+ncqLocate_ :: MonadUnliftIO m => Bool -> NCQStorage -> HashRef -> m (Maybe Location)
+ncqLocate_ f me@NCQStorage{..} href = ncqOperation me (pure Nothing) do
   answ <- newEmptyTMVarIO
 
   atomically do
@@ -82,11 +82,11 @@ ncqLocate_ f me@NCQStorage3{..} href = ncqOperation me (pure Nothing) do
 
   atomically $ takeTMVar answ
 
-ncqLocate :: MonadUnliftIO m => NCQStorage3 -> HashRef -> m (Maybe Location)
+ncqLocate :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Location)
 ncqLocate me href = ncqOperation me (pure Nothing) do
   ncqLocate_ True me href
 
-ncqIndexFile :: MonadUnliftIO m => NCQStorage3 -> DataFile FileKey -> m (Maybe FilePath)
+ncqIndexFile :: MonadUnliftIO m => NCQStorage -> DataFile FileKey -> m (Maybe FilePath)
 ncqIndexFile n fk = runMaybeT do
 
   let fp   = toFileName fk & ncqGetFileName n
@@ -139,7 +139,7 @@ ncqIndexFile n fk = runMaybeT do
 
 
 ncqIndexCompactFull :: MonadUnliftIO m
-                    => NCQStorage3
+                    => NCQStorage
                     -> m ()
 
 ncqIndexCompactFull ncq = fix \again ->
@@ -148,9 +148,9 @@ ncqIndexCompactFull ncq = fix \again ->
     False -> none
 
 ncqIndexCompactStep :: MonadUnliftIO m
-                    => NCQStorage3
+                    => NCQStorage
                     -> m Bool
-ncqIndexCompactStep me@NCQStorage3{..} = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
+ncqIndexCompactStep me@NCQStorage{..} = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
 
   debug "ncqIndexCompactStep"
 
@@ -203,7 +203,7 @@ ncqIndexCompactStep me@NCQStorage3{..} = withSem ncqServiceSem $ flip runContT p
   pure True
 
 ncqStorageScanDataFile :: MonadIO m
-                       => NCQStorage3
+                       => NCQStorage
                        -> FilePath
                        -> ( Integer -> Integer -> HashRef -> ByteString -> m () )
                        -> m ()
