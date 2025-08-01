@@ -49,6 +49,8 @@ import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
 import Control.Monad.Trans.Cont
 import System.IO.Temp qualified as Temp
+import System.Environment (getExecutablePath)
+import System.Process.Typed as PT
 import System.Random.Stateful
 import UnliftIO
 import UnliftIO.IO.File
@@ -289,6 +291,72 @@ ncq3Tests = do
            for_ h1 $ \h -> lift do
               found <- ncqLocate sto h <&> isJust
               liftIO $ assertBool (show $ "found" <+> pretty h) found
+
+  entry $ bindMatch "test:ncq3:long-write" $ nil_ $ \e -> lift do
+    g <- liftIO MWC.createSystemRandom
+    let (opts,args) = splitOpts [] e
+
+    let seconds = headDef 10 [ t0 | LitScientificVal t0 <- args ]
+
+    let path' = headMay [ p | StringLike p  <- drop 1 $ args ]
+
+    path <- case path' of
+              Just p -> pure p
+              Nothing -> liftIO $ Temp.createTempDirectory "." "ncq-long-write-test"
+
+    let writtenLog = path </> "written.log"
+    touch writtenLog
+
+    ncqWithStorage3 path $ \sto -> do
+
+      race (pause @'Seconds (realToFrac seconds) >> ncqStorageStop3 sto) $ forever do
+        n <- liftIO  $ uniformRM (1, 256*1024) g
+        s <- liftIO $ genRandomBS g n
+        h <- ncqPutBS sto (Just B) Nothing s
+        liftIO $ appendFile writtenLog (show (pretty h <> line))
+        none
+
+
+  entry $ bindMatch "test:ncq3:crash-test1" $ nil_ \e -> runTest \TestEnv{..} -> do
+    g <- liftIO MWC.createSystemRandom
+    let (opts,args) = splitOpts [] e
+
+    let (s,seconds) = headDef (5.00,mkDouble 5) [ (realToFrac t0,s) | s@(LitScientificVal t0) <- args ]
+
+    let path0 = testEnvDir
+
+    self <- liftIO getExecutablePath
+
+    flip runContT pure do
+
+      p <- liftIO $ uniformM @Word32 g
+
+      let path = path0 </> show p
+
+      notice $ "Run" <+> pretty testEnvDir <+> pretty (sec2 s)
+
+      p <- ContT $ withProcessWait (proc self ["test:ncq3:long-write", show (pretty seconds), path])
+
+      pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
+
+      delta <- liftIO $ uniformRM (0.25, s - 0.10) g
+      notice $ green "PID" <+> viaShow pid <+>  "wait" <+> pretty delta
+
+      pause @'Seconds (realToFrac delta)
+
+      void $ runProcess (proc "kill" ["-9", show pid])
+
+      notice $ "Killed" <+> viaShow pid <+> pretty testEnvDir <+> "at" <+> pretty (sec2 delta)
+
+      pause @'Seconds 2
+
+      notice "Try open storage"
+
+      lift $ ncqWithStorage3 path $ \sto -> do
+        notice "okay?"
+        pause @'Seconds 5
+
+    none
 
   entry $ bindMatch "test:ncq3:concurrent1" $ nil_ $ \case
     [ LitIntVal tn, LitIntVal n ] -> do

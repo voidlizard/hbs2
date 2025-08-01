@@ -8,6 +8,7 @@ constraints:
     pandoc >=3.1.11
   , suckless-conf >= 0.1.2.7
   , http-client >=0.7.16 && <0.8
+  , typed-process >= 0.2.13.0
 
 
 debug-info: True

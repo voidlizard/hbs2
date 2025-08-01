@@ -172,7 +172,7 @@ ncqTryLoadState me@NCQStorage3{..} = do
     let corrupted = isLeft good
 
     when corrupted $ liftIO do
-      warn $ red "trim" <+> pretty s <+> pretty (takeFileName path)
+      warn $ red "trim" <+> pretty s  <+> red (pretty (fromIntegral s - realSize)) <+> pretty (takeFileName path)
       PFS.setFileSize path (fromIntegral s)
 
     debug $ yellow "indexing" <+> pretty dataFile <+> pretty s <+> color (pretty realSize)

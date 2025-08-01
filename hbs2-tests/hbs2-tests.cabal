@@ -21,21 +21,23 @@ common common-deps
           base, hbs2-core, hbs2-storage-simple, hbs2-peer, hbs2-cli
         , fuzzy-parse
         , async
-        , bytestring
         , bloomfilter
+        , bytestring
         , cache
         , containers
         , data-default
         , deepseq
         , directory
         , filepath
-        , hashable
         , generic-lens
+        , hashable
+        , interpolatedstring-perl6
         , microlens-platform
         , mtl
         , mwc-random
-        , psqueues
         , prettyprinter
+        , prettyprinter-ansi-terminal
+        , psqueues
         , QuickCheck
         , random
         , random-shuffle
@@ -45,6 +47,7 @@ common common-deps
         , split
         , stm
         , streaming
+        , string-conversions
         , suckless-conf
         , tasty
         , tasty-hunit
@@ -52,13 +55,11 @@ common common-deps
         , temporary
         , timeit
         , transformers
+        , typed-process
         , uniplate
+        , unliftio
         , unordered-containers
         , vector
-        , prettyprinter-ansi-terminal
-        , interpolatedstring-perl6
-        , string-conversions
-        , unliftio
 
 common shared-properties
   ghc-options:
