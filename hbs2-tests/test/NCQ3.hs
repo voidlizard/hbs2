@@ -334,14 +334,19 @@ ncq3Tests = do
 
       let path = path0 </> show p
 
-      notice $ "Run" <+> pretty testEnvDir <+> pretty (sec2 s)
-
-      p <- ContT $ withProcessWait (proc self ["test:ncq3:long-write", show (pretty seconds), path])
+      p <- ContT $ withProcessWait (proc self ["debug off"
+                                              , "and"
+                                              , "test:ncq3:long-write", show (pretty seconds), path
+                                              ])
 
       pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
 
-      delta <- liftIO $ uniformRM (0.25, s - 0.10) g
-      notice $ green "PID" <+> viaShow pid <+>  "wait" <+> pretty delta
+      delta <- liftIO $ uniformRM (0.25, s + 0.10) g
+
+      notice $ "Run" <+> "test:ncq3:long-write"
+              <+> green "pid" <+> viaShow pid
+              <+> pretty testEnvDir
+              <+> pretty (sec2 s)
 
       pause @'Seconds (realToFrac delta)
 
@@ -351,10 +356,7 @@ ncq3Tests = do
 
       pause @'Seconds 2
 
-      notice "Try open storage"
-
-      lift $ ncqWithStorage3 path $ \sto -> do
-        notice "okay?"
+      lift $ ncqWithStorage3 path $ \sto@NCQStorage3{..} -> do
         let log = ncqGetFileName sto "written.log"
         hashes <- liftIO (readFile log) <&> fmap words . lines
 
@@ -372,10 +374,31 @@ ncq3Tests = do
             what <- ncqLocate sto h >>= mapM (ncqGetEntryBS sto) <&> join
 
             case what of
-              Just{}  -> do
-                atomically do
-                  modifyTVar found succ
-                  modifyTVar foundBytes (+s)
+              Just bs  -> do
+
+                ok <- case ncqEntryUnwrap bs of
+                           (_, Left{}) -> pure False
+
+                           (k, Right (B, bss)) -> do
+                             let good = HashRef (hashObject @HbSync bss) == h
+                             -- debug $ "WTF?" <+> pretty (coerce @_ @HashRef k)
+                             --                 <+> pretty good
+                             --                 <+> pretty s
+                             --                 <+> pretty (BS.length bss)
+                             pure good
+
+                           (_,Right (_, s)) -> pure True
+
+                if ok then do
+
+                  atomically do
+                    modifyTVar found succ
+                    modifyTVar foundBytes (+s)
+                else do
+                  atomically do
+                    modifyTVar missedN succ
+                    modifyTVar missedBytes (+s)
+                  -- err $ red "Entry corrupted!"
 
               Nothing -> do
                 atomically do
@@ -390,9 +413,12 @@ ncq3Tests = do
         mb <- readTVarIO missedBytes
         mn <- readTVarIO missedN
 
-        notice  $ "results (found/lost)" <+> pretty f <+> pretty fb <+> "/" <+> pretty mn <+> pretty mb
+        let okay = if mb <= ncqFsync then green "OK" else red "FAIL"
 
-    none
+        notice $ okay <+> "(found/lost)"
+              <+> pretty f <+> pretty fb <+>
+              "/"
+              <+> pretty mn <+> pretty mb
 
   entry $ bindMatch "test:ncq3:concurrent1" $ nil_ $ \case
     [ LitIntVal tn, LitIntVal n ] -> do

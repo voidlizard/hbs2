@@ -11,6 +11,8 @@ module HBS2.Storage.NCQ3
   , ncqLocate
   , ncqDelEntry
   , ncqEntrySize
+  , ncqEntryUnwrapValue
+  , ncqEntryUnwrap
   )
   where
 
@@ -21,5 +23,7 @@ import HBS2.Storage.NCQ3.Internal.Run
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Index
+import HBS2.Storage.NCQ3.Internal.Fossil
+
 
 
