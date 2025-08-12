@@ -17,6 +17,7 @@ module HBS2.Storage.NCQ3
   where
 
 import HBS2.Storage.NCQ3.Internal.Types as Exported
+import HBS2.Storage.NCQ3.Internal.Class as Exported
 import HBS2.Storage.NCQ3.Internal.Prelude as Exported
 import HBS2.Storage.NCQ3.Internal
 import HBS2.Storage.NCQ3.Internal.Run

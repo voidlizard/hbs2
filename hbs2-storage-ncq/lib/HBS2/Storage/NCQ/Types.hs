@@ -136,6 +136,10 @@ ncqFullTombLen :: forall a . Integral a => a
 ncqFullTombLen = ncqSLen + ncqKeyLen + ncqPrefixLen + 0
 {-# INLINE ncqFullTombLen #-}
 
+ncqEntryPayloadSize :: Integral a => a -> a
+ncqEntryPayloadSize tot = tot - hpl
+  where hpl = fromIntegral (ncqSLen + ncqKeyLen + ncqPrefixLen)
+{-# INLINE ncqEntryPayloadSize #-}
 
 data NCQSectionType = B | R | T | M
                       deriving stock (Eq,Ord,Show)

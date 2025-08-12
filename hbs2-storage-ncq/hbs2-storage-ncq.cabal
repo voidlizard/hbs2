@@ -62,6 +62,7 @@ library
     exposed-modules:
       HBS2.Storage.NCQ3
       HBS2.Storage.NCQ3.Internal
+      HBS2.Storage.NCQ3.Internal.Class
       HBS2.Storage.NCQ3.Internal.Types
       HBS2.Storage.NCQ3.Internal.Prelude
       HBS2.Storage.NCQ3.Internal.State

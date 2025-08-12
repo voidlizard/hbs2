@@ -12,6 +12,7 @@ import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Network.ByteOrder qualified as N
 import Data.HashPSQ qualified as HPSQ
 import Data.Vector qualified as V
@@ -21,6 +22,7 @@ import Data.Set qualified as Set
 import Data.Either
 import Lens.Micro.Platform
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Sequence qualified as Seq
 import System.FilePath.Posix
 import System.Posix.Files qualified as Posix
@@ -104,6 +106,22 @@ ncqWithStorage fp action = flip runContT pure do
   lift (ncqStorageStop sto)
   wait w
   pure r
+
+
+ncqPutBlock :: MonadUnliftIO  m
+            => NCQStorage
+            -> LBS.ByteString
+            -> m (Maybe HashRef)
+
+-- FIXME: Nothing-on-exception
+ncqPutBlock sto lbs =
+  ncqLocate sto ohash >>= \case
+    Nothing -> Just <$> ncqPutBS sto (Just B) (Just ohash) bs
+    _       -> pure (Just ohash)
+  where
+    bs =  LBS.toStrict lbs
+    ohash = HashRef $ hashObject @HbSync bs
+{-# INLINE ncqPutBlock #-}
 
 -- FIXME: maybe-on-storage-closed
 ncqPutBS :: MonadUnliftIO m

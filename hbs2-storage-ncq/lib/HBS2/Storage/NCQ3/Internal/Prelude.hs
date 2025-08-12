@@ -12,6 +12,7 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , ncqMetaPrefix
   , ncqIsMeta
   , ncqFullDataLen
+  , ncqEntryPayloadSize
   , NCQFullRecordLen(..)
   , ToFileName(..)
   , IndexFile(..)

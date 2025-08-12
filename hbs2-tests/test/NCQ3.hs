@@ -10,6 +10,7 @@ import HBS2.Misc.PrettyStuff
 import HBS2.Clock
 import HBS2.Merkle
 import HBS2.Polling
+import HBS2.Peer.Proto.AnyRef
 
 import HBS2.Storage
 import HBS2.Storage.Simple
@@ -44,6 +45,7 @@ import Data.HashSet qualified as HS
 import Data.HashMap.Strict qualified as HM
 import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Ord
 import Data.Set qualified as Set
 import System.Random.MWC as MWC
@@ -60,6 +62,8 @@ import UnliftIO.IO as IO
 import UnliftIO.Directory
 
 {-HLINT ignore "Functor law"-}
+
+
 
 ncq3Tests :: forall m . MonadUnliftIO m => MakeDictM C m ()
 ncq3Tests = do
@@ -582,6 +586,116 @@ ncq3Tests = do
 
     notice $ "second must fail" <+> pretty wx <+> "=>" <+> viaShow r
 
+
+  entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do
+    let (opts,args) = splitOpts [] e
+    let n  = headDef 100000 [ fromIntegral x | LitIntVal x <- args ]
+    let pD  = headDef 0.10  [ realToFrac  x | LitScientificVal x <- drop 1 args ]
+    let pR  = 0.01
+    let kN = headDef 1000  [ fromIntegral x | LitIntVal x <- drop 2 args ]
+
+    blkz <- newTVarIO (mempty :: HashMap (Hash HbSync) (Maybe LBS.ByteString))
+    refz <- newTVarIO (mempty :: HashMap (SomeRefKey HashRef) (Maybe (Hash HbSync)))
+
+    runTest $ \TestEnv{..} -> do
+      g <- liftIO MWC.createSystemRandom
+
+      ncqWithStorage testEnvDir $ \sto -> do
+
+        replicateM_ n $ liftIO do
+          sz <- uniformRM (1, 64*1024) g
+          bs <- genRandomBS g sz <&> LBS.fromStrict
+          ha <- putBlock sto bs `orDie`  "Block not stored"
+          mb <- getBlock sto ha
+
+          when (mb /= Just bs) do
+            assertFailure ("getBlock mismatch for " <> show (pretty ha))
+
+          sz <- hasBlock sto ha `orDie` "block not found"
+
+          assertBool ("hasBlock size mismatch for " <> show (pretty ha)) (sz == fromIntegral (LBS.length bs))
+
+          atomically $ modifyTVar blkz (HM.insert ha (Just bs))
+
+          pd <- uniformRM (0, 1.0) g
+
+          when (pd < pD) do
+            delBlock sto ha
+            atomically $ modifyTVar blkz (HM.insert ha Nothing)
+            found <- hasBlock sto ha
+            assertBool (show $ "not deleted" <+> pretty ha) (isNothing found)
+
+          pr <- uniformRM (0, 1.0) g
+
+          when (pr < pR) do
+            k <- uniformRM (1,10) g
+            replicateM_ k do
+              ref <- SomeRefKey . HashRef . coerce <$> genRandomBS g 32
+              updateRef sto ref ha
+              atomically $ modifyTVar refz (HM.insert ref (Just ha))
+              what <- getRef sto ref
+              assertBool (show $ "ref not found" <+> pretty ref) (what == Just ha)
+
+              prd <- uniformRM (0, 1.0) g
+
+              when (prd < 0.10) do
+                delRef sto ref
+                atomically $ modifyTVar refz (HM.insert ref Nothing)
+
+      notice "immediate test done"
+
+      ncqWithStorage testEnvDir $ \sto -> flip runContT pure do
+
+        p <- newTVarIO (0,0)
+
+        void $ ContT $ withAsync $ forever do
+          (b,r) <- readTVarIO p
+          ema <- readTVarIO (ncqWriteEMA sto)
+          pause @'Seconds 2
+          notice $ "progress" <+> pretty ema <+> pretty b <+> pretty r
+
+        fix \next -> do
+
+          blokz <- readTVarIO blkz <&> HM.toList
+          for_ blokz $ \b -> do
+            atomically $ modifyTVar p (over _1 succ)
+            case b of
+              (h,Nothing) -> liftIO do
+                found <- hasBlock sto h
+                assertBool (show $ "not deleted" <+> pretty h) (isNothing found)
+
+              (h,Just bs) -> liftIO do
+                size <- hasBlock sto h >>= orThrowUser ("not found" <+> pretty h)
+
+                assertBool (show $ "size mismatch" <+> pretty h <+> pretty size <+> pretty (LBS.length bs))
+                           (size == fromIntegral (LBS.length bs))
+
+                bs1 <- getBlock sto h >>= orThrowUser ("not found data for" <+> pretty h)
+                assertBool (show $ "data mismatch" <+> pretty h) (bs1 == bs)
+
+          refsz <- readTVarIO refz <&> HM.toList
+          for_ refsz \r -> do
+            atomically $ modifyTVar p (over _2 succ)
+            case r of
+              (ref, Nothing) -> liftIO do
+                what <- getRef sto ref
+                assertBool (show $ "ref resurrected" <+> pretty ref) (isNothing what)
+
+              (ref, Just hv) -> liftIO do
+                what <- getRef sto ref
+                assertBool (show $ "ref mismatch" <+> pretty ref <+> pretty what <+> pretty hv)
+                           (what == Just hv)
+
+          noone <- lift (ncqFossilMergeStep sto) <&> not
+
+          if noone then
+            none
+          else do
+            notice "again"
+            next
+
+      notice "re-opened storage test done"
+
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool
          -> Int
@@ -750,6 +864,8 @@ testNCQ3Lookup1 syn TestEnv{..} = do
             <&> \x -> atDef 0 x (List.length x `quot` 2)
 
       notice $ "median" <+> pretty m
+
+
 
 
 

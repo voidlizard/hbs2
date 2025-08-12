@@ -95,6 +95,7 @@ type IsRefPubKey s =  ( Eq (PubKey 'Sign s)
 type ForSomeRefKey a = ( Hashed HbSync a )
 
 newtype SomeRefKey a = SomeRefKey a
+                       deriving newtype (Eq,Hashable)
 
 instance RefMetaData (SomeRefKey a)
 
