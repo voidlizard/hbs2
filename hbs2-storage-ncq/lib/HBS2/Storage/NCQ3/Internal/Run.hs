@@ -14,29 +14,14 @@ import HBS2.Storage.NCQ3.Internal.Fossil
 
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
-import Network.ByteOrder qualified as N
 import Data.HashSet qualified as HS
-import Data.HashPSQ qualified as PSQ
 import Data.Vector qualified as V
-import Data.HashMap.Strict qualified as HM
-import Data.ByteString qualified as BS
 import Data.Sequence qualified as Seq
 import Data.Fixed
-import System.FilePath.Posix
-import System.Posix.Files qualified as Posix
 import System.Posix.IO as PosixBase
 import System.Posix.Types as Posix
 import System.Posix.Unistd
 import System.Posix.IO.ByteString as Posix
-import System.Posix.Files ( getFileStatus
-                          , modificationTimeHiRes
-                          , setFileTimesHiRes
-                          , getFdStatus
-                          , FileStatus(..)
-                          , setFileMode
-                          )
-import System.Posix.Files qualified as PFS
-import System.IO.MMap as MMap
 import Control.Concurrent.STM qualified as STM
 import System.FileLock as FL
 

@@ -12,9 +12,6 @@ import Network.ByteOrder qualified as N
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.ByteString qualified as BS
-import System.IO.MMap
-import System.IO.Temp as Temp
-import Streaming.Prelude qualified as S
 
 
 -- we need size in order to return block size faster

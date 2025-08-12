@@ -6,8 +6,6 @@ import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.State
 
-import HBS2.Data.Types.Refs
-
 import Data.HashSet qualified as HS
 import Data.List qualified as List
 import Data.ByteString.Lazy qualified as LBS
@@ -17,19 +15,10 @@ import Network.ByteOrder qualified as N
 import Data.ByteString.Builder
 import System.IO.Temp (emptyTempFile)
 
-import System.FilePath.Posix
 import System.Posix.Files qualified as Posix
 import System.Posix.IO as PosixBase
 import System.Posix.Types as Posix
-import System.Posix.Unistd
 import System.Posix.IO.ByteString as Posix
-import System.Posix.Files ( getFileStatus
-                          , modificationTimeHiRes
-                          , setFileTimesHiRes
-                          , getFdStatus
-                          , FileStatus(..)
-                          , setFileMode
-                          )
 import System.Posix.Files qualified as PFS
 import Lens.Micro.Platform
 import UnliftIO.IO.File

@@ -12,34 +12,15 @@ import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
-import Network.ByteOrder qualified as N
 import Data.HashPSQ qualified as HPSQ
 import Data.Vector qualified as V
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
 import Data.Set qualified as Set
 import Data.Either
-import Lens.Micro.Platform
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Sequence qualified as Seq
-import System.FilePath.Posix
-import System.Posix.Files qualified as Posix
-import System.Posix.IO as PosixBase
-import System.Posix.Types as Posix
-import System.Posix.Unistd
-import System.Posix.IO.ByteString as Posix
-import System.Posix.Files ( getFileStatus
-                          , modificationTimeHiRes
-                          , setFileTimesHiRes
-                          , getFdStatus
-                          , FileStatus(..)
-                          , setFileMode
-                          )
 import System.Posix.Files qualified as PFS
-import System.IO.MMap as MMap
-import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.STM.TSem
 import System.FileLock as FL
 
@@ -49,7 +30,6 @@ ncqStorageOpen fp upd = do
   let ncqGen            = 0
   let ncqFsync          = 16 * megabytes
   let ncqWriteQLen      = 1024 * 4
-  -- let ncqMinLog         = 512 * megabytes
   let ncqMinLog         = 1  * gigabytes
   let ncqMaxLog         = 32 * gigabytes
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
@@ -191,7 +171,6 @@ ncqTryLoadState me@NCQStorage{..} = do
     realSize <- fileSize path
 
     let sizewtf = realSize /= fromIntegral s
-    let color = if sizewtf then red else id
 
     flip fix 0 $ \again i -> do
 

@@ -68,7 +68,7 @@ ncqStorageHasBlock sto h = ncqLocate sto h >>= \case
 
 
 -- | Returns strict ByteString
--- | It's up to user to perform
+-- | It's up to user to perform BS.copy
 -- | in order to free memory mapped file where located
 -- | the found block.
 -- | Dangling substrings prevent mmaped files from being released

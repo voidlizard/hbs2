@@ -5,7 +5,6 @@ import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
 
 import Data.HashPSQ as HPSQ
-import System.IO.MMap
 
 cacheLookupOrInsert :: forall m val.
                        MonadUnliftIO m

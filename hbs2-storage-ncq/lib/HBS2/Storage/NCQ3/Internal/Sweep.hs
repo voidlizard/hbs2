@@ -4,15 +4,12 @@ module HBS2.Storage.NCQ3.Internal.Sweep where
 import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
-import HBS2.Storage.NCQ3.Internal.State
-import HBS2.Storage.NCQ3.Internal.Index
 
 import Data.Generics.Uniplate.Operations
 import Data.Generics.Uniplate.Data()
 import Data.List qualified as List
 import Data.HashSet qualified as HS
 import System.Posix.Files qualified as PFS
-import Control.Monad.Trans.Maybe
 import Data.HashMap.Strict qualified as HM
 
 ncqLiveKeysSTM :: NCQStorage -> STM (HashSet FileKey)

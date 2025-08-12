@@ -8,22 +8,16 @@ import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Data.Config.Suckless.Script
 
-import Data.Generics.Product
-import Data.Generics.Labels
+import Data.Generics.Labels()
 import Data.List qualified as List
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Cont
 import Data.HashSet qualified as HS
 import Data.HashMap.Strict qualified as HM
 import Data.Set qualified as Set
-import Data.ByteString qualified as BS
 import UnliftIO.IO.File
-import Network.ByteOrder qualified as N
-import UnliftIO.IO
 import System.IO qualified as IO
 import Lens.Micro.Platform
-import Streaming.Prelude qualified as S
 
 newtype StateOP a =
   StateOP { fromStateOp :: ReaderT NCQStorage STM a }
