@@ -1,0 +1,6 @@
+#! /usr/bin/env -S bf6 file
+
+; example  git ls-tree -r HEAD | rg NCQ3 | for-llm
+
+[iterate [fn x . [begin [println FILE space x]  [println [str:file x]]]] [str:cut 3 [str:stdin]]]
+
