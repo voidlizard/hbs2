@@ -162,5 +162,13 @@ readStateMay sto key = fmap sortIndexes <$> do
 
        _ -> ncqState0
 
+-- aux. functions for tests and something
 
+ncqGetIndex :: MonadIO m => NCQStorage -> m [(Down POSIXTime, FileKey)]
+ncqGetIndex NCQStorage{..} =
+  readTVarIO ncqState <&> view #ncqStateIndex
+
+ncqGetIndexSTM :: NCQStorage -> STM [(Down POSIXTime, FileKey)]
+ncqGetIndexSTM NCQStorage{..} =
+  view #ncqStateIndex <$> readTVar ncqState
 

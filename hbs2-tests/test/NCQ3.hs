@@ -18,6 +18,8 @@ import HBS2.Storage.NCQ3
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.Fossil
+import HBS2.Storage.NCQ3.Internal.State
+import HBS2.Storage.NCQ3.Internal.Sweep
 import HBS2.Storage.NCQ3.Internal
 
 import HBS2.System.Logger.Simple.ANSI
@@ -521,7 +523,7 @@ ncq3Tests = do
 
         notice $ "should be deleted" <+> pretty (HS.size deleted) <+> "/" <+> pretty tnum <+> "of" <+> pretty n
 
-      ncqWithStorage dir $ \sto -> do
+      ncqWithStorage dir $ \sto@NCQStorage{..} -> do
 
         notice "wait for compaction"
 
@@ -534,7 +536,20 @@ ncq3Tests = do
             notice $ "dir size" <+> pretty n <+> pretty (ss `div` megabytes)
             pause @'Seconds 20
 
-          pause @'Seconds 600
+          notice "wait index to compact or 600 sec"
+
+          what <- liftIO $ race (pause @'Seconds 600) do
+            atomically do
+              ntrack <- ncqLiveKeysSTM sto
+              unless (List.length ntrack <= 3) STM.retry
+
+          liftIO do
+            deleted <- readTVarIO thashes
+            for (HS.toList deleted) $ \d -> do
+              tomb <- ncqLocate sto d <&>  maybe False ncqIsTomb
+              assertBool (show $ "TOMB" <+> pretty d) tomb
+
+          none
 
   entry $ bindMatch "test:ncq3:lock" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
 
