@@ -52,6 +52,7 @@ import System.Random.MWC as MWC
 import Control.Concurrent.STM qualified as STM
 import Data.List qualified as List
 import Control.Monad.Trans.Cont
+import Control.Monad.Except
 import System.IO.Temp qualified as Temp
 import System.Environment (getExecutablePath)
 import System.Process.Typed as PT
@@ -60,6 +61,8 @@ import UnliftIO
 import UnliftIO.IO.File
 import UnliftIO.IO as IO
 import UnliftIO.Directory
+
+import Streaming.Prelude qualified as S
 
 {-HLINT ignore "Functor law"-}
 
@@ -585,6 +588,55 @@ ncq3Tests = do
     liftIO $ assertBool "first run, second fail" (wx == 1)
 
     notice $ "second must fail" <+> pretty wx <+> "=>" <+> viaShow r
+
+
+  entry $ bindMatch "test:ncq3:merkle" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
+
+    let (opts,args) = splitOpts [] e
+    let n  = headDef (1 * gigabytes) [ fromIntegral x | LitIntVal x <- args ]
+
+    g <- liftIO MWC.createSystemRandom
+    ncqWithStorage testEnvDir $ \ncq -> do
+
+      fn <- liftIO $ Temp.emptyTempFile (ncqGetWorkDir ncq) "wtf"
+
+      debug $ "generate file" <+> pretty n <+> pretty fn
+
+      flip fix n $ \loop rest -> when (rest > 0) do
+          let size = min (1 * megabytes) rest
+          block <- liftIO $ genRandomBS g size
+          liftIO (BS.appendFile fn block)
+          loop (rest - size)
+
+
+      debug $ "done file" <+> pretty fn
+
+      debug $ "make merkle from" <+> pretty fn
+
+      let sto = AnyStorage ncq
+
+      lbs <- liftIO $ LBS.readFile fn
+
+      t0 <- getTimeCoarse
+
+      tree <- createTreeWithMetadata sto Nothing mempty lbs
+                >>= orThrowUser "can't create tree"
+
+      t2 <- getTimeCoarse
+
+      let s = sec2 (1e-9 * realToFrac (toNanoSecs (t2 - t0)))
+
+      notice $ "merkle hash" <+> pretty s <+> pretty tree
+
+      h0 <- liftIO (LBS.readFile fn) <&> HashRef . hashObject @HbSync
+
+      lbs1 <- runExceptT (getTreeContents sto tree)
+                >>= orThrowPassIO
+                <&> HashRef . hashObject @HbSync
+
+      notice $ "found" <+> pretty tree <+> pretty lbs1 <+> pretty h0
+
+      liftIO $ assertBool (show $ "hash eq" <+> pretty h0 <+> pretty lbs1) (h0 == lbs1)
 
 
   entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do

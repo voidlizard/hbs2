@@ -21,6 +21,7 @@ instance MonadUnliftIO m => Storage NCQStorage HbSync LBS.ByteString m where
   hasBlock     sto h   = ncqStorageHasBlock sto (coerce h)
 
   putBlock     sto lbs = fmap coerce <$> ncqPutBlock sto lbs
+
   enqueueBlock sto lbs = fmap coerce <$> ncqPutBlock sto lbs
 
   getBlock sto h = runMaybeT $ do

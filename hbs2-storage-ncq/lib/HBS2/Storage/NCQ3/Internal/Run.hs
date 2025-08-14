@@ -89,7 +89,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     ema <- readTVarIO ncqWriteEMA
     debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
 
-  spawnActivity $ postponed 10 $ forever do
+  spawnActivity $ postponed 60 $ forever do
     lsInit <- ncqLiveKeys ncq <&> HS.size
     void $ race (pause @'Seconds 60) do
       flip fix lsInit $ \next ls0 -> do
@@ -110,7 +110,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
   spawnActivity $ postponed 10 $ compactLoop 10 300 do
     ncqIndexCompactStep ncq
 
-  spawnActivity $ postponed 15 $ compactLoop 10 600 do
+  spawnActivity $ postponed 20 $ compactLoop 10 600 do
     ncqFossilMergeStep ncq
 
 
