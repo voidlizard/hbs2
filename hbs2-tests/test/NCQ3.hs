@@ -606,8 +606,9 @@ ncq3Tests = do
 
       chu <- S.toList_ (readChunkedBS lbs (256*1024))
       hashes <- forConcurrently chu $ \chunk -> do
-        -- ncqPutBS ncq (Just B) Nothing (LBS.toStrict chunk)
         ncqTossBlock ncq chunk >>= orThrowUser "can't save"
+        -- ncqPutBlock ncq chunk
+        -- ncqPutBS ncq (Just B) Nothing (LBS.toStrict chunk
 
       none
 

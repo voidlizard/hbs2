@@ -56,7 +56,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     let q = ncqWriteOps ! i
     forever (liftIO $ join $ atomically (readTQueue q))
 
-  replicateM_ 2 $ spawnActivity $ forever $ flip runContT pure $ callCC \exit -> do
+  replicateM_ ncqReadThreads $ spawnActivity $ forever $ flip runContT pure $ callCC \exit -> do
 
       (h, answ) <- atomically $ readTQueue ncqReadReq
       let answer l = atomically (putTMVar answ l)

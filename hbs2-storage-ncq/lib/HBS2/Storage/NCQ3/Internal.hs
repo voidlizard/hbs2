@@ -46,6 +46,8 @@ ncqStorageOpen fp upd = do
   let shardNum = fromIntegral cap
   let wopNum   = 2
 
+  let !ncqReadThreads = wopNum * 4
+
   ncqWriteQ         <- newTVarIO mempty
   ncqMemTable       <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
   ncqMMapCachedIdx  <- newTVarIO HPSQ.empty

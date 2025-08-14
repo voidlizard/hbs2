@@ -85,6 +85,7 @@ data NCQStorage =
   , ncqMaxLog         :: Int
   , ncqMaxCachedIndex :: Int
   , ncqMaxCachedData  :: Int
+  , ncqReadThreads    :: Int
   , ncqIdleThrsh      :: Double
   , ncqMMapCachedIdx  :: TVar (HashPSQ FileKey CachePrio CachedIndex)
   , ncqMMapCachedData :: TVar (HashPSQ FileKey CachePrio CachedData)
