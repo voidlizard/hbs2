@@ -48,8 +48,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
           stop  <- readTVar ncqStopReq
           if not stop then STM.retry else pure Nothing
 
-    maybe1 what none $ \(fk :: FileKey, fh) -> do
-      closeFd fh >> ncqIndexFile ncq (DataFile fk) >> loop
+    maybe1 what none $ \(fk :: FileKey) -> do
+      ncqIndexFile ncq (DataFile fk) >> loop
 
   let shLast = V.length ncqWriteOps - 1
   spawnActivity $ pooledForConcurrentlyN_ (V.length ncqWriteOps) [0..shLast] $ \i -> do
@@ -82,7 +82,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
   spawnActivity measureWPS
 
-  -- spawnActivity (ncqStateUpdateLoop ncq)
+  spawnActivity (ncqStateUpdateLoop ncq)
 
   spawnActivity $ forever do
     pause @'Seconds 30
@@ -157,7 +157,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
                   pure 0
 
       if | needClose && continue -> do
-              atomically $ writeTQueue closeQ (fk, fh)
+              liftIO $ closeFd fh
+              atomically $ writeTQueue closeQ fk
               loop RunNew
 
          | not continue -> loop RunFin

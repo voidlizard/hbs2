@@ -19,30 +19,51 @@ import UnliftIO.IO.File
 import System.IO qualified as IO
 import Lens.Micro.Platform
 
+import Control.Concurrent.STM qualified as STM
+
 newtype StateOP a =
   StateOP { fromStateOp :: ReaderT NCQStorage STM a }
   deriving newtype (Functor,Applicative,Monad,MonadReader NCQStorage)
 
 {- HLINT ignore "Eta reduce"-}
 
+ncqStateUpdateLoop :: MonadIO m
+                   => NCQStorage
+                   -> m ()
+
+ncqStateUpdateLoop ncq@NCQStorage{..} = do
+
+  debug $ red "ncqStateUpdateLoop"
+
+  sInit <- readTVarIO ncqState
+
+  flip fix sInit $ \next s0 -> do
+    state <- atomically do
+      s1   <- readTVar ncqState
+      stop <- readTVar ncqStopReq
+      if s1 == s0 && not stop then STM.retry else pure s1
+
+    key <-  ncqGetNewFileKey ncq StateFile
+    let snkFile = ncqGetFileName ncq (StateFile key)
+    liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
+      IO.hPrint fh (pretty state)
+
+    done <- atomically do
+      writeTVar ncqStateKey key
+      modifyTVar ncqWrites succ
+      readTVar ncqStopReq
+
+    unless done do
+      next =<< readTVarIO ncqState
+
 ncqStateUpdate :: MonadIO m
                => NCQStorage
                -> StateOP a
                -> m ()
+
 ncqStateUpdate ncq@NCQStorage{..} action = do
-  s0 <- readTVarIO ncqState
-
-  s1 <- atomically do
-          void $ runReaderT (fromStateOp action) ncq
-          modifyTVar ncqWrites succ
-          readTVar ncqState
-
-  unless (s1 == s0) do
-    key <-  ncqGetNewFileKey ncq StateFile
-    let snkFile = ncqGetFileName ncq (StateFile key)
-    liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
-      IO.hPrint fh (pretty s1)
-    atomically $ writeTVar ncqStateKey key
+  atomically do
+    void $ runReaderT (fromStateOp action) ncq
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
