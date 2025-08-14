@@ -41,6 +41,9 @@ instance (MonadIO m, h ~ HbSync, Storage s h ByteString m) => MerkleWriter ByteS
   -- FIXME: concurrent-enqueue
   writeAsMerkle sto bs = do
 
+    -- FIXME:  may-be-twice-faster
+    --   Можно ускорить в два раза если выполнять
+    --   параллельно, но потребуется поменять MonadIO на MonadUnliftIO
     hashes <- do
       chu <- S.toList_ (readChunkedBS bs defBlockSize)
       for chu $ \chunk -> do
