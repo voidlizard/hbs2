@@ -104,6 +104,12 @@ ncqTossBlock :: MonadUnliftIO  m
 ncqTossBlock sto lbs = ncqPutBlock0 sto lbs False
 {-# INLINE ncqTossBlock #-}
 
+-- FIXME: ncqLocate-slows-write
+
+-- FIXME: resources-exhausted
+-- test-ncq debug off and test:root temp and test:dir:keep and test:ncq3:merkle:file ./f10g
+-- test-ncq: openAnonymousTempFileFromDir:
+--   resource exhausted (Too many open files)
 ncqPutBlock0 :: MonadUnliftIO m
              => NCQStorage
              -> LBS.ByteString

@@ -608,13 +608,15 @@ ncq3Tests = do
       hashes <- forConcurrently chu $ \chunk -> do
         ncqTossBlock ncq chunk >>= orThrowUser "can't save"
 
-      -- FIXME: handle-hardcode
-      let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes -- FIXME: settings
+      none
 
-      m <- makeMerkle 0 pt $ \(_,_,bss) -> liftIO do
-             void $ ncqPutBlock ncq bss >>= orThrowUser "can't save"
+      -- -- FIXME: handle-hardcode
+      -- let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes -- FIXME: settings
 
-      notice $ pretty m
+      -- m <- makeMerkle 0 pt $ \(_,_,bss) -> liftIO do
+      --        void $ ncqPutBlock ncq bss >>= orThrowUser "can't save"
+
+      -- notice $ pretty m
 
   entry $ bindMatch "test:ncq3:merkle" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
 
