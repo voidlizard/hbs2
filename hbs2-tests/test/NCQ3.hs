@@ -892,7 +892,7 @@ testNCQ3Lookup1 syn TestEnv{..} = do
   let (opts, argz) = splitOpts [("-m",1),("-M",0)] syn
 
   let n = headDef 100000 [ fromIntegral x | LitIntVal x <- argz ]
-  let nt = max 2 . headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
+  let nt = headDef 1 $ [ fromIntegral x | LitIntVal x <- drop 1 argz ]
   let nl = headDef 3 $ [ fromIntegral x | LitIntVal x <- drop 2 argz ]
   let r = (64*1024, 256*1024)
 
