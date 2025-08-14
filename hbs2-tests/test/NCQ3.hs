@@ -590,6 +590,32 @@ ncq3Tests = do
     notice $ "second must fail" <+> pretty wx <+> "=>" <+> viaShow r
 
 
+  entry $ bindMatch "test:ncq3:merkle:file" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
+
+    let (opts,args) = splitOpts [] e
+    let n  = headDef (1 * gigabytes) [ fromIntegral x | LitIntVal x <- args ]
+
+    fn <- orThrowUser "no file given" (headMay [ x | StringLike x <- args ])
+
+    ncqWithStorage testEnvDir $ \ncq -> do
+
+      let sto = AnyStorage ncq
+      -- lbs <- liftIO $ LBS.readFile fn
+
+      lbs <- liftIO $ LBS.readFile fn
+
+      chu <- S.toList_ (readChunkedBS lbs (256*1024))
+      hashes <- forConcurrently chu $ \chunk -> do
+        ncqTossBlock ncq chunk >>= orThrowUser "can't save"
+
+      -- FIXME: handle-hardcode
+      let pt = toPTree (MaxSize 1024) (MaxNum 256) hashes -- FIXME: settings
+
+      m <- makeMerkle 0 pt $ \(_,_,bss) -> liftIO do
+             void $ ncqPutBlock ncq bss >>= orThrowUser "can't save"
+
+      notice $ pretty m
+
   entry $ bindMatch "test:ncq3:merkle" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
 
     let (opts,args) = splitOpts [] e
@@ -630,13 +656,26 @@ ncq3Tests = do
 
       h0 <- liftIO (LBS.readFile fn) <&> HashRef . hashObject @HbSync
 
-      lbs1 <- runExceptT (getTreeContents sto tree)
-                >>= orThrowPassIO
-                <&> HashRef . hashObject @HbSync
+      debug $ pretty h0
 
-      notice $ "found" <+> pretty tree <+> pretty lbs1 <+> pretty h0
+      notice "full compact index first"
 
-      liftIO $ assertBool (show $ "hash eq" <+> pretty h0 <+> pretty lbs1) (h0 == lbs1)
+      -- ncqIndexCompactFull ncq
+
+      replicateM_ 3 do
+
+        t1 <- getTimeCoarse
+        lbs1 <- runExceptT (getTreeContents sto tree)
+                  >>= orThrowPassIO
+                  <&> HashRef . hashObject @HbSync
+
+        debug $ pretty lbs1
+
+        t3 <- getTimeCoarse
+
+        notice $ "found" <+> pretty (sec2 (1e-9 * realToFrac (t3 - t1))) <+> pretty lbs1 <+> pretty h0
+
+        liftIO $ assertBool (show $ "hash eq" <+> pretty h0 <+> pretty lbs1) (h0 == lbs1)
 
 
   entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do

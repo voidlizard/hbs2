@@ -78,6 +78,7 @@ ncqLocate_ f me@NCQStorage{..} href = ncqOperation me (pure Nothing) do
     writeTQueue ncqReadReq (href, answ)
 
   atomically $ takeTMVar answ
+{-# INLINE ncqLocate_ #-}
 
 ncqLocate :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Location)
 ncqLocate me href = ncqOperation me (pure Nothing) do

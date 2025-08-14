@@ -30,7 +30,7 @@ ncqStorageOpen fp upd = do
   let ncqGen            = 0
   let ncqFsync          = 16 * megabytes
   let ncqWriteQLen      = 1024 * 4
-  let ncqMinLog         = 1  * gigabytes
+  let ncqMinLog         = 2  * gigabytes
   let ncqMaxLog         = 32 * gigabytes
   let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
   let ncqMaxCachedIndex = 64
@@ -109,7 +109,7 @@ ncqPutBlock0 :: MonadUnliftIO m
              -> LBS.ByteString
              -> Bool
              -> m (Maybe HashRef)
-ncqPutBlock0 sto lbs wait =
+ncqPutBlock0 sto lbs wait = do
   ncqLocate sto ohash >>= \case
     Nothing -> Just <$> work sto (Just B) (Just ohash) bs
     _       -> pure (Just ohash)
