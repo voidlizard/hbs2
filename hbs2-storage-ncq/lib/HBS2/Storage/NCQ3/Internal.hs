@@ -28,11 +28,12 @@ ncqStorageOpen :: MonadIO m => FilePath -> (NCQStorage -> NCQStorage) -> m NCQSt
 ncqStorageOpen fp upd = do
   let ncqRoot           = fp
   let ncqGen            = 0
-  let ncqFsync          = 16 * megabytes
+  -- let ncqFsync          = 16 * megabytes
+  let ncqFsync          = 32   * megabytes
   let ncqWriteQLen      = 1024 * 4
-  let ncqMinLog         = 2  * gigabytes
-  let ncqMaxLog         = 32 * gigabytes
-  let ncqWriteBlock     = max 128 $ ncqWriteQLen `div` 2
+  let ncqMinLog         = 512  * megabytes
+  let ncqMaxLog         = 32   * gigabytes
+  let ncqWriteBlock     = max 256 $ ncqWriteQLen `div` 2
   let ncqMaxCachedIndex = 64
   let ncqMaxCachedData  = 64
   let ncqIdleThrsh      = 50.0
@@ -117,14 +118,16 @@ ncqPutBlock0 :: MonadUnliftIO m
              -> m (Maybe HashRef)
 ncqPutBlock0 sto lbs wait = do
   ncqLocate sto ohash >>= \case
-    Nothing -> Just <$> work sto (Just B) (Just ohash) bs
-    _       -> pure (Just ohash)
+    Nothing                -> Just <$> work
+    Just l | ncqIsTomb l   -> Just <$> work
+    _                      -> pure (Just ohash)
   where
     bs =  LBS.toStrict lbs
     ohash = HashRef $ hashObject @HbSync bs
 
-    work | wait = ncqPutBS
-         | otherwise = ncqTossBS
+    work | wait      = ncqPutBS sto (Just B) (Just ohash) bs
+         | otherwise = ncqTossBS sto (Just B) (Just ohash) bs
+    {-# INLINE work #-}
 
 {-# INLINE ncqPutBlock0 #-}
 

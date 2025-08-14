@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE UndecidableInstances #-}
 module HBS2.Storage.NCQ3.Internal.Types where
 
@@ -11,6 +10,7 @@ import Data.HashSet qualified as HS
 import Text.Printf
 import Control.Concurrent.STM.TSem (TSem,waitTSem,signalTSem)
 import System.FileLock (FileLock)
+import Data.Vector qualified as V
 
 data CachedData =  CachedData !ByteString
 data CachedIndex = CachedIndex !ByteString !NWayHash
@@ -199,4 +199,9 @@ ncqTombEntrySize = ncqSLen + ncqKeyLen + ncqPrefixLen
 ncqIsTombEntrySize :: Integral a => a -> Bool
 ncqIsTombEntrySize s = fromIntegral s <= ncqTombEntrySize
 {-# INLINE ncqIsTombEntrySize #-}
+
+ncqDeferredWriteOpSTM :: NCQStorage -> IO () -> STM ()
+ncqDeferredWriteOpSTM NCQStorage{..} work = do
+    nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
+    writeTQueue (ncqWriteOps ! nw) work
 

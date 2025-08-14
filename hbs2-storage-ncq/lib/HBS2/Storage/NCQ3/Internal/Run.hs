@@ -147,6 +147,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
                   -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
 
+                  -- atomically $ ncqDeferredWriteOpSTM ncq do
                   ncqStateUpdate ncq do
                     ncqStateAddFact (P (PData (DataFile fk) ss))
 
@@ -168,7 +169,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
     RunWrite (fk, fh, w, total') -> do
 
-      let timeoutMicro = 10_000_000
+      let timeoutMicro = 30_000_000
 
       chunk <- liftIO $ timeout timeoutMicro $ atomically do
         stop  <- readTVar ncqStopReq
