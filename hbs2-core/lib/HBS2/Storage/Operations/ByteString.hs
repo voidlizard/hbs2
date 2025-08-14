@@ -37,6 +37,8 @@ instance Exception WriteMerkleIOError
 
 instance (MonadIO m, h ~ HbSync, Storage s h ByteString m) => MerkleWriter ByteString h s m where
   type instance ToBlockW ByteString = ByteString
+
+  -- FIXME: concurrent-enqueue
   writeAsMerkle sto bs = do
 
     hashes <- do
