@@ -714,8 +714,13 @@ ncq3Tests = do
       when (raw /= coerce ref) $
         failure "refs:shape: last 32B != RAW_REF_KEY"
 
+  brief "basic full storage test"
+   $ args [ arg "number (def: 100000)" "n"
+          , arg "del. probability (def: 0.10)" "pD"
+          , arg "ref probability (def: 0.01)" "pR"
+          ]
 
-  entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do
+   $ entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do
     let (opts,args) = splitOpts [] e
     let n  = headDef 100000 [ fromIntegral x | LitIntVal x <- args ]
     let pD  = headDef 0.10  [ realToFrac  x | LitScientificVal x <- drop 1 args ]
