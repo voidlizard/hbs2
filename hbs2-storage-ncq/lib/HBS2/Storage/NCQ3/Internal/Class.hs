@@ -107,6 +107,17 @@ ncqRefHash NCQStorage{..} h =
   HashRef (hashObject (coerce @_ @ByteString h <> coerce ncqSalt))
 {-# INLINE ncqRefHash #-}
 
+
+-- R: Reference format
+-- SALTED_HASH:BYTES(32) VALUE:BYTES(32) ORIG_HASH:BYTES(32)
+-- ^^^^^^^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+--   KEY                  VALUE
+--   LEN(PAYLOAD) = 2 * LEN(KEY)
+--
+-- We may need this ORIG_HASH in order to restore original
+-- reference hash during migrations, fsck or something like
+-- this, according to NCQv1 experience.
+
 -- | Get ref value (hash) by logical ref key.
 --   Returns Nothing for tomb/absent/invalid.
 ncqStorageGetRef :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe HashRef)
@@ -116,8 +127,8 @@ ncqStorageGetRef ncq ref = runMaybeT $ do
   guard (not $ ncqIsTomb loc)
   bs  <- lift (ncqGetEntryBS ncq loc) >>= toMPlus
   case snd (ncqEntryUnwrap bs) of
-    Right (R, payload) | BS.length payload == ncqKeyLen
-      -> pure (coerce payload)
+    Right (R, payload) | BS.length payload == 2*ncqKeyLen
+      -> pure (coerce $ BS.take ncqKeyLen payload)
     _ -> mzero
 {-# INLINE ncqStorageGetRef #-}
 
@@ -127,9 +138,10 @@ ncqStorageSetRef ncq ref val = do
   cur <- ncqStorageGetRef ncq ref
   unless (cur == Just val) $ do
     let rkey    = ncqRefHash ncq ref
+        orig    = coerce @_ @ByteString ref
         payload = coerce @_ @ByteString val
     -- Section type R, fixed key = rkey, payload = value hash bytes
-    void $ ncqPutBS ncq (Just R) (Just rkey) payload
+    void $ ncqPutBS ncq (Just R) (Just rkey) (payload <> orig)
 {-# INLINE ncqStorageSetRef #-}
 
 -- | Delete ref (write tomb for ref key), no-op if absent.

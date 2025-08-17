@@ -67,6 +67,8 @@ import Streaming.Prelude qualified as S
 {-HLINT ignore "Functor law"-}
 
 
+failure :: forall a m . (Show a, MonadIO m) => Doc a -> m ()
+failure = liftIO . assertFailure . show
 
 ncq3Tests :: forall m . MonadUnliftIO m => MakeDictM C m ()
 ncq3Tests = do
@@ -680,6 +682,37 @@ ncq3Tests = do
         notice $ "found" <+> pretty (sec2 (1e-9 * realToFrac (t3 - t1))) <+> pretty lbs1 <+> pretty h0
 
         liftIO $ assertBool (show $ "hash eq" <+> pretty h0 <+> pretty lbs1) (h0 == lbs1)
+
+  entry $ bindMatch "test:ncq3:refs:shape" $ nil_ $ \_ -> runTest $ \TestEnv{..} -> do
+    ncqWithStorage testEnvDir $ \sto -> do
+      -- random 32B ref & val
+      g   <- liftIO MWC.createSystemRandom
+      ref <- HashRef . coerce <$> liftIO (genRandomBS g ncqKeyLen)
+      val <- HashRef . coerce <$> liftIO (genRandomBS g ncqKeyLen)
+
+      -- roundtrip via API
+      ncqStorageSetRef sto ref val
+      m <- ncqStorageGetRef sto ref
+      when (m /= Just val) $
+        failure "refs:shape: getRef mismatch (expected Just val)"
+
+      -- raw check
+      let rkey = ncqRefHash sto ref
+      loc <- ncqLocate sto rkey >>= orThrowUser "refs:shape: locate failed"
+      bs  <- ncqGetEntryBS sto loc >>= orThrowUser "refs:shape: ncqGetEntryBS failed"
+
+      payload <- case snd (ncqEntryUnwrap bs) of
+                   Right (R, p) -> pure p
+                   _            -> error "refs:shape: unexpected section type (not R)"
+
+      when (BS.length payload /= 2 * ncqKeyLen) $
+        failure "refs:shape: payload length != 64"
+
+      let (val', raw) = BS.splitAt ncqKeyLen payload
+      when (val' /= coerce val) $
+        failure "refs:shape: first 32B != VAL_HASH"
+      when (raw /= coerce ref) $
+        failure "refs:shape: last 32B != RAW_REF_KEY"
 
 
   entry $ bindMatch "test:ncq3:storage:basic" $ nil_ $ \e -> do
