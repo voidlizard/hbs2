@@ -1,3 +1,4 @@
+{-# Language AllowAmbiguousTypes #-}
 {-# Language RecordWildCards #-}
 {-# Language MultiWayIf #-}
 module NCQ3 where
@@ -35,6 +36,7 @@ import Data.Config.Suckless.Script as SC
 import Data.Config.Suckless.System
 
 import NCQTestCommon
+import NCQ3.Endurance
 
 import Data.Generics.Labels
 import Lens.Micro.Platform
@@ -42,6 +44,7 @@ import Network.ByteOrder qualified as N
 import System.TimeIt
 import Data.Fixed
 import Data.HashSet qualified as HS
+import Data.HashPSQ qualified as HPSQ
 import Data.HashMap.Strict qualified as HM
 import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
@@ -56,6 +59,9 @@ import Control.Monad.Except
 import System.IO.Temp qualified as Temp
 import System.Environment (getExecutablePath)
 import System.Process.Typed as PT
+import System.IO qualified as IO
+import System.Posix.IO qualified as Posix
+import GHC.IO.Handle qualified as GHC
 import System.Random.Stateful
 import UnliftIO
 import UnliftIO.IO.File
@@ -829,6 +835,9 @@ ncq3Tests = do
 
       notice "re-opened storage test done"
 
+
+  ncq3EnduranceTest
+
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool
          -> Int
@@ -914,7 +923,7 @@ testWriteNThreads3 ncqDir tnn n = do
 
 
 
-testNCQ3Lookup1:: forall c m . (MonadUnliftIO m, IsContext c)
+testNCQ3Lookup1 :: forall c m . (MonadUnliftIO m, IsContext c)
          => [Syntax c]
          -> TestEnv
          -> m ()
@@ -997,9 +1006,6 @@ testNCQ3Lookup1 syn TestEnv{..} = do
             <&> \x -> atDef 0 x (List.length x `quot` 2)
 
       notice $ "median" <+> pretty m
-
-
-
 
 
 
