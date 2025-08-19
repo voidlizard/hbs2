@@ -84,8 +84,12 @@ ncqLocate :: MonadUnliftIO m => NCQStorage -> HashRef -> m (Maybe Location)
 ncqLocate me href = ncqOperation me (pure Nothing) do
   ncqLocate_ True me href
 
-ncqIndexFile :: MonadUnliftIO m => NCQStorage -> DataFile FileKey -> m (Maybe FilePath)
-ncqIndexFile n fk = runMaybeT do
+ncqIndexFile :: MonadUnliftIO m
+             => NCQStorage
+             -> Maybe POSIXTime
+             -> DataFile FileKey
+             -> m (Maybe FilePath)
+ncqIndexFile n ts' fk = runMaybeT do
 
   let fp   = toFileName fk & ncqGetFileName n
   fki <- ncqGetNewFileKey n IndexFile
@@ -110,7 +114,7 @@ ncqIndexFile n fk = runMaybeT do
   moveFile result dest
 
   stat <- liftIO $ PFS.getFileStatus dest
-  let ts = PFS.modificationTimeHiRes stat
+  let ts = fromMaybe (PFS.modificationTimeHiRes stat) ts'
 
   midx <- liftIO (nwayHashMMapReadOnly dest)
 

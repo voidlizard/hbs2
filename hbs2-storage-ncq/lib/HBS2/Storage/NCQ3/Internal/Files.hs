@@ -7,6 +7,8 @@ import HBS2.Storage.NCQ3.Internal.Types
 import System.Posix.Files qualified as PFS
 import Data.List qualified as List
 
+{- HLINT ignore "Eta reduce" -}
+
 
 removeFile :: MonadIO m => FilePath -> m ()
 removeFile fp = do
@@ -49,29 +51,36 @@ ncqListFilesBy  me@NCQStorage{..} filt = do
 
   pure $ List.sortOn ( Down . fst ) r
 
+ncqFindMinPairOfBy :: forall fa m . (ToFileName fa, MonadUnliftIO m)
+                   => NCQStorage
+                   -> (fa -> Bool)                         -- ^ eligible predicate
+                   -> [fa]
+                   -> m (Maybe (NCQFileSize, fa, fa))
+ncqFindMinPairOfBy sto eligible lst =
+  go lst Nothing
+  where
+    go :: [fa] -> Maybe (NCQFileSize, fa, fa) -> m (Maybe (NCQFileSize, fa, fa))
+    go (a:b:rest) best = do
+      best' <- if eligible a && eligible b
+                 then do
+                   let pa = ncqGetFileName sto a
+                   let pb = ncqGetFileName sto b
+                   s1 <- fsize pa
+                   s2 <- fsize pb
+                   let sz = fromIntegral (s1 + s2)
+                   pure $ case best of
+                     Nothing                -> Just (sz, a, b)
+                     Just (sz0,_,_) | sz<sz0 -> Just (sz, a, b)
+                     _                       -> best
+                 else pure best
+      go (b:rest) best'
+    go _ best = pure best
+
+    fsize s = liftIO (PFS.getFileStatus s) <&> PFS.fileSize
+
 ncqFindMinPairOf ::  forall fa m . (ToFileName fa, MonadUnliftIO m)
                  => NCQStorage
                  -> [fa]
                  -> m (Maybe (NCQFileSize, fa, fa))
-ncqFindMinPairOf sto lst = do
-
-  let files = fmap (\x -> (x, ncqGetFileName sto x)) lst
-
-  flip fix (files, Nothing) $ \next (fs, r) -> do
-    case fs of
-      [] ->  pure r
-      [ _ ] -> pure r
-      ( s1 : s2 : ss ) -> do
-        size1 <- fsize (snd s1)
-        size2 <- fsize (snd s2)
-        let size = fromIntegral $ size1 + size2
-
-        case r of
-          Nothing -> next (s2 : ss, Just (size, fst s1, fst s2) )
-          e@(Just (size0, _, _)) | size0 > size -> next (s2 : ss, Just (size, fst s1, fst s2) )
-                                 | otherwise -> next (s2:ss, e)
-
-  where fsize s = liftIO (PFS.getFileStatus s) <&> PFS.fileSize
-
-
+ncqFindMinPairOf sto lst = ncqFindMinPairOfBy sto (const True) lst
 

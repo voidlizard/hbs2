@@ -15,10 +15,11 @@ import Data.HashMap.Strict qualified as HM
 ncqLiveKeysSTM :: NCQStorage -> STM (HashSet FileKey)
 ncqLiveKeysSTM NCQStorage{..} = do
 
-  s0     <- readTVar ncqState
-  merged <- readTVar ncqStateUse <&> (s0<>) . foldMap fst . HM.elems
+  s0      <- readTVar ncqState
+  merged  <- readTVar ncqStateUse <&> (s0<>) . foldMap fst . HM.elems
+  current <- readTVar ncqCurrentFossils
 
-  pure $ HS.fromList $ universeBi @_ @FileKey merged
+  pure $ current <> HS.fromList (universeBi @_ @FileKey merged)
 
 ncqLiveKeys :: forall m . MonadIO m => NCQStorage -> m (HashSet FileKey)
 ncqLiveKeys  ncq = atomically $ ncqLiveKeysSTM  ncq

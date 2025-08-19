@@ -67,6 +67,7 @@ ncqStorageOpen fp upd = do
   ncqStateUse       <- newTVarIO mempty
   ncqServiceSem     <- atomically $ newTSem 1
   ncqFileLock       <- newTVarIO Nothing
+  ncqCurrentFossils <- newTVarIO mempty
 
   let ncq = NCQStorage{..} & upd
 
@@ -231,7 +232,7 @@ ncqTryLoadState me@NCQStorage{..} = do
 
       if not corrupted then do
         debug $ yellow "indexing" <+> pretty dataFile
-        ncqIndexFile me dataFile
+        ncqIndexFile me Nothing dataFile
       else do
 
         o <- ncqFileTryRecover path

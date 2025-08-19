@@ -93,6 +93,7 @@ data NCQStorage =
   , ncqState          :: TVar NCQState
   , ncqStateKey       :: TVar FileKey
   , ncqStateUse       :: TVar (HashMap FileKey (NCQState, TVar Int))
+  , ncqCurrentFossils :: TVar (HashSet FileKey)
   , ncqWrites         :: TVar Int
   , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ         :: TVar (Seq HashRef)

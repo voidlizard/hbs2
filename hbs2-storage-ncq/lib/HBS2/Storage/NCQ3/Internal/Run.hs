@@ -49,7 +49,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
           if not stop then STM.retry else pure Nothing
 
     maybe1 what none $ \(fk :: FileKey) -> do
-      ncqIndexFile ncq (DataFile fk) >> loop
+      ncqIndexFile ncq Nothing (DataFile fk)
+      atomically $ modifyTVar ncqCurrentFossils (HS.delete fk)
+      loop
 
   let shLast = V.length ncqWriteOps - 1
   spawnActivity $ pooledForConcurrentlyN_ (V.length ncqWriteOps) [0..shLast] $ \i -> do
@@ -211,6 +213,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
       fk <- ncqGetNewFileKey ncq DataFile
+
+      atomically $ modifyTVar ncqCurrentFossils (HS.insert fk)
 
       ncqStateUpdate ncq (ncqStateAddDataFile fk)
 

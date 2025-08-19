@@ -1,3 +1,4 @@
+{-# Language RecordWildCards #-}
 module HBS2.Storage.NCQ3.Internal.Fossil where
 
 import HBS2.Storage.NCQ3.Internal.Prelude
@@ -7,6 +8,7 @@ import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.State
 
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString qualified as BS
@@ -61,6 +63,7 @@ ncqFossilMergeStep :: forall m . MonadUnliftIO m
                -> m Bool
 
 ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
+  tmax <- liftIO getPOSIXTime >>= newTVarIO
 
   debug "ncqFossilMergeStep"
 
@@ -69,7 +72,12 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
            <&> fmap DataFile .  HS.toList . ncqStateFiles
            <&> List.sortOn Down
 
-  r' <- lift $ ncqFindMinPairOf me files
+  NCQState{..}  <- readTVarIO ncqState
+
+  let tss = ncqStateIndex & fmap (\(Down x, y) -> (y, realToFrac x :: POSIXTime)) & HM.fromList
+
+  cur <- readTVarIO ncqCurrentFossils
+  r' <- lift $ ncqFindMinPairOfBy me (\x -> not (HS.member (coerce x) cur)) files
 
   r@(sumSize, f1, f2) <- ContT $ maybe1 r' (pure False)
 
@@ -84,6 +92,7 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
   ContT $ bracket none $ const do
           removeFile outFile
 
+
   liftIO $ withBinaryFileAtomic outFile WriteMode $ \fwh -> do
     fd <- handleToFd fwh
 
@@ -96,8 +105,7 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
           Nothing  -> pure False
           Just (InMemory{}) -> pure False
           Just (InFossil fk oi si) -> do
-            let skip = fk > fik || (fk == fik && o < fromIntegral oi)
-            let beWritten = not skip
+            let beWritten = fk == fik && o == fromIntegral oi
 
             -- let c = if skip then green else id
             -- when (si == ncqTombEntrySize) do
@@ -107,9 +115,11 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
             --               <+> "write" <+> c (pretty beWritten)
 
             atomically do
+              tj <- readTVar tmax
+              modifyTVar tmax (max (fromMaybe tj (HM.lookup fk tss)))
               here <- readTVar already <&> HS.member k
               let proceed = not here && beWritten
-              modifyTVar already (HS.insert k)
+              when proceed $ modifyTVar already (HS.insert k)
               pure proceed
 
     appendTailSection fd
@@ -126,7 +136,8 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
   ncqStateUpdate me do
     ncqStateAddFact (P (PData f3 ss))
 
-  lift $ ncqIndexFile me f3
+  ts <- readTVarIO tmax
+  lift $ ncqIndexFile me (Just ts) f3
 
   ncqStateUpdate me do
     ncqStateDelDataFile (coerce f1)
