@@ -37,6 +37,7 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 import NCQ3.Endurance
+import NCQ3.EnduranceInProc
 
 import Data.Generics.Labels
 import Lens.Micro.Platform
@@ -720,6 +721,31 @@ ncq3Tests = do
       when (raw /= coerce ref) $
         failure "refs:shape: last 32B != RAW_REF_KEY"
 
+
+  entry $ bindMatch "test:ncq3:storage:tails" $ nil_ $ \e -> runTest $ \TestEnv{..} -> do
+    g <- liftIO MWC.createSystemRandom
+    what <- newTVarIO (mempty :: HashSet HashRef)
+
+    ncqWithStorage testEnvDir $ \sto -> do
+
+        replicateM_ 100 do
+          n  <- liftIO $ uniformRM (1,1024) g
+          bs <- liftIO $ genRandomBS g n
+          ha <- putBlock (AnyStorage sto) (LBS.fromStrict bs) `orDie` "not written"
+          debug $ "written" <+> pretty ha <+> pretty n
+          atomically $ modifyTVar what (HS.insert (coerce ha))
+
+        notice "pause 30 sec"
+        pause @'Seconds 30
+
+    ncqWithStorage testEnvDir $ \sto -> do
+      hss <- readTVarIO what
+      for_ hss $ \h -> do
+        found <- hasBlock (AnyStorage sto) (coerce h)
+        liftIO $ assertBool (show $ "found" <+> pretty h) (isJust found)
+
+      notice $ "all" <+> pretty (HS.size hss) <+> "found"
+
   brief "basic full storage test"
    $ args [ arg "number (def: 100000)" "n"
           , arg "del. probability (def: 0.10)" "pD"
@@ -837,6 +863,7 @@ ncq3Tests = do
 
 
   ncq3EnduranceTest
+  ncq3EnduranceTestInProc
 
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool

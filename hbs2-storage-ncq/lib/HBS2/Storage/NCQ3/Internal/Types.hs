@@ -206,3 +206,9 @@ ncqDeferredWriteOpSTM NCQStorage{..} work = do
     nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
     writeTQueue (ncqWriteOps ! nw) work
 
+logErr :: forall x a m . (Pretty x, MonadUnliftIO m) => x -> m a -> m a
+logErr loc m = handle (\(e::SomeException) -> err (pretty loc <> ":" <> viaShow e) >> throwIO e) m
+
+
+
+

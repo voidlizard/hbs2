@@ -107,7 +107,7 @@ ncqIndexFile n fk = runMaybeT do
 
   result <- lift $ nwayWriteBatch ncqIndexAlloc dir idxTemp items
 
-  mv result dest
+  moveFile result dest
 
   stat <- liftIO $ PFS.getFileStatus dest
   let ts = PFS.modificationTimeHiRes stat
@@ -190,7 +190,7 @@ ncqIndexCompactStep me@NCQStorage{..} = withSem ncqServiceSem $ flip runContT pu
   liftIO $ PFS.setFileTimesHiRes result ts ts
 
   fki <- ncqGetNewFileKey me IndexFile
-  mv result (ncqGetFileName me (IndexFile fki))
+  moveFile result (ncqGetFileName me (IndexFile fki))
 
   debug $ "state update" <+> pretty a <+> pretty b <+> "=>" <+> pretty fki
   ncqStateUpdate me do
@@ -207,7 +207,7 @@ ncqStorageScanDataFile :: MonadIO m
                        -> m ()
 ncqStorageScanDataFile ncq fp' action = do
   let fp = ncqGetFileName ncq fp'
-  mmaped <- liftIO (mmapFileByteString fp Nothing)
+  mmaped <- liftIO $ logErr "ncqStorageScanDataFile" (mmapFileByteString fp Nothing)
 
   flip runContT pure $ callCC \exit -> do
     flip fix (0,mmaped) $ \next (o,bs) -> do

@@ -38,7 +38,7 @@ ncqGetCachedData ncq@NCQStorage{..} =
   where
     load fk = do
       let path = ncqGetFileName ncq (DataFile fk)
-      bs <- liftIO (mmapFileByteString path Nothing)
+      bs <- liftIO $ logErr "ncqGetCachedData" (mmapFileByteString path Nothing)
       pure (CachedData bs)
 
 ncqGetCachedIndex :: MonadUnliftIO m => NCQStorage -> FileKey -> m CachedIndex

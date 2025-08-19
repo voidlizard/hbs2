@@ -107,12 +107,11 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         ncqSweepFiles ncq
         next lsB
 
-  spawnActivity $ postponed 10 $ compactLoop 10 300 do
+  spawnActivity $ postponed 10 $ compactLoop 10 60 do
     ncqIndexCompactStep ncq
 
-  spawnActivity $ postponed 20 $ compactLoop 10 600 do
+  spawnActivity $ postponed 20 $ compactLoop 10 120 do
     ncqFossilMergeStep ncq
-
 
   flip fix RunNew $ \loop -> \case
     RunFin -> do
@@ -169,7 +168,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
     RunWrite (fk, fh, w, total') -> do
 
-      let timeoutMicro = 30_000_000
+      let timeoutMicro = 10_000_000
 
       chunk <- liftIO $ timeout timeoutMicro $ atomically do
         stop  <- readTVar ncqStopReq
@@ -212,8 +211,11 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
       fk <- ncqGetNewFileKey ncq DataFile
+
+      ncqStateUpdate ncq (ncqStateAddDataFile fk)
+
       let fname = ncqGetFileName ncq (DataFile fk)
-      touch fname
+      -- touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
       (fk,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)
 

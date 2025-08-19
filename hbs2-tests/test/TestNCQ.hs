@@ -696,9 +696,9 @@ main = do
 
         ncq3Tests
 
-        hidden do
-          internalEntries
-          entry $ bindMatch "#!" $ nil_ $ const none
+        -- hidden do
+        internalEntries
+        entry $ bindMatch "#!" $ nil_ $ const none
 
   setupLogger
 

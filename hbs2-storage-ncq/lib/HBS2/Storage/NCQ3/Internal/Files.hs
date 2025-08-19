@@ -8,6 +8,16 @@ import System.Posix.Files qualified as PFS
 import Data.List qualified as List
 
 
+removeFile :: MonadIO m => FilePath -> m ()
+removeFile fp = do
+  debug $ "removeFile" <+> pretty fp
+  rm fp
+
+moveFile :: MonadIO m => FilePath -> FilePath -> m ()
+moveFile a b = do
+  debug $ "moveFile" <+> pretty a <+> pretty b
+  mv a b
+
 ncqGetFileName :: forall f . ToFileName f => NCQStorage -> f -> FilePath
 ncqGetFileName ncq fp = ncqGetWorkDir ncq </> takeFileName (toFileName fp)
 

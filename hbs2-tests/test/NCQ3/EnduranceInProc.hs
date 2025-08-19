@@ -1,7 +1,7 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language RecordWildCards #-}
 {-# Language MultiWayIf #-}
-module NCQ3.Endurance where
+module NCQ3.EnduranceInProc where
 
 
 import HBS2.Prelude.Plated
@@ -87,7 +87,7 @@ data EnduranceFSM =
   | EnduranceGetRef
   | EnduranceDelRef
   | EnduranceStorm
-  | EnduranceKill
+  | EnduranceCalm
   | EnduranceStop
 
 buildCDF :: [(s, Double)] -> (V.Vector s, U.Vector Double)
@@ -135,6 +135,16 @@ type BlockState = Either () Integer
 
 -- | Deleted = Left (), Alive = Right destination
 type RefState   = Either () HashRef
+
+addHashRef :: forall m v . (MonadIO m) => GenIO  -> TVar (HashPSQ HashRef Double v) -> HashRef -> v -> m ()
+addHashRef g what h v = do
+  w <- liftIO $ uniformRM (0,1.0) g
+  atomically do
+    modifyTVar what (HPSQ.insert h w v)
+    size <- readTVar what <&> HPSQ.size
+    when (size > 100000 ) do
+      modifyTVar what HPSQ.deleteMin
+
 
 validateTestResult :: forall m . MonadUnliftIO m => FilePath -> m ()
 validateTestResult logFile = do
@@ -233,16 +243,10 @@ validateTestResult logFile = do
          <+> "refs:" <+> pretty (length [() | Right _ <- HM.elems rs'])
          <+> "deleted-refs:" <+> pretty (length [() | Left () <- HM.elems rs'])
 
+ncq3EnduranceTestInProc :: forall m . MonadUnliftIO m => MakeDictM C m ()
+ncq3EnduranceTestInProc = do
 
-ncq3EnduranceTest :: forall m . MonadUnliftIO m => MakeDictM C m ()
-ncq3EnduranceTest = do
-
-  entry $ bindMatch "test:ncq3:endurance:inner" $ nil_ $ \syn -> do
-    let (opts,args) = splitOpts [] syn
-    path <- orThrowUser "path not set" $ headMay [ x | StringLike x <- args ]
-    testEnduranceInner @C path
-
-  entry $ bindMatch "test:ncq3:endurance" $ nil_ $ \syn -> do
+  entry $ bindMatch "test:ncq3:endurance:inproc" $ nil_ $ \syn -> do
 
     let dbl = \case
                  LitScientificVal x -> realToFrac x
@@ -254,19 +258,21 @@ ncq3EnduranceTest = do
                  LitIntVal x        -> fromIntegral  x
                  _ -> 0
 
-    wIdle    <-  dbl <$> lookupValueDef (mkDouble 200.00) "w:idle"
-    wIdleDef <-  dbl <$> lookupValueDef (mkDouble   0.25) "w:idle:def"
-    wPutBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:putblk"
-    wGetBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:getblk"
-    wHasBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:hasblk"
-    wDelBlk  <-  dbl <$> lookupValueDef (mkDouble   3.00) "w:delblk"
-    wPutRef  <-  dbl <$> lookupValueDef (mkDouble   5.00) "w:putref"
-    wGetRef  <-  dbl <$> lookupValueDef (mkDouble  10.00) "w:getref"
-    wDelRef  <-  dbl <$> lookupValueDef (mkDouble   1.00) "w:delref"
-    wStorm   <-  dbl <$> lookupValueDef (mkDouble   0.80) "w:storm"
-    wKill    <-  dbl <$> lookupValueDef (mkDouble 0.0004) "w:kill"
-    wNum     <-  int <$> lookupValueDef (mkInt 10000)     "w:num"
-
+    wIdle     <-  dbl <$> lookupValueDef (mkDouble 200.00) "w:idle"
+    wIdleDef  <-  dbl <$> lookupValueDef (mkDouble   0.25) "w:idle:def"
+    wPutBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:putblk"
+    wGetBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:getblk"
+    wHasBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:hasblk"
+    wDelBlk   <-  dbl <$> lookupValueDef (mkDouble   3.00) "w:delblk"
+    wPutRef   <-  dbl <$> lookupValueDef (mkDouble   5.00) "w:putref"
+    wGetRef   <-  dbl <$> lookupValueDef (mkDouble  10.00) "w:getref"
+    wDelRef   <-  dbl <$> lookupValueDef (mkDouble   1.00) "w:delref"
+    wStorm    <-  dbl <$> lookupValueDef (mkDouble   0.05) "w:storm"
+    wCalm     <-  dbl <$> lookupValueDef (mkDouble   0.001) "w:calm"
+    wNum      <-  int <$> lookupValueDef (mkInt 10000)     "w:num"
+    wMaxBlk   <-  int <$> lookupValueDef (mkInt 262144)    "w:blk"
+    wStormMin <-  dbl <$> lookupValueDef (mkDouble 1.00)   "w:stormmin"
+    wStormMax <-  dbl <$> lookupValueDef (mkDouble 60.00)  "w:stormmax"
 
     runTest \TestEnv{..} -> do
       g <- liftIO $ MWC.createSystemRandom
@@ -275,6 +281,8 @@ ncq3EnduranceTest = do
 
       let n = headDef wNum [ fromIntegral x | LitIntVal x <- args ]
 
+      storms <- newTQueueIO
+
       rest   <- newTVarIO n
       blocks <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
       refs   <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double HashRef )
@@ -282,40 +290,6 @@ ncq3EnduranceTest = do
 
       let getRandomBlock = liftIO $ getRandomFromPSQ g blocks
       let getRandomRef = liftIO $ getRandomFromPSQ g refs
-
-      let d = makeDict do
-
-               entry $ bindMatch "ref-updated" $ nil_ \case
-                         [HashLike h, HashLike r] -> do
-
-                          w <- liftIO $ uniformRM (0,1.0) g
-
-                          atomically do
-                            modifyTVar refs (HPSQ.insert h w r)
-                            size <- readTVar refs <&> HPSQ.size
-                            when (size > 100000 ) do
-                              modifyTVar refs HPSQ.deleteMin
-
-                         _ -> none
-
-
-               entry $ bindMatch "block-written" $ nil_ \case
-                         [HashLike h, _] -> do
-
-                          w <- liftIO $ uniformRM (0,1.0) g
-
-                          atomically do
-                            modifyTVar blocks (HPSQ.insert h w ())
-                            size <- readTVar blocks <&> HPSQ.size
-                            when (size > 100000 ) do
-                              modifyTVar blocks HPSQ.deleteMin
-
-                         _ -> none
-
-
-      -- pI <- rublookupValue "endurance:idle"
-      --
-      debug $ red "pKill" <+> pretty wKill
 
       let actions = [ (EnduranceIdle,   wIdle)
                     , (EndurancePutBlk, wPutBlk)
@@ -326,40 +300,20 @@ ncq3EnduranceTest = do
                     , (EnduranceGetRef, wGetRef)
                     , (EnduranceDelRef, wDelRef)
                     , (EnduranceStorm,  wStorm)
-                    , (EnduranceKill,   wKill)
+                    , (EnduranceCalm,   wCalm)
                     ]
 
       let dist = buildCDF actions   -- ← подготовили один раз
 
-      let inner =  "test:ncq3:endurance:inner"
-      self <- liftIO getExecutablePath
-      let conf = proc self [ "debug on"
-                           , "and"
-                           , "test:ncq3:endurance:inner", testEnvDir
-                           ] & setStdin createPipe & setStdout createPipe
-
       fix \recover -> handle (\(e :: IOException) -> err (viaShow e) >> pause @'Seconds 1 >> recover) do
 
         flip runContT pure do
-          p <- startProcess conf -- ContT $ withProcessWait conf
-
-          storms <- newTQueueIO
-
-          let inp  = getStdin p
-          let outp = getStdout p
 
           let logFile = testEnvDir </> "op.log"
 
-          pread <- ContT $ withAsync $ fix \loop -> do
-            liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
-              Left e | isEOFError e -> none
-              Left e -> err (viaShow e)
-              Right s -> do
-                liftIO do
-                  appendFile logFile (s <> "\n")
-                  void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
-                  putStrLn s
-                loop
+          let
+            writeLog :: forall m1 . MonadIO m1 => Doc AnsiStyle -> m1 ()
+            writeLog mess = liftIO (appendFile logFile (show $ mess <> line))
 
           ContT $ withAsync $ forever do
             join $ atomically (readTQueue storms)
@@ -378,11 +332,6 @@ ncq3EnduranceTest = do
 
             pause @'Seconds 1
 
-          liftIO $ hSetBuffering inp  LineBuffering
-
-          pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
-          info $ "spawned" <+> pretty inner <+> viaShow pid
-
           let getNextState = sampleState g dist
 
           let defaultIdle = realToFrac wIdleDef :: Timeout 'Seconds
@@ -390,191 +339,118 @@ ncq3EnduranceTest = do
           idleTime  <- newTVarIO defaultIdle
           trelaxTill <- newTVarIO 0
 
+          sto <- ContT $ ncqWithStorage testEnvDir
+
           flip fix EnduranceIdle \loop -> \case
             EnduranceIdle -> do
               readTVarIO idleTime >>= pause
-
               r <- readTVarIO rest
-
-              if r <= 0 then do
-                loop EnduranceStop
-              else do
-                getNextState >>= loop
+              if r <= 0 then loop EnduranceStop else getNextState >>= loop
 
             EndurancePutBlk -> do
-              bsize <- liftIO $ uniformRM (1, 256*1024) g
-              liftIO $ IO.hPrint inp ("write-random-block" <+> viaShow bsize)
+              bsize <- liftIO $ uniformRM (1, wMaxBlk) g
+              bs <- LBS.fromStrict <$> liftIO (genRandomBS g bsize)
+              h <- liftIO $ putBlock sto bs `orDie` "can't write block"
+              let mess = "block-written" <+> pretty h <+> pretty (LBS.length bs)
+              addHashRef g blocks (coerce h) ()
+              debug mess
+              writeLog mess
               atomically $ modifyTVar rest pred
               getNextState >>= loop
 
             EnduranceDelBlk -> do
               blk <- getRandomBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("del-block" <+> pretty h)
+                liftIO $ delBlock sto (coerce h)
+                let mess = "block-deleted" <+> pretty h
+                debug mess
+                writeLog mess
 
               getNextState >>= loop
 
             EnduranceHasBlk -> do
               blk <- getRandomBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("has-block" <+> pretty h)
+                f <- lift $ hasBlock sto (coerce h)
+                let mess = "has-block-result" <+> pretty h <+> pretty f
+                debug mess
+                writeLog mess
 
               getNextState >>= loop
 
             EnduranceGetBlk -> do
               blk <- getRandomBlock
-              for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("get-block" <+> pretty h)
+              for_ blk $ \h ->  do
+                mbs <- lift $ getBlock sto (coerce h)
+
+                let mess = case mbs of
+                      Just bs -> "get-block-result" <+> pretty h <+> pretty (hashObject @HbSync bs)
+                      Nothing -> "get-block-result" <+> pretty h
+
+                debug mess
+                writeLog mess
+
               getNextState >>= loop
 
             EndurancePutRef -> do
               href <- liftIO (genRandomBS g 32) <&> HashRef . coerce
               blk  <- getRandomBlock
               for_ blk $ \val -> do
-                liftIO $ IO.hPrint inp ("set-ref" <+> pretty href <+> pretty val)
+                lift $ updateRef sto (RefAlias2 mempty href) (coerce val)
+                addHashRef g refs href (HashRef $ hashObject @HbSync val)
+                let mess = "ref-updated" <+> pretty href <+> pretty val
+                debug mess
+                writeLog mess
+
               atomically $ modifyTVar rest pred
               getNextState >>= loop
 
             EnduranceGetRef -> do
               e <- getRandomRef
-              for_ e $ \h ->
-                liftIO $ IO.hPrint inp ("get-ref" <+> pretty h)
+              for_ e $ \h -> do
+                what <- lift $ getRef sto (RefAlias2 mempty h)
+                let mess = "get-ref-result" <+> pretty h <+> pretty what
+                debug mess
+                writeLog mess
+
               getNextState >>= loop
 
             EnduranceDelRef -> do
               e <- getRandomRef
-              for_ e $ \h ->
-                liftIO $ IO.hPrint inp ("del-ref" <+> pretty h)
+              for_ e $ \h -> do
+                lift $ delRef sto (RefAlias2 mempty h)
+                let mess = "ref-deleted" <+> pretty h
+                debug mess
+                writeLog mess
+
               getNextState >>= loop
 
-            EnduranceKill -> do
-              debug $ red "KILL" <+> viaShow pid
-              cancel pread
-              hFlush inp
-              hClose outp
-              pause @'Seconds 0.1
-              void $ runProcess (proc "kill" ["-9", show pid])
-              notice $ red "Killed" <+> viaShow pid
-              atomically $ modifyTVar killed succ
-              lift recover
-
             EnduranceStop -> do
-              liftIO $ hClose inp
-              wait pread
-              stopProcess p
               notice $ green "done"
               notice $ "validate" <+> pretty logFile
               liftIO $ validateTestResult logFile
 
-            EnduranceStorm -> do
+            EnduranceCalm -> do
+              n <- liftIO $ uniformRM (0.5,10.00) g
+              debug $ "CALM" <+> pretty n
+              pause @'Seconds (realToFrac n)
+              getNextState >>= loop
 
+            EnduranceStorm -> do
               now <- getTimeCoarse
               relaxTill <- readTVarIO trelaxTill
-
               itn <- readTVarIO idleTime
-
-              if | itn < defaultIdle -> do
-                     loop EnduranceIdle
-
-                 | now < relaxTill -> do
-                    debug $ yellow "storm on cooldown"
-                    loop EnduranceIdle
-
+              if | itn < defaultIdle -> loop EnduranceIdle
+                 | now < relaxTill   -> loop EnduranceIdle
                  | otherwise -> do
-                    t0 <- liftIO $ uniformRM (0,10.00) g
+                    t0 <- liftIO $ uniformRM (wStormMin,wStormMax) g
                     debug $ red "FIRE IN DA HOLE!" <+> pretty t0
                     atomically $ writeTQueue storms do
                       atomically $ writeTVar idleTime 0
                       pause @'Seconds (realToFrac t0)
                       atomically $ writeTVar idleTime defaultIdle
                       t1 <- getTimeCoarse
-                      -- add 10 sec cooldown
                       atomically $ writeTVar trelaxTill (t1 + ceiling 10e9)
-
                     getNextState >>= loop
-
-testEnduranceInner :: forall c m . (MonadUnliftIO m, IsContext c, Exception (BadFormException c))
-                   => FilePath
-                   -> m ()
-
-testEnduranceInner path = flip runContT pure $ callCC \exit -> do
-
-  g <- liftIO $ MWC.createSystemRandom
-
-  debug $ red "storage path" <+> pretty path
-
-  hSetBuffering stdout LineBuffering
-
-  sto <- ContT $ ncqWithStorage path
-
-  forever $ callCC \again -> do
-
-     s' <- liftIO (try @_ @IOException getLine)
-            <&> fromRight "exit"
-            <&> parseTop >>= \case
-                  Left  e  -> err (viaShow e) >> again ()
-                  Right s  -> pure (fmap (fixContext @C @c) s)
-
-     lift (try @_ @SomeException (run @c (dict g sto) s')) >>= \case
-        Left e -> err (viaShow e)
-        Right (StringLike "done") -> exit ()
-        Right _ -> none
-
-  where
-    dict g sto = makeDict @c @m do
-
-      entry $ bindMatch "exit" $ const do
-        pure $ mkSym "done"
-
-      entry $ bindMatch "write-random-block" $ nil_ \case
-        [ LitIntVal n ] -> do
-          s <- liftIO $ genRandomBS g (fromIntegral n)
-          h <- putBlock (AnyStorage sto) (LBS.fromStrict s) >>= orThrowUser "block-not-written"
-          liftIO $ print $ "block-written" <+> pretty h <+> pretty (BS.length s)
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "has-block" $ nil_ \case
-        [ HashLike h ] -> do
-          s <- hasBlock (AnyStorage sto) (coerce h)
-          liftIO $ print $ "has-block-result" <+> pretty h <+> pretty s
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "get-block" $ nil_ \case
-        [ HashLike h ] -> do
-          s <- getBlock (AnyStorage sto) (coerce h)
-          let hx = fmap (hashObject @HbSync) s
-          liftIO $ print $ "get-block-result" <+> pretty h <+> pretty hx
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "del-block" $ nil_ \case
-        [ HashLike h ] -> do
-          delBlock (AnyStorage sto) (coerce h)
-          liftIO $ print $ "block-deleted" <+> pretty h
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "set-ref" $ nil_ \case
-        [ HashLike h, HashLike hdest ] -> lift do
-          updateRef (AnyStorage sto) (RefAlias2 mempty h) (coerce hdest)
-          liftIO $ print $ "ref-updated" <+> pretty h <+> pretty hdest
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "get-ref" $ nil_ \case
-        [ HashLike h ] -> lift do
-          what <- getRef (AnyStorage sto) (RefAlias2 mempty h)
-          liftIO $ print $ "get-ref-result" <+> pretty h <+> pretty what
-
-        e -> throwIO (BadFormException @c (mkList e))
-
-      entry $ bindMatch "del-ref" $ nil_ \case
-        [ HashLike h ] -> lift do
-          delRef (AnyStorage sto) (RefAlias2 mempty h)
-          liftIO $ print $ "ref-deleted" <+> pretty h
-
-        e -> throwIO (BadFormException @c (mkList e))
 
 

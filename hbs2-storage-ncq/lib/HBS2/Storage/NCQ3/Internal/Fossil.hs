@@ -39,7 +39,23 @@ ncqEntryUnwrapValue  v = case ncqIsMeta v of
   Nothing   -> Left v
 {-# INLINE ncqEntryUnwrapValue #-}
 
-
+-- FIXME: wrong-algoritm
+--
+--   контр-пример:
+--     индексируем два файла с глобальным индексом, одновременно
+--     (но после пробега) значение меняется в памяти и пишется индекс
+--     а потом мы пишем свой индекс -- и таким образом, менее актуальное
+--     значение всплывает наверх. гонка.
+--     При один файл = один индекс порядок был всегда однозначен.
+--     теперь же в один индекс попадают значения из разных файлов.
+--     а мы какой возьмем?
+--     возможно, кстати, timestamp(index) == max(timestamp(idx(a)), timestamp(idx(b)))
+--     так как мы: пишем в merged файл значения, отсутствующие в индексе (и памяти -- как нам
+--     кажется /т.к гонка/)
+--     единственное, что нам нужно -- что бы этот индекс
+--     получил таймстемп меньше, чем возможно актуальное значение. вопрос,
+--     как этого добиться
+--
 ncqFossilMergeStep :: forall m . MonadUnliftIO m
                => NCQStorage
                -> m Bool
@@ -66,7 +82,7 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
   outFile <- liftIO $ emptyTempFile p tpl
 
   ContT $ bracket none $ const do
-          rm outFile
+          removeFile outFile
 
   liftIO $ withBinaryFileAtomic outFile WriteMode $ \fwh -> do
     fd <- handleToFd fwh
@@ -102,7 +118,8 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
 
   let newFile = ncqGetFileName me f3
 
-  mv outFile newFile
+  debug $ "MOVED" <+> pretty outFile <+> pretty newFile
+  moveFile outFile newFile
 
   ss <- liftIO (PFS.getFileStatus newFile) <&> fromIntegral . PFS.fileSize
 
@@ -124,7 +141,7 @@ ncqFileFastCheck fp = do
 
   -- debug $ "ncqFileFastCheck" <+> pretty fp
 
-  mmaped <- liftIO $ mmapFileByteString fp Nothing
+  mmaped <- liftIO $ logErr "ncqFileFastCheck" ( mmapFileByteString fp Nothing)
   let size = BS.length mmaped
   let s = BS.drop (size - 8) mmaped & N.word64
 
@@ -136,7 +153,7 @@ ncqFileTryRecover fp = do
 
   debug $ yellow  "ncqFileTryRecover" <+> pretty fp
 
-  mmaped <- liftIO $ mmapFileByteString fp Nothing
+  mmaped <- liftIO $ logErr "ncqFileTryRecover" (mmapFileByteString fp Nothing)
 
   r <- flip runContT pure $ callCC \exit -> do
 

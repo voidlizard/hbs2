@@ -29,7 +29,7 @@ ncqStorageOpen fp upd = do
   let ncqRoot           = fp
   let ncqGen            = 0
   -- let ncqFsync          = 16 * megabytes
-  let ncqFsync          = 32   * megabytes
+  let ncqFsync          = 16   * megabytes
   let ncqWriteQLen      = 1024 * 4
   let ncqMinLog         = 512  * megabytes
   let ncqMaxLog         = 32   * gigabytes
@@ -123,6 +123,7 @@ ncqPutBlock0 sto lbs wait = do
     Nothing                -> Just <$> work
     Just l | ncqIsTomb l   -> Just <$> work
     _                      -> pure (Just ohash)
+    -- _                      ->  Just <$> work
   where
     bs =  LBS.toStrict lbs
     ohash = HashRef $ hashObject @HbSync bs
@@ -288,9 +289,9 @@ instance IsTomb Location where
 ncqGetEntryBS :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe ByteString)
 ncqGetEntryBS me = \case
   InMemory bs -> pure $ Just bs
-  InFossil fk off size -> do
+  InFossil fk off size -> ncqWithState me $ const do
     try @_ @SomeException (ncqGetCachedData me fk) >>= \case
-      Left{} -> pure Nothing
+      Left e -> err (viaShow e) >> pure Nothing
       Right (CachedData mmap) -> do
         pure $ Just $ BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmap
 

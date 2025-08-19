@@ -39,12 +39,12 @@ ncqSweepFiles me@NCQStorage{..} = withSem ncqServiceSem do
   for_ indexes $ \(_, k) -> unless (HS.member k live) do
     let fn = ncqGetFileName me (IndexFile k)
     debug $ yellow "REMOVING" <+> pretty (takeFileName fn)
-    rm fn
+    removeFile fn
 
   for_ fossils $ \(_, k) -> unless (HS.member k live) do
     let fn = ncqGetFileName me (DataFile k)
     debug $ yellow "REMOVING" <+> pretty (takeFileName fn)
-    rm fn
+    removeFile fn
 
 
 ncqSweepObsoleteStates :: forall m .  MonadUnliftIO m => NCQStorage -> m ()
@@ -61,7 +61,7 @@ ncqSweepObsoleteStates me@NCQStorage{..} = withSem ncqServiceSem do
 
             when (f /= k && t < ts) do
               debug $ yellow "TO REMOVE" <+> pretty (toFileName (StateFile f))
-              rm (ncqGetFileName me (StateFile f))
+              removeFile (ncqGetFileName me (StateFile f))
 
     case r of
       Left e  -> err ("SweepStates failed" <+> viaShow e)
