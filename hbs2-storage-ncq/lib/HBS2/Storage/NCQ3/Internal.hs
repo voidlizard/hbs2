@@ -282,7 +282,7 @@ instance IsTomb IndexEntry where
 
 instance IsTomb Location where
   ncqIsTomb = \case
-    InFossil _ _ s -> ncqIsTombEntrySize s
+    InFossil (FileLocation _ _ s) -> ncqIsTombEntrySize s
     InMemory bs ->  case ncqEntryUnwrap bs of
                         (_, Right (T, _)) -> True
                         _                 -> False
@@ -290,7 +290,7 @@ instance IsTomb Location where
 ncqGetEntryBS :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe ByteString)
 ncqGetEntryBS me = \case
   InMemory bs -> pure $ Just bs
-  InFossil fk off size -> ncqWithState me $ const do
+  InFossil (FileLocation fk off size) -> ncqWithState me $ const do
     try @_ @SomeException (ncqGetCachedData me fk) >>= \case
       Left e -> err (viaShow e) >> pure Nothing
       Right (CachedData mmap) -> do
@@ -298,7 +298,7 @@ ncqGetEntryBS me = \case
 
 ncqEntrySize :: forall a . Integral a => Location -> a
 ncqEntrySize = \case
-  InFossil _ _ size -> fromIntegral size
+  InFossil (FileLocation _ _ size) -> fromIntegral size
   InMemory bs       -> fromIntegral (BS.length bs)
 
 ncqDelEntry :: MonadUnliftIO m

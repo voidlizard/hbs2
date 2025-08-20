@@ -34,20 +34,29 @@ deriving stock instance Data (IndexFile FileKey)
 deriving stock instance Data (DataFile FileKey)
 deriving stock instance Data (StateFile FileKey)
 
+
+data FileLocation =
+  FileLocation
+  { flKey    :: !FileKey
+  , flOffset :: !NCQOffset
+  , flSize   :: !NCQSize
+  }
+  deriving stock (Eq,Ord)
+
+
+data Location =
+       InFossil {-# UNPACK #-} !FileLocation
+     | InMemory {-# UNPACK #-} !ByteString
+
 data  NCQEntry =
   NCQEntry
   { ncqEntryData   :: !ByteString
-  , ncqDumped      :: !(TVar (Maybe FileKey))
+  , ncqDumped      :: !(TVar (Maybe FileLocation))
   }
 
 type NCQOffset = Word64
 type NCQFileSize = NCQOffset
 type NCQSize   = Word32
-
-data Location =
-       InFossil {-# UNPACK #-} !FileKey !NCQOffset !NCQSize
-     | InMemory {-# UNPACK #-} !ByteString
-
 
 data Fact = P PData  -- pending, not indexed
   deriving stock (Eq,Ord,Data)
@@ -144,7 +153,7 @@ instance Semigroup NCQState where
 
 instance Pretty Location where
   pretty = \case
-    InFossil k  o s -> parens $ "in-fossil" <+> pretty k <+> pretty o <+> pretty s
+    InFossil (FileLocation k o s) -> parens $ "in-fossil" <+> pretty k <+> pretty o <+> pretty s
     InMemory _      -> "in-memory"
 
 ncqMakeFossilName :: FileKey -> FilePath

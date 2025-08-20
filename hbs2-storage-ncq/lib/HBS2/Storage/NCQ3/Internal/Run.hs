@@ -76,7 +76,7 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
       for_ ncqStateIndex $ \(_, fk) -> do
        CachedIndex bs nw <- lift $ ncqGetCachedIndex ncq fk
        lift (ncqLookupIndex h (bs, nw)) >>= \case
-        Just (IndexEntry fk o s) -> answer (Just (InFossil fk o s)) >> exit ()
+        Just (IndexEntry fk o s) -> answer (Just (InFossil (FileLocation fk o s))) >> exit ()
         Nothing -> none
 
       -- debug $ "NOT FOUND SHIT" <+> pretty h
@@ -196,8 +196,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
           ws <- for chu $ \h -> do
                   atomically (ncqLookupEntrySTM ncq h) >>= \case
                     Just (NCQEntry bs w)  -> do
-                      atomically (writeTVar w (Just fk))
-                      lift (appendSection fh bs)
+                      let off = fromIntegral total'
+                      n <- lift (appendSection fh bs)
+                      atomically (writeTVar w (Just (FileLocation fk off (fromIntegral n))))
+                      pure n
 
                     _ -> pure 0
 

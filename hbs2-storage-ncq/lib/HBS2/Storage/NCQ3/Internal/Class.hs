@@ -53,8 +53,8 @@ ncqStorageHasBlock :: MonadUnliftIO m
 ncqStorageHasBlock sto h = ncqLocate sto h >>= \case
     Nothing  -> pure Nothing
     Just (InMemory bs) -> blockSize bs
-    Just (InFossil _ _ size) | ncqIsTombEntrySize size -> pure Nothing
-    Just (InFossil _ _ size) -> do
+    Just (InFossil (FileLocation _ _ size)) | ncqIsTombEntrySize size -> pure Nothing
+    Just (InFossil (FileLocation _ _ size)) -> do
       pure $ Just (ncqEntryPayloadSize (fromIntegral size))
 
   where

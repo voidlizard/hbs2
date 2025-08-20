@@ -104,7 +104,7 @@ ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pu
         ncqLocate_ False me k >>= \case
           Nothing  -> pure False
           Just (InMemory{}) -> pure False
-          Just (InFossil fk oi si) -> do
+          Just (InFossil (FileLocation fk oi si)) -> do
             let beWritten = fk == fik && o == fromIntegral oi
 
             -- let c = if skip then green else id
