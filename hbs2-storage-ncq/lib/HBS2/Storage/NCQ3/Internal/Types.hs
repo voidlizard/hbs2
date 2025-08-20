@@ -43,20 +43,21 @@ data FileLocation =
   }
   deriving stock (Eq,Ord)
 
-
 data Location =
        InFossil {-# UNPACK #-} !FileLocation
      | InMemory {-# UNPACK #-} !ByteString
 
-data  NCQEntry =
-  NCQEntry
-  { ncqEntryData   :: !ByteString
-  , ncqDumped      :: !(TVar (Maybe FileLocation))
-  }
+newtype  NCQEntry = NCQEntry (TVar NCQEntryL)
+  -- NCQEntry
+  -- { ncqEntryData   :: !ByteString
+  -- , ncqDumped      :: !(TVar (Maybe FileLocation))
+  -- }
 
-type NCQOffset = Word64
+data NCQEntryL = EntryHere !ByteString | EntryThere !FileLocation
+
+type NCQOffset   = Word64
 type NCQFileSize = NCQOffset
-type NCQSize   = Word32
+type NCQSize     = Word32
 
 data Fact = P PData  -- pending, not indexed
   deriving stock (Eq,Ord,Data)
@@ -151,6 +152,9 @@ instance Semigroup NCQState where
       facts   = ncqStateFacts a <> ncqStateFacts b
 
 
+instance Pretty FileLocation where
+  pretty (FileLocation f o s) = parens ("file-location" <+> pretty f <+> pretty o <+> pretty s)
+
 instance Pretty Location where
   pretty = \case
     InFossil (FileLocation k o s) -> parens $ "in-fossil" <+> pretty k <+> pretty o <+> pretty s
@@ -216,9 +220,10 @@ ncqDeferredWriteOpSTM NCQStorage{..} work = do
     nw <- readTVar ncqWrites <&> (`mod` V.length ncqWriteOps)
     writeTQueue (ncqWriteOps ! nw) work
 
+{- HLINT Ignore "Eta reduction"-}
+
 logErr :: forall x a m . (Pretty x, MonadUnliftIO m) => x -> m a -> m a
 logErr loc m = handle (\(e::SomeException) -> err (pretty loc <> ":" <> viaShow e) >> throwIO e) m
-
 
 
 

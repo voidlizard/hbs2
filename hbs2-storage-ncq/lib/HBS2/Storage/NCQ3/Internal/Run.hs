@@ -67,7 +67,8 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
 
       atomically (ncqLookupEntrySTM ncq h) >>= \case
         Nothing  -> none
-        Just e -> answer (Just (InMemory (ncqEntryData e))) >> exit ()
+        Just (_, EntryHere bs)   -> answer (Just (InMemory bs)) >> exit ()
+        Just (_, EntryThere loc) -> answer (Just $ InFossil loc) >> exit ()
 
       ContT $ ncqWithState ncq
 
@@ -195,10 +196,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         Just (Right chu) -> do
           ws <- for chu $ \h -> do
                   atomically (ncqLookupEntrySTM ncq h) >>= \case
-                    Just (NCQEntry bs w)  -> do
-                      let off = fromIntegral total'
+                    Just (NCQEntry w, EntryHere bs)  -> do
+                      off <- fromIntegral <$> liftIO (fdSeek fh RelativeSeek 0)
                       n <- lift (appendSection fh bs)
-                      atomically (writeTVar w (Just (FileLocation fk off (fromIntegral n))))
+                      atomically (writeTVar w (EntryThere (FileLocation fk off (fromIntegral n))))
                       pure n
 
                     _ -> pure 0

@@ -18,9 +18,11 @@ ncqGetShard :: NCQStorage -> HashRef -> Shard
 ncqGetShard ncq@NCQStorage{..} h = ncqMemTable ! ncqShardIdx ncq h
 {-# INLINE ncqGetShard #-}
 
-
-ncqLookupEntrySTM :: NCQStorage -> HashRef -> STM (Maybe NCQEntry)
-ncqLookupEntrySTM ncq h = readTVar (ncqGetShard ncq h) <&> HM.lookup h
+ncqLookupEntrySTM :: NCQStorage -> HashRef -> STM (Maybe (NCQEntry, NCQEntryL))
+ncqLookupEntrySTM ncq h = readTVar (ncqGetShard ncq h)
+                             <&> HM.lookup h >>= \case
+                                   Nothing -> pure Nothing
+                                   Just e@(NCQEntry v)-> Just . (e,) <$> readTVar v
 
 ncqAlterEntrySTM :: NCQStorage
                  -> HashRef

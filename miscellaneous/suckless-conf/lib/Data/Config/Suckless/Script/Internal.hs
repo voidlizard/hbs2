@@ -1423,7 +1423,7 @@ internalEntries = do
     entry $ bindMatch "coalesce" $  \case
       [a] -> pure a
       [a,b] | isFalse b -> pure a
-      [a,_] -> pure a
+            | otherwise -> pure b
       _ -> pure nil
 
     entry $ bindAlias "nvl" "coalesce"

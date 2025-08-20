@@ -130,9 +130,13 @@ ncqIndexFile n ts' fk = runMaybeT do
 
   nwayHashScanAll nw bs $ \_ k _ -> do
     unless (k == emptyKey) $ atomically $ void $ runMaybeT do
-      NCQEntry _ tfk <- MaybeT $ ncqLookupEntrySTM n (coerce k)
-      fk' <- MaybeT $ readTVar tfk
-      guard (coerce fk == flKey fk') -- remove only own stuff
+      e <- MaybeT $ ncqLookupEntrySTM n (coerce k)
+
+      fk' <- MaybeT $ case snd e of
+                        EntryHere{}  -> pure Nothing
+                        EntryThere l -> pure $ Just (flKey l)
+
+      guard (coerce fk == fk') -- remove only own stuff
       lift $ ncqAlterEntrySTM n (coerce k) (const Nothing)
 
   pure dest

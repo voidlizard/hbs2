@@ -1,4 +1,5 @@
 {-# Language RecordWildCards #-}
+{-# Language MultiWayIf #-}
 module HBS2.Storage.NCQ3.Internal where
 
 import HBS2.Storage.NCQ3.Internal.Prelude
@@ -170,13 +171,19 @@ ncqPutBS0 wait ncq@NCQStorage{..} mtp mhref bs' = ncqOperation ncq (pure $ fromM
   let work = do
         let bs = ncqMakeSectionBS mtp h bs'
         let shard = ncqGetShard ncq h
-        zero <- newTVarIO Nothing
 
         atomically do
-          upd <- stateTVar shard $ flip HM.alterF h \case
-                   Nothing -> (True, Just (NCQEntry bs zero))
-                   Just e | ncqEntryData e /= bs  -> (True, Just (NCQEntry bs zero))
-                          | otherwise -> (False, Just e)
+          upd <- readTVar shard <&> HM.lookup h >>= \case
+            Nothing -> do
+              here <- newTVar (EntryHere bs)
+              modifyTVar shard (HM.insert h (NCQEntry here))
+              pure True
+
+            Just (NCQEntry e) -> readTVar e >>= \case
+              EntryHere bs'' |  bs == bs''-> pure False
+                             | otherwise -> writeTVar e (EntryHere bs) >> pure True
+
+              EntryThere{} -> writeTVar e (EntryHere bs) >> pure True
 
           when upd  do
             modifyTVar ncqWriteQ (|> h)
@@ -287,14 +294,28 @@ instance IsTomb Location where
                         (_, Right (T, _)) -> True
                         _                 -> False
 
+instance IsTomb FileLocation where
+  ncqIsTomb (FileLocation _ _ s) = ncqIsTombEntrySize s
+
 ncqGetEntryBS :: MonadUnliftIO m => NCQStorage -> Location -> m (Maybe ByteString)
 ncqGetEntryBS me = \case
   InMemory bs -> pure $ Just bs
-  InFossil (FileLocation fk off size) -> ncqWithState me $ const do
-    try @_ @SomeException (ncqGetCachedData me fk) >>= \case
-      Left e -> err (viaShow e) >> pure Nothing
-      Right (CachedData mmap) -> do
-        pure $ Just $ BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmap
+
+  InFossil l@(FileLocation fk off size) -> flip fix (0 :: Int) \next i -> do
+    ncqWithState me $ const do
+      try @_ @SomeException (ncqGetCachedData me fk) >>= \case
+        Left e -> err (viaShow e) >> pure Nothing
+        Right (CachedData mmap) -> do
+
+          if | BS.length mmap >= fromIntegral off + fromIntegral size -> do
+                 pure $ Just $ BS.take (fromIntegral size) $ BS.drop (fromIntegral off) mmap
+
+             | i < 1 -> do
+                atomically (ncqDelCachedDataSTM me fk) >> next (succ i)
+
+             | otherwise -> do
+                 err $ red "can't remap fossil" <+> pretty l
+                 pure Nothing
 
 ncqEntrySize :: forall a . Integral a => Location -> a
 ncqEntrySize = \case

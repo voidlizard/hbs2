@@ -440,7 +440,6 @@ ncq3Tests = do
 
   entry $ bindMatch "test:ncq3:concurrent1" $ nil_ $ \case
     [ LitIntVal tn, LitIntVal n ] -> do
-      debug $ "ncq2:concurrent1" <+> pretty tn <+> pretty n
       runTest $ testNCQ3Concurrent1 False ( fromIntegral tn) (fromIntegral n)
     e -> throwIO $ BadFormException @C (mkList e)
 
