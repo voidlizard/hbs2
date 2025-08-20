@@ -57,6 +57,7 @@ common shared-properties
         hbs2-core
       , hbs2-peer
       , hbs2-storage-simple
+      , hbs2-storage-ncq
       , hbs2-keyman-direct-lib
       , db-pipe
       , suckless-conf
@@ -124,6 +125,7 @@ library
       HBS2.CLI.Run.Sigil
 
       HBS2.CLI.Run.Help
+      HBS2.CLI.NCQ3.Migrate
 
     build-depends:    base
                     , magic

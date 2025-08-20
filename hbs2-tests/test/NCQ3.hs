@@ -864,6 +864,7 @@ ncq3Tests = do
   ncq3EnduranceTest
   ncq3EnduranceTestInProc
 
+
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool
          -> Int

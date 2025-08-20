@@ -16,6 +16,7 @@ import HBS2.CLI.Run.RefLog
 import HBS2.CLI.Run.RefChan
 import HBS2.CLI.Run.LWWRef
 import HBS2.CLI.Run.Mailbox
+import HBS2.CLI.NCQ3.Migrate
 
 import Data.Config.Suckless.Script.File as SF
 
@@ -37,6 +38,7 @@ setupLogger = do
   setLogging @ERROR  $ toStderr . logPrefix "[error] "
   setLogging @WARN   $ toStderr . logPrefix "[warn] "
   setLogging @NOTICE $ toStderr . logPrefix ""
+  setLogging @INFO   $ toStderr . logPrefix ""
   pure ()
 
 flushLoggers :: MonadIO m => m ()
@@ -79,6 +81,7 @@ main = do
         refchanEntries
         lwwRefEntries
         mailboxEntries
+        migrateEntries
         helpEntries
 
         SF.entries

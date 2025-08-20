@@ -215,6 +215,13 @@ ncqStorageScanDataFile :: MonadIO m
                        -> m ()
 ncqStorageScanDataFile ncq fp' action = do
   let fp = ncqGetFileName ncq fp'
+  ncqStorageScanDataFile0 fp action
+
+ncqStorageScanDataFile0 :: MonadIO m
+                        => FilePath
+                        -> ( Integer -> Integer -> HashRef -> ByteString -> m () )
+                        -> m ()
+ncqStorageScanDataFile0  fp action = do
   mmaped <- liftIO $ logErr "ncqStorageScanDataFile" (mmapFileByteString fp Nothing)
 
   flip runContT pure $ callCC \exit -> do
