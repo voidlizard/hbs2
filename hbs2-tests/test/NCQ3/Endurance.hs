@@ -18,6 +18,7 @@ import HBS2.Storage
 import HBS2.Storage.Simple
 import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.NCQ3
+import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Files
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.Fossil

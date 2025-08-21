@@ -31,7 +31,7 @@ import HBS2.Net.Proto.Notify
 import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
-import HBS2.Storage.NCQ
+import HBS2.Storage.NCQ3
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
@@ -155,46 +155,6 @@ defStorageThreads :: Integral a => a
 defStorageThreads = 8
 
 
-data PeerListenKey
-data PeerKeyFileKey
-data PeerStorageKey
-data PeerDebugKey
-data PeerTraceKey
-data PeerTrace1Key
-data PeerProxyFetchKey
-data PeerTcpSOCKS5
-data PeerDownloadThreadKey
-
-
-instance HasCfgKey PeerDebugKey a where
-  key = "debug"
-
-instance HasCfgKey PeerTraceKey a where
-  key = "trace"
-
-instance HasCfgKey PeerTrace1Key a where
-  key = "trace1"
-
-instance HasCfgKey PeerListenKey (Maybe String) where
-  key = "listen"
-
-instance HasCfgKey PeerKeyFileKey (Maybe String) where
-  key = "key"
-
-instance HasCfgKey PeerStorageKey (Maybe String) where
-  key = "storage"
-
-instance HasCfgKey PeerProxyFetchKey (Set String) where
-  key = "proxy-fetch-for"
-
--- NOTE: socks5-auth
---   Network.Simple.TCP does not support
---   SOCKS5 authentification
-instance HasCfgKey PeerTcpSOCKS5 (Maybe String) where
-  key = "tcp.socks5"
-
-instance HasCfgKey PeerDownloadThreadKey (Maybe Int) where
-  key = "download-threads"
 
 data PeerOpts =
   PeerOpts
@@ -825,7 +785,7 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   let pref = fromMaybe xdg (view storage opts <|> storConf)
 
-  let ncqPath = coerce pref </> "ncq"
+  let ncqPath = coerce pref </> "ncq3"
 
   debug $ "storage prefix:" <+> pretty ncqPath
 
@@ -864,7 +824,7 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   -- error "STOP"
 
-  s <- lift $ ncqStorageOpen ncqPath
+  s <- ContT $ ncqWithStorage ncqPath
 
   -- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
@@ -1435,6 +1395,7 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
   already <- Sy.doesDirectoryExist migration
 
   when (L.null blocks && not already) do
+    checkNCQ1
     exit ()
 
   let reason = if already then
@@ -1450,4 +1411,16 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
   liftIO exitFailure
 
 
+
+  where
+    checkNCQ1 = do
+      let ncq1Dir =  prefix </> "ncq"
+      ncq1Here <- Sy.doesDirectoryExist ncq1Dir
+      when ncq1Here do
+        notice $ yellow "found NCQv1 storage"
+        notice $ red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
+                 <> line
+                 <> "to migrate the storage to a new version"
+        notice $ "You may also: backup" <+> pretty ncq1Dir <+> "or move it or remove permanently"
+        liftIO exitFailure
 

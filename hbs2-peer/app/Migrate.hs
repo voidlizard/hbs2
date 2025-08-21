@@ -1,14 +1,25 @@
 module Migrate where
 
 import HBS2.Prelude.Plated
+import HBS2.Clock
 import HBS2.Misc.PrettyStuff
 import HBS2.Hash
 import HBS2.Data.Types.Refs
 import HBS2.OrDie
 import HBS2.Defaults
-import HBS2.Storage.NCQ
+import HBS2.Storage
+import HBS2.Storage.NCQ3
+import HBS2.Peer.Proto.RefLog
+import HBS2.Peer.Proto.RefChan
+import HBS2.Peer.Proto.LWWRef
+
+import HBS2.Net.Proto.Types
 import Log
 import PeerConfig
+import Brains
+
+import HBS2.Peer.NCQ3.Migrate.NCQ qualified as N
+import HBS2.Peer.NCQ3.Migrate.NCQ (WrapRef(..))
 
 import Data.Config.Suckless.Script hiding (optional)
 import Data.Config.Suckless.Script.File (glob)
@@ -26,262 +37,330 @@ import System.Exit
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Control.Exception
-import Control.Monad.Cont
+import Control.Monad.Trans.Cont
+import Control.Monad.Reader
 
 import UnliftIO
 -- import UnliftIO.Temporary
 
+import Streaming.Prelude qualified as S
+
 migrate :: [Syntax C]-> IO ()
 migrate syn = flip runContT pure $ callCC \exit -> do
 
-  xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
-
-
-  let (opts, argz) = splitOpts [ ("-n",0)
-                               , ("--dry",0)
-                               , ("--no-refs",0)
-                               , ("--help",0)
+  let (opts, argz) = splitOpts [ ("-c",1)
+                               -- , ("--dry",0)
+                               -- , ("--no-refs",0)
+                               -- , ("--help",0)
                                ] syn
 
-  prefix <- headMay [ p | StringLike p  <- argz ]
-            & orThrowUser ( "Storage dir not specified" <+> parens ("typically" <+> pretty xdg) <> line
-                            <> line
-                            <> "run hbs2-peer migrate"  <+> pretty xdg <> line
-                            <> "if this is it"
-                          )
+  -- FIXME: migrate-simple-storage!
+  --  KISS. just import block/remove block.
+  --  let the user backup it.
+  --
+  --
+  --
 
+  conf@(PeerConfig se)  <- peerConfigRead (headMay [p | ListVal [StringLike "-c", StringLike p] <- opts] )
 
-  let dry = or [ True | ListVal [StringLike s] <- opts, s `elem` ["--dry","-n"]]
+  brains <- newBasicBrains  conf
 
-  let norefs = or [ True | ListVal [StringLike "--no-refs"] <- opts ]
+  bProbe <- newSimpleProbe "Brains"
+  brainsThread <- ContT $ withAsync $ runBasicBrains conf brains
 
+  xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
+
+  let prefix = fromMaybe xdg $ runReader (cfgValue @PeerStorageKey @(Maybe FilePath)) se
 
   let store = prefix
 
-  let migrateDir = store </> "migrate"
   let ncqDir = store </> "ncq"
+  let ncqDirBackup = store </> ".ncq.backup"
+  let ncq3Dir = store </> "ncq3"
 
-  liftIO $ IO.hSetBuffering stdin  NoBuffering
-  liftIO $ IO.hSetBuffering stdout LineBuffering
+  ncqHere <- Sy.doesDirectoryExist ncqDir
 
-  already <- Sy.doesDirectoryExist migrateDir
+  unless ncqHere $ exit ()
 
-  when already do
-    liftIO $ hPutDoc stdout $ yellow "Found migration WIP" <+> pretty migrateDir <> "," <+> "continue" <> line
+  liftIO $ hPrint stderr $
+       "Migrate" <+> pretty ncqDir <> line
+       <> "you may remove" <+> pretty ncqDir
+       <+> "when migration successfully done"
+       <+> "or you may back  it up"  <> line
 
-  liftIO $ hPutDoc stdout $
-    yellow "Storage migration process is about to start" <> line
-     <> "It will convert the current storage structure to a new one (NCQ storage)" <> line
-     <> "to use with hbs2 0.25.2 and newer" <> line
-     <> "hbs2-peer 0.25.1 and earlier versions  don't work with the new storage." <> line
-     <> "If you want to backup your data first just for in case" <> line
-     <> "You may store the contents of directory" <> line
-     <> line
-     <> pretty prefix
-     <> line <> line
-     <> "specifically" <+> pretty (prefix </> "blocks") <+> "and" <+> pretty (prefix</> "refs")
-     <> line
-     <> "to roll back to the older version --- just restore them"
-     <> line
+  flip fix 10 \next i -> do
+    liftIO $ hPrint stderr $ pretty i <> "..."
+    pause @'Seconds 1
+    when (i > 0) $ next (pred i)
 
-  liftIO do
-    IO.hFlush stdout
-    IO.hFlush stderr
-    putStr  "Start the migration process? [y]: "
-    IO.hFlush stdout
+  notice "Go!"
 
-  y <- liftIO getChar
+  notice "Seek for polled references"
 
-  unless ( toUpper y == 'Y' ) $ exit ()
+  refs <- listPolledRefs @L4Proto brains Nothing
 
-  liftIO do
-    putStrLn ""
+  rrefs <- S.toList_ <$> for refs $ \(pk, s, _) -> case s of
+             "reflog"  -> S.yield (WrapRef $ RefLogKey @'HBS2Basic pk)
+             "refchan" -> S.yield (WrapRef $ RefChanLogKey @'HBS2Basic pk)
+             "lwwref"  -> S.yield (WrapRef $ LWWRefKey @'HBS2Basic pk)
+             _         -> none
 
-  info $ "migration started" <+> pretty opts
 
-  info $ "create dir" <+> pretty migrateDir
+  notice $ "got references" <+> vcat (pretty <$> rrefs)
 
-  mkdir migrateDir
+  lift $ N.migrateNCQ1 notice rrefs ncqDir ncq3Dir
 
-  wip <- Sy.doesDirectoryExist migrateDir
+  notice $ "move" <+> pretty ncqDir <+> pretty ncqDirBackup
+     <> line <> "you may remove it if you want"
 
-  source <- if dry && not wip then do
-              pure store
-            else do
-              info $ yellow "Real migration," <+> "fasten the sit belts!"
-              let srcDir = migrateDir </> "source"
-              mkdir srcDir
-              let inBlk = store </> "blocks"
-              let inRefs = store </> "refs"
+  mv ncqDir ncqDirBackup
 
-              e1 <- Sy.doesDirectoryExist inBlk
 
-              when e1 $ mv  inBlk  (srcDir </> "blocks")
+  -- let (opts, argz) = splitOpts [ ("-n",0)
+  --                              , ("--dry",0)
+  --                              , ("--no-refs",0)
+  --                              , ("--help",0)
+  --                              ] syn
 
-              e2 <- Sy.doesDirectoryExist inRefs
+  -- prefix <- headMay [ p | StringLike p  <- argz ]
+  --           & orThrowUser ( "Storage dir not specified" <+> parens ("typically" <+> pretty xdg) <> line
+  --                           <> line
+  --                           <> "run hbs2-peer migrate"  <+> pretty xdg <> line
+  --                           <> "if this is it"
+  --                         )
 
-              when e2 $ mv  inRefs (srcDir </> "refs")
 
-              pure srcDir
+  -- let dry = or [ True | ListVal [StringLike s] <- opts, s `elem` ["--dry","-n"]]
 
-  tmp <- ContT $ Temp.withTempDirectory migrateDir "run"
+  -- let norefs = or [ True | ListVal [StringLike "--no-refs"] <- opts ]
 
-  info $ "create dir" <+> pretty tmp
 
-  let blkz  = source </> "blocks"
-  let refz  = source </> "refs"
+  -- let store = prefix
 
-  let b = tmp </> "blocks"
-  let r = tmp </> "refs"
+  -- let migrateDir = store </> "migrate"
+  -- let ncqDir = store </> "ncq"
 
-  info $ "create directory links"
-  info $ pretty blkz <+> pretty b
-  liftIO $ createDirectoryLink blkz b
+  -- liftIO $ IO.hSetBuffering stdin  NoBuffering
+  -- liftIO $ IO.hSetBuffering stdout LineBuffering
 
-  info $ pretty refz <+> pretty r
-  liftIO $ createDirectoryLink refz r
+  -- already <- Sy.doesDirectoryExist migrateDir
 
-  ncq <- ContT $ withNCQ id ncqDir
+  -- when already do
+  --   liftIO $ hPutDoc stdout $ yellow "Found migration WIP" <+> pretty migrateDir <> "," <+> "continue" <> line
 
-  let nameToHash fn =
-        fromString @HashRef $ mconcat $ reverse $ take 2 $ reverse $ splitDirectories fn
+  -- liftIO $ hPutDoc stdout $
+  --   yellow "Storage migration process is about to start" <> line
+  --    <> "It will convert the current storage structure to a new one (NCQ storage)" <> line
+  --    <> "to use with hbs2 0.25.2 and newer" <> line
+  --    <> "hbs2-peer 0.25.1 and earlier versions  don't work with the new storage." <> line
+  --    <> "If you want to backup your data first just for in case" <> line
+  --    <> "You may store the contents of directory" <> line
+  --    <> line
+  --    <> pretty prefix
+  --    <> line <> line
+  --    <> "specifically" <+> pretty (prefix </> "blocks") <+> "and" <+> pretty (prefix</> "refs")
+  --    <> line
+  --    <> "to roll back to the older version --- just restore them"
+  --    <> line
 
-  let hashToPath ha = do
-        let (p,r) = splitAt 1 (show $ pretty ha)
-        p </> r
+  -- liftIO do
+  --   IO.hFlush stdout
+  --   IO.hFlush stderr
+  --   putStr  "Start the migration process? [y]: "
+  --   IO.hFlush stdout
 
-  checkQ <- newTQueueIO
-  checkN <- newTVarIO 0
+  -- y <- liftIO getChar
 
-  errors <- newTVarIO 0
+  -- unless ( toUpper y == 'Y' ) $ exit ()
 
-  rmp <- liftIO $ async $ fix \next -> do
-    atomically (readTQueue checkQ) >>= \case
-      Nothing -> none
-      Just what -> do
+  -- liftIO do
+  --   putStrLn ""
 
-        toWipe <- ncqLocate ncq what >>= \case
-          Just (InCurrent{})    -> do
-            atomically $ modifyTVar checkN pred
-            pure True
+  -- info $ "migration started" <+> pretty opts
 
-          Just (InFossil{})     -> do
-            atomically $ modifyTVar checkN pred
-            pure True
+  -- info $ "create dir" <+> pretty migrateDir
 
-          Just (InWriteQueue{}) -> do
-            atomically $ unGetTQueue checkQ (Just what)
-            pure False
+  -- mkdir migrateDir
 
-          Nothing               -> do
-            atomically $ modifyTVar errors succ
-            pure False
+  -- wip <- Sy.doesDirectoryExist migrateDir
 
-        when toWipe do
-          let path = b </> hashToPath what
-          info $ yellow "d" <+> pretty what
+  -- source <- if dry && not wip then do
+  --             pure store
+  --           else do
+  --             info $ yellow "Real migration," <+> "fasten the sit belts!"
+  --             let srcDir = migrateDir </> "source"
+  --             mkdir srcDir
+  --             let inBlk = store </> "blocks"
+  --             let inRefs = store </> "refs"
 
-          unless dry do
-            rm path
+  --             e1 <- Sy.doesDirectoryExist inBlk
 
-        next
+  --             when e1 $ mv  inBlk  (srcDir </> "blocks")
 
-  cnt <- newTVarIO 0
+  --             e2 <- Sy.doesDirectoryExist inRefs
 
-  glob ["**/*"] [] b $ \fn -> flip runContT pure $ callCC \next -> do
-    sz <- liftIO $ getFileSize fn
+  --             when e2 $ mv  inRefs (srcDir </> "refs")
 
-    when (sz >= 1024^3 ) do
-      err $ red "Block is too large; skipping" <+> pretty fn
-      next True
+  --             pure srcDir
 
-    when (sz >= 1024^2 ) do
-      warn $ yellow "Block is too large; but okay" <+> pretty fn
+  -- tmp <- ContT $ Temp.withTempDirectory migrateDir "run"
 
-    let hs = nameToHash fn
+  -- info $ "create dir" <+> pretty tmp
 
-    bs <- liftIO $ BS.copy <$> BS.readFile fn
-    let h = HashRef $ hashObject @HbSync bs
+  -- let blkz  = source </> "blocks"
+  -- let refz  = source </> "refs"
 
-    unless ( h == hs ) do
-      err $ red "Hash doesn't match content" <+> pretty fn
-      next True
+  -- let b = tmp </> "blocks"
+  -- let r = tmp </> "refs"
 
-    placed <- liftIO $ ncqStoragePutBlock ncq (LBS.fromStrict bs)
+  -- info $ "create directory links"
+  -- info $ pretty blkz <+> pretty b
+  -- liftIO $ createDirectoryLink blkz b
 
-    flush <- atomically do
-      n <- readTVar cnt
-      if n > 1000 then do
-        writeTVar cnt 0
-        pure True
-      else do
-        modifyTVar cnt succ
-        pure False
+  -- info $ pretty refz <+> pretty r
+  -- liftIO $ createDirectoryLink refz r
 
-    unless ( placed == Just hs ) do
-      err $ red "NCQ write error" <+> pretty fn
-      next True
+  -- ncq <- ContT $ withNCQ id ncqDir
 
-    when flush do
-      liftIO (ncqStorageFlush ncq)
+  -- let nameToHash fn =
+  --       fromString @HashRef $ mconcat $ reverse $ take 2 $ reverse $ splitDirectories fn
 
-    for_ placed $ \hx -> atomically do
-      writeTQueue checkQ (Just hx)
-      modifyTVar checkN succ
+  -- let hashToPath ha = do
+  --       let (p,r) = splitAt 1 (show $ pretty ha)
+  --       p </> r
 
-    info $ green "ok" <+> "B" <+> fill 44 (pretty placed) <+> pretty sz
+  -- checkQ <- newTQueueIO
+  -- checkN <- newTVarIO 0
 
-    pure True
+  -- errors <- newTVarIO 0
 
-  unless norefs do
-    glob ["**/*"] [] r $ \fn -> flip runContT pure $ callCC \next -> do
+  -- rmp <- liftIO $ async $ fix \next -> do
+  --   atomically (readTQueue checkQ) >>= \case
+  --     Nothing -> none
+  --     Just what -> do
 
-      let ref = nameToHash fn
+  --       toWipe <- ncqLocate ncq what >>= \case
+  --         Just (InCurrent{})    -> do
+  --           atomically $ modifyTVar checkN pred
+  --           pure True
 
-      ncqRef <- liftIO $ ncqStorageGetRef ncq ref
+  --         Just (InFossil{})     -> do
+  --           atomically $ modifyTVar checkN pred
+  --           pure True
 
-      when (isJust ncqRef) do
-        info $ yellow "keep" <+> "R" <+> pretty ref
-        next True
+  --         Just (InWriteQueue{}) -> do
+  --           atomically $ unGetTQueue checkQ (Just what)
+  --           pure False
 
-      refTo <- liftIO (readFile fn)
-                <&> coerce @_ @HashRef . fromString @(Hash HbSync)
+  --         Nothing               -> do
+  --           atomically $ modifyTVar errors succ
+  --           pure False
 
-      here <- liftIO (ncqLocate ncq refTo)
+  --       when toWipe do
+  --         let path = b </> hashToPath what
+  --         info $ yellow "d" <+> pretty what
 
-      if isJust here then         do
-        liftIO $ ncqStorageSetRef ncq ref refTo
-        info $ green "ok" <+> "R" <+> pretty ref <+> pretty refTo
-      else do
-        warn $ red "Missed block for ref" <+> pretty ref <+> pretty refTo
+  --         unless dry do
+  --           rm path
 
-      pure True
+  --       next
 
-  liftIO $ ncqIndexRightNow ncq
+  -- cnt <- newTVarIO 0
 
-  info $ "check migration / wait to complete"
+  -- glob ["**/*"] [] b $ \fn -> flip runContT pure $ callCC \next -> do
+  --   sz <- liftIO $ getFileSize fn
 
-  atomically $ writeTQueue checkQ Nothing
+  --   when (sz >= 1024^3 ) do
+  --     err $ red "Block is too large; skipping" <+> pretty fn
+  --     next True
 
-  wait rmp
+  --   when (sz >= 1024^2 ) do
+  --     warn $ yellow "Block is too large; but okay" <+> pretty fn
 
-  num <- readTVarIO checkN
+  --   let hs = nameToHash fn
 
-  when (num == 0) $ exit ()
+  --   bs <- liftIO $ BS.copy <$> BS.readFile fn
+  --   let h = HashRef $ hashObject @HbSync bs
 
-  ee <- readTVarIO errors
-  rest <- readTVarIO checkN
+  --   unless ( h == hs ) do
+  --     err $ red "Hash doesn't match content" <+> pretty fn
+  --     next True
 
-  liftIO $ hPutDoc stdout $ "errors" <+> pretty ee <+> "leftovers" <+> pretty rest
+  --   placed <- liftIO $ ncqStoragePutBlock ncq (LBS.fromStrict bs)
 
-  liftIO do
-    if ee == 0 && rest == 0 then do
+  --   flush <- atomically do
+  --     n <- readTVar cnt
+  --     if n > 1000 then do
+  --       writeTVar cnt 0
+  --       pure True
+  --     else do
+  --       modifyTVar cnt succ
+  --       pure False
 
-      unless dry do
-        rm migrateDir
+  --   unless ( placed == Just hs ) do
+  --     err $ red "NCQ write error" <+> pretty fn
+  --     next True
 
-      exitSuccess
+  --   when flush do
+  --     liftIO (ncqStorageFlush ncq)
 
-    else
-      exitFailure
+  --   for_ placed $ \hx -> atomically do
+  --     writeTQueue checkQ (Just hx)
+  --     modifyTVar checkN succ
+
+  --   info $ green "ok" <+> "B" <+> fill 44 (pretty placed) <+> pretty sz
+
+  --   pure True
+
+  -- unless norefs do
+  --   glob ["**/*"] [] r $ \fn -> flip runContT pure $ callCC \next -> do
+
+  --     let ref = nameToHash fn
+
+  --     ncqRef <- liftIO $ ncqStorageGetRef ncq ref
+
+  --     when (isJust ncqRef) do
+  --       info $ yellow "keep" <+> "R" <+> pretty ref
+  --       next True
+
+  --     refTo <- liftIO (readFile fn)
+  --               <&> coerce @_ @HashRef . fromString @(Hash HbSync)
+
+  --     here <- liftIO (ncqLocate ncq refTo)
+
+  --     if isJust here then         do
+  --       liftIO $ ncqStorageSetRef ncq ref refTo
+  --       info $ green "ok" <+> "R" <+> pretty ref <+> pretty refTo
+  --     else do
+  --       warn $ red "Missed block for ref" <+> pretty ref <+> pretty refTo
+
+  --     pure True
+
+  -- liftIO $ ncqIndexRightNow ncq
+
+  -- info $ "check migration / wait to complete"
+
+  -- atomically $ writeTQueue checkQ Nothing
+
+  -- wait rmp
+
+  -- num <- readTVarIO checkN
+
+  -- when (num == 0) $ exit ()
+
+  -- ee <- readTVarIO errors
+  -- rest <- readTVarIO checkN
+
+  -- liftIO $ hPutDoc stdout $ "errors" <+> pretty ee <+> "leftovers" <+> pretty rest
+
+  -- liftIO do
+  --   if ee == 0 && rest == 0 then do
+
+  --     unless dry do
+  --       rm migrateDir
+
+  --     exitSuccess
+
+  --   else
+  --     exitFailure
 

@@ -39,6 +39,49 @@ data PeerTcpProbeWaitKey
 data PeerUseHttpDownload
 data PeerBrainsDBPath
 
+data PeerListenKey
+data PeerKeyFileKey
+data PeerStorageKey
+data PeerDebugKey
+data PeerTraceKey
+data PeerTrace1Key
+data PeerProxyFetchKey
+data PeerTcpSOCKS5
+data PeerDownloadThreadKey
+
+
+instance HasCfgKey PeerDebugKey a where
+  key = "debug"
+
+instance HasCfgKey PeerTraceKey a where
+  key = "trace"
+
+instance HasCfgKey PeerTrace1Key a where
+  key = "trace1"
+
+instance HasCfgKey PeerListenKey (Maybe String) where
+  key = "listen"
+
+instance HasCfgKey PeerKeyFileKey (Maybe String) where
+  key = "key"
+
+instance HasCfgKey PeerStorageKey (Maybe String) where
+  key = "storage"
+
+instance HasCfgKey PeerProxyFetchKey (Set String) where
+  key = "proxy-fetch-for"
+
+-- NOTE: socks5-auth
+--   Network.Simple.TCP does not support
+--   SOCKS5 authentification
+instance HasCfgKey PeerTcpSOCKS5 (Maybe String) where
+  key = "tcp.socks5"
+
+instance HasCfgKey PeerDownloadThreadKey (Maybe Int) where
+  key = "download-threads"
+
+
+
 newtype PeerHttpPort = PeerHttpPort (Maybe Integer)
                        deriving newtype (Pretty)
 
