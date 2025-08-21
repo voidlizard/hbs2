@@ -204,7 +204,7 @@ ncqTryLoadState :: forall m. MonadUnliftIO m
                 => NCQStorage
                 -> m ()
 
-ncqTryLoadState me@NCQStorage{..} = do
+ncqTryLoadState me@NCQStorage{..} = withSem ncqServiceSem do
 
   stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
 

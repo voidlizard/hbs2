@@ -31,8 +31,8 @@ import HBS2.Net.Proto.Notify
 import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
--- import HBS2.Storage.NCQ3
-import HBS2.Storage.NCQ
+import HBS2.Storage.NCQ3
+-- import HBS2.Storage.NCQ
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
@@ -822,13 +822,13 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   -- error "STOP"
 
-  -- let ncqPath = coerce pref </> "ncq3"
-  let ncqPath = coerce pref </> "ncq"
+  let ncqPath = coerce pref </> "ncq3"
+  -- let ncqPath = coerce pref </> "ncq"
 
   debug $ "storage prefix:" <+> pretty ncqPath
 
   -- s <- ContT $ ncqWithStorage ncqPath
-  s <- lift $ ncqStorageOpen ncqPath
+  s <- lift $ ncqStorageOpen ncqPath id
 
   -- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
@@ -1380,7 +1380,7 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
                                , monkeys
                                ]
 
-  -- liftIO $ ncqStorageStop s
+  liftIO $ ncqStorageStop s
   pause @'Seconds 1
 
   -- we want to clean up all resources
@@ -1399,7 +1399,7 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
   already <- Sy.doesDirectoryExist migration
 
   when (L.null blocks && not already) do
-    -- checkNCQ1
+    checkNCQ1
     exit ()
 
   let reason = if already then
@@ -1417,14 +1417,15 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
 
 
   where
-    -- checkNCQ1 = do
-    --   let ncq1Dir =  prefix </> "ncq"
-    --   ncq1Here <- Sy.doesDirectoryExist ncq1Dir
-    --   when ncq1Here do
-    --     notice $ yellow "found NCQv1 storage"
-    --     notice $ red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
-    --              <> line
-    --              <> "to migrate the storage to a new version"
-    --     notice $ "You may also: backup" <+> pretty ncq1Dir <+> "or move it or remove permanently"
-    --     liftIO exitFailure
+    checkNCQ1 :: ContT () m ()
+    checkNCQ1 = do
+      let ncq1Dir =  prefix </> "ncq"
+      ncq1Here <- Sy.doesDirectoryExist ncq1Dir
+      when ncq1Here do
+        notice $ yellow "found NCQv1 storage"
+        notice $ red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
+                 <> line
+                 <> "to migrate the storage to a new version"
+        notice $ "You may also: backup" <+> pretty ncq1Dir <+> "or move it or remove permanently"
+        liftIO exitFailure
 

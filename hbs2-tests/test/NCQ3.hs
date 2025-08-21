@@ -331,6 +331,12 @@ ncq3Tests = do
 
       race (pause @'Seconds (realToFrac seconds) >> ncqStorageStop sto) $ forever do
         n <- liftIO  $ uniformRM (1, 256*1024) g
+
+        p <- liftIO  $ uniformRM (0.00, 1.00) g
+
+        when (p < 0.11 ) do
+          none
+
         s <- liftIO $ genRandomBS g n
         h <- ncqPutBS sto (Just B) Nothing s
         liftIO $ appendFile writtenLog (show (pretty h <+> pretty n <> line))
@@ -347,97 +353,97 @@ ncq3Tests = do
 
     self <- liftIO getExecutablePath
 
-    flip runContT pure do
+    replicateM_ 5 do
 
-      p <- liftIO $ uniformM @Word32 g
+      flip runContT pure do
 
-      let path = path0 </> show p
+        let path = path0
 
-      p <- ContT $ withProcessWait (proc self ["debug off"
-                                              , "and"
-                                              , "test:ncq3:long-write", show (pretty seconds), path
-                                              ])
+        p <- ContT $ withProcessWait (proc self ["debug off"
+                                                , "and"
+                                                , "test:ncq3:long-write", show (pretty seconds), path
+                                                ])
 
-      pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
+        pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
 
-      delta <- liftIO $ uniformRM (0.25, s + 0.10) g
+        delta <- liftIO $ uniformRM (0.25, s + 0.10) g
 
-      notice $ "Run" <+> "test:ncq3:long-write"
-              <+> green "pid" <+> viaShow pid
-              <+> pretty testEnvDir
-              <+> pretty (sec2 s)
+        notice $ "Run" <+> "test:ncq3:long-write"
+                <+> green "pid" <+> viaShow pid
+                <+> pretty testEnvDir
+                <+> pretty (sec2 s)
 
-      pause @'Seconds (realToFrac delta)
+        pause @'Seconds (realToFrac delta)
 
-      void $ runProcess (proc "kill" ["-9", show pid])
+        void $ runProcess (proc "kill" ["-9", show pid])
 
-      notice $ "Killed" <+> viaShow pid <+> pretty testEnvDir <+> "at" <+> pretty (sec2 delta)
+        notice $ "Killed" <+> viaShow pid <+> pretty testEnvDir <+> "at" <+> pretty (sec2 delta)
 
-      pause @'Seconds 2
+        pause @'Seconds 2
 
-      lift $ ncqWithStorage path $ \sto@NCQStorage{..} -> do
-        let log = ncqGetFileName sto "written.log"
-        hashes <- liftIO (readFile log) <&> fmap words . lines
+        lift $ ncqWithStorage path $ \sto@NCQStorage{..} -> do
+          let log = ncqGetFileName sto "written.log"
+          hashes <- liftIO (readFile log) <&> fmap words . lines
 
-        found       <- newTVarIO 0
-        foundBytes  <- newTVarIO 0
-        missedN     <- newTVarIO 0
-        missedBytes <- newTVarIO 0
+          found       <- newTVarIO 0
+          foundBytes  <- newTVarIO 0
+          missedN     <- newTVarIO 0
+          missedBytes <- newTVarIO 0
 
-        for_ hashes $ \case
-          [hs, slen] -> do
+          for_ hashes $ \case
+            [hs, slen] -> do
 
-            let h = fromString hs
-            let s = read slen :: Int
+              let h = fromString hs
+              let s = read slen :: Int
 
-            what <- ncqLocate sto h >>= mapM (ncqGetEntryBS sto) <&> join
+              what <- ncqLocate sto h >>= mapM (ncqGetEntryBS sto) <&> join
 
-            case what of
-              Just bs  -> do
+              case what of
+                Just bs  -> do
 
-                ok <- case ncqEntryUnwrap bs of
-                           (_, Left{}) -> pure False
+                  ok <- case ncqEntryUnwrap bs of
+                             (_, Left{}) -> pure False
 
-                           (k, Right (B, bss)) -> do
-                             let good = HashRef (hashObject @HbSync bss) == h
-                             -- debug $ "WTF?" <+> pretty (coerce @_ @HashRef k)
-                             --                 <+> pretty good
-                             --                 <+> pretty s
-                             --                 <+> pretty (BS.length bss)
-                             pure good
+                             (k, Right (B, bss)) -> do
+                               let good = HashRef (hashObject @HbSync bss) == h
+                               -- debug $ "WTF?" <+> pretty (coerce @_ @HashRef k)
+                               --                 <+> pretty good
+                               --                 <+> pretty s
+                               --                 <+> pretty (BS.length bss)
+                               pure good
 
-                           (_,Right (_, s)) -> pure True
+                             (_,Right (_, s)) -> pure True
 
-                if ok then do
+                  if ok then do
 
-                  atomically do
-                    modifyTVar found succ
-                    modifyTVar foundBytes (+s)
-                else do
+                    atomically do
+                      modifyTVar found succ
+                      modifyTVar foundBytes (+s)
+                  else do
+                    atomically do
+                      modifyTVar missedN succ
+                      modifyTVar missedBytes (+s)
+                    -- err $ red "Entry corrupted!"
+
+                Nothing -> do
                   atomically do
                     modifyTVar missedN succ
                     modifyTVar missedBytes (+s)
-                  -- err $ red "Entry corrupted!"
-
-              Nothing -> do
-                atomically do
-                  modifyTVar missedN succ
-                  modifyTVar missedBytes (+s)
 
 
-          _ -> error "invalid record"
+            _ -> error "invalid record"
 
-        f  <- readTVarIO found
-        fb <- readTVarIO foundBytes
-        mb <- readTVarIO missedBytes
-        mn <- readTVarIO missedN
+          f  <- readTVarIO found
+          fb <- readTVarIO foundBytes
+          mb <- readTVarIO missedBytes
+          mn <- readTVarIO missedN
 
-        let okay = if mb <= ncqFsync then green "OK" else red "FAIL"
+          let okay = if mb <= ncqFsync then green "OK" else red "FAIL"
 
-        notice $ okay <+> "(found/lost)"
-              <+> pretty f <+> pretty fb <+>
-              "/"
-              <+> pretty mn <+> pretty mb
+          notice $ okay <+> "(found/lost)"
+                <+> pretty f <+> pretty fb <+>
+                "/"
+                <+> pretty mn <+> pretty mb
 
   entry $ bindMatch "test:ncq3:concurrent1" $ nil_ $ \case
     [ LitIntVal tn, LitIntVal n ] -> do

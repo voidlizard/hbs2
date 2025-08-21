@@ -77,6 +77,10 @@ import Streaming.Prelude qualified as S
 
 {-HLINT ignore "Functor law"-}
 
+data AbortException = AbortException
+                      deriving stock (Show, Typeable)
+
+instance Exception AbortException
 
 data EnduranceFSM =
     EnduranceIdle
@@ -89,6 +93,7 @@ data EnduranceFSM =
   | EnduranceDelRef
   | EnduranceStorm
   | EnduranceCalm
+  | EnduranceAbort
   | EnduranceStop
 
 buildCDF :: [(s, Double)] -> (V.Vector s, U.Vector Double)
@@ -274,6 +279,7 @@ ncq3EnduranceTestInProc = do
     wMaxBlk   <-  int <$> lookupValueDef (mkInt 262144)    "w:blk"
     wStormMin <-  dbl <$> lookupValueDef (mkDouble 1.00)   "w:stormmin"
     wStormMax <-  dbl <$> lookupValueDef (mkDouble 60.00)  "w:stormmax"
+    wAbort    <-  dbl <$> lookupValueDef (mkDouble 0.001)  "w:abort"
 
     runTest \TestEnv{..} -> do
       g <- liftIO $ MWC.createSystemRandom
@@ -302,11 +308,12 @@ ncq3EnduranceTestInProc = do
                     , (EnduranceDelRef, wDelRef)
                     , (EnduranceStorm,  wStorm)
                     , (EnduranceCalm,   wCalm)
+                    , (EnduranceAbort,  wAbort)
                     ]
 
       let dist = buildCDF actions   -- ← подготовили один раз
 
-      fix \recover -> handle (\(e :: IOException) -> err (viaShow e) >> pause @'Seconds 1 >> recover) do
+      fix \recover -> handleAny (\e -> err (viaShow e) >> pause @'Seconds 1 >> recover) do
 
         flip runContT pure do
 
@@ -436,6 +443,11 @@ ncq3EnduranceTestInProc = do
               debug $ "CALM" <+> pretty n
               pause @'Seconds (realToFrac n)
               getNextState >>= loop
+
+            EnduranceAbort -> do
+              debug $ red "EnduranceAbort"
+              pause @'Seconds 0.01
+              throwIO AbortException
 
             EnduranceStorm -> do
               now <- getTimeCoarse

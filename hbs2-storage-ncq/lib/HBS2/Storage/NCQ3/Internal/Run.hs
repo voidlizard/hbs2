@@ -86,7 +86,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       -- debug $ "NOT FOUND SHIT" <+> pretty h
       answer Nothing >> exit ()
 
-  spawnActivity measureWPS
+  -- spawnActivity measureWPS
 
   spawnActivity (ncqStateUpdateLoop ncq)
 
@@ -113,7 +113,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
         ncqSweepFiles ncq
         next lsB
 
-  spawnActivity $ postponed 10 $ compactLoop 10 30 do
+  spawnActivity $ postponed 20 $ compactLoop 10 30 do
     ncqIndexCompactStep ncq
 
   spawnActivity $ postponed 20 $ compactLoop 10 60 do
@@ -234,6 +234,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       link a
       pure a
 
+    measureWPS :: m ()
     measureWPS = void $ flip fix Nothing \loop -> \case
       Nothing      -> do
         w <- readTVarIO ncqWrites
