@@ -32,11 +32,14 @@ ncqStorageStop NCQStorage{..} = do
 ncqStorageRun :: forall m . MonadUnliftIO m
                => NCQStorage
                -> m ()
-ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
+ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
   ContT $ bracket setAlive (const unsetAlive)
 
   ContT $ bracket none $ const $ liftIO do
     readTVarIO ncqFileLock >>= mapM_  FL.unlockFile
+
+  ContT $ bracket none $ const $ liftIO do
+    debug "storage done"
 
   closeQ <- liftIO newTQueueIO
 

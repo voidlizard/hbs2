@@ -67,6 +67,7 @@ ncqStorageOpen fp upd = do
   ncqStateKey       <- newTVarIO (FileKey maxBound)
   ncqStateUse       <- newTVarIO mempty
   ncqServiceSem     <- atomically $ newTSem 1
+  ncqRunSem         <- atomically $ newTSem 1
   ncqFileLock       <- newTVarIO Nothing
   ncqCurrentFossils <- newTVarIO mempty
 

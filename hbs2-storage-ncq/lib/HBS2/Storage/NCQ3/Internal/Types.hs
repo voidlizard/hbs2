@@ -116,6 +116,7 @@ data NCQStorage =
   , ncqOnRunWriteIdle :: TVar (IO ())
   , ncqSyncNo         :: TVar Int
   , ncqServiceSem     :: TSem
+  , ncqRunSem         :: TSem
   , ncqFileLock       :: TVar (Maybe FileLock)
   }
 
