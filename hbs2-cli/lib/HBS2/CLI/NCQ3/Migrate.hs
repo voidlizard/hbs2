@@ -33,6 +33,8 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
+import Data.HashMap.Strict (HashMap)
 import Data.Either
 import Data.List qualified as L
 import System.Directory (getModificationTime)
@@ -42,7 +44,13 @@ import Streaming.Prelude qualified as S
 
 {- HLINT ignore "Functor law"-}
 
-data SomeRef = forall a . (Hashed HbSync a, Pretty a, RefMetaData a) => SomeRef a
+data SomeRef = forall a . ( Eq a
+                          , Hashable a
+                          , Hashed HbSync a
+                          , Pretty a
+                          , RefMetaData a
+                          )
+             => SomeRef a
 
 instance RefMetaData SomeRef where
   refMetaData (SomeRef a) = refMetaData a
@@ -76,14 +84,7 @@ migrateEntries = do
 
         sto <- getStorage
 
-        let a0 = src </> "0"
-        a0here <- doesPathExist a0
 
-        let a = if a0here then a0 else src
-
-        ncqSalt <- liftIO (try @_ @IOException (BS.readFile (a </> ".seed")))
-                     <&> fromRight mempty
-                     <&> HashRef . hashObject
 
         api <- getClientAPI @PeerAPI  @UNIX
 
@@ -96,7 +97,7 @@ migrateEntries = do
                    "lwwref"  -> S.yield (SomeRef $ LWWRefKey @'HBS2Basic pk)
                    _         -> none
 
-        lift $ migrateNCQ1 nicelog sto rrefs a dst
+        lift $ migrateNCQ1 nicelog rrefs src dst
 
        e -> throwIO $ BadFormException (mkList e)
 
@@ -105,13 +106,17 @@ nicelog doc = liftIO $ hPutDoc stdout (doc <> line)
 
 migrateNCQ1 :: MonadUnliftIO m
             => ( Doc AnsiStyle -> IO () )
-            -> AnyStorage
             -> [SomeRef]
             -> FilePath
             -> FilePath
             -> m ()
-migrateNCQ1 logger origSto refs a b = flip runContT pure do
+migrateNCQ1 logger refs src b = flip runContT pure do
   debug "migrate NCQ to NCQ3"
+
+  let a0 = src </> "0"
+  a0here <- doesPathExist a0
+
+  let a = if a0here then a0 else src
 
   ncq <- ContT $ ncqWithStorage b
 
@@ -119,16 +124,27 @@ migrateNCQ1 logger origSto refs a b = flip runContT pure do
 
   let mlog = ncqGetFileName ncq "migrate-ncq1.log"
 
-  debug $ "set SOURCE dir" <+> pretty a
+  info $ "set SOURCE dir" <+> pretty a
+
+  ncqSalt <- liftIO (try @_ @IOException (BS.readFile (src </> ".seed")))
+               <&> fromRight mempty
+               <&> HashRef . hashObject
+
+  notice $ "ref. salt" <+> pretty ncqSalt
 
   files <- do
     fs <- dirFiles a <&> L.filter (\x -> takeExtension x == ".data")
     mtimes <- liftIO $ mapM getModificationTime fs
-    pure [ f | (f,_) <- L.sortOn (Down . snd) (zip fs mtimes) ]
+    pure [ f | (f,_) <- L.sortOn snd (zip fs mtimes) ]
 
   touch mlog
 
   processed <- HS.fromList . lines <$> liftIO (readFile mlog)
+
+  let refz = HM.fromList [ (legacyHashRefFor ncqSalt r, SomeRef r) | SomeRef r <- refs ]
+
+  rv <- newTVarIO ( mempty :: HashMap HashRef (SomeRef, HashRef) )
+  nblk <- newTVarIO 0
 
   for_ files $ \f -> void $ runMaybeT do
 
@@ -142,24 +158,36 @@ migrateNCQ1 logger origSto refs a b = flip runContT pure do
       case t of
         B -> do
           h1 <- putBlock sto (LBS.fromStrict bs)
-          let okay = if Just key == (HashRef <$> h1) then green "ok" else red "fail"
-          liftIO $ logger $ okay <+> pretty t <+> pretty key <+> pretty offset <+> pretty (BS.length bs)
+          atomically $ modifyTVar nblk succ
 
         R -> do
-          debug $ "ommiting reference yet" <+> pretty key
+          case HM.lookup key refz of
+            Nothing -> none
+            Just r -> do
+              atomically $ modifyTVar rv (HM.insert (HashRef $ hashObject r) (r, HashRef (coerce bs)))
 
         _ -> none
 
 
     liftIO $ appendFile mlog (f <> "\n")
 
-  for_ refs $ \(SomeRef r) -> void $ runMaybeT do
-    v  <- getRef origSto r >>= toMPlus
-    v0 <- hasBlock origSto v
-    v1 <- hasBlock sto v
-    updateRef sto r v
-    v3 <- getRef sto r
-    let okay = if v3  == Just v then green "ok" else red "fail"
-    liftIO $ logger $ okay <+> "update ref" <+> pretty r <+> pretty v <+> pretty v1 <+> parens (pretty v0)
+  nb <- readTVarIO nblk
+  liftIO $ logger $ "moved" <+> pretty nb <+> "blocks"
+
+  foundRefs <- readTVarIO rv <&> HM.toList
+  for_ foundRefs $ \(_, (r, v)) -> do
+    blk <- hasBlock sto (coerce v)
+    when (isJust blk) do
+      liftIO $ logger $ green "update ref" <+> pretty r <+> pretty v
+      updateRef sto r (coerce v)
+
+  -- for_ refs $ \(SomeRef r) -> void $ runMaybeT do
+  --   v  <- getRef origSto r >>= toMPlus
+  --   v0 <- hasBlock origSto v
+  --   v1 <- hasBlock sto v
+  --   updateRef sto r v
+  --   v3 <- getRef sto r
+  --   let okay = if v3  == Just v then green "ok" else red "fail"
+  --   liftIO $ logger $ okay <+> "update ref" <+> pretty r <+> pretty v <+> pretty v1 <+> parens (pretty v0)
 
 
