@@ -92,9 +92,9 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
     ema <- readTVarIO ncqWriteEMA
     debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
 
-  spawnActivity $ postponed 60 $ forever do
+  spawnActivity $ postponed 30 $ forever do
     lsInit <- ncqLiveKeys ncq <&> HS.size
-    void $ race (pause @'Seconds 60) do
+    void $ race (pause @'Seconds 30) do
       flip fix lsInit $ \next ls0 -> do
         (lsA,lsB) <- atomically do
           ema <- readTVar ncqWriteEMA
@@ -110,10 +110,10 @@ ncqStorageRun ncq@NCQStorage{..} = flip runContT pure do
         ncqSweepFiles ncq
         next lsB
 
-  spawnActivity $ postponed 10 $ compactLoop 10 60 do
+  spawnActivity $ postponed 10 $ compactLoop 10 30 do
     ncqIndexCompactStep ncq
 
-  spawnActivity $ postponed 20 $ compactLoop 10 120 do
+  spawnActivity $ postponed 20 $ compactLoop 10 60 do
     ncqFossilMergeStep ncq
 
   flip fix RunNew $ \loop -> \case
