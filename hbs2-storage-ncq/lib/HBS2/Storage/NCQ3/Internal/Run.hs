@@ -36,6 +36,18 @@ ncqStorageStop NCQStorage{..} = do
   atomically $ writeTVar ncqStopReq True
 
 
+ncqRemoveGarbage :: forall m. MonadIO m
+                => NCQStorage
+                -> m ()
+
+ncqRemoveGarbage me = do
+  let wd = ncqGetWorkDir me
+  let garb x = List.isSuffixOf ".part" x
+                || List.isSuffixOf ".cq$" x
+                || List.isSuffixOf ".merge" x
+
+  dirFiles wd <&> filter garb >>= mapM_ rm
+
 ncqTryLoadState :: forall m. MonadUnliftIO m
                 => NCQStorage
                 -> m ()
@@ -155,6 +167,8 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
   ContT $ bracket none $ const $ liftIO do
     debug "storage done"
+
+  ncqRemoveGarbage ncq
 
   liftIO (ncqTryLoadState ncq)
 

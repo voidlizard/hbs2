@@ -163,7 +163,7 @@ validateTestResult logFile = do
 
         entry $ bindMatch "has-seed-block-result" $ nil_ \case
           [ HashLike _, LitIntVal _ ] -> none
-          [ HashLike h]  -> err $ red "missed seed block" <+> pretty h
+          [ HashLike h]  -> err $ red "missed seed block (2)" <+> pretty h
           _ -> none
 
         -- has-block-result
@@ -374,32 +374,29 @@ ncq3EnduranceTest = do
         for_ seeds $ \(h,_,_) -> do
           here <- hasBlock (AnyStorage sto) (coerce h)
           unless (isJust here) do
-            err $ "missed seed block" <+> pretty h
+            err $ "missed seed block (1)" <+> pretty h
 
-      fix \recover -> handle (\(e :: IOException) -> err (viaShow e) >> pause @'Seconds 1 >> recover) do
+      let handler e = err (viaShow e) >> debug "RECOVERING" >> pause @'Seconds 3
+      fix \recover -> handleAny (\e -> handler e >> recover) do
 
         flip runContT pure do
           p <- startProcess conf -- ContT $ withProcessWait conf
-
           storms <- newTQueueIO
-
           let inp  = getStdin p
-          let outp = getStdout p
-
           let logFile = testEnvDir </> "op.log"
 
-          pread <- ContT $ withAsync $ fix \loop -> do
-            liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
-              Left e | isEOFError e -> none
-              Left e -> err (viaShow e) >> throwIO e
-              Right s -> do
-                liftIO do
-                  appendFile logFile (s <> "\n")
-                  void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
-                  putStrLn s
-                loop
+          pread <- ContT $ withAsync $ flip runContT pure $ callCC \stop -> do
+            let outp = getStdout p
+            fix \loop -> do
+              s <- liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
+                     Left  e -> err (red "pread:" <+> viaShow e) >> stop ()
+                     Right s -> pure s
 
-          link pread
+              liftIO do
+                appendFile logFile (s <> "\n")
+                void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
+                putStrLn s
+              loop
 
           ContT $ withAsync $ forever do
             join $ atomically (readTQueue storms)
@@ -506,8 +503,8 @@ ncq3EnduranceTest = do
               debug $ red "KILL" <+> viaShow pid
               cancel pread
               hFlush inp
-              hClose outp
-              pause @'Seconds 0.1
+              liftIO $ appendFile logFile "; killed"
+              pause @'Seconds 0.25
               void $ runProcess (proc "kill" ["-9", show pid])
               notice $ red "Killed" <+> viaShow pid
               atomically $ modifyTVar killed succ
