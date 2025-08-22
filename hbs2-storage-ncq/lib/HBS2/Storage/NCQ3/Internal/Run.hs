@@ -247,14 +247,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     -- debug $ viaShow s
     case s of
       RunFin mfh -> do
-        liftIO $ for_ mfh $ \(fk,fh) -> do
-          ss <- appendTailSection fh
-          fileSynchronisePortable fh
-          flushReplaces fk
-          ncqStateUpdate ncq (ncqStateAddFact (P (PData (DataFile fk) ss)))
-          ncqStateDump ncq
-          closeFd fh
-
+        liftIO $ for_ mfh closeFd
         rest <- readTVarIO ncqWriteQ <&> Seq.length
         debug $ "exit storage" <+> pretty rest
         atomically $ pollSTM indexer >>= maybe STM.retry (const none)
@@ -306,7 +299,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
                 atomically $ writeTQueue indexQ fk
                 loop RunNew
 
-           | not continue -> loop (RunFin (Just (fk,fh)))
+           | not continue -> loop (RunFin (Just fh))
 
            | otherwise -> loop $ RunWrite (fk, fh, rest, total)
 
@@ -452,7 +445,7 @@ data RunSt =
     RunNew
   | RunWrite (FileKey, Fd, Int, Int)
   | RunSync  (FileKey, Fd, Int, Int, Bool)
-  | RunFin   (Maybe (FileKey, Fd))
+  | RunFin   (Maybe Fd)
   deriving stock Show
 
 
