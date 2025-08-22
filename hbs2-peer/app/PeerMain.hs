@@ -31,8 +31,8 @@ import HBS2.Net.Proto.Notify
 import HBS2.Peer.Proto.Mailbox
 import HBS2.OrDie
 import HBS2.Storage.Simple
--- import HBS2.Storage.NCQ3
-import HBS2.Storage.NCQ
+import HBS2.Storage.NCQ3
+-- import HBS2.Storage.NCQ
 import HBS2.Storage.Operations.Missed
 import HBS2.Data.Detect
 
@@ -823,13 +823,13 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
   -- error "STOP"
 
   -- let ncqPath = coerce pref </> "ncq3"
-  let ncqPath = coerce pref </> "ncq"
+  let ncqPath = coerce pref </> "ncq3"
 
   debug $ "storage prefix:" <+> pretty ncqPath
 
-  -- s <- ContT $ ncqWithStorage ncqPath
+  s <- ContT $ ncqWithStorage ncqPath
   -- s <- lift $ ncqStorageOpen ncqPath id
-  s <- lift $ ncqStorageOpen ncqPath
+  -- s <- lift $ ncqStorageOpen ncqPath
 
   -- simpleStorageInit @HbSync (Just pref)
   let blk = liftIO . hasBlock s
@@ -1369,17 +1369,17 @@ runPeer opts = respawnOnError opts $ flip runContT pure do
 
   monkeys <- liftIO $ async $ runMonkeys rpcctx
 
-  void $ waitAnyCancel $ w :   [ loop
-                               , m1
-                               , rpcProto
-                               -- , probesMenv
-                               -- , ann
-                               , probesPenv
-                               , proxyThread
-                               , brainsThread
-                               , messWatchDog
-                               , monkeys
-                               ]
+  void $ waitAnyCancel $ [ loop
+                         , m1
+                         , rpcProto
+                         -- , probesMenv
+                         -- , ann
+                         , probesPenv
+                         , proxyThread
+                         , brainsThread
+                         , messWatchDog
+                         , monkeys
+                         ]
 
   liftIO $ ncqStorageStop s
   pause @'Seconds 1
@@ -1400,7 +1400,7 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
   already <- Sy.doesDirectoryExist migration
 
   when (L.null blocks && not already) do
-    -- checkNCQ1
+    checkNCQ1
     exit ()
 
   let reason = if already then
