@@ -12,6 +12,7 @@ import HBS2.Storage.NCQ3.Internal.Sweep
 import HBS2.Storage.NCQ3.Internal.MMapCache
 import HBS2.Storage.NCQ3.Internal.Fossil
 import HBS2.Storage.NCQ3.Internal.Flags
+import HBS2.Storage.NCQ3.Internal.Fsync
 
 import Control.Concurrent.STM qualified as STM
 import Control.Monad.Trans.Cont
@@ -30,6 +31,8 @@ import System.Posix.IO as PosixBase
 import System.Posix.IO.ByteString as Posix
 import System.Posix.Types as Posix
 import System.Posix.Unistd
+
+{- HLINT ignore "Eta reduce" -}
 
 ncqStorageStop :: forall m . MonadUnliftIO m => NCQStorage -> m ()
 ncqStorageStop NCQStorage{..} = do
@@ -267,7 +270,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
                 else do
 
                   ss <- appendTailSection fh
-                  liftIO (fileSynchronise fh)
+                  liftIO (fileSynchronisePortable fh)
 
                   -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
 
