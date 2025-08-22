@@ -27,20 +27,22 @@ import System.FileLock as FL
 
 ncqStorageOpen :: MonadIO m => FilePath -> (NCQStorage -> NCQStorage) -> m NCQStorage
 ncqStorageOpen fp upd = do
-  let ncqRoot           = fp
-  let ncqGen            = 0
+  let ncqRoot            = fp
+  let ncqGen             = 0
   -- let ncqFsync          = 16 * megabytes
-  let ncqFsync          = 16   * megabytes
-  let ncqWriteQLen      = 1024 * 4
-  let ncqMinLog         = 512  * megabytes
-  let ncqMaxLog         = 32   * gigabytes
-  let ncqWriteBlock     = max 256 $ ncqWriteQLen `div` 2
-  let ncqMaxCachedIndex = 64
-  let ncqMaxCachedData  = 64
-  let ncqIdleThrsh      = 50.0
-  let ncqPostponeMerge  = 300.0
-  let ncqPostponeSweep  = 2 * ncqPostponeMerge
-  let ncqSalt           = "EstEFasxrCFqsGDxcY4haFcha9e4ZHRzsPbGUmDfdxLk"
+  let ncqFsync           = 16   * megabytes
+  let ncqWriteQLen       = 1024 * 4
+  let ncqMinLog          = 512  * megabytes
+  let ncqMaxLog          = 32   * gigabytes
+  let ncqWriteBlock      = max 256 $ ncqWriteQLen `div` 2
+  let ncqMaxCachedIndex  = 64
+  let ncqMaxCachedData   = 64
+  let ncqIdleThrsh       = 50.0
+  let ncqPostponeService = 20
+  let ncqSweepTime       = 30.00
+  let ncqMergeTimeA      = 10.00
+  let ncqMergeTimeB      = 60.00
+  let ncqSalt            = "EstEFasxrCFqsGDxcY4haFcha9e4ZHRzsPbGUmDfdxLk"
 
   cap <- getNumCapabilities
 
@@ -61,10 +63,12 @@ ncqStorageOpen fp upd = do
   ncqAlive          <- newTVarIO False
   ncqStopReq        <- newTVarIO False
   ncqSyncReq        <- newTVarIO False
+  ncqSweepReq       <- newTVarIO False
+  ncqMergeReq       <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
   ncqState          <- newTVarIO mempty
-  ncqStateKey       <- newTVarIO (FileKey maxBound)
+  ncqStateKey       <- newTVarIO ncqNullStateKey
   ncqStateUse       <- newTVarIO mempty
   ncqServiceSem     <- atomically $ newTSem 1
   ncqRunSem         <- atomically $ newTSem 1
@@ -75,17 +79,21 @@ ncqStorageOpen fp upd = do
 
   mkdir (ncqGetWorkDir ncq)
 
-  liftIO (FL.tryLockFile (ncqGetFileName ncq ".lock") Exclusive)
-    >>= orThrow NCQStorageCurrentAlreadyOpen
-    >>= atomically . writeTVar ncqFileLock . Just
-
-  liftIO (ncqTryLoadState ncq)
-
   pure ncq
 
-ncqWithStorage :: MonadUnliftIO m => FilePath -> (NCQStorage -> m a) -> m a
-ncqWithStorage fp action = flip runContT pure do
-  sto <- lift (ncqStorageOpen fp id)
+{- HLINT ignore "Eta reduce" -}
+
+ncqWithStorage :: MonadUnliftIO m
+               => FilePath
+               -> (NCQStorage -> m a) -> m a
+ncqWithStorage fp action = ncqWithStorage0 fp id action
+
+ncqWithStorage0 :: MonadUnliftIO m
+                => FilePath
+                -> (NCQStorage -> NCQStorage)
+                -> (NCQStorage -> m a) -> m a
+ncqWithStorage0 fp tune action = flip runContT pure do
+  sto <- lift (ncqStorageOpen fp tune)
   w <- ContT $ withAsync (ncqStorageRun sto)
   link w
   r <- lift (action sto)
@@ -199,86 +207,6 @@ ncqPutBS0 wait ncq@NCQStorage{..} mtp mhref bs' = ncqOperation ncq (pure $ fromM
   if not wait then pure h else atomically (takeTMVar waiter)
 
   where hash0 = HashRef (hashObject @HbSync bs')
-
-ncqTryLoadState :: forall m. MonadUnliftIO m
-                => NCQStorage
-                -> m ()
-
-ncqTryLoadState me@NCQStorage{..} = withSem ncqServiceSem do
-
-  stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
-
-  r <- flip fix  ([], ncqState0, stateFiles) $ \next -> \case
-            (r, s, []) -> pure (r,s,[])
-            (l, s0, (_,s):ss) -> do
-
-              readStateMay me s >>= \case
-                Nothing -> next (s : l, s0, ss)
-                Just ns  -> do
-                  ok <- checkState ns
-                  if ok then
-                    pure (l <> fmap snd ss, ns, ss)
-                  else
-                    next (s : l, s0, ss)
-
-  let (bad, new@NCQState{..}, rest) = r
-
-  atomically $ modifyTVar ncqState (<> new)
-
-  for_ [ (d,s) | P (PData d s) <- Set.toList ncqStateFacts ] $ \(dataFile,s) -> do
-
-    let path = ncqGetFileName me dataFile
-    realSize <- fileSize path
-
-    let sizewtf = realSize /= fromIntegral s
-
-    flip fix 0 $ \again i -> do
-
-      good <- try @_ @NCQFsckException (ncqFileFastCheck path)
-
-      let corrupted = isLeft good
-
-      if not corrupted then do
-        debug $ yellow "indexing" <+> pretty dataFile
-        ncqIndexFile me Nothing dataFile
-      else do
-
-        o <- ncqFileTryRecover path
-        warn $ "ncqFileTryRecover" <+> pretty path <+> pretty o <+> parens (pretty realSize)
-
-        let best = if i < 1 then max s o else s
-
-        warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
-
-        liftIO $ PFS.setFileSize path (fromIntegral best)
-
-        if i <= 1 then again (succ i) else pure Nothing
-
-
-  for_ (bad <> fmap snd rest) $ \f -> do
-    let old = ncqGetFileName me (StateFile f)
-    rm old
-
-  where
-
-    -- TODO: created-but-not-indexed-file?
-
-    checkState NCQState{..} = flip runContT pure $ callCC \exit -> do
-
-      for_ ncqStateFiles $ \fk -> do
-
-        let dataFile = ncqGetFileName me (DataFile fk)
-        here <- doesFileExist dataFile
-
-        unless here $ exit False
-
-        lift  (try @_ @SomeException (ncqFileFastCheck dataFile)) >>= \case
-          Left e -> err (viaShow e) >> exit False
-          Right () -> none
-
-      pure True
-
-
 
 
 

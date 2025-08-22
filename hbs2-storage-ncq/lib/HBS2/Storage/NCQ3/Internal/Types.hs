@@ -7,6 +7,7 @@ import Numeric (readHex)
 import Data.Data
 import Data.Set qualified as Set
 import Data.HashSet qualified as HS
+import Data.List qualified as List
 import Text.Printf
 import Control.Concurrent.STM.TSem (TSem,waitTSem,signalTSem)
 import System.FileLock (FileLock)
@@ -83,42 +84,47 @@ data NCQState =
 
 data NCQStorage =
   NCQStorage
-  { ncqRoot           :: FilePath
-  , ncqGen            :: Int
-  , ncqSalt           :: HashRef
-  , ncqPostponeMerge  :: Timeout 'Seconds
-  , ncqPostponeSweep  :: Timeout 'Seconds
-  , ncqFsync          :: Int
-  , ncqWriteQLen      :: Int
-  , ncqWriteBlock     :: Int
-  , ncqMinLog         :: Int
-  , ncqMaxLog         :: Int
-  , ncqMaxCachedIndex :: Int
-  , ncqMaxCachedData  :: Int
-  , ncqReadThreads    :: Int
-  , ncqIdleThrsh      :: Double
-  , ncqMMapCachedIdx  :: TVar (HashPSQ FileKey CachePrio CachedIndex)
-  , ncqMMapCachedData :: TVar (HashPSQ FileKey CachePrio CachedData)
-  , ncqMemTable       :: Vector Shard
-  , ncqState          :: TVar NCQState
-  , ncqStateKey       :: TVar FileKey
-  , ncqStateUse       :: TVar (HashMap FileKey (NCQState, TVar Int))
-  , ncqCurrentFossils :: TVar (HashSet FileKey)
-  , ncqWrites         :: TVar Int
-  , ncqWriteEMA       :: TVar Double  -- for writes-per-seconds
-  , ncqWriteQ         :: TVar (Seq HashRef)
-  , ncqWriteOps       :: Vector (TQueue (IO ()))
-  , ncqSyncOps        :: TQueue (IO ())
-  , ncqReadReq        :: TQueue (HashRef, TMVar (Maybe Location))
-  , ncqAlive          :: TVar Bool
-  , ncqStopReq        :: TVar Bool
-  , ncqSyncReq        :: TVar Bool
-  , ncqOnRunWriteIdle :: TVar (IO ())
-  , ncqSyncNo         :: TVar Int
-  , ncqServiceSem     :: TSem
-  , ncqRunSem         :: TSem
-  , ncqFileLock       :: TVar (Maybe FileLock)
+  { ncqRoot            :: FilePath
+  , ncqGen             :: Int
+  , ncqSalt            :: HashRef
+  , ncqPostponeService :: Timeout 'Seconds
+  , ncqSweepTime       :: Timeout 'Seconds
+  , ncqMergeTimeA      :: Timeout 'Seconds
+  , ncqMergeTimeB      :: Timeout 'Seconds
+  , ncqFsync           :: Int
+  , ncqWriteQLen       :: Int
+  , ncqWriteBlock      :: Int
+  , ncqMinLog          :: Int
+  , ncqMaxLog          :: Int
+  , ncqMaxCachedIndex  :: Int
+  , ncqMaxCachedData   :: Int
+  , ncqReadThreads     :: Int
+  , ncqIdleThrsh       :: Double
+  , ncqMMapCachedIdx   :: TVar (HashPSQ FileKey CachePrio CachedIndex)
+  , ncqMMapCachedData  :: TVar (HashPSQ FileKey CachePrio CachedData)
+  , ncqMemTable        :: Vector Shard
+  , ncqState           :: TVar NCQState
+  , ncqStateKey        :: TVar FileKey
+  , ncqStateUse        :: TVar (HashMap FileKey (NCQState, TVar Int))
+  , ncqCurrentFossils  :: TVar (HashSet FileKey)
+  , ncqWrites          :: TVar Int
+  , ncqWriteEMA        :: TVar Double  -- for writes-per-seconds
+  , ncqWriteQ          :: TVar (Seq HashRef)
+  , ncqWriteOps        :: Vector (TQueue (IO ()))
+  , ncqSyncOps         :: TQueue (IO ())
+  , ncqReadReq         :: TQueue (HashRef, TMVar (Maybe Location))
+  , ncqAlive           :: TVar Bool
+  , ncqStopReq         :: TVar Bool
+  , ncqSyncReq         :: TVar Bool
+  , ncqSweepReq        :: TVar Bool
+  , ncqMergeReq        :: TVar Bool
+  , ncqOnRunWriteIdle  :: TVar (IO ())
+  , ncqSyncNo          :: TVar Int
+  , ncqServiceSem      :: TSem
+  , ncqRunSem          :: TSem
+  , ncqFileLock        :: TVar (Maybe FileLock)
   }
+  deriving stock (Generic)
 
 
 instance Monoid FileKey where
@@ -147,7 +153,7 @@ instance Semigroup NCQState where
   (<>) a b = NCQState files index seqq version facts
     where
       files   = ncqStateFiles a <> ncqStateFiles b
-      index   = ncqStateIndex a <> ncqStateIndex b
+      index   = sortIndexes0 (ncqStateIndex a <> ncqStateIndex b)
       seqq    = max (ncqStateFileSeq a) (ncqStateFileSeq b)
       version = max (ncqStateVersion a) (ncqStateVersion b)
       facts   = ncqStateFacts a <> ncqStateFacts b
@@ -208,6 +214,8 @@ instance Pretty NCQState where
       pf (P (PData (DataFile a) s)) = "fp" <+> pretty a <+> pretty s
 
 
+sortIndexes0 :: [(Down POSIXTime, b)] -> [(Down POSIXTime, b)]
+sortIndexes0 = List.sortOn fst
 
 ncqTombEntrySize :: NCQSize
 ncqTombEntrySize = ncqSLen + ncqKeyLen + ncqPrefixLen
@@ -226,5 +234,6 @@ ncqDeferredWriteOpSTM NCQStorage{..} work = do
 logErr :: forall x a m . (Pretty x, MonadUnliftIO m) => x -> m a -> m a
 logErr loc m = handle (\(e::SomeException) -> err (pretty loc <> ":" <> viaShow e) >> throwIO e) m
 
-
+ncqNullStateKey :: FileKey
+ncqNullStateKey = FileKey maxBound
 

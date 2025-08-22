@@ -83,12 +83,16 @@ data EnduranceFSM =
   | EndurancePutBlk
   | EnduranceHasBlk
   | EnduranceGetBlk
+  | EnduranceHasSeedBlk
   | EnduranceDelBlk
   | EndurancePutRef
   | EnduranceGetRef
   | EnduranceDelRef
   | EnduranceStorm
+  | EnduranceCalm
   | EnduranceKill
+  | EnduranceMerge
+  | EnduranceSweep
   | EnduranceStop
 
 buildCDF :: [(s, Double)] -> (V.Vector s, U.Vector Double)
@@ -155,6 +159,11 @@ validateTestResult logFile = do
         entry $ bindMatch "block-deleted" $ nil_ \case
           [ HashLike h ] ->
             atomically $ modifyTVar blocks (HM.insert h (Left ()))
+          _ -> none
+
+        entry $ bindMatch "has-seed-block-result" $ nil_ \case
+          [ HashLike _, LitIntVal _ ] -> none
+          [ HashLike h]  -> err $ red "missed seed block" <+> pretty h
           _ -> none
 
         -- has-block-result
@@ -255,18 +264,25 @@ ncq3EnduranceTest = do
                  LitIntVal x        -> fromIntegral  x
                  _ -> 0
 
-    wIdle    <-  dbl <$> lookupValueDef (mkDouble 200.00) "w:idle"
-    wIdleDef <-  dbl <$> lookupValueDef (mkDouble   0.25) "w:idle:def"
-    wPutBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:putblk"
-    wGetBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:getblk"
-    wHasBlk  <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:hasblk"
-    wDelBlk  <-  dbl <$> lookupValueDef (mkDouble   3.00) "w:delblk"
-    wPutRef  <-  dbl <$> lookupValueDef (mkDouble   5.00) "w:putref"
-    wGetRef  <-  dbl <$> lookupValueDef (mkDouble  10.00) "w:getref"
-    wDelRef  <-  dbl <$> lookupValueDef (mkDouble   1.00) "w:delref"
-    wStorm   <-  dbl <$> lookupValueDef (mkDouble   0.80) "w:storm"
-    wKill    <-  dbl <$> lookupValueDef (mkDouble 0.0004) "w:kill"
-    wNum     <-  int <$> lookupValueDef (mkInt 10000)     "w:num"
+    wSeed     <-  int <$> lookupValueDef (mkInt 1000)      "w:seed"
+    wIdle     <-  dbl <$> lookupValueDef (mkDouble 200.00) "w:idle"
+    wIdleDef  <-  dbl <$> lookupValueDef (mkDouble   0.25) "w:idle:def"
+    wMaxBlk   <-  int <$> lookupValueDef     (mkInt 65536) "w:maxblk"
+    wPutBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:putblk"
+    wGetBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:getblk"
+    wHasBlk   <-  dbl <$> lookupValueDef (mkDouble  30.00) "w:hasblk"
+    wDelBlk   <-  dbl <$> lookupValueDef (mkDouble   3.00) "w:delblk"
+    wPutRef   <-  dbl <$> lookupValueDef (mkDouble   5.00) "w:putref"
+    wGetRef   <-  dbl <$> lookupValueDef (mkDouble  10.00) "w:getref"
+    wDelRef   <-  dbl <$> lookupValueDef (mkDouble   1.00) "w:delref"
+    wStorm    <-  dbl <$> lookupValueDef (mkDouble   0.80) "w:storm"
+    wStormMin <-  dbl <$> lookupValueDef (mkDouble   1.00) "w:stormmin"
+    wStormMax <-  dbl <$> lookupValueDef (mkDouble  60.00) "w:stormmax"
+    wCalm     <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:calm"
+    wKill     <-  dbl <$> lookupValueDef (mkDouble  0.00)  "w:kill"
+    wMerge    <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:merge"
+    wSweep    <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:sweep"
+    wNum      <-  int <$> lookupValueDef (mkInt     10000) "w:num"
 
 
     runTest \TestEnv{..} -> do
@@ -278,10 +294,12 @@ ncq3EnduranceTest = do
 
       rest   <- newTVarIO n
       blocks <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
+      seed   <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
       refs   <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double HashRef )
       killed <- newTVarIO 0
 
       let getRandomBlock = liftIO $ getRandomFromPSQ g blocks
+      let getRandomSeedBlock = liftIO $ getRandomFromPSQ g seed
       let getRandomRef = liftIO $ getRandomFromPSQ g refs
 
       let d = makeDict do
@@ -321,12 +339,16 @@ ncq3EnduranceTest = do
       let actions = [ (EnduranceIdle,   wIdle)
                     , (EndurancePutBlk, wPutBlk)
                     , (EnduranceGetBlk, wGetBlk)
+                    , (EnduranceHasSeedBlk, wHasBlk)
                     , (EnduranceHasBlk, wHasBlk)
                     , (EnduranceDelBlk, wDelBlk)
                     , (EndurancePutRef, wPutRef)
                     , (EnduranceGetRef, wGetRef)
                     , (EnduranceDelRef, wDelRef)
                     , (EnduranceStorm,  wStorm)
+                    , (EnduranceCalm,   wCalm)
+                    , (EnduranceMerge,  wMerge)
+                    , (EnduranceSweep,  wSweep)
                     , (EnduranceKill,   wKill)
                     ]
 
@@ -338,6 +360,21 @@ ncq3EnduranceTest = do
                            , "and"
                            , "test:ncq3:endurance:inner", testEnvDir
                            ] & setStdin createPipe & setStdout createPipe
+
+      ncqWithStorage testEnvDir $ \sto -> do
+        replicateM_ wSeed do
+          n <- liftIO $ uniformRM (1, wMaxBlk) g
+          bs <- liftIO $ LBS.fromStrict <$> genRandomBS g n
+          putBlock (AnyStorage sto) bs >>= \case
+            Just h -> atomically $ modifyTVar seed (HPSQ.insert (HashRef h) 1.0 ())
+            Nothing -> err $ red "can't write seed block"
+
+      ncqWithStorage testEnvDir $ \sto -> do
+        seeds <- readTVarIO seed <&> HPSQ.toList
+        for_ seeds $ \(h,_,_) -> do
+          here <- hasBlock (AnyStorage sto) (coerce h)
+          unless (isJust here) do
+            err $ "missed seed block" <+> pretty h
 
       fix \recover -> handle (\(e :: IOException) -> err (viaShow e) >> pause @'Seconds 1 >> recover) do
 
@@ -354,13 +391,15 @@ ncq3EnduranceTest = do
           pread <- ContT $ withAsync $ fix \loop -> do
             liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
               Left e | isEOFError e -> none
-              Left e -> err (viaShow e)
+              Left e -> err (viaShow e) >> throwIO e
               Right s -> do
                 liftIO do
                   appendFile logFile (s <> "\n")
                   void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
                   putStrLn s
                 loop
+
+          link pread
 
           ContT $ withAsync $ forever do
             join $ atomically (readTQueue storms)
@@ -403,7 +442,7 @@ ncq3EnduranceTest = do
                 getNextState >>= loop
 
             EndurancePutBlk -> do
-              bsize <- liftIO $ uniformRM (1, 256*1024) g
+              bsize <- liftIO $ uniformRM (1, wMaxBlk) g
               liftIO $ IO.hPrint inp ("write-random-block" <+> viaShow bsize)
               atomically $ modifyTVar rest pred
               getNextState >>= loop
@@ -419,6 +458,13 @@ ncq3EnduranceTest = do
               blk <- getRandomBlock
               for_ blk $ \h -> do
                 liftIO $ IO.hPrint inp ("has-block" <+> pretty h)
+
+              getNextState >>= loop
+
+            EnduranceHasSeedBlk -> do
+              blk <- getRandomSeedBlock
+              for_ blk $ \h -> do
+                liftIO $ IO.hPrint inp ("has-seed-block" <+> pretty h)
 
               getNextState >>= loop
 
@@ -448,6 +494,14 @@ ncq3EnduranceTest = do
                 liftIO $ IO.hPrint inp ("del-ref" <+> pretty h)
               getNextState >>= loop
 
+            EnduranceMerge -> do
+              liftIO $ IO.hPrint inp "merge"
+              getNextState >>= loop
+
+            EnduranceSweep -> do
+              liftIO $ IO.hPrint inp "sweep"
+              getNextState >>= loop
+
             EnduranceKill -> do
               debug $ red "KILL" <+> viaShow pid
               cancel pread
@@ -467,6 +521,12 @@ ncq3EnduranceTest = do
               notice $ "validate" <+> pretty logFile
               liftIO $ validateTestResult logFile
 
+            EnduranceCalm -> do
+              n <- liftIO $ uniformRM (0.5,10.00) g
+              debug $ "CALM" <+> pretty n
+              pause @'Seconds (realToFrac n)
+              getNextState >>= loop
+
             EnduranceStorm -> do
 
               now <- getTimeCoarse
@@ -482,7 +542,7 @@ ncq3EnduranceTest = do
                     loop EnduranceIdle
 
                  | otherwise -> do
-                    t0 <- liftIO $ uniformRM (0,10.00) g
+                    t0 <- liftIO $ uniformRM (wStormMin,wStormMax) g
                     debug $ red "FIRE IN DA HOLE!" <+> pretty t0
                     atomically $ writeTQueue storms do
                       atomically $ writeTVar idleTime 0
@@ -522,7 +582,7 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
         Right _ -> none
 
   where
-    dict g sto = makeDict @c @m do
+    dict g sto@NCQStorage{..} = makeDict @c @m do
 
       entry $ bindMatch "exit" $ const do
         pure $ mkSym "done"
@@ -539,6 +599,13 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
         [ HashLike h ] -> do
           s <- hasBlock (AnyStorage sto) (coerce h)
           liftIO $ print $ "has-block-result" <+> pretty h <+> pretty s
+
+        e -> throwIO (BadFormException @c (mkList e))
+
+      entry $ bindMatch "has-seed-block" $ nil_ \case
+        [ HashLike h ] -> do
+          s <- hasBlock (AnyStorage sto) (coerce h)
+          liftIO $ print $ "has-seed-block-result" <+> pretty h <+> pretty s
 
         e -> throwIO (BadFormException @c (mkList e))
 
@@ -577,5 +644,13 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
           liftIO $ print $ "ref-deleted" <+> pretty h
 
         e -> throwIO (BadFormException @c (mkList e))
+
+      entry $ bindMatch "merge" $ nil_ $ const do
+         ncqSetFlag ncqMergeReq
+         liftIO $ print $ "merge"
+
+      entry $ bindMatch "sweep" $ nil_ $ const do
+         ncqSetFlag ncqSweepReq
+         liftIO $ print $ "sweep"
 
 

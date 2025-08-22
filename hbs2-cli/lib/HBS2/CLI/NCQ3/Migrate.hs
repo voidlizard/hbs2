@@ -33,10 +33,6 @@ migrateEntries = do
    $ entry $ bindMatch "ncq3:migrate:ncq" $ nil_ $ \case
        [ StringLike src, StringLike dst] -> do
 
-        sto <- getStorage
-
-
-
         api <- getClientAPI @PeerAPI  @UNIX
 
         refs <- callRpcWaitMay @RpcPollList2 (1.0 :: Timeout 'Seconds) api (Nothing, Nothing)
@@ -44,7 +40,11 @@ migrateEntries = do
 
         rrefs <- S.toList_ <$> for refs $ \(pk, s, _) -> case s of
                    "reflog"  -> S.yield (WrapRef $ RefLogKey @'HBS2Basic pk)
-                   "refchan" -> S.yield (WrapRef $ RefChanLogKey @'HBS2Basic pk)
+
+                   "refchan" -> do
+                      S.yield (WrapRef $ RefChanLogKey @'HBS2Basic pk)
+                      S.yield (WrapRef $ RefChanHeadKey @'HBS2Basic pk)
+
                    "lwwref"  -> S.yield (WrapRef $ LWWRefKey @'HBS2Basic pk)
                    _         -> none
 

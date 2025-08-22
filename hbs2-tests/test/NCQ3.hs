@@ -868,6 +868,27 @@ ncq3Tests = do
       notice "re-opened storage test done"
 
 
+  entry $ bindMatch "test:ncq3:wrong-state" $ nil_ $ \e -> do
+    g <- liftIO MWC.createSystemRandom
+    let (opts,args) = splitOpts [] e
+    let path = headDef "." [x | StringLike x <- args ]
+    notice $ "root path" <+> pretty path
+
+    let params =   set #ncqPostponeService 1
+
+    ncqWithStorage0 path params $ \sto -> do
+
+      void $ race (pause @'Seconds 600) $ forever do
+        p <- liftIO $ uniformRM (0,3.00) g
+        pause @'Seconds (realToFrac p)
+        n <- liftIO $ uniformRM (1,256*1024) g
+        s <- liftIO $ genRandomBS g n
+        h <- putBlock (AnyStorage sto) (LBS.fromStrict s)
+        debug $ "block written" <+> pretty h <+> pretty n
+
+      none
+
+
   ncq3EnduranceTest
   ncq3EnduranceTestInProc
 

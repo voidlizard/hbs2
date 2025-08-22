@@ -156,7 +156,7 @@ ncqIndexCompactFull ncq = fix \again ->
 ncqIndexCompactStep :: MonadUnliftIO m
                     => NCQStorage
                     -> m Bool
-ncqIndexCompactStep me@NCQStorage{..} = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
+ncqIndexCompactStep me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
 
   debug "ncqIndexCompactStep"
 
@@ -198,6 +198,7 @@ ncqIndexCompactStep me@NCQStorage{..} = withSem ncqServiceSem $ flip runContT pu
   liftIO $ PFS.setFileTimesHiRes result ts ts
 
   fki <- ncqGetNewFileKey me IndexFile
+
   moveFile result (ncqGetFileName me (IndexFile fki))
 
   debug $ "state update" <+> pretty a <+> pretty b <+> "=>" <+> pretty fki

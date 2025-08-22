@@ -108,7 +108,7 @@ ncqStateDelIndexFile fk  = do
   where f (_,b) = b /= fk
 
 sortIndexes :: NCQState -> NCQState
-sortIndexes = over #ncqStateIndex (List.sortOn fst)
+sortIndexes = over #ncqStateIndex sortIndexes0
 
 
 ncqStateCapture :: forall m . MonadUnliftIO m

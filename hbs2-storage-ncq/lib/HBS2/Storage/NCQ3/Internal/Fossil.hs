@@ -62,7 +62,7 @@ ncqFossilMergeStep :: forall m . MonadUnliftIO m
                => NCQStorage
                -> m Bool
 
-ncqFossilMergeStep me@NCQStorage{..}  = withSem ncqServiceSem $ flip runContT pure $ callCC \exit -> do
+ncqFossilMergeStep me@NCQStorage{..}  = flip runContT pure $ callCC \exit -> do
   tmax <- liftIO getPOSIXTime >>= newTVarIO
 
   debug "ncqFossilMergeStep"

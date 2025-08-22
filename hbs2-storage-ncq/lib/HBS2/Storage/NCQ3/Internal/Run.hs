@@ -11,28 +11,143 @@ import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Sweep
 import HBS2.Storage.NCQ3.Internal.MMapCache
 import HBS2.Storage.NCQ3.Internal.Fossil
+import HBS2.Storage.NCQ3.Internal.Flags
 
+import Control.Concurrent.STM qualified as STM
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
-import Data.HashSet qualified as HS
-import Data.Vector qualified as V
-import Data.Sequence qualified as Seq
+import Data.Either
 import Data.Fixed
+import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
+import Data.List qualified as List
+import Data.Sequence qualified as Seq
+import Data.Set qualified as Set
+import Data.Vector qualified as V
+import System.FileLock as FL
+import System.Posix.Files qualified as PFS
 import System.Posix.IO as PosixBase
+import System.Posix.IO.ByteString as Posix
 import System.Posix.Types as Posix
 import System.Posix.Unistd
-import System.Posix.IO.ByteString as Posix
-import Control.Concurrent.STM qualified as STM
-import System.FileLock as FL
 
 ncqStorageStop :: forall m . MonadUnliftIO m => NCQStorage -> m ()
 ncqStorageStop NCQStorage{..} = do
   atomically $ writeTVar ncqStopReq True
 
+
+ncqTryLoadState :: forall m. MonadUnliftIO m
+                => NCQStorage
+                -> m ()
+
+ncqTryLoadState me@NCQStorage{..} = do
+
+  debug "ncqTryLoadState"
+
+  stateFiles <- ncqListFilesBy me ( List.isPrefixOf "s-" )
+                  <&> List.sortOn ( Down . snd )
+
+  r <- flip fix  ([], ncqState0, stateFiles) $ \next -> \case
+            (r, s, []) -> pure (r,s,[])
+            (l, s0, (_,s):ss) -> do
+
+              readStateMay me s >>= \case
+                Nothing -> next (s : l, s0, ss)
+                Just ns  -> do
+                  ok <- checkState ns
+                  debug $ "state status" <+> pretty s <+> pretty ok
+                  if ok then
+                    pure (l <> fmap snd ss, ns, ss)
+                  else
+                    next (s : l, s0, ss)
+
+  let (bad, new@NCQState{..}, rest) = r
+
+  atomically $ modifyTVar ncqState (<> new)
+
+  for_ [ (d,s) | P (PData d s) <- Set.toList ncqStateFacts ] $ \(dataFile,s) -> do
+
+    let path = ncqGetFileName me dataFile
+    realSize <- fileSize path
+
+    let sizewtf = realSize /= fromIntegral s
+
+    flip fix 0 $ \again i -> do
+
+      good <- try @_ @NCQFsckException (ncqFileFastCheck path)
+
+      let corrupted = isLeft good
+
+      if not corrupted then do
+        debug $ yellow "indexing" <+> pretty dataFile
+        ncqIndexFile me Nothing dataFile
+      else do
+
+        o <- ncqFileTryRecover path
+        warn $ "ncqFileTryRecover" <+> pretty path <+> pretty o <+> parens (pretty realSize)
+
+        let best = if i < 1 then max s o else s
+
+        warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
+
+        liftIO $ PFS.setFileSize path (fromIntegral best)
+
+        if i <= 1 then again (succ i) else pure Nothing
+
+
+  for_ (bad <> fmap snd rest) $ \f -> do
+    let old = ncqGetFileName me (StateFile f)
+    rm old
+
+  where
+
+    -- TODO: created-but-not-indexed-file?
+
+    checkState NCQState{..} = flip runContT pure $ callCC \exit -> do
+
+      for_ ncqStateFiles $ \fk -> do
+
+        let dataFile = ncqGetFileName me (DataFile fk)
+        here <- doesFileExist dataFile
+
+        unless here $ exit False
+
+        -- lift  (try @_ @SomeException (ncqFileFastCheck dataFile)) >>= \case
+        --   Right () -> none
+        --   Left e -> do
+        --     warn (viaShow e)
+        --     let known = HM.lookup fk facts
+        --     fs <- fileSize dataFile
+        --     warn $ "file is incomplete (or damaged)"
+        --               <+> pretty dataFile
+        --               <+> "actual:" <+> pretty fs
+        --               <+> "known:"  <+> pretty known
+        --     let ok = isJust known && Just (fromIntegral fs) >= known
+        --     unless ok $ exit False
+
+      for_ ncqStateIndex $ \(_,fk) -> do
+
+        let idxFile = ncqGetFileName me (IndexFile fk)
+        here <- doesFileExist idxFile
+
+        unless here do
+          err $ red "missed index in state" <+> pretty idxFile
+          exit False
+
+      pure True
+
+
 ncqStorageRun :: forall m . MonadUnliftIO m
                => NCQStorage
                -> m ()
 ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
+
+  debug "ncqStorageRun"
+
+  liftIO (FL.tryLockFile (ncqGetFileName ncq ".lock") Exclusive)
+    >>= orThrow NCQStorageCurrentAlreadyOpen
+    >>= atomically . writeTVar ncqFileLock . Just
+
   ContT $ bracket setAlive (const unsetAlive)
 
   ContT $ bracket none $ const $ liftIO do
@@ -40,6 +155,8 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
   ContT $ bracket none $ const $ liftIO do
     debug "storage done"
+
+  liftIO (ncqTryLoadState ncq)
 
   closeQ <- liftIO newTQueueIO
 
@@ -86,7 +203,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       -- debug $ "NOT FOUND SHIT" <+> pretty h
       answer Nothing >> exit ()
 
-  -- spawnActivity measureWPS
+  spawnActivity measureWPS
 
   spawnActivity (ncqStateUpdateLoop ncq)
 
@@ -95,29 +212,17 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     ema <- readTVarIO ncqWriteEMA
     debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
 
-  spawnActivity $ postponed 30 $ forever do
-    lsInit <- ncqLiveKeys ncq <&> HS.size
-    void $ race (pause @'Seconds 30) do
-      flip fix lsInit $ \next ls0 -> do
-        (lsA,lsB) <- atomically do
-          ema <- readTVar ncqWriteEMA
-          ls1 <- ncqLiveKeysSTM ncq <&> HS.size
+  spawnActivity $ postponed ncqPostponeService $ forever do
+    ncqSweepObsoleteStates ncq
+    ncqSweepFiles ncq
+    void $ race (pause @'Seconds ncqSweepTime) do
+      atomically (ncqWaitFlagSTM ncqSweepReq)
 
-          if  ls1 /= ls0 && ema < ncqIdleThrsh then
-            pure (ls0,ls1)
-          else
-            STM.retry
-
-        debug $ "do sweep" <+> pretty lsA <+> pretty lsB
-        ncqSweepObsoleteStates ncq
-        ncqSweepFiles ncq
-        next lsB
-
-  spawnActivity $ postponed 20 $ compactLoop 10 30 do
-    ncqIndexCompactStep ncq
-
-  spawnActivity $ postponed 20 $ compactLoop 10 60 do
-    ncqFossilMergeStep ncq
+  spawnActivity $ postponed ncqPostponeService
+    $ compactLoop ncqMergeReq  ncqMergeTimeA ncqMergeTimeB $ withSem ncqServiceSem do
+        a <- ncqFossilMergeStep ncq
+        b <- ncqIndexCompactStep ncq
+        pure $ a || b
 
   flip fix RunNew $ \loop -> \case
     RunFin -> do
@@ -255,12 +360,18 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
     postponed n m = liftIO (pause @'Seconds n) >> m
 
-    compactLoop :: Timeout 'Seconds -> Timeout 'Seconds -> m Bool -> m ()
-    compactLoop t1 t2 what = forever $ void $ runMaybeT do
-      ema <- readTVarIO ncqWriteEMA
+    compactLoop :: TVar Bool
+                -> Timeout 'Seconds
+                -> Timeout 'Seconds
+                -> m Bool
+                -> m ()
+    compactLoop flag t1 t2 what = forever $ void $ runMaybeT do
+      ema   <- readTVarIO ncqWriteEMA
+      fired <- ncqGetFlag flag
 
-      when (ema > ncqIdleThrsh) $ pause @'Seconds t1 >> mzero
+      when (ema > ncqIdleThrsh && not fired) $ pause @'Seconds t1 >> mzero
 
+      ncqClearFlag flag
       compacted <- lift what
 
       when compacted mzero
