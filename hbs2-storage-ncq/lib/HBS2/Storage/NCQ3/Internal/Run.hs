@@ -169,6 +169,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     readTVarIO ncqFileLock >>= mapM_  FL.unlockFile
 
   ContT $ bracket none $ const $ liftIO do
+    void $ ncqStateDump ncq
     debug "storage done"
 
   ncqRemoveGarbage ncq
@@ -242,107 +243,120 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
         b <- ncqIndexCompactStep ncq
         pure $ a || b
 
-  flip fix RunNew $ \loop -> \case
-    RunFin mfh -> do
-      liftIO $ for_ mfh closeFd
-      debug "exit storage"
-      atomically $ pollSTM indexer >>= maybe STM.retry (const none)
+  flip fix RunNew $ \loop s -> do
+    -- debug $ viaShow s
+    case s of
+      RunFin mfh -> do
+        liftIO $ for_ mfh closeFd
+        rest <- readTVarIO ncqWriteQ <&> Seq.length
+        debug $ "exit storage" <+> pretty rest
+        atomically $ pollSTM indexer >>= maybe STM.retry (const none)
 
-    RunNew -> do
-      alive <- readTVarIO ncqAlive
-      empty <- readTVarIO ncqWriteQ <&> Seq.null
-      if not alive && empty
-        then loop (RunFin Nothing)
-        else do
-          (fk, fhx) <- openNewDataFile
-          loop $ RunWrite (fk, fhx, 0, 0)
-
-
-    RunSync (fk, fh, w, total, continue) -> do
-
-      (stop,sync) <- atomically do
-                           (,) <$> readTVar ncqStopReq
-                               <*> readTVar ncqSyncReq
-                               -- <*> readTVar ncqWriteEMA
-
-      let needClose = total >= ncqMinLog || stop
-
-      rest <- if not (sync || needClose || w > ncqFsync) then
-                  pure w
-                else do
-
-                  ss <- appendTailSection fh
-                  liftIO (fileSynchronisePortable fh)
-                  flushReplaces fk
-
-                  -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
-
-                  -- atomically $ ncqDeferredWriteOpSTM ncq do
-                  ncqStateUpdate ncq do
-                    ncqStateAddFact (P (PData (DataFile fk) ss))
-
-                  atomically do
-                    writeTVar  ncqSyncReq False
-                    modifyTVar ncqSyncNo succ
-
-                  pure 0
-
-      if | needClose && continue -> do
-              liftIO $ closeFd fh
-              flushReplaces fk
-              debug $ "closeFd" <+> viaShow fh
-              atomically $ writeTQueue indexQ fk
-              loop RunNew
-
-         | not continue -> loop (RunFin (Just fh))
-
-         | otherwise -> loop $ RunWrite (fk, fh, rest, total)
-
-
-    RunWrite (fk, fh, w, total') -> do
-
-      let timeoutMicro = 10_000_000
-
-      chunk <- liftIO $ timeout timeoutMicro $ atomically do
-        stop  <- readTVar ncqStopReq
-        sy    <- readTVar ncqSyncReq
-
-        chunk <- if not stop then
-                    stateTVar ncqWriteQ (Seq.splitAt ncqWriteBlock)
-                 else do
-                    r <- readTVar ncqWriteQ
-                    modifyTVar ncqWriteQ mempty
-                    pure r
-
-        if | Seq.null chunk && stop             -> pure $ Left ()
-           | Seq.null chunk && not (stop || sy) -> STM.retry
-           | otherwise                          -> pure $ Right chunk
-
-      case chunk of
-        Nothing -> do
-          liftIO $ join $ readTVarIO ncqOnRunWriteIdle
-          if w == 0 then do
-            loop $ RunWrite (fk,fh,w,total')
+      RunNew -> do
+        alive <- readTVarIO ncqAlive
+        empty <- readTVarIO ncqWriteQ <&> Seq.null
+        if not alive && empty
+          then loop (RunFin Nothing)
           else do
-            atomically $ writeTVar ncqSyncReq True
-            loop $ RunSync (fk, fh, w, total', True) -- exit ()
+            (fk, fhx) <- openNewDataFile
+            loop $ RunWrite (fk, fhx, 0, 0)
 
-        Just (Left{})  -> loop $ RunSync (fk, fh, w, total', False) -- exit ()
 
-        Just (Right chu) -> do
-          ws <- for chu $ \h -> do
-                  atomically (ncqLookupEntrySTM ncq h) >>= \case
-                    Just (NCQEntry w, EntryHere bs)  -> do
-                      off <- fromIntegral <$> liftIO (fdSeek fh RelativeSeek 0)
-                      n <- lift (appendSection fh bs)
-                      let op = writeTVar w (EntryThere (FileLocation fk off (fromIntegral n)))
-                      atomically $ modifyTVar ncqReplQueue (HM.insertWith (<>) fk  [op])
-                      pure n
+      RunSync (fk, fh, w, total, continue) -> do
 
-                    _ -> pure 0
+        (stop,sync) <- atomically do
+                             (,) <$> readTVar ncqStopReq
+                                 <*> readTVar ncqSyncReq
+                                 -- <*> readTVar ncqWriteEMA
 
-          let written = sum ws
-          loop $ RunSync (fk, fh, w + written, total' + written, True)
+        let needClose = total >= ncqMinLog || stop
+
+        rest <- if not (sync || needClose || w > ncqFsync) then
+                    pure w
+                  else do
+
+                    ss <- appendTailSection fh
+                    liftIO (fileSynchronisePortable fh)
+                    flushReplaces fk
+
+                    ncqStateUpdate ncq do
+                      ncqStateAddFact (P (PData (DataFile fk) ss))
+
+                    -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
+
+                    -- atomically $ ncqDeferredWriteOpSTM ncq do
+
+                    atomically do
+                      writeTVar  ncqSyncReq False
+                      modifyTVar ncqSyncNo succ
+
+                    pure 0
+
+        if | needClose && continue -> do
+                liftIO $ closeFd fh
+                flushReplaces fk
+                debug $ "closeFd" <+> viaShow fh
+                atomically $ writeTQueue indexQ fk
+                loop RunNew
+
+           | not continue -> loop (RunFin (Just fh))
+
+           | otherwise -> loop $ RunWrite (fk, fh, rest, total)
+
+
+      RunWrite (fk, fh, w, total') -> do
+
+        let timeoutMicro = 10_000_000
+
+        chunk <- liftIO $ timeout timeoutMicro $ atomically do
+          stop  <- readTVar ncqStopReq
+          sy    <- readTVar ncqSyncReq
+
+          chunk <- if not stop then
+                     stateTVar ncqWriteQ (Seq.splitAt 1)
+                   else do
+                     r <- readTVar ncqWriteQ
+                     modifyTVar ncqWriteQ mempty
+                     pure r
+
+          if | Seq.null chunk && stop             -> pure $ Left ()
+             | Seq.null chunk && not (stop || sy) -> STM.retry
+             | otherwise                          -> pure $ Right chunk
+
+        stop <- readTVarIO ncqStopReq
+
+        case chunk of
+          Nothing -> do
+            liftIO $ join $ readTVarIO ncqOnRunWriteIdle
+            stop <- readTVarIO ncqStopReq
+            if w == 0 && not stop then do
+              loop $ RunWrite (fk,fh,w,total')
+            else do
+              atomically $ writeTVar ncqSyncReq True
+              loop $ RunSync (fk, fh, w, total', not stop) -- exit ()
+
+          Just (Left{})  -> loop $ RunSync (fk, fh, w, total', False) -- exit ()
+
+          Just (Right chu) -> do
+            ws <- for chu $ \h -> do
+                    atomically (ncqLookupEntrySTM ncq h) >>= \case
+                      Just (NCQEntry w, EntryHere bs)  -> do
+                        off <- fromIntegral <$> liftIO (fdSeek fh RelativeSeek 0)
+                        n <- lift (appendSection fh bs)
+
+                        let op = do
+                             readTVar w  >>= \case
+                               EntryHere bs1 | bs1 == bs -> do
+                                writeTVar w (EntryThere (FileLocation fk off (fromIntegral n)))
+                               _ -> none
+
+                        atomically $ modifyTVar ncqReplQueue (HM.insertWith (<>) fk  [op])
+                        pure n
+
+                      _ -> pure 0
+
+            let written = sum ws
+            loop $ RunSync (fk, fh, w + written, total' + written, not stop)
 
   mapM_ wait [indexer]
 
@@ -350,11 +364,11 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     setAlive   = atomically $ writeTVar ncqAlive True
     unsetAlive = atomically $ writeTVar ncqAlive False
 
-    dropReplaces :: forall m . MonadIO m => FileKey -> m ()
+    dropReplaces :: forall m1 . MonadIO m1 => FileKey -> m1 ()
     dropReplaces fk = atomically do
         modifyTVar ncqReplQueue (HM.delete fk)
 
-    flushReplaces :: forall m . MonadIO m => FileKey -> m ()
+    flushReplaces :: forall m1 . MonadIO m1 => FileKey -> m1 ()
     flushReplaces fk = do
       atomically do
         ncqDelCachedDataSTM ncq fk
@@ -368,7 +382,9 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
       atomically $ modifyTVar ncqCurrentFossils (HS.insert fk)
 
-      ncqStateUpdate ncq (ncqStateAddDataFile fk)
+      ncqStateUpdate ncq do
+        ncqStateAddFact (P (PData (DataFile fk) 0))
+        ncqStateAddDataFile fk
 
       let fname = ncqGetFileName ncq (DataFile fk)
       -- touch fname
@@ -423,7 +439,6 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
           pause @'Seconds 60
           k2 <- readTVarIO ncqStateKey
           when (k2 == k1) $  waitState k2
-
 
 
 data RunSt =

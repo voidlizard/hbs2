@@ -27,6 +27,17 @@ newtype StateOP a =
 
 {- HLINT ignore "Eta reduce"-}
 
+ncqStateDump :: MonadIO m
+             => NCQStorage
+             -> m FileKey
+ncqStateDump ncq@NCQStorage{..} = do
+    state <- readTVarIO ncqState
+    key <-  ncqGetNewFileKey ncq StateFile
+    let snkFile = ncqGetFileName ncq (StateFile key)
+    liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
+      IO.hPrint fh (pretty state)
+    pure key
+
 ncqStateUpdateLoop :: MonadIO m
                    => NCQStorage
                    -> m ()
@@ -43,10 +54,7 @@ ncqStateUpdateLoop ncq@NCQStorage{..} = do
       stop <- readTVar ncqStopReq
       if s1 == s0 && not stop then STM.retry else pure s1
 
-    key <-  ncqGetNewFileKey ncq StateFile
-    let snkFile = ncqGetFileName ncq (StateFile key)
-    liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
-      IO.hPrint fh (pretty state)
+    key <- ncqStateDump ncq
 
     done <- atomically do
       writeTVar ncqStateKey key
