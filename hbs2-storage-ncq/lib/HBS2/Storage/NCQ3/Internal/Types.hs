@@ -122,6 +122,7 @@ data NCQStorage =
   , ncqSyncNo          :: TVar Int
   , ncqServiceSem      :: TSem
   , ncqRunSem          :: TSem
+  , ncqReplQueue       :: TVar (HashMap FileKey [STM ()])
   , ncqFileLock        :: TVar (Maybe FileLock)
   }
   deriving stock (Generic)

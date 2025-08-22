@@ -498,7 +498,9 @@ ncq3Tests = do
 
             liftIO $ assertBool (show $ "tomb/1" <+> pretty h) (ncqIsTomb loc)
 
-        ncqIndexCompactFull sto
+        -- ncqIndexCompactFull sto
+        -- ncqStorageStop
+        pause @'Seconds 11
 
       ncqWithStorage dir $ \sto -> do
         -- notice "check deleted"

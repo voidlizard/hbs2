@@ -74,6 +74,7 @@ ncqStorageOpen fp upd = do
   ncqRunSem         <- atomically $ newTSem 1
   ncqFileLock       <- newTVarIO Nothing
   ncqCurrentFossils <- newTVarIO mempty
+  ncqReplQueue      <- newTVarIO mempty
 
   let ncq = NCQStorage{..} & upd
 

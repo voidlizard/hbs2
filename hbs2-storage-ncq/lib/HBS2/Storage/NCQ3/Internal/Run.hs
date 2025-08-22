@@ -175,11 +175,11 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
   liftIO (ncqTryLoadState ncq)
 
-  closeQ <- liftIO newTQueueIO
+  indexQ <- liftIO newTQueueIO
 
-  closer <- spawnActivity $ liftIO $ fix \loop -> do
+  indexer <- spawnActivity $ liftIO $ fix \loop -> do
     what <- atomically do
-      tryReadTQueue closeQ >>= \case
+      tryReadTQueue indexQ >>= \case
         Just e  -> pure $ Just e
         Nothing -> do
           stop  <- readTVar ncqStopReq
@@ -187,6 +187,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
     maybe1 what none $ \(fk :: FileKey) -> do
       ncqIndexFile ncq Nothing (DataFile fk)
+      dropReplaces fk
       atomically $ modifyTVar ncqCurrentFossils (HS.delete fk)
       loop
 
@@ -245,7 +246,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     RunFin mfh -> do
       liftIO $ for_ mfh closeFd
       debug "exit storage"
-      atomically $ pollSTM closer >>= maybe STM.retry (const none)
+      atomically $ pollSTM indexer >>= maybe STM.retry (const none)
 
     RunNew -> do
       alive <- readTVarIO ncqAlive
@@ -272,6 +273,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
                   ss <- appendTailSection fh
                   liftIO (fileSynchronisePortable fh)
+                  flushReplaces fk
 
                   -- ss <- liftIO (PFS.getFdStatus fh) <&> fromIntegral . PFS.fileSize
 
@@ -287,8 +289,9 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
       if | needClose && continue -> do
               liftIO $ closeFd fh
+              flushReplaces fk
               debug $ "closeFd" <+> viaShow fh
-              atomically $ writeTQueue closeQ fk
+              atomically $ writeTQueue indexQ fk
               loop RunNew
 
          | not continue -> loop (RunFin (Just fh))
@@ -332,7 +335,8 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
                     Just (NCQEntry w, EntryHere bs)  -> do
                       off <- fromIntegral <$> liftIO (fdSeek fh RelativeSeek 0)
                       n <- lift (appendSection fh bs)
-                      atomically (writeTVar w (EntryThere (FileLocation fk off (fromIntegral n))))
+                      let op = writeTVar w (EntryThere (FileLocation fk off (fromIntegral n)))
+                      atomically $ modifyTVar ncqReplQueue (HM.insertWith (<>) fk  [op])
                       pure n
 
                     _ -> pure 0
@@ -340,11 +344,23 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
           let written = sum ws
           loop $ RunSync (fk, fh, w + written, total' + written, True)
 
-  mapM_ wait [closer]
+  mapM_ wait [indexer]
 
   where
     setAlive   = atomically $ writeTVar ncqAlive True
     unsetAlive = atomically $ writeTVar ncqAlive False
+
+    dropReplaces :: forall m . MonadIO m => FileKey -> m ()
+    dropReplaces fk = atomically do
+        modifyTVar ncqReplQueue (HM.delete fk)
+
+    flushReplaces :: forall m . MonadIO m => FileKey -> m ()
+    flushReplaces fk = do
+      atomically do
+        ncqDelCachedDataSTM ncq fk
+        ops <- readTVar ncqReplQueue <&> fromMaybe mempty . HM.lookup fk
+        modifyTVar ncqReplQueue (HM.delete fk)
+        sequence_ ops
 
     openNewDataFile :: forall mx . MonadIO mx => mx (FileKey, Fd)
     openNewDataFile = do
@@ -415,5 +431,6 @@ data RunSt =
   | RunWrite (FileKey, Fd, Int, Int)
   | RunSync  (FileKey, Fd, Int, Int, Bool)
   | RunFin   (Maybe Fd)
+  deriving stock Show
 
 
