@@ -145,6 +145,8 @@ ncq3Tests = do
               writeTQueue hq h
               modifyTVar w1 succ
 
+           ncqStorageStop sto
+
         ncqWithStorage testEnvDir $ \sto -> do
           notice $ "reopen/lookup" <+> pretty num
           hh <- atomically $ STM.flushTQueue hq
@@ -794,7 +796,7 @@ ncq3Tests = do
             delBlock sto ha
             atomically $ modifyTVar blkz (HM.insert ha Nothing)
             found <- hasBlock sto ha
-            assertBool (show $ "not deleted" <+> pretty ha) (isNothing found)
+            assertBool (show $ "not deleted" <+> pretty ha <+> pretty found) (isNothing found)
 
           pr <- uniformRM (0, 1.0) g
 

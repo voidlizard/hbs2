@@ -242,7 +242,8 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
         pure $ a || b
 
   flip fix RunNew $ \loop -> \case
-    RunFin -> do
+    RunFin mfh -> do
+      liftIO $ for_ mfh closeFd
       debug "exit storage"
       atomically $ pollSTM closer >>= maybe STM.retry (const none)
 
@@ -250,7 +251,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       alive <- readTVarIO ncqAlive
       empty <- readTVarIO ncqWriteQ <&> Seq.null
       if not alive && empty
-        then loop RunFin
+        then loop (RunFin Nothing)
         else do
           (fk, fhx) <- openNewDataFile
           loop $ RunWrite (fk, fhx, 0, 0)
@@ -286,10 +287,11 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
       if | needClose && continue -> do
               liftIO $ closeFd fh
+              debug $ "closeFd" <+> viaShow fh
               atomically $ writeTQueue closeQ fk
               loop RunNew
 
-         | not continue -> loop RunFin
+         | not continue -> loop (RunFin (Just fh))
 
          | otherwise -> loop $ RunWrite (fk, fh, rest, total)
 
@@ -301,7 +303,13 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       chunk <- liftIO $ timeout timeoutMicro $ atomically do
         stop  <- readTVar ncqStopReq
         sy    <- readTVar ncqSyncReq
-        chunk <- stateTVar ncqWriteQ (Seq.splitAt ncqWriteBlock)
+
+        chunk <- if not stop then
+                    stateTVar ncqWriteQ (Seq.splitAt ncqWriteBlock)
+                 else do
+                    r <- readTVar ncqWriteQ
+                    modifyTVar ncqWriteQ mempty
+                    pure r
 
         if | Seq.null chunk && stop             -> pure $ Left ()
            | Seq.null chunk && not (stop || sy) -> STM.retry
@@ -406,6 +414,6 @@ data RunSt =
     RunNew
   | RunWrite (FileKey, Fd, Int, Int)
   | RunSync  (FileKey, Fd, Int, Int, Bool)
-  | RunFin
+  | RunFin   (Maybe Fd)
 
 

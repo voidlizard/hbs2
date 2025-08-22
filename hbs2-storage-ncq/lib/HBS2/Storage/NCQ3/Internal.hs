@@ -189,7 +189,7 @@ ncqPutBS0 wait ncq@NCQStorage{..} mtp mhref bs' = ncqOperation ncq (pure $ fromM
               pure True
 
             Just (NCQEntry e) -> readTVar e >>= \case
-              EntryHere bs'' |  bs == bs''-> pure False
+              EntryHere bs'' | bs == bs''-> pure False
                              | otherwise -> writeTVar e (EntryHere bs) >> pure True
 
               EntryThere{} -> writeTVar e (EntryHere bs) >> pure True
@@ -259,6 +259,7 @@ ncqDelEntry me href = do
   -- всегда пишем tomb и надеемся на лучшее
   -- merge/compact разберутся
   -- однако не пишем, если записи еще нет
+  -- void $ ncqPutBS me (Just T) (Just href) ""
   ncqLocate me href >>= \case
     Just loc | not (ncqIsTomb loc) -> do
       void $ ncqPutBS me (Just T) (Just href) ""
