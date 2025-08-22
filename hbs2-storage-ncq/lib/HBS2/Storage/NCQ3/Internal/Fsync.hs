@@ -3,9 +3,12 @@
 {-# LANGUAGE CPP #-}
 module HBS2.Storage.NCQ3.Internal.Fsync where
 
+import HBS2.Storage.NCQ3.Internal.Prelude
+
 import Foreign.C.Types
 import System.Posix.Types
 import System.Posix.Unistd (fileSynchronise)
+import Foreign.C.Error (throwErrnoIfMinus1_)
 
 #ifdef darwin_HOST_OS
 
@@ -17,11 +20,11 @@ foreign import capi unsafe "fcntl.h value F_FULLFSYNC"
 
 c_fcntl :: CInt -> CInt -> CInt -> IO ()
 c_fcntl fd cmd arg = do
-  _ <- c_fcntl_raw fd cmd arg
+  debug $ "c_fcntl" <+> viaShow fd <+> viaShow cmd <+> viaShow arg
+  throwErrnoIfMinus1_ "fcntl(F_FULLFSYNC)" (c_fcntl_raw fd cmd arg)
   pure ()
 
 #endif
-
 
 fileSynchronisePortable :: Fd -> IO ()
 fileSynchronisePortable fd@(Fd fdi) = do
@@ -31,5 +34,6 @@ fileSynchronisePortable fd@(Fd fdi) = do
   fileSynchronise fd
 #endif
 {-# INLINE fileSynchronisePortable #-}
+
 
 
