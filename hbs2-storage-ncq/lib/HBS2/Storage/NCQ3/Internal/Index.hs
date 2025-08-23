@@ -165,6 +165,9 @@ ncqIndexCompactStep me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
 
   r' <- lift $ ncqFindMinPairOf me idx
 
+  debug $ "ncqIndexCompactStep " <+> pretty idx
+  debug $ "ncqIndexCompactStep found pair" <+> pretty r'
+
   (_, a, b) <- ContT $ maybe1 r' (pure False)
 
   let idx1Name = ncqGetFileName me a
