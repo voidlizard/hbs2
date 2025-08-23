@@ -58,14 +58,11 @@ migrate syn = flip runContT pure $ callCC \exit -> do
   --  KISS. just import block/remove block.
   --  let the user backup it.
   --
-  --
-  --
 
   conf@(PeerConfig se)  <- peerConfigRead (headMay [p | ListVal [StringLike "-c", StringLike p] <- opts] )
 
   brains <- newBasicBrains  conf
 
-  bProbe <- newSimpleProbe "Brains"
   brainsThread <- ContT $ withAsync $ runBasicBrains conf brains
 
   xdg <- liftIO $ getXdgDirectory XdgData defStorePath <&> fromString
