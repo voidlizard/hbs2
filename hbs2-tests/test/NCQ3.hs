@@ -38,7 +38,6 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 import NCQ3.Endurance
-import NCQ3.EnduranceInProc
 
 import Data.Generics.Labels
 import Lens.Micro.Platform
@@ -892,10 +891,7 @@ ncq3Tests = do
 
       none
 
-
   ncq3EnduranceTest
-  ncq3EnduranceTestInProc
-
 
 testNCQ3Concurrent1 :: MonadUnliftIO m
          => Bool

@@ -20,7 +20,7 @@ foreign import capi unsafe "fcntl.h value F_FULLFSYNC"
 
 c_fcntl :: CInt -> CInt -> CInt -> IO ()
 c_fcntl fd cmd arg = do
-  debug $ "c_fcntl" <+> viaShow fd <+> viaShow cmd <+> viaShow arg
+--  debug $ "c_fcntl" <+> viaShow fd <+> viaShow cmd <+> viaShow arg
   throwErrnoIfMinus1_ "fcntl(F_FULLFSYNC)" (c_fcntl_raw fd cmd arg)
   pure ()
 
