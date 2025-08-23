@@ -91,6 +91,8 @@ data NCQStorage =
   , ncqSweepTime       :: Timeout 'Seconds
   , ncqMergeTimeA      :: Timeout 'Seconds
   , ncqMergeTimeB      :: Timeout 'Seconds
+  , ncqCompactTimeA    :: Timeout 'Seconds
+  , ncqCompactTimeB    :: Timeout 'Seconds
   , ncqFsync           :: Int
   , ncqWriteQLen       :: Int
   , ncqWriteBlock      :: Int
@@ -118,6 +120,7 @@ data NCQStorage =
   , ncqSyncReq         :: TVar Bool
   , ncqSweepReq        :: TVar Bool
   , ncqMergeReq        :: TVar Bool
+  , ncqCompactReq      :: TVar Bool
   , ncqOnRunWriteIdle  :: TVar (IO ())
   , ncqSyncNo          :: TVar Int
   , ncqServiceSem      :: TSem

@@ -40,8 +40,10 @@ ncqStorageOpen fp upd = do
   let ncqIdleThrsh       = 50.0
   let ncqPostponeService = 20
   let ncqSweepTime       = 30.00
-  let ncqMergeTimeA      = 10.00
-  let ncqMergeTimeB      = 60.00
+  let ncqMergeTimeA      = 20.00
+  let ncqMergeTimeB      = 120.00
+  let ncqCompactTimeA    = 10.00
+  let ncqCompactTimeB    = 60.00
   let ncqSalt            = "EstEFasxrCFqsGDxcY4haFcha9e4ZHRzsPbGUmDfdxLk"
 
   cap <- getNumCapabilities
@@ -65,6 +67,7 @@ ncqStorageOpen fp upd = do
   ncqSyncReq        <- newTVarIO False
   ncqSweepReq       <- newTVarIO False
   ncqMergeReq       <- newTVarIO False
+  ncqCompactReq     <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
   ncqState          <- newTVarIO mempty

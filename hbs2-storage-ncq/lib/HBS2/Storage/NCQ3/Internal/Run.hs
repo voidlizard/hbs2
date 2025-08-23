@@ -242,9 +242,11 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
   spawnActivity $ postponed ncqPostponeService
     $ compactLoop ncqMergeReq  ncqMergeTimeA ncqMergeTimeB $ withSem ncqServiceSem do
-        a <- ncqFossilMergeStep ncq
-        b <- ncqIndexCompactStep ncq
-        pure $ a || b
+        ncqFossilMergeStep ncq
+
+  spawnActivity $ postponed ncqPostponeService
+    $ compactLoop ncqCompactReq ncqCompactTimeA ncqCompactTimeB $ withSem ncqServiceSem do
+        ncqIndexCompactStep ncq
 
   flip fix RunNew $ \loop s -> do
     -- debug $ viaShow s
@@ -434,12 +436,14 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       ncqClearFlag flag
       compacted <- lift what
 
-      when compacted mzero
+      when compacted do
+        ncqSetFlag ncqSweepReq
+        mzero
 
       k0 <- readTVarIO ncqStateKey
       void $ lift $ race (pause @'Seconds t2) do
         flip fix k0 $ \waitState k1 -> do
-          pause @'Seconds 60
+          pause @'Seconds t2
           k2 <- readTVarIO ncqStateKey
           when (k2 == k1) $  waitState k2
 
