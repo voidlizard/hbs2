@@ -206,9 +206,9 @@ ncqIndexCompactStep me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
 
   debug $ "state update" <+> pretty a <+> pretty b <+> "=>" <+> pretty fki
   ncqStateUpdate me do
+    ncqStateAddIndexFile ts fki
     ncqStateDelIndexFile (coerce a)
     ncqStateDelIndexFile (coerce b)
-    ncqStateAddIndexFile ts fki
 
   pure True
 
