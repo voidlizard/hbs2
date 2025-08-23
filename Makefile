@@ -24,7 +24,7 @@ BINS := \
   fixme-new          \
 	hbs2-git3 \
 	git-remote-hbs23 \
-	hbs2-ncq \
+	ncq3 \
 	hbs2-obsolete \
 	tcq \
 	test-ncq \

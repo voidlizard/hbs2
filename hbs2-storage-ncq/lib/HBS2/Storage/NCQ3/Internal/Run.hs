@@ -211,9 +211,12 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
       ContT $ ncqWithState ncq
 
+      -- debug $ "REQ IN STATE" <+> pretty h
+
       NCQState{..} <- readTVarIO ncqState
 
       for_ ncqStateIndex $ \(_, fk) -> do
+       -- debug $ "SCAN FUCKING INDEX" <+> pretty fk
        CachedIndex bs nw <- lift $ ncqGetCachedIndex ncq fk
        lift (ncqLookupIndex h (bs, nw)) >>= \case
         Just (IndexEntry fk o s) -> answer (Just (InFossil (FileLocation fk o s))) >> exit ()

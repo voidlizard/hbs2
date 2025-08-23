@@ -75,6 +75,7 @@ library
       HBS2.Storage.NCQ3.Internal.Fossil
       HBS2.Storage.NCQ3.Internal.Flags
       HBS2.Storage.NCQ3.Internal.Fsync
+      HBS2.Storage.NCQ3.Internal.CLI
       HBS2.Storage.NCQ
       HBS2.Storage.NCQ.Types
     -- other-modules:
@@ -124,7 +125,7 @@ library
     default-language: Haskell2010
 
 
-executable hbs2-ncq
+executable ncq3
     import:           shared-properties
 
     ghc-options:

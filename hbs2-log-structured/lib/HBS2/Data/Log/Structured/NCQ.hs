@@ -50,7 +50,7 @@ import Safe
 import Lens.Micro.Platform
 import Control.Concurrent.STM qualified as STM
 import UnliftIO
-
+import UnliftIO.IO.File
 
 
 nextPowerOf2 :: Word64 -> Word64
@@ -225,130 +225,88 @@ nwayFileAllocate = fileAllocate
 
 nwayWriteBatch :: MonadUnliftIO m
                => NWayHashAlloc
-               -> FilePath -- ^ dir
-               -> FilePath -- ^ template
+               -> FilePath
+               -> FilePath
                -> [(ByteString, ByteString)]
                -> m FilePath
-
 nwayWriteBatch nwa@NWayHashAlloc{..} path tpl items' = do
 
- let items = HM.fromList items' & HM.toList
+  let items       = HM.toList (HM.fromList items')  -- dedup
+      ks          = nwayAllocKeySize
+      vs          = nwayAllocValueSize
+      kpiece      = nwayAllocKeyPartSize
+      itemsInBuck = nwayAllocBucketSize
+      itemSize    = ks + vs
+      buckSize    = itemSize * itemsInBuck
+      kparts      = ks `div` kpiece
 
- let  ks     = nwayAllocKeySize
+  fn <- liftIO $ emptyTempFile path tpl
 
- let  vs     = nwayAllocValueSize
- let  kpiece = nwayAllocKeyPartSize
+  liftIO $ withBinaryFileDurableAtomic fn WriteMode $ \h -> do
 
- let  itemsInBuck = nwayAllocBucketSize
- let  itemSize    = fromIntegral $ ks + vs
- let  buckSize    = fromIntegral $ itemSize * itemsInBuck
+    let go (numBuckMay, pageOff, i, es) = do
+          let numBuck = fromMaybe
+                          (max nwayAllocMinBuckets (nwayAllocBucketNum nwa (length es)))
+                          numBuckMay
 
- let  kparts = ks `div` fromIntegral kpiece
+          -- счётчики на каждый бакет
+          alloc <- V.replicateM numBuck (newTVarIO 0)
 
- fn0 <- liftIO (emptyTempFile path tpl)
- fn <- liftIO (emptyTempFile path (takeBaseName fn0 <>".part"))
+          -- leftovers (если бакет переполнен)
+          leftovers <- newTVarIO []
 
- h0 <- openFile fn ReadWriteMode
- fd <- liftIO $ handleToFd  h0
- h <- liftIO $ fdToHandle fd
+          forM_ es $ \(k,v) -> do
+            let ki = N.word64 (BS.take kpiece (BS.drop (i*kpiece) k))
+                bn = fromIntegral (ki `mod` fromIntegral numBuck)
 
- flip runContT pure do
+            eIdx <- atomically $ do
+                      e <- readTVar (alloc ! bn)
+                      if e >= itemsInBuck
+                        then do
+                          modifyTVar leftovers ((k,v):)
+                          pure Nothing
+                        else do
+                          writeTVar (alloc ! bn) (e+1)
+                          pure (Just e)
 
-   buckets <- newTQueueIO
-   leftovers <- newTQueueIO
+            for_ eIdx $ \e -> do
+              let woff = pageOff + bn * buckSize + (e * itemSize)
+              hSeek h AbsoluteSeek (fromIntegral woff)
+              BS.hPut h (k <> BS.take vs v)
 
-   void $ ContT $ bracket none $ const do
-     hClose h
+          lo <- readTVarIO leftovers
 
-   wq   <- newTQueueIO
+          if null lo
+            then pure [numBuck]
+            else if i + 1 < kparts
+              then do
+                let resize = nwayAllocResize nwa i numBuck (length lo)
+                more <- go (resize, pageOff + numBuck * buckSize, succ i, lo)
+                pure (numBuck : more)
+              else do
+                -- финальный шанс: удвоить бакеты
+                hSetFileSize h (fromIntegral pageOff)
+                more <- go (Just (numBuck*2), pageOff, i, lo)
+                pure (numBuck : more)
 
-   writer <- ContT $ withAsync  do
-      fix \next -> do
-       ops <-  atomically do
-                void (peekTQueue wq)
-                STM.flushTQueue wq
+    buckets <- go (Nothing, 0, 0, items)
 
-       for_ ops $ \case
-         Just (_,op) -> op
-         Nothing -> none
+    let meta = [ mkForm @C "keysize"     [mkInt ks]
+               , mkForm    "keypartsize" [mkInt kpiece]
+               , mkForm    "valuesize"   [mkInt vs]
+               , mkForm    "bucksize"    [mkInt itemsInBuck]
+               , mkForm    "buckets"     (fmap mkInt buckets)
+               , mkForm    "cqfile"      [mkInt 1]
+               ]
 
-       unless (any isNothing ops) next
+    let metabs   = BS8.pack (show (vsep (fmap pretty meta)))
+        metaSize = fromIntegral (BS.length metabs)
 
-   flip fix (Nothing,0,0,items) \nextPage (numBuck,pageOff,i,es) -> do
+    hSeek h SeekFromEnd 0
+    BS.hPut h metabs
+    BS.hPut h (N.bytestring32 metaSize)
 
-     let buckNum = case numBuck of
-                     Just x  -> x
-                     Nothing -> max nwayAllocMinBuckets (nwayAllocBucketNum nwa (List.length es))
-
-     atomically $ writeTQueue buckets buckNum
-
-     tvx <- replicateM (fromIntegral buckNum) ( newTVarIO 0 )
-     let alloc  = V.fromList tvx
-
-     let pageSize = buckNum * buckSize
-
-     liftIO do
-       nwayFileAllocate fd pageOff (fromIntegral pageSize)
-
-     for_ es $ \(k,v) -> do
-       let ki = BS.take kpiece (BS.drop (i*kpiece) k ) & N.word64
-       let bn = ki `mod` fromIntegral buckNum
-       let buckOff = fromIntegral pageOff +  bn * fromIntegral buckSize
-
-       eIdx <- atomically do
-                 e <- readTVar (alloc ! fromIntegral bn)
-                 if e >= itemsInBuck then do
-                   writeTQueue leftovers (k,v)
-                   pure Nothing
-                 else do
-                   writeTVar (alloc ! fromIntegral bn) (e+1)
-                   pure $ Just e
-
-       for_ eIdx \e -> liftIO do
-         let woff = fromIntegral buckOff + fromIntegral (e * itemSize)
-         let op = liftIO do
-               hSeek h AbsoluteSeek woff
-               BS.hPut h (k <> BS.take (fromIntegral vs) v)
-
-         atomically (writeTQueue wq (Just (woff, op)))
-
-     lo <- atomically $ STM.flushTQueue leftovers
-
-     if | List.null lo -> none
-
-        | i + 1 < fromIntegral kparts -> do
-           let resize = nwayAllocResize nwa i buckNum (List.length lo)
-           nextPage (resize, pageOff + fromIntegral pageSize, succ i, lo)
-
-        | otherwise -> do
-            -- TODO: check-how-it-works
-            liftIO (setFileSize fn pageOff)
-            nextPage (Just (buckNum*2), pageOff, i, lo)
-
-   atomically $ writeTQueue wq Nothing
-   wait writer
-
-   -- finalize write
-   bucklist <- atomically $ STM.flushTQueue buckets
-
-   let meta = [ mkForm @C "keysize"     [mkInt ks]
-              , mkForm    "keypartsize" [mkInt kpiece]
-              , mkForm    "valuesize"   [mkInt vs]
-              , mkForm    "bucksize"    [mkInt itemsInBuck]
-              , mkForm    "buckets"     (fmap mkInt bucklist)
-              , mkForm    "cqfile"      [mkInt 1]
-              ]
-
-   let metabs = BS8.pack $ show $ vsep (fmap pretty meta)
-   let metaSize = fromIntegral $ BS.length metabs
-
-   liftIO do
-     hSeek h SeekFromEnd 0
-     BS.hPut h metabs
-     BS.hPut h (N.bytestring32 metaSize)
-     mv fn fn0
-
-   pure fn0
+  pure fn
 
 nwayHashScanAll :: MonadIO m
                 => NWayHash
