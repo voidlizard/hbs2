@@ -93,21 +93,27 @@ ncqTryLoadState me@NCQStorage{..} = do
 
       let corrupted = isLeft good
 
-      if not corrupted then do
-        debug $ yellow "indexing" <+> pretty dataFile
-        ncqIndexFile me Nothing dataFile
-      else do
+      if | not corrupted && realSize <= typicalFileTailRecordLen  -> do
 
-        o <- ncqFileTryRecover path
-        warn $ "ncqFileTryRecover" <+> pretty path <+> pretty o <+> parens (pretty realSize)
+            warn $ "skip indexing" <+> pretty realSize <+> pretty (takeFileName path)
 
-        let best = if i < 1 then max s o else s
+         | not corrupted -> do
 
-        warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
+            debug $ "indexing" <+> pretty dataFile
+            void  $ ncqIndexFile me Nothing dataFile
 
-        liftIO $ PFS.setFileSize path (fromIntegral best)
+         | otherwise -> do
 
-        if i <= 1 then again (succ i) else pure Nothing
+            o <- ncqFileTryRecover path
+            warn $ "ncqFileTryRecover" <+> pretty path <+> pretty o <+> parens (pretty realSize)
+
+            let best = if i < 1 then max s o else s
+
+            warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
+
+            liftIO $ PFS.setFileSize path (fromIntegral best)
+
+            if i <= 1 then again (succ i) else none
 
 
   for_ (bad <> fmap snd rest) $ \f -> do
@@ -235,6 +241,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
     debug $ "EMA" <+> pretty (realToFrac @_ @(Fixed E3) ema)
 
   spawnActivity $ postponed ncqPostponeService $ forever do
+    ncqRemoveEmptyFossils ncq
     ncqSweepObsoleteStates ncq
     ncqSweepFiles ncq
     void $ race (pause @'Seconds ncqSweepTime) do

@@ -257,6 +257,9 @@ fileTailRecord w = do
   ncqMakeSectionBS (Just M) h paylo
 {-# INLINE fileTailRecord #-}
 
+typicalFileTailRecordLen :: Integral a => a
+typicalFileTailRecordLen = fromIntegral (BS.length (fileTailRecord @Integer 0))
+
 appendSection :: forall m . MonadUnliftIO m
             => Fd
             -> ByteString

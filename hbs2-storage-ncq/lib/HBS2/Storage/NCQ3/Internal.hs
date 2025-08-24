@@ -68,6 +68,7 @@ ncqStorageOpen fp upd = do
   ncqSweepReq       <- newTVarIO False
   ncqMergeReq       <- newTVarIO False
   ncqCompactReq     <- newTVarIO False
+  ncqStateDumpReq   <- newTVarIO False
   ncqOnRunWriteIdle <- newTVarIO none
   ncqSyncNo         <- newTVarIO 0
   ncqState          <- newTVarIO mempty

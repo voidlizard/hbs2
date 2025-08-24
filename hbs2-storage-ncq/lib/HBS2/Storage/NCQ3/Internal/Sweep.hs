@@ -4,6 +4,7 @@ module HBS2.Storage.NCQ3.Internal.Sweep where
 import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Fossil
 import HBS2.Storage.NCQ3.Internal.State
 
 import Control.Monad.Trans.Cont
@@ -13,6 +14,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.List qualified as List
 import System.Posix.Files qualified as PFS
+import Streaming.Prelude qualified as S
 
 ncqLiveKeysSTM :: NCQStorage -> STM (HashSet FileKey)
 ncqLiveKeysSTM NCQStorage{..} = do
@@ -27,6 +29,34 @@ ncqLiveKeys :: forall m . MonadIO m => NCQStorage -> m (HashSet FileKey)
 ncqLiveKeys  ncq = atomically $ ncqLiveKeysSTM  ncq
 
 {- HLINT ignore "Functor law"-}
+
+ncqRemoveEmptyFossils :: forall m . MonadUnliftIO m => NCQStorage -> m ()
+ncqRemoveEmptyFossils me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
+
+  s@NCQState{..} <- readTVarIO ncqState
+  debug $ red "CURRENT STATE" <+> pretty ncqStateVersion <> line <> pretty s
+
+  check <- atomically do
+    NCQState{..}  <- readTVar ncqState
+    current <- readTVar ncqCurrentFossils
+    let fks =  HS.fromList [ coerce fk | P (PData fk _) <- universeBi ncqStateFacts ]
+    pure $ HS.toList (fks `HS.difference` current)
+
+  current <- readTVarIO ncqCurrentFossils
+  debug $ "ncqRemoveEmptyFossils" <+> pretty (HS.toList current) <+> pretty check
+
+  loosers <- S.toList_ $ for_ check $ \fk -> do
+    let path = ncqGetFileName me (toFileName (DataFile fk))
+    s <- fileSize path
+    when (s <= typicalFileTailRecordLen) $ S.yield fk
+
+  debug $ "ncqRemoveEmptyFossils" <+> pretty loosers
+
+  when (List.null loosers) $ exit ()
+
+  ncqStateUpdate me $ for_ loosers $ \fk -> do
+    ncqStateDelDataFile fk
+    ncqStateDelFact (P (PData (DataFile fk) 0))
 
 ncqSweepFiles :: forall m . MonadUnliftIO m => NCQStorage -> m ()
 ncqSweepFiles me@NCQStorage{..} = do

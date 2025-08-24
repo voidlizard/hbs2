@@ -5,6 +5,7 @@ import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.State
 import HBS2.Storage.NCQ3.Internal.Memtable
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Flags
 
 import System.Posix.Files qualified as PFS
 import Streaming.Prelude qualified as S
@@ -158,7 +159,7 @@ ncqIndexCompactStep :: MonadUnliftIO m
                     -> m Bool
 ncqIndexCompactStep me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
 
-  debug "ncqIndexCompactStep"
+  debug $ red "ncqIndexCompactStep"
 
   idx <- readTVarIO ncqState
            <&> fmap (IndexFile . snd) . ncqStateIndex
@@ -209,6 +210,10 @@ ncqIndexCompactStep me@NCQStorage{..} = flip runContT pure $ callCC \exit -> do
     ncqStateAddIndexFile ts fki
     ncqStateDelIndexFile (coerce a)
     ncqStateDelIndexFile (coerce b)
+
+  -- FIXME: crutch
+  --   костыль!
+  ncqSetFlag ncqStateDumpReq
 
   pure True
 

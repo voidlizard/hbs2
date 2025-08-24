@@ -120,6 +120,7 @@ data NCQStorage =
   , ncqSyncReq         :: TVar Bool
   , ncqSweepReq        :: TVar Bool
   , ncqMergeReq        :: TVar Bool
+  , ncqStateDumpReq    :: TVar Bool
   , ncqCompactReq      :: TVar Bool
   , ncqOnRunWriteIdle  :: TVar (IO ())
   , ncqSyncNo          :: TVar Int

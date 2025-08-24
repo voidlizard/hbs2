@@ -4,6 +4,7 @@ module HBS2.Storage.NCQ3.Internal.State where
 import HBS2.Storage.NCQ3.Internal.Prelude
 import HBS2.Storage.NCQ3.Internal.Types
 import HBS2.Storage.NCQ3.Internal.Files
+import HBS2.Storage.NCQ3.Internal.Flags
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
 import Data.Config.Suckless.Script
@@ -34,8 +35,15 @@ ncqStateDump ncq@NCQStorage{..} = do
     state <- readTVarIO ncqState
     key <-  ncqGetNewFileKey ncq StateFile
     let snkFile = ncqGetFileName ncq (StateFile key)
+
     liftIO $ withBinaryFileDurableAtomic snkFile WriteMode $ \fh -> do
       IO.hPrint fh (pretty state)
+
+    atomically do
+      writeTVar ncqStateKey key
+      ncqClearFlagSTM  ncqStateDumpReq
+
+    debug $ yellow "ncqStateDump" <+> pretty key <+> pretty (toFileName (StateFile key))
     pure key
 
 ncqStateUpdateLoop :: MonadIO m
@@ -46,18 +54,19 @@ ncqStateUpdateLoop ncq@NCQStorage{..} = do
 
   debug $ red "ncqStateUpdateLoop"
 
+
   sInit <- readTVarIO ncqState
 
   flip fix sInit $ \next s0 -> do
     state <- atomically do
       s1   <- readTVar ncqState
       stop <- readTVar ncqStopReq
-      if s1 == s0 && not stop then STM.retry else pure s1
+      dump <- readTVar ncqStateDumpReq
+      if s1 == s0 && not stop && not dump then STM.retry else pure s1
 
     key <- ncqStateDump ncq
 
     done <- atomically do
-      writeTVar ncqStateKey key
       modifyTVar ncqWrites succ
       readTVar ncqStopReq
 
@@ -71,7 +80,12 @@ ncqStateUpdate :: MonadIO m
 
 ncqStateUpdate ncq@NCQStorage{..} action = do
   atomically do
+    s0 <- readTVar ncqState
     void $ runReaderT (fromStateOp action) ncq
+    s1 <- readTVar ncqState
+    when (s0 /= s1) do
+      modifyTVar ncqState (over #ncqStateVersion succ)
+      ncqSetFlagSTM ncqStateDumpReq
 
 ncqStateAddDataFile :: FileKey -> StateOP ()
 ncqStateAddDataFile fk = do
