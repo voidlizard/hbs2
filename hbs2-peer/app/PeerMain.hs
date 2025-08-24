@@ -1394,39 +1394,37 @@ checkMigration prefix  = flip runContT pure $ callCC \exit -> do
   blocks <- S.toList_ do
               glob ["**/*"] [] (prefix </> "blocks") $ \fn -> S.yield fn >> pure False
 
+  ssDone <- Sy.doesFileExist (prefix </> "ss-ncq3-done")
+  ncqDone <- Sy.doesFileExist (prefix </> "ncq-ncq3-done")
 
-  let migration = prefix </> "migrate"
+  let ncq1Dir =  prefix </> "ncq"
+  ncq1Here <- Sy.doesDirectoryExist ncq1Dir
 
-  already <- Sy.doesDirectoryExist migration
+  let needed = (not (L.null blocks) && not ssDone) || (ncq1Here && not ncqDone)
 
-  when (L.null blocks && not already) do
-    checkNCQ1
+  liftIO $ print $ show $ "needed" <+> pretty needed <+> pretty ssDone
+
+  unless needed $ exit ()
+
+  when ssDone do
+    liftIO $ putStrLn $ "simple-storage -> ncq3 migration done, you may remove blocks and refs directories"
+
+  when ncqDone do
+    liftIO $ putStrLn $ "ncq -> ncq3 migration done, you may remove ncq directory"
+
+  when (ssDone && ncqDone) $ exit ()
+
+  unless needed do
     exit ()
 
-  let reason = if already then
-                 red "Migration WIP discovered" <+> pretty migration
-                else
-                 red "Legacy storage discovered" <+> pretty prefix
-
-  notice $ reason <> line
-           <> red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
-           <> line
-           <> "to migrate the storage to a new version"
+  when needed do
+    notice $ yellow "found legacy storage in" <+> pretty prefix
+    notice $ red "Run" <+> "hbs2-peer migrate"
+             <> line
+             <> "to migrate the storage to a new version"
+    notice $ "You may also: backup" <+> pretty ncq1Dir <+> "or move it or remove permanently"
+    liftIO exitFailure
 
   liftIO exitFailure
 
-
-
-  where
-    checkNCQ1 :: ContT () m ()
-    checkNCQ1 = do
-      let ncq1Dir =  prefix </> "ncq"
-      ncq1Here <- Sy.doesDirectoryExist ncq1Dir
-      when ncq1Here do
-        notice $ yellow "found NCQv1 storage"
-        notice $ red "Run" <+> "hbs2-peer migrate" <+> pretty prefix
-                 <> line
-                 <> "to migrate the storage to a new version"
-        notice $ "You may also: backup" <+> pretty ncq1Dir <+> "or move it or remove permanently"
-        liftIO exitFailure
 

@@ -22,6 +22,47 @@ import UnliftIO
 import Control.Concurrent.STM qualified as STM
 import Streaming.Prelude qualified as S
 
+
+-- FIXME: skip-symlink
+globSafer :: forall m . MonadIO m
+     => [FilePattern]           -- ^ search patterns
+     -> [FilePattern]           -- ^ ignore patterns
+     -> FilePath                -- ^ directory
+     -> (FilePath -> m Bool)    -- ^ file action
+     -> m ()
+
+globSafer pat ignore dir action = do
+  q <- newTBQueueIO 1000
+  void $ liftIO (async $ go q dir >> atomically (writeTBQueue q Nothing))
+  fix $ \next -> do
+    atomically (readTBQueue q) >>= \case
+      Nothing -> pure ()
+      Just x -> do
+        r <- action x
+        when r next
+
+  where
+
+    matches p f = or [ i ?== f | i <- p ]
+    skip p = or [ i ?== p | i <- ignore ]
+
+    go q f = do
+
+      isD <- doesDirectoryExist f
+
+      if not isD then do
+        isF <- doesFileExist f
+        when (isF && matches pat f && not (skip f)) do
+          atomically $ writeTBQueue q (Just f)
+      else do
+        co' <- (try @_ @IOError $ listDirectory f)
+                 <&> fromRight mempty
+
+        pooledForConcurrentlyN_ 4 co' $ \x -> do
+          let p = normalise (f </> x)
+          unless (skip p) (go q p)
+
+
 -- FIXME: skip-symlink
 glob :: forall m . MonadIO m
      => [FilePattern]           -- ^ search patterns
