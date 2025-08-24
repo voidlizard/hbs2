@@ -53,7 +53,7 @@ lwwRefProto :: forall e s m proto . ( MonadIO m
                   -> LWWRefProto e -> m ()
 
 lwwRefProto adapter pkt@(LWWRefProto1 req) = do
-  debug $ yellow "lwwRefProto"
+  trace $ yellow "lwwRefProto"
 
   case req of
     LWWProtoGet key -> deferred @proto $ void $ runMaybeT do
