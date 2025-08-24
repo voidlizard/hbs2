@@ -21,9 +21,9 @@ common shared-properties
         -- -Werror=missing-methods
         -- -Werror=incomplete-patterns
         -- -fno-warn-unused-binds
-        -- -threaded
-        -- -rtsopts
-        -- "-with-rtsopts=-N4 -A64m -AL256m -I0"
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N4 -A64m -AL256m -I0"
 
 
   default-language:    Haskell2010
