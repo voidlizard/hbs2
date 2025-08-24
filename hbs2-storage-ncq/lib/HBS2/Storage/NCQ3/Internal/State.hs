@@ -54,24 +54,25 @@ ncqStateUpdateLoop ncq@NCQStorage{..} = do
 
   debug $ red "ncqStateUpdateLoop"
 
+  ncqStateDump ncq
 
-  sInit <- readTVarIO ncqState
+  sInit <- readTVarIO ncqState <&> ncqStateVersion
 
   flip fix sInit $ \next s0 -> do
     state <- atomically do
-      s1   <- readTVar ncqState
+      s1   <- readTVar ncqState <&> ncqStateVersion
       stop <- readTVar ncqStopReq
       dump <- readTVar ncqStateDumpReq
       if s1 == s0 && not stop && not dump then STM.retry else pure s1
 
-    key <- ncqStateDump ncq
+    ncqStateDump ncq
 
     done <- atomically do
       modifyTVar ncqWrites succ
       readTVar ncqStopReq
 
     unless done do
-      next =<< readTVarIO ncqState
+      next state
 
 ncqStateUpdate :: MonadIO m
                => NCQStorage
