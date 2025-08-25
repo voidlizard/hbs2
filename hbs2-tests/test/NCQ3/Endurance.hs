@@ -91,7 +91,9 @@ data EnduranceFSM =
   | EnduranceStorm
   | EnduranceCalm
   | EnduranceKill
+  | EnduranceExit
   | EnduranceMerge
+  | EnduranceCompact
   | EnduranceSweep
   | EnduranceStop
 
@@ -280,8 +282,10 @@ ncq3EnduranceTest = do
     wStormMax <-  dbl <$> lookupValueDef (mkDouble  60.00) "w:stormmax"
     wCalm     <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:calm"
     wKill     <-  dbl <$> lookupValueDef (mkDouble  0.00)  "w:kill"
-    wMerge    <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:merge"
-    wSweep    <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:sweep"
+    wExit     <-  dbl <$> lookupValueDef (mkDouble  0.001) "w:exit"
+    wMerge    <-  dbl <$> lookupValueDef (mkDouble  0.005) "w:merge"
+    wCompact  <-  dbl <$> lookupValueDef (mkDouble  0.005) "w:compact"
+    wSweep    <-  dbl <$> lookupValueDef (mkDouble  0.005) "w:sweep"
     wNum      <-  int <$> lookupValueDef (mkInt     10000) "w:num"
 
 
@@ -292,11 +296,15 @@ ncq3EnduranceTest = do
 
       let n = headDef wNum [ fromIntegral x | LitIntVal x <- args ]
 
-      rest   <- newTVarIO n
-      blocks <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
-      seed   <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
-      refs   <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double HashRef )
-      killed <- newTVarIO 0
+      rest      <- newTVarIO n
+      blocks    <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
+      seed      <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double () )
+      refs      <- newTVarIO ( HPSQ.empty :: HPSQ.HashPSQ HashRef Double HashRef )
+      killed    <- newTVarIO 0
+      stopped   <- newTVarIO 0
+      merged    <- newTVarIO 0
+      sweeped   <- newTVarIO 0
+      compacted <- newTVarIO 0
 
       let getRandomBlock = liftIO $ getRandomFromPSQ g blocks
       let getRandomSeedBlock = liftIO $ getRandomFromPSQ g seed
@@ -336,20 +344,22 @@ ncq3EnduranceTest = do
       --
       debug $ red "pKill" <+> pretty wKill
 
-      let actions = [ (EnduranceIdle,   wIdle)
-                    , (EndurancePutBlk, wPutBlk)
-                    , (EnduranceGetBlk, wGetBlk)
+      let actions = [ (EnduranceIdle,    wIdle)
+                    , (EndurancePutBlk,  wPutBlk)
+                    , (EnduranceGetBlk,  wGetBlk)
                     , (EnduranceHasSeedBlk, wHasBlk)
-                    , (EnduranceHasBlk, wHasBlk)
-                    , (EnduranceDelBlk, wDelBlk)
-                    , (EndurancePutRef, wPutRef)
-                    , (EnduranceGetRef, wGetRef)
-                    , (EnduranceDelRef, wDelRef)
-                    , (EnduranceStorm,  wStorm)
-                    , (EnduranceCalm,   wCalm)
-                    , (EnduranceMerge,  wMerge)
-                    , (EnduranceSweep,  wSweep)
-                    , (EnduranceKill,   wKill)
+                    , (EnduranceHasBlk,  wHasBlk)
+                    , (EnduranceDelBlk,  wDelBlk)
+                    , (EndurancePutRef,  wPutRef)
+                    , (EnduranceGetRef,  wGetRef)
+                    , (EnduranceDelRef,  wDelRef)
+                    , (EnduranceStorm,   wStorm)
+                    , (EnduranceCalm,    wCalm)
+                    , (EnduranceMerge,   wMerge)
+                    , (EnduranceCompact, wCompact)
+                    , (EnduranceSweep,   wSweep)
+                    , (EnduranceKill,    wKill)
+                    , (EnduranceExit,    wExit)
                     ]
 
       let dist = buildCDF actions   -- ← подготовили один раз
@@ -406,12 +416,20 @@ ncq3EnduranceTest = do
             b    <- readTVarIO blocks <&> HPSQ.size
             r    <- readTVarIO refs <&> HPSQ.size
             k    <- readTVarIO killed
+            s    <- readTVarIO stopped
+            c    <- readTVarIO compacted
+            m    <- readTVarIO merged
+            sw   <- readTVarIO sweeped
 
             notice $ green "status"
                        <+> "rest:" <+> pretty rest
-                       <+> "b:" <+> pretty b
-                       <+> "r:" <+> pretty r
-                       <+> "k:" <+> pretty k
+                       <+> "b:"  <+> pretty b
+                       <+> "r:"  <+> pretty r
+                       <+> "m:"  <+> pretty m
+                       <+> "sw:" <+> pretty sw
+                       <+> "c:"  <+> pretty c
+                       <+> "k:"  <+> pretty k
+                       <+> "s:"  <+> pretty s
 
             pause @'Seconds 1
 
@@ -493,11 +511,29 @@ ncq3EnduranceTest = do
 
             EnduranceMerge -> do
               liftIO $ IO.hPrint inp "merge"
+              atomically $ modifyTVar merged succ
+              getNextState >>= loop
+
+            EnduranceCompact -> do
+              liftIO $ IO.hPrint inp "compact"
+              atomically $ modifyTVar compacted succ
               getNextState >>= loop
 
             EnduranceSweep -> do
               liftIO $ IO.hPrint inp "sweep"
+              atomically $ modifyTVar sweeped succ
               getNextState >>= loop
+
+            EnduranceExit -> do
+              liftIO $ IO.hPrint inp "exit"
+              debug $ yellow "inner process stopped?"
+              liftIO $ race (pause @'Seconds 1) (waitExitCode p) >>= \case
+                Right{} -> none
+                Left{}  -> do
+                  debug $ red "force inner process to stop"
+                  stopProcess p
+              atomically $ modifyTVar stopped succ
+              lift recover
 
             EnduranceKill -> do
               debug $ red "KILL" <+> viaShow pid
@@ -508,6 +544,7 @@ ncq3EnduranceTest = do
               void $ runProcess (proc "kill" ["-9", show pid])
               notice $ red "Killed" <+> viaShow pid
               atomically $ modifyTVar killed succ
+              pause @'Seconds 0.5
               lift recover
 
             EnduranceStop -> do
@@ -575,7 +612,10 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
 
      lift (try @_ @SomeException (run @c (dict g sto) s')) >>= \case
         Left e -> err (viaShow e)
-        Right (StringLike "done") -> exit ()
+        Right (StringLike "done") -> do
+          liftIO $ IO.hPutStrLn stderr $ "INNER PROCESS TO EXIT"
+          exit ()
+
         Right _ -> none
 
   where
@@ -645,6 +685,10 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
       entry $ bindMatch "merge" $ nil_ $ const do
          ncqSetFlag ncqMergeReq
          liftIO $ print $ "merge"
+
+      entry $ bindMatch "compact" $ nil_ $ const do
+         ncqSetFlag ncqCompactReq
+         liftIO $ print $ "compact"
 
       entry $ bindMatch "sweep" $ nil_ $ const do
          ncqSetFlag ncqSweepReq

@@ -67,17 +67,26 @@ ncqFossilMergeStep me@NCQStorage{..}  = flip runContT pure $ callCC \exit -> do
 
   debug "ncqFossilMergeStep"
 
+  files0 <- atomically do
+              NCQState{..} <- readTVar ncqState
+              cur <- readTVar ncqCurrentFossils
+              pure (fmap DataFile $ HS.toList $ ncqStateFiles `HS.difference` cur)
+
+  files1 <- for files0 $ \fd -> do
+              let fn = ncqGetFileName me fd
+              ts1 <- liftIO (PFS.getFileStatus fn) <&> PFS.modificationTimeHiRes
+              pure (ts1, fd)
+
   -- TODO: consider-sort-by-timestamps
-  files <- readTVarIO ncqState
-           <&> fmap DataFile .  HS.toList . ncqStateFiles
-           <&> List.sortOn Down
+  let files = List.sortOn Down files1 & fmap snd
 
   NCQState{..}  <- readTVarIO ncqState
 
+  -- cur <- ncqCurrentFossils
+
   let tss = ncqStateIndex & fmap (\(Down x, y) -> (y, realToFrac x :: POSIXTime)) & HM.fromList
 
-  cur <- readTVarIO ncqCurrentFossils
-  r' <- lift $ ncqFindMinPairOfBy me (\x -> not (HS.member (coerce x) cur)) files
+  r' <- lift $ ncqFindMinPairOf me files
 
   r@(sumSize, f1, f2) <- ContT $ maybe1 r' (pure False)
 
@@ -130,6 +139,10 @@ ncqFossilMergeStep me@NCQStorage{..}  = flip runContT pure $ callCC \exit -> do
 
   debug $ "MOVED" <+> pretty outFile <+> pretty newFile
   moveFile outFile newFile
+
+  let f1p = ncqGetFileName me f1
+  ts1 <- liftIO (PFS.getFileStatus f1p) <&> PFS.modificationTimeHiRes
+  liftIO $ PFS.setFileTimesHiRes newFile ts1 ts1
 
   ss <- liftIO (PFS.getFileStatus newFile) <&> fromIntegral . PFS.fileSize
 

@@ -396,7 +396,12 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
 
       ncqStateUpdate ncq do
         ncqStateAddFact (P (PData (DataFile fk) 0))
-        ncqStateAddDataFile fk
+        -- FIXM: asap-remove-this
+        --  это неправильно. из-за этого файл
+        --  болтается в current и мешает при мерже
+        --  хотя это еще не настоящий файл (до индексации).
+        --  почему мы вообще его сюда засунули?
+        -- ncqStateAddDataFile fk
 
       let fname = ncqGetFileName ncq (DataFile fk)
       -- touch fname
