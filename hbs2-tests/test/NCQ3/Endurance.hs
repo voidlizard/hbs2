@@ -230,6 +230,11 @@ validateTestResult logFile = do
             atomically $ modifyTVar refs (HM.insert h (Left ()))
           _ -> none
 
+        entry $ bindMatch "compact" $ nil_ $ const none
+        entry $ bindMatch "merge"   $ nil_ $ const none
+        entry $ bindMatch "sweep"   $ nil_ $ const none
+
+
   -- читаем лог построчно и скармливаем dict
   rs <- lines <$> liftIO (IO.readFile logFile)
   for_ rs $ \s -> case parseTop s of
