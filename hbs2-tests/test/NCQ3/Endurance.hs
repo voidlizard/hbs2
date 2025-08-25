@@ -272,6 +272,7 @@ ncq3EnduranceTest = do
                  _ -> 0
 
     wSeed     <-  int <$> lookupValueDef (mkInt 1000)      "w:seed"
+    wWindow   <-  int <$> lookupValueDef (mkInt 100000)    "w:win"
     wIdle     <-  dbl <$> lookupValueDef (mkDouble 200.00) "w:idle"
     wIdleDef  <-  dbl <$> lookupValueDef (mkDouble   0.25) "w:idle:def"
     wMaxBlk   <-  int <$> lookupValueDef     (mkInt 65536) "w:maxblk"
@@ -325,7 +326,7 @@ ncq3EnduranceTest = do
                           atomically do
                             modifyTVar refs (HPSQ.insert h w r)
                             size <- readTVar refs <&> HPSQ.size
-                            when (size > 100000 ) do
+                            when (size > wWindow ) do
                               modifyTVar refs HPSQ.deleteMin
 
                          _ -> none
@@ -339,7 +340,7 @@ ncq3EnduranceTest = do
                           atomically do
                             modifyTVar blocks (HPSQ.insert h w ())
                             size <- readTVar blocks <&> HPSQ.size
-                            when (size > 100000 ) do
+                            when (size > wWindow ) do
                               modifyTVar blocks HPSQ.deleteMin
 
                          _ -> none
