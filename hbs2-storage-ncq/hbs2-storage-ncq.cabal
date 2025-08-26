@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hbs2-storage-ncq
-version:            0.25.2
+version:            0.25.3.0
 -- synopsis:
 -- description:
 license:            BSD-3-Clause
