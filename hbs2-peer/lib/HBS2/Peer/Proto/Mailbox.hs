@@ -242,6 +242,9 @@ mailboxProto inner adapter mess = deferred @p do
       --
 
       CheckMailbox _ k ->  do
+
+        debug $ red "mailbox:" <+> "CheckMailbox"
+
         creds <- mailboxGetCredentials @s adapter
 
         void $ runMaybeT do
@@ -256,6 +259,8 @@ mailboxProto inner adapter mess = deferred @p do
 
       MailboxStatus box -> do
 
+        debug $ red "mailbox:" <+> "MailboxStatus"
+
         let r = unboxSignedBox0 @(MailBoxStatusPayload s) box
 
         PeerData{..} <- ContT $ maybe1 se' none
@@ -269,7 +274,7 @@ mailboxProto inner adapter mess = deferred @p do
         --   авторизовываться по времени.
         --   возможно, надо слать нонс в CheckMailbox
         --   и тут его проверять
-        unless ( abs (now - mbsMailboxPayloadNonce) < 3 ) $ exit ()
+        unless ( abs (now - mbsMailboxPayloadNonce) < 10 ) $ exit ()
 
         -- NOTE: possible-poisoning-attack
         --  левый пир генерирует merkle tree сообщений и посылает его.
