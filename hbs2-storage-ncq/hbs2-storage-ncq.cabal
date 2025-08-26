@@ -76,7 +76,6 @@ library
       HBS2.Storage.NCQ3.Internal.Flags
       HBS2.Storage.NCQ3.Internal.Fsync
       HBS2.Storage.NCQ3.Internal.CLI
-      HBS2.Storage.NCQ
       HBS2.Storage.NCQ.Types
     -- other-modules:
     -- other-extensions:
