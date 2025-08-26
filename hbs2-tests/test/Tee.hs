@@ -48,7 +48,7 @@ withTeeLogging logPath action = withBinaryFile logPath AppendMode \hLog -> do
     pump hR hOut hErr hLog = loop
       where
         loop = do
-          bs <- BS.hGetLine hR
+          bs <- BS.hGetSome hR 64
           if BS.null bs
             then pure ()
             else do

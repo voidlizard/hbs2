@@ -601,21 +601,21 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
         [ LitIntVal n ] -> do
           s <- liftIO $ genRandomBS g (fromIntegral n)
           h <- putBlock (AnyStorage sto) (LBS.fromStrict s) >>= orThrowUser "block-not-written"
-          liftIO $ print $ "block-written" <+> pretty h <+> pretty (BS.length s)
+          toConsole stdout $ "block-written" <+> pretty h <+> pretty (BS.length s)
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "has-block" $ nil_ \case
         [ HashLike h ] -> do
           s <- hasBlock (AnyStorage sto) (coerce h)
-          liftIO $ print $ "has-block-result" <+> pretty h <+> pretty s
+          toConsole stdout $ "has-block-result" <+> pretty h <+> pretty s
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "has-seed-block" $ nil_ \case
         [ HashLike h ] -> do
           s <- hasBlock (AnyStorage sto) (coerce h)
-          liftIO $ print $ "has-seed-block-result" <+> pretty h <+> pretty s
+          toConsole stdout $ "has-seed-block-result" <+> pretty h <+> pretty s
 
         e -> throwIO (BadFormException @c (mkList e))
 
@@ -623,48 +623,48 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
         [ HashLike h ] -> do
           s <- getBlock (AnyStorage sto) (coerce h)
           let hx = fmap (hashObject @HbSync) s
-          liftIO $ print $ "get-block-result" <+> pretty h <+> pretty hx
+          toConsole stdout $ "get-block-result" <+> pretty h <+> pretty hx
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "del-block" $ nil_ \case
         [ HashLike h ] -> do
           delBlock (AnyStorage sto) (coerce h)
-          liftIO $ print $ "block-deleted" <+> pretty h
+          toConsole stdout $ "block-deleted" <+> pretty h
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "set-ref" $ nil_ \case
         [ HashLike h, HashLike hdest ] -> lift do
           updateRef (AnyStorage sto) (RefAlias2 mempty h) (coerce hdest)
-          liftIO $ print $ "ref-updated" <+> pretty h <+> pretty hdest
+          toConsole stdout $ "ref-updated" <+> pretty h <+> pretty hdest
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "get-ref" $ nil_ \case
         [ HashLike h ] -> lift do
           what <- getRef (AnyStorage sto) (RefAlias2 mempty h)
-          liftIO $ print $ "get-ref-result" <+> pretty h <+> pretty what
+          toConsole stdout $ "get-ref-result" <+> pretty h <+> pretty what
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "del-ref" $ nil_ \case
         [ HashLike h ] -> lift do
           delRef (AnyStorage sto) (RefAlias2 mempty h)
-          liftIO $ print $ "ref-deleted" <+> pretty h
+          toConsole stdout $ "ref-deleted" <+> pretty h
 
         e -> throwIO (BadFormException @c (mkList e))
 
       entry $ bindMatch "merge" $ nil_ $ const do
          ncqSetFlag ncqMergeReq
-         liftIO $ print $ "merge"
+         toConsole stdout $ "merge"
 
       entry $ bindMatch "compact" $ nil_ $ const do
          ncqSetFlag ncqCompactReq
-         liftIO $ print $ "compact"
+         toConsole stdout $ "compact"
 
       entry $ bindMatch "sweep" $ nil_ $ const do
          ncqSetFlag ncqSweepReq
-         liftIO $ print $ "sweep"
+         toConsole stdout $ "sweep"
 
 
