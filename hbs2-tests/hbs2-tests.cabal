@@ -1191,7 +1191,7 @@ executable test-ncq
     ghc-options:
     hs-source-dirs:   test
     main-is:          TestNCQ.hs
-    other-modules:    NCQTestCommon NCQ3 NCQ3.Endurance
+    other-modules:    NCQTestCommon NCQ3 NCQ3.Endurance Tee
 
     build-depends:
           base, hbs2-core, hbs2-log-structured, hbs2-storage-ncq

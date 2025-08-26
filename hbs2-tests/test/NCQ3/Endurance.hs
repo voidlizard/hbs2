@@ -9,29 +9,10 @@ import HBS2.OrDie
 import HBS2.Hash
 import HBS2.Data.Types.Refs
 import HBS2.Misc.PrettyStuff
-import HBS2.Clock
-import HBS2.Merkle
-import HBS2.Polling
-import HBS2.Peer.Proto.AnyRef
 
 import HBS2.Storage
-import HBS2.Storage.Simple
-import HBS2.Storage.Operations.ByteString
 import HBS2.Storage.NCQ3
 import HBS2.Storage.NCQ3.Internal.Prelude
-import HBS2.Storage.NCQ3.Internal.Files
-import HBS2.Storage.NCQ3.Internal.Index
-import HBS2.Storage.NCQ3.Internal.Fossil
-import HBS2.Storage.NCQ3.Internal.State
-import HBS2.Storage.NCQ3.Internal.Sweep
-import HBS2.Storage.NCQ3.Internal
-
-import HBS2.System.Logger.Simple.ANSI
-
-import HBS2.Data.Log.Structured.SD
-import HBS2.Data.Log.Structured.NCQ
-
-import HBS2.CLI.Run.Internal.Merkle
 
 import Data.Config.Suckless.Syntax
 import Data.Config.Suckless.Script as SC
@@ -39,39 +20,19 @@ import Data.Config.Suckless.System
 
 import NCQTestCommon
 
-import Data.Generics.Labels
 import Lens.Micro.Platform
-import Network.ByteOrder qualified as N
-import System.TimeIt
-import Data.Fixed
-import Data.HashSet qualified as HS
 import Data.Either
 import Data.HashPSQ qualified as HPSQ
 import Data.HashMap.Strict qualified as HM
-import Test.Tasty.HUnit
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Ord
-import Data.Set qualified as Set
 import System.Random.MWC as MWC
-import Control.Concurrent.STM qualified as STM
-import Data.List qualified as List
 import Control.Monad.Trans.Cont
-import Control.Monad.Except
-import System.IO.Temp qualified as Temp
 import System.Environment (getExecutablePath)
 import System.Process.Typed as PT
 import System.IO qualified as IO
-import System.IO.Error
-import System.Posix.IO qualified as Posix
-import GHC.IO.Handle qualified as GHC
-import System.Random.Stateful
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import UnliftIO
-import UnliftIO.IO.File
-import UnliftIO.IO as IO
-import UnliftIO.Directory
 
 import Streaming.Prelude qualified as S
 
@@ -136,6 +97,9 @@ getRandomFromPSQ g tvar = do
       let e = fmap (view _1) . headMay $ drop dropn $ HPSQ.toList psq
       pure e
 
+
+toConsole :: MonadIO m => Handle -> Doc AnsiStyle -> m ()
+toConsole ss doc = liftIO $ hPutDoc ss (doc <> line)
 
 -- | Deleted = Left (), Alive = Right size
 type BlockState = Either () Integer
@@ -464,74 +428,74 @@ ncq3EnduranceTest = do
 
             EndurancePutBlk -> do
               bsize <- liftIO $ uniformRM (1, wMaxBlk) g
-              liftIO $ IO.hPrint inp ("write-random-block" <+> viaShow bsize)
+              toConsole inp ("write-random-block" <+> viaShow bsize)
               atomically $ modifyTVar rest pred
               getNextState >>= loop
 
             EnduranceDelBlk -> do
               blk <- getRandomBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("del-block" <+> pretty h)
+                toConsole inp ("del-block" <+> pretty h)
 
               getNextState >>= loop
 
             EnduranceHasBlk -> do
               blk <- getRandomBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("has-block" <+> pretty h)
+                toConsole inp ("has-block" <+> pretty h)
 
               getNextState >>= loop
 
             EnduranceHasSeedBlk -> do
               blk <- getRandomSeedBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("has-seed-block" <+> pretty h)
+                toConsole inp ("has-seed-block" <+> pretty h)
 
               getNextState >>= loop
 
             EnduranceGetBlk -> do
               blk <- getRandomBlock
               for_ blk $ \h -> do
-                liftIO $ IO.hPrint inp ("get-block" <+> pretty h)
+                toConsole inp ("get-block" <+> pretty h)
               getNextState >>= loop
 
             EndurancePutRef -> do
               href <- liftIO (genRandomBS g 32) <&> HashRef . coerce
               blk  <- getRandomBlock
               for_ blk $ \val -> do
-                liftIO $ IO.hPrint inp ("set-ref" <+> pretty href <+> pretty val)
+                toConsole inp ("set-ref" <+> pretty href <+> pretty val)
               atomically $ modifyTVar rest pred
               getNextState >>= loop
 
             EnduranceGetRef -> do
               e <- getRandomRef
               for_ e $ \h ->
-                liftIO $ IO.hPrint inp ("get-ref" <+> pretty h)
+                toConsole inp ("get-ref" <+> pretty h)
               getNextState >>= loop
 
             EnduranceDelRef -> do
               e <- getRandomRef
               for_ e $ \h ->
-                liftIO $ IO.hPrint inp ("del-ref" <+> pretty h)
+                toConsole inp ("del-ref" <+> pretty h)
               getNextState >>= loop
 
             EnduranceMerge -> do
-              liftIO $ IO.hPrint inp "merge"
+              toConsole inp "merge"
               atomically $ modifyTVar merged succ
               getNextState >>= loop
 
             EnduranceCompact -> do
-              liftIO $ IO.hPrint inp "compact"
+              toConsole inp "compact"
               atomically $ modifyTVar compacted succ
               getNextState >>= loop
 
             EnduranceSweep -> do
-              liftIO $ IO.hPrint inp "sweep"
+              toConsole inp "sweep"
               atomically $ modifyTVar sweeped succ
               getNextState >>= loop
 
             EnduranceExit -> do
-              liftIO $ IO.hPrint inp "exit"
+              toConsole inp "exit"
               debug $ yellow "inner process stopped?"
               liftIO $ race (pause @'Seconds 1) (waitExitCode p) >>= \case
                 Right{} -> none
@@ -619,7 +583,7 @@ testEnduranceInner path = flip runContT pure $ callCC \exit -> do
      lift (try @_ @SomeException (run @c (dict g sto) s')) >>= \case
         Left e -> err (viaShow e)
         Right (StringLike "done") -> do
-          liftIO $ IO.hPutStrLn stderr $ "INNER PROCESS TO EXIT"
+          toConsole stderr $ "INNER PROCESS TO EXIT"
           exit ()
 
         Right _ -> none
