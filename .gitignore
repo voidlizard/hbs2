@@ -1,16 +1,6 @@
-dist-newstyle
-.direnv/
-.fixme/state.db
-result
-# VS Code
-settings.json
-
-cabal.project.local
-
-*.key
-
-.backup/
-.hbs2-git/
+.fixme-new/refchan.local
+dist-newstyle/
 bin/
-.fixme-new/current-stage.log
-.hbs2-sync/
+.direnv/
+.hbs2-git3/
+

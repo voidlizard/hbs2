@@ -19,6 +19,7 @@ import Data.Config.Suckless.Script as SC
 import Data.Config.Suckless.System
 
 import NCQTestCommon
+import Tee
 
 import Lens.Micro.Platform
 import Data.Either
@@ -341,222 +342,224 @@ ncq3EnduranceTest = do
                            , "test:ncq3:endurance:inner", testEnvDir
                            ] & setStdin createPipe & setStdout createPipe
 
-      ncqWithStorage testEnvDir $ \sto -> do
-        replicateM_ wSeed do
-          n <- liftIO $ uniformRM (1, wMaxBlk) g
-          bs <- liftIO $ LBS.fromStrict <$> genRandomBS g n
-          putBlock (AnyStorage sto) bs >>= \case
-            Just h -> atomically $ modifyTVar seed (HPSQ.insert (HashRef h) 1.0 ())
-            Nothing -> err $ red "can't write seed block"
+      withTeeLogging ( testEnvDir </> "test.log") do
 
-      ncqWithStorage testEnvDir $ \sto -> do
-        seeds <- readTVarIO seed <&> HPSQ.toList
-        for_ seeds $ \(h,_,_) -> do
-          here <- hasBlock (AnyStorage sto) (coerce h)
-          unless (isJust here) do
-            err $ "missed seed block (1)" <+> pretty h
+        ncqWithStorage testEnvDir $ \sto -> do
+          replicateM_ wSeed do
+            n <- liftIO $ uniformRM (1, wMaxBlk) g
+            bs <- liftIO $ LBS.fromStrict <$> genRandomBS g n
+            putBlock (AnyStorage sto) bs >>= \case
+              Just h -> atomically $ modifyTVar seed (HPSQ.insert (HashRef h) 1.0 ())
+              Nothing -> err $ red "can't write seed block"
 
-      let handler e = err (viaShow e) >> debug "RECOVERING" >> pause @'Seconds 3
-      fix \recover -> handleAny (\e -> handler e >> recover) do
+        ncqWithStorage testEnvDir $ \sto -> do
+          seeds <- readTVarIO seed <&> HPSQ.toList
+          for_ seeds $ \(h,_,_) -> do
+            here <- hasBlock (AnyStorage sto) (coerce h)
+            unless (isJust here) do
+              err $ "missed seed block (1)" <+> pretty h
 
-        flip runContT pure do
-          p <- startProcess conf -- ContT $ withProcessWait conf
-          storms <- newTQueueIO
-          let inp  = getStdin p
-          let logFile = testEnvDir </> "op.log"
+        let handler e = err (viaShow e) >> debug "RECOVERING" >> pause @'Seconds 3
+        fix \recover -> handleAny (\e -> handler e >> recover) do
 
-          pread <- ContT $ withAsync $ flip runContT pure $ callCC \stop -> do
-            let outp = getStdout p
-            fix \loop -> do
-              s <- liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
-                     Left  e -> err (red "pread:" <+> viaShow e) >> stop ()
-                     Right s -> pure s
+          flip runContT pure do
+            p <- startProcess conf -- ContT $ withProcessWait conf
+            storms <- newTQueueIO
+            let inp  = getStdin p
+            let logFile = testEnvDir </> "op.log"
 
-              liftIO do
-                appendFile logFile (s <> "\n")
-                void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
-                putStrLn s
-              loop
+            pread <- ContT $ withAsync $ flip runContT pure $ callCC \stop -> do
+              let outp = getStdout p
+              fix \loop -> do
+                s <- liftIO (try @_ @IOException (IO.hGetLine outp)) >>= \case
+                       Left  e -> err (red "pread:" <+> viaShow e) >> stop ()
+                       Right s -> pure s
 
-          ContT $ withAsync $ forever do
-            join $ atomically (readTQueue storms)
+                liftIO do
+                  appendFile logFile (s <> "\n")
+                  void $ try @_ @SomeException (parseTop s & either (err.viaShow) (void . run d))
+                  putStrLn s
+                loop
 
-          ContT $ withAsync $ forever do
-            rest <- readTVarIO rest
-            b    <- readTVarIO blocks <&> HPSQ.size
-            r    <- readTVarIO refs <&> HPSQ.size
-            k    <- readTVarIO killed
-            s    <- readTVarIO stopped
-            c    <- readTVarIO compacted
-            m    <- readTVarIO merged
-            sw   <- readTVarIO sweeped
+            ContT $ withAsync $ forever do
+              join $ atomically (readTQueue storms)
 
-            notice $ green "status"
-                       <+> "rest:" <+> pretty rest
-                       <+> "b:"  <+> pretty b
-                       <+> "r:"  <+> pretty r
-                       <+> "m:"  <+> pretty m
-                       <+> "sw:" <+> pretty sw
-                       <+> "c:"  <+> pretty c
-                       <+> "k:"  <+> pretty k
-                       <+> "s:"  <+> pretty s
+            ContT $ withAsync $ forever do
+              rest <- readTVarIO rest
+              b    <- readTVarIO blocks <&> HPSQ.size
+              r    <- readTVarIO refs <&> HPSQ.size
+              k    <- readTVarIO killed
+              s    <- readTVarIO stopped
+              c    <- readTVarIO compacted
+              m    <- readTVarIO merged
+              sw   <- readTVarIO sweeped
 
-            pause @'Seconds 1
+              notice $ green "status"
+                         <+> "rest:" <+> pretty rest
+                         <+> "b:"  <+> pretty b
+                         <+> "r:"  <+> pretty r
+                         <+> "m:"  <+> pretty m
+                         <+> "sw:" <+> pretty sw
+                         <+> "c:"  <+> pretty c
+                         <+> "k:"  <+> pretty k
+                         <+> "s:"  <+> pretty s
 
-          liftIO $ hSetBuffering inp  LineBuffering
+              pause @'Seconds 1
 
-          pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
-          info $ "spawned" <+> pretty inner <+> viaShow pid
+            liftIO $ hSetBuffering inp  LineBuffering
 
-          let getNextState = sampleState g dist
+            pid <- liftIO (PT.getPid p) `orDie` "oopsie!"
+            info $ "spawned" <+> pretty inner <+> viaShow pid
 
-          let defaultIdle = realToFrac wIdleDef :: Timeout 'Seconds
+            let getNextState = sampleState g dist
 
-          idleTime  <- newTVarIO defaultIdle
-          trelaxTill <- newTVarIO 0
+            let defaultIdle = realToFrac wIdleDef :: Timeout 'Seconds
 
-          flip fix EnduranceIdle \loop -> \case
-            EnduranceIdle -> do
-              readTVarIO idleTime >>= pause
+            idleTime  <- newTVarIO defaultIdle
+            trelaxTill <- newTVarIO 0
 
-              r <- readTVarIO rest
+            flip fix EnduranceIdle \loop -> \case
+              EnduranceIdle -> do
+                readTVarIO idleTime >>= pause
 
-              if r <= 0 then do
-                loop EnduranceStop
-              else do
+                r <- readTVarIO rest
+
+                if r <= 0 then do
+                  loop EnduranceStop
+                else do
+                  getNextState >>= loop
+
+              EndurancePutBlk -> do
+                bsize <- liftIO $ uniformRM (1, wMaxBlk) g
+                toConsole inp ("write-random-block" <+> viaShow bsize)
+                atomically $ modifyTVar rest pred
                 getNextState >>= loop
 
-            EndurancePutBlk -> do
-              bsize <- liftIO $ uniformRM (1, wMaxBlk) g
-              toConsole inp ("write-random-block" <+> viaShow bsize)
-              atomically $ modifyTVar rest pred
-              getNextState >>= loop
+              EnduranceDelBlk -> do
+                blk <- getRandomBlock
+                for_ blk $ \h -> do
+                  toConsole inp ("del-block" <+> pretty h)
 
-            EnduranceDelBlk -> do
-              blk <- getRandomBlock
-              for_ blk $ \h -> do
-                toConsole inp ("del-block" <+> pretty h)
+                getNextState >>= loop
 
-              getNextState >>= loop
+              EnduranceHasBlk -> do
+                blk <- getRandomBlock
+                for_ blk $ \h -> do
+                  toConsole inp ("has-block" <+> pretty h)
 
-            EnduranceHasBlk -> do
-              blk <- getRandomBlock
-              for_ blk $ \h -> do
-                toConsole inp ("has-block" <+> pretty h)
+                getNextState >>= loop
 
-              getNextState >>= loop
+              EnduranceHasSeedBlk -> do
+                blk <- getRandomSeedBlock
+                for_ blk $ \h -> do
+                  toConsole inp ("has-seed-block" <+> pretty h)
 
-            EnduranceHasSeedBlk -> do
-              blk <- getRandomSeedBlock
-              for_ blk $ \h -> do
-                toConsole inp ("has-seed-block" <+> pretty h)
+                getNextState >>= loop
 
-              getNextState >>= loop
+              EnduranceGetBlk -> do
+                blk <- getRandomBlock
+                for_ blk $ \h -> do
+                  toConsole inp ("get-block" <+> pretty h)
+                getNextState >>= loop
 
-            EnduranceGetBlk -> do
-              blk <- getRandomBlock
-              for_ blk $ \h -> do
-                toConsole inp ("get-block" <+> pretty h)
-              getNextState >>= loop
+              EndurancePutRef -> do
+                href <- liftIO (genRandomBS g 32) <&> HashRef . coerce
+                blk  <- getRandomBlock
+                for_ blk $ \val -> do
+                  toConsole inp ("set-ref" <+> pretty href <+> pretty val)
+                atomically $ modifyTVar rest pred
+                getNextState >>= loop
 
-            EndurancePutRef -> do
-              href <- liftIO (genRandomBS g 32) <&> HashRef . coerce
-              blk  <- getRandomBlock
-              for_ blk $ \val -> do
-                toConsole inp ("set-ref" <+> pretty href <+> pretty val)
-              atomically $ modifyTVar rest pred
-              getNextState >>= loop
+              EnduranceGetRef -> do
+                e <- getRandomRef
+                for_ e $ \h ->
+                  toConsole inp ("get-ref" <+> pretty h)
+                getNextState >>= loop
 
-            EnduranceGetRef -> do
-              e <- getRandomRef
-              for_ e $ \h ->
-                toConsole inp ("get-ref" <+> pretty h)
-              getNextState >>= loop
+              EnduranceDelRef -> do
+                e <- getRandomRef
+                for_ e $ \h ->
+                  toConsole inp ("del-ref" <+> pretty h)
+                getNextState >>= loop
 
-            EnduranceDelRef -> do
-              e <- getRandomRef
-              for_ e $ \h ->
-                toConsole inp ("del-ref" <+> pretty h)
-              getNextState >>= loop
+              EnduranceMerge -> do
+                toConsole inp "merge"
+                atomically $ modifyTVar merged succ
+                getNextState >>= loop
 
-            EnduranceMerge -> do
-              toConsole inp "merge"
-              atomically $ modifyTVar merged succ
-              getNextState >>= loop
+              EnduranceCompact -> do
+                toConsole inp "compact"
+                atomically $ modifyTVar compacted succ
+                getNextState >>= loop
 
-            EnduranceCompact -> do
-              toConsole inp "compact"
-              atomically $ modifyTVar compacted succ
-              getNextState >>= loop
+              EnduranceSweep -> do
+                toConsole inp "sweep"
+                atomically $ modifyTVar sweeped succ
+                getNextState >>= loop
 
-            EnduranceSweep -> do
-              toConsole inp "sweep"
-              atomically $ modifyTVar sweeped succ
-              getNextState >>= loop
+              EnduranceExit -> do
+                toConsole inp "exit"
+                debug $ yellow "inner process stopped?"
+                liftIO $ race (pause @'Seconds 30) (waitExitCode p) >>= \case
+                  Right{} -> none
+                  Left{}  -> do
+                    debug $ red "force inner process to stop"
+                    stopProcess p
+                atomically $ modifyTVar stopped succ
+                lift recover
 
-            EnduranceExit -> do
-              toConsole inp "exit"
-              debug $ yellow "inner process stopped?"
-              liftIO $ race (pause @'Seconds 1) (waitExitCode p) >>= \case
-                Right{} -> none
-                Left{}  -> do
-                  debug $ red "force inner process to stop"
-                  stopProcess p
-              atomically $ modifyTVar stopped succ
-              lift recover
+              EnduranceKill -> do
+                debug $ red "KILL" <+> viaShow pid
+                cancel pread
+                hFlush inp
+                liftIO $ appendFile logFile "; killed"
+                pause @'Seconds 0.25
+                void $ runProcess (proc "kill" ["-9", show pid])
+                notice $ red "Killed" <+> viaShow pid
+                atomically $ modifyTVar killed succ
+                pause @'Seconds 0.5
+                lift recover
 
-            EnduranceKill -> do
-              debug $ red "KILL" <+> viaShow pid
-              cancel pread
-              hFlush inp
-              liftIO $ appendFile logFile "; killed"
-              pause @'Seconds 0.25
-              void $ runProcess (proc "kill" ["-9", show pid])
-              notice $ red "Killed" <+> viaShow pid
-              atomically $ modifyTVar killed succ
-              pause @'Seconds 0.5
-              lift recover
+              EnduranceStop -> do
+                liftIO $ hClose inp
+                wait pread
+                stopProcess p
+                notice $ green "done"
+                notice $ "validate" <+> pretty logFile
+                liftIO $ validateTestResult logFile
 
-            EnduranceStop -> do
-              liftIO $ hClose inp
-              wait pread
-              stopProcess p
-              notice $ green "done"
-              notice $ "validate" <+> pretty logFile
-              liftIO $ validateTestResult logFile
+              EnduranceCalm -> do
+                n <- liftIO $ uniformRM (0.5,10.00) g
+                debug $ "CALM" <+> pretty n
+                pause @'Seconds (realToFrac n)
+                getNextState >>= loop
 
-            EnduranceCalm -> do
-              n <- liftIO $ uniformRM (0.5,10.00) g
-              debug $ "CALM" <+> pretty n
-              pause @'Seconds (realToFrac n)
-              getNextState >>= loop
+              EnduranceStorm -> do
 
-            EnduranceStorm -> do
+                now <- getTimeCoarse
+                relaxTill <- readTVarIO trelaxTill
 
-              now <- getTimeCoarse
-              relaxTill <- readTVarIO trelaxTill
+                itn <- readTVarIO idleTime
 
-              itn <- readTVarIO idleTime
+                if | itn < defaultIdle -> do
+                       loop EnduranceIdle
 
-              if | itn < defaultIdle -> do
-                     loop EnduranceIdle
+                   | now < relaxTill -> do
+                      debug $ yellow "storm on cooldown"
+                      loop EnduranceIdle
 
-                 | now < relaxTill -> do
-                    debug $ yellow "storm on cooldown"
-                    loop EnduranceIdle
+                   | otherwise -> do
+                      t0 <- liftIO $ uniformRM (wStormMin,wStormMax) g
+                      debug $ red "FIRE IN DA HOLE!" <+> pretty t0
+                      atomically $ writeTQueue storms do
+                        atomically $ writeTVar idleTime 0
+                        pause @'Seconds (realToFrac t0)
+                        atomically $ writeTVar idleTime defaultIdle
+                        t1 <- getTimeCoarse
+                        -- add 10 sec cooldown
+                        atomically $ writeTVar trelaxTill (t1 + ceiling 10e9)
 
-                 | otherwise -> do
-                    t0 <- liftIO $ uniformRM (wStormMin,wStormMax) g
-                    debug $ red "FIRE IN DA HOLE!" <+> pretty t0
-                    atomically $ writeTQueue storms do
-                      atomically $ writeTVar idleTime 0
-                      pause @'Seconds (realToFrac t0)
-                      atomically $ writeTVar idleTime defaultIdle
-                      t1 <- getTimeCoarse
-                      -- add 10 sec cooldown
-                      atomically $ writeTVar trelaxTill (t1 + ceiling 10e9)
-
-                    getNextState >>= loop
+                      getNextState >>= loop
 
 testEnduranceInner :: forall c m . (MonadUnliftIO m, IsContext c, Exception (BadFormException c))
                    => FilePath

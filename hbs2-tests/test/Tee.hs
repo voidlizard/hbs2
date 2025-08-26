@@ -82,7 +82,7 @@ stripANSI = go
       case BS.uncons s of
         Nothing       -> BS.empty
         Just (c1, r1)
-          | c1 == lbr -> go (BS.drop1 $ dropCSI r1)    -- ESC [
+          | c1 == lbr -> go (BS.drop 1 $ dropCSI r1)    -- ESC [
           | c1 == rbr -> go (dropOSC r1)    -- ESC ]
           | otherwise -> go r1              -- Прочие короткие ESC-послед.
 
