@@ -162,7 +162,7 @@ groupKeyEntries = do
 
         gk <- loadGroupKey gkh >>= orThrowUser "can't load groupkey"
 
-        what <- runKeymanClient $ findMatchedGroupKeySecret sto gk
+        what <- runKeymanClientRO $ findMatchedGroupKeySecret sto gk
                    >>= orThrowUser "groupkey secret not found"
 
         let gid = generateGroupKeyId GroupKeyIdBasic1 what

@@ -72,7 +72,7 @@ pRefChanHeadGen = do
   rchan <- argument pRefChanId (metavar "REFCHAN-KEY")
   pure $ do
 
-    creds <- runKeymanClient $ loadCredentials rchan
+    creds <- runKeymanClientRO $ loadCredentials rchan
                >>= orThrowUser "can't load credentials"
 
     s <- maybe1 fn getContents readFile

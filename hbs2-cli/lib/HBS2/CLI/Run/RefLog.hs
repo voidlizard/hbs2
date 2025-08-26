@@ -43,7 +43,7 @@ import Streaming.Prelude qualified as S
 
 getCredentialsForReflog :: MonadUnliftIO m => RefLogKey 'HBS2Basic -> m (PeerCredentials 'HBS2Basic)
 getCredentialsForReflog reflog = do
-  runKeymanClient (loadCredentials reflog)
+  runKeymanClientRO (loadCredentials reflog)
      >>= orThrowUser "credentials not found"
 
 mkRefLogUpdateFrom :: (MonadUnliftIO m) => RefLogKey 'HBS2Basic -> m ByteString ->  m (RefLogUpdate L4Proto)

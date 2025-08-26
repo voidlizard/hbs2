@@ -9,6 +9,7 @@ import HBS2.Storage
 import HBS2.Data.Types.Refs
 import HBS2.Net.Auth.Credentials
 import HBS2.Net.Auth.GroupKeySymm as Symm
+import HBS2.Net.Auth.Schema()
 
 
 import HBS2.System.Dir
@@ -114,12 +115,16 @@ loadCredentials k = KeyManClient do
 loadKeyRingEntry :: forall m .
                     ( MonadIO m
                     , SerialisedCredentials 'HBS2Basic
+                    , IsRefPubKey 'HBS2Basic
                     )
                  => PubKey 'Encrypt 'HBS2Basic
                  -> KeyManClient m (Maybe (KeyringEntry 'HBS2Basic))
 loadKeyRingEntry pk = KeyManClient do
   runMaybeT do
-    fn <- toMPlus =<< lift (selectKeyFile pk)
+    fn' <- lift (selectKeyFile pk)
+    -- when (isNothing fn') do
+    --   error $ "keyman: key file not found"
+    fn <- toMPlus fn'
     bs <- liftIO (try @_ @IOException $ BS.readFile fn) >>= toMPlus
     creds <- toMPlus $ parseCredentials (AsCredFile bs)
     toMPlus $ headMay [ e

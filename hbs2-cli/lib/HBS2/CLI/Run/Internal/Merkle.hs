@@ -27,6 +27,7 @@ import Data.Text qualified as Text
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Cont
 import Control.Monad.Except
+import Data.Maybe
 
 
 --FIXME: move-somewhere-else
@@ -83,7 +84,7 @@ createTreeWithMetadata sto mgk meta lbs = do -- flip runContT pure do
     -- FIXME: support-encryption
     createEncryptedTree gk mt = do
       -- 1. find key
-      mgks <- runKeymanClient do
+      mgks <- runKeymanClientRO do
                 extractGroupKeySecret gk
 
       gks <- orThrowUser "can't get groupkey's secret" mgks

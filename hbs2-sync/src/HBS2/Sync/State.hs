@@ -376,7 +376,6 @@ getStateFromRefChan rchan = do
             AnnotatedHashRef w href <- deserialiseOrFail @AnnotatedHashRef (LBS.fromStrict bs)
                                         & toMPlus . either (const Nothing) Just
 
-
             runExceptT (extractMetaData @'HBS2Basic findKey sto href)
              >>= either (const none) ( \meta -> atomically $ writeTQueue outq (orig, ((href, meta), txh)) )
 

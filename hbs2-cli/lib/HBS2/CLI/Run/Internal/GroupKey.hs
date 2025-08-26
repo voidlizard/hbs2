@@ -44,7 +44,7 @@ encryptBlock sto gk x = do
 
   let HbSyncHash non = hashObject (serialise x)
 
-  gks <- runKeymanClient (extractGroupKeySecret gk)
+  gks <- runKeymanClientRO (extractGroupKeySecret gk)
            >>= orThrowUser "can't extract group key secret"
 
   Symm.encryptBlock sto gks (Right gk) (Just non) x
