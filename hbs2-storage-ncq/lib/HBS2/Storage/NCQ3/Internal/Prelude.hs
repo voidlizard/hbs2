@@ -4,12 +4,14 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , megabytes
   , gigabytes
   , ncqMakeSectionBS
+  , ncqMakeAuditSectionBS
   , ncqSLen
   , ncqKeyLen
   , ncqPrefixLen
   , ncqRefPrefix
   , ncqBlockPrefix
   , ncqMetaPrefix
+  , ncqTombPrefix
   , ncqIsMeta
   , ncqFullDataLen
   , ncqEntryPayloadSize
@@ -18,6 +20,7 @@ module HBS2.Storage.NCQ3.Internal.Prelude
   , IndexFile(..)
   , DataFile(..)
   , StateFile(..)
+  , AuditFile(..)
   , FilePrio(..)
   , NCQStorageException(..)
   , NCQFsckException(..)

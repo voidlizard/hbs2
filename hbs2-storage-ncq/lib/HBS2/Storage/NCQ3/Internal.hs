@@ -1,4 +1,5 @@
 {-# Language RecordWildCards #-}
+{-# Language ViewPatterns #-}
 {-# Language MultiWayIf #-}
 module HBS2.Storage.NCQ3.Internal where
 
@@ -12,6 +13,8 @@ import HBS2.Storage.NCQ3.Internal.Fossil
 import HBS2.Storage.NCQ3.Internal.Index
 import HBS2.Storage.NCQ3.Internal.MMapCache
 
+import Data.Config.Suckless.Script
+
 import Control.Monad.Trans.Cont
 import Data.HashPSQ qualified as HPSQ
 import Data.Vector qualified as V
@@ -24,11 +27,14 @@ import Data.ByteString.Lazy qualified as LBS
 import System.Posix.Files qualified as PFS
 import Control.Concurrent.STM.TSem
 import System.FileLock as FL
+import Lens.Micro.Platform
 
 ncqStorageOpen :: MonadIO m => FilePath -> (NCQStorage -> NCQStorage) -> m NCQStorage
 ncqStorageOpen fp upd = do
+
   let ncqRoot            = fp
   let ncqGen             = 0
+  let ncqAuditEnabled    = False
   -- let ncqFsync          = 16 * megabytes
   let ncqFsync           = 16   * megabytes
   let ncqWriteQLen       = 1024 * 4
@@ -54,6 +60,7 @@ ncqStorageOpen fp upd = do
   let !ncqReadThreads = wopNum * 4
 
   ncqWriteQ         <- newTVarIO mempty
+  ncqAuditQ         <- newTQueueIO
   ncqMemTable       <- V.fromList <$> replicateM shardNum (newTVarIO mempty)
   ncqMMapCachedIdx  <- newTVarIO HPSQ.empty
   ncqMMapCachedData <- newTVarIO HPSQ.empty
@@ -80,7 +87,28 @@ ncqStorageOpen fp upd = do
   ncqCurrentFossils <- newTVarIO mempty
   ncqReplQueue      <- newTVarIO mempty
 
-  let ncq = NCQStorage{..} & upd
+  let ncq0 = NCQStorage{..} -- & upd
+
+  let confFile = fp </> "config"
+
+  touch confFile
+
+  conf <- liftIO (try @_ @SomeException (readFile confFile)) >>= \case
+            Left  e -> warn (viaShow e) >> pure mempty
+            Right s -> either (\e -> warn (viaShow e) >> pure mempty) pure (parseTop s)
+
+  let auditFlag = \case
+        ListVal [ SymbolVal "audit", StringLike "off" ] -> Just False
+        ListVal [ SymbolVal "audit", StringLike "on" ]  -> Just True
+        ListVal [ SymbolVal "audit", LitBoolVal f ]     -> Just f
+        _ -> Nothing
+
+  let audit = lastDef ncqAuditEnabled [ f | (auditFlag -> Just f) <- conf ]
+  let auditSet = set #ncqAuditEnabled audit
+
+  let applySettings x = foldl (flip ($)) x [auditSet]
+
+  let ncq = ncq0 & applySettings & upd
 
   mkdir (ncqGetWorkDir ncq)
 
@@ -201,6 +229,8 @@ ncqPutBS0 wait ncq@NCQStorage{..} mtp mhref bs' = ncqOperation ncq (pure $ fromM
 
           when upd  do
             modifyTVar ncqWriteQ (|> h)
+            when ncqAuditEnabled do
+              for_ (ncqMakeAuditSectionBS h bs' =<< mtp) $ \x -> writeTQueue ncqAuditQ x
 
           putTMVar waiter h
 

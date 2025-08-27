@@ -1,4 +1,5 @@
 {-# Language ViewPatterns #-}
+{-# Language MultiWayIf #-}
 module HBS2.Storage.NCQ3.Internal.CLI where
 
 import HBS2.Storage.NCQ3.Internal.Prelude
@@ -15,6 +16,7 @@ import HBS2.Net.Auth.Credentials
 
 import Data.Config.Suckless.Script
 
+import Control.Monad.Trans.Cont
 import Network.ByteOrder qualified as N
 import Data.Fixed
 import Data.Text.Encoding qualified as TE
@@ -24,6 +26,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
+import System.IO qualified as IO
 import Data.HashMap.Strict (HashMap)
 import System.Environment
 import UnliftIO
@@ -303,7 +306,7 @@ entries instances = do
         Just (bs,nw) -> do
           mval <- nwayHashLookup nw bs (coerce h)
           case mval of
-            Nothing -> debug "fucking nothing!" >> pure ()
+            Nothing -> pure ()
             Just entryBs -> do
               let IndexEntry fk off sz = unpackIndexEntry entryBs
               print $
@@ -474,6 +477,66 @@ entries instances = do
 
       e -> throwIO $ BadFormException (mkList e)
 
+
+  entry $ bindMatch "ncq3:audit:scan" $ nil_ \case
+    [ StringLike path ] -> flip runContT pure $ callCC \exit -> do
+      sto <- ncqStorageOpen path id
+      let fn = ncqGetFileName sto AuditFile
+      here <- doesFileExist fn
+
+      liftIO $ print $ "WYF?" <+> pretty fn
+
+      let readField n bs = if BS.length bs < n then Left bs else Right (BS.take n bs, BS.drop n bs)
+
+      unless here do
+        err $ pretty (toFileName AuditFile) <+> "not found"
+        exit ()
+
+      mmaped <- liftIO $ mmapFileByteString fn Nothing
+
+      void $ flip runContT pure $ callCC \stop -> do
+        flip fix mmaped $ \next bs ->  do
+
+          (s, rest) <- case readField 4 bs of
+                         Left  r -> stop (Left r)
+                         Right s -> pure s
+
+          (k, rest1) <- case readField ncqKeyLen rest of
+                         Left  r -> stop (Left r)
+                         Right s -> pure s
+
+          (p, rest2) <- case readField ncqPrefixLen rest1 of
+                         Left  r -> stop (Left r)
+                         Right s -> pure s
+
+          let t = if | p == ncqBlockPrefix -> Just B
+                     | p == ncqRefPrefix   -> Just R
+                     | p == ncqTombPrefix  -> Just T
+                     | otherwise           -> Nothing
+
+          case t of
+            Just B -> do
+              liftIO $ IO.hPrint stdout ("B" <+> pretty (coerce @_ @HashRef k))
+              next rest2
+
+            Just T -> do
+              liftIO $ IO.hPrint stdout ("T" <+> pretty (coerce @_ @HashRef k))
+              next rest2
+
+            Just R -> do
+
+              (v, rest3) <- case readField ncqKeyLen rest2 of
+                             Left  r -> stop (Left r)
+                             Right s -> pure s
+
+              liftIO $ IO.hPrint stdout ("R" <+> pretty (coerce @_ @HashRef k) <+> pretty (coerce @_ @HashRef v))
+              next rest3
+
+            _ -> do
+              liftIO $ IO.hPrint stdout ("E" <+> "audit file damaged or incomplete")
+              pure $ Left rest2
+
+    e -> throwIO $ BadFormException (mkList e)
 
 
 printDataEntry :: MonadUnliftIO m => NCQOffset -> NCQSize -> HashRef -> ByteString -> m ()

@@ -61,6 +61,9 @@ newtype IndexFile a = IndexFile a
 newtype StateFile a = StateFile a
                       deriving newtype (IsString,Eq,Ord,Pretty)
 
+data AuditFile  = AuditFile
+                 deriving stock (Eq,Ord)
+
 class ToFileName a where
   toFileName :: a -> FilePath
 
@@ -84,6 +87,9 @@ instance ToFileName (IndexFile FilePath) where
 
 instance ToFileName (StateFile FileKey) where
   toFileName (StateFile fk) = toFileName fk
+
+instance ToFileName AuditFile where
+  toFileName = const "audit.log"
 
 newtype FilePrio = FilePrio (Down TimeSpec)
                     deriving newtype (Eq,Ord)
@@ -196,6 +202,24 @@ ncqMakeSectionBS t h bs = do
 
 {-# INLINE ncqMakeSectionBS #-}
 
+
+ncqMakeAuditSectionBS :: HashRef
+                      -> ByteString
+                      -> NCQSectionType
+                      -> Maybe ByteString
+ncqMakeAuditSectionBS h bs = \case
+    B -> Just $ section ncqBlockPrefix h ""
+    T -> Just $ section ncqTombPrefix  h ""
+    R -> Just $ section ncqRefPrefix   h (BS.take 32 bs)
+    _ -> Nothing
+  where
+    section pref hash pl = do
+      let slen = ncqKeyLen + fromIntegral (BS.length pref) + fromIntegral (BS.length bs)
+      let ss = N.bytestring32 slen
+      ss <> coerce h <> pref <> pl
+    {-# INLINE section #-}
+
+{-# INLINE ncqMakeAuditSectionBS #-}
 
 data NCQFsckException =
   NCQFsckException | NCQFsckIssueExt NCQFsckIssueType

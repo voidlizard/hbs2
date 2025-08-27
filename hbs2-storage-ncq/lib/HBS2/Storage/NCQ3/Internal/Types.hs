@@ -85,6 +85,7 @@ data NCQState =
 data NCQStorage =
   NCQStorage
   { ncqRoot            :: FilePath
+  , ncqAuditEnabled    :: Bool
   , ncqGen             :: Int
   , ncqSalt            :: HashRef
   , ncqPostponeService :: Timeout 'Seconds
@@ -112,6 +113,7 @@ data NCQStorage =
   , ncqWrites          :: TVar Int
   , ncqWriteEMA        :: TVar Double  -- for writes-per-seconds
   , ncqWriteQ          :: TVar (Seq HashRef)
+  , ncqAuditQ          :: TQueue ByteString
   , ncqWriteOps        :: Vector (TQueue (IO ()))
   , ncqSyncOps         :: TQueue (IO ())
   , ncqReadReq         :: TQueue (HashRef, TMVar (Maybe Location))

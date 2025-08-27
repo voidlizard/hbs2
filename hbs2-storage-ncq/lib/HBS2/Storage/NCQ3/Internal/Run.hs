@@ -32,6 +32,8 @@ import System.Posix.IO.ByteString as Posix
 import System.Posix.Types as Posix
 import System.Posix.Unistd
 
+import Data.ByteString qualified as BS
+
 {- HLINT ignore "Eta reduce" -}
 
 ncqStorageStop :: forall m . MonadUnliftIO m => NCQStorage -> m ()
@@ -109,7 +111,11 @@ ncqTryLoadState me@NCQStorage{..} = do
 
             let best = if i < 1 then max s o else s
 
-            warn $ red "trim" <+> pretty s <+> pretty best  <+> red (pretty (fromIntegral best - realSize)) <+> pretty (takeFileName path)
+            warn $ red "trim"
+                <+> pretty s
+                <+> pretty best
+                <+> red (pretty (fromIntegral best - realSize))
+                <+> pretty (takeFileName path)
 
             liftIO $ PFS.setFileSize path (fromIntegral best)
 
@@ -234,6 +240,30 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
   spawnActivity measureWPS
 
   spawnActivity (ncqStateUpdateLoop ncq)
+
+  spawnActivity $ flip runContT pure $ callCC \exit -> do
+
+    unless ncqAuditEnabled $ exit ()
+
+    let auditName = ncqGetFileName ncq AuditFile
+    touch auditName
+    let flags = defaultFileFlags { exclusive = False, append = True }
+    fd <- liftIO (PosixBase.openFd auditName  Posix.WriteOnly flags)
+
+    void $ ContT $ bracket (pure fd) $ \h -> liftIO do
+      bss <- atomically $ STM.flushTQueue ncqAuditQ
+      void $ Posix.fdWrite h (mconcat bss)
+      closeFd h
+
+    forever do
+      flip fix mempty $ \next bss -> do
+        -- if BS.length bss >= 4096 then do
+        if True then do
+            liftIO (Posix.fdWrite fd bss >> fileSynchronisePortable fd)
+            next mempty
+        else do
+         s <- atomically (readTQueue ncqAuditQ)
+         next (bss <> s)
 
   spawnActivity $ forever do
     pause @'Seconds 30
@@ -406,7 +436,7 @@ ncqStorageRun ncq@NCQStorage{..} = withSem ncqRunSem $ flip runContT pure do
       let fname = ncqGetFileName ncq (DataFile fk)
       -- touch fname
       let flags = defaultFileFlags { exclusive = False, creat = Just 0o666 }
-      (fk,) <$> liftIO (PosixBase.openFd fname  Posix.ReadWrite flags)
+      (fk,) <$> liftIO (PosixBase.openFd fname  Posix.WriteOnly flags)
 
     spawnActivity m = do
       a <- ContT $ withAsync m
